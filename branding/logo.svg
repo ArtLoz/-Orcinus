@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="18 18 72 72">
+  <!-- The app icon with rounded corners, for the README and other pages.
+       Same shapes as branding/icon.svg. -->
+  <defs>
+    <clipPath id="corners">
+      <rect x="18" y="18" width="72" height="72" rx="16"/>
+    </clipPath>
+    <clipPath id="layers">
+      <rect x="0" y="66" width="108" height="6"/>
+      <rect x="0" y="58" width="108" height="6"/>
+      <rect x="0" y="50" width="108" height="6"/>
+      <rect x="0" y="42" width="108" height="6"/>
+      <rect x="0" y="34" width="108" height="6"/>
+      <rect x="0" y="26" width="108" height="6"/>
+      <rect x="0" y="18" width="108" height="6"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#corners)">
+    <rect x="0" y="0" width="108" height="108" fill="#1F2427"/>
+    <path d="M30,72 C42,62 52,44 70,26 C64,44 64,60 76,72 Z" fill="#FFFFFF" clip-path="url(#layers)"/>
+    <path d="M30,75 h48 a2,2 0 0 1 0,4 h-48 a2,2 0 0 1 0,-4 z" fill="#26A69A"/>
+  </g>
+</svg>
