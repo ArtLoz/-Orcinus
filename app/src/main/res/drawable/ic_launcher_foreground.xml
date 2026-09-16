@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An orca's dorsal fin printed layer by layer on a build plate. Source: branding/icon.svg. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group>
+        <clip-path android:pathData="M0,66h108v6h-108z M0,58h108v6h-108z M0,50h108v6h-108z M0,42h108v6h-108z M0,34h108v6h-108z M0,26h108v6h-108z M0,18h108v6h-108z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M30,72 C42,62 52,44 70,26 C64,44 64,60 76,72 Z" />
+    </group>
+    <path
+        android:fillColor="#FF26A69A"
+        android:pathData="M30,75 h48 a2,2 0 0 1 0,4 h-48 a2,2 0 0 1 0,-4 z" />
+</vector>

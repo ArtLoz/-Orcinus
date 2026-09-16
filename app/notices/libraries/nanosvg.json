@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:nanosvg",
+  "name": "NanoSVG",
+  "description": "",
+  "website": "https://github.com/memononen/nanosvg",
+  "developers": [],
+  "licenses": [
+    "nanosvg"
+  ]
+}

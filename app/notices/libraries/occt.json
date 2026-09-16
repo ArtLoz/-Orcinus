@@ -1,0 +1,12 @@
+{
+  "uniqueId": "native:occt",
+  "name": "Open CASCADE Technology",
+  "description": "Orcinus makes use of facilities provided by the Open CASCADE Technology software.",
+  "website": "https://dev.opencascade.org",
+  "developers": [],
+  "licenses": [
+    "LGPL-2.1",
+    "occt-exception"
+  ],
+  "artifactVersion": "7.6.0"
+}

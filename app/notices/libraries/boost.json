@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:boost",
+  "name": "Boost",
+  "description": "",
+  "website": "https://www.boost.org",
+  "developers": [],
+  "licenses": [
+    "BSL-1.0"
+  ],
+  "artifactVersion": "1.84.0"
+}

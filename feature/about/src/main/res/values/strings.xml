@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">О программе</string>
+    <string name="back">Назад</string>
+
+    <string name="app_version">Версия %1$s</string>
+    <string name="app_engine">Ядро OrcaSlicer %1$s</string>
+    <string name="app_summary">Слайсер для 3D-печати на Android. Нарезает модели ядром OrcaSlicer с его профилями принтеров и материалов.</string>
+    <string name="app_copyright">© 2026 Участники проекта Orcinus</string>
+
+    <string name="section_license">Лицензия</string>
+    <string name="license_notice">Orcinus — свободная программа: её можно распространять и изменять на условиях GNU Affero General Public License версии 3, опубликованной Free Software Foundation.\n\nПрограмма распространяется в надежде, что она будет полезной, но БЕЗ КАКИХ-ЛИБО ГАРАНТИЙ, в том числе без подразумеваемых гарантий ТОВАРНОЙ ПРИГОДНОСТИ и ПРИГОДНОСТИ ДЛЯ ОПРЕДЕЛЁННОЙ ЦЕЛИ. Подробнее — в тексте лицензии.</string>
+    <string name="license_text">Текст лицензии GNU AGPL v3</string>
+    <string name="source_code">Исходный код</string>
+
+    <string name="section_credits">Благодарности</string>
+    <string name="credits">Orcinus использует ядро OrcaSlicer. OrcaSlicer основан на Bambu Studio от Bambu Lab, Bambu Studio — на PrusaSlicer от Prusa Research, а PrusaSlicer — на Slic3r Алессандро Ранеллуччи и сообщества RepRap.</string>
+    <string name="third_party_title">Сторонние компоненты</string>
+    <string name="third_party_summary">Библиотеки, ядро и шрифт, из которых собрано приложение, и их лицензии</string>
+    <string name="disclaimer">Orcinus — независимый проект. Он не связан с разработчиками OrcaSlicer, Bambu Studio и PrusaSlicer и не одобрен ими. Названия этих программ принадлежат их владельцам.</string>
+
+    <string name="loading">Загрузка…</string>
+    <string name="notice_missing">Сведения не найдены</string>
+    <string name="component_version">Версия %1$s</string>
+    <string name="license_link_only">Полный текст лицензии: %1$s</string>
+</resources>

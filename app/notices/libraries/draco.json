@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:draco",
+  "name": "Draco",
+  "description": "",
+  "website": "https://google.github.io/draco/",
+  "developers": [],
+  "licenses": [
+    "Apache-2.0"
+  ],
+  "artifactVersion": "1.5.7"
+}

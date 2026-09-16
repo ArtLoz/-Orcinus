@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:cgal",
+  "name": "CGAL",
+  "description": "",
+  "website": "https://www.cgal.org",
+  "developers": [],
+  "licenses": [
+    "cgal",
+    "GPL-3.0",
+    "LGPL-3.0",
+    "BSL-1.0"
+  ],
+  "artifactVersion": "5.6.3"
+}

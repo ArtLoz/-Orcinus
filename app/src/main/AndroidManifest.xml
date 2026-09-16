@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:name=".OrcinusApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Orcinus">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- OrcaSlicer runs in its own process: a native crash does not close the UI. -->
+        <service
+            android:name=".OrcaSlicerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:process=":slicer">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Slices a 3D model chosen by the user into G-code for a 3D printer with the OrcaSlicer engine. Started from the app by the user, shows progress with a cancel action, and stops when the job ends." />
+        </service>
+    </application>
+
+</manifest>

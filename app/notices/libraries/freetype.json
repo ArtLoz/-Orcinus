@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:freetype",
+  "name": "FreeType",
+  "description": "Portions of this software are copyright © 2022 The FreeType Project (https://freetype.org). All rights reserved.",
+  "website": "https://freetype.org",
+  "developers": [],
+  "licenses": [
+    "freetype"
+  ],
+  "artifactVersion": "2.12.1"
+}

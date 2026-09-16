@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="calibration_cube_name">Тестовый куб 20 мм</string>
+    <string name="duration_hours_minutes">%1$d ч %2$d мин</string>
+    <string name="duration_minutes">%1$d мин</string>
+    <string name="length_meters">%1$s м</string>
+    <string name="size_millimeters">%1$s × %2$s × %3$s мм</string>
+
+    <string name="problem_engine_unavailable">Ядро OrcaSlicer недоступно</string>
+    <string name="problem_import_failed">Не удалось открыть модель</string>
+    <string name="problem_slice_failed">Нарезка не удалась</string>
+    <string name="problem_engine_crashed">Ядро OrcaSlicer аварийно завершилось. Нарезку можно запустить снова.</string>
+    <string name="problem_slice_cancelled">Нарезка отменена</string>
+</resources>

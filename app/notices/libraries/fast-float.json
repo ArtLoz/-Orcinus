@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:fast-float",
+  "name": "fast_float",
+  "description": "",
+  "website": "https://github.com/fastfloat/fast_float",
+  "developers": [],
+  "licenses": [
+    "fast-float"
+  ]
+}

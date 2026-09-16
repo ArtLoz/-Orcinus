@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:admesh",
+  "name": "ADMesh",
+  "description": "Copyright (C) 1995, 1996 Anthony D. Martin; Copyright (C) 2013, 2014 ADMesh contributors. Licensed under the GNU GPL version 2 or (at your option) any later version.",
+  "website": "https://github.com/admesh/admesh",
+  "developers": [],
+  "licenses": [
+    "GPL-2.0"
+  ]
+}

@@ -1,0 +1,20 @@
+*.iml
+.gradle/
+.gradle-user/
+.gradle-local/
+.android/
+.android-user/
+.idea/
+.kotlin/
+local.properties
+build/
+**/build/
+.cxx/
+**/.cxx/
+captures/
+.externalNativeBuild/
+gradle/gradle-daemon-jvm.properties
+# Release signing: keep keys and their passwords out of version control.
+keystore.properties
+*.jks
+*.keystore

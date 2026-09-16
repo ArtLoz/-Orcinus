@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:mcut",
+  "name": "MCUT",
+  "description": "Used under the GNU General Public License option.",
+  "website": "https://github.com/cutdigital/mcut",
+  "developers": [],
+  "licenses": [
+    "mcut",
+    "GPL-3.0"
+  ]
+}

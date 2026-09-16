@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:clipper2",
+  "name": "Clipper2",
+  "description": "Copyright (c) 2010-2024 Angus Johnson.",
+  "website": "https://github.com/AngusJohnson/Clipper2",
+  "developers": [],
+  "licenses": [
+    "BSL-1.0"
+  ]
+}

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- OrcaSlicer canvas background in dark mode (DEFAULT_BG_LIGHT_COLOR_DARK). -->
+    <color name="orca_canvas">#54545A</color>
+</resources>

@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:libjpeg-turbo",
+  "name": "libjpeg-turbo",
+  "description": "This software is based in part on the work of the Independent JPEG Group.",
+  "website": "https://libjpeg-turbo.org",
+  "developers": [],
+  "licenses": [
+    "libjpeg-turbo"
+  ],
+  "artifactVersion": "3.0.1"
+}

@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:expat",
+  "name": "Expat",
+  "description": "",
+  "website": "https://libexpat.github.io",
+  "developers": [],
+  "licenses": [
+    "expat"
+  ]
+}

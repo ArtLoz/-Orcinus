@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:unordered-dense",
+  "name": "unordered_dense",
+  "description": "",
+  "website": "https://github.com/martinus/unordered_dense",
+  "developers": [],
+  "licenses": [
+    "unordered-dense"
+  ]
+}

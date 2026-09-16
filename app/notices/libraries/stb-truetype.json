@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:stb-truetype",
+  "name": "stb_truetype",
+  "description": "",
+  "website": "https://github.com/nothings/stb",
+  "developers": [],
+  "licenses": [
+    "stb-truetype"
+  ]
+}

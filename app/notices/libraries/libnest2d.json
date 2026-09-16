@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:libnest2d",
+  "name": "libnest2d",
+  "description": "",
+  "website": "https://github.com/tamasmeszaros/libnest2d",
+  "developers": [],
+  "licenses": [
+    "LGPL-3.0",
+    "GPL-3.0"
+  ]
+}

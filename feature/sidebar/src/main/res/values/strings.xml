@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OrcaSlicer's Russian wording (localization/i18n/ru/OrcaSlicer_ru.po) where it has one. -->
+<resources>
+    <string name="section_printer">Принтер</string>
+    <string name="section_filament">Материал</string>
+    <string name="section_process">Настройки</string>
+    <string name="collapse_sidebar">Свернуть боковую панель</string>
+    <string name="expand_sidebar">Развернуть боковую панель</string>
+
+    <string name="engine_starting">Запуск ядра OrcaSlicer…</string>
+    <string name="engine_ready">Ядро %1$s</string>
+    <string name="engine_unavailable">Ядро OrcaSlicer недоступно</string>
+    <string name="about">О программе</string>
+</resources>

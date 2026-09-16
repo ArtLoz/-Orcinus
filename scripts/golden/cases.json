@@ -1,0 +1,20 @@
+{
+  "profiles": {
+    "printer": "Creality K2 Plus 0.4 nozzle",
+    "filament": "Generic PLA @K2 Plus-all",
+    "process": "0.20mm Standard @Creality K2 Plus 0.4 nozzle",
+    "vendors": ["Creality", "OrcaFilamentLibrary"]
+  },
+  "models": {
+    "20mmbox": "test_stl/ASCII/20mmbox-LF.stl",
+    "cube_with_hole": "cube_with_hole.obj",
+    "sloping_hole": "sloping_hole.obj",
+    "overhang": "overhang.obj",
+    "bridge": "bridge.obj",
+    "V": "V.obj",
+    "A": "A.obj",
+    "Prusa": "test_3mf/Prusa.stl",
+    "extruder_idler": "extruder_idler.obj",
+    "frog_legs": "frog_legs.obj"
+  }
+}

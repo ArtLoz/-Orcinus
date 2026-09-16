@@ -1,0 +1,13 @@
+{
+  "uniqueId": "native:eigen",
+  "name": "Eigen",
+  "description": "",
+  "website": "https://eigen.tuxfamily.org",
+  "developers": [],
+  "licenses": [
+    "MPL-2.0",
+    "eigen",
+    "Apache-2.0"
+  ],
+  "artifactVersion": "5.0.1"
+}

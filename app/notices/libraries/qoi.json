@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:qoi",
+  "name": "QOI",
+  "description": "",
+  "website": "https://qoiformat.org",
+  "developers": [],
+  "licenses": [
+    "qoi"
+  ]
+}

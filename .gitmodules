@@ -1,0 +1,3 @@
+[submodule "upstream/OrcaSlicer"]
+	path = upstream/OrcaSlicer
+	url = https://github.com/OrcaSlicer/OrcaSlicer.git

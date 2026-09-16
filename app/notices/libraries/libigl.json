@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:libigl",
+  "name": "libigl",
+  "description": "",
+  "website": "https://libigl.github.io",
+  "developers": [],
+  "licenses": [
+    "MPL-2.0"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "uniqueId": "native:nlopt",
+  "name": "NLopt",
+  "description": "",
+  "website": "https://nlopt.readthedocs.io",
+  "developers": [],
+  "licenses": [
+    "nlopt",
+    "LGPL-2.1"
+  ],
+  "artifactVersion": "2.5.0"
+}

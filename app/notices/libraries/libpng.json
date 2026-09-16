@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:libpng",
+  "name": "libpng",
+  "description": "",
+  "website": "http://www.libpng.org/pub/png/libpng.html",
+  "developers": [],
+  "licenses": [
+    "libpng"
+  ],
+  "artifactVersion": "1.6.35"
+}

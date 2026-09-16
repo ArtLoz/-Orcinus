@@ -1,0 +1,16 @@
+Orcinus turns 3D models into G-code for your 3D printer directly on your Android phone or tablet, without a computer.
+
+It is built on the open-source OrcaSlicer slicing engine, compiled for Android, so G-code sliced on the phone closely matches desktop OrcaSlicer with the same profiles.
+
+Early preview:
+• Import an STL model or add a 20 mm calibration cube
+• Slice with OrcaSlicer's profiles (Creality K2 Plus in this preview, more printers to come)
+• Slicing continues in the background, with progress and a cancel button in a notification
+• See the estimated print time, filament use, and layer count
+• A workspace laid out like desktop OrcaSlicer, following the system light or dark theme
+
+Private by design: Orcinus works fully offline. It does not request internet access and collects no data.
+
+Free and open source under the GNU AGPL v3.0. The source code is linked from the app's About page.
+
+Orcinus is an independent project and is not affiliated with or endorsed by the developers of OrcaSlicer, Bambu Studio, or PrusaSlicer.

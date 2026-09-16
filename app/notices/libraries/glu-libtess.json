@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:glu-libtess",
+  "name": "GLU tesselator",
+  "description": "",
+  "website": "https://gitlab.freedesktop.org/mesa/glu",
+  "developers": [],
+  "licenses": [
+    "glu-libtess"
+  ]
+}

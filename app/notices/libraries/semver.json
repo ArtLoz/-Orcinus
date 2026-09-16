@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:semver",
+  "name": "semver.c",
+  "description": "",
+  "website": "https://github.com/h2non/semver.c",
+  "developers": [],
+  "licenses": [
+    "semver"
+  ]
+}

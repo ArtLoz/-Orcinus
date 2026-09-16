@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OrcaSlicer's Russian wording (localization/i18n/ru/OrcaSlicer_ru.po) where it has one. -->
+<resources>
+    <string name="prepare_title">Подготовка</string>
+    <string name="slice_plate">Нарезать</string>
+
+    <string name="add_model">Добавить модель</string>
+    <string name="add_calibration_cube">Добавить тестовый куб 20 мм</string>
+    <string name="empty_plate">Добавьте модель STL на стол</string>
+    <string name="importing_model">Импорт модели…</string>
+
+    <string name="object_name">Имя модели: %1$s</string>
+    <string name="object_size">Размер: %1$s</string>
+    <string name="object_triangles">Треугольники: %1$d</string>
+
+    <string name="slicing_progress">Нарезка: %1$d%%</string>
+    <string name="slicing_cancelling">Отмена…</string>
+    <string name="cancel">Отмена</string>
+    <string name="dismiss">Закрыть</string>
+</resources>

@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/OrcaSlicer/OrcaSlicer.git",
+  "release": "v2.4.2",
+  "commit": "8500fcdccaa10b5099ac20d252af3a7c560046f1",
+  "sourceDirectory": "upstream/OrcaSlicer",
+  "license": "AGPL-3.0"
+}

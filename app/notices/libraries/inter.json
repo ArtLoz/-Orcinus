@@ -1,0 +1,15 @@
+{
+  "uniqueId": "font:inter",
+  "name": "Inter",
+  "description": "The user interface font, cut down to Latin and Cyrillic.",
+  "website": "https://rsms.me/inter/",
+  "developers": [
+    {
+      "name": "The Inter Project Authors"
+    }
+  ],
+  "licenses": [
+    "inter"
+  ],
+  "artifactVersion": "4.1"
+}

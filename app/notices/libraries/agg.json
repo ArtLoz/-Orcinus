@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:agg",
+  "name": "Anti-Grain Geometry",
+  "description": "",
+  "website": "https://agg.sourceforge.net/antigrain.com/",
+  "developers": [],
+  "licenses": [
+    "agg"
+  ]
+}

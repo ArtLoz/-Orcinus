@@ -1,0 +1,12 @@
+{
+  "uniqueId": "native:gmp",
+  "name": "GNU Multiple Precision Arithmetic Library",
+  "description": "",
+  "website": "https://gmplib.org",
+  "developers": [],
+  "licenses": [
+    "LGPL-3.0",
+    "GPL-3.0"
+  ],
+  "artifactVersion": "6.2.1"
+}

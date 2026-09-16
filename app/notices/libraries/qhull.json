@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:qhull",
+  "name": "Qhull",
+  "description": "",
+  "website": "http://www.qhull.org",
+  "developers": [],
+  "licenses": [
+    "qhull"
+  ],
+  "artifactVersion": "8.0.2"
+}

@@ -1,0 +1,29 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "android-arm64",
+      "displayName": "OrcaSlicer engine, Android arm64-v8a",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/engine-arm64",
+      "toolchainFile": "${sourceDir}/cmake/android-arm64.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps-arm64/prefix",
+        "CMAKE_FIND_ROOT_PATH": "${sourceDir}/build/deps-arm64/prefix"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "android-arm64",
+      "configurePreset": "android-arm64",
+      "jobs": 16
+    }
+  ]
+}

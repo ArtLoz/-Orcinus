@@ -1,0 +1,5 @@
+{
+  "hash": "occt-exception",
+  "name": "Open CASCADE Exception 1.0 to LGPL 2.1",
+  "content": "Open CASCADE exception (version 1.0) to GNU LGPL version 2.1.\n\nThe object code (i.e. not a source) form of a \"work that uses the Library\"\ncan incorporate material from a header file that is part of the Library.\nAs a special exception to the GNU Lesser General Public License version 2.1,\nyou may distribute such object code incorporating material from header files\nprovided with the Open CASCADE Technology libraries (including code of CDL\ngeneric classes) under terms of your choice, provided that you give\nprominent notice in supporting documentation to this code that it makes use\nof or is based on facilities provided by the Open CASCADE Technology software."
+}

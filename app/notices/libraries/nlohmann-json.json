@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:nlohmann-json",
+  "name": "JSON for Modern C++",
+  "description": "",
+  "website": "https://github.com/nlohmann/json",
+  "developers": [],
+  "licenses": [
+    "nlohmann-json"
+  ]
+}

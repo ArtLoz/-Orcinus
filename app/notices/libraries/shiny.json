@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:shiny",
+  "name": "Shiny Profiler",
+  "description": "",
+  "website": "https://code.google.com/archive/p/shinyprofiler/",
+  "developers": [],
+  "licenses": [
+    "shiny"
+  ]
+}

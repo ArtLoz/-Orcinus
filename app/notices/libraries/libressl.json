@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:libressl",
+  "name": "LibreSSL (libcrypto)",
+  "description": "",
+  "website": "https://www.libressl.org",
+  "developers": [],
+  "licenses": [
+    "libressl"
+  ],
+  "artifactVersion": "4.3.2"
+}

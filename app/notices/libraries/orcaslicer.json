@@ -1,0 +1,18 @@
+{
+  "uniqueId": "native:orcaslicer",
+  "name": "OrcaSlicer",
+  "description": "The slicing engine (libslic3r), printer and material profiles, and icons. OrcaSlicer is based on Bambu Studio by Bambu Lab, which is based on PrusaSlicer by Prusa Research, which is based on Slic3r by Alessandro Ranellucci and the RepRap community.",
+  "website": "https://github.com/OrcaSlicer/OrcaSlicer",
+  "developers": [
+    {
+      "name": "SoftFever"
+    },
+    {
+      "name": "OrcaSlicer contributors"
+    }
+  ],
+  "licenses": [
+    "AGPL-3.0-only"
+  ],
+  "artifactVersion": "2.4.2"
+}

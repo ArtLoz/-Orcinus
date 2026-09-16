@@ -1,0 +1,11 @@
+{
+  "uniqueId": "native:cereal",
+  "name": "cereal",
+  "description": "",
+  "website": "https://uscilab.github.io/cereal/",
+  "developers": [],
+  "licenses": [
+    "cereal"
+  ],
+  "artifactVersion": "1.3.0"
+}

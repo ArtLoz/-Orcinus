@@ -1,0 +1,12 @@
+{
+  "uniqueId": "native:mpfr",
+  "name": "GNU MPFR",
+  "description": "",
+  "website": "https://www.mpfr.org",
+  "developers": [],
+  "licenses": [
+    "LGPL-3.0",
+    "GPL-3.0"
+  ],
+  "artifactVersion": "4.2.2"
+}

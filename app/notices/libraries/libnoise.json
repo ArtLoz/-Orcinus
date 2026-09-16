@@ -1,0 +1,10 @@
+{
+  "uniqueId": "native:libnoise",
+  "name": "libnoise",
+  "description": "Copyright (C) 2003, 2004 Jason Bevins. Licensed under the GNU LGPL version 2.1 or (at your option) any later version.",
+  "website": "https://libnoise.sourceforge.net",
+  "developers": [],
+  "licenses": [
+    "LGPL-2.1"
+  ]
+}

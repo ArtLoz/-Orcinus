@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OrcaSlicer's Russian wording (localization/i18n/ru/OrcaSlicer_ru.po) where it has one. -->
+<resources>
+    <string name="preview_title">Просмотр нарезки</string>
+    <string name="slice_plate">Нарезать</string>
+    <string name="preview_empty">Нарежьте модель, чтобы увидеть результат</string>
+    <string name="sliced_info">Информация о нарезке</string>
+    <string name="estimated_time">Расчётное время печати</string>
+    <string name="used_filament">Использовано прутка</string>
+    <string name="layers">Слои</string>
+    <string name="model">Модель</string>
+</resources>
