@@ -12,6 +12,7 @@ internal class NativeSliceResult(
     @JvmField val layerCount: Long,
     @JvmField val estimatedPrintTimeSeconds: Long,
     @JvmField val filamentMicrometers: Long,
+    @JvmField val toolpathsWritten: Boolean,
 ) {
     companion object {
         const val SUCCESS = 0L
@@ -59,6 +60,14 @@ internal class NativeModelInspection(
     @JvmField val boxCenter: DoubleArray,
 )
 
+/** Constructed by the native bridge; see PlateInspection in orca_engine_adapter.hpp. */
+internal class NativePlateInspection(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    /** Every object of the plate as placed, in the plate's order. */
+    @JvmField val objects: Array<NativeModelInspection>,
+)
+
 internal class NativeFlatteningPlanes(
     @JvmField val status: Long,
     @JvmField val message: String,
@@ -91,17 +100,22 @@ internal object NativeBindings {
     /** Returns null when the engine is ready, otherwise the reason it is not. */
     external fun initialize(dataDir: String, resourcesDir: String, temporaryDir: String): String?
 
-    /** An empty [modelPath] slices the built-in 20 mm calibration cube. */
+    /**
+     * Slices the objects of the plate, given per object: [modelPaths] (empty for
+     * the built-in 20 mm calibration cube), 16 [placements] elements of its
+     * instance transformation, column-major 4 x 4, and [autoDrops].
+     */
     external fun slice(
         jobId: String,
-        modelPath: String,
+        modelPaths: Array<String>,
+        placements: DoubleArray,
+        autoDrops: BooleanArray,
         outputPath: String,
+        /** Where the toolpaths for libvgcode go; null writes none. */
+        toolpathsPath: String?,
         printerProfile: String,
         filamentProfile: String,
         processProfile: String,
-        /** Instance transformation, column-major 4 x 4; null places the object as a new one. */
-        placement: DoubleArray?,
-        autoDrop: Boolean,
         progressListener: NativeProgressListener,
     ): NativeSliceResult
 
@@ -114,13 +128,19 @@ internal object NativeBindings {
         outputDirectory: String,
     ): NativePlateDescription
 
-    /** An empty [modelPath] inspects the built-in 20 mm calibration cube. */
+    /**
+     * An empty [modelPath] inspects the built-in 20 mm calibration cube. The
+     * objects already on the plate are given as for [slice].
+     */
     external fun inspectModel(
         modelPath: String,
         printerProfile: String,
         filamentProfile: String,
         processProfile: String,
         meshPath: String,
+        plateModelPaths: Array<String>,
+        platePlacements: DoubleArray,
+        plateAutoDrops: BooleanArray,
     ): NativeModelInspection
 
     /**
@@ -138,12 +158,28 @@ internal object NativeBindings {
         manipulation: Long,
         /** For lay_on_face: x, y, z in object coordinates. */
         faceNormal: DoubleArray?,
+    ): NativeModelInspection
+
+    /**
+     * Commits [manipulation] (PlateManipulation in orca_engine_adapter.hpp) of
+     * the objects of the plate, given as for [slice], with a [selected] flag per
+     * object for auto orient.
+     */
+    external fun placeObjects(
+        modelPaths: Array<String>,
+        placements: DoubleArray,
+        autoDrops: BooleanArray,
+        selected: BooleanArray,
+        printerProfile: String,
+        filamentProfile: String,
+        processProfile: String,
+        manipulation: Long,
         /** ArrangeSettings for arrange. */
         arrangeDistance: Double,
         arrangeEnableRotation: Boolean,
         arrangeAllowMultiMaterials: Boolean,
         arrangeAlignToYAxis: Boolean,
-    ): NativeModelInspection
+    ): NativePlateInspection
 
     external fun describeFlatteningPlanes(
         modelPath: String,

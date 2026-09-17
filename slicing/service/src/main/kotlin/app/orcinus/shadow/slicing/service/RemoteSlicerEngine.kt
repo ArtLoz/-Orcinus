@@ -11,7 +11,10 @@ import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
+import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
@@ -98,9 +101,10 @@ class RemoteSlicerEngine(
         model: ModelSource,
         profiles: SlicingProfileSelection,
         mesh: ScenePath,
+        plate: List<PlacedModel>,
     ): ModelInspectionOutcome = withContext(Dispatchers.IO) {
         try {
-            service().inspect(model.toParcel(), profiles.toParcel(), mesh.value).toInspectionOutcome()
+            service().inspect(model.toParcel(), profiles.toParcel(), mesh.value, plate.toParcels()).toInspectionOutcome()
         } catch (_: RemoteException) {
             ModelInspectionOutcome.Failure(PROCESS_DIED)
         }
@@ -125,10 +129,27 @@ class RemoteSlicerEngine(
                 autoDrop,
                 manipulation.parcelName(),
                 manipulation.parcelFaceNormal(),
-                manipulation.parcelArrangeSettings(),
             ).toInspectionOutcome()
         } catch (_: RemoteException) {
             ModelInspectionOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun placeObjects(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        manipulation: PlateManipulation,
+    ): PlateInspectionOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().placeObjects(
+                plate.toParcels(),
+                profiles.toParcel(),
+                manipulation.parcelName(),
+                manipulation.parcelSelected(),
+                manipulation.parcelArrangeSettings(),
+            ).toPlateInspectionOutcome()
+        } catch (_: RemoteException) {
+            PlateInspectionOutcome.Failure(PROCESS_DIED)
         }
     }
 

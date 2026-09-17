@@ -18,4 +18,10 @@ interface SceneFiles {
 
     /** Deletes every object mesh; objects do not outlive the process that placed them. */
     fun deleteAllObjectMeshes()
+
+    /** A new file for the toolpaths of a slice. */
+    fun newToolpaths(): ScenePath
+
+    /** Deletes every toolpaths file except [keep], the one the plate's result shows. */
+    fun deleteToolpathsExcept(keep: ScenePath?)
 }

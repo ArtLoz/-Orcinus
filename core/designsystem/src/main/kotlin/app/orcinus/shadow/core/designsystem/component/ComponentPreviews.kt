@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -84,14 +85,6 @@ private fun CanvasPreview() = OrcinusTheme {
             OrcaCanvasTool(R.drawable.orca_toolbar_arrange, "", onClick = {})
             OrcaCanvasTool(R.drawable.orca_toolbar_orient, "", onClick = {}, enabled = false)
         }
-        OrcaLegend(Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 8.dp)) {
-            OrcaLegendTitle("Тип линии")
-            OrcaLegendItem(Color(0xFFFFE64D), "Внутренние периметры", "1m57s", "19.3", "0.35m", visible = true, onVisibleChange = {})
-            OrcaLegendItem(Color(0xFFFF7D38), "Внешние периметры", "1m55s", "18.9", "0.32m", visible = true, onVisibleChange = {})
-            OrcaLegendItem(Color(0xFF383ED9), "Перемещения", "54s", "8.9", "8.45m", visible = false, onVisibleChange = {})
-            OrcaLegendTitle("Итог")
-            OrcaLegendValue("Время печати", "10 мин")
-        }
         Column(Modifier.align(Alignment.BottomEnd).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OrcaProgressNotification("Нарезка: 45%", "Generating infill toolpath", 0.45f, "Отмена", onCancel = {})
             OrcaNotification {
@@ -103,26 +96,63 @@ private fun CanvasPreview() = OrcinusTheme {
     }
 }
 
-@Preview(name = "Light", widthDp = 420, heightDp = 360)
-@Preview(name = "Dark", widthDp = 420, heightDp = 360, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "Light", widthDp = 420, heightDp = 520)
+@Preview(name = "Dark", widthDp = 420, heightDp = 520, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun SlidersPreview() = OrcinusTheme {
-    OrcaCanvas(Modifier.fillMaxWidth().height(360.dp)) {
-        OrcaLayerSlider(
-            layerCount = 60,
+    OrcaCanvas(Modifier.fillMaxWidth().height(520.dp)) {
+        OrcaLayerRangeSlider(
+            layerCount = 100,
             lower = 0,
-            upper = 42,
+            higher = 42,
+            oneLayer = false,
             onRangeChange = { _, _ -> },
-            label = { "${it + 1}\n${"%.2f".format((it + 1) * 0.2)}" },
+            onOneLayerChange = {},
+            label = { layer -> "${layer + 1} · 0.20 мм" },
             contentDescription = "",
-            modifier = Modifier.align(Alignment.CenterEnd).padding(vertical = 16.dp),
+            stepUpDescription = "",
+            stepDownDescription = "",
+            oneLayerDescription = "",
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 8.dp, bottom = 80.dp).fillMaxHeight(),
         )
-        OrcaMoveSlider(
-            moveCount = 370,
-            position = 250,
+        OrcaMovePlayer(
+            moveCount = 144,
+            position = 60,
             onPositionChange = {},
+            label = "61/144",
             contentDescription = "",
-            modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp),
+            playDescription = "",
+            previousDescription = "",
+            nextDescription = "",
+            modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).fillMaxWidth(),
         )
+    }
+}
+
+@Preview(name = "Light", widthDp = 420, heightDp = 640)
+@Preview(name = "Dark", widthDp = 420, heightDp = 640, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun LegendSheetPreview() = OrcinusTheme {
+    Column(Modifier.fillMaxWidth().background(OrcaTheme.colors.window)) {
+        OrcaSheetHandle(Modifier.align(Alignment.CenterHorizontally))
+        OrcaSummaryRow(
+            listOf(
+                OrcaSummaryItem(R.drawable.orca_monitor_item_prediction, "12m11s", "Время печати"),
+                OrcaSummaryItem(R.drawable.orca_filament, "1.21 m", "3.64g"),
+                OrcaSummaryItem(R.drawable.orca_param_layer_height, "100", "Слоёв"),
+            ),
+        )
+        OrcaChoiceChips(listOf("Тип линии", "Сводка", "Материал", "Скорость"), selected = 0, onSelect = {}, modifier = Modifier.padding(top = 16.dp))
+        OrcaLegendSection("Тип линии") {
+            OrcaLegendItem(Color(0xFFFFE64D), "Внутренние периметры", "2m15s · 18.6%", 0.186f, "0.24m", "0.72g", visible = true, onToggle = {})
+            OrcaLegendItem(Color(0xFF383ED9), "Перемещения", "29s · 4.0%", 0.04f, "4.57m", "786", visible = false, onToggle = {})
+        }
+        OrcaLegendSection("Скорость (мм/с)") {
+            OrcaColorScale(listOf(Color(0xFF0B2C7A), Color(0xFF1FA84F), Color(0xFFFFE64D), Color(0xFFD6301B)), "10", "255", "500")
+        }
+        OrcaLegendSection("Общая оценка") {
+            OrcaLegendValue("Общий расход:", "1.21 m · 3.64g")
+            OrcaLegendValue("Общее время печати:", "12m11s", emphasized = true)
+        }
     }
 }

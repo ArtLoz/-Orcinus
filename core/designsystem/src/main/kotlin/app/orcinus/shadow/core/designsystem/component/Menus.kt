@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +40,28 @@ fun OrcaContextMenu(
             content = content,
         )
     }
+}
+
+/** An item of an OrcaSlicer menu (append_menu_item), aligned with the check items. */
+@Composable
+fun OrcaMenuItem(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    val colors = OrcaTheme.colors
+    DropdownMenuItem(
+        text = { Text(text, color = if (enabled) colors.text else colors.textDisabled, style = OrcaTheme.typography.body14, maxLines = 1, softWrap = false) },
+        onClick = onClick,
+        enabled = enabled,
+        leadingIcon = { Spacer(Modifier.size(OrcaTheme.dimensions.iconSmall)) },
+    )
+}
+
+/** wxMenu::AppendSeparator(). */
+@Composable
+fun OrcaMenuSeparator() {
+    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = OrcaTheme.colors.border)
 }
 
 /** A check item of an OrcaSlicer menu (append_menu_check_item), marked with the drop-down list's check bitmap. */

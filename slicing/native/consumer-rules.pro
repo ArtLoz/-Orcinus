@@ -3,6 +3,7 @@
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeSliceResult { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePlateDescription { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeModelInspection { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativePlateInspection { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeFlatteningPlanes { <init>(...); }
 # The bridge looks onProgress up on the listener object, which is usually a
 # lambda that R8 synthesizes; a rule on implementing classes does not reach it.

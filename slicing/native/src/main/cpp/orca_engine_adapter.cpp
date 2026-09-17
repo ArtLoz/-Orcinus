@@ -6,6 +6,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -44,6 +45,8 @@
 
 #include "nanosvg/nanosvg.h"
 #include "nanosvg/nanosvgrast.h"
+#include "slic3r/GUI/LibVGCode/LibVGCodeWrapper.hpp"
+#include "toolpaths_file.hpp"
 
 #if !defined(__BYTE_ORDER__) || __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error "Mesh files are written in the native byte order, which must be little-endian"
@@ -180,6 +183,47 @@ bool load_model(const std::string& model_path, Slic3r::Model& model)
     return Slic3r::load_stl(model_path.c_str(), &model) && !model.objects.empty();
 }
 
+// The models read for the objects of the plate, by file, each with the file's
+// modification time. Guarded by engine_mutex.
+struct LoadedModel {
+    std::time_t modified{0};
+    Slic3r::Model model;
+};
+std::map<std::string, std::unique_ptr<LoadedModel>> loaded_models;
+
+// Adds a copy of the object of model_path to model. The file is read only when
+// its model is not loaded yet or the file changed since. Returns nullptr when
+// the file cannot be read.
+Slic3r::ModelObject* add_loaded_object(const std::string& model_path, Slic3r::Model& model)
+{
+    boost::system::error_code error;
+    const std::time_t modified = model_path.empty() ? 0 : fs::last_write_time(model_path, error);
+    if (error) {
+        return nullptr;
+    }
+    auto loaded = loaded_models.find(model_path);
+    if (loaded == loaded_models.end() || loaded->second->modified != modified) {
+        auto read = std::make_unique<LoadedModel>();
+        read->modified = modified;
+        if (!load_model(model_path, read->model)) {
+            return nullptr;
+        }
+        loaded = loaded_models.insert_or_assign(model_path, std::move(read)).first;
+    }
+    return model.add_object(*loaded->second->model.objects.front());
+}
+
+// Forgets the models no object of the plate is loaded from.
+void keep_models_of(const std::vector<PlateObject>& plate)
+{
+    for (auto loaded = loaded_models.begin(); loaded != loaded_models.end();) {
+        const bool used = std::any_of(plate.begin(), plate.end(), [&loaded](const PlateObject& object) {
+            return object.model_path == loaded->first;
+        });
+        loaded = used ? std::next(loaded) : loaded_models.erase(loaded);
+    }
+}
+
 Slic3r::BuildVolume build_volume_of(const Slic3r::DynamicPrintConfig& config)
 {
     return Slic3r::BuildVolume(
@@ -189,39 +233,139 @@ Slic3r::BuildVolume build_volume_of(const Slic3r::DynamicPrintConfig& config)
         {});
 }
 
-// Places a loaded object as the desktop app does when it is added to an empty
-// plate (Plater::priv::load_model_objects): the mesh is centred around the
-// origin, the instance stands on the bed centre, and the object rests on the
-// plate. Doing the same steps keeps the coordinates bit-identical to desktop.
-void place_on_bed(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config)
+// PartPlate::get_build_volume() of the only plate: the printable area up to the
+// printable height, grown by BuildVolume::SceneEpsilon.
+Slic3r::BoundingBoxf3 plate_box_of(const Slic3r::DynamicPrintConfig& config)
 {
-    const Slic3r::BuildVolume build_volume = build_volume_of(config);
-    for (Slic3r::ModelObject* object : model.objects) {
-        object->center_around_origin();
-        Slic3r::ModelInstance* instance = object->add_instance();
-        instance->set_offset(Slic3r::to_3d(build_volume.bed_center(), -object->origin_translation(2)));
-        object->ensure_on_bed();
+    const Slic3r::BoundingBoxf area(config.option<Slic3r::ConfigOptionPoints>("printable_area")->values);
+    const double eps = Slic3r::BuildVolume::SceneEpsilon;
+    return Slic3r::BoundingBoxf3(
+        Slic3r::Vec3d(area.min.x() - eps, area.min.y() - eps, -eps),
+        Slic3r::Vec3d(area.max.x() + eps, area.max.y() + eps, config.opt_float("printable_height") + eps));
+}
+
+// PartPlate::empty() for the plate an object joins: no other object's
+// instance meets the plate (PartPlate::intersect_instance).
+bool plate_empty(const Slic3r::Model& model, const Slic3r::ModelObject& joining, const Slic3r::BoundingBoxf3& plate_box)
+{
+    for (const Slic3r::ModelObject* object : model.objects) {
+        for (std::size_t instance = 0; object != &joining && instance < object->instances.size(); ++instance) {
+            if (plate_box.intersects(object->instance_convex_hull_bounding_box(instance))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// GLCanvas3D::get_nearest_empty_cell() with its default 10 mm step: the cell of
+// the plate nearest to start_point that no instance's convex hull covers, or a
+// point beside start_point when every cell is covered. The cells are those of
+// GLCanvas3D::get_empty_cells() as Bambu Studio has it, and OrcaSlicer had it
+// until commit 8f777555: that commit keeps every cell some instance leaves
+// free, which puts an object added to a plate onto the one in its centre.
+Slic3r::Vec2f nearest_empty_cell(
+    const Slic3r::Model& model,
+    const Slic3r::BoundingBoxf3& plate_box,
+    const Slic3r::BoundingBoxf& bed,
+    const Slic3r::Vec2f& start_point
+)
+{
+    using namespace Slic3r;
+    const Vec2f step(10.0f, 10.0f);
+    std::vector<Vec2f> cells;
+    const float min_x = start_point.x() - step(0) * int((start_point.x() - plate_box.min.x()) / step(0));
+    const float min_y = start_point.y() - step(1) * int((start_point.y() - plate_box.min.y()) / step(1));
+    for (float x = min_x; x < plate_box.max.x() - step(0) / 2; x += step(0)) {
+        for (float y = min_y; y < plate_box.max.y() - step(1) / 2; y += step(1)) {
+            cells.emplace_back(x, y);
+        }
+    }
+    for (const ModelObject* object : model.objects) {
+        const ModelInstance* first = object->instances.front();
+        const Polygon hull = object->convex_hull_2d(Geometry::assemble_transform(
+            {0.0, 0.0, first->get_offset().z()}, first->get_rotation(), first->get_scaling_factor(), first->get_mirror()));
+        if (hull.empty()) {
+            continue;
+        }
+        for (const ModelInstance* instance : object->instances) {
+            Geometry::Transformation transformation;
+            transformation.set_offset({scale_(instance->get_offset().x()), scale_(instance->get_offset().y()), 0.0});
+            transformation.set_rotation(Z, instance->get_rotation().z() - first->get_rotation().z());
+            const Polygon instance_hull = hull.transform(transformation.get_matrix());
+            cells.erase(std::remove_if(cells.begin(), cells.end(), [&instance_hull](const Vec2f& cell) {
+                return instance_hull.contains(Point(scale_(cell.x()), scale_(cell.y())));
+            }), cells.end());
+        }
+    }
+    if (cells.empty()) {
+        // GLCanvas3D::get_size_proportional_to_max_bed_size(0.05)
+        const double offset = 0.05 * std::max(bed.size().x(), bed.size().y());
+        return {float(start_point.x() + offset), float(start_point.y() + offset)};
+    }
+    // Nearest to start_point first; of equally near cells, the first found.
+    return *std::min_element(cells.begin(), cells.end(), [&start_point](const Vec2f& a, const Vec2f& b) {
+        return (a - start_point).norm() < (b - start_point).norm();
+    });
+}
+
+// Plater::priv::load_model_objects() for an object added to the plate that
+// model holds: the mesh is centred around the origin and the object rests on
+// the plate, on the plate's centre when no other object is on the plate, and
+// otherwise in the empty cell nearest to the centre.
+void place_new_object(Slic3r::Model& model, Slic3r::ModelObject& object, const Slic3r::DynamicPrintConfig& config)
+{
+    object.center_around_origin();
+    Slic3r::ModelInstance* instance = object.add_instance();
+    object.ensure_on_bed();
+    const Slic3r::BoundingBoxf bed = build_volume_of(config).bounding_volume2d();
+    const Slic3r::BoundingBoxf3 plate_box = plate_box_of(config);
+    const Slic3r::Vec2d start_point = bed.center();
+    const double z = instance->get_offset().z();
+    if (plate_empty(model, object, plate_box)) {
+        instance->set_offset({start_point.x(), start_point.y(), z});
+    } else {
+        const Slic3r::Vec2f cell = nearest_empty_cell(model, plate_box, bed, start_point.cast<float>());
+        instance->set_offset({cell.x(), cell.y(), z});
     }
 }
 
-// Places a loaded object with a transformation from the app, as the desktop app
-// commits a moved instance (GLCanvas3D::do_move): the mesh is centred around the
-// origin exactly as for inspect_model(), the instance takes the transformation,
-// and an instance above the plate drops onto it.
-void place_at(Slic3r::Model& model, const ObjectPlacement& placement)
+// Gives a loaded object the transformation from the app, as the desktop app
+// commits a moved instance (GLCanvas3D::do_move): the mesh is centred around
+// the origin as for inspect_model(), the instance takes the transformation,
+// and an instance above the plate drops onto it unless its auto drop is off.
+void place_at(Slic3r::ModelObject& object, const ObjectPlacement& placement)
 {
     Slic3r::Transform3d transformation = Slic3r::Transform3d::Identity();
     std::copy(placement.matrix.begin(), placement.matrix.end(), transformation.data());
-    for (Slic3r::ModelObject* object : model.objects) {
-        object->center_around_origin();
-        Slic3r::ModelInstance* instance = object->add_instance();
-        instance->set_transformation(Slic3r::Geometry::Transformation(transformation));
-        instance->auto_drop = placement.auto_drop;
-        const double shift_z = object->get_instance_min_z(0);
-        if (instance->auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
-            object->translate_instance(0, Slic3r::Vec3d(0.0, 0.0, -shift_z));
+    object.center_around_origin();
+    Slic3r::ModelInstance* instance = object.add_instance();
+    instance->set_transformation(Slic3r::Geometry::Transformation(transformation));
+    instance->auto_drop = placement.auto_drop;
+    const double shift_z = object.get_instance_min_z(0);
+    if (instance->auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
+        object.translate_instance(0, Slic3r::Vec3d(0.0, 0.0, -shift_z));
+    }
+}
+
+// Loads the objects of the plate into model, in the plate's order; an object
+// without a placement is placed as an object added to the plate that holds the
+// objects before it.
+bool load_plate(const std::vector<PlateObject>& plate, const Slic3r::DynamicPrintConfig& config, Slic3r::Model& model, std::string& message)
+{
+    for (const PlateObject& object : plate) {
+        Slic3r::ModelObject* loaded = add_loaded_object(object.model_path, model);
+        if (loaded == nullptr) {
+            message = "Unable to read model " + object.model_path;
+            return false;
+        }
+        if (object.placement.matrix.size() == 16) {
+            place_at(*loaded, object.placement);
+        } else {
+            place_new_object(model, *loaded, config);
         }
     }
+    return true;
 }
 
 // Plater::priv::update_print_volume_state() and the slice button of
@@ -278,6 +422,94 @@ bool commit_file(const std::string& temporary_path, const std::string& path)
         return false;
     }
     return true;
+}
+
+// The legend's figures besides the moves: GCodeViewer::load_as_gcode() and
+// render_legend() read them from the processor's result and the print.
+orcinus::toolpaths::Statistics toolpaths_statistics(const Slic3r::GCodeProcessorResult& gcode_result, const Slic3r::PrintStatistics& print_statistics)
+{
+    using TimeMode = Slic3r::PrintEstimatedStatistics::ETimeMode;
+    const Slic3r::PrintEstimatedStatistics& estimated = gcode_result.print_statistics;
+    orcinus::toolpaths::Statistics statistics;
+    for (const TimeMode mode : {TimeMode::Normal, TimeMode::Stealth}) {
+        const std::size_t index = static_cast<std::size_t>(mode);
+        statistics.time[index] = estimated.modes[index].time;
+        statistics.prepare_time[index] = estimated.modes[index].prepare_time;
+    }
+    for (const auto& [role, used] : estimated.used_filaments_per_role) {
+        statistics.used_filament_per_role.push_back({static_cast<std::uint8_t>(libvgcode::convert(role)), {used.first, used.second}});
+    }
+    // render_legend()'s get_used_filament_from_volume(), summed over the extruders.
+    const auto filament = [&gcode_result](const std::map<std::size_t, double>& volumes) {
+        std::array<double, 2> sum{0.0, 0.0};
+        for (const auto& [extruder, volume] : volumes) {
+            if (extruder < gcode_result.filament_diameters.size() && extruder < gcode_result.filament_densities.size()) {
+                const double radius = 0.5 * gcode_result.filament_diameters[extruder];
+                sum[0] += 0.001 * volume / (PI * radius * radius);
+                sum[1] += volume * gcode_result.filament_densities[extruder] * 0.001;
+            }
+        }
+        return sum;
+    };
+    statistics.model_filament = filament(estimated.model_volumes_per_extruder);
+    statistics.support_filament = filament(estimated.support_volumes_per_extruder);
+    statistics.flushed_filament = filament(estimated.flush_per_filament);
+    statistics.wipe_tower_filament = filament(estimated.wipe_tower_volumes_per_extruder);
+    statistics.total_used_filament = print_statistics.total_used_filament;
+    statistics.total_weight = print_statistics.total_weight;
+    statistics.total_cost = print_statistics.total_cost;
+    statistics.total_travel_distance = estimated.total_travel_distance;
+    statistics.total_travel_moves = estimated.total_travel_moves;
+    statistics.total_seam_distance = estimated.total_seam_gap_distance + estimated.total_seam_scarf_distance;
+    statistics.total_filament_changes = estimated.total_filament_changes;
+    statistics.total_extruder_changes = estimated.total_extruder_changes;
+    statistics.total_tool_change_time =
+        estimated.total_filament_load_time + estimated.total_filament_unload_time + estimated.total_tool_change_time;
+    for (const Slic3r::GCodeProcessorResult::MoveVertex& move : gcode_result.moves) {
+        if (move.internal_only) {
+            continue;
+        }
+        const std::size_t type = static_cast<std::size_t>(move.type);
+        if (type >= orcinus::toolpaths::MOVE_TYPES_COUNT) {
+            continue;
+        }
+        ++statistics.move_counts[type];
+        for (std::size_t mode = 0; mode < move.time.size(); ++mode) {
+            statistics.move_times[type][mode] += move.time[mode];
+        }
+        if (move.type == Slic3r::EMoveType::Retract || move.type == Slic3r::EMoveType::Unretract) {
+            statistics.move_distances[type] += std::fabs(move.delta_extruder);
+        } else {
+            statistics.move_distances[type] += move.travel_dist;
+        }
+    }
+    return statistics;
+}
+
+// GLCanvas3D::load_gcode_preview() for the plate: libvgcode's input converted
+// from the G-code processor's moves, with the filament colours as the tool
+// colours and as the colour print colours, which Plater::get_colors_for_color_print()
+// extends only with colour changes the app does not have, and the legend's figures.
+bool write_toolpaths(
+    const Slic3r::GCodeProcessorResult& gcode_result,
+    const Slic3r::Print& print,
+    const Slic3r::DynamicPrintConfig& config,
+    const std::string& path
+)
+{
+    std::vector<std::string> tool_colors;
+    if (const auto* colours = config.option<Slic3r::ConfigOptionStrings>("filament_colour")) {
+        tool_colors = colours->values;
+    }
+    // convert() takes the viewer it converts for, but reads nothing from it.
+    const libvgcode::Viewer viewer;
+    const libvgcode::GCodeInputData data = libvgcode::convert(gcode_result, tool_colors, tool_colors, viewer);
+    const std::string temporary_path = path + ".part";
+    if (!orcinus::toolpaths::write_file(temporary_path, data, toolpaths_statistics(gcode_result, print.print_statistics()))) {
+        remove_file(temporary_path);
+        return false;
+    }
+    return commit_file(temporary_path, path);
 }
 
 bool write_mesh(const indexed_triangle_set& its, const std::string& path)
@@ -559,10 +791,10 @@ EngineInitialization initialize(const EngineDirectories& directories)
 
 SliceResult slice(
     const std::string& job_id,
-    const std::string& model_path,
+    const std::vector<PlateObject>& objects,
     const std::string& output_path,
+    const std::string& toolpaths_path,
     const ProfileSelection& profiles,
-    const ObjectPlacement& placement,
     const ProgressCallback& on_progress
 )
 {
@@ -586,19 +818,18 @@ SliceResult slice(
         }
 
         Slic3r::Model model;
-        if (!load_model(model_path, model)) {
-            return failure(SliceStatus::model_read_failed, "Unable to read model " + model_path);
+        if (!load_plate(objects, config, model, message)) {
+            return failure(SliceStatus::model_read_failed, message);
         }
-        if (placement.matrix.size() == 16) {
-            place_at(model, placement);
-        } else {
-            place_on_bed(model, config);
-        }
+        keep_models_of(objects);
         if (std::string outside; !check_print_volume(model, config, outside)) {
             return failure(SliceStatus::invalid_print, outside);
         }
 
         Slic3r::Print print;
+        // PartPlate::set_print(): the print of the first plate starts at the origin.
+        // Print leaves its plate origin uninitialized, and G-code coordinates are relative to it.
+        print.set_plate_origin(Slic3r::Vec3d::Zero());
         print.set_status_callback([&on_progress](const Slic3r::PrintBase::SlicingStatus& status) {
             if (on_progress && status.percent >= 0) {
                 on_progress(status.percent, status.text);
@@ -639,6 +870,7 @@ SliceResult slice(
         result.layer_count = printed_layer_count(print);
         result.estimated_print_time_seconds = std::llround(print_time);
         result.filament_micrometers = std::llround(print.print_statistics().total_used_filament * 1'000.0);
+        result.toolpaths_written = !toolpaths_path.empty() && write_toolpaths(gcode_result, print, config, toolpaths_path);
         return result;
     } catch (const Slic3r::CanceledException&) {
         remove_file(temporary_path);
@@ -769,35 +1001,6 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
 
 namespace {
 
-// The last model read for inspect_model() and place_model(), with its file's
-// modification time. Guarded by engine_mutex.
-struct LoadedModel {
-    std::string path;
-    std::time_t modified{0};
-    Slic3r::Model model;
-};
-std::unique_ptr<LoadedModel> loaded_model;
-
-bool load_model_cached(const std::string& model_path, Slic3r::Model& model)
-{
-    boost::system::error_code error;
-    const std::time_t modified = model_path.empty() ? 0 : fs::last_write_time(model_path, error);
-    if (error) {
-        return false;
-    }
-    if (loaded_model == nullptr || loaded_model->path != model_path || loaded_model->modified != modified) {
-        auto loaded = std::make_unique<LoadedModel>();
-        if (!load_model(model_path, loaded->model)) {
-            return false;
-        }
-        loaded->path = model_path;
-        loaded->modified = modified;
-        loaded_model = std::move(loaded);
-    }
-    model = loaded_model->model;
-    return true;
-}
-
 // Selection::get_bounding_sphere(): the smallest sphere around the convex
 // hulls of the instance's volumes in world coordinates.
 void bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance, ModelInspection& result)
@@ -830,13 +1033,12 @@ Slic3r::Vec3d unscaled_instance_size(const Slic3r::ModelObject& object, const Sl
     return box.size();
 }
 
-// The placed object as the app shows it: its size, instance transformation,
-// and whether it fits the build volume (Plater::priv::update_print_volume_state),
-// with what the gizmo windows show (GizmoObjectManipulation::update_settings_value).
-void describe_placed(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, ModelInspection& result)
+// A placed object as the app shows it: its size, instance transformation, and
+// whether it fits the build volume, as the model's update_print_volume_state()
+// found (Plater::priv::update_print_volume_state), with what the gizmo windows
+// show (GizmoObjectManipulation::update_settings_value).
+void describe_placed(const Slic3r::ModelObject& object, ModelInspection& result)
 {
-    model.update_print_volume_state(build_volume_of(config));
-    const Slic3r::ModelObject& object = *model.objects.front();
     const Slic3r::ModelInstance& instance = *object.instances.front();
     const Slic3r::BoundingBoxf3 box = object.instance_bounding_box(0);
     const Slic3r::Vec3d size = box.size();
@@ -871,7 +1073,12 @@ void describe_placed(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& con
 
 }  // namespace
 
-ModelInspection inspect_model(const std::string& model_path, const ProfileSelection& profiles, const std::string& mesh_path)
+ModelInspection inspect_model(
+    const std::string& model_path,
+    const ProfileSelection& profiles,
+    const std::string& mesh_path,
+    const std::vector<PlateObject>& plate
+)
 {
     ModelInspection result;
     const std::lock_guard<std::mutex> engine_lock(engine_mutex);
@@ -889,14 +1096,20 @@ ModelInspection inspect_model(const std::string& model_path, const ProfileSelect
         }
 
         Slic3r::Model model;
-        if (!load_model_cached(model_path, model)) {
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        Slic3r::ModelObject* object = add_loaded_object(model_path, model);
+        if (object == nullptr) {
             result.message = "Unable to read model " + model_path;
             return result;
         }
-        place_on_bed(model, config);
+        std::vector<PlateObject> objects = plate;
+        objects.push_back({model_path, {}});
+        keep_models_of(objects);
+        place_new_object(model, *object, config);
 
-        const Slic3r::ModelObject& object = *model.objects.front();
-        const indexed_triangle_set mesh = object.raw_indexed_triangle_set();
+        const indexed_triangle_set mesh = object->raw_indexed_triangle_set();
         if (mesh.indices.empty()) {
             result.message = "The model has no facets";
             return result;
@@ -908,7 +1121,8 @@ ModelInspection inspect_model(const std::string& model_path, const ProfileSelect
             return result;
         }
 
-        describe_placed(model, config, result);
+        model.update_print_volume_state(build_volume_of(config));
+        describe_placed(*object, result);
         result.status = SceneStatus::success;
         result.facet_count = static_cast<std::int64_t>(mesh.indices.size());
         return result;
@@ -918,9 +1132,11 @@ ModelInspection inspect_model(const std::string& model_path, const ProfileSelect
     }
 }
 
-// OrientJob with the canvas's default OrientSettings (least support area):
-// each instance turns as orientation::orient() finds and rests on the plate.
-void auto_orient(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config)
+// OrientJob with the canvas's default OrientSettings (least support area): the
+// instances of the selected objects, or of every object when none is selected
+// (OrientJob::prepare_selection), turn as orientation::orient() finds and rest
+// on the plate.
+void auto_orient(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const std::vector<bool>& selected)
 {
     Slic3r::orientation::OrientParams params;
     Slic3r::orientation::OrientParamsArea params_area;
@@ -931,8 +1147,13 @@ void auto_orient(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config)
     params.progressind = [](unsigned, std::string) {};
     params.stopcondition = [] { return false; };
 
-    Slic3r::orientation::OrientMeshs selected;
-    for (Slic3r::ModelObject* object : model.objects) {
+    const bool all = std::find(selected.begin(), selected.end(), true) == selected.end();
+    Slic3r::orientation::OrientMeshs meshes;
+    for (std::size_t index = 0; index < model.objects.size(); ++index) {
+        if (!all && (index >= selected.size() || !selected[index])) {
+            continue;
+        }
+        Slic3r::ModelObject* object = model.objects[index];
         for (Slic3r::ModelInstance* instance : object->instances) {
             // OrientJob::get_orient_mesh()
             Slic3r::orientation::OrientMesh mesh;
@@ -944,11 +1165,11 @@ void auto_orient(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config)
                 instance->get_object()->invalidate_bounding_box();
                 instance->get_object()->ensure_on_bed();
             };
-            selected.push_back(std::move(mesh));
+            meshes.push_back(std::move(mesh));
         }
     }
-    Slic3r::orientation::orient(selected, {}, params);
-    for (const Slic3r::orientation::OrientMesh& mesh : selected) {
+    Slic3r::orientation::orient(meshes, {}, params);
+    for (const Slic3r::orientation::OrientMesh& mesh : meshes) {
         mesh.apply();
     }
 }
@@ -1008,6 +1229,7 @@ void arrange_on_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& co
 {
     using namespace Slic3r;
     Print print;
+    print.set_plate_origin(Vec3d::Zero());
     print.apply(model, config);
     const PrintConfig& print_config = print.config();
     const auto [object_skirt_offset, object_skirt_width] = print.object_skirt_offset();
@@ -1334,14 +1556,14 @@ std::vector<FlatteningPlane> flattening_planes(const Slic3r::ModelObject& mo)
 // Loads the object of model_path with the instance transformation placement.
 bool load_placed(const std::string& model_path, const std::vector<double>& placement, Slic3r::Model& model)
 {
-    if (!load_model_cached(model_path, model)) {
+    Slic3r::ModelObject* object = add_loaded_object(model_path, model);
+    if (object == nullptr) {
         return false;
     }
-    Slic3r::ModelObject& object = *model.objects.front();
-    object.center_around_origin();
+    object->center_around_origin();
     Slic3r::Transform3d transformation = Slic3r::Transform3d::Identity();
     std::copy(placement.begin(), placement.end(), transformation.data());
-    object.add_instance()->set_transformation(Slic3r::Geometry::Transformation(transformation));
+    object->add_instance()->set_transformation(Slic3r::Geometry::Transformation(transformation));
     return true;
 }
 
@@ -1380,8 +1602,7 @@ ModelInspection place_model(
     const std::vector<double>& placement,
     bool auto_drop,
     Manipulation manipulation,
-    const std::array<double, 3>& face_normal,
-    const ArrangeSettings& arrange_settings
+    const std::array<double, 3>& face_normal
 )
 {
     ModelInspection result;
@@ -1431,12 +1652,6 @@ ModelInspection place_model(
             rest_on_plate(object, min_z_before);
             break;
         }
-        case Manipulation::auto_orient:
-            auto_orient(model, config);
-            break;
-        case Manipulation::arrange:
-            arrange_on_plate(model, config, arrange_settings);
-            break;
         case Manipulation::ensure_on_bed:
             object.ensure_on_bed();
             break;
@@ -1458,12 +1673,73 @@ ModelInspection place_model(
             return result;
         }
 
-        describe_placed(model, config, result);
+        model.update_print_volume_state(build_volume_of(config));
+        describe_placed(object, result);
         result.status = SceneStatus::success;
-        result.facet_count = static_cast<std::int64_t>(model.objects.front()->facets_count());
+        result.facet_count = static_cast<std::int64_t>(object.facets_count());
         return result;
     } catch (const std::exception& error) {
         result.message = error.what();
+        return result;
+    }
+}
+
+PlateInspection place_objects(
+    const std::vector<PlateObject>& plate,
+    const std::vector<bool>& selected,
+    const ProfileSelection& profiles,
+    PlateManipulation manipulation,
+    const ArrangeSettings& arrange_settings
+)
+{
+    PlateInspection result;
+    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
+    if (preset_bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    if (std::any_of(plate.begin(), plate.end(), [](const PlateObject& object) { return object.placement.matrix.size() != 16; })) {
+        result.message = "A placement is not a 4 x 4 matrix";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*preset_bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+
+        Slic3r::Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        keep_models_of(plate);
+        switch (manipulation) {
+        case PlateManipulation::auto_orient:
+            auto_orient(model, config, selected);
+            break;
+        case PlateManipulation::arrange:
+            arrange_on_plate(model, config, arrange_settings);
+            break;
+        default:
+            result.message = "Unknown manipulation";
+            return result;
+        }
+
+        model.update_print_volume_state(build_volume_of(config));
+        for (const Slic3r::ModelObject* object : model.objects) {
+            ModelInspection& placed = result.objects.emplace_back();
+            describe_placed(*object, placed);
+            placed.status = SceneStatus::success;
+            placed.facet_count = static_cast<std::int64_t>(object->facets_count());
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.objects.clear();
         return result;
     }
 }

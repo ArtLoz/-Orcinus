@@ -1,16 +1,15 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.PlacedModelParcel;
+
 parcelable SliceRequestParcel {
     String jobId;
-    /** Set for an imported file; null for a built-in model. */
-    @nullable String modelPath;
-    /** BuiltInModel name; null for an imported file. */
-    @nullable String builtInModel;
+    /** The objects on the plate. */
+    PlacedModelParcel[] objects;
     String outputPath;
+    /** Where the engine writes the toolpaths for the preview; null writes none. */
+    @nullable String toolpathsPath;
     String printerProfile;
     String filamentProfile;
     String processProfile;
-    /** Instance transformation, column-major 4 x 4; null for OrcaSlicer's placement of a new object. */
-    @nullable double[] placement;
-    boolean autoDrop;
 }

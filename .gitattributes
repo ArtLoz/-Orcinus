@@ -19,3 +19,4 @@ CMakeLists.txt text eol=lf
 .gitignore text eol=lf
 .gitmodules text eol=lf
 *.jar binary
+*.patch text eol=lf

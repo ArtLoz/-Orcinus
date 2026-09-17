@@ -15,6 +15,7 @@ import app.orcinus.shadow.domain.GetEngineStatusUseCase
 import app.orcinus.shadow.domain.ImportModelUseCase
 import app.orcinus.shadow.domain.InspectModelUseCase
 import app.orcinus.shadow.domain.PlaceModelUseCase
+import app.orcinus.shadow.domain.PlaceModelsUseCase
 import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.domain.about.GetLicenseUseCase
 import app.orcinus.shadow.domain.about.GetThirdPartyComponentUseCase
@@ -22,9 +23,11 @@ import app.orcinus.shadow.domain.about.GetThirdPartyComponentsUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
+import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
+import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
 import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
@@ -60,7 +63,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     val observePlate = ObservePlateUseCase(plateRepository)
     val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, sceneFiles, plateRepository)
-    val slicePlate = SlicePlateUseCase(SliceModelUseCase(engine), AppGcodeOutputs(applicationContext), plateRepository, applicationScope)
+    val slicePlate = SlicePlateUseCase(SliceModelUseCase(engine), AppGcodeOutputs(applicationContext), sceneFiles, plateRepository, applicationScope)
     private val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
         inspectModel = inspectModel,
@@ -92,7 +95,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             addModelToPlate = addModelToPlate,
             addCalibrationCubeToPlate = addCalibrationCube,
             placePlateObject = placePlateObject,
+            placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope),
             setPlateObjectAutoDrop = SetPlateObjectAutoDropUseCase(plateRepository, placePlateObject),
+            deletePlateObject = DeletePlateObjectUseCase(sceneFiles, plateRepository),
             describeFlatteningPlanes = DescribeFlatteningPlanesUseCase(engine),
             slicePlate = slicePlate,
             cancelPlateSlicing = cancelPlateSlicing,

@@ -69,7 +69,7 @@ data class OrcaColors(
     val canvasPanel: Color,
     val canvasPanelSeparator: Color,
     val onCanvasPanel: Color,
-    /** G-code legend and other dark translucent canvas panels. */
+    /** The G-code legend: ImGui's window over the canvas at 80 %. */
     val legend: Color,
     val onLegend: Color,
     val isDark: Boolean,
@@ -121,8 +121,9 @@ val OrcaLightColors = OrcaColors(
     canvasPanel = rgba(1f, 1f, 1f),
     canvasPanelSeparator = rgba(0.93f, 0.93f, 0.93f),
     onCanvasPanel = Color(0xFF262E30),
-    legend = rgba(0.1f, 0.1f, 0.1f, 0.8f),
-    onLegend = Color(0xFFFFFFFF),
+    // ImGuiWrapper's light window colours, which render_legend() draws at 80 %.
+    legend = rgba(1f, 1f, 1f, 0.8f),
+    onLegend = Color(50, 58, 61),
     isDark = false,
 )
 
@@ -169,7 +170,8 @@ val OrcaDarkColors = OrcaColors(
     canvasPanel = Color(0xFF2D2D31),
     canvasPanelSeparator = rgba(0.24f, 0.24f, 0.27f),
     onCanvasPanel = Color(0xFFEFEFF0),
-    legend = rgba(0.1f, 0.1f, 0.1f, 0.8f),
-    onLegend = Color(0xFFFFFFFF),
+    // ImGuiWrapper::COL_WINDOW_BG_DARK at 80 % and its text colour.
+    legend = rgba(45 / 255f, 45 / 255f, 49 / 255f, 0.8f),
+    onLegend = rgba(1f, 1f, 1f, 0.88f),
     isDark = true,
 )

@@ -184,8 +184,71 @@ target_link_libraries(
 target_precompile_headers(libslic3r PRIVATE "${LIBSLIC3R_DIR}/pchheader.hpp")
 
 # ---------------------------------------------------------------------------
-# JNI library of the Android app (:slicing:native).
+# libvgcode: OrcaSlicer's G-code viewer, in its OpenGL ES variant. The engine
+# converts toolpaths for it; the app process draws them with it.
+#
+# OrcaSlicer never builds that variant, and it does not compile upstream, so
+# the sources are copied into the build tree with LF line endings and patched
+# there (patches/libvgcode-opengl-es.patch, see README.md). The copy is redone
+# whenever the upstream sources or the patch change.
 # ---------------------------------------------------------------------------
+find_package(Git REQUIRED)
+set(LIBVGCODE_UPSTREAM_DIR "${LIBDIR}/libvgcode")
+set(LIBVGCODE_PATCH "${CMAKE_CURRENT_LIST_DIR}/patches/libvgcode-opengl-es.patch")
+set(LIBVGCODE_SOURCE_DIR "${CMAKE_CURRENT_BINARY_DIR}/libvgcode-src")
+file(GLOB_RECURSE libvgcode_upstream_files LIST_DIRECTORIES false RELATIVE "${LIBVGCODE_UPSTREAM_DIR}" "${LIBVGCODE_UPSTREAM_DIR}/*")
+list(SORT libvgcode_upstream_files)
+set(libvgcode_inputs "")
+foreach(file IN LISTS libvgcode_upstream_files)
+    file(SHA256 "${LIBVGCODE_UPSTREAM_DIR}/${file}" file_hash)
+    string(APPEND libvgcode_inputs "${file} ${file_hash}
+")
+endforeach()
+file(READ "${LIBVGCODE_PATCH}" libvgcode_patch_text)
+string(REPLACE "
+" "
+" libvgcode_patch_text "${libvgcode_patch_text}")
+string(SHA256 libvgcode_stamp "${libvgcode_inputs}${libvgcode_patch_text}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LIBVGCODE_PATCH}")
+set(libvgcode_stamp_file "${CMAKE_CURRENT_BINARY_DIR}/libvgcode-src.stamp")
+set(libvgcode_previous_stamp "")
+if(EXISTS "${libvgcode_stamp_file}")
+    file(READ "${libvgcode_stamp_file}" libvgcode_previous_stamp)
+endif()
+if(NOT libvgcode_previous_stamp STREQUAL libvgcode_stamp)
+    file(REMOVE_RECURSE "${LIBVGCODE_SOURCE_DIR}")
+    foreach(file IN LISTS libvgcode_upstream_files)
+        file(READ "${LIBVGCODE_UPSTREAM_DIR}/${file}" content)
+        string(REPLACE "
+" "
+" content "${content}")
+        file(WRITE "${LIBVGCODE_SOURCE_DIR}/${file}" "${content}")
+    endforeach()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/libvgcode-opengl-es.patch" "${libvgcode_patch_text}")
+    # The ceiling keeps git from treating the copy as part of this repository.
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${CMAKE_CURRENT_BINARY_DIR}"
+            "${GIT_EXECUTABLE}" apply --verbose "${CMAKE_CURRENT_BINARY_DIR}/libvgcode-opengl-es.patch"
+        WORKING_DIRECTORY "${LIBVGCODE_SOURCE_DIR}"
+        RESULT_VARIABLE libvgcode_patch_result
+    )
+    if(NOT libvgcode_patch_result EQUAL 0)
+        message(FATAL_ERROR "patches/libvgcode-opengl-es.patch does not apply to ${LIBVGCODE_UPSTREAM_DIR}")
+    endif()
+    file(WRITE "${libvgcode_stamp_file}" "${libvgcode_stamp}")
+endif()
+set(SLIC3R_OPENGL_ES ON)
+add_subdirectory("${LIBVGCODE_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/libvgcode" EXCLUDE_FROM_ALL)
+# glad's GLES loader takes eglGetProcAddress from the system EGL headers.
+target_compile_definitions(libvgcode PRIVATE GLAD_GLES2_USE_SYSTEM_EGL=1)
+find_library(egl_library EGL REQUIRED)
+find_library(gles3_library GLESv3 REQUIRED)
+target_link_libraries(libvgcode PUBLIC ${egl_library} ${gles3_library})
+
+# ---------------------------------------------------------------------------
+# JNI libraries of the Android app (:render:gcode and :slicing:native).
+# ---------------------------------------------------------------------------
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../render/gcode/src/main/cpp" "${CMAKE_CURRENT_BINARY_DIR}/toolpaths")
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../slicing/native/src/main/cpp" "${CMAKE_CURRENT_BINARY_DIR}/jni")
 
 # ---------------------------------------------------------------------------
@@ -210,7 +273,7 @@ if(ENGINE_BUILD_TESTS)
 
     # The app's facade over the engine: bundled profiles, slicing, cancellation.
     add_executable(orca_engine_adapter_tests "${CMAKE_CURRENT_LIST_DIR}/../slicing/native/src/test/cpp/orca_engine_adapter_tests.cpp")
-    target_link_libraries(orca_engine_adapter_tests PRIVATE orca_engine_adapter boost_libs Catch2::Catch2WithMain)
+    target_link_libraries(orca_engine_adapter_tests PRIVATE orca_engine_adapter orcinus_toolpaths_file boost_libs Catch2::Catch2WithMain)
     target_compile_definitions(orca_engine_adapter_tests PRIVATE ENGINE_DEVICE_TEST_DIR="${ENGINE_DEVICE_TEST_DIR}")
     set_target_properties(orca_engine_adapter_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tests/orca_engine_adapter")
 

@@ -15,9 +15,12 @@ import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateGeometry
+import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
@@ -65,20 +68,21 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
                 recoverable = false,
             )
         }
-        val modelPath = request.model.nativePath()
+        val plate = NativePlate(request.objects)
 
         progressListener.onProgress(SliceProgress(request.jobId, 0f, SliceStage.PREPARING))
         val result = coroutineScope {
             val nativeJob = async(Dispatchers.Default) {
                 NativeBindings.slice(
                     jobId = request.jobId.value,
-                    modelPath = modelPath,
+                    modelPaths = plate.modelPaths,
+                    placements = plate.placements,
+                    autoDrops = plate.autoDrops,
                     outputPath = request.output.value,
+                    toolpathsPath = request.toolpaths?.value,
                     printerProfile = request.printerProfile.value,
                     filamentProfile = request.filamentProfile.value,
                     processProfile = request.processProfile.value,
-                    placement = request.placement?.columns?.toDoubleArray(),
-                    autoDrop = request.autoDrop,
                 ) { percent, message ->
                     progressListener.onProgress(progress(request.jobId, percent, message))
                 }
@@ -135,17 +139,22 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
         model: ModelSource,
         profiles: SlicingProfileSelection,
         mesh: ScenePath,
+        plate: List<PlacedModel>,
     ): ModelInspectionOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
             return@withContext ModelInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
+        val objects = NativePlate(plate)
         NativeBindings.inspectModel(
             modelPath = model.nativePath(),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             processProfile = profiles.process.value,
             meshPath = mesh.value,
+            plateModelPaths = objects.modelPaths,
+            platePlacements = objects.placements,
+            plateAutoDrops = objects.autoDrops,
         ).toOutcome(mesh)
     }
 
@@ -162,7 +171,6 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
         if (!engineStatus.ready) {
             return@withContext ModelInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val arrange = (manipulation as? Manipulation.Arrange)?.settings ?: ArrangeSettings()
         NativeBindings.placeModel(
             modelPath = model.nativePath(),
             printerProfile = profiles.printer.value,
@@ -176,17 +184,46 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
                 Manipulation.Rotate -> 1L
                 Manipulation.Scale -> 2L
                 Manipulation.ResetRotation -> 3L
-                Manipulation.AutoOrient -> 4L
-                is Manipulation.LayOnFace -> 5L
-                is Manipulation.Arrange -> 6L
-                Manipulation.EnsureOnBed -> 7L
+                is Manipulation.LayOnFace -> 4L
+                Manipulation.EnsureOnBed -> 5L
             },
             faceNormal = (manipulation as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) },
+        ).toOutcome(mesh)
+    }
+
+    override suspend fun placeObjects(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        manipulation: PlateManipulation,
+    ): PlateInspectionOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext PlateInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        val objects = NativePlate(plate)
+        val selected = (manipulation as? PlateManipulation.AutoOrient)?.selected.orEmpty()
+        val arrange = (manipulation as? PlateManipulation.Arrange)?.settings ?: ArrangeSettings()
+        val result = NativeBindings.placeObjects(
+            modelPaths = objects.modelPaths,
+            placements = objects.placements,
+            autoDrops = objects.autoDrops,
+            selected = BooleanArray(plate.size) { plate[it].mesh in selected },
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            processProfile = profiles.process.value,
+            manipulation = when (manipulation) {
+                is PlateManipulation.AutoOrient -> 0L
+                is PlateManipulation.Arrange -> 1L
+            },
             arrangeDistance = arrange.distance,
             arrangeEnableRotation = arrange.enableRotation,
             arrangeAllowMultiMaterials = arrange.allowMultiMaterialsOnSamePlate,
             arrangeAlignToYAxis = arrange.alignToYAxis,
-        ).toOutcome(mesh)
+        )
+        if (result.status != NativeSceneStatus.SUCCESS || result.objects.size != plate.size) {
+            return@withContext PlateInspectionOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not place the objects" })
+        }
+        PlateInspectionOutcome.Success(result.objects.mapIndexed { index, placed -> placed.toInspection(plate[index].mesh) })
     }
 
     override suspend fun flatteningPlanes(
@@ -227,23 +264,30 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
         if (status != NativeSceneStatus.SUCCESS) {
             return ModelInspectionOutcome.Failure(message.ifBlank { "OrcaSlicer could not read the model" })
         }
-        return ModelInspectionOutcome.Success(
-            ModelInspection(
-                facetCount = facetCount,
-                dimensions = ModelDimensions(sizeX, sizeY, sizeZ),
-                boxCenter = boxCenter.toVector(),
-                mesh = mesh,
-                placement = Transform3(instanceMatrix.toList()),
-                fit = when (volumeState) {
-                    NativeVolumeState.INSIDE -> BuildVolumeFit.INSIDE
-                    NativeVolumeState.PARTLY_OUTSIDE -> BuildVolumeFit.PARTLY_OUTSIDE
-                    else -> BuildVolumeFit.OUTSIDE
-                },
-                boundingSphere = BoundingSphere(sphereCenter.toVector(), sphereRadius),
-                rotationDegrees = rotationDegrees.toVector(),
-                unscaledDimensions = ModelDimensions(unscaledSize[0], unscaledSize[1], unscaledSize[2]),
-            ),
-        )
+        return ModelInspectionOutcome.Success(toInspection(mesh))
+    }
+
+    private fun NativeModelInspection.toInspection(mesh: ScenePath) = ModelInspection(
+        facetCount = facetCount,
+        dimensions = ModelDimensions(sizeX, sizeY, sizeZ),
+        boxCenter = boxCenter.toVector(),
+        mesh = mesh,
+        placement = Transform3(instanceMatrix.toList()),
+        fit = when (volumeState) {
+            NativeVolumeState.INSIDE -> BuildVolumeFit.INSIDE
+            NativeVolumeState.PARTLY_OUTSIDE -> BuildVolumeFit.PARTLY_OUTSIDE
+            else -> BuildVolumeFit.OUTSIDE
+        },
+        boundingSphere = BoundingSphere(sphereCenter.toVector(), sphereRadius),
+        rotationDegrees = rotationDegrees.toVector(),
+        unscaledDimensions = ModelDimensions(unscaledSize[0], unscaledSize[1], unscaledSize[2]),
+    )
+
+    /** The objects of a plate as the bridge takes them: parallel arrays with an entry per object. */
+    private class NativePlate(objects: List<PlacedModel>) {
+        val modelPaths = Array(objects.size) { objects[it].model.nativePath() }
+        val placements = objects.flatMap { it.placement.columns }.toDoubleArray()
+        val autoDrops = BooleanArray(objects.size) { objects[it].autoDrop }
     }
 
     private fun start(): EngineStatus {
@@ -257,11 +301,6 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
         return EngineStatus(version = version, ready = error == null, message = error)
     }
 
-    /** The bridge takes an empty path for the built-in calibration cube. */
-    private fun ModelSource.nativePath(): String = when (this) {
-        is ModelSource.LocalFile -> path.value
-        is ModelSource.BuiltIn -> ""
-    }
 
     private fun DoubleArray.toVector() = Vector3(this[0], this[1], this[2])
 
@@ -289,6 +328,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
                     estimatedPrintTimeSeconds = result.estimatedPrintTimeSeconds,
                     filamentMillimeters = result.filamentMicrometers / 1_000.0,
                 ),
+                toolpaths = request.toolpaths?.takeIf { result.toolpathsWritten },
             )
 
             NativeSliceResult.CANCELLED -> SliceOutcome.Cancelled(request.jobId)
@@ -349,4 +389,10 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
 
         private const val DEFAULT_FILAMENT_COLOUR = "#F2754E"
     }
+}
+
+/** The bridge takes an empty path for the built-in calibration cube. */
+private fun ModelSource.nativePath(): String = when (this) {
+    is ModelSource.LocalFile -> path.value
+    is ModelSource.BuiltIn -> ""
 }

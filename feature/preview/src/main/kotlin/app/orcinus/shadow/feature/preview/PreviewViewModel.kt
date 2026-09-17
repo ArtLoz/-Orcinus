@@ -2,6 +2,7 @@ package app.orcinus.shadow.feature.preview
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 data class PreviewUiState(
+    /** The printer's plate for the 3D view; null until the engine described it. */
+    val plate: PlateDescription?,
     val result: PlateSliceResult?,
     val canSlice: Boolean,
 )
@@ -32,4 +35,4 @@ class PreviewViewModel(
     }
 }
 
-private fun PlateState.toPreviewUiState() = PreviewUiState(result = result, canSlice = canSlice)
+private fun PlateState.toPreviewUiState() = PreviewUiState(plate = plate, result = result, canSlice = canSlice)

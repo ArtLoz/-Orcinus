@@ -78,8 +78,8 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         override fun describePlate(profiles: ProfilesParcel, directory: String): PlateDescriptionParcel =
             runBlocking { engine.describePlate(profiles.toProfiles(), ScenePath(directory)) }.toParcel()
 
-        override fun inspect(model: ModelSourceParcel, profiles: ProfilesParcel, meshPath: String): InspectionParcel =
-            runBlocking { engine.inspect(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath)) }.toParcel()
+        override fun inspect(model: ModelSourceParcel, profiles: ProfilesParcel, meshPath: String, plate: Array<PlacedModelParcel>): InspectionParcel =
+            runBlocking { engine.inspect(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath), plate.toPlacedModels()) }.toParcel()
 
         override fun place(
             model: ModelSourceParcel,
@@ -90,7 +90,6 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             autoDrop: Boolean,
             manipulation: String,
             faceNormal: DoubleArray?,
-            arrangeSettings: ArrangeSettingsParcel?,
         ): InspectionParcel = runBlocking {
             engine.place(
                 model.toModelSource(),
@@ -99,8 +98,18 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                 Transform3(previous.toList()),
                 Transform3(placement.toList()),
                 autoDrop,
-                manipulationOf(manipulation, faceNormal, arrangeSettings),
+                manipulationOf(manipulation, faceNormal),
             )
+        }.toParcel()
+
+        override fun placeObjects(
+            plate: Array<PlacedModelParcel>,
+            profiles: ProfilesParcel,
+            manipulation: String,
+            selected: Array<String>,
+            arrangeSettings: ArrangeSettingsParcel?,
+        ): PlateInspectionParcel = runBlocking {
+            engine.placeObjects(plate.toPlacedModels(), profiles.toProfiles(), plateManipulationOf(manipulation, selected, arrangeSettings))
         }.toParcel()
 
         override fun flatteningPlanes(model: ModelSourceParcel, profiles: ProfilesParcel, meshPath: String, placement: DoubleArray): FlatteningPlanesParcel =

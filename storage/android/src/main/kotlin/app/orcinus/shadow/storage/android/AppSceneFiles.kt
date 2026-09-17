@@ -6,11 +6,12 @@ import app.orcinus.shadow.storage.api.SceneFiles
 import java.io.File
 import java.util.UUID
 
-/** Scene geometry in the app's no-backup storage: files/scene/plate and files/scene/objects. */
+/** Scene geometry in the app's no-backup storage: files/scene/plate, objects, and toolpaths. */
 class AppSceneFiles(context: Context) : SceneFiles {
     private val root = File(context.applicationContext.noBackupFilesDir, "scene")
     private val plate = File(root, "plate")
     private val objects = File(root, "objects")
+    private val toolpaths = File(root, "toolpaths")
 
     override fun plateDirectory(): ScenePath {
         plate.mkdirs()
@@ -29,5 +30,15 @@ class AppSceneFiles(context: Context) : SceneFiles {
 
     override fun deleteAllObjectMeshes() {
         objects.listFiles()?.forEach(File::delete)
+    }
+
+    override fun newToolpaths(): ScenePath {
+        toolpaths.mkdirs()
+        return ScenePath(File(toolpaths, "${UUID.randomUUID()}.toolpaths").absolutePath)
+    }
+
+    override fun deleteToolpathsExcept(keep: ScenePath?) {
+        val kept = keep?.let { File(it.value) }
+        toolpaths.listFiles()?.filter { it != kept }?.forEach(File::delete)
     }
 }

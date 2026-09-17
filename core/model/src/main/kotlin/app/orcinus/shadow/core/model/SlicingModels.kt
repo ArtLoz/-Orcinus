@@ -101,6 +101,13 @@ sealed interface ModelInspectionOutcome {
     data class Failure(val message: String) : ModelInspectionOutcome
 }
 
+sealed interface PlateInspectionOutcome {
+    /** Every object as placed, in the order the plate listed them. */
+    data class Success(val inspections: List<ModelInspection>) : PlateInspectionOutcome
+
+    data class Failure(val message: String) : PlateInspectionOutcome
+}
+
 enum class BuiltInModel {
     CALIBRATION_CUBE_20_MM,
 }
@@ -110,6 +117,17 @@ sealed interface ModelSource {
 
     data class BuiltIn(val model: BuiltInModel) : ModelSource
 }
+
+/** An object on the plate as the engine loads it. */
+data class PlacedModel(
+    val model: ModelSource,
+    /** The mesh file inspection wrote for the object, which identifies it. */
+    val mesh: ScenePath,
+    /** Where the object stands on the plate: its instance transformation. */
+    val placement: Transform3,
+    /** ModelInstance::auto_drop: off keeps an object above the plate where the user put it. */
+    val autoDrop: Boolean = true,
+)
 
 @JvmInline
 value class OutputPath(val value: String)
@@ -125,15 +143,14 @@ data class SlicingProfileSelection(
 
 data class SliceRequest(
     val jobId: SliceJobId,
-    val model: ModelSource,
+    /** The objects on the plate; those entirely off it are not printed. */
+    val objects: List<PlacedModel>,
     val output: OutputPath,
+    /** Where the engine also writes the G-code's toolpaths for the preview; null writes none. */
+    val toolpaths: ScenePath? = null,
     val printerProfile: ProfileId,
     val filamentProfile: ProfileId,
     val processProfile: ProfileId,
-    /** Where the object stands on the plate; null places it as OrcaSlicer places a new object. */
-    val placement: Transform3? = null,
-    /** ModelInstance::auto_drop: off keeps an object above the plate where the user put it. */
-    val autoDrop: Boolean = true,
 )
 
 enum class SliceStage {
@@ -190,6 +207,8 @@ sealed interface SliceOutcome {
         override val jobId: SliceJobId,
         val gcodePath: OutputPath,
         val statistics: SliceStatistics,
+        /** The requested toolpaths file, or null when none was written. */
+        val toolpaths: ScenePath? = null,
     ) : SliceOutcome
 
     data class Failure(

@@ -36,13 +36,12 @@ class SliceModelUseCase(
     }
 
     private fun validate(request: SliceRequest): String? {
-        val model = request.model
+        val files = request.objects.mapNotNull { (it.model as? ModelSource.LocalFile)?.path?.value }
         return when {
-            model is ModelSource.LocalFile && model.path.value.isBlank() -> "Model path is empty"
+            request.objects.isEmpty() -> "There is nothing to slice"
+            files.any { it.isBlank() } -> "Model path is empty"
             request.output.value.isBlank() -> "Output path is empty"
-            model is ModelSource.LocalFile && model.path.value == request.output.value -> {
-                "Input and output paths must differ"
-            }
+            request.output.value in files -> "Input and output paths must differ"
             request.printerProfile.value.isBlank() -> "Printer profile is empty"
             request.filamentProfile.value.isBlank() -> "Filament profile is empty"
             request.processProfile.value.isBlank() -> "Process profile is empty"

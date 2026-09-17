@@ -43,6 +43,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var bedChanged = false
     private var pendingObjects: List<SceneObject> = emptyList()
     private var objectsChanged = false
+    private var pendingLayer: PlateLayer? = null
+    private var layerChanged = false
+    private var layer: PlateLayer? = null
 
     @Volatile
     private var frame: SceneFrame? = null
@@ -66,12 +69,25 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         objectsChanged = true
     }
 
+    fun setLayer(layer: PlateLayer?) = synchronized(lock) {
+        pendingLayer = layer
+        layerChanged = true
+    }
+
+    /** Frees the layers once the GL thread has ended: the context and its objects went with it. */
+    fun releaseLayers() = synchronized(lock) {
+        layer?.release()
+        if (pendingLayer !== layer) pendingLayer?.release()
+    }
+
     fun setFrame(frame: SceneFrame) {
         this.frame = frame
     }
 
     override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
-        // A new context: names from an earlier one are gone.
+        // A new context: names from an earlier one are gone. The layer forgets
+        // its own before anything here takes their numbers.
+        layer?.onContextCreated()
         programs = Programs(assets)
         gpuBed = null
         gpuObjects.clear()
@@ -110,6 +126,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             renderPlate(programs, bed, frame, bottom)
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         }
+        // GLCanvas3D::_render() for the preview: the G-code after the bed.
+        layer?.draw(frame.view.toFloatArray(), frame.projection)
         renderObjects(programs.gouraud, frame)
         renderSelection(programs.flat, frame)
         frame.gizmo?.let { renderGizmo(programs, it, frame) }
@@ -124,6 +142,11 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             bedChanged = false
             newObjects = if (objectsChanged) pendingObjects else null
             objectsChanged = false
+            if (layerChanged) {
+                if (layer !== pendingLayer) layer?.release()
+                layer = pendingLayer
+                layerChanged = false
+            }
             if (replaceBed) {
                 gpuBed?.release()
                 gpuBed = bed?.let(::GpuBed)

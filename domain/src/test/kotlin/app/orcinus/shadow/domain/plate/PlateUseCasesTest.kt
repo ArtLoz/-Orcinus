@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
@@ -20,9 +21,12 @@ import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateGeometry
+import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateSliceResult
@@ -46,6 +50,7 @@ import app.orcinus.shadow.domain.GetEngineStatusUseCase
 import app.orcinus.shadow.domain.ImportModelUseCase
 import app.orcinus.shadow.domain.InspectModelUseCase
 import app.orcinus.shadow.domain.PlaceModelUseCase
+import app.orcinus.shadow.domain.PlaceModelsUseCase
 import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.SliceProgressListener
@@ -61,6 +66,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,12 +86,12 @@ class PlateUseCasesTest {
         slicePlate(engine, repository)()
 
         val request = checkNotNull(engine.request)
-        assertEquals(ModelSource.BuiltIn(BuiltInModel.CALIBRATION_CUBE_20_MM), request.model)
+        assertEquals(ModelSource.BuiltIn(BuiltInModel.CALIBRATION_CUBE_20_MM), request.objects.single().model)
         assertEquals(OutputPath("/gcode/calibration-cube-20mm.gcode"), request.output)
         assertEquals(PROFILES.process, request.processProfile)
         val state = repository.state.value
         assertNull(state.slicing)
-        assertEquals(CUBE, state.result?.plateObject)
+        assertEquals(listOf(CUBE), state.result?.objects)
         assertEquals(STATISTICS, state.result?.statistics)
     }
 
@@ -97,8 +103,42 @@ class PlateUseCasesTest {
 
         slicePlate(engine, repository)()
 
-        assertEquals(ModelSource.LocalFile(ModelPath("/imports/benchy.stl")), engine.request?.model)
+        assertEquals(ModelSource.LocalFile(ModelPath("/imports/benchy.stl")), engine.request?.objects?.single()?.model)
         assertEquals(OutputPath("/gcode/benchy.gcode"), engine.request?.output)
+    }
+
+    @Test
+    fun `every object on the plate is sliced where it stands, and the G-code is named after the first one the plate prints`() {
+        val benchy = PlateObject.ImportedModel(
+            ImportedModelFile(ModelPath("/imports/benchy.stl"), "benchy.stl"),
+            INSPECTION.copy(mesh = ScenePath("/scene/objects/benchy.mesh"), placement = translated(-100.0, 175.0, 10.0), fit = BuildVolumeFit.OUTSIDE),
+            autoDrop = false,
+        )
+        val cube = CUBE.copy(inspection = INSPECTION.copy(placement = translated(100.0, 120.0, 10.0)))
+        val repository = FakeRepository(readyState(benchy, cube))
+        val engine = FakeEngine()
+
+        slicePlate(engine, repository)()
+
+        val objects = checkNotNull(engine.request).objects
+        assertEquals(
+            listOf(
+                PlacedModel(ModelSource.LocalFile(ModelPath("/imports/benchy.stl")), benchy.inspection.mesh, translated(-100.0, 175.0, 10.0), autoDrop = false),
+                PlacedModel(ModelSource.BuiltIn(BuiltInModel.CALIBRATION_CUBE_20_MM), cube.inspection.mesh, translated(100.0, 120.0, 10.0)),
+            ),
+            objects,
+        )
+        assertEquals(OutputPath("/gcode/calibration-cube-20mm.gcode"), engine.request?.output)
+        assertEquals(listOf(benchy, cube), repository.state.value.result?.objects)
+    }
+
+    @Test
+    fun `a plate is sliced when an object is on it, even with another entirely off it`() {
+        val off = CUBE.copy(inspection = INSPECTION.copy(mesh = ScenePath("/scene/objects/off.mesh"), fit = BuildVolumeFit.OUTSIDE))
+
+        assertTrue(readyState(CUBE, off).canSlice)
+        assertFalse(readyState(off).canSlice)
+        assertFalse(readyState().canSlice)
     }
 
     @Test
@@ -106,7 +146,7 @@ class PlateUseCasesTest {
         val moved = translated(100.0, 120.0, 30.0)
         val dropped = translated(100.0, 120.0, 10.0)
         val inspector = FakeInspector(placed = { INSPECTION.copy(placement = dropped, dimensions = ModelDimensions(20.0, 20.0, 20.0)) })
-        val repository = FakeRepository(readyState(CUBE).copy(result = PlateSliceResult(SliceJobId("old"), CUBE, OutputPath("/gcode/old.gcode"), STATISTICS)))
+        val repository = FakeRepository(readyState(CUBE).copy(result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/old.gcode"), STATISTICS)))
         val engine = FakeEngine()
 
         placePlateObject(inspector, repository)(INSPECTION.mesh, moved)
@@ -116,21 +156,21 @@ class PlateUseCasesTest {
         assertEquals(INSPECTION.placement, inspector.previous)
         assertEquals(Manipulation.Move, inspector.manipulation)
         assertEquals(ModelSource.BuiltIn(BuiltInModel.CALIBRATION_CUBE_20_MM), inspector.inspected.single())
-        assertEquals(dropped, engine.request?.placement)
-        assertEquals(dropped, repository.state.value.plateObject?.inspection?.placement)
-        assertFalse(checkNotNull(repository.state.value.plateObject).placing)
+        assertEquals(dropped, engine.request?.objects?.single()?.placement)
+        assertEquals(dropped, repository.state.value.objects.single().inspection.placement)
+        assertFalse(repository.state.value.objects.single().placing)
     }
 
     @Test
-    fun `auto orient asks OrcaSlicer for the orientation even though the placement stays`() {
-        val oriented = translated(175.0, 175.0, 12.0)
-        val inspector = FakeInspector(placed = { INSPECTION.copy(placement = oriented) })
-        val repository = FakeRepository(readyState(CUBE))
+    fun `a manipulation of one object leaves the others as they are`() {
+        val other = CUBE.copy(inspection = INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh"), placement = translated(250.0, 175.0, 10.0)))
+        val inspector = FakeInspector()
+        val repository = FakeRepository(readyState(CUBE, other))
 
-        placePlateObject(inspector, repository)(INSPECTION.mesh, INSPECTION.placement, Manipulation.AutoOrient)
+        placePlateObject(inspector, repository)(INSPECTION.mesh, translated(100.0, 120.0, 10.0))
 
-        assertEquals(Manipulation.AutoOrient, inspector.manipulation)
-        assertEquals(oriented, repository.state.value.plateObject?.inspection?.placement)
+        assertEquals(translated(100.0, 120.0, 10.0), repository.state.value.objects.first().inspection.placement)
+        assertEquals(other, repository.state.value.objects.last())
     }
 
     @Test
@@ -145,22 +185,22 @@ class PlateUseCasesTest {
         place(INSPECTION.mesh, lifted)
 
         assertEquals(false, inspector.autoDrop)
-        assertFalse(checkNotNull(repository.state.value.plateObject).autoDrop)
+        assertFalse(repository.state.value.objects.single().autoDrop)
 
         setAutoDrop(INSPECTION.mesh, true)
 
         assertEquals(Manipulation.EnsureOnBed, inspector.manipulation)
         assertEquals(true, inspector.autoDrop)
-        assertTrue(checkNotNull(repository.state.value.plateObject).autoDrop)
+        assertTrue(repository.state.value.objects.single().autoDrop)
     }
 
     @Test
     fun `a placement that settles where the object stood keeps its G-code`() {
-        val result = PlateSliceResult(SliceJobId("old"), CUBE, OutputPath("/gcode/old.gcode"), STATISTICS)
+        val result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/old.gcode"), STATISTICS)
         val inspector = FakeInspector(placed = { INSPECTION })
         val repository = FakeRepository(readyState(CUBE).copy(result = result))
 
-        placePlateObject(inspector, repository)(INSPECTION.mesh, INSPECTION.placement, Manipulation.AutoOrient)
+        placePlateObject(inspector, repository)(INSPECTION.mesh, INSPECTION.placement, Manipulation.ResetRotation)
 
         assertEquals(result, repository.state.value.result)
     }
@@ -178,13 +218,13 @@ class PlateUseCasesTest {
     @Test
     fun `the plate is not sliced until OrcaSlicer confirms the new placement`() {
         val inspector = FakeInspector(placed = null)
-        val repository = FakeRepository(readyState(CUBE).copy(result = PlateSliceResult(SliceJobId("old"), CUBE, OutputPath("/gcode/old.gcode"), STATISTICS)))
+        val repository = FakeRepository(readyState(CUBE).copy(result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/old.gcode"), STATISTICS)))
 
         placePlateObject(inspector, repository)(INSPECTION.mesh, translated(100.0, 120.0, 10.0))
 
         val state = repository.state.value
-        assertTrue(checkNotNull(state.plateObject).placing)
-        assertEquals(translated(100.0, 120.0, 10.0), state.plateObject?.inspection?.placement)
+        assertTrue(state.objects.single().placing)
+        assertEquals(translated(100.0, 120.0, 10.0), state.objects.single().inspection.placement)
         assertNull(state.result)
         assertFalse(state.canSlice)
     }
@@ -192,13 +232,14 @@ class PlateUseCasesTest {
     @Test
     fun `an object across the plate boundary cannot be sliced`() {
         val inspector = FakeInspector(placed = { INSPECTION.copy(placement = it, fit = BuildVolumeFit.PARTLY_OUTSIDE) })
-        val repository = FakeRepository(readyState(CUBE))
+        val other = CUBE.copy(inspection = INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val repository = FakeRepository(readyState(CUBE, other))
         val engine = FakeEngine()
 
         placePlateObject(inspector, repository)(INSPECTION.mesh, translated(0.0, 175.0, 10.0))
         slicePlate(engine, repository)()
 
-        assertEquals(BuildVolumeFit.PARTLY_OUTSIDE, repository.state.value.plateObject?.inspection?.fit)
+        assertEquals(BuildVolumeFit.PARTLY_OUTSIDE, repository.state.value.objects.first().inspection.fit)
         assertFalse(repository.state.value.canSlice)
         assertNull(engine.request)
     }
@@ -212,7 +253,7 @@ class PlateUseCasesTest {
 
         val state = repository.state.value
         assertEquals(PlateProblemKind.PLACEMENT_FAILED, state.problem?.kind)
-        assertFalse(checkNotNull(state.plateObject).placing)
+        assertFalse(state.objects.single().placing)
     }
 
     @Test
@@ -222,7 +263,7 @@ class PlateUseCasesTest {
 
         placePlateObject(inspector, repository)(INSPECTION.mesh, translated(100.0, 120.0, 10.0))
 
-        assertEquals(CUBE, repository.state.value.plateObject)
+        assertEquals(listOf(CUBE), repository.state.value.objects)
         assertTrue(inspector.placements.isEmpty())
     }
 
@@ -231,10 +272,121 @@ class PlateUseCasesTest {
         val inspector = FakeInspector()
         val repository = FakeRepository(readyState(CUBE))
 
-        placePlateObject(inspector, repository)(ScenePath("/scene/objects/replaced.mesh"), translated(100.0, 120.0, 10.0))
+        placePlateObject(inspector, repository)(ScenePath("/scene/objects/deleted.mesh"), translated(100.0, 120.0, 10.0))
 
-        assertEquals(CUBE, repository.state.value.plateObject)
+        assertEquals(listOf(CUBE), repository.state.value.objects)
         assertTrue(inspector.placements.isEmpty())
+    }
+
+    @Test
+    fun `arranging places every object as OrcaSlicer answers and drops the old G-code`() {
+        val other = CUBE.copy(inspection = INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val settings = ArrangeSettings(distance = 6.0)
+        val inspector = FakeInspector(placedObjects = { plate -> plate.mapIndexed { index, placed -> INSPECTION.copy(mesh = placed.mesh, placement = translated(150.0 + 50.0 * index, 175.0, 10.0)) } })
+        val repository = FakeRepository(readyState(CUBE, other).copy(result = PlateSliceResult(SliceJobId("old"), listOf(CUBE, other), OutputPath("/gcode/old.gcode"), STATISTICS)))
+
+        placePlateObjects(inspector, repository)(PlateManipulation.Arrange(settings))
+
+        assertEquals(PlateManipulation.Arrange(settings), inspector.plateManipulation)
+        assertEquals(listOf(CUBE.inspection.mesh, other.inspection.mesh), inspector.plate.map(PlacedModel::mesh))
+        val state = repository.state.value
+        assertEquals(listOf(translated(150.0, 175.0, 10.0), translated(200.0, 175.0, 10.0)), state.objects.map { it.inspection.placement })
+        assertTrue(state.objects.none(PlateObject::placing))
+        assertNull(state.result)
+    }
+
+    @Test
+    fun `auto orient with a selected object places only that object`() {
+        val other = CUBE.copy(inspection = INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val inspector = FakeInspector(placedObjects = null)
+        val repository = FakeRepository(readyState(CUBE, other))
+
+        placePlateObjects(inspector, repository)(PlateManipulation.AutoOrient(setOf(other.inspection.mesh)))
+
+        assertEquals(listOf(false, true), repository.state.value.objects.map(PlateObject::placing))
+        assertEquals(2, inspector.plate.size)
+    }
+
+    @Test
+    fun `auto orient with nothing selected places every object`() {
+        val other = CUBE.copy(inspection = INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val inspector = FakeInspector(placedObjects = null)
+        val repository = FakeRepository(readyState(CUBE, other))
+
+        placePlateObjects(inspector, repository)(PlateManipulation.AutoOrient())
+
+        assertEquals(listOf(true, true), repository.state.value.objects.map(PlateObject::placing))
+    }
+
+    @Test
+    fun `an object moved while the plate is arranged keeps the placement the user gave it`() {
+        val other = CUBE.copy(inspection = INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val answer = CompletableDeferred<PlateInspectionOutcome>()
+        val inspector = FakeInspector(arranged = answer)
+        val repository = FakeRepository(readyState(CUBE, other))
+
+        placePlateObjects(inspector, repository)(PlateManipulation.Arrange(ArrangeSettings()))
+        placePlateObject(inspector, repository)(INSPECTION.mesh, translated(60.0, 60.0, 10.0))
+        answer.complete(
+            PlateInspectionOutcome.Success(
+                listOf(
+                    INSPECTION.copy(placement = translated(150.0, 175.0, 10.0)),
+                    other.inspection.copy(placement = translated(200.0, 175.0, 10.0)),
+                ),
+            ),
+        )
+
+        val state = repository.state.value
+        assertEquals(listOf(translated(60.0, 60.0, 10.0), translated(200.0, 175.0, 10.0)), state.objects.map { it.inspection.placement })
+        assertTrue(state.objects.none(PlateObject::placing))
+    }
+
+    @Test
+    fun `no job places the plate while a placement is unsettled`() {
+        val inspector = FakeInspector(placed = null)
+        val repository = FakeRepository(readyState(CUBE))
+
+        placePlateObject(inspector, repository)(INSPECTION.mesh, translated(100.0, 120.0, 10.0))
+        placePlateObjects(inspector, repository)(PlateManipulation.Arrange(ArrangeSettings()))
+
+        assertNull(inspector.plateManipulation)
+    }
+
+    @Test
+    fun `a job OrcaSlicer rejects is reported and leaves the objects where they were`() {
+        val inspector = FakeInspector(arranged = CompletableDeferred(PlateInspectionOutcome.Failure("no room")))
+        val repository = FakeRepository(readyState(CUBE))
+
+        placePlateObjects(inspector, repository)(PlateManipulation.Arrange(ArrangeSettings()))
+
+        val state = repository.state.value
+        assertEquals(listOf(CUBE), state.objects)
+        assertEquals(PlateProblemKind.PLACEMENT_FAILED, state.problem?.kind)
+        assertEquals("no room", state.problem?.detail)
+    }
+
+    @Test
+    fun `deleting an object takes it and its mesh off the plate and drops the G-code`() {
+        val other = CUBE.copy(inspection = INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val repository = FakeRepository(readyState(CUBE, other).copy(result = PlateSliceResult(SliceJobId("old"), listOf(CUBE, other), OutputPath("/gcode/old.gcode"), STATISTICS)))
+        val files = FakeSceneFiles()
+
+        DeletePlateObjectUseCase(files, repository)(CUBE.inspection.mesh)
+
+        assertEquals(listOf(other), repository.state.value.objects)
+        assertNull(repository.state.value.result)
+        assertEquals(listOf(CUBE.inspection.mesh), files.deleted)
+    }
+
+    @Test
+    fun `nothing is deleted while slicing`() {
+        val repository = FakeRepository(readyState(CUBE).copy(slicing = PlateSlicing(SliceJobId("job"))))
+        val files = FakeSceneFiles()
+
+        DeletePlateObjectUseCase(files, repository)(CUBE.inspection.mesh)
+
+        assertEquals(listOf(CUBE), repository.state.value.objects)
+        assertTrue(files.deleted.isEmpty())
     }
 
     @Test
@@ -253,7 +405,7 @@ class PlateUseCasesTest {
 
     @Test
     fun `nothing is sliced before the engine is ready`() {
-        val repository = FakeRepository(PlateState(PROFILES, plateObject = CUBE))
+        val repository = FakeRepository(PlateState(PROFILES, objects = listOf(CUBE)))
         val engine = FakeEngine()
 
         slicePlate(engine, repository)()
@@ -265,12 +417,29 @@ class PlateUseCasesTest {
     @Test
     fun `an engine crash is reported as its own problem`() {
         val repository = FakeRepository(readyState(CUBE))
-        val engine = FakeEngine(outcome = { SliceOutcome.Failure(it, SliceFailureCode.ENGINE_CRASHED, "died", recoverable = true) })
+        val engine = FakeEngine(outcome = { SliceOutcome.Failure(it.jobId, SliceFailureCode.ENGINE_CRASHED, "died", recoverable = true) })
+        val files = FakeSceneFiles()
 
-        slicePlate(engine, repository)()
+        slicePlate(engine, repository, files)()
 
         assertEquals(PlateProblemKind.ENGINE_CRASHED, repository.state.value.problem?.kind)
         assertNull(repository.state.value.result)
+        assertNull(files.keptToolpaths)
+    }
+
+    @Test
+    fun `a slice keeps its toolpaths for the preview and deletes those of earlier results`() {
+        val old = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/old.gcode"), STATISTICS, ScenePath("/scene/toolpaths/old.toolpaths"))
+        val repository = FakeRepository(readyState(CUBE).copy(result = old))
+        val engine = FakeEngine()
+        val files = FakeSceneFiles()
+
+        slicePlate(engine, repository, files)()
+
+        val toolpaths = files.toolpaths.single()
+        assertEquals(toolpaths, engine.request?.toolpaths)
+        assertEquals(toolpaths, repository.state.value.result?.toolpaths)
+        assertEquals(toolpaths, files.keptToolpaths)
     }
 
     @Test
@@ -286,8 +455,9 @@ class PlateUseCasesTest {
     }
 
     @Test
-    fun `an imported document goes on the plate as Orca placed it and replaces the previous mesh`() {
-        val repository = FakeRepository(readyState(CUBE))
+    fun `an imported document joins the objects on the plate, placed among them by OrcaSlicer`() {
+        val result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/old.gcode"), STATISTICS)
+        val repository = FakeRepository(readyState(CUBE).copy(result = result))
         val file = ImportedModelFile(ModelPath("/imports/a.stl"), "a.stl")
         val inspector = FakeInspector()
         val files = FakeSceneFiles()
@@ -296,23 +466,28 @@ class PlateUseCasesTest {
 
         val state = repository.state.value
         assertFalse(state.importing)
-        val placed = state.plateObject as PlateObject.ImportedModel
+        assertEquals(2, state.objects.size)
+        assertEquals(CUBE, state.objects.first())
+        val placed = state.objects.last() as PlateObject.ImportedModel
         assertEquals(file, placed.file)
         assertEquals(ModelSource.LocalFile(file.path), inspector.inspected.single())
         assertEquals(PROFILES, inspector.profiles)
+        assertEquals(listOf(PlacedModel(ModelSource.BuiltIn(BuiltInModel.CALIBRATION_CUBE_20_MM), CUBE.inspection.mesh, CUBE.inspection.placement)), inspector.plate)
         assertEquals(files.created.single(), placed.inspection.mesh)
-        assertEquals(listOf(CUBE.inspection.mesh), files.deleted)
+        assertTrue(files.deleted.isEmpty())
+        assertNull(state.result)
     }
 
     @Test
     fun `the calibration cube is loaded by the engine`() {
-        val repository = FakeRepository(readyState(null))
+        val repository = FakeRepository(readyState())
         val inspector = FakeInspector()
 
         AddCalibrationCubeToPlateUseCase(InspectModelUseCase(inspector), FakeSceneFiles(), repository, scope)()
 
         assertEquals(ModelSource.BuiltIn(BuiltInModel.CALIBRATION_CUBE_20_MM), inspector.inspected.single())
-        assertIsCube(repository.state.value.plateObject)
+        assertTrue(inspector.plate.isEmpty())
+        assertIsCube(repository.state.value.objects.single())
     }
 
     @Test
@@ -324,7 +499,7 @@ class PlateUseCasesTest {
 
         val state = repository.state.value
         assertFalse(state.importing)
-        assertEquals(CUBE, state.plateObject)
+        assertEquals(listOf(CUBE), state.objects)
         assertEquals(PlateProblemKind.IMPORT_FAILED, state.problem?.kind)
         assertEquals("empty", state.problem?.detail)
         assertTrue(files.deleted.isEmpty())
@@ -339,7 +514,7 @@ class PlateUseCasesTest {
         addModel(repository, ModelImportOutcome.Success(file), FakeInspector(ModelInspectionOutcome.Failure("no facets")), files)(REFERENCE)
 
         val state = repository.state.value
-        assertEquals(CUBE, state.plateObject)
+        assertEquals(listOf(CUBE), state.objects)
         assertEquals("no facets", state.problem?.detail)
         assertEquals(files.created, files.deleted)
     }
@@ -381,9 +556,10 @@ class PlateUseCasesTest {
         assertNull(state.plate)
     }
 
-    private fun slicePlate(engine: FakeEngine, repository: PlateRepository) = SlicePlateUseCase(
+    private fun slicePlate(engine: FakeEngine, repository: PlateRepository, files: FakeSceneFiles = FakeSceneFiles()) = SlicePlateUseCase(
         sliceModel = SliceModelUseCase(engine),
         outputs = GcodeOutputs { OutputPath("/gcode/$it.gcode") },
+        sceneFiles = files,
         repository = repository,
         applicationScope = scope,
     )
@@ -406,13 +582,16 @@ class PlateUseCasesTest {
     private fun placePlateObject(inspector: FakeInspector, repository: FakeRepository) =
         PlacePlateObjectUseCase(PlaceModelUseCase(inspector), repository, scope)
 
+    private fun placePlateObjects(inspector: FakeInspector, repository: FakeRepository) =
+        PlacePlateObjectsUseCase(PlaceModelsUseCase(inspector), repository, scope)
+
     private fun translated(x: Double, y: Double, z: Double) =
         Transform3(INSPECTION.placement.columns.toMutableList().also { it[12] = x; it[13] = y; it[14] = z })
 
-    private fun readyState(plateObject: PlateObject?) = PlateState(
+    private fun readyState(vararg objects: PlateObject) = PlateState(
         profiles = PROFILES,
         engine = EngineState(EngineAvailability.READY, EngineVersion("orca")),
-        plateObject = plateObject,
+        objects = objects.toList(),
     )
 
     private fun <T> runSuspend(block: suspend () -> T): T {
@@ -436,20 +615,27 @@ class PlateUseCasesTest {
         private val outcome: ModelInspectionOutcome? = null,
         /** The placed object for a placement; null leaves the call suspended. */
         private val placed: ((Transform3) -> ModelInspection)? = { INSPECTION.copy(placement = it) },
+        /** The placed objects for a job; null leaves the call suspended. */
+        private val placedObjects: ((List<PlacedModel>) -> List<ModelInspection>)? = { plate -> plate.map { INSPECTION.copy(mesh = it.mesh, placement = it.placement) } },
+        /** When set, the answer to a job, once completed. */
+        private val arranged: CompletableDeferred<PlateInspectionOutcome>? = null,
     ) : PlateInspector {
         val inspected = mutableListOf<ModelSource>()
         val placements = mutableListOf<Transform3>()
+        var plate: List<PlacedModel> = emptyList()
         var previous: Transform3? = null
         var autoDrop: Boolean? = null
         var manipulation: Manipulation? = null
+        var plateManipulation: PlateManipulation? = null
         var profiles: SlicingProfileSelection? = null
 
         override suspend fun describePlate(profiles: SlicingProfileSelection, directory: ScenePath) =
             PlateDescriptionOutcome.Success(PLATE)
 
-        override suspend fun inspect(model: ModelSource, profiles: SlicingProfileSelection, mesh: ScenePath): ModelInspectionOutcome {
+        override suspend fun inspect(model: ModelSource, profiles: SlicingProfileSelection, mesh: ScenePath, plate: List<PlacedModel>): ModelInspectionOutcome {
             inspected += model
             this.profiles = profiles
+            this.plate = plate
             return outcome ?: ModelInspectionOutcome.Success(INSPECTION.copy(mesh = mesh))
         }
 
@@ -469,6 +655,18 @@ class PlateUseCasesTest {
             this.manipulation = manipulation
             val place = placed ?: return suspendCancellableCoroutine { }
             return ModelInspectionOutcome.Success(place(placement).copy(mesh = mesh))
+        }
+
+        override suspend fun placeObjects(
+            plate: List<PlacedModel>,
+            profiles: SlicingProfileSelection,
+            manipulation: PlateManipulation,
+        ): PlateInspectionOutcome {
+            this.plate = plate
+            plateManipulation = manipulation
+            arranged?.let { return it.await() }
+            val place = placedObjects ?: return suspendCancellableCoroutine { }
+            return PlateInspectionOutcome.Success(place(plate))
         }
 
         override suspend fun flatteningPlanes(
@@ -495,12 +693,21 @@ class PlateUseCasesTest {
         override fun deleteAllObjectMeshes() {
             clearedObjects = true
         }
+
+        val toolpaths = mutableListOf<ScenePath>()
+        var keptToolpaths: ScenePath? = ScenePath("never cleaned")
+
+        override fun newToolpaths() = ScenePath("/scene/toolpaths/${toolpaths.size}.toolpaths").also(toolpaths::add)
+
+        override fun deleteToolpathsExcept(keep: ScenePath?) {
+            keptToolpaths = keep
+        }
     }
 
     private class FakeEngine(
         private val status: EngineStatus = EngineStatus(EngineVersion("orca"), ready = true),
         private val onSlice: (SliceRequest, SliceProgressListener) -> Unit = { _, _ -> },
-        private val outcome: (SliceJobId) -> SliceOutcome = { SliceOutcome.Success(it, OutputPath("/gcode/out.gcode"), STATISTICS) },
+        private val outcome: (SliceRequest) -> SliceOutcome = { SliceOutcome.Success(it.jobId, OutputPath("/gcode/out.gcode"), STATISTICS, it.toolpaths) },
     ) : SlicerEngine {
         var request: SliceRequest? = null
         var cancelled: SliceJobId? = null
@@ -510,7 +717,7 @@ class PlateUseCasesTest {
         override suspend fun slice(request: SliceRequest, progressListener: SliceProgressListener): SliceOutcome {
             this.request = request
             onSlice(request, progressListener)
-            return outcome(request.jobId)
+            return outcome(request)
         }
 
         override suspend fun cancel(jobId: SliceJobId): Boolean {

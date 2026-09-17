@@ -54,6 +54,8 @@ struct SliceResult {
     std::int64_t layer_count{0};
     std::int64_t estimated_print_time_seconds{0};
     std::int64_t filament_micrometers{0};
+    // The toolpaths file was written for the G-code viewer.
+    bool toolpaths_written{false};
 };
 
 // Receives Orca's slicing status: percent in [0, 100] and its status text.
@@ -67,17 +69,27 @@ struct ObjectPlacement {
     bool auto_drop{true};
 };
 
-// Slices an STL file, or the built-in 20 mm calibration cube when model_path is
-// empty, and writes G-code to output_path only after a complete export.
-// placement is the instance as inspect_model() reports it and the user may have
-// changed it; with an empty matrix the object is placed as the desktop app
-// places a new object.
+// An object on the plate: the STL file it is loaded from, empty for the
+// built-in 20 mm calibration cube, and where it stands. With an empty matrix
+// the object is placed as the desktop app places an object added to the plate
+// that holds the objects before it.
+struct PlateObject {
+    std::string model_path;
+    ObjectPlacement placement;
+};
+
+// Slices the objects of the plate and writes G-code to output_path only after
+// a complete export. Placements are the instances as inspect_model() and
+// place_model() report them and the user may have changed them; objects
+// entirely off the plate are not printed. Unless toolpaths_path is empty, the
+// G-code's toolpaths are written there for libvgcode as well
+// (toolpaths_file.hpp in :render:gcode).
 SliceResult slice(
     const std::string& job_id,
-    const std::string& model_path,
+    const std::vector<PlateObject>& objects,
     const std::string& output_path,
+    const std::string& toolpaths_path,
     const ProfileSelection& profiles,
-    const ObjectPlacement& placement,
     const ProgressCallback& on_progress
 );
 
@@ -175,15 +187,21 @@ enum class Manipulation : std::int64_t {
     // GizmoObjectManipulation::reset_rotation_value(false): no rotation, same
     // offset and scale; then do_rotate().
     reset_rotation = 3,
-    // OrientJob: auto orient for the least support area, resting on the plate.
-    auto_orient = 4,
     // GLGizmoFlatten: the face with face_normal turns down (Selection::flattening_rotate)
     // and the object rests on the plate.
-    lay_on_face = 5,
-    // ArrangeJob for every object on the plate, with the arrange settings.
-    arrange = 6,
+    lay_on_face = 4,
     // ObjectList::toggle_auto_drop() turning auto drop on: ModelObject::ensure_on_bed().
-    ensure_on_bed = 7,
+    ensure_on_bed = 5,
+};
+
+// How the desktop app's jobs place several objects of the plate at once.
+enum class PlateManipulation : std::int64_t {
+    // OrientJob from the toolbar: the selected objects, or every object when
+    // none is selected, turn for the least support area and rest on the plate.
+    auto_orient = 0,
+    // ArrangeJob from the arrange options (prepare_all): every object arranged
+    // on the plate with the arrange settings.
+    arrange = 1,
 };
 
 // GLCanvas3D::ArrangeSettings for FFF printers, as the arrange options window sets them.
@@ -215,16 +233,22 @@ struct FlatteningPlanes {
 FlatteningPlanes describe_flattening_planes(const std::string& model_path, const ProfileSelection& profiles, const std::vector<double>& placement);
 
 // Loads an STL file, or the built-in 20 mm calibration cube when model_path is
-// empty, places it on the plate of the selected printer exactly as slice()
-// does, and writes its mesh in object coordinates to mesh_path.
-ModelInspection inspect_model(const std::string& model_path, const ProfileSelection& profiles, const std::string& mesh_path);
+// empty, places it as the desktop app places an object added to the plate that
+// holds plate (Plater::priv::load_model_objects), and writes its mesh in object
+// coordinates to mesh_path. Models read stay loaded while their objects are
+// on the plate, so placing and slicing an object does not read its file again.
+ModelInspection inspect_model(
+    const std::string& model_path,
+    const ProfileSelection& profiles,
+    const std::string& mesh_path,
+    const std::vector<PlateObject>& plate
+);
 
 // Commits a manipulation of the object of model_path, which stood at
 // previous_placement, to the instance transformation placement (both
 // column-major 4 x 4), as the desktop app does. With auto_drop off
-// (ModelInstance::auto_drop) the object is never moved onto the plate. Reports the placed object
-// without writing its mesh. The last model read is kept, so manipulating an
-// object does not read its file again.
+// (ModelInstance::auto_drop) the object is never moved onto the plate. Reports
+// the placed object without writing its mesh.
 ModelInspection place_model(
     const std::string& model_path,
     const ProfileSelection& profiles,
@@ -232,7 +256,23 @@ ModelInspection place_model(
     const std::vector<double>& placement,
     bool auto_drop,
     Manipulation manipulation,
-    const std::array<double, 3>& face_normal,
+    const std::array<double, 3>& face_normal
+);
+
+struct PlateInspection {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    // Every object of the plate as placed, in the plate's order.
+    std::vector<ModelInspection> objects;
+};
+
+// Commits a manipulation of the objects of plate as the desktop app's job does.
+// selected marks the objects auto orient turns, one flag per object.
+PlateInspection place_objects(
+    const std::vector<PlateObject>& plate,
+    const std::vector<bool>& selected,
+    const ProfileSelection& profiles,
+    PlateManipulation manipulation,
     const ArrangeSettings& arrange_settings
 );
 

@@ -5,13 +5,16 @@ import app.orcinus.shadow.core.model.EngineVersion
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStatistics
+import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlin.coroutines.Continuation
@@ -34,6 +37,17 @@ class SliceModelUseCaseTest {
         val failure = assertIs<SliceOutcome.Failure>(outcome)
         assertEquals(SliceFailureCode.INVALID_REQUEST, failure.code)
         assertEquals(JOB_ID, failure.jobId)
+        assertFalse(engine.sliceCalled)
+    }
+
+    @Test
+    fun `a request without objects is rejected before calling engine`() {
+        val engine = FakeEngine()
+        val outcome = runSuspend {
+            SliceModelUseCase(engine)(request().copy(objects = emptyList()), SliceProgressObserver {})
+        }
+
+        assertEquals(SliceFailureCode.INVALID_REQUEST, assertIs<SliceOutcome.Failure>(outcome).code)
         assertFalse(engine.sliceCalled)
     }
 
@@ -96,7 +110,9 @@ class SliceModelUseCaseTest {
         outputPath: String = "/output/cube.gcode",
     ) = SliceRequest(
         jobId = JOB_ID,
-        model = ModelSource.LocalFile(ModelPath(modelPath)),
+        objects = listOf(
+            PlacedModel(ModelSource.LocalFile(ModelPath(modelPath)), ScenePath("/scene/objects/cube.mesh"), Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 })),
+        ),
         output = OutputPath(outputPath),
         printerProfile = ProfileId("printer"),
         filamentProfile = ProfileId("filament"),

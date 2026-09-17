@@ -6,10 +6,21 @@ add_library(orca_engine_adapter STATIC
     android_log_sink.cpp
     nanosvg.cpp
     orca_engine_adapter.cpp
+    # libvgcode::convert() from GCodeProcessorResult, as the desktop preview loads G-code.
+    "${LIBDIR}/slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp"
 )
 target_include_directories(orca_engine_adapter PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
+# LibVGCodeWrapper.hpp includes libvgcode relative to src/slic3r, and
+# slic3r/GUI/GUI_Preview.hpp, a wxWidgets panel it does not use: its include
+# guard is defined so the header is skipped.
+target_include_directories(orca_engine_adapter PRIVATE "${LIBDIR}/slic3r")
+target_compile_definitions(orca_engine_adapter PRIVATE slic3r_GUI_Preview_hpp_)
 find_library(android_log_library log REQUIRED)
-target_link_libraries(orca_engine_adapter PUBLIC libslic3r PRIVATE boost_libs CGAL::CGAL nanosvg PNG::PNG ${android_log_library})
+target_link_libraries(
+    orca_engine_adapter
+    PUBLIC libslic3r
+    PRIVATE boost_libs CGAL::CGAL nanosvg PNG::PNG libvgcode orcinus_toolpaths_file ${android_log_library}
+)
 
 add_library(orcinus_engine SHARED native_bridge.cpp)
 target_link_libraries(orcinus_engine PRIVATE orca_engine_adapter)

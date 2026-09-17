@@ -15,12 +15,18 @@
 | `CMakeLists.txt` | Аналог верхнего `CMakeLists.txt` Orca: флаги, поиск пакетов, `deps_src`, `libslic3r`, тесты. |
 | `cmake/OrcaSourceLists.cmake` | Читает списки исходников из CMake самой Orca. |
 | `CMakePresets.json` | Пресет `android-arm64`: один набор настроек для `engine.ps1` и Gradle. |
+| `patches/` | Заплатки к исходникам Orca, которые без них не собираются для Android; накладываются на копию в `build/`, см. отличия. |
 
 Сюда же подключается `slicing/native/src/main/cpp`: JNI-библиотека приложения
 `liborcinus_engine.so`, её тест `orca_engine_adapter_tests` и консольная
 `orca_engine_slice` для сравнения с desktop OrcaSlicer
 (`slicing/native/src/test/cpp`, [`docs/golden-comparison.md`](../docs/golden-comparison.md)). Gradle-задача `:slicing:native:buildOrcaEngine`
 собирает `orcinus_engine` через пресет и упаковывает его в APK.
+
+И `render/gcode/src/main/cpp`: `liborcinus_toolpaths.so`, просмотрщик G-code
+Orca (`src/libvgcode`) в варианте OpenGL ES с JNI-мостом. Он работает в
+процессе интерфейса и не линкует `libslic3r`; ядро пишет для него файл
+траекторий. Его собирает и упаковывает `:render:gcode:buildOrcaToolpaths`.
 
 Результаты сборки лежат в `engine/build/` (не в git): `deps-arm64/prefix`
 (зависимости), `engine-arm64` (ядро и тесты), `tools/msys64`, `downloads`.
@@ -62,10 +68,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\golden.ps1
 | `-ffp-contract=off` | Без него Clang на AArch64 объединяет `a*b+c` в FMA и последние знаки координат расходятся с x86-64. |
 | PCH через `target_precompile_headers` | Тот же `pchheader.hpp`, стандартный механизм CMake вместо модуля Orca. |
 | `liborcinus_engine.so` линкуется с `-Wl,--exclude-libs,ALL` | Наружу видны только JNI-функции; код, недостижимый из JNI, удаляется, как в исполняемых файлах. Например, импорт SVG, реализацию nanosvg для которого собирает desktop GUI. |
+| `libvgcode` собирается в варианте OpenGL ES с заплаткой `patches/libvgcode-opengl-es.patch` | Orca собирает `libvgcode` только для desktop OpenGL, и её ES-вариант не компилируется ни в v2.4.2, ни в `main` на сентябрь 2026: данные вершин переведены на четыре числа (`GL_RGBA32F`, SPE-2411), а ES-текстуры принимают три. Заплатка (около 12 строк в `ViewerImpl`) делает то же, что позже сделал PrusaSlicer. Сабмодуль не меняется: CMake копирует `src/libvgcode` в `build/engine-arm64/libvgcode-src` и накладывает заплатку `git apply`, как Orca накладывает патчи на зависимости. Когда исправление появится в Orca, заплатка удаляется. Загрузчик glad берёт `eglGetProcAddress` из системного EGL (`GLAD_GLES2_USE_SYSTEM_EGL`) вместо отсутствующего `glad/egl.h`. |
+| В ядро собирается `slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp` из desktop GUI | Его `libvgcode::convert()` переводит результат `GCodeProcessor` во входные данные просмотрщика. Заголовок подключает панель `GUI_Preview.hpp` (wxWidgets), которую `convert()` не использует; её include guard определяется флагом компиляции, и заголовок пропускается. |
 
-Исходники Orca и её рецепты не изменяются. Если при обновлении Orca исчезнет
-исключённый файл или изменится формат списка, конфигурация остановится с
-сообщением.
+Исходники Orca и её рецепты в сабмодуле не изменяются. Если при обновлении
+Orca исчезнет исключённый файл, изменится формат списка или заплатка перестанет
+накладываться, конфигурация остановится с сообщением.
 
 ## Известная ошибка в тестах Orca v2.4.2
 

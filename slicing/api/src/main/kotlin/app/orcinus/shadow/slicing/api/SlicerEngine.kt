@@ -5,7 +5,10 @@ import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
+import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
@@ -49,8 +52,16 @@ interface PlateInspector {
     /** Describes the plate and writes its bed model and texture into [directory]. */
     suspend fun describePlate(profiles: SlicingProfileSelection, directory: ScenePath): PlateDescriptionOutcome
 
-    /** Loads and places [model] and writes its mesh to [mesh]. */
-    suspend fun inspect(model: ModelSource, profiles: SlicingProfileSelection, mesh: ScenePath): ModelInspectionOutcome
+    /**
+     * Loads [model], writes its mesh to [mesh], and places it as OrcaSlicer
+     * places an object added to the plate that already holds [plate].
+     */
+    suspend fun inspect(
+        model: ModelSource,
+        profiles: SlicingProfileSelection,
+        mesh: ScenePath,
+        plate: List<PlacedModel>,
+    ): ModelInspectionOutcome
 
     /**
      * Commits [manipulation] of [model], whose mesh is in [mesh], from
@@ -67,6 +78,13 @@ interface PlateInspector {
         autoDrop: Boolean,
         manipulation: Manipulation,
     ): ModelInspectionOutcome
+
+    /** Commits [manipulation] of the objects on the plate, [plate], and reports every object as placed. */
+    suspend fun placeObjects(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        manipulation: PlateManipulation,
+    ): PlateInspectionOutcome
 
     /** The faces [model], whose mesh is in [mesh], can lie on with the instance transformation [placement]. */
     suspend fun flatteningPlanes(

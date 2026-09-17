@@ -63,6 +63,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaGizmoPanel
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
+import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
+import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
@@ -114,6 +116,7 @@ internal fun PrepareRoute(
         onSelectObject = viewModel::selectObject,
         onPlaceObject = viewModel::placeObject,
         onSetAutoDrop = viewModel::setAutoDrop,
+        onDeleteObject = viewModel::deleteObject,
         onToggleGizmo = viewModel::toggleGizmo,
         onCloseGizmo = viewModel::closeGizmo,
         onSetPosition = viewModel::setPosition,
@@ -158,6 +161,7 @@ internal fun PrepareScreen(
     onSelectObject: (Int?) -> Unit,
     onPlaceObject: (Int, Transform3, Manipulation) -> Unit,
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
+    onDeleteObject: (index: Int) -> Unit,
     onToggleGizmo: (PlateGizmo) -> Unit,
     onCloseGizmo: () -> Unit,
     onSetPosition: (axis: Int, value: Double) -> Unit,
@@ -187,7 +191,7 @@ internal fun PrepareScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        objectMenu?.let { menu -> ObjectContextMenu(state, menu, onDismiss = { objectMenu = null }, onSetAutoDrop) }
+        objectMenu?.let { menu -> ObjectContextMenu(state, menu, onDismiss = { objectMenu = null }, onSetAutoDrop, onDeleteObject) }
         // The canvas runs under the system bars; its controls stay clear of them.
         Box(
             Modifier
@@ -227,7 +231,7 @@ internal fun PrepareScreen(
                     )
                 }
 
-                state.plate != null && state.plateObject == null -> Text(
+                state.plate != null && state.sceneObjects.isEmpty() -> Text(
                     text = stringResource(R.string.empty_plate),
                     color = OrcaTheme.colors.textSide,
                     style = OrcaTheme.typography.body14,
@@ -255,8 +259,8 @@ internal fun PrepareScreen(
 private data class ObjectMenu(val index: Int, val position: Offset)
 
 /**
- * MenuFactory::create_object_menu() for an object on the plate, with the items
- * the app supports so far.
+ * MenuFactory::create_extra_object_menu() for an object on the plate, with the
+ * items the app supports so far, in its order.
  */
 @Composable
 private fun ObjectContextMenu(
@@ -264,6 +268,7 @@ private fun ObjectContextMenu(
     menu: ObjectMenu,
     onDismiss: () -> Unit,
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
+    onDeleteObject: (index: Int) -> Unit,
 ) {
     val target = state.sceneObjects.getOrNull(menu.index)
     OrcaContextMenu(
@@ -272,6 +277,16 @@ private fun ObjectContextMenu(
         onDismissRequest = onDismiss,
     ) {
         if (target == null) return@OrcaContextMenu
+        // append_menu_item_delete()
+        OrcaMenuItem(
+            text = stringResource(R.string.object_menu_delete),
+            enabled = state.canEditPlate,
+            onClick = {
+                onDismiss()
+                onDeleteObject(menu.index)
+            },
+        )
+        OrcaMenuSeparator()
         // append_menu_item_auto_drop(): checked while the object drops onto the plate.
         OrcaMenuCheckItem(
             text = stringResource(R.string.object_menu_auto_drop),
@@ -330,7 +345,7 @@ private fun Notifications(
             onCancel = onCancelSlicing,
         )
     } else {
-        state.plateObject?.let { ObjectInfo(it) }
+        state.selectedPlateObject?.let { ObjectInfo(it) }
     }
 }
 
@@ -771,7 +786,6 @@ private val PreviewInspection = ModelInspection(
 private val PreviewState = PrepareUiState(
     plate = null,
     importing = false,
-    plateObject = PlateObject.CalibrationCube(PreviewInspection),
     sceneObjects = listOf(PlateObject.CalibrationCube(PreviewInspection)),
     selectedObject = null,
     gizmo = null,
@@ -796,7 +810,7 @@ private val PreviewState = PrepareUiState(
 @Preview(name = "Compact dark", widthDp = 400, heightDp = 800, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun PrepareCompactPreview() = OrcinusTheme {
-    PrepareScreen(PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, { _, _ -> }, {}, PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {})
+    PrepareScreen(PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, {}, { _, _ -> }, {}, PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {})
 }
 
 @Preview(name = "Wide", widthDp = 1000, heightDp = 640)
@@ -811,6 +825,6 @@ private fun PrepareWidePreview() = OrcinusTheme {
             canEditPlate = true,
             canSlice = true,
         ),
-        OrcaWindowLayout.Wide, {}, {}, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, { _, _ -> }, {}, PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
+        OrcaWindowLayout.Wide, {}, {}, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, {}, { _, _ -> }, {}, PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }

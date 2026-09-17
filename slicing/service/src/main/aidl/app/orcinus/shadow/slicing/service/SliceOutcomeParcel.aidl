@@ -9,6 +9,8 @@ parcelable SliceOutcomeParcel {
     String jobId;
     String kind;
     @nullable String gcodePath;
+    /** The toolpaths file of a success, when one was written. */
+    @nullable String toolpathsPath;
     int layerCount;
     long estimatedPrintTimeSeconds;
     double filamentMillimeters;

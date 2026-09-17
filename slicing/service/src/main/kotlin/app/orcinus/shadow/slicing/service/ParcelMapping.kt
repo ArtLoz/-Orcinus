@@ -16,9 +16,12 @@ import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateGeometry
+import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
@@ -47,29 +50,42 @@ internal fun EngineStatusParcel.toEngineStatus() = EngineStatus(
 
 internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
     it.jobId = jobId.value
-    when (val source = model) {
-        is ModelSource.LocalFile -> it.modelPath = source.path.value
-        is ModelSource.BuiltIn -> it.builtInModel = source.model.name
-    }
+    it.objects = objects.toParcels()
     it.outputPath = output.value
+    it.toolpathsPath = toolpaths?.value
     it.printerProfile = printerProfile.value
     it.filamentProfile = filamentProfile.value
     it.processProfile = processProfile.value
-    it.placement = placement?.columns?.toDoubleArray()
-    it.autoDrop = autoDrop
 }
 
 internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
     jobId = SliceJobId(jobId),
-    model = builtInModel?.let { ModelSource.BuiltIn(BuiltInModel.valueOf(it)) }
-        ?: ModelSource.LocalFile(ModelPath(checkNotNull(modelPath) { "Slice request has no model" })),
+    objects = objects.toPlacedModels(),
     output = OutputPath(outputPath),
+    toolpaths = toolpathsPath?.let(::ScenePath),
     printerProfile = ProfileId(printerProfile),
     filamentProfile = ProfileId(filamentProfile),
     processProfile = ProfileId(processProfile),
-    placement = placement?.let { Transform3(it.toList()) },
-    autoDrop = autoDrop,
 )
+
+internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(size) { index ->
+    val placed = this[index]
+    PlacedModelParcel().also {
+        it.model = placed.model.toParcel()
+        it.meshPath = placed.mesh.value
+        it.placement = placed.placement.columns.toDoubleArray()
+        it.autoDrop = placed.autoDrop
+    }
+}
+
+internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map {
+    PlacedModel(
+        model = checkNotNull(it.model) { "A plate object has no model" }.toModelSource(),
+        mesh = ScenePath(it.meshPath),
+        placement = Transform3(it.placement.toList()),
+        autoDrop = it.autoDrop,
+    )
+}
 
 internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
     it.jobId = jobId.value
@@ -77,6 +93,7 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
         is SliceOutcome.Success -> {
             it.kind = SliceOutcomeParcel.SUCCESS
             it.gcodePath = gcodePath.value
+            it.toolpathsPath = toolpaths?.value
             it.layerCount = statistics.layerCount
             it.estimatedPrintTimeSeconds = statistics.estimatedPrintTimeSeconds
             it.filamentMillimeters = statistics.filamentMillimeters
@@ -100,6 +117,7 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             jobId = id,
             gcodePath = OutputPath(checkNotNull(gcodePath)),
             statistics = SliceStatistics(layerCount, estimatedPrintTimeSeconds, filamentMillimeters),
+            toolpaths = toolpathsPath?.let(::ScenePath),
         )
 
         SliceOutcomeParcel.FAILURE -> SliceOutcome.Failure(
@@ -157,19 +175,33 @@ internal fun ModelInspectionOutcome.toParcel() = InspectionParcel().also {
 
 internal fun InspectionParcel.toInspectionOutcome(): ModelInspectionOutcome {
     error?.let { return ModelInspectionOutcome.Failure(it) }
-    return ModelInspectionOutcome.Success(
-        ModelInspection(
-            facetCount = facetCount,
-            dimensions = ModelDimensions(widthMillimeters, depthMillimeters, heightMillimeters),
-            boxCenter = checkNotNull(boxCenter).toVector(),
-            mesh = ScenePath(checkNotNull(meshPath)),
-            placement = Transform3(checkNotNull(placement).toList()),
-            fit = BuildVolumeFit.valueOf(checkNotNull(fit)),
-            boundingSphere = BoundingSphere(checkNotNull(sphereCenter).toVector(), sphereRadius),
-            rotationDegrees = checkNotNull(rotationDegrees).toVector(),
-            unscaledDimensions = checkNotNull(unscaledSize).let { ModelDimensions(it[0], it[1], it[2]) },
-        ),
-    )
+    return ModelInspectionOutcome.Success(toInspection())
+}
+
+private fun InspectionParcel.toInspection() = ModelInspection(
+    facetCount = facetCount,
+    dimensions = ModelDimensions(widthMillimeters, depthMillimeters, heightMillimeters),
+    boxCenter = checkNotNull(boxCenter).toVector(),
+    mesh = ScenePath(checkNotNull(meshPath)),
+    placement = Transform3(checkNotNull(placement).toList()),
+    fit = BuildVolumeFit.valueOf(checkNotNull(fit)),
+    boundingSphere = BoundingSphere(checkNotNull(sphereCenter).toVector(), sphereRadius),
+    rotationDegrees = checkNotNull(rotationDegrees).toVector(),
+    unscaledDimensions = checkNotNull(unscaledSize).let { ModelDimensions(it[0], it[1], it[2]) },
+)
+
+internal fun PlateInspectionOutcome.toParcel() = PlateInspectionParcel().also {
+    when (this) {
+        is PlateInspectionOutcome.Failure -> it.error = message
+        is PlateInspectionOutcome.Success -> it.inspections = Array(inspections.size) { index ->
+            ModelInspectionOutcome.Success(inspections[index]).toParcel()
+        }
+    }
+}
+
+internal fun PlateInspectionParcel.toPlateInspectionOutcome(): PlateInspectionOutcome {
+    error?.let { return PlateInspectionOutcome.Failure(it) }
+    return PlateInspectionOutcome.Success(checkNotNull(inspections).map { it.toInspection() })
 }
 
 internal fun PlateDescriptionOutcome.toParcel() = PlateDescriptionParcel().also {
@@ -226,13 +258,31 @@ internal fun Manipulation.parcelName(): String = when (this) {
     Manipulation.Rotate -> "Rotate"
     Manipulation.Scale -> "Scale"
     Manipulation.ResetRotation -> "ResetRotation"
-    Manipulation.AutoOrient -> "AutoOrient"
     is Manipulation.LayOnFace -> "LayOnFace"
-    is Manipulation.Arrange -> "Arrange"
     Manipulation.EnsureOnBed -> "EnsureOnBed"
 }
 
-internal fun Manipulation.parcelArrangeSettings(): ArrangeSettingsParcel? = (this as? Manipulation.Arrange)?.settings?.let { settings ->
+internal fun Manipulation.parcelFaceNormal(): DoubleArray? = (this as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) }
+
+internal fun manipulationOf(name: String, faceNormal: DoubleArray?): Manipulation = when (name) {
+    "Move" -> Manipulation.Move
+    "Rotate" -> Manipulation.Rotate
+    "Scale" -> Manipulation.Scale
+    "ResetRotation" -> Manipulation.ResetRotation
+    "LayOnFace" -> Manipulation.LayOnFace(checkNotNull(faceNormal).toVector())
+    "EnsureOnBed" -> Manipulation.EnsureOnBed
+    else -> error("Unknown manipulation $name")
+}
+
+internal fun PlateManipulation.parcelName(): String = when (this) {
+    is PlateManipulation.AutoOrient -> "AutoOrient"
+    is PlateManipulation.Arrange -> "Arrange"
+}
+
+internal fun PlateManipulation.parcelSelected(): Array<String> =
+    (this as? PlateManipulation.AutoOrient)?.selected.orEmpty().map(ScenePath::value).toTypedArray()
+
+internal fun PlateManipulation.parcelArrangeSettings(): ArrangeSettingsParcel? = (this as? PlateManipulation.Arrange)?.settings?.let { settings ->
     ArrangeSettingsParcel().also {
         it.distance = settings.distance
         it.enableRotation = settings.enableRotation
@@ -241,18 +291,10 @@ internal fun Manipulation.parcelArrangeSettings(): ArrangeSettingsParcel? = (thi
     }
 }
 
-internal fun Manipulation.parcelFaceNormal(): DoubleArray? = (this as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) }
-
-internal fun manipulationOf(name: String, faceNormal: DoubleArray?, arrange: ArrangeSettingsParcel?): Manipulation = when (name) {
-    "Move" -> Manipulation.Move
-    "Rotate" -> Manipulation.Rotate
-    "Scale" -> Manipulation.Scale
-    "ResetRotation" -> Manipulation.ResetRotation
-    "AutoOrient" -> Manipulation.AutoOrient
-    "LayOnFace" -> Manipulation.LayOnFace(checkNotNull(faceNormal).toVector())
-    "EnsureOnBed" -> Manipulation.EnsureOnBed
+internal fun plateManipulationOf(name: String, selected: Array<String>, arrange: ArrangeSettingsParcel?): PlateManipulation = when (name) {
+    "AutoOrient" -> PlateManipulation.AutoOrient(selected.mapTo(LinkedHashSet(), ::ScenePath))
     "Arrange" -> checkNotNull(arrange).let {
-        Manipulation.Arrange(ArrangeSettings(it.distance, it.enableRotation, it.allowMultiMaterialsOnSamePlate, it.alignToYAxis))
+        PlateManipulation.Arrange(ArrangeSettings(it.distance, it.enableRotation, it.allowMultiMaterialsOnSamePlate, it.alignToYAxis))
     }
     else -> error("Unknown manipulation $name")
 }

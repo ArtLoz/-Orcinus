@@ -7,8 +7,11 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelDimensions
+import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
@@ -16,9 +19,11 @@ import app.orcinus.shadow.domain.DescribeFlatteningPlanesUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
+import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
+import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
 import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.render.scene.ObjectTransforms
@@ -39,7 +44,9 @@ class PrepareViewModel(
     private val addModelToPlate: AddModelToPlateUseCase,
     private val addCalibrationCubeToPlate: AddCalibrationCubeToPlateUseCase,
     private val placePlateObject: PlacePlateObjectUseCase,
+    private val placePlateObjects: PlacePlateObjectsUseCase,
     private val setPlateObjectAutoDrop: SetPlateObjectAutoDropUseCase,
+    private val deletePlateObject: DeletePlateObjectUseCase,
     private val describeFlatteningPlanes: DescribeFlatteningPlanesUseCase,
     private val slicePlate: SlicePlateUseCase,
     private val cancelPlateSlicing: CancelPlateSlicingUseCase,
@@ -52,10 +59,19 @@ class PrepareViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), plate.value.toPrepareUiState(PrepareViewState()))
 
     init {
+        // Plater::priv::load_files() selects the objects it added to the plate.
+        viewModelScope.launch {
+            var known: Set<ScenePath>? = null
+            plate.collect { state ->
+                val added = known?.let { before -> state.objects.lastOrNull { it.inspection.mesh !in before } }
+                known = state.objects.mapTo(HashSet()) { it.inspection.mesh }
+                if (added != null) select(added.inspection)
+            }
+        }
         // GLGizmoFlatten::is_plane_update_necessary(): the faces follow the object and its scale.
         viewModelScope.launch {
             combine(plate, view) { plate, view ->
-                val target = plate.plateObject?.takeIf { view.gizmo == PlateGizmo.LAY_ON_FACE && it.inspection.mesh == view.selectedMesh }
+                val target = plate.objects.firstOrNull { view.gizmo == PlateGizmo.LAY_ON_FACE && it.inspection.mesh == view.selectedMesh }
                 target?.let { FlatteningKey(it, plate.profiles, it.inspection.dimensions, it.inspection.unscaledDimensions) }
             }
                 .distinctUntilChanged { old, new -> old?.sameFaces(new) ?: (new == null) }
@@ -83,8 +99,9 @@ class PrepareViewModel(
     fun addCalibrationCube() = addCalibrationCubeToPlate()
 
     /** Clearing the selection closes the gizmo, as GLGizmosManager does when it is no longer activable. */
-    fun selectObject(index: Int?) {
-        val selected = index?.let { state.value.sceneObjects.getOrNull(it) }?.inspection
+    fun selectObject(index: Int?) = select(index?.let { state.value.sceneObjects.getOrNull(it) }?.inspection)
+
+    private fun select(selected: ModelInspection?) {
         view.update { view ->
             view.copy(
                 selectedMesh = selected?.mesh,
@@ -124,16 +141,10 @@ class PrepareViewModel(
     }
 
     /** _render_arrange_menu()'s Arrange: ArrangeJob for every object on the plate. */
-    fun arrange() {
-        val target = state.value.sceneObjects.firstOrNull()?.inspection ?: return
-        placePlateObject(target.mesh, target.placement, Manipulation.Arrange(view.value.arrangeSettings))
-    }
+    fun arrange() = placePlateObjects(PlateManipulation.Arrange(view.value.arrangeSettings))
 
-    /** OrientJob for the plate: the only object, whether selected or not. */
-    fun autoOrient() {
-        val target = state.value.sceneObjects.firstOrNull()?.inspection ?: return
-        placePlateObject(target.mesh, target.placement, Manipulation.AutoOrient)
-    }
+    /** The toolbar's OrientJob: the selected object, or every object when none is selected. */
+    fun autoOrient() = placePlateObjects(PlateManipulation.AutoOrient(setOfNotNull(state.value.selectedPlateObject?.inspection?.mesh)))
 
     /**
      * GizmoObjectManipulation::change_rotation_value(): the selected object turns
@@ -237,6 +248,11 @@ class PrepareViewModel(
     /** The object menu's "Auto Drop": ObjectList::toggle_auto_drop() for the object [index]. */
     fun setAutoDrop(index: Int, enabled: Boolean) {
         state.value.sceneObjects.getOrNull(index)?.let { setPlateObjectAutoDrop(it.inspection.mesh, enabled) }
+    }
+
+    /** The object menu's "Delete": Plater::remove_selected() for the object [index]. */
+    fun deleteObject(index: Int) {
+        state.value.sceneObjects.getOrNull(index)?.let { deletePlateObject(it.inspection.mesh) }
     }
 
     fun slice() = slicePlate()

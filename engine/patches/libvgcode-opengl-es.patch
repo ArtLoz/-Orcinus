@@ -1,0 +1,137 @@
+libvgcode: make the OpenGL ES variant work on phones
+
+OrcaSlicer builds libvgcode only for desktop OpenGL, and its OpenGL ES variant
+(also in PrusaSlicer 2.9.0, where it served WebGL) is broken on Android in
+OrcaSlicer 2.4.2 and in its main branch as of 2026-09:
+
+- It does not compile: the vertex data was changed to four floats per vertex
+  for GL_RGBA32F (SPE-2411), but the OpenGL ES textures still take three.
+  TextureData now takes four floats and uploads them as GL_RGBA32F, as
+  PrusaSlicer did when it fixed the same code.
+- The vertex shaders read the textures through lowp samplers: sampler2D has
+  no precision of its own, which GLSL ES makes lowp in vertex shaders, and
+  usampler2D is declared lowp. Mobile GPUs honour that, so colours, which are
+  packed into floats up to 16777215, overflow and every toolpath turns white,
+  and segment indices would stop at 65535. Both samplers are highp now.
+
+Applied by engine/CMakeLists.txt to a copy of src/libvgcode in the build tree;
+the submodule is not modified. Remove it once upstream has these fixes.
+
+diff --git a/src/ViewerImpl.hpp b/src/ViewerImpl.hpp
+index a574003..3caa809 100644
+--- a/src/ViewerImpl.hpp
++++ b/src/ViewerImpl.hpp
+@@ -353,8 +353,10 @@ private:
+     {
+     public:
+         void init(size_t vertices_count);
+-        void set_positions(const std::vector<Vec3>& positions);
+-        void set_heights_widths_angles(const std::vector<Vec3>& heights_widths_angles);
++        // Four components per vertex: the positions and the heights, widths and angles
++        // are built with a dummy fourth float for GL_RGBA32F (SPE-2411).
++        void set_positions(const std::vector<std::array<float, 4>>& positions);
++        void set_heights_widths_angles(const std::vector<std::array<float, 4>>& heights_widths_angles);
+         void set_colors(const std::vector<float>& colors);
+         void set_enabled_segments(const std::vector<uint32_t>& enabled_segments);
+         void set_enabled_options(const std::vector<uint32_t>& enabled_options);
+diff --git a/src/ViewerImpl.cpp b/src/ViewerImpl.cpp
+index 1c52ffe..b631292 100644
+--- a/src/ViewerImpl.cpp
++++ b/src/ViewerImpl.cpp
+@@ -349,7 +349,7 @@ void ViewerImpl::TextureData::init(size_t vertices_count)
+     m_tex_ids = std::vector<TexIds>(m_count);
+ }
+ 
+-void ViewerImpl::TextureData::set_positions(const std::vector<Vec3>& positions)
++void ViewerImpl::TextureData::set_positions(const std::vector<std::array<float, 4>>& positions)
+ {
+     if (m_count == 0)
+         return;
+@@ -383,17 +383,17 @@ void ViewerImpl::TextureData::set_positions(const std::vector<Vec3>& positions)
+         glsafe(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+         glsafe(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0));
+         if (remaining >= tex_capacity) {
+-            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGB, GL_FLOAT, &positions[offset]));
++            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_FLOAT, &positions[offset]));
+             m_tex_ids[i].positions.second = w * h;
+         }
+         else {
+             // the last row is only partially fitted with data, send it separately
+-            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGB, GL_FLOAT, nullptr));
+-            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h - 1), GL_RGB, GL_FLOAT, &positions[offset]));
+-            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLsizei>(h - 1), static_cast<GLsizei>(remaining % w), 1, GL_RGB, GL_FLOAT, &positions[offset + w * (h - 1)]));
++            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_FLOAT, nullptr));
++            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h - 1), GL_RGBA, GL_FLOAT, &positions[offset]));
++            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLsizei>(h - 1), static_cast<GLsizei>(remaining % w), 1, GL_RGBA, GL_FLOAT, &positions[offset + w * (h - 1)]));
+             m_tex_ids[i].positions.second = w * (h - 1) + remaining % w;
+         }
+-        m_positions_size += m_tex_ids[i].positions.second * sizeof(Vec3);
++        m_positions_size += m_tex_ids[i].positions.second * sizeof(std::array<float, 4>);
+ 
+         remaining = (remaining > tex_capacity) ? remaining - tex_capacity: 0;
+     }
+@@ -402,7 +402,7 @@ void ViewerImpl::TextureData::set_positions(const std::vector<Vec3>& positions)
+     glsafe(glPixelStorei(GL_UNPACK_ALIGNMENT, curr_unpack_alignment));
+ }
+ 
+-void ViewerImpl::TextureData::set_heights_widths_angles(const std::vector<Vec3>& heights_widths_angles)
++void ViewerImpl::TextureData::set_heights_widths_angles(const std::vector<std::array<float, 4>>& heights_widths_angles)
+ {
+     if (m_count == 0)
+         return;
+@@ -436,17 +436,17 @@ void ViewerImpl::TextureData::set_heights_widths_angles(const std::vector<Vec3>&
+         glsafe(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+         glsafe(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0));
+         if (remaining >= tex_capacity) {
+-            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGB, GL_FLOAT, &heights_widths_angles[offset]));
++            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_FLOAT, &heights_widths_angles[offset]));
+             m_tex_ids[i].heights_widths_angles.second = w * h;
+         }
+         else {
+             // the last row is only partially fitted with data, send it separately
+-            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGB, GL_FLOAT, nullptr));
+-            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h - 1), GL_RGB, GL_FLOAT, &heights_widths_angles[offset]));
+-            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLsizei>(h - 1), static_cast<GLsizei>(remaining % w), 1, GL_RGB, GL_FLOAT, &heights_widths_angles[offset + w * (h - 1)]));
++            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_FLOAT, nullptr));
++            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h - 1), GL_RGBA, GL_FLOAT, &heights_widths_angles[offset]));
++            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLsizei>(h - 1), static_cast<GLsizei>(remaining % w), 1, GL_RGBA, GL_FLOAT, &heights_widths_angles[offset + w * (h - 1)]));
+             m_tex_ids[i].heights_widths_angles.second = w * (h - 1) + remaining % w;
+         }
+-        m_height_width_angle_size += m_tex_ids[i].heights_widths_angles.second * sizeof(Vec3);
++        m_height_width_angle_size += m_tex_ids[i].heights_widths_angles.second * sizeof(std::array<float, 4>);
+ 
+         remaining = (remaining > tex_capacity) ? remaining - tex_capacity : 0;
+     }
+@@ -1880,7 +1880,7 @@ void ViewerImpl::update_color_ranges()
+ void ViewerImpl::update_heights_widths()
+ {
+ #ifdef ENABLE_OPENGL_ES
+-    std::vector<Vec3> heights_widths_angles;
++    std::vector<Vec4> heights_widths_angles;
+     heights_widths_angles.reserve(m_vertices.size());
+     extract_pos_and_or_hwa(m_vertices, m_travels_radius, m_wipes_radius, m_valid_lines_bitset, nullptr, &heights_widths_angles);
+     m_texture_data.set_heights_widths_angles(heights_widths_angles);
+diff --git a/src/ShadersES.hpp b/src/ShadersES.hpp
+index e688fa7..d5a8642 100644
+--- a/src/ShadersES.hpp
++++ b/src/ShadersES.hpp
+@@ -12,7 +12,8 @@ namespace libvgcode {
+ 
+ static const char* Segments_Vertex_Shader_ES =
+ "#version 300 es\n"
+-"precision lowp usampler2D;\n"
++"precision highp usampler2D;\n"
++"precision highp sampler2D;\n"
+ "#define POINTY_CAPS\n"
+ "#define FIX_TWISTING\n"
+ "const vec3  light_top_dir = vec3(-0.4574957, 0.4574957, 0.7624929);\n"
+@@ -158,7 +159,8 @@ static const char* Segments_Fragment_Shader_ES =
+ 
+ static const char* Options_Vertex_Shader_ES =
+ "#version 300 es\n"
+-"precision lowp usampler2D;\n"
++"precision highp usampler2D;\n"
++"precision highp sampler2D;\n"
+ "const vec3  light_top_dir = vec3(-0.4574957, 0.4574957, 0.7624929);\n"
+ "const float light_top_diffuse = 0.6 * 0.8;\n"
+ "const float light_top_specular = 0.6 * 0.125;\n"

@@ -35,17 +35,24 @@ sealed interface Manipulation {
     /** The rotation window's reset to no rotation, keeping position and scale. */
     data object ResetRotation : Manipulation
 
-    /** OrientJob: the orientation with the least support area, resting on the plate. */
-    data object AutoOrient : Manipulation
-
     /** GLGizmoFlatten: the face with [normal], in object coordinates, turns down and the object rests on the plate. */
     data class LayOnFace(val normal: Vector3) : Manipulation
 
-    /** ArrangeJob: every object of the plate arranged on it with [settings]. */
-    data class Arrange(val settings: ArrangeSettings) : Manipulation
-
     /** ObjectList::toggle_auto_drop() turning auto drop on: ModelObject::ensure_on_bed(). */
     data object EnsureOnBed : Manipulation
+}
+
+/** How OrcaSlicer's jobs place several objects of the plate at once. */
+sealed interface PlateManipulation {
+    /**
+     * OrientJob from the toolbar: the objects with the [selected] mesh files, or
+     * every object when none is selected, turn to the orientation with the least
+     * support area and rest on the plate.
+     */
+    data class AutoOrient(val selected: Set<ScenePath> = emptySet()) : PlateManipulation
+
+    /** ArrangeJob from the arrange options (prepare_all): every object arranged on the plate with [settings]. */
+    data class Arrange(val settings: ArrangeSettings) : PlateManipulation
 }
 
 /** OrcaSlicer's arrange options (GLCanvas3D::ArrangeSettings), with its defaults. */

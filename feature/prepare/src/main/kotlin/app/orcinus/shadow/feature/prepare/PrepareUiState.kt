@@ -28,8 +28,7 @@ data class PrepareUiState(
     /** The printer's plate for the 3D view; null until the engine described it. */
     val plate: PlateDescription?,
     val importing: Boolean,
-    val plateObject: PlateObject?,
-    /** Objects of the 3D view. */
+    /** The objects on the plate, as the 3D view shows them. */
     val sceneObjects: List<PlateObject>,
     /** Index of the selected object in [sceneObjects]. */
     val selectedObject: Int?,
@@ -51,7 +50,7 @@ data class PrepareUiState(
     val selectedScale: Vector3?,
     val selectedSize: Vector3?,
     val uniformScale: Boolean,
-    /** An object lies across the plate boundary or above the build height. */
+    /** GLCanvas3D::EWarning::ObjectClashed: an object lies across the plate boundary or above the build height. */
     val objectClashed: Boolean,
     val slicing: PlateSlicing?,
     val problem: PlateProblem?,
@@ -61,8 +60,14 @@ data class PrepareUiState(
     /** GLGizmoBase::on_is_activable() for the manipulation gizmos: an object is selected. */
     val canManipulate: Boolean get() = selectedObject != null && canEditPlate
 
-    /** Plater::can_arrange(), which also enables auto orient: the plate has objects. */
-    val canArrange: Boolean get() = sceneObjects.isNotEmpty() && canEditPlate
+    /**
+     * Plater::can_arrange(), which also enables auto orient: the plate has
+     * objects. The jobs start from settled placements.
+     */
+    val canArrange: Boolean get() = sceneObjects.isNotEmpty() && canEditPlate && sceneObjects.none(PlateObject::placing)
+
+    /** The object the info notification describes: Plater::show_object_info() for a single selected object. */
+    val selectedPlateObject: PlateObject? get() = selectedObject?.let(sceneObjects::getOrNull)
 }
 
 /** What the Prepare page itself keeps: the selection and the open gizmo with its state. */
@@ -86,19 +91,17 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     val gizmo = view.gizmo
     val rotationStart = view.rotationStart
     val uniformScale = view.uniformScale
-    val sceneObjects = listOfNotNull(plateObject)
-    val selectedObject = sceneObjects.indexOfFirst { it.inspection.mesh == selectedMesh }.takeIf { it >= 0 }
-    val selected = selectedObject?.let(sceneObjects::get)?.inspection
+    val selectedObject = objects.indexOfFirst { it.inspection.mesh == selectedMesh }.takeIf { it >= 0 }
+    val selected = selectedObject?.let(objects::get)?.inspection
     val canEditPlate = !busy && engine.availability == EngineAvailability.READY
     return PrepareUiState(
         plate = plate,
         importing = importing,
-        plateObject = plateObject,
-        sceneObjects = sceneObjects,
+        sceneObjects = objects,
         selectedObject = selectedObject,
         gizmo = gizmo.takeIf { selectedObject != null && canEditPlate },
         flatteningPlanes = if (gizmo == PlateGizmo.LAY_ON_FACE) view.flatteningPlanes else emptyList(),
-        arrangeOptionsOpen = view.arrangeOptionsOpen && plateObject != null && canEditPlate,
+        arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
         arrangeSettings = view.arrangeSettings,
         selectedPosition = selected?.placement?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
         selectedRotation = selected?.rotationDegrees,
@@ -116,7 +119,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         },
         selectedSize = selected?.dimensions?.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) },
         uniformScale = uniformScale,
-        objectClashed = plateObject?.inspection?.fit == BuildVolumeFit.PARTLY_OUTSIDE,
+        objectClashed = objects.any { it.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE },
         slicing = slicing,
         problem = problem,
         // Objects are loaded and placed by the engine.

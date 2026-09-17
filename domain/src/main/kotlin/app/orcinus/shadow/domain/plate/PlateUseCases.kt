@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.EngineState
@@ -9,7 +10,10 @@ import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
+import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
@@ -28,8 +32,10 @@ import app.orcinus.shadow.domain.GetEngineStatusUseCase
 import app.orcinus.shadow.domain.ImportModelUseCase
 import app.orcinus.shadow.domain.InspectModelUseCase
 import app.orcinus.shadow.domain.PlaceModelUseCase
+import app.orcinus.shadow.domain.PlaceModelsUseCase
 import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.domain.SliceProgressObserver
+import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.domain.source
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.storage.api.GcodeOutputs
@@ -42,7 +48,8 @@ import kotlinx.coroutines.launch
 
 // Plate use cases run long operations in the application scope, so an import
 // or a slice outlives the screen that started it. Results land in the
-// repository, which every screen observes.
+// repository, which every screen observes. Objects are told apart by their
+// mesh files.
 
 class ObservePlateUseCase(private val repository: PlateRepository) {
     operator fun invoke(): StateFlow<PlateState> = repository.state
@@ -50,8 +57,9 @@ class ObservePlateUseCase(private val repository: PlateRepository) {
 
 /**
  * Prepares the engine and the plate once per process; later calls return at
- * once. Object meshes left by an earlier process are deleted, since its plate
- * is gone, and the engine describes the plate of the selected printer.
+ * once. Object meshes and toolpaths left by an earlier process are deleted,
+ * since its plate is gone, and the engine describes the plate of the selected
+ * printer.
  */
 class StartEngineUseCase(
     private val getEngineStatus: GetEngineStatusUseCase,
@@ -61,7 +69,10 @@ class StartEngineUseCase(
 ) {
     suspend operator fun invoke() {
         if (repository.state.value.engine.availability == EngineAvailability.READY) return
-        if (repository.state.value.plateObject == null) sceneFiles.deleteAllObjectMeshes()
+        if (repository.state.value.objects.isEmpty()) {
+            sceneFiles.deleteAllObjectMeshes()
+            sceneFiles.deleteToolpathsExcept(null)
+        }
         val status = getEngineStatus()
         repository.update {
             it.copy(
@@ -81,7 +92,7 @@ class StartEngineUseCase(
     }
 }
 
-/** Imports a document and puts it on the plate, as OrcaSlicer loads and places it, in place of the previous model. */
+/** Imports a document and adds it to the plate, as OrcaSlicer loads a model and places it beside the objects there. */
 class AddModelToPlateUseCase(
     private val importModel: ImportModelUseCase,
     inspectModel: InspectModelUseCase,
@@ -100,7 +111,7 @@ class AddModelToPlateUseCase(
     }
 }
 
-/** Puts OrcaSlicer's 20 mm calibration cube on the plate in place of the previous model. */
+/** Adds OrcaSlicer's 20 mm calibration cube to the plate. */
 class AddCalibrationCubeToPlateUseCase(
     inspectModel: InspectModelUseCase,
     sceneFiles: SceneFiles,
@@ -115,10 +126,11 @@ class AddCalibrationCubeToPlateUseCase(
 }
 
 /**
- * Replaces the object on the plate. The plate is busy while OrcaSlicer loads
- * and places the new object in the application scope; the new object's mesh
- * file replaces the previous object's, and a failure leaves the plate as it
- * was and reports the problem.
+ * Adds an object to the plate, as Plater::priv::load_model_objects() does. The
+ * plate is busy while OrcaSlicer loads the object and places it among the
+ * objects on the plate in the application scope. The object joins the end of
+ * the plate's list, and G-code sliced before no longer applies; a failure
+ * leaves the plate as it was, without the new mesh file, and reports the problem.
  */
 private class PlateObjectLoader(
     private val inspectModel: InspectModelUseCase,
@@ -127,20 +139,20 @@ private class PlateObjectLoader(
     private val applicationScope: CoroutineScope,
 ) {
     fun load(block: suspend (inspect: suspend (ModelSource) -> Result<ModelInspection>) -> Result<PlateObject>) {
-        var profiles: SlicingProfileSelection? = null
+        var request: Pair<SlicingProfileSelection, List<PlacedModel>>? = null
         repository.update { state ->
-            profiles = null
+            request = null
             if (state.busy) return@update state
-            profiles = state.profiles
+            request = state.profiles to state.objects.map { it.placed() }
             state.copy(importing = true, problem = null)
         }
-        val selection = profiles ?: return
+        val (selection, plate) = request ?: return
         applicationScope.launch {
             val meshes = mutableListOf<ScenePath>()
             val loaded = try {
                 block { source ->
                     val mesh = sceneFiles.newObjectMesh().also(meshes::add)
-                    when (val inspected = inspectModel(source, selection, mesh)) {
+                    when (val inspected = inspectModel(source, selection, mesh, plate)) {
                         is ModelInspectionOutcome.Success -> Result.success(inspected.inspection)
                         is ModelInspectionOutcome.Failure -> Result.failure(IllegalArgumentException(inspected.message))
                     }
@@ -152,29 +164,20 @@ private class PlateObjectLoader(
                 Result.failure(error)
             }
 
-            var replaced: PlateObject? = null
             repository.update { state ->
                 loaded.fold(
-                    onSuccess = {
-                        replaced = state.plateObject
-                        state.copy(importing = false, plateObject = it, result = null)
-                    },
-                    onFailure = {
-                        replaced = null
-                        state.copy(importing = false, problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, it.message))
-                    },
+                    onSuccess = { state.copy(importing = false, objects = state.objects + it, result = null) },
+                    onFailure = { state.copy(importing = false, problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, it.message)) },
                 )
             }
             val shown = loaded.getOrNull()?.inspection?.mesh
-            (meshes + listOfNotNull(replaced?.inspection?.mesh))
-                .filter { it != shown }
-                .forEach(sceneFiles::deleteObjectMesh)
+            meshes.filter { it != shown }.forEach(sceneFiles::deleteObjectMesh)
         }
     }
 }
 
 /**
- * Commits a manipulation of the object on the plate, as OrcaSlicer's canvas
+ * Commits a manipulation of an object on the plate, as OrcaSlicer's canvas
  * does after a move, rotation, or scale, or after its orientation tools. The
  * object stands at the new placement at once and G-code sliced for the old one
  * no longer applies; OrcaSlicer then settles the placement (resting the object
@@ -183,7 +186,7 @@ private class PlateObjectLoader(
  * cannot be sliced.
  *
  * The object is the one with the [mesh] file, so a placement that arrives
- * after the object was replaced changes nothing; nor does one while the plate
+ * after the object was deleted changes nothing; nor does one while the plate
  * is busy, or a move, rotation, or scale that leaves the placement as it was.
  * An answer for a placement that a newer one replaced is ignored.
  */
@@ -196,15 +199,15 @@ class PlacePlateObjectUseCase(
         var request: Triple<PlateObject, Transform3, SlicingProfileSelection>? = null
         repository.update { state ->
             request = null
-            val target = state.plateObject
+            val target = state.objects.withMesh(mesh)
             val unchanged = target?.inspection?.placement == placement && manipulation.keepsUnchangedPlacement()
-            if (target == null || target.inspection.mesh != mesh || state.busy || unchanged) {
+            if (target == null || state.busy || unchanged) {
                 return@update state
             }
             val moved = target.with(target.inspection.copy(placement = placement), placing = true)
             request = Triple(moved, target.inspection.placement, state.profiles)
             // G-code no longer applies once the object stands elsewhere.
-            state.copy(plateObject = moved, result = state.result.takeIf { placement == target.inspection.placement })
+            state.copy(objects = state.objects.replaced(moved), result = state.result.takeIf { placement == target.inspection.placement })
         }
         val (target, previous, profiles) = request ?: return
         applicationScope.launch {
@@ -216,17 +219,17 @@ class PlacePlateObjectUseCase(
                 ModelInspectionOutcome.Failure(error.message.orEmpty())
             }
             repository.update { state ->
-                val current = state.plateObject
-                if (current == null || current.inspection.mesh != mesh || current.inspection.placement != placement) {
+                val current = state.objects.withMesh(mesh)
+                if (current == null || current.inspection.placement != placement) {
                     return@update state
                 }
                 when (outcome) {
                     is ModelInspectionOutcome.Success -> state.copy(
-                        plateObject = current.with(outcome.inspection, placing = false),
+                        objects = state.objects.replaced(current.with(outcome.inspection, placing = false)),
                         result = state.result.takeIf { outcome.inspection.placement == previous },
                     )
                     is ModelInspectionOutcome.Failure -> state.copy(
-                        plateObject = current.with(current.inspection, placing = false),
+                        objects = state.objects.replaced(current.with(current.inspection, placing = false)),
                         problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, outcome.message),
                     )
                 }
@@ -234,12 +237,73 @@ class PlacePlateObjectUseCase(
         }
     }
 
-    /** Moves, rotations, and scales that end where they began change nothing; the orientation and arrange tools still act. */
+    /** Moves, rotations, and scales that end where they began change nothing; the other manipulations still act. */
     private fun Manipulation.keepsUnchangedPlacement() = this == Manipulation.Move || this == Manipulation.Rotate || this == Manipulation.Scale
+}
 
-    private fun PlateObject.with(inspection: ModelInspection, placing: Boolean): PlateObject = when (this) {
-        is PlateObject.ImportedModel -> copy(inspection = inspection, placing = placing)
-        is PlateObject.CalibrationCube -> copy(inspection = inspection, placing = placing)
+/**
+ * OrientJob and ArrangeJob: OrcaSlicer places several objects of the plate at
+ * once. A job starts from settled placements; the objects it places stand
+ * where they were until it answers, and the plate cannot be sliced meanwhile.
+ * The answer applies to every object that still stands where it stood when the
+ * job began, so an object the user moved or deleted meanwhile keeps the user's
+ * change. G-code sliced before no longer applies once an object moved.
+ */
+class PlacePlateObjectsUseCase(
+    private val placeModels: PlaceModelsUseCase,
+    private val repository: PlateRepository,
+    private val applicationScope: CoroutineScope,
+) {
+    operator fun invoke(manipulation: PlateManipulation) {
+        var request: Triple<List<PlateObject>, Set<ScenePath>, SlicingProfileSelection>? = null
+        repository.update { state ->
+            request = null
+            if (state.busy || state.objects.isEmpty() || state.objects.any(PlateObject::placing)) return@update state
+            val targets = manipulation.targets(state.objects)
+            request = Triple(state.objects, targets, state.profiles)
+            state.copy(objects = state.objects.map { if (it.inspection.mesh in targets) it.with(it.inspection, placing = true) else it })
+        }
+        val (plate, targets, profiles) = request ?: return
+        applicationScope.launch {
+            val outcome = try {
+                placeModels(plate.map { it.placed() }, profiles, manipulation)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                PlateInspectionOutcome.Failure(error.message.orEmpty())
+            }
+            repository.update { state ->
+                var moved = false
+                val objects = state.objects.map { current ->
+                    val index = plate.indexOfFirst { it.inspection.mesh == current.inspection.mesh }
+                    val before = plate.getOrNull(index)
+                    if (before == null || before.inspection.mesh !in targets || current.inspection.placement != before.inspection.placement) {
+                        return@map current
+                    }
+                    val placed = (outcome as? PlateInspectionOutcome.Success)?.inspections?.getOrNull(index)
+                    if (placed != null && placed.placement != before.inspection.placement) moved = true
+                    current.with(placed ?: current.inspection, placing = false)
+                }
+                state.copy(
+                    objects = objects,
+                    result = state.result.takeIf { !moved },
+                    problem = if (outcome is PlateInspectionOutcome.Failure) {
+                        PlateProblem(PlateProblemKind.PLACEMENT_FAILED, outcome.message)
+                    } else {
+                        state.problem
+                    },
+                )
+            }
+        }
+    }
+
+    /** OrientJob places the selected objects, or all of them when none of the plate's is selected; ArrangeJob places all. */
+    private fun PlateManipulation.targets(objects: List<PlateObject>): Set<ScenePath> {
+        val meshes = objects.mapTo(LinkedHashSet()) { it.inspection.mesh }
+        return when (this) {
+            is PlateManipulation.AutoOrient -> selected.intersect(meshes).ifEmpty { meshes }
+            is PlateManipulation.Arrange -> meshes
+        }
     }
 }
 
@@ -256,24 +320,46 @@ class SetPlateObjectAutoDropUseCase(
         var changed: PlateObject? = null
         repository.update { state ->
             changed = null
-            val target = state.plateObject
-            if (target == null || target.inspection.mesh != mesh || state.busy || target.autoDrop == autoDrop) return@update state
+            val target = state.objects.withMesh(mesh)
+            if (target == null || state.busy || target.autoDrop == autoDrop) return@update state
             val updated = when (target) {
                 is PlateObject.ImportedModel -> target.copy(autoDrop = autoDrop)
                 is PlateObject.CalibrationCube -> target.copy(autoDrop = autoDrop)
             }
             changed = updated
-            state.copy(plateObject = updated)
+            state.copy(objects = state.objects.replaced(updated))
         }
         val updated = changed ?: return
         if (autoDrop) placePlateObject(mesh, updated.inspection.placement, Manipulation.EnsureOnBed)
     }
 }
 
-/** Slices the model on the plate with the selected profiles into the plate's G-code file. */
+/**
+ * Plater::remove_selected() for the object with the [mesh] file: the object
+ * leaves the plate with its mesh file, and G-code sliced with it no longer
+ * applies. Nothing is deleted while the plate is busy.
+ */
+class DeletePlateObjectUseCase(
+    private val sceneFiles: SceneFiles,
+    private val repository: PlateRepository,
+) {
+    operator fun invoke(mesh: ScenePath) {
+        var deleted = false
+        repository.update { state ->
+            deleted = false
+            if (state.busy || state.objects.withMesh(mesh) == null) return@update state
+            deleted = true
+            state.copy(objects = state.objects.filterNot { it.inspection.mesh == mesh }, result = null)
+        }
+        if (deleted) sceneFiles.deleteObjectMesh(mesh)
+    }
+}
+
+/** Slices the objects on the plate with the selected profiles into the plate's G-code file. */
 class SlicePlateUseCase(
     private val sliceModel: SliceModelUseCase,
     private val outputs: GcodeOutputs,
+    private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
@@ -287,18 +373,17 @@ class SlicePlateUseCase(
             state.copy(slicing = PlateSlicing(jobId), problem = null)
         }
         val state = started ?: return
-        val target = state.plateObject ?: return
+        val objects = state.objects
 
         applicationScope.launch {
             val request = SliceRequest(
                 jobId = jobId,
-                model = target.source(),
-                output = outputs.outputFor(target.outputName()),
+                objects = objects.map { it.placed() },
+                output = outputs.outputFor(objects.outputName()),
+                toolpaths = sceneFiles.newToolpaths(),
                 printerProfile = state.profiles.printer,
                 filamentProfile = state.profiles.filament,
                 processProfile = state.profiles.process,
-                placement = target.inspection.placement,
-                autoDrop = target.autoDrop,
             )
             val outcome = try {
                 sliceModel(request, SliceProgressObserver { progress ->
@@ -310,21 +395,24 @@ class SlicePlateUseCase(
             } catch (error: Exception) {
                 SliceOutcome.Failure(jobId, SliceFailureCode.SLICING_FAILED, error.message.orEmpty(), recoverable = true)
             }
-            repository.update { it.withOutcome(target, outcome) }
+            repository.update { it.withOutcome(objects, outcome) }
+            // Only the toolpaths of the result on the plate stay; a failed or replaced job leaves none.
+            sceneFiles.deleteToolpathsExcept(repository.state.value.result?.toolpaths)
         }
     }
 
-    private fun PlateObject.outputName(): String = when (this) {
-        is PlateObject.ImportedModel -> file.displayName.substringBeforeLast('.')
+    /** PrintBase::update_object_placeholders(): the G-code is named after the first object the plate prints. */
+    private fun List<PlateObject>.outputName(): String = when (val named = first { it.inspection.fit == BuildVolumeFit.INSIDE }) {
+        is PlateObject.ImportedModel -> named.file.displayName.substringBeforeLast('.')
         is PlateObject.CalibrationCube -> "calibration-cube-20mm"
     }
 
-    private fun PlateState.withOutcome(target: PlateObject, outcome: SliceOutcome): PlateState {
+    private fun PlateState.withOutcome(objects: List<PlateObject>, outcome: SliceOutcome): PlateState {
         if (slicing?.jobId != outcome.jobId) return this  // a newer job replaced this one
         return when (outcome) {
             is SliceOutcome.Success -> copy(
                 slicing = null,
-                result = PlateSliceResult(outcome.jobId, target, outcome.gcodePath, outcome.statistics),
+                result = PlateSliceResult(outcome.jobId, objects, outcome.gcodePath, outcome.statistics, outcome.toolpaths),
             )
 
             is SliceOutcome.Failure -> copy(
@@ -365,4 +453,15 @@ class DismissPlateProblemUseCase(private val repository: PlateRepository) {
 private inline fun PlateState.withJob(jobId: SliceJobId, change: (PlateSlicing) -> PlateSlicing?): PlateState {
     val job = slicing?.takeIf { it.jobId == jobId } ?: return this
     return copy(slicing = change(job))
+}
+
+private fun List<PlateObject>.withMesh(mesh: ScenePath): PlateObject? = firstOrNull { it.inspection.mesh == mesh }
+
+/** The list with [plateObject] in place of the object with its mesh file. */
+private fun List<PlateObject>.replaced(plateObject: PlateObject): List<PlateObject> =
+    map { if (it.inspection.mesh == plateObject.inspection.mesh) plateObject else it }
+
+private fun PlateObject.with(inspection: ModelInspection, placing: Boolean): PlateObject = when (this) {
+    is PlateObject.ImportedModel -> copy(inspection = inspection, placing = placing)
+    is PlateObject.CalibrationCube -> copy(inspection = inspection, placing = placing)
 }

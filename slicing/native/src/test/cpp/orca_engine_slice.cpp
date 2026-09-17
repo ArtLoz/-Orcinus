@@ -34,7 +34,9 @@ int main(int argc, char** argv)
     profiles.printer = argv[6];
     profiles.filament = argv[7];
     profiles.process = argv[8];
-    const orca::SliceResult result = orca::slice("golden", argv[4], argv[5], profiles, {}, {});
+    orca::PlateObject model;
+    model.model_path = argv[4];
+    const orca::SliceResult result = orca::slice("golden", {model}, argv[5], {}, profiles, {});
 
     std::printf("status=%lld layers=%lld time_s=%lld filament_um=%lld message=%s\n",
         static_cast<long long>(result.status),

@@ -69,7 +69,8 @@ import kotlinx.coroutines.withContext
  * [selectedObject] indexes them. Objects change only while [editable]; a
  * finished manipulation reports the object's new placement to [onPlaceObject],
  * and a held object its index and the finger's position in the view to
- * [onOpenObjectMenu].
+ * [onOpenObjectMenu]. A [layer], such as the G-code toolpaths of the preview,
+ * is drawn after the bed; the view owns it and releases it when it is replaced.
  */
 @Composable
 fun PlateView(
@@ -84,6 +85,7 @@ fun PlateView(
     onOpenObjectMenu: (index: Int, position: Offset) -> Unit,
     contentDescription: String,
     modifier: Modifier = Modifier,
+    layer: PlateLayer? = null,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -118,6 +120,7 @@ fun PlateView(
         }
     }
     LaunchedEffect(bed) { controller.setBed(bed) }
+    LaunchedEffect(layer) { controller.setLayer(layer) }
 
     val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
     val meshes = remember { MeshCache() }
@@ -271,6 +274,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private val camera = OrcaCamera()
     private var bed: SceneBed? = null
     private var objects: List<SceneObject> = emptyList()
+    private var layer: PlateLayer? = null
+    private var layerBox: Box3? = null
     private var selectedIndex: Int? = null
     private var gizmo: PlateGizmo? = null
     private var flatteningPlanes: List<FlatteningPlane> = emptyList()
@@ -342,6 +347,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     fun setBed(bed: SceneBed?) {
         this.bed = bed
         renderer.setBed(bed)
+        invalidate()
+    }
+
+    fun setLayer(layer: PlateLayer?) {
+        if (layer === this.layer) return
+        this.layer?.setOnChanged(null)
+        this.layer = layer
+        layerBox = layer?.bounds?.let { Box3(Vec3(it.min.x, it.min.y, it.min.z), Vec3(it.max.x, it.max.y, it.max.z)) }
+        layer?.setOnChanged(surface::requestRender)
+        renderer.setLayer(layer)
         invalidate()
     }
 
@@ -520,8 +535,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** GLCanvas3D::on_mouse() rotation: desktop pixels map to device-independent pixels. */
     fun rotate(dx: Float, dy: Float) {
         val factor = Math.PI * TRACKBALL_SIZE / 180.0 / density
-        // Rotate around the objects on the plate, or the plate when it is empty.
-        val rotationTarget = objectsBox()?.center() ?: bed?.plateBox?.center() ?: camera.target
+        // Rotate around the objects on the plate or the toolpaths, or the plate when it is empty.
+        val rotationTarget = (objectsBox() ?: layerBox)?.center() ?: bed?.plateBox?.center() ?: camera.target
         camera.rotateOnSphereWithTarget(dx * factor, dy * factor, true, rotationTarget)
         invalidate()
     }
@@ -662,7 +677,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             val extend = Vec3(1.0, 1.0, 1.0) * selection.maxSize()
             Box3(selection.center() - extend, selection.center() + extend)
         }
-        return listOfNotNull(bed?.extendedBox, objectsBox(), gizmoBox).reduceOrNull(Box3::merge)
+        return listOfNotNull(bed?.extendedBox, objectsBox(), layerBox, gizmoBox).reduceOrNull(Box3::merge)
     }
 
     private companion object {
@@ -701,6 +716,12 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         super.onSizeChanged(width, height, oldWidth, oldHeight)
         controller.setViewport(width, height)
+    }
+
+    override fun onDetachedFromWindow() {
+        // Waits for the GL thread to end, which destroys the context.
+        super.onDetachedFromWindow()
+        renderer.releaseLayers()
     }
 }
 

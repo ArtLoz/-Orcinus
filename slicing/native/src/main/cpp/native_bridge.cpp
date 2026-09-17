@@ -1,5 +1,6 @@
 #include <jni.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -135,6 +136,37 @@ std::vector<double> to_doubles(JNIEnv* env, jdoubleArray values)
     return result;
 }
 
+std::vector<bool> to_bools(JNIEnv* env, jbooleanArray values)
+{
+    std::vector<jboolean> flags(static_cast<std::size_t>(env->GetArrayLength(values)));
+    env->GetBooleanArrayRegion(values, 0, static_cast<jsize>(flags.size()), flags.data());
+    std::vector<bool> result;
+    result.reserve(flags.size());
+    for (const jboolean flag : flags) {
+        result.push_back(flag == JNI_TRUE);
+    }
+    return result;
+}
+
+// The objects of a plate from parallel arrays: per object a model path, 16
+// elements of its instance transformation, and its auto drop.
+std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobjectArray model_paths, jdoubleArray placements, jbooleanArray auto_drops)
+{
+    const std::vector<double> matrices = to_doubles(env, placements);
+    const std::vector<bool> drops = to_bools(env, auto_drops);
+    const std::size_t count = std::min({static_cast<std::size_t>(env->GetArrayLength(model_paths)), matrices.size() / 16, drops.size()});
+    std::vector<orcinus::orca::PlateObject> plate(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto path = static_cast<jstring>(env->GetObjectArrayElement(model_paths, static_cast<jsize>(index)));
+        plate[index].model_path = to_utf8(env, path);
+        env->DeleteLocalRef(path);
+        const auto first = matrices.begin() + static_cast<std::ptrdiff_t>(16 * index);
+        plate[index].placement.matrix.assign(first, first + 16);
+        plate[index].placement.auto_drop = drops[index];
+    }
+    return plate;
+}
+
 // NativeModelInspection
 jobject to_java(JNIEnv* env, const orcinus::orca::ModelInspection& inspection)
 {
@@ -189,34 +221,30 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     JNIEnv* env,
     jobject /* this */,
     jstring job_id,
-    jstring model_path,
+    jobjectArray model_paths,
+    jdoubleArray placements,
+    jbooleanArray auto_drops,
     jstring output_path,
+    jstring toolpaths_path,
     jstring printer_profile,
     jstring filament_profile,
     jstring process_profile,
-    jdoubleArray placement,
-    jboolean auto_drop,
     jobject progress_listener
 )
 {
     const orcinus::orca::ProfileSelection profiles = to_profiles(env, printer_profile, filament_profile, process_profile);
-    orcinus::orca::ObjectPlacement transformation;
-    transformation.auto_drop = auto_drop == JNI_TRUE;
-    if (placement != nullptr) {
-        transformation.matrix = to_doubles(env, placement);
-    }
     const ProgressForwarder forward_progress(env, progress_listener);
     const orcinus::orca::SliceResult result = orcinus::orca::slice(
         to_utf8(env, job_id),
-        to_utf8(env, model_path),
+        to_plate(env, model_paths, placements, auto_drops),
         to_utf8(env, output_path),
+        toolpaths_path != nullptr ? to_utf8(env, toolpaths_path) : std::string(),
         profiles,
-        transformation,
         [&forward_progress](const int percent, const std::string& message) { forward_progress(percent, message); }
     );
 
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJ)V");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZ)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -224,7 +252,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         to_java(env, result.message),
         static_cast<jlong>(result.layer_count),
         static_cast<jlong>(result.estimated_print_time_seconds),
-        static_cast<jlong>(result.filament_micrometers)
+        static_cast<jlong>(result.filament_micrometers),
+        result.toolpaths_written ? JNI_TRUE : JNI_FALSE
     );
 }
 
@@ -279,13 +308,17 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_inspectModel(
     jstring printer_profile,
     jstring filament_profile,
     jstring process_profile,
-    jstring mesh_path
+    jstring mesh_path,
+    jobjectArray plate_model_paths,
+    jdoubleArray plate_placements,
+    jbooleanArray plate_auto_drops
 )
 {
     const orcinus::orca::ModelInspection inspection = orcinus::orca::inspect_model(
         to_utf8(env, model_path),
         to_profiles(env, printer_profile, filament_profile, process_profile),
-        to_utf8(env, mesh_path)
+        to_utf8(env, mesh_path),
+        to_plate(env, plate_model_paths, plate_placements, plate_auto_drops)
     );
     return to_java(env, inspection);
 }
@@ -302,22 +335,13 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
     jdoubleArray placement,
     jboolean auto_drop,
     jlong manipulation,
-    jdoubleArray face_normal,
-    jdouble arrange_distance,
-    jboolean arrange_enable_rotation,
-    jboolean arrange_allow_multi_materials,
-    jboolean arrange_align_to_y_axis
+    jdoubleArray face_normal
 )
 {
     std::array<double, 3> normal{};
     if (face_normal != nullptr && env->GetArrayLength(face_normal) == 3) {
         env->GetDoubleArrayRegion(face_normal, 0, 3, normal.data());
     }
-    orcinus::orca::ArrangeSettings arrange;
-    arrange.distance = arrange_distance;
-    arrange.enable_rotation = arrange_enable_rotation == JNI_TRUE;
-    arrange.allow_multi_materials_on_same_plate = arrange_allow_multi_materials == JNI_TRUE;
-    arrange.align_to_y_axis = arrange_align_to_y_axis == JNI_TRUE;
     const orcinus::orca::ModelInspection inspection = orcinus::orca::place_model(
         to_utf8(env, model_path),
         to_profiles(env, printer_profile, filament_profile, process_profile),
@@ -325,10 +349,60 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
         to_doubles(env, placement),
         auto_drop == JNI_TRUE,
         static_cast<orcinus::orca::Manipulation>(manipulation),
-        normal,
-        arrange
+        normal
     );
     return to_java(env, inspection);
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
+    JNIEnv* env,
+    jobject /* this */,
+    jobjectArray model_paths,
+    jdoubleArray placements,
+    jbooleanArray auto_drops,
+    jbooleanArray selected,
+    jstring printer_profile,
+    jstring filament_profile,
+    jstring process_profile,
+    jlong manipulation,
+    jdouble arrange_distance,
+    jboolean arrange_enable_rotation,
+    jboolean arrange_allow_multi_materials,
+    jboolean arrange_align_to_y_axis
+)
+{
+    orcinus::orca::ArrangeSettings arrange;
+    arrange.distance = arrange_distance;
+    arrange.enable_rotation = arrange_enable_rotation == JNI_TRUE;
+    arrange.allow_multi_materials_on_same_plate = arrange_allow_multi_materials == JNI_TRUE;
+    arrange.align_to_y_axis = arrange_align_to_y_axis == JNI_TRUE;
+    const orcinus::orca::PlateInspection inspection = orcinus::orca::place_objects(
+        to_plate(env, model_paths, placements, auto_drops),
+        to_bools(env, selected),
+        to_profiles(env, printer_profile, filament_profile, process_profile),
+        static_cast<orcinus::orca::PlateManipulation>(manipulation),
+        arrange
+    );
+
+    const jclass inspection_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeModelInspection");
+    const jobjectArray objects = env->NewObjectArray(static_cast<jsize>(inspection.objects.size()), inspection_class, nullptr);
+    for (std::size_t index = 0; index < inspection.objects.size(); ++index) {
+        // Each inspection creates several local references; its frame keeps them few.
+        if (env->PushLocalFrame(16) != JNI_OK) {
+            return nullptr;
+        }
+        const jobject object = env->PopLocalFrame(to_java(env, inspection.objects[index]));
+        env->SetObjectArrayElement(objects, static_cast<jsize>(index), object);
+        env->DeleteLocalRef(object);
+    }
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePlateInspection");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(JLjava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeModelInspection;)V"
+    );
+    return env->NewObject(result_class, constructor, static_cast<jlong>(inspection.status), to_java(env, inspection.message), objects);
 }
 
 extern "C" JNIEXPORT jobject JNICALL
