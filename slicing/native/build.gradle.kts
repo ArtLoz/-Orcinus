@@ -52,9 +52,11 @@ abstract class BuildOrcaEngine @Inject constructor(
 
 /**
  * Packages OrcaSlicer's runtime files from the pinned submodule: vendor profile
- * bundles (loaded by PresetBundle from data/system) and the info/ and flush/
- * tables read from the resources directory. manifest.txt lists every file for
- * OrcaAssets, which copies them into app storage.
+ * bundles (loaded by PresetBundle from data/system), the info/ and flush/
+ * tables read from the resources directory, and the bed models and textures the
+ * vendors' printer models name, which Orca looks up in resources/profiles.
+ * manifest.txt lists every file for OrcaAssets, which copies them into app
+ * storage.
  */
 abstract class PrepareOrcaAssets : DefaultTask() {
     @get:Internal
@@ -94,9 +96,25 @@ abstract class PrepareOrcaAssets : DefaultTask() {
             bundle.copyTo(root.resolve("data/system/${bundle.name}"))
             manifest += "data/system/${bundle.name}"
             copyTree(resources.resolve("profiles/$vendor"), "data/system/$vendor") { it.extension == "json" }
+            bedFiles(resources.resolve("profiles/$vendor")).forEach { file ->
+                val entry = "resources/profiles/$vendor/${file.name}"
+                file.copyTo(root.resolve(entry))
+                manifest += entry
+            }
         }
 
         root.resolve("manifest.txt").writeText(manifest.sorted().joinToString(separator = "\n", postfix = "\n"))
+    }
+
+    /** Files named by bed_model and bed_texture in a vendor's printer model definitions (VendorProfile::PrinterModel). */
+    private fun bedFiles(vendorDirectory: File): List<File> {
+        val reference = Regex("\"(?:bed_model|bed_texture)\"\\s*:\\s*\"([^\"]+)\"")
+        return vendorDirectory.resolve("machine").listFiles { file -> file.extension == "json" }.orEmpty()
+            .flatMap { definition -> reference.findAll(definition.readText()).map { it.groupValues[1] }.toList() }
+            .distinct()
+            .map(vendorDirectory::resolve)
+            .filter(File::isFile)
+            .sortedBy(File::getName)
     }
 }
 
@@ -119,7 +137,7 @@ val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
         orcaResourcesDirectory.dir("flush"),
         bundledOrcaVendors.map { orcaResourcesDirectory.file("profiles/$it.json") },
         bundledOrcaVendors.map { vendor ->
-            orcaResourcesDirectory.dir("profiles/$vendor").asFileTree.matching { include("**/*.json") }
+            orcaResourcesDirectory.dir("profiles/$vendor").asFileTree.matching { include("**/*.json", "*.stl", "*.svg", "*.png") }
         },
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaAssets"))

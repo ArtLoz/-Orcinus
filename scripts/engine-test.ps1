@@ -54,6 +54,15 @@ if ($Suite -contains 'orca_engine_adapter_tests') {
         Invoke-Adb @('push', (Join-Path $orcaResources "profiles/$vendor.json"), "$deviceDir/orca/data/system/")
         Invoke-Adb @('push', (Join-Path $orcaResources "profiles/$vendor"), "$deviceDir/orca/data/system/")
     }
+    # Bed models and textures, which Orca looks up in resources/profiles/<vendor>.
+    $bedFiles = Join-Path $deviceBinaries 'bed-files'
+    Remove-Item -LiteralPath $bedFiles -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path (Join-Path $bedFiles 'Creality') | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $orcaResources 'profiles/Creality') -File |
+        Where-Object { $_.Name -like 'creality_k2plus_buildplate_*' } |
+        Copy-Item -Destination (Join-Path $bedFiles 'Creality')
+    Invoke-Adb @('shell', "mkdir -p $deviceDir/orca/resources/profiles")
+    Invoke-Adb @('push', (Join-Path $bedFiles 'Creality'), "$deviceDir/orca/resources/profiles/")
 }
 
 $failed = @()

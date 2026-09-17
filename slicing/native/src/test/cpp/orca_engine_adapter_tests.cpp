@@ -1,15 +1,24 @@
 // Device tests for the Android facade over OrcaSlicer. OrcaSlicer's own suites
 // cover the algorithms; these cover what the app adds: loading the bundled
-// vendor profiles through PresetBundle and the full slice/export/cancel path.
+// vendor profiles through PresetBundle, the full slice/export/cancel path, and
+// the plate and model geometry exported for the 3D view.
 //
 // scripts/engine-test.ps1 pushes the profile bundle and upstream test data to
 // ENGINE_DEVICE_TEST_DIR before running this executable.
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <sstream>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 #include <boost/filesystem.hpp>
 
@@ -55,6 +64,13 @@ std::string read_file(const std::string& path)
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
+std::uint32_t read_u32(const std::string& data, const std::size_t offset)
+{
+    std::uint32_t value = 0;
+    std::memcpy(&value, data.data() + offset, sizeof(value));
+    return value;
+}
+
 }  // namespace
 
 TEST_CASE("Bundled K2 Plus profiles slice the calibration cube into Orca G-code", "[Adapter]")
@@ -68,6 +84,7 @@ TEST_CASE("Bundled K2 Plus profiles slice the calibration cube into Orca G-code"
         {},
         output,
         k2_plus_profiles(),
+        {},
         [&last_percent](const int percent, const std::string&) { last_percent = percent; }
     );
 
@@ -97,6 +114,7 @@ TEST_CASE("An imported STL is sliced through the same pipeline", "[Adapter]")
         device_dir + "/data/test_stl/ASCII/20mmbox-LF.stl",
         output,
         k2_plus_profiles(),
+        {},
         {}
     );
 
@@ -112,10 +130,10 @@ TEST_CASE("Unknown profiles and unreadable models are reported", "[Adapter]")
 
     orca::ProfileSelection unknown_printer = k2_plus_profiles();
     unknown_printer.printer = "No Such Printer";
-    CHECK(orca::slice("unknown", {}, output_path("unknown.gcode"), unknown_printer, {}).status
+    CHECK(orca::slice("unknown", {}, output_path("unknown.gcode"), unknown_printer, {}, {}).status
           == orca::SliceStatus::profile_not_found);
 
-    CHECK(orca::slice("missing", device_dir + "/data/missing.stl", output_path("missing.gcode"), k2_plus_profiles(), {}).status
+    CHECK(orca::slice("missing", device_dir + "/data/missing.stl", output_path("missing.gcode"), k2_plus_profiles(), {}, {}).status
           == orca::SliceStatus::model_read_failed);
 }
 
@@ -132,6 +150,7 @@ TEST_CASE("Cancelling the active job stops slicing without output", "[Adapter]")
         {},
         output,
         k2_plus_profiles(),
+        {},
         [&](const int percent, const std::string&) {
             if (percent >= 10 && !cancel_accepted) {
                 other_job_rejected = !orca::cancel("other-job");
@@ -145,4 +164,291 @@ TEST_CASE("Cancelling the active job stops slicing without output", "[Adapter]")
     CHECK(result.status == orca::SliceStatus::cancelled);
     CHECK_FALSE(fs::exists(output));
     CHECK_FALSE(fs::exists(output + ".part"));
+}
+
+TEST_CASE("The K2 Plus plate is described as OrcaSlicer draws it", "[Adapter][Scene]")
+{
+    require_engine();
+    const std::string directory = (fs::path(device_dir) / "tmp" / "plate").string();
+
+    const orca::PlateDescription plate = orca::describe_plate(k2_plus_profiles(), directory);
+
+    INFO(plate.message);
+    REQUIRE(plate.status == orca::SceneStatus::success);
+    CHECK(plate.printable_area == std::vector<double>{0, 0, 350, 0, 350, 350, 0, 350});
+    CHECK(plate.printable_height == 350.0);
+    // A rectangle is two triangles; the "0x0" exclude area is none.
+    CHECK(plate.plate_triangles.size() == 12);
+    CHECK(plate.exclude_triangles.empty());
+    // Bed_2D::generate_grid(): a 10 mm grid over 350 mm walks each axis from the
+    // origin both ways, so the line at 0 is bold twice; 36 lines per axis, every
+    // fifth bold. The thin set also carries the 4 contour edges.
+    CHECK(plate.bold_grid_lines.size() == 4 * (9 + 9));
+    CHECK(plate.thin_grid_lines.size() == 4 * (28 + 28 + 4));
+    CHECK(plate.filament_colour.size() == 7);
+    CHECK(plate.filament_colour.front() == '#');
+
+    REQUIRE_FALSE(plate.bed_model_mesh.empty());
+    const std::string mesh = read_file(plate.bed_model_mesh);
+    REQUIRE(mesh.size() >= 16);
+    CHECK(mesh.compare(0, 4, "OMSH") == 0);
+    CHECK(read_u32(mesh, 4) == orca::mesh_file_version);
+    const std::uint32_t vertex_count = read_u32(mesh, 8);
+    const std::uint32_t triangle_count = read_u32(mesh, 12);
+    // creality_k2plus_buildplate_model.stl
+    CHECK(triangle_count == 432);
+    CHECK(mesh.size() == 16 + 12 * static_cast<std::size_t>(vertex_count) + 12 * static_cast<std::size_t>(triangle_count));
+
+    REQUIRE_FALSE(plate.bed_texture.empty());
+    CHECK(read_file(plate.bed_texture).compare(1, 3, "PNG") == 0);
+}
+
+TEST_CASE("A model is placed and meshed the way slicing places it", "[Adapter][Scene]")
+{
+    require_engine();
+    const std::string mesh_path = output_path("cube.mesh");
+
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), mesh_path);
+
+    INFO(cube.message);
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    CHECK(cube.facet_count == 12);
+    CHECK(cube.size_x == Catch::Approx(20.0));
+    CHECK(cube.size_y == Catch::Approx(20.0));
+    CHECK(cube.size_z == Catch::Approx(20.0));
+    // Centred on the 350 mm plate and resting on it.
+    CHECK(cube.instance_matrix[12] == Catch::Approx(175.0));
+    CHECK(cube.instance_matrix[13] == Catch::Approx(175.0));
+    CHECK(cube.instance_matrix[14] == Catch::Approx(10.0));
+    CHECK(cube.instance_matrix[15] == 1.0);
+
+    const std::string mesh = read_file(mesh_path);
+    CHECK(mesh.size() == 16 + 12 * 8 + 12 * 12);
+    CHECK_FALSE(fs::exists(mesh_path + ".part"));
+
+    orca::ProfileSelection unknown_printer = k2_plus_profiles();
+    unknown_printer.printer = "No Such Printer";
+    CHECK(orca::inspect_model({}, unknown_printer, output_path("unknown.mesh")).status == orca::SceneStatus::profile_not_found);
+    CHECK(orca::inspect_model(device_dir + "/data/missing.stl", k2_plus_profiles(), output_path("missing.mesh")).status
+          == orca::SceneStatus::model_read_failed);
+}
+
+TEST_CASE("A moved object is sliced where the user placed it", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("moved.mesh"));
+    REQUIRE(cube.status == orca::SceneStatus::success);
+
+    // Drag the cube from the plate centre to (100, 120).
+    std::vector<double> placement(cube.instance_matrix.begin(), cube.instance_matrix.end());
+    placement[12] = 100.0;
+    placement[13] = 120.0;
+    const std::string output = output_path("moved.gcode");
+
+    const orca::SliceResult result = orca::slice("moved", {}, output, k2_plus_profiles(), {placement}, {});
+
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    CHECK(result.layer_count == 100);
+
+    // Extrusions from the second layer on outline the cube; their centre is the new position.
+    std::istringstream gcode(read_file(output));
+    std::string line;
+    double min_x = std::numeric_limits<double>::max();
+    double min_y = std::numeric_limits<double>::max();
+    double max_x = std::numeric_limits<double>::lowest();
+    double max_y = std::numeric_limits<double>::lowest();
+    int layer = 0;
+    while (std::getline(gcode, line)) {
+        if (line.rfind(";LAYER_CHANGE", 0) == 0) {
+            ++layer;
+        }
+        const std::size_t x = line.find(" X");
+        const std::size_t y = line.find(" Y");
+        if (layer < 2 || line.rfind("G1 ", 0) != 0 || x == std::string::npos || y == std::string::npos || line.find(" E") == std::string::npos) {
+            continue;
+        }
+        const double px = std::stod(line.substr(x + 2));
+        const double py = std::stod(line.substr(y + 2));
+        min_x = std::min(min_x, px);
+        max_x = std::max(max_x, px);
+        min_y = std::min(min_y, py);
+        max_y = std::max(max_y, py);
+    }
+    REQUIRE(min_x < max_x);
+    CHECK((min_x + max_x) / 2.0 == Catch::Approx(100.0).margin(1.0));
+    CHECK((min_y + max_y) / 2.0 == Catch::Approx(120.0).margin(1.0));
+    CHECK(max_x - min_x == Catch::Approx(20.0).margin(1.0));
+}
+
+TEST_CASE("An object over the plate boundary is not sliced", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("outside.mesh"));
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<double> placement(cube.instance_matrix.begin(), cube.instance_matrix.end());
+
+    SECTION("across the edge")
+    {
+        placement[12] = 0.0;
+    }
+    SECTION("entirely off the plate")
+    {
+        placement[12] = -100.0;
+    }
+    const std::string output = output_path("outside.gcode");
+    boost::filesystem::remove(output);
+
+    const orca::SliceResult result = orca::slice("outside", {}, output, k2_plus_profiles(), {placement}, {});
+
+    CHECK(result.status == orca::SliceStatus::invalid_print);
+    CHECK_FALSE(result.message.empty());
+    CHECK_FALSE(boost::filesystem::exists(output));
+}
+
+TEST_CASE("A manipulated object is placed as the desktop app commits it", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("placed.mesh"));
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    CHECK(cube.volume_state == orca::VolumeState::inside);
+    const std::vector<double> centred(cube.instance_matrix.begin(), cube.instance_matrix.end());
+    std::vector<double> placement = centred;
+
+    SECTION("lifted above the plate, it drops onto it")
+    {
+        placement[12] = 100.0;
+        placement[13] = 120.0;
+        placement[14] = 40.0;
+
+        const orca::ModelInspection placed = orca::place_model({}, k2_plus_profiles(), centred, placement, true, orca::Manipulation::move, {}, {});
+
+        REQUIRE(placed.status == orca::SceneStatus::success);
+        CHECK(placed.instance_matrix[12] == Catch::Approx(100.0));
+        CHECK(placed.instance_matrix[13] == Catch::Approx(120.0));
+        CHECK(placed.instance_matrix[14] == Catch::Approx(10.0));
+        CHECK(placed.size_z == Catch::Approx(20.0));
+        CHECK(placed.facet_count == 12);
+        CHECK(placed.volume_state == orca::VolumeState::inside);
+        // The sphere through the cube's corners, and no rotation or scale.
+        CHECK(placed.sphere_center[0] == Catch::Approx(100.0).margin(0.01));
+        CHECK(placed.sphere_center[2] == Catch::Approx(10.0).margin(0.01));
+        CHECK(placed.sphere_radius == Catch::Approx(10.0 * std::sqrt(3.0)).margin(0.01));
+        CHECK(placed.rotation_degrees[2] == 0.0);
+        CHECK(placed.unscaled_size[0] == Catch::Approx(20.0));
+        CHECK(placed.box_center[1] == Catch::Approx(120.0));
+    }
+    SECTION("turned by 45 degrees, its bounding box grows")
+    {
+        const double c = std::sqrt(0.5);
+        placement[0] = c;
+        placement[1] = c;
+        placement[4] = -c;
+        placement[5] = c;
+
+        const orca::ModelInspection placed = orca::place_model({}, k2_plus_profiles(), centred, placement, true, orca::Manipulation::move, {}, {});
+
+        REQUIRE(placed.status == orca::SceneStatus::success);
+        CHECK(placed.size_x == Catch::Approx(20.0 * std::sqrt(2.0)));
+        CHECK(placed.size_y == Catch::Approx(20.0 * std::sqrt(2.0)));
+        CHECK(placed.size_z == Catch::Approx(20.0));
+        CHECK(placed.rotation_degrees[2] == Catch::Approx(45.0));
+
+        const orca::ModelInspection reset = orca::place_model({}, k2_plus_profiles(), placement, placement, true, orca::Manipulation::reset_rotation, {}, {});
+
+        REQUIRE(reset.status == orca::SceneStatus::success);
+        CHECK(reset.size_x == Catch::Approx(20.0));
+        CHECK(reset.rotation_degrees[2] == 0.0);
+        CHECK(reset.instance_matrix[12] == Catch::Approx(175.0));
+    }
+    SECTION("scaled to twice its size about its centre, it rests on the plate")
+    {
+        placement[0] = 2.0;
+        placement[5] = 2.0;
+        placement[10] = 2.0;
+
+        const orca::ModelInspection placed = orca::place_model({}, k2_plus_profiles(), centred, placement, true, orca::Manipulation::scale, {}, {});
+
+        REQUIRE(placed.status == orca::SceneStatus::success);
+        CHECK(placed.size_z == Catch::Approx(40.0));
+        CHECK(placed.unscaled_size[2] == Catch::Approx(20.0));
+        CHECK(placed.instance_matrix[14] == Catch::Approx(20.0));
+        // A move leaves the same sunk object sunk.
+        CHECK(orca::place_model({}, k2_plus_profiles(), centred, placement, true, orca::Manipulation::move, {}, {}).instance_matrix[14] == Catch::Approx(10.0));
+    }
+    SECTION("tipped onto an edge, auto orient lays it flat again")
+    {
+        const double c = std::sqrt(0.5);
+        placement[5] = c;
+        placement[6] = c;
+        placement[9] = -c;
+        placement[10] = c;
+
+        const orca::ModelInspection oriented = orca::place_model({}, k2_plus_profiles(), centred, placement, true, orca::Manipulation::auto_orient, {}, {});
+
+        INFO(oriented.message);
+        REQUIRE(oriented.status == orca::SceneStatus::success);
+        CHECK(oriented.size_z == Catch::Approx(20.0).margin(0.01));
+        CHECK(oriented.volume_state == orca::VolumeState::inside);
+    }
+    SECTION("across the edge of the plate, it does not fit")
+    {
+        placement[12] = 0.0;
+        CHECK(orca::place_model({}, k2_plus_profiles(), centred, placement, true, orca::Manipulation::move, {}, {}).volume_state == orca::VolumeState::partly_outside);
+    }
+    SECTION("off the plate, it is outside")
+    {
+        placement[12] = -100.0;
+        CHECK(orca::place_model({}, k2_plus_profiles(), centred, placement, true, orca::Manipulation::move, {}, {}).volume_state == orca::VolumeState::outside);
+    }
+    SECTION("a cube offers its six faces, and lying on a side turns it")
+    {
+        const orca::FlatteningPlanes faces = orca::describe_flattening_planes({}, k2_plus_profiles(), placement);
+
+        REQUIRE(faces.status == orca::SceneStatus::success);
+        REQUIRE(faces.planes.size() == 6);
+        // Rounded corners: 2 * k * N points for a square, k = 10.
+        CHECK(faces.planes.front().vertices.size() == 3 * 80);
+
+        const orca::ModelInspection laid = orca::place_model(
+            {}, k2_plus_profiles(), placement, placement, true, orca::Manipulation::lay_on_face, {1.0, 0.0, 0.0}, {});
+
+        REQUIRE(laid.status == orca::SceneStatus::success);
+        // The +X face now points down: the object's X axis maps to -Z.
+        CHECK(laid.instance_matrix[2] == Catch::Approx(-1.0));
+        CHECK(laid.instance_matrix[14] == Catch::Approx(10.0));
+    }
+    SECTION("with auto drop off, a lifted object stays up until auto drop is on again")
+    {
+        placement[14] = 40.0;
+
+        const orca::ModelInspection lifted = orca::place_model({}, k2_plus_profiles(), centred, placement, false, orca::Manipulation::move, {}, {});
+
+        REQUIRE(lifted.status == orca::SceneStatus::success);
+        CHECK(lifted.instance_matrix[14] == Catch::Approx(40.0));
+        const std::vector<double> up(lifted.instance_matrix.begin(), lifted.instance_matrix.end());
+        CHECK(orca::place_model({}, k2_plus_profiles(), up, up, false, orca::Manipulation::rotate, {}, {}).instance_matrix[14] == Catch::Approx(40.0));
+
+        const orca::ModelInspection dropped = orca::place_model({}, k2_plus_profiles(), up, up, true, orca::Manipulation::ensure_on_bed, {}, {});
+
+        CHECK(dropped.instance_matrix[14] == Catch::Approx(10.0));
+    }
+    SECTION("arranged from a corner, it goes to the plate's best position")
+    {
+        placement[12] = 20.0;
+        placement[13] = 20.0;
+
+        const orca::ModelInspection arranged = orca::place_model({}, k2_plus_profiles(), placement, placement, true, orca::Manipulation::arrange, {}, {});
+
+        INFO(arranged.message);
+        REQUIRE(arranged.status == orca::SceneStatus::success);
+        // best_object_pos is the plate centre for the K2 Plus.
+        CHECK(arranged.instance_matrix[12] == Catch::Approx(175.0).margin(1.0));
+        CHECK(arranged.instance_matrix[13] == Catch::Approx(175.0).margin(1.0));
+        CHECK(arranged.volume_state == orca::VolumeState::inside);
+    }
+    SECTION("a placement that is not a matrix is rejected")
+    {
+        CHECK(orca::place_model({}, k2_plus_profiles(), centred, {1.0, 2.0}, true, orca::Manipulation::move, {}, {}).status != orca::SceneStatus::success);
+    }
 }

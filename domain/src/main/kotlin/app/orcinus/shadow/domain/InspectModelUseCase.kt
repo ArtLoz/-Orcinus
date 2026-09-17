@@ -1,17 +1,23 @@
 package app.orcinus.shadow.domain
 
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
-import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
-import app.orcinus.shadow.slicing.api.ModelInspector
+import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.slicing.api.PlateInspector
 
+/** Loads a model and places it on the plate of [profiles]'s printer, writing its mesh to a file. */
 class InspectModelUseCase(
-    private val inspector: ModelInspector,
+    private val inspector: PlateInspector,
 ) {
-    suspend operator fun invoke(path: ModelPath): ModelInspectionOutcome {
-        if (path.value.isBlank()) {
+    suspend operator fun invoke(
+        model: ModelSource,
+        profiles: SlicingProfileSelection,
+        mesh: ScenePath,
+    ): ModelInspectionOutcome {
+        if (model is ModelSource.LocalFile && model.path.value.isBlank()) {
             return ModelInspectionOutcome.Failure("Model path is empty")
         }
-        return inspector.inspect(ModelSource.LocalFile(path))
+        return inspector.inspect(model, profiles, mesh)
     }
 }

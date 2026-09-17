@@ -10,6 +10,7 @@ keep upstream OrcaSlicer an implementation detail of the native adapter.
       ├─> :feature:preview ─┤
       ├─> :feature:sidebar ─┼─> :core:designsystem, :core:ui
       ├─> :feature:about ───┤
+      │                     ├─> :render:scene (Prepare) ─> :core:designsystem, :core:model
       │                     └─> :domain ─> :slicing:api, :storage:api ─> :core:model
       ├─> :data:plate ─────────> :domain (implements PlateRepository)
       ├─> :data:notices ───────> :domain (implements NoticeCatalog)
@@ -79,6 +80,68 @@ again, which starts a new `:slicer` process at once.
     (`BitmapCache::load_svg`).
 - `:core:ui` holds UI pieces shared by features and bound to app models: model
   names, print time, filament length, dimensions, problem titles.
+- `:render:scene` is OrcaSlicer's 3D plate view for Compose (`PlateView`), on
+  OpenGL ES 3.0:
+  - OrcaSlicer's own shaders (`resources/shaders/140`), which the build turns
+    into GLSL ES 3.00 by replacing the version line and adding the default
+    precision;
+  - `OrcaCamera`, a line-by-line port of `Camera.cpp` (orbiting at a fixed
+    distance, zoom by frustum size, tight near and far planes), with JVM tests;
+  - the draw order, GL state, and colours of `GLCanvas3D::render`, `Bed3D`, and
+    `PartPlate`: bed model, excluded area, thin and bold grid, bed texture, then
+    the objects in the filament colour, shaded with flat face normals as
+    `GLModel::init_from` builds them;
+  - selection and moving as `GLCanvas3D::on_mouse`: a finger on an object
+    (found by casting the touch ray, `Camera::mouse_ray`, at its mesh) selects
+    it, brightened as `GLVolume::brighten_color` does and framed by the white
+    corner brackets of `Selection::render_bounding_box`; dragging it moves it
+    in the horizontal plane through the touched point, or in the screen plane
+    when the camera looks along the plate; on release it drops onto the plate
+    as `do_move` does, unless the object's auto drop (`ModelInstance::auto_drop`)
+    is off, and the placement goes back to the app. A tap on empty space clears
+    the selection. With auto drop off, arrows point down from the bottom
+    corners of the brackets. Touch differences: the move starts after the touch
+    slop even for a selected object, a second finger ends the move, and holding
+    an object without moving it asks for its context menu, as a right click
+    does;
+  - gizmos (`PlateGizmo`) on the selected object, ported from `Gizmos/` with
+    OrcaSlicer's grabbers (cubes and cones from `its_make_cube` and
+    `its_make_cone`, axis colours, dashed connections, `gouraud_light`):
+    - move (`GLGizmoMove3D`): an arrow per axis, dragged by `calc_projection`;
+    - rotate (`GLGizmoRotate3D`): a ring per axis around the engine's bounding
+      sphere, the angle from `mouse_position_in_local_plane` with the scale and
+      coarse snaps, the object turning about the sphere's centre;
+    - scale (`GLGizmoScale3D`): grabbers on the bounding box, `calc_ratio`, the
+      object scaling about the box centre;
+    - lay on face (`GLGizmoFlatten`): the faces the engine computed, drawn
+      translucent; touching one lays the object on it.
+    A finished drag reports the placement with its `Manipulation`, and the view
+    rests the object on the plate by the same rule, auto drop included, until
+    the engine answers. A
+    finger takes a grabber within three touch slops of it on the screen;
+  - gestures elsewhere: one finger orbits like OrcaSlicer's mouse, two fingers
+    pan (the plate stays under the fingers) and pinch-zoom around their
+    midpoint, a double tap on empty space returns to OrcaSlicer's plate view.
+    A 20 dp band at the start edge is left to the drawer and system gestures.
+  It draws what the engine computed and follows OrcaSlicer's canvas rules for
+  moving; whether a placement is printable is decided by the engine.
+- `:feature:prepare` builds the canvas toolbar with every button OrcaSlicer
+  shows for a single-filament FFF printer, in its order: the main toolbar, a
+  separator, the gizmos, a separator, the assembly view. The active gizmo's
+  icon is in its own colours (the `_dark.svg` in dark mode); tools the app
+  does not have yet stay disabled. On a phone the row scrolls instead of
+  shrinking its icons, and it starts after the sidebar button. The gizmo
+  windows of `GizmoObjectManipulation` are Compose panels: position; relative
+  and absolute rotation with both resets; scale ratios, size, uniform scaling
+  and reset. Inputs apply when done. `ObjectTransforms` computes their changes
+  with the gizmos' world-coordinate math. The Arrange item opens the arrange
+  options of `GLCanvas3D::_render_arrange_menu` (spacing, rotation, alignment
+  to the Y axis, reset, arrange). Holding an object opens its context menu
+  (`MenuFactory::create_object_menu`) with the items the app has so far: the
+  "Auto Drop" check item. The page's own state (selection, open gizmo, rotation
+  at opening, uniform scaling, faces for "Lay on face", arrange options) is one
+  `PrepareViewState` in `PrepareViewModel`; clearing the selection closes the
+  gizmo.
 
 ### Domain layer
 
@@ -88,7 +151,24 @@ again, which starts a new `:slicer` process at once.
   workflow the screens need — start the engine, add a model or the calibration
   cube, slice the plate, cancel, dismiss a problem — and write the results to
   `PlateRepository`, a port the domain owns. Long operations run in the
-  application scope, so a slice outlives the screen that started it. Notice use
+  application scope, so a slice outlives the screen that started it. Starting
+  the engine also describes the plate of the selected printer, and adding a
+  model or the calibration cube has the engine load and place it and write its
+  mesh; the new object's mesh file replaces the previous one's.
+  `PlacePlateObjectUseCase` commits a `Manipulation` (move, rotate, scale, reset
+  rotation, auto orient, lay on face, arrange, ensure on bed) of the object
+  with a given mesh file: the object stands at the new placement at once,
+  G-code sliced for another placement is dropped, and the engine then settles
+  it as OrcaSlicer commits that manipulation, keeping it where it is when its
+  auto drop is off, and reports its size, bounding sphere, rotation, unscaled
+  size, and whether it fits the build volume. `SetPlateObjectAutoDropUseCase`
+  is `ObjectList::toggle_auto_drop()`: the flag lives on `PlateObject`, and
+  turning it on again rests the object on the plate (`ensure_on_bed`).
+  `DescribeFlatteningPlanesUseCase` asks the engine for the faces "Lay on face"
+  offers. Until that answer, and while the object lies across the
+  plate boundary, the plate cannot be sliced; slicing sends the placement to
+  the engine. The selection is UI state of `PrepareViewModel`,
+  kept by the object's mesh file, so a replaced object is never selected. Notice use
   cases (`about/`) read the bundled third-party notices through the
   `NoticeCatalog` port.
 
@@ -103,21 +183,29 @@ again, which starts a new `:slicer` process at once.
   in `app/notices` by `scripts/notices/update_notices.py` from their sources.
   License texts are never downloaded during the build.
 - `:core:model` contains immutable, platform-neutral value types, including
-  `PlateState`.
-- `:slicing:api` is the engine port; `:storage:api` the ports for importing
-  documents and locating G-code outputs.
+  `PlateState` and the scene types (`PlateDescription`, `ModelInspection` with
+  its mesh file and placement).
+- `:slicing:api` holds the engine ports: `SlicerEngine` and `PlateInspector`
+  (describe the plate, load and place a model). `:storage:api` holds the ports
+  for importing documents, locating G-code outputs, and scene files.
 - `:slicing:native` is the NDK/JNI adapter and the only place OrcaSlicer is
   attached. Gradle builds `liborcinus_engine.so` through
   `engine/CMakePresets.json` together with OrcaSlicer's `libslic3r` and packages
-  the selected vendor profiles and Orca's runtime tables as assets, which
-  `OrcaAssets` copies to app storage for Orca's `PresetBundle`.
-- `:slicing:service` moves any `SlicerEngine` + `ModelInspector` into another
+  the selected vendor profiles, Orca's runtime tables, and the bed models and
+  textures the vendors' printer models name as assets, which `OrcaAssets`
+  copies to app storage for Orca's `PresetBundle`. For the 3D view the adapter
+  computes the plate as OrcaSlicer's GUI does (`PartPlate` triangulation and
+  grid, `Bed3D` model, `GLTexture` rasterizing the SVG texture with nanosvg)
+  and writes meshes in a small binary format described in
+  `orca_engine_adapter.hpp`.
+- `:slicing:service` moves any `SlicerEngine` + `PlateInspector` into another
   process: `SlicerService` (AIDL server, one job at a time, specialUse foreground
   service with a progress notification and a cancel action) and
   `RemoteSlicerEngine` (client, turns the death of the engine process into
   `SliceFailureCode.ENGINE_CRASHED`).
 - `:storage:android` copies Android documents into app storage under their own
-  names and places G-code in `files/gcode`.
+  names, places G-code in `files/gcode`, and scene files in the no-backup
+  `files/scene`.
 
 Inside `:slicing:native`, JNI only converts JVM values to adapter values.
 `orca_engine_adapter.hpp` is the stable C++ boundary; OrcaSlicer and its
@@ -158,8 +246,30 @@ Adding a model:
 Android document picker -> PrepareViewModel -> AddModelToPlateUseCase
     -> ImportModelUseCase -> ContentResolverModelFileImporter -> app-owned STL
     -> InspectModelUseCase -> RemoteSlicerEngine == AIDL ==> NativeSlicerEngine
-    -> orca_engine_adapter -> TriangleMesh
+    -> orca_engine_adapter: load_stl, place_on_bed (as slicing), mesh file
 AddModelToPlateUseCase -> PlateRepository -> PlateState.plateObject
+    -> PrepareScreen -> PlateView reads the mesh -> OpenGL ES
+```
+
+Describing the plate, once the engine is ready:
+
+```text
+AppShellViewModel -> StartEngineUseCase -> PlateInspector.describePlate
+    == AIDL ==> orca_engine_adapter: printable area, grid, bed model mesh, texture PNG
+StartEngineUseCase -> PlateRepository -> PlateState.plate -> PlateView
+```
+
+Moving an object:
+
+```text
+PlateView (touch ray or gizmo grabber, drag, drop onto the plate), or the move
+window's position -> PrepareViewModel -> PlacePlateObjectUseCase
+    -> PlateRepository: placement at once, placing
+    -> PlaceModelUseCase == AIDL ==> orca_engine_adapter place_model: place_at,
+       instance bounding box, update_print_volume_state
+    -> PlateRepository: dropped placement, size, BuildVolumeFit
+SlicePlateUseCase -> SliceRequest.placement, autoDrop == AIDL ==> orca_engine_adapter:
+    place_at, update_print_volume_state, slice
 ```
 
 The upstream pin and update workflow are described in

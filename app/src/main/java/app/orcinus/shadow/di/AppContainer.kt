@@ -10,9 +10,11 @@ import app.orcinus.shadow.core.model.LicenseId
 import app.orcinus.shadow.data.notices.AboutLibrariesNoticeCatalog
 import app.orcinus.shadow.data.plate.InMemoryPlateRepository
 import app.orcinus.shadow.domain.CancelSliceUseCase
+import app.orcinus.shadow.domain.DescribeFlatteningPlanesUseCase
 import app.orcinus.shadow.domain.GetEngineStatusUseCase
 import app.orcinus.shadow.domain.ImportModelUseCase
 import app.orcinus.shadow.domain.InspectModelUseCase
+import app.orcinus.shadow.domain.PlaceModelUseCase
 import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.domain.about.GetLicenseUseCase
 import app.orcinus.shadow.domain.about.GetThirdPartyComponentUseCase
@@ -22,6 +24,8 @@ import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
+import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
 import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
 import app.orcinus.shadow.feature.about.NoticeViewModel
@@ -33,6 +37,7 @@ import app.orcinus.shadow.feature.sidebar.SidebarViewModel
 import app.orcinus.shadow.slicing.nativebridge.NativeSlicerEngine
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
 import app.orcinus.shadow.storage.android.AppGcodeOutputs
+import app.orcinus.shadow.storage.android.AppSceneFiles
 import app.orcinus.shadow.storage.android.ContentResolverModelFileImporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,17 +55,20 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     private val engine = RemoteSlicerEngine(applicationContext, OrcaSlicerService::class.java)
     private val plateRepository = InMemoryPlateRepository(NativeSlicerEngine.k2PlusProfiles)
+    private val sceneFiles = AppSceneFiles(applicationContext)
+    private val inspectModel = InspectModelUseCase(engine)
 
     val observePlate = ObservePlateUseCase(plateRepository)
-    val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), plateRepository)
+    val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, sceneFiles, plateRepository)
     val slicePlate = SlicePlateUseCase(SliceModelUseCase(engine), AppGcodeOutputs(applicationContext), plateRepository, applicationScope)
     private val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
-        inspectModel = InspectModelUseCase(engine),
+        inspectModel = inspectModel,
+        sceneFiles = sceneFiles,
         repository = plateRepository,
         applicationScope = applicationScope,
     )
-    private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(plateRepository)
+    private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
     private val cancelPlateSlicing = CancelPlateSlicingUseCase(CancelSliceUseCase(engine), plateRepository, applicationScope)
     private val dismissPlateProblem = DismissPlateProblemUseCase(plateRepository)
 
@@ -77,14 +85,20 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         readDefinitions = { applicationContext.resources.openRawResource(R.raw.aboutlibraries).use { it.readBytes().decodeToString() } },
     )
 
-    fun prepareViewModel() = PrepareViewModel(
-        observePlate = observePlate,
-        addModelToPlate = addModelToPlate,
-        addCalibrationCubeToPlate = addCalibrationCube,
-        slicePlate = slicePlate,
-        cancelPlateSlicing = cancelPlateSlicing,
-        dismissPlateProblem = dismissPlateProblem,
-    )
+    fun prepareViewModel(): PrepareViewModel {
+        val placePlateObject = PlacePlateObjectUseCase(PlaceModelUseCase(engine), plateRepository, applicationScope)
+        return PrepareViewModel(
+            observePlate = observePlate,
+            addModelToPlate = addModelToPlate,
+            addCalibrationCubeToPlate = addCalibrationCube,
+            placePlateObject = placePlateObject,
+            setPlateObjectAutoDrop = SetPlateObjectAutoDropUseCase(plateRepository, placePlateObject),
+            describeFlatteningPlanes = DescribeFlatteningPlanesUseCase(engine),
+            slicePlate = slicePlate,
+            cancelPlateSlicing = cancelPlateSlicing,
+            dismissPlateProblem = dismissPlateProblem,
+        )
+    }
 
     fun previewViewModel() = PreviewViewModel(observePlate = observePlate, slicePlate = slicePlate)
 

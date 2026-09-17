@@ -28,11 +28,18 @@ import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
+import app.orcinus.shadow.core.model.BoundingSphere
+import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.ModelDimensions
+import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceStatistics
+import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.filamentLength
 import app.orcinus.shadow.core.ui.printTime
@@ -106,7 +113,19 @@ private fun SlicedInfo(result: PlateSliceResult, modifier: Modifier = Modifier) 
 
 private val PreviewResult = PlateSliceResult(
     jobId = SliceJobId("preview"),
-    plateObject = PlateObject.CalibrationCube,
+    plateObject = PlateObject.CalibrationCube(
+        ModelInspection(
+            facetCount = 12,
+            dimensions = ModelDimensions(20.0, 20.0, 20.0),
+            boxCenter = Vector3(0.0, 0.0, 10.0),
+            mesh = ScenePath("preview.mesh"),
+            placement = Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 }),
+            fit = BuildVolumeFit.INSIDE,
+            boundingSphere = BoundingSphere(Vector3(0.0, 0.0, 10.0), 17.32),
+            rotationDegrees = Vector3(0.0, 0.0, 0.0),
+            unscaledDimensions = ModelDimensions(20.0, 20.0, 20.0),
+        ),
+    ),
     gcode = OutputPath("/files/gcode/calibration-cube-20mm.gcode"),
     statistics = SliceStatistics(100, 731, 1209.0),
 )

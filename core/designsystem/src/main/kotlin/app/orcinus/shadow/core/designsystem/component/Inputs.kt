@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R
@@ -50,6 +52,8 @@ fun OrcaTextField(
     unit: String? = null,
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    textStyle: TextStyle = OrcaTheme.typography.body14,
 ) {
     val colors = OrcaTheme.colors
     val interaction = remember { MutableInteractionSource() }
@@ -60,8 +64,9 @@ fun OrcaTextField(
         modifier = modifier.height(OrcaTheme.dimensions.parameterControlHeight),
         enabled = enabled,
         singleLine = true,
-        textStyle = OrcaTheme.typography.body14.copy(color = if (enabled) colors.text else colors.textDisabled),
+        textStyle = textStyle.copy(color = if (enabled) colors.text else colors.textDisabled),
         keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
         cursorBrush = SolidColor(colors.accent),
         interactionSource = interaction,
         decorationBox = { field ->

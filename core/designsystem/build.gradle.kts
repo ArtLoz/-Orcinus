@@ -8,14 +8,19 @@ plugins {
 /**
  * Converts OrcaSlicer's SVG icons from the pinned submodule into vector
  * drawables named orca_<icon>, with the converter Android Studio uses for SVG
- * import. The night variants apply the colour replacements OrcaSlicer applies
- * when it loads an icon in dark mode, so icons follow upstream updates without
- * copies in this repository.
+ * import. A night variant is the icon's own <icon>_dark.svg where OrcaSlicer
+ * has one, as its toolbars load it in dark mode; otherwise it applies the
+ * colour replacements OrcaSlicer applies when it loads an icon in dark mode.
+ * Icons follow upstream updates without copies in this repository.
  */
 abstract class ConvertOrcaIcons : DefaultTask() {
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NAME_ONLY)
     abstract val icons: ConfigurableFileCollection
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val darkIcons: ConfigurableFileCollection
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
@@ -25,12 +30,20 @@ abstract class ConvertOrcaIcons : DefaultTask() {
         val root = outputDirectory.get().asFile
         root.deleteRecursively()
         val scratch = temporaryDir
-        for ((folder, replacements) in listOf("drawable" to lightReplacements, "drawable-night" to darkReplacements)) {
+        val darkFiles = darkIcons.files.associateBy { it.nameWithoutExtension.removeSuffix("_dark") }
+        for ((folder, dark) in listOf("drawable" to false, "drawable-night" to true)) {
             val drawables = root.resolve(folder).apply { mkdirs() }
-            icons.files.sortedBy { it.name }.forEach { svg ->
+            icons.files.sortedBy { it.name }.forEach { light ->
+                val ownDark = darkFiles[light.nameWithoutExtension].takeIf { dark }
+                val svg = ownDark ?: light
+                val replacements = when {
+                    ownDark != null -> emptyMap()
+                    dark -> darkReplacements
+                    else -> lightReplacements
+                }
                 val recoloured = scratch.resolve(svg.name)
                 recoloured.writeText(replacements.entries.fold(svg.readText()) { text, (from, to) -> text.replace(from, to) })
-                val target = drawables.resolve("orca_${svg.nameWithoutExtension}.xml")
+                val target = drawables.resolve("orca_${light.nameWithoutExtension}.xml")
                 val errors = target.outputStream().use { Svg2Vector.parseSvgToXml(recoloured.toPath(), it) }
                 check(target.length() > 0) { "Unable to convert ${svg.name}: $errors" }
             }
@@ -64,17 +77,32 @@ abstract class ConvertOrcaIcons : DefaultTask() {
 val orcaImages = rootProject.layout.projectDirectory.dir("upstream/OrcaSlicer/resources/images")
 // Icons used by the app, named as in OrcaSlicer.
 val orcaIconNames = listOf(
-    "add", "cali_page_caption_prev", "canvas_menu", "canvas_zoom", "collapse", "check_half",
-    "check_half_disabled", "check_off", "check_off_disabled", "check_on", "check_on_disabled", "cog",
-    "delete", "drop_down", "edit", "filament", "help", "hms_arrow", "im_visible", "param_cooling", "param_infill", "param_layer_height",
-    "param_precision", "param_retraction", "param_seam", "param_speed", "param_support",
-    "param_wall", "plate_settings", "printer", "process", "search", "spin_dec", "spin_inc",
-    "tab_3d_active", "tab_monitor_active", "tab_preview_active", "toolbar_arrange", "toolbar_open",
-    "toolbar_orient",
+    "add", "cali_page_caption_prev", "canvas_menu", "canvas_zoom", "check_half", "checked",
+    "check_half_disabled", "check_off", "check_off_disabled", "check_on", "check_on_disabled",
+    "cog", "collapse", "delete", "drop_down", "edit", "filament", "help", "hms_arrow",
+    "im_visible", "instance_add", "instance_remove", "param_cooling", "param_infill",
+    "param_layer_height", "param_precision", "param_retraction", "param_seam", "param_speed",
+    "param_support", "param_wall", "plate_settings", "printer", "process", "search", "seperator",
+    "spin_dec", "spin_inc", "split_objects", "split_parts", "tab_3d_active", "tab_monitor_active",
+    "tab_preview_active", "toolbar_add_plate", "toolbar_arrange", "toolbar_assemble",
+    "toolbar_assembly", "toolbar_brimears", "toolbar_cut", "toolbar_flatten",
+    "toolbar_fuzzy_skin_paint", "toolbar_measure", "toolbar_meshboolean", "toolbar_move",
+    "toolbar_open", "toolbar_orient", "toolbar_reset", "toolbar_reset_zero", "toolbar_rotate", "toolbar_scale", "toolbar_seam",
+    "toolbar_support", "toolbar_text", "toolbar_variable_layer_height",
+)
+// Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
+// (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).
+val orcaDarkIconNames = listOf(
+    "toolbar_open", "toolbar_add_plate", "toolbar_orient", "toolbar_arrange", "instance_add",
+    "instance_remove", "split_objects", "split_parts", "toolbar_variable_layer_height",
+    "toolbar_move", "toolbar_rotate", "toolbar_scale", "toolbar_flatten", "toolbar_cut",
+    "toolbar_meshboolean", "toolbar_support", "toolbar_seam", "toolbar_fuzzy_skin_paint",
+    "toolbar_text", "toolbar_measure", "toolbar_assembly", "toolbar_brimears", "toolbar_assemble",
 )
 
 val convertOrcaIcons = tasks.register<ConvertOrcaIcons>("convertOrcaIcons") {
     icons.from(orcaIconNames.map { orcaImages.file("$it.svg") })
+    darkIcons.from(orcaDarkIconNames.map { orcaImages.file("${it}_dark.svg") })
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaIcons/res"))
 }
 

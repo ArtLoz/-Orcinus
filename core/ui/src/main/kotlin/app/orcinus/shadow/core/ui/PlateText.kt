@@ -13,7 +13,7 @@ import java.util.Locale
 @Composable
 fun PlateObject.displayName(): String = when (this) {
     is PlateObject.ImportedModel -> file.displayName
-    PlateObject.CalibrationCube -> stringResource(R.string.calibration_cube_name)
+    is PlateObject.CalibrationCube -> stringResource(R.string.calibration_cube_name)
 }
 
 @Composable
@@ -47,6 +47,7 @@ fun PlateProblem.title(): String = stringResource(
         PlateProblemKind.SLICE_FAILED -> R.string.problem_slice_failed
         PlateProblemKind.ENGINE_CRASHED -> R.string.problem_engine_crashed
         PlateProblemKind.SLICE_CANCELLED -> R.string.problem_slice_cancelled
+        PlateProblemKind.PLACEMENT_FAILED -> R.string.problem_placement_failed
     },
 )
 

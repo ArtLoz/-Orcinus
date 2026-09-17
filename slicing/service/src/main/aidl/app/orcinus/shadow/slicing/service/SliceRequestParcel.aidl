@@ -10,4 +10,7 @@ parcelable SliceRequestParcel {
     String printerProfile;
     String filamentProfile;
     String processProfile;
+    /** Instance transformation, column-major 4 x 4; null for OrcaSlicer's placement of a new object. */
+    @nullable double[] placement;
+    boolean autoDrop;
 }

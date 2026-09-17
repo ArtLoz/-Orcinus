@@ -1,15 +1,31 @@
 package app.orcinus.shadow.core.model
 
-/** A model on the build plate. */
+/**
+ * A model on the build plate, as OrcaSlicer loaded and placed it. While
+ * [placing], the object already stands at its new placement and OrcaSlicer has
+ * yet to confirm it: its size and fit still describe the previous placement.
+ * With [autoDrop] off (ModelInstance::auto_drop), manipulations leave the
+ * object where the user put it, above the plate included.
+ */
 sealed interface PlateObject {
-    /** An STL imported into app storage, as Orca read it. */
+    val inspection: ModelInspection
+    val placing: Boolean
+    val autoDrop: Boolean
+
+    /** An STL imported into app storage. */
     data class ImportedModel(
         val file: ImportedModelFile,
-        val inspection: ModelInspection,
+        override val inspection: ModelInspection,
+        override val placing: Boolean = false,
+        override val autoDrop: Boolean = true,
     ) : PlateObject
 
     /** The engine's built-in 20 mm calibration cube. */
-    data object CalibrationCube : PlateObject
+    data class CalibrationCube(
+        override val inspection: ModelInspection,
+        override val placing: Boolean = false,
+        override val autoDrop: Boolean = true,
+    ) : PlateObject
 }
 
 enum class EngineAvailability { STARTING, READY, UNAVAILABLE }
@@ -39,6 +55,7 @@ enum class PlateProblemKind {
     SLICE_FAILED,
     ENGINE_CRASHED,
     SLICE_CANCELLED,
+    PLACEMENT_FAILED,
 }
 
 data class PlateProblem(
@@ -51,6 +68,8 @@ data class PlateProblem(
 data class PlateState(
     val profiles: SlicingProfileSelection,
     val engine: EngineState = EngineState(),
+    /** The plate of the selected printer; null until the engine described it. */
+    val plate: PlateDescription? = null,
     val importing: Boolean = false,
     val plateObject: PlateObject? = null,
     val slicing: PlateSlicing? = null,
@@ -58,5 +77,7 @@ data class PlateState(
     val problem: PlateProblem? = null,
 ) {
     val busy: Boolean get() = importing || slicing != null
-    val canSlice: Boolean get() = engine.availability == EngineAvailability.READY && plateObject != null && !busy
+    val canSlice: Boolean
+        get() = engine.availability == EngineAvailability.READY && !busy &&
+            plateObject != null && !plateObject.placing && plateObject.inspection.fit == BuildVolumeFit.INSIDE
 }

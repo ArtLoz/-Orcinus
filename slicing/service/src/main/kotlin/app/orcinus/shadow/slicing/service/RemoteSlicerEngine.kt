@@ -7,15 +7,21 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.RemoteException
 import app.orcinus.shadow.core.model.EngineStatus
+import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.PlateDescriptionOutcome
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStage
-import app.orcinus.shadow.slicing.api.ModelInspector
+import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
@@ -25,7 +31,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 /**
- * [SlicerEngine] and [ModelInspector] backed by a [SlicerService] in another
+ * [SlicerEngine] and [PlateInspector] backed by a [SlicerService] in another
  * process. The first call binds to the service. When the engine process dies,
  * running jobs end with [SliceFailureCode.ENGINE_CRASHED] and a new process
  * starts at once.
@@ -33,7 +39,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, ModelInspector {
+) : SlicerEngine, PlateInspector {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -77,11 +83,65 @@ class RemoteSlicerEngine(
         }
     }
 
-    override suspend fun inspect(model: ModelSource.LocalFile): ModelInspectionOutcome = withContext(Dispatchers.IO) {
+    override suspend fun describePlate(
+        profiles: SlicingProfileSelection,
+        directory: ScenePath,
+    ): PlateDescriptionOutcome = withContext(Dispatchers.IO) {
         try {
-            service().inspect(model.path.value).toInspectionOutcome()
+            service().describePlate(profiles.toParcel(), directory.value).toPlateDescriptionOutcome()
+        } catch (_: RemoteException) {
+            PlateDescriptionOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun inspect(
+        model: ModelSource,
+        profiles: SlicingProfileSelection,
+        mesh: ScenePath,
+    ): ModelInspectionOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().inspect(model.toParcel(), profiles.toParcel(), mesh.value).toInspectionOutcome()
         } catch (_: RemoteException) {
             ModelInspectionOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun place(
+        model: ModelSource,
+        profiles: SlicingProfileSelection,
+        mesh: ScenePath,
+        previous: Transform3,
+        placement: Transform3,
+        autoDrop: Boolean,
+        manipulation: Manipulation,
+    ): ModelInspectionOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().place(
+                model.toParcel(),
+                profiles.toParcel(),
+                mesh.value,
+                previous.columns.toDoubleArray(),
+                placement.columns.toDoubleArray(),
+                autoDrop,
+                manipulation.parcelName(),
+                manipulation.parcelFaceNormal(),
+                manipulation.parcelArrangeSettings(),
+            ).toInspectionOutcome()
+        } catch (_: RemoteException) {
+            ModelInspectionOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun flatteningPlanes(
+        model: ModelSource,
+        profiles: SlicingProfileSelection,
+        mesh: ScenePath,
+        placement: Transform3,
+    ): FlatteningPlanesOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().flatteningPlanes(model.toParcel(), profiles.toParcel(), mesh.value, placement.columns.toDoubleArray()).toOutcome()
+        } catch (_: RemoteException) {
+            FlatteningPlanesOutcome.Failure(PROCESS_DIED)
         }
     }
 

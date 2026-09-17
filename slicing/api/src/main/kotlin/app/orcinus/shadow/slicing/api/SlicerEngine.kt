@@ -1,12 +1,18 @@
 package app.orcinus.shadow.slicing.api
 
 import app.orcinus.shadow.core.model.EngineStatus
+import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.PlateDescriptionOutcome
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
+import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.Transform3
 
 fun interface SliceProgressListener {
     fun onProgress(progress: SliceProgress)
@@ -34,6 +40,39 @@ interface SlicerEngine {
     suspend fun cancel(jobId: SliceJobId): Boolean
 }
 
-interface ModelInspector {
-    suspend fun inspect(model: ModelSource.LocalFile): ModelInspectionOutcome
+/**
+ * The plate and its models as the engine sees them, for the 3D view: the plate
+ * of the selected printer, and models placed on it the way slicing places them.
+ * Geometry is written into files the caller chooses.
+ */
+interface PlateInspector {
+    /** Describes the plate and writes its bed model and texture into [directory]. */
+    suspend fun describePlate(profiles: SlicingProfileSelection, directory: ScenePath): PlateDescriptionOutcome
+
+    /** Loads and places [model] and writes its mesh to [mesh]. */
+    suspend fun inspect(model: ModelSource, profiles: SlicingProfileSelection, mesh: ScenePath): ModelInspectionOutcome
+
+    /**
+     * Commits [manipulation] of [model], whose mesh is in [mesh], from
+     * [previous] to the instance transformation [placement], as OrcaSlicer
+     * does; with [autoDrop] off the object is never moved onto the plate.
+     * Reports the placed object.
+     */
+    suspend fun place(
+        model: ModelSource,
+        profiles: SlicingProfileSelection,
+        mesh: ScenePath,
+        previous: Transform3,
+        placement: Transform3,
+        autoDrop: Boolean,
+        manipulation: Manipulation,
+    ): ModelInspectionOutcome
+
+    /** The faces [model], whose mesh is in [mesh], can lie on with the instance transformation [placement]. */
+    suspend fun flatteningPlanes(
+        model: ModelSource,
+        profiles: SlicingProfileSelection,
+        mesh: ScenePath,
+        placement: Transform3,
+    ): FlatteningPlanesOutcome
 }

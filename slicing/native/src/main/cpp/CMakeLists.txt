@@ -4,11 +4,12 @@
 
 add_library(orca_engine_adapter STATIC
     android_log_sink.cpp
+    nanosvg.cpp
     orca_engine_adapter.cpp
 )
 target_include_directories(orca_engine_adapter PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
 find_library(android_log_library log REQUIRED)
-target_link_libraries(orca_engine_adapter PUBLIC libslic3r PRIVATE boost_libs ${android_log_library})
+target_link_libraries(orca_engine_adapter PUBLIC libslic3r PRIVATE boost_libs CGAL::CGAL nanosvg PNG::PNG ${android_log_library})
 
 add_library(orcinus_engine SHARED native_bridge.cpp)
 target_link_libraries(orcinus_engine PRIVATE orca_engine_adapter)

@@ -1,7 +1,7 @@
 #include <jni.h>
 
-#include <array>
 #include <string>
+#include <vector>
 
 #include "orca_engine_adapter.hpp"
 
@@ -45,6 +45,35 @@ jstring to_java(JNIEnv* env, const std::string& value)
     env->DeleteLocalRef(bytes);
     env->DeleteLocalRef(string_class);
     return result;
+}
+
+jdoubleArray to_java(JNIEnv* env, const double* values, const std::size_t size)
+{
+    const auto length = static_cast<jsize>(size);
+    const jdoubleArray array = env->NewDoubleArray(length);
+    if (array != nullptr) {
+        env->SetDoubleArrayRegion(array, 0, length, values);
+    }
+    return array;
+}
+
+jfloatArray to_java(JNIEnv* env, const std::vector<float>& values)
+{
+    const auto length = static_cast<jsize>(values.size());
+    const jfloatArray array = env->NewFloatArray(length);
+    if (array != nullptr) {
+        env->SetFloatArrayRegion(array, 0, length, values.data());
+    }
+    return array;
+}
+
+orcinus::orca::ProfileSelection to_profiles(JNIEnv* env, jstring printer, jstring filament, jstring process)
+{
+    orcinus::orca::ProfileSelection profiles;
+    profiles.printer = to_utf8(env, printer);
+    profiles.filament = to_utf8(env, filament);
+    profiles.process = to_utf8(env, process);
+    return profiles;
 }
 
 // Forwards Orca's status updates to a Kotlin NativeProgressListener. Orca may
@@ -99,6 +128,37 @@ private:
     jmethodID on_progress_{nullptr};
 };
 
+std::vector<double> to_doubles(JNIEnv* env, jdoubleArray values)
+{
+    std::vector<double> result(static_cast<std::size_t>(env->GetArrayLength(values)));
+    env->GetDoubleArrayRegion(values, 0, static_cast<jsize>(result.size()), result.data());
+    return result;
+}
+
+// NativeModelInspection
+jobject to_java(JNIEnv* env, const orcinus::orca::ModelInspection& inspection)
+{
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeModelInspection");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JDDD[DJ[DD[D[D[D)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(inspection.status),
+        to_java(env, inspection.message),
+        static_cast<jlong>(inspection.facet_count),
+        static_cast<jdouble>(inspection.size_x),
+        static_cast<jdouble>(inspection.size_y),
+        static_cast<jdouble>(inspection.size_z),
+        to_java(env, inspection.instance_matrix.data(), inspection.instance_matrix.size()),
+        static_cast<jlong>(inspection.volume_state),
+        to_java(env, inspection.sphere_center.data(), inspection.sphere_center.size()),
+        static_cast<jdouble>(inspection.sphere_radius),
+        to_java(env, inspection.rotation_degrees.data(), inspection.rotation_degrees.size()),
+        to_java(env, inspection.unscaled_size.data(), inspection.unscaled_size.size()),
+        to_java(env, inspection.box_center.data(), inspection.box_center.size())
+    );
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -134,20 +194,24 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     jstring printer_profile,
     jstring filament_profile,
     jstring process_profile,
+    jdoubleArray placement,
+    jboolean auto_drop,
     jobject progress_listener
 )
 {
-    orcinus::orca::ProfileSelection profiles;
-    profiles.printer = to_utf8(env, printer_profile);
-    profiles.filament = to_utf8(env, filament_profile);
-    profiles.process = to_utf8(env, process_profile);
-
+    const orcinus::orca::ProfileSelection profiles = to_profiles(env, printer_profile, filament_profile, process_profile);
+    orcinus::orca::ObjectPlacement transformation;
+    transformation.auto_drop = auto_drop == JNI_TRUE;
+    if (placement != nullptr) {
+        transformation.matrix = to_doubles(env, placement);
+    }
     const ProgressForwarder forward_progress(env, progress_listener);
     const orcinus::orca::SliceResult result = orcinus::orca::slice(
         to_utf8(env, job_id),
         to_utf8(env, model_path),
         to_utf8(env, output_path),
         profiles,
+        transformation,
         [&forward_progress](const int percent, const std::string& message) { forward_progress(percent, message); }
     );
 
@@ -170,25 +234,138 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_cancel(JNIEnv* env, 
     return orcinus::orca::cancel(to_utf8(env, job_id)) ? JNI_TRUE : JNI_FALSE;
 }
 
-extern "C" JNIEXPORT jlongArray JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_inspectStl(JNIEnv* env, jobject /* this */, jstring input_path)
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describePlate(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring printer_profile,
+    jstring filament_profile,
+    jstring process_profile,
+    jstring output_dir
+)
 {
-    const orcinus::orca::StlInspection inspection = orcinus::orca::inspect_stl(to_utf8(env, input_path));
-    const std::array<jlong, 9> values{
-        static_cast<jlong>(inspection.status),
-        static_cast<jlong>(inspection.facet_count),
-        static_cast<jlong>(inspection.width_micrometers),
-        static_cast<jlong>(inspection.depth_micrometers),
-        static_cast<jlong>(inspection.height_micrometers),
-        static_cast<jlong>(inspection.sampling_step_micrometers),
-        static_cast<jlong>(inspection.sampled_plane_count),
-        static_cast<jlong>(inspection.non_empty_plane_count),
-        static_cast<jlong>(inspection.contour_count),
-    };
-    const auto size = static_cast<jsize>(values.size());
-    const jlongArray result = env->NewLongArray(size);
-    if (result != nullptr) {
-        env->SetLongArrayRegion(result, 0, size, values.data());
+    const orcinus::orca::PlateDescription plate = orcinus::orca::describe_plate(
+        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_utf8(env, output_dir)
+    );
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePlateDescription");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(JLjava/lang/String;[DD[F[F[F[FLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"
+    );
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(plate.status),
+        to_java(env, plate.message),
+        to_java(env, plate.printable_area.data(), plate.printable_area.size()),
+        static_cast<jdouble>(plate.printable_height),
+        to_java(env, plate.plate_triangles),
+        to_java(env, plate.exclude_triangles),
+        to_java(env, plate.thin_grid_lines),
+        to_java(env, plate.bold_grid_lines),
+        to_java(env, plate.bed_model_mesh),
+        to_java(env, plate.bed_texture),
+        to_java(env, plate.filament_colour)
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_inspectModel(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring model_path,
+    jstring printer_profile,
+    jstring filament_profile,
+    jstring process_profile,
+    jstring mesh_path
+)
+{
+    const orcinus::orca::ModelInspection inspection = orcinus::orca::inspect_model(
+        to_utf8(env, model_path),
+        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_utf8(env, mesh_path)
+    );
+    return to_java(env, inspection);
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring model_path,
+    jstring printer_profile,
+    jstring filament_profile,
+    jstring process_profile,
+    jdoubleArray previous_placement,
+    jdoubleArray placement,
+    jboolean auto_drop,
+    jlong manipulation,
+    jdoubleArray face_normal,
+    jdouble arrange_distance,
+    jboolean arrange_enable_rotation,
+    jboolean arrange_allow_multi_materials,
+    jboolean arrange_align_to_y_axis
+)
+{
+    std::array<double, 3> normal{};
+    if (face_normal != nullptr && env->GetArrayLength(face_normal) == 3) {
+        env->GetDoubleArrayRegion(face_normal, 0, 3, normal.data());
     }
-    return result;
+    orcinus::orca::ArrangeSettings arrange;
+    arrange.distance = arrange_distance;
+    arrange.enable_rotation = arrange_enable_rotation == JNI_TRUE;
+    arrange.allow_multi_materials_on_same_plate = arrange_allow_multi_materials == JNI_TRUE;
+    arrange.align_to_y_axis = arrange_align_to_y_axis == JNI_TRUE;
+    const orcinus::orca::ModelInspection inspection = orcinus::orca::place_model(
+        to_utf8(env, model_path),
+        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_doubles(env, previous_placement),
+        to_doubles(env, placement),
+        auto_drop == JNI_TRUE,
+        static_cast<orcinus::orca::Manipulation>(manipulation),
+        normal,
+        arrange
+    );
+    return to_java(env, inspection);
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFlatteningPlanes(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring model_path,
+    jstring printer_profile,
+    jstring filament_profile,
+    jstring process_profile,
+    jdoubleArray placement
+)
+{
+    const orcinus::orca::FlatteningPlanes result = orcinus::orca::describe_flattening_planes(
+        to_utf8(env, model_path),
+        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_doubles(env, placement)
+    );
+    std::vector<double> normals;
+    std::vector<int> counts;
+    std::vector<float> vertices;
+    for (const orcinus::orca::FlatteningPlane& plane : result.planes) {
+        normals.insert(normals.end(), plane.normal.begin(), plane.normal.end());
+        counts.push_back(static_cast<int>(plane.vertices.size() / 3));
+        vertices.insert(vertices.end(), plane.vertices.begin(), plane.vertices.end());
+    }
+    const jintArray counts_array = env->NewIntArray(static_cast<jsize>(counts.size()));
+    env->SetIntArrayRegion(counts_array, 0, static_cast<jsize>(counts.size()), counts.data());
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeFlatteningPlanes");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[D[I[F)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(result.status),
+        to_java(env, result.message),
+        to_java(env, normals.data(), normals.size()),
+        counts_array,
+        to_java(env, vertices)
+    );
 }

@@ -47,7 +47,8 @@ Orcinus is an early preview: it slices, but it is not yet a full slicer app.
 - [x] Slicing in the background with progress and cancellation
 - [x] G-code verified against desktop OrcaSlicer
 - [x] OrcaSlicer-style workspace, themes, and the About page with licenses
-- [ ] 3D plate view
+- [x] 3D plate view: the printer's bed, model, and texture, orbit, pan, and zoom
+- [x] OrcaSlicer's canvas toolbar: move, rotate, scale, lay on face, auto orient, and arrange an object; auto drop can be turned off to lift it
 - [ ] G-code preview with OrcaSlicer's `libvgcode`
 - [ ] Printer, filament, and process selection (the preview ships Creality K2 Plus profiles)
 - [ ] Settings editor, 3MF and STEP, sending jobs to printers

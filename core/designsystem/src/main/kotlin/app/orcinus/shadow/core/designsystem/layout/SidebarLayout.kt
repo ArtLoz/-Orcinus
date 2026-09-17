@@ -31,6 +31,15 @@ import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaSidebarToggle
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 
+private val SidebarTogglePadding = 8.dp
+
+/**
+ * The width the sidebar collapse button takes at the start of the canvas,
+ * touch target included. OrcaSlicer starts the canvas toolbar after it
+ * (GLCanvas3D::get_main_toolbar_offset).
+ */
+val OrcaSidebarToggleSpace = SidebarTogglePadding * 2 + 48.dp
+
 /**
  * The main window with OrcaSlicer's sidebar.
  *
@@ -63,7 +72,7 @@ fun OrcaSidebarLayout(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
-                    .padding(8.dp),
+                    .padding(SidebarTogglePadding),
             )
         }
     }

@@ -1,0 +1,290 @@
+package app.orcinus.shadow.render.scene
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.PlateDescription
+import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.render.scene.gl.GlVertexArray
+import app.orcinus.shadow.render.scene.math.Affine3
+import app.orcinus.shadow.render.scene.math.Box3
+import app.orcinus.shadow.render.scene.math.Line3
+import app.orcinus.shadow.render.scene.math.Vec3
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+import java.util.concurrent.ConcurrentHashMap
+
+// Heights OrcaSlicer draws the plate at, keeping its layers apart
+// (src/slic3r/GUI/PartPlate.cpp and 3DBed.cpp).
+internal const val GROUND_Z = -0.03f
+internal const val GROUND_Z_GRIDLINE = -0.26f
+internal const val LOGO_Z = GROUND_Z + 0.02f
+internal const val BED_MODEL_Z = -0.41f + GROUND_Z
+
+internal class TextureImage(val width: Int, val height: Int, val rgba: ByteBuffer)
+
+/** The plate, loaded from the engine's description and files, ready for the GPU. */
+internal class SceneBed(
+    /** Printable area triangles at the logo height: x, y, z, u, v per vertex, as init_model_from_poly() maps the texture. */
+    val plateTriangles: FloatBuffer,
+    /** x, y, z per vertex. */
+    val excludeTriangles: FloatBuffer,
+    val thinGridLines: FloatBuffer,
+    val boldGridLines: FloatBuffer,
+    val model: MeshData?,
+    val texture: TextureImage?,
+    /** Printable area with the printable height: BuildVolume::bounding_volume(). */
+    val buildVolume: Box3,
+) {
+    /** Bed3D::update_model_offset(): the model's origin at the plate centre, below the texture. */
+    val modelOffset = Vec3(buildVolume.center().x, buildVolume.center().y, BED_MODEL_Z.toDouble())
+
+    /** The plate at z = 0, which the plate view frames (GLCanvas3D::zoom_to_plate). */
+    val plateBox = Box3(Vec3(buildVolume.min.x, buildVolume.min.y, 0.0), Vec3(buildVolume.max.x, buildVolume.max.y, 0.0))
+
+    /** Bed3D's extended bounding box: the plate and its model. */
+    val extendedBox = model?.bounds?.let { bounds ->
+        plateBox.merge(Box3(bounds.min + modelOffset, bounds.max + modelOffset))
+    } ?: plateBox
+}
+
+internal class SceneObject(
+    /** Position of the object in the list the view was given. */
+    val index: Int,
+    /** The mesh file, which identifies the object's geometry. */
+    val key: String,
+    val mesh: MeshData,
+    val world: Affine3,
+    val color: ColorRgba,
+    /** Centre of the engine's bounding sphere in object coordinates, so it follows the object. */
+    private val sphereCenter: Vec3,
+    val sphereRadius: Double,
+    /** ModelInstance::auto_drop: a manipulation rests the object on the plate. */
+    val autoDrop: Boolean = true,
+) {
+    val bounds = mesh.bounds.transformed(world)
+
+    fun withWorld(world: Affine3) = SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop)
+
+    /** The bounding sphere's centre in world coordinates. */
+    fun sphereCenter(): Vec3 = world.transformPoint(sphereCenter)
+
+    /** ModelObject::get_instance_min_z(): the lowest point of the mesh in world coordinates. */
+    fun minZ(): Double {
+        val row = world.linearRow(2)
+        val offset = world.translation().z
+        val vertices = mesh.vertices
+        var lowest = Double.MAX_VALUE
+        for (corner in 0 until mesh.cornerCount) {
+            val index = corner * MeshFiles.FLOATS_PER_CORNER
+            val z = row.x * vertices.get(index) + row.y * vertices.get(index + 1) + row.z * vertices.get(index + 2) + offset
+            if (z < lowest) lowest = z
+        }
+        return lowest
+    }
+
+    /**
+     * The nearest point where [ray] enters the mesh, in world coordinates,
+     * as the scene raycaster finds the volume under the mouse.
+     */
+    fun raycast(ray: Line3): Vec3? {
+        val toObject = world.inverse()
+        val origin = toObject.transformPoint(ray.a)
+        val direction = toObject.transformPoint(ray.b) - origin
+        var nearest = Double.MAX_VALUE
+        val vertices = mesh.vertices
+        val stride = MeshFiles.FLOATS_PER_CORNER
+        for (corner in 0 until mesh.cornerCount step 3) {
+            val t = rayTriangle(
+                origin,
+                direction,
+                vertexAt(vertices, corner * stride),
+                vertexAt(vertices, (corner + 1) * stride),
+                vertexAt(vertices, (corner + 2) * stride),
+            ) ?: continue
+            if (t < nearest) nearest = t
+        }
+        return if (nearest == Double.MAX_VALUE) null else world.transformPoint(origin + direction * nearest)
+    }
+
+    private fun vertexAt(vertices: FloatBuffer, offset: Int) =
+        Vec3(vertices.get(offset).toDouble(), vertices.get(offset + 1).toDouble(), vertices.get(offset + 2).toDouble())
+}
+
+/** Moller-Trumbore: the parameter along [direction] where the ray from [origin] enters the triangle, or null. */
+internal fun rayTriangle(origin: Vec3, direction: Vec3, v0: Vec3, v1: Vec3, v2: Vec3): Double? {
+    val e1 = v1 - v0
+    val e2 = v2 - v0
+    val p = direction.cross(e2)
+    val determinant = e1.dot(p)
+    if (determinant > -RAY_EPSILON && determinant < RAY_EPSILON) return null
+    val inverse = 1.0 / determinant
+    val t0 = origin - v0
+    val u = t0.dot(p) * inverse
+    if (u < 0.0 || u > 1.0) return null
+    val q = t0.cross(e1)
+    val v = direction.dot(q) * inverse
+    if (v < 0.0 || u + v > 1.0) return null
+    val t = e2.dot(q) * inverse
+    return if (t > 0.0) t else null
+}
+
+private const val RAY_EPSILON = 1e-12
+
+/** How OrcaSlicer colours a volume for rendering (3DScene.cpp). */
+internal object VolumeColors {
+    private const val FULLY_TRANSPARENT_MATERIAL_THRESHOLD = 0.1f
+    private const val FULL_TRANSPARENT_MODIFIED_TO_FIX_ALPHA = 0.3f
+    private const val FULL_BLACK_THRESHOLD = 0.2f
+
+    /** GLVolume::set_render_color(): the filament colour, brightened when selected. */
+    fun render(color: ColorRgba, selected: Boolean): ColorRgba {
+        val base = adjustForRendering(color)
+        return if (selected) brighten(base) else base
+    }
+
+    /** adjust_color_for_rendering(): fully transparent becomes faint white, black becomes dark grey. */
+    fun adjustForRendering(color: ColorRgba): ColorRgba = when {
+        color.alpha < FULLY_TRANSPARENT_MATERIAL_THRESHOLD -> ColorRgba(1f, 1f, 1f, FULL_TRANSPARENT_MODIFIED_TO_FIX_ALPHA)
+        color.red < FULL_BLACK_THRESHOLD && color.green < FULL_BLACK_THRESHOLD && color.blue < FULL_BLACK_THRESHOLD ->
+            ColorRgba(FULL_BLACK_THRESHOLD, FULL_BLACK_THRESHOLD, FULL_BLACK_THRESHOLD, color.alpha)
+        else -> color
+    }
+
+    /** GLVolume::brighten_color(): lightness raised by 0.25 in HSL. */
+    fun brighten(color: ColorRgba): ColorRgba {
+        val r = color.red
+        val g = color.green
+        val b = color.blue
+        val max = maxOf(r, g, b)
+        val min = minOf(r, g, b)
+        val lightness = (max + min) / 2f
+        var hue = 0f
+        var saturation = 0f
+        if (max != min) {
+            val delta = max - min
+            saturation = if (lightness > 0.5f) delta / (2f - max - min) else delta / (max + min)
+            hue = when (max) {
+                r -> (g - b) / delta + (if (g < b) 6f else 0f)
+                g -> (b - r) / delta + 2f
+                else -> (r - g) / delta + 4f
+            } / 6f
+        }
+        val l = minOf(lightness + 0.25f, 1f)
+        if (saturation == 0f) return ColorRgba(l, l, l, color.alpha)
+        val q = if (l < 0.5f) l * (1f + saturation) else l + saturation - l * saturation
+        val p = 2f * l - q
+        return ColorRgba(hueToRgb(p, q, hue + 1f / 3f), hueToRgb(p, q, hue), hueToRgb(p, q, hue - 1f / 3f), color.alpha)
+    }
+
+    private fun hueToRgb(p: Float, q: Float, hue: Float): Float {
+        var t = hue
+        if (t < 0f) t += 1f
+        if (t > 1f) t -= 1f
+        return when {
+            t < 1f / 6f -> p + (q - p) * 6f * t
+            t < 1f / 2f -> q
+            t < 2f / 3f -> p + (q - p) * (2f / 3f - t) * 6f
+            else -> p
+        }
+    }
+}
+
+/** Meshes already read, by file: moving an object changes its placement, not its mesh. */
+internal class MeshCache {
+    private val meshes = ConcurrentHashMap<String, MeshData>()
+
+    operator fun get(path: String): MeshData = meshes.getOrPut(path) { MeshFiles.read(File(path)) }
+
+    /** Forgets the meshes of objects no longer in the scene. */
+    fun retain(paths: Set<String>) {
+        meshes.keys.retainAll(paths)
+    }
+}
+
+/** Reads what the engine wrote for the 3D view. Runs off the main thread. */
+internal object SceneLoader {
+    fun loadBed(plate: PlateDescription): SceneBed {
+        val geometry = plate.geometry
+        return SceneBed(
+            plateTriangles = texturedTriangles(geometry.plateTriangles),
+            excludeTriangles = flatPoints(geometry.excludeTriangles, GROUND_Z),
+            thinGridLines = flatPoints(geometry.thinGridLines, GROUND_Z_GRIDLINE),
+            boldGridLines = flatPoints(geometry.boldGridLines, GROUND_Z_GRIDLINE),
+            model = geometry.bedModel?.let { MeshFiles.read(File(it.value)) },
+            texture = geometry.bedTexture?.let { decodeTexture(File(it.value)) },
+            buildVolume = Box3.of(geometry.printableArea.map { Vec3(it.x, it.y, 0.0) })
+                .let { Box3(it.min, Vec3(it.max.x, it.max.y, geometry.printableHeight)) },
+        )
+    }
+
+    fun loadObject(index: Int, plateObject: PlateObject, color: ColorRgba, meshes: MeshCache): SceneObject {
+        val inspection = plateObject.inspection
+        val world = Affine3(inspection.placement.columns.toDoubleArray())
+        val sphere = inspection.boundingSphere
+        return SceneObject(
+            index = index,
+            key = inspection.mesh.value,
+            mesh = meshes[inspection.mesh.value],
+            world = world,
+            color = color,
+            sphereCenter = world.inverse().transformPoint(Vec3(sphere.center.x, sphere.center.y, sphere.center.z)),
+            sphereRadius = sphere.radius,
+            autoDrop = plateObject.autoDrop,
+        )
+    }
+
+    private fun flatPoints(points: List<Point2>, z: Float): FloatBuffer =
+        GlVertexArray.floatBuffer(FloatArray(points.size * 3) { index ->
+            val point = points[index / 3]
+            when (index % 3) {
+                0 -> point.x.toFloat()
+                1 -> point.y.toFloat()
+                else -> z
+            }
+        })
+
+    /**
+     * init_model_from_poly() in 3DBed.cpp: texture coordinates span the
+     * triangles' bounding box, with v running downwards so the texture's top
+     * row lies at the back of the plate.
+     */
+    private fun texturedTriangles(points: List<Point2>): FloatBuffer {
+        if (points.isEmpty()) return GlVertexArray.floatBuffer(FloatArray(0))
+        val minX = points.minOf { it.x }
+        val minY = points.minOf { it.y }
+        val sizeX = points.maxOf { it.x } - minX
+        val sizeY = points.maxOf { it.y } - minY
+        if (sizeX <= 0.0 || sizeY <= 0.0) return GlVertexArray.floatBuffer(FloatArray(0))
+        return GlVertexArray.floatBuffer(FloatArray(points.size * 5) { index ->
+            val point = points[index / 5]
+            when (index % 5) {
+                0 -> point.x.toFloat()
+                1 -> point.y.toFloat()
+                2 -> LOGO_Z
+                3 -> ((point.x - minX) / sizeX).toFloat()
+                else -> (-(point.y - minY) / sizeY).toFloat()
+            }
+        })
+    }
+
+    /** Decodes without premultiplying: OrcaSlicer's printbed shader blends straight alpha. */
+    private fun decodeTexture(file: File): TextureImage? {
+        val options = BitmapFactory.Options().apply {
+            inPremultiplied = false
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
+        return try {
+            val rgba = ByteBuffer.allocateDirect(bitmap.byteCount).order(ByteOrder.nativeOrder())
+            bitmap.copyPixelsToBuffer(rgba)
+            rgba.flip()
+            TextureImage(bitmap.width, bitmap.height, rgba)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+}

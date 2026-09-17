@@ -7,13 +7,13 @@ import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
-import app.orcinus.shadow.core.model.ModelPath
-import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
-import app.orcinus.shadow.slicing.api.ModelInspector
+import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -33,7 +33,7 @@ import kotlinx.coroutines.runBlocking
  * notification, so slicing continues when the app leaves the screen. It stops
  * itself when the job ends.
  */
-abstract class SlicerService<E> : Service() where E : SlicerEngine, E : ModelInspector {
+abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -75,8 +75,38 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : ModelIns
     private val binder = object : ISlicerService.Stub() {
         override fun status(): EngineStatusParcel = runBlocking { engine.status() }.toParcel()
 
-        override fun inspect(modelPath: String): InspectionParcel =
-            runBlocking { engine.inspect(ModelSource.LocalFile(ModelPath(modelPath))) }.toParcel()
+        override fun describePlate(profiles: ProfilesParcel, directory: String): PlateDescriptionParcel =
+            runBlocking { engine.describePlate(profiles.toProfiles(), ScenePath(directory)) }.toParcel()
+
+        override fun inspect(model: ModelSourceParcel, profiles: ProfilesParcel, meshPath: String): InspectionParcel =
+            runBlocking { engine.inspect(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath)) }.toParcel()
+
+        override fun place(
+            model: ModelSourceParcel,
+            profiles: ProfilesParcel,
+            meshPath: String,
+            previous: DoubleArray,
+            placement: DoubleArray,
+            autoDrop: Boolean,
+            manipulation: String,
+            faceNormal: DoubleArray?,
+            arrangeSettings: ArrangeSettingsParcel?,
+        ): InspectionParcel = runBlocking {
+            engine.place(
+                model.toModelSource(),
+                profiles.toProfiles(),
+                ScenePath(meshPath),
+                Transform3(previous.toList()),
+                Transform3(placement.toList()),
+                autoDrop,
+                manipulationOf(manipulation, faceNormal, arrangeSettings),
+            )
+        }.toParcel()
+
+        override fun flatteningPlanes(model: ModelSourceParcel, profiles: ProfilesParcel, meshPath: String, placement: DoubleArray): FlatteningPlanesParcel =
+            runBlocking {
+                engine.flatteningPlanes(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath), Transform3(placement.toList()))
+            }.toParcel()
 
         override fun slice(request: SliceRequestParcel, callback: ISliceCallback) {
             startJob(request.toSliceRequest(), callback)
