@@ -58,6 +58,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\golden.ps1 -Model 
 | --- | --- |
 | `filament_colour`, `extruder_colour` | Командная строка присваивает загруженному пластику свой цвет. |
 | `flush_volumes_matrix`, `flush_volumes_vector` | Командная строка заводит таблицу промывки на несколько пластиков. |
+| `extruder_ams_count` | Командная строка не читает конфигурацию приложения. Приложение, как desktop Orca, запоминает значение для принтера в `OrcaSlicer.conf` (`export_selections`), и пустой список после чтения становится одним пустым элементом (`""`); так же пишет desktop Orca после перезапуска. |
 | `compatible_printers_condition`, `different_settings_to_system`, `inherits_group` | Есть только в выводе командной строки. |
 | 13 ключей хоста печати и вариантов экструдера (`printhost_*`, `bbl_use_printhost`, `extruder_variant_list` и др.) | Есть только у `PresetBundle::full_config()`. |
 
@@ -91,10 +92,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\golden.ps1 -Model 
 3. **Следствия.** Другой обход меняет время слоя, от него — замедление для
    охлаждения (`F8663` вместо `F8653`) и место строк прогресса `M73`.
 
-## Результат (16 сентября 2026, Pixel 8 Pro, OrcaSlicer 2.4.2)
+## Результат (17 сентября 2026, Pixel 8 Pro, OrcaSlicer 2.4.2)
 
 Профили: Creality K2 Plus 0.4 nozzle, Generic PLA @K2 Plus-all, 0.20mm Standard
-@Creality K2 Plus 0.4 nozzle.
+@Creality K2 Plus 0.4 nozzle. `orca_engine_slice` устанавливает модель
+Creality K2 Plus и пластик так же, как мастер настройки приложения, из профилей
+в `resources/profiles`. Цифры те же, что 16 сентября, до мастера.
 
 | Модель | Слоёв | Дословно | Другой порядок | Отличаются | Макс. по слою | Филамент | Время |
 | --- | --- | --- | --- | --- | --- | --- | --- |

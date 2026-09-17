@@ -1,10 +1,12 @@
 // Device tests for the Android facade over OrcaSlicer. OrcaSlicer's own suites
-// cover the algorithms; these cover what the app adds: loading the bundled
-// vendor profiles through PresetBundle, the full slice/export/cancel path, and
-// the plate and model geometry exported for the 3D view.
+// cover the algorithms; these cover what the app adds: installing the bundled
+// vendor profiles through the Setup Wizard and selecting presets, the full
+// slice/export/cancel path, and the plate and model geometry exported for the
+// 3D view.
 //
-// scripts/engine-test.ps1 pushes the profile bundle and upstream test data to
-// ENGINE_DEVICE_TEST_DIR before running this executable.
+// scripts/engine-test.ps1 pushes the vendor profiles and upstream test data to
+// ENGINE_DEVICE_TEST_DIR before running this executable. It runs the hidden
+// [FirstRun] cases first in an empty data directory, then the others in another.
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -42,15 +44,37 @@ orca::ProfileSelection k2_plus_profiles()
     return profiles;
 }
 
-void require_engine()
+const std::string data_dir = device_dir + "/orca/data";
+
+void initialize_engine()
 {
     orca::EngineDirectories directories;
-    directories.data_dir = device_dir + "/orca/data";
+    directories.data_dir = data_dir;
     directories.resources_dir = device_dir + "/orca/resources";
     directories.temporary_dir = device_dir + "/tmp/orca";
     const orca::EngineInitialization initialization = orca::initialize(directories);
     INFO(initialization.message);
     REQUIRE(initialization.ready);
+}
+
+const orca::PresetItem* find_item(const std::vector<orca::PresetItem>& items, const std::string& name)
+{
+    const auto item = std::find_if(items.begin(), items.end(), [&name](const orca::PresetItem& candidate) { return candidate.name == name; });
+    return item == items.end() ? nullptr : &*item;
+}
+
+// The engine with the K2 Plus installed as the Setup Wizard installs it.
+void require_engine()
+{
+    initialize_engine();
+    const orca::PresetState presets = orca::describe_presets();
+    INFO(presets.message);
+    REQUIRE(presets.status == orca::SceneStatus::success);
+    if (find_item(presets.printers, "Creality K2 Plus") == nullptr) {
+        const orca::PresetState installed = orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"});
+        INFO(installed.message);
+        REQUIRE(installed.status == orca::SceneStatus::success);
+    }
 }
 
 std::string output_path(const std::string& name)
@@ -122,6 +146,195 @@ Bounds extrusion_bounds(const std::string& gcode_path)
 }
 
 }  // namespace
+
+TEST_CASE("On first run the Setup Wizard is required, and closing it installs Orca's default printer", "[.][FirstRun]")
+{
+    initialize_engine();
+    const std::string config_path = data_dir + "/OrcaSlicer.conf";
+    REQUIRE_FALSE(fs::exists(config_path));
+
+    const orca::PresetState first = orca::describe_presets();
+
+    INFO(first.message);
+    REQUIRE(first.status == orca::SceneStatus::success);
+    CHECK(first.setup_required);
+
+    const orca::PresetState closed = orca::apply_default_setup();
+
+    INFO(closed.message);
+    REQUIRE(closed.status == orca::SceneStatus::success);
+    CHECK_FALSE(closed.setup_required);
+    CHECK(closed.selection.printer == "MyKlipper 0.4 nozzle");
+    CHECK(closed.selection.filament == "Generic PLA @System");
+    CHECK_FALSE(closed.selection.process.empty());
+    const orca::PresetItem* model = find_item(closed.printers, "Generic Klipper Printer");
+    REQUIRE(model != nullptr);
+    CHECK(model->group == orca::PresetGroup::system);
+    CHECK(model->selected);
+    CHECK(fs::exists(config_path));
+    CHECK(read_file(config_path).find("MyKlipper 0.4 nozzle") != std::string::npos);
+}
+
+TEST_CASE("The Setup Wizard offers every bundled printer model and the filaments for the chosen ones", "[Adapter][Setup]")
+{
+    require_engine();
+
+    const orca::SetupPrinters printers = orca::describe_setup_printers();
+
+    INFO(printers.message);
+    REQUIRE(printers.status == orca::SceneStatus::success);
+    CHECK(printers.models.size() > 300);
+    const auto k2_plus = std::find_if(printers.models.begin(), printers.models.end(), [](const orca::SetupPrinterModel& model) {
+        return model.model == "Creality K2 Plus";
+    });
+    REQUIRE(k2_plus != printers.models.end());
+    CHECK(k2_plus->vendor == "Creality");
+    CHECK(k2_plus->nozzle_diameters == std::vector<std::string>{"0.2", "0.4", "0.6", "0.8"});
+    // The wizard installs a model with all its nozzle diameters.
+    CHECK(k2_plus->installed_nozzles == k2_plus->nozzle_diameters);
+    CHECK(std::count(k2_plus->default_materials.begin(), k2_plus->default_materials.end(), "Creality Generic PLA @K2-all") == 1);
+    CHECK(fs::exists(k2_plus->cover));
+    const auto klipper = std::find_if(printers.models.begin(), printers.models.end(), [](const orca::SetupPrinterModel& model) {
+        return model.model == "Generic Klipper Printer";
+    });
+    REQUIRE(klipper != printers.models.end());
+    CHECK(klipper->vendor == "Custom");
+
+    const orca::SetupFilaments filaments = orca::describe_setup_filaments({"Creality K2 Plus", "Generic Klipper Printer"});
+
+    INFO(filaments.message);
+    REQUIRE(filaments.status == orca::SceneStatus::success);
+    const auto find_filament = [&filaments](const std::string& name) -> const orca::SetupFilament* {
+        const auto filament = std::find_if(filaments.filaments.begin(), filaments.filaments.end(), [&name](const orca::SetupFilament& candidate) {
+            return candidate.name == name;
+        });
+        return filament == filaments.filaments.end() ? nullptr : &*filament;
+    };
+    // Installed, for the K2 Plus.
+    const orca::SetupFilament* installed = find_filament("Generic PLA @K2 Plus-all");
+    REQUIRE(installed != nullptr);
+    CHECK(installed->models == std::vector<std::int32_t>{0});
+    CHECK(installed->selected);
+    CHECK(installed->type == "PLA");
+    // A default material of the K2 Plus.
+    const orca::SetupFilament* default_material = find_filament("Creality Generic PLA @K2-all");
+    REQUIRE(default_material != nullptr);
+    CHECK(default_material->selected);
+    CHECK(default_material->models == std::vector<std::int32_t>{0});
+    CHECK(default_material->type == "PLA");
+    // The filament library's presets are offered for every printer.
+    const orca::SetupFilament* library = find_filament("Generic PLA @System");
+    REQUIRE(library != nullptr);
+    CHECK(library->models.empty());
+    CHECK(library->selected);
+    CHECK(library->vendor == "Generic");
+    // Not for the chosen printers.
+    CHECK(find_filament("Generic PLA @K1C-all") == nullptr);
+
+    CHECK(orca::describe_setup_filaments({"No Such Printer"}).status == orca::SceneStatus::profile_not_found);
+}
+
+TEST_CASE("Finishing the Setup Wizard installs the chosen printers and selects the one it adds", "[Adapter][Setup]")
+{
+    require_engine();
+
+    const orca::PresetState added = orca::apply_setup({"Creality K2 Plus", "Creality K1C"}, {"Generic PLA @K2 Plus-all", "Generic PLA @K1C-all"});
+
+    INFO(added.message);
+    REQUIRE(added.status == orca::SceneStatus::success);
+    CHECK_FALSE(added.setup_required);
+    // The K2 Plus was installed before, so the K1C is selected, with its 0.4 mm nozzle.
+    CHECK(added.selection.printer == "Creality K1C 0.4 nozzle");
+    CHECK(added.selection.filament == "Generic PLA @K1C-all");
+    REQUIRE(find_item(added.printers, "Creality K2 Plus") != nullptr);
+    REQUIRE(find_item(added.printers, "Creality K1C") != nullptr);
+    CHECK(find_item(added.printers, "Creality K1C")->selected);
+    CHECK(added.nozzle_diameters == std::vector<std::string>{"0.4", "0.6", "0.8"});
+
+    // A cube near the far corner of the K2 Plus's 350 mm plate is off the K1C's 220 mm plate.
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("k1c.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<double> corner = matrix_of(cube);
+    corner[12] = 300.0;
+    corner[13] = 300.0;
+    const orca::PlateInspection on_k1c = orca::place_objects(plate_of({}, corner), {}, added.selection, orca::PlateManipulation::update_print_volume_state, {});
+    INFO(on_k1c.message);
+    REQUIRE(on_k1c.status == orca::SceneStatus::success);
+    REQUIRE(on_k1c.objects.size() == 1);
+    CHECK(on_k1c.objects[0].volume_state == orca::VolumeState::outside);
+    CHECK(on_k1c.objects[0].instance_matrix[12] == Catch::Approx(300.0));
+    CHECK(orca::place_objects(plate_of({}, corner), {}, k2_plus_profiles(), orca::PlateManipulation::update_print_volume_state, {}).objects[0].volume_state
+          == orca::VolumeState::inside);
+
+    const orca::PresetState removed = orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"});
+
+    INFO(removed.message);
+    REQUIRE(removed.status == orca::SceneStatus::success);
+    CHECK(find_item(removed.printers, "Creality K1C") == nullptr);
+    CHECK(removed.selection.printer.rfind("Creality K2 Plus ", 0) == 0);
+    CHECK(orca::apply_setup({"No Such Printer"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::profile_not_found);
+}
+
+TEST_CASE("The sidebar selects presets as the desktop app does", "[Adapter][Presets]")
+{
+    require_engine();
+
+    const orca::PresetState printer = orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle");
+
+    INFO(printer.message);
+    REQUIRE(printer.status == orca::SceneStatus::success);
+    CHECK(printer.selection.printer == "Creality K2 Plus 0.4 nozzle");
+    // System printers are listed once per model.
+    const orca::PresetItem* model = find_item(printer.printers, "Creality K2 Plus");
+    REQUIRE(model != nullptr);
+    CHECK(model->label == "Creality K2 Plus");
+    CHECK(model->group == orca::PresetGroup::system);
+    CHECK(model->selected);
+    CHECK(find_item(printer.printers, "Creality K2 Plus 0.4 nozzle") == nullptr);
+    CHECK(printer.nozzle_diameters == std::vector<std::string>{"0.2", "0.4", "0.6", "0.8"});
+    CHECK(printer.nozzle_diameter == "0.4");
+    // Only processes for the selected printer.
+    CHECK(find_item(printer.processes, "0.20mm Strength @Creality K2 Plus 0.4 nozzle") != nullptr);
+    CHECK(find_item(printer.processes, "0.30mm Standard @Creality K2 Plus 0.6 nozzle") == nullptr);
+    const orca::PresetItem* filament = find_item(printer.filaments, printer.selection.filament);
+    REQUIRE(filament != nullptr);
+    CHECK(filament->selected);
+
+    const orca::PresetState process = orca::select_preset(orca::PresetChoice::process, "0.20mm Strength @Creality K2 Plus 0.4 nozzle");
+
+    REQUIRE(process.status == orca::SceneStatus::success);
+    CHECK(process.selection.process == "0.20mm Strength @Creality K2 Plus 0.4 nozzle");
+    CHECK(find_item(process.processes, "0.20mm Strength @Creality K2 Plus 0.4 nozzle")->selected);
+
+    // Another nozzle selects the model's printer for it, and a process for that printer.
+    const orca::PresetState larger = orca::select_preset(orca::PresetChoice::nozzle_diameter, "0.6");
+
+    REQUIRE(larger.status == orca::SceneStatus::success);
+    CHECK(larger.selection.printer == "Creality K2 Plus 0.6 nozzle");
+    CHECK(larger.nozzle_diameter == "0.6");
+    CHECK(larger.selection.process.find("@Creality K2 Plus 0.6 nozzle") != std::string::npos);
+
+    // Back on the 0.4 mm nozzle, the printer's process is remembered.
+    const orca::PresetState back = orca::select_preset(orca::PresetChoice::nozzle_diameter, "0.4");
+
+    REQUIRE(back.status == orca::SceneStatus::success);
+    CHECK(back.selection.printer == "Creality K2 Plus 0.4 nozzle");
+    CHECK(back.selection.process == "0.20mm Strength @Creality K2 Plus 0.4 nozzle");
+
+    // The model keeps the selected nozzle.
+    CHECK(orca::select_preset(orca::PresetChoice::printer_model, "Creality K2 Plus").selection.printer == "Creality K2 Plus 0.4 nozzle");
+
+    const orca::PresetState pla = orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all");
+
+    REQUIRE(pla.status == orca::SceneStatus::success);
+    CHECK(pla.selection.filament == "Generic PLA @K2 Plus-all");
+    // Remembered in the app configuration, as describe_presets() reports it.
+    CHECK(read_file(data_dir + "/OrcaSlicer.conf").find("0.20mm Strength @Creality K2 Plus 0.4 nozzle") != std::string::npos);
+    CHECK(orca::describe_presets().selection.process == "0.20mm Strength @Creality K2 Plus 0.4 nozzle");
+
+    CHECK(orca::select_preset(orca::PresetChoice::printer, "No Such Printer").status == orca::SceneStatus::profile_not_found);
+    CHECK(orca::select_preset(orca::PresetChoice::filament, "No Such Filament").status == orca::SceneStatus::profile_not_found);
+}
 
 TEST_CASE("Bundled K2 Plus profiles slice the calibration cube into Orca G-code", "[Adapter]")
 {

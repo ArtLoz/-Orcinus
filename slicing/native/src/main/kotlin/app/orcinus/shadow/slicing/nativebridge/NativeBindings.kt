@@ -79,9 +79,81 @@ internal class NativeFlatteningPlanes(
     @JvmField val vertices: FloatArray,
 )
 
+/** Constructed by the native bridge; see PresetItem in orca_engine_adapter.hpp. */
+internal class NativePresetItem(
+    @JvmField val name: String,
+    @JvmField val label: String,
+    /** PresetGroup. */
+    @JvmField val group: Long,
+    @JvmField val subgroup: String,
+    @JvmField val selected: Boolean,
+)
+
+/** Constructed by the native bridge; see PresetState in orca_engine_adapter.hpp. */
+internal class NativePresetState(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val setupRequired: Boolean,
+    @JvmField val printer: String,
+    @JvmField val filament: String,
+    @JvmField val process: String,
+    @JvmField val printers: Array<NativePresetItem>,
+    @JvmField val filaments: Array<NativePresetItem>,
+    @JvmField val processes: Array<NativePresetItem>,
+    @JvmField val nozzleDiameters: Array<String>,
+    @JvmField val nozzleDiameter: String,
+)
+
+/** Constructed by the native bridge; see SetupPrinterModel in orca_engine_adapter.hpp. */
+internal class NativeSetupPrinterModel(
+    @JvmField val vendor: String,
+    @JvmField val model: String,
+    @JvmField val name: String,
+    @JvmField val nozzleDiameters: Array<String>,
+    @JvmField val defaultMaterials: Array<String>,
+    @JvmField val cover: String,
+    @JvmField val installedNozzles: Array<String>,
+)
+
+internal class NativeSetupPrinters(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val models: Array<NativeSetupPrinterModel>,
+)
+
+/** Constructed by the native bridge; see SetupFilament in orca_engine_adapter.hpp. */
+internal class NativeSetupFilament(
+    @JvmField val name: String,
+    @JvmField val vendor: String,
+    @JvmField val type: String,
+    @JvmField val models: IntArray,
+    @JvmField val selected: Boolean,
+)
+
+internal class NativeSetupFilaments(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val filaments: Array<NativeSetupFilament>,
+)
+
 /** SceneStatus in orca_engine_adapter.hpp. */
 internal object NativeSceneStatus {
     const val SUCCESS = 0L
+}
+
+/** PresetGroup in orca_engine_adapter.hpp. */
+internal object NativePresetGroup {
+    const val USER = 0L
+    const val BUNDLE = 1L
+}
+
+/** PresetChoice in orca_engine_adapter.hpp. */
+internal object NativePresetChoice {
+    const val PRINTER = 0L
+    const val PRINTER_MODEL = 1L
+    const val NOZZLE_DIAMETER = 2L
+    const val FILAMENT = 3L
+    const val PROCESS = 4L
 }
 
 /** VolumeState in orca_engine_adapter.hpp. */
@@ -188,4 +260,18 @@ internal object NativeBindings {
         processProfile: String,
         placement: DoubleArray,
     ): NativeFlatteningPlanes
+
+    external fun describePresets(): NativePresetState
+
+    /** [choice]: NativePresetChoice. */
+    external fun selectPreset(choice: Long, value: String): NativePresetState
+
+    external fun describeSetupPrinters(): NativeSetupPrinters
+
+    /** For the printer model ids [models]. */
+    external fun describeSetupFilaments(models: Array<String>): NativeSetupFilaments
+
+    external fun applySetup(models: Array<String>, filaments: Array<String>): NativePresetState
+
+    external fun applyDefaultSetup(): NativePresetState
 }

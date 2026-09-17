@@ -9,7 +9,11 @@ import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
+import app.orcinus.shadow.core.model.PresetChoice
+import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SetupFilamentsOutcome
+import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceProgress
@@ -93,4 +97,33 @@ interface PlateInspector {
         mesh: ScenePath,
         placement: Transform3,
     ): FlatteningPlanesOutcome
+}
+
+/**
+ * OrcaSlicer's presets as its sidebar and Setup Wizard offer them. The engine
+ * keeps the installed printers and filaments and the selection in its app
+ * configuration, which outlives the process.
+ */
+interface PresetManager {
+    /** The presets the sidebar offers for the selection the engine remembers. */
+    suspend fun presets(): PresetsOutcome
+
+    /** Selects a preset as the sidebar does and remembers the selection. */
+    suspend fun selectPreset(choice: PresetChoice): PresetsOutcome
+
+    /** Every printer model the Setup Wizard offers. */
+    suspend fun setupPrinters(): SetupPrintersOutcome
+
+    /** The filaments the Setup Wizard offers for the printer models with the ids [models]. */
+    suspend fun setupFilaments(models: List<String>): SetupFilamentsOutcome
+
+    /**
+     * The Setup Wizard's Finish: installs the printer models with the ids
+     * [models], each with all its nozzle diameters, and the [filaments] in place
+     * of the installed ones, and selects the printer it added first.
+     */
+    suspend fun applySetup(models: List<String>, filaments: List<String>): PresetsOutcome
+
+    /** The Setup Wizard closed while no printer is installed: OrcaSlicer's default printer and filament. */
+    suspend fun applyDefaultSetup(): PresetsOutcome
 }

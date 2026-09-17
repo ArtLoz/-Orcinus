@@ -14,10 +14,12 @@ namespace orcinus::orca {
 std::string engine_version();
 
 struct EngineDirectories {
-    // Orca data directory. Its system/ folder holds the bundled vendor profiles,
-    // as the desktop app's data directory does after its first start.
+    // Orca data directory, as the desktop app keeps it: OrcaSlicer.conf with the
+    // installed printers and filaments and the selected presets, and system/
+    // with the vendor bundles installed from the resources.
     std::string data_dir;
-    // Orca resources directory with info/ and flush/.
+    // Orca resources directory with info/, flush/, and profiles/, every vendor
+    // bundle the app ships.
     std::string resources_dir;
     std::string temporary_dir;
 };
@@ -27,7 +29,9 @@ struct EngineInitialization {
     std::string message;
 };
 
-// Loads the system profiles once per process. Later calls return the first result.
+// Loads the app configuration and the installed presets once per process,
+// installing vendor bundles from the resources as the desktop app's updater
+// does at start-up. Later calls return the first result.
 EngineInitialization initialize(const EngineDirectories& directories);
 
 struct ProfileSelection {
@@ -202,6 +206,9 @@ enum class PlateManipulation : std::int64_t {
     // ArrangeJob from the arrange options (prepare_all): every object arranged
     // on the plate with the arrange settings.
     arrange = 1,
+    // Plater::on_config_change() for another printer: the objects stay where
+    // they are, and whether they fit is judged against its build volume.
+    update_print_volume_state = 2,
 };
 
 // GLCanvas3D::ArrangeSettings for FFF printers, as the arrange options window sets them.
@@ -275,5 +282,128 @@ PlateInspection place_objects(
     PlateManipulation manipulation,
     const ArrangeSettings& arrange_settings
 );
+
+// The sections of a preset combo box of the desktop app.
+enum class PresetGroup : std::int64_t {
+    // "User presets"
+    user = 0,
+    // "Bundle presets": presets of a subscribed preset bundle.
+    bundle = 1,
+    // "System presets"
+    system = 2,
+};
+
+// An entry of a preset combo box of the desktop app's sidebar, in the combo
+// box's order.
+struct PresetItem {
+    // What choosing the entry selects: the preset name, or for a system printer
+    // its printer model, which the printer combo box lists once.
+    std::string name;
+    // The text the combo box shows.
+    std::string label;
+    PresetGroup group{PresetGroup::system};
+    // The submenu: the filament vendor of a system filament, the bundle of a bundle preset.
+    std::string subgroup;
+    bool selected{false};
+};
+
+struct PresetState {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // GUI_App::config_wizard_startup() would run the Setup Wizard: the app had
+    // no configuration yet, or only default printers are installed.
+    bool setup_required{false};
+    // The selected printer, first filament, and process presets.
+    ProfileSelection selection;
+    // PlaterPresetComboBox::update() for printers and the first filament.
+    std::vector<PresetItem> printers;
+    std::vector<PresetItem> filaments;
+    // TabPresetComboBox::update() of the process tab.
+    std::vector<PresetItem> processes;
+    // Sidebar::update_presets(): the nozzle diameters of the selected printer
+    // model and the one of the selected printer, "0.4".
+    std::vector<std::string> nozzle_diameters;
+    std::string nozzle_diameter;
+};
+
+// The preset combo boxes for the selection the app configuration remembers.
+PresetState describe_presets();
+
+// What a preset choice selects.
+enum class PresetChoice : std::int64_t {
+    // A printer preset by name (Tab::select_preset): the process and filament
+    // the printer last used, or compatible ones, are selected with it.
+    printer = 0,
+    // A system printer model of the printer combo box: its preset with the
+    // selected printer's nozzle, or another one (PresetBundle::get_similar_printer_preset).
+    printer_model = 1,
+    // A nozzle diameter of the selected printer model (Sidebar::priv::switch_diameter).
+    nozzle_diameter = 2,
+    // The first filament by preset name (Plater::priv::on_select_preset).
+    filament = 3,
+    // A process preset by name; the filament changes when it is not compatible with it.
+    process = 4,
+};
+
+// Selects a preset as the desktop app's sidebar does and remembers the
+// selection in the app configuration (PresetBundle::export_selections).
+PresetState select_preset(PresetChoice choice, const std::string& value);
+
+// A printer model of the Setup Wizard's printer page.
+struct SetupPrinterModel {
+    std::string vendor;
+    std::string model;
+    std::string name;
+    std::vector<std::string> nozzle_diameters;
+    // Filament presets the wizard selects with the model (default_materials).
+    std::vector<std::string> default_materials;
+    // The cover image file.
+    std::string cover;
+    // The nozzle diameters the app configuration has installed.
+    std::vector<std::string> installed_nozzles;
+};
+
+struct SetupPrinters {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<SetupPrinterModel> models;
+};
+
+// Every printer model of the vendor bundles, as GuideFrame::LoadProfileData() lists them.
+SetupPrinters describe_setup_printers();
+
+// A filament preset of the Setup Wizard's filament page.
+struct SetupFilament {
+    std::string name;
+    std::string vendor;
+    std::string type;
+    // Indices of the requested printer models the filament is compatible with,
+    // with any of their nozzle diameters; empty for a filament the wizard
+    // offers for every printer.
+    std::vector<std::int32_t> models;
+    // Installed, or a default material of a requested model (save_userguide_models).
+    bool selected{false};
+};
+
+struct SetupFilaments {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<SetupFilament> filaments;
+};
+
+// The filaments of the Setup Wizard's filament page for the printer models
+// (model ids) chosen on its printer page.
+SetupFilaments describe_setup_filaments(const std::vector<std::string>& models);
+
+// The Setup Wizard's Finish (GuideFrame::SaveProfile() and apply_config()):
+// installs the printer models (model ids), each with all its nozzle diameters,
+// and the filaments in place of the installed ones, selects the first printer
+// the wizard added (PresetBundle::apply_vendor_config), and saves the configuration.
+PresetState apply_setup(const std::vector<std::string>& models, const std::vector<std::string>& filaments);
+
+// GuideFrame::run() when the wizard closes while only default printers are
+// installed: OrcaSlicer's default printer and filament. Saves the configuration,
+// so the wizard is not required again.
+PresetState apply_default_setup();
 
 }  // namespace orcinus::orca

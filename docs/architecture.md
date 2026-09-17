@@ -9,6 +9,7 @@ keep upstream OrcaSlicer an implementation detail of the native adapter.
 :app ─┬─> :feature:prepare ─┐
       ├─> :feature:preview ─┤
       ├─> :feature:sidebar ─┼─> :core:designsystem, :core:ui
+      ├─> :feature:setup ───┤
       ├─> :feature:about ───┤
       │                     ├─> :render:scene (Prepare) ─> :core:designsystem, :core:model
       │                     ├─> :render:gcode (Preview) ─> :render:scene
@@ -41,15 +42,30 @@ file the engine writes.
 - `:app` is the composition root and the app shell. `AppContainer` builds the
   adapters, the repositories, and the use cases once per process. `OrcinusApp`
   has two levels of Navigation 3 back stacks: the root one holds the workspace
-  and the pages opened over the whole window (About and its license pages);
-  the workspace draws OrcaSlicer's tab bar over its own `NavDisplay` of tabs.
-  The shell starts the engine, holds the tab bar's slice action, and opens
-  Preview when a slice finishes; features never reference each other.
-  `OrcaSlicerService` hosts `NativeSlicerEngine` in the `:slicer` process
-  (`foregroundServiceType="specialUse"`).
-- `:feature:sidebar` is OrcaSlicer's sidebar (printer, material, process),
-  shared by Prepare and Preview, so the shell places it through
-  `OrcaSidebarLayout`. It links to About, which OrcaSlicer keeps in Help.
+  and the pages opened over the whole window (the Setup Wizard, About and its
+  license pages); the workspace draws OrcaSlicer's tab bar over its own
+  `NavDisplay` of tabs. The shell starts the engine, opens the Setup Wizard
+  while no printer is set up (`GUI_App::config_wizard_startup()`), holds the
+  tab bar's slice action, and opens Preview when a slice finishes; features
+  never reference each other. `OrcaSlicerService` hosts `NativeSlicerEngine` in
+  the `:slicer` process (`foregroundServiceType="specialUse"`).
+- `:feature:sidebar` is OrcaSlicer's sidebar (printer with its nozzle diameter,
+  material, process), shared by Prepare and Preview, so the shell places it
+  through `OrcaSidebarLayout`. Each field opens the list of its OrcaSlicer
+  combo box (`PlaterPresetComboBox`, the process tab's `TabPresetComboBox`) as
+  a bottom sheet: the sections, the vendor submenus, the selected entry, and
+  the list's last entry, "Select/Remove printers" or "Add/Remove filaments",
+  which opens the Setup Wizard. It links to About, which OrcaSlicer keeps in Help.
+- `:feature:setup` is OrcaSlicer's Setup Wizard (`GuideFrame`) with its printer
+  and filament pages, which the desktop app runs as web pages
+  (`resources/web/guide/21` and `22`). `SetupPages` ports their scripts (the
+  vendor order, search, model titles, a vendor's check box; filament lines
+  merged by vendor, type, and name, the printer, type, and vendor filters, the
+  filter bar, the default filaments, the notices), with JVM tests. The pages
+  are laid out for touch: printer cards with covers by vendor under a search
+  field and a row of vendor chips, and filament lines under filter chips.
+  Finish installs the choice; closing the wizard on first run installs
+  OrcaSlicer's default printer.
 - `:feature:about` is the About page with the notices the GNU AGPL asks for
   (copyright, no warranty, the license text, the source code address), the
   credits, and the third-party components with their license texts.
@@ -186,8 +202,17 @@ file the engine writes.
   write the results to `PlateRepository`, a port the domain owns. Long
   operations run in the application scope, so a slice outlives the screen that
   started it. The plate holds a list of objects, told apart by their mesh
-  files. Starting the engine also describes the plate of the selected printer,
-  and adding a model or the calibration cube has the engine load it, place it
+  files. Starting the engine loads the presets the engine's app configuration
+  remembers (`Presets`: the selection, the combo boxes' lists, and whether the
+  Setup Wizard is required) and describes the plate of the selected printer.
+  `SelectPresetUseCase` selects a preset as the sidebar does, and
+  `ApplySetupUseCase` applies the Setup Wizard's result; `PlatePresets` brings
+  the plate to the presets the engine reports: G-code sliced with other presets
+  is dropped, another printer or filament describes the plate again, and
+  another printer judges whether the objects fit its build volume
+  (`PlateManipulation.UpdatePrintVolume`, `Plater::on_config_change()`). Until a
+  printer is set up, `PlateState.profiles` is null and nothing is placed or
+  sliced. Adding a model or the calibration cube has the engine load it, place it
   among the objects already on the plate as `Plater::priv::load_model_objects()`
   does, and write its mesh; the object joins the end of the list.
   `PlacePlateObjectUseCase` commits a `Manipulation` (move, rotate, scale, reset
@@ -226,24 +251,36 @@ file the engine writes.
 - `:core:model` contains immutable, platform-neutral value types, including
   `PlateState` and the scene types (`PlateDescription`, `ModelInspection` with
   its mesh file and placement).
-- `:slicing:api` holds the engine ports: `SlicerEngine` and `PlateInspector`
-  (describe the plate, load and place a model, place the plate's objects). `:storage:api` holds the ports
+- `:slicing:api` holds the engine ports: `SlicerEngine`, `PlateInspector`
+  (describe the plate, load and place a model, place the plate's objects), and
+  `PresetManager` (the sidebar's presets, a preset choice, the Setup Wizard's
+  printers and filaments, and its result). `:storage:api` holds the ports
   for importing documents, locating G-code outputs, and scene files.
 - `:slicing:native` is the NDK/JNI adapter and the only place OrcaSlicer is
   attached. Gradle builds `liborcinus_engine.so` through
   `engine/CMakePresets.json` together with OrcaSlicer's `libslic3r` and packages
-  the selected vendor profiles, Orca's runtime tables, and the bed models and
-  textures the vendors' printer models name as assets, which `OrcaAssets`
-  copies to app storage for Orca's `PresetBundle`. For the 3D view the adapter
+  Orca's resources as one asset, `orca/resources.zip`: every vendor's profiles
+  with the printer covers, bed models, and textures, and Orca's runtime tables.
+  `OrcaAssets` extracts it into app storage when a new APK is installed. The
+  data directory is the engine's, as the desktop app keeps it: `OrcaSlicer.conf`
+  (`AppConfig`: installed printers and filaments, the selection per printer)
+  and `system/`, where the engine installs the bundles of the enabled vendors
+  from the resources at start-up (`PresetUpdater::check_installed_vendor_profiles`).
+  The adapter ports the Setup Wizard's C++ side (`setup_catalog.cpp`,
+  `GuideFrame::LoadProfileData`, `SaveProfile`, `apply_config`) and the preset
+  selection of the sidebar and tabs (`Tab::select_preset`, `update_selections`,
+  `get_similar_printer_preset`). For the 3D view the adapter
   computes the plate as OrcaSlicer's GUI does (`PartPlate` triangulation and
   grid, `Bed3D` model, `GLTexture` rasterizing the SVG texture with nanosvg)
   and writes meshes in a small binary format described in
   `orca_engine_adapter.hpp`.
-- `:slicing:service` moves any `SlicerEngine` + `PlateInspector` into another
-  process: `SlicerService` (AIDL server, one job at a time, specialUse foreground
-  service with a progress notification and a cancel action) and
-  `RemoteSlicerEngine` (client, turns the death of the engine process into
-  `SliceFailureCode.ENGINE_CRASHED`).
+- `:slicing:service` moves any `SlicerEngine` + `PlateInspector` +
+  `PresetManager` into another process: `SlicerService` (AIDL server, one job at
+  a time, specialUse foreground service with a progress notification and a
+  cancel action) and `RemoteSlicerEngine` (client, turns the death of the engine
+  process into `SliceFailureCode.ENGINE_CRASHED`). The Setup Wizard's data comes
+  in two calls, printers and then the filaments for the chosen ones, to stay
+  under the binder transaction limit.
 - `:storage:android` copies Android documents into app storage under their own
   names, places G-code in `files/gcode`, and scene files (plate, object meshes,
   toolpaths) in the no-backup `files/scene`.
@@ -304,12 +341,30 @@ AddModelToPlateUseCase -> PlateRepository -> PlateState.objects
     -> PrepareScreen -> PlateView reads the meshes -> OpenGL ES
 ```
 
-Describing the plate, once the engine is ready:
+Starting: the presets, the Setup Wizard, and the plate:
 
 ```text
-AppShellViewModel -> StartEngineUseCase -> PlateInspector.describePlate
-    == AIDL ==> orca_engine_adapter: printable area, grid, bed model mesh, texture PNG
-StartEngineUseCase -> PlateRepository -> PlateState.plate -> PlateView
+AppShellViewModel -> StartEngineUseCase -> PresetManager.presets
+    == AIDL ==> orca_engine_adapter: OrcaSlicer.conf, vendor bundles installed, load_presets
+PlatePresets -> PlateRepository -> PlateState.presets
+    setup required -> OrcinusApp opens SetupNavKey(FIRST_RUN)
+        -> SetupWizardViewModel -> GetSetupPrintersUseCase, GetSetupFilamentsUseCase
+           == AIDL ==> setup catalogue (every vendor bundle in resources/profiles)
+        -> ApplySetupUseCase == AIDL ==> apply_setup: apply_vendor_config, save
+    -> PlatePresets -> PlateInspector.describePlate
+       == AIDL ==> orca_engine_adapter: printable area, grid, bed model mesh, texture PNG
+    -> PlateState.plate -> PlateView
+```
+
+Choosing a preset in the sidebar:
+
+```text
+PresetListSheet / nozzle combo -> SidebarViewModel -> SelectPresetUseCase
+    -> PlateRepository: changingPresets
+    -> PresetManager.selectPreset == AIDL ==> select_preset: Tab::select_preset,
+       update_selections, export_selections, AppConfig::save
+    -> PlatePresets: PlateState.presets; another printer or filament: describePlate;
+       another printer: PlacePlateObjectsUseCase(UpdatePrintVolume)
 ```
 
 Moving an object:

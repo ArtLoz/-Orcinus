@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OrcaSlicer's Russian wording where it has one: the Setup Wizard's pages
+  (resources/web/data/text.js, ru_RU) and localization/i18n/ru/OrcaSlicer_ru.po.
+-->
+<resources>
+    <string name="setup_wizard">Мастер настройки</string>
+    <string name="printer_selection">Выбор принтера</string>
+    <string name="filament_selection">Выбор материала</string>
+    <string name="back">Назад</string>
+    <string name="next">Далее</string>
+    <string name="finish">Закончить</string>
+    <string name="all">Все</string>
+    <string name="clear_all">Очистить</string>
+    <string name="printer">Принтер</string>
+    <string name="filament_type">Тип материала</string>
+    <string name="vendor">Производитель</string>
+    <string name="error">Ошибка</string>
+    <string name="no_printer_selected">Должен быть выбран хотя бы один принтер.</string>
+    <string name="no_filament_selected">Должна быть выбрана хотя бы одна пластиковая нить.</string>
+    <string name="use_default_filaments">Выбрать пластиковые нити по умолчанию?</string>
+    <string name="yes">Да</string>
+    <string name="no">Нет</string>
+    <string name="ok">OK</string>
+    <string name="search">Поиск</string>
+    <string name="clear_search">Очистить поиск</string>
+    <string name="nozzle">Сопло</string>
+    <string name="nozzles">Сопло: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Все</string>
+    <string name="show_checked">Выбранные</string>
+    <string name="show_unchecked">Невыбранные</string>
+    <string name="loading">Загрузка…</string>
+    <string name="installing">Установка профилей…</string>
+    <string name="nothing_found">Ничего не найдено</string>
+    <string name="select_vendor">Выбрать все модели %1$s</string>
+</resources>

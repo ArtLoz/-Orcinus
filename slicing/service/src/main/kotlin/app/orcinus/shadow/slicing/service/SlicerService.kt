@@ -14,6 +14,7 @@ import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -33,7 +34,7 @@ import kotlinx.coroutines.runBlocking
  * notification, so slicing continues when the app leaves the screen. It stops
  * itself when the job ends.
  */
-abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector {
+abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector, E : PresetManager {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -116,6 +117,21 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             runBlocking {
                 engine.flatteningPlanes(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath), Transform3(placement.toList()))
             }.toParcel()
+
+        override fun presets(): PresetsParcel = runBlocking { engine.presets() }.toParcel()
+
+        override fun selectPreset(kind: String, value: String): PresetsParcel =
+            runBlocking { engine.selectPreset(presetChoiceOf(kind, value)) }.toParcel()
+
+        override fun setupPrinters(): SetupPrintersParcel = runBlocking { engine.setupPrinters() }.toParcel()
+
+        override fun setupFilaments(models: Array<String>): SetupFilamentsParcel =
+            runBlocking { engine.setupFilaments(models.toList()) }.toParcel()
+
+        override fun applySetup(models: Array<String>, filaments: Array<String>): PresetsParcel =
+            runBlocking { engine.applySetup(models.toList(), filaments.toList()) }.toParcel()
+
+        override fun applyDefaultSetup(): PresetsParcel = runBlocking { engine.applyDefaultSetup() }.toParcel()
 
         override fun slice(request: SliceRequestParcel, callback: ISliceCallback) {
             startJob(request.toSliceRequest(), callback)

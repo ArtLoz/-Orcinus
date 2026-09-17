@@ -59,6 +59,7 @@ enum class PlateProblemKind {
     ENGINE_CRASHED,
     SLICE_CANCELLED,
     PLACEMENT_FAILED,
+    PRESETS_FAILED,
 }
 
 data class PlateProblem(
@@ -69,8 +70,11 @@ data class PlateProblem(
 
 /** Everything the app knows about the plate being prepared and sliced. */
 data class PlateState(
-    val profiles: SlicingProfileSelection,
     val engine: EngineState = EngineState(),
+    /** The presets OrcaSlicer's sidebar offers and the selected ones; null until the engine reported them. */
+    val presets: Presets? = null,
+    /** A preset choice or the Setup Wizard's result is being applied. */
+    val changingPresets: Boolean = false,
     /** The plate of the selected printer; null until the engine described it. */
     val plate: PlateDescription? = null,
     val importing: Boolean = false,
@@ -80,7 +84,11 @@ data class PlateState(
     val result: PlateSliceResult? = null,
     val problem: PlateProblem? = null,
 ) {
-    val busy: Boolean get() = importing || slicing != null
+    /** The selected presets the plate is prepared and sliced with; null until a printer is set up. */
+    val profiles: SlicingProfileSelection?
+        get() = presets?.takeUnless(Presets::setupRequired)?.selection
+
+    val busy: Boolean get() = importing || slicing != null || changingPresets
 
     /**
      * GLCanvas3D::reload_scene() enables slicing when an object is inside the
@@ -88,7 +96,7 @@ data class PlateState(
      * plate are not printed. Every placement must be settled.
      */
     val canSlice: Boolean
-        get() = engine.availability == EngineAvailability.READY && !busy &&
+        get() = engine.availability == EngineAvailability.READY && profiles != null && !busy &&
             objects.any { it.inspection.fit == BuildVolumeFit.INSIDE } &&
             objects.none { it.placing || it.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE }
 }

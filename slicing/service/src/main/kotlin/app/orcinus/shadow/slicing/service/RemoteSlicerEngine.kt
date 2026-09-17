@@ -15,7 +15,11 @@ import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
+import app.orcinus.shadow.core.model.PresetChoice
+import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SetupFilamentsOutcome
+import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
@@ -25,6 +29,7 @@ import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
@@ -42,7 +47,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector {
+) : SlicerEngine, PlateInspector, PresetManager {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -163,6 +168,31 @@ class RemoteSlicerEngine(
             service().flatteningPlanes(model.toParcel(), profiles.toParcel(), mesh.value, placement.columns.toDoubleArray()).toOutcome()
         } catch (_: RemoteException) {
             FlatteningPlanesOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun presets(): PresetsOutcome = remote(PresetsOutcome::Failure) { presets().toPresetsOutcome() }
+
+    override suspend fun selectPreset(choice: PresetChoice): PresetsOutcome =
+        remote(PresetsOutcome::Failure) { selectPreset(choice.parcelKind(), choice.parcelValue()).toPresetsOutcome() }
+
+    override suspend fun setupPrinters(): SetupPrintersOutcome =
+        remote(SetupPrintersOutcome::Failure) { setupPrinters().toSetupPrintersOutcome() }
+
+    override suspend fun setupFilaments(models: List<String>): SetupFilamentsOutcome =
+        remote(SetupFilamentsOutcome::Failure) { setupFilaments(models.toTypedArray()).toSetupFilamentsOutcome() }
+
+    override suspend fun applySetup(models: List<String>, filaments: List<String>): PresetsOutcome =
+        remote(PresetsOutcome::Failure) { applySetup(models.toTypedArray(), filaments.toTypedArray()).toPresetsOutcome() }
+
+    override suspend fun applyDefaultSetup(): PresetsOutcome = remote(PresetsOutcome::Failure) { applyDefaultSetup().toPresetsOutcome() }
+
+    /** Calls the service on the IO dispatcher; a dead engine process fails the call. */
+    private suspend fun <T> remote(failure: (String) -> T, call: ISlicerService.() -> T): T = withContext(Dispatchers.IO) {
+        try {
+            service().call()
+        } catch (_: RemoteException) {
+            failure(PROCESS_DIED)
         }
     }
 

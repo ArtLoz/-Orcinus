@@ -68,6 +68,96 @@ jfloatArray to_java(JNIEnv* env, const std::vector<float>& values)
     return array;
 }
 
+jobjectArray to_java(JNIEnv* env, const std::vector<std::string>& values)
+{
+    const jclass string_class = env->FindClass("java/lang/String");
+    const jobjectArray array = env->NewObjectArray(static_cast<jsize>(values.size()), string_class, nullptr);
+    env->DeleteLocalRef(string_class);
+    for (std::size_t index = 0; array != nullptr && index < values.size(); ++index) {
+        const jstring value = to_java(env, values[index]);
+        env->SetObjectArrayElement(array, static_cast<jsize>(index), value);
+        env->DeleteLocalRef(value);
+    }
+    return array;
+}
+
+std::vector<std::string> to_strings(JNIEnv* env, jobjectArray values)
+{
+    std::vector<std::string> result(static_cast<std::size_t>(env->GetArrayLength(values)));
+    for (std::size_t index = 0; index < result.size(); ++index) {
+        const auto value = static_cast<jstring>(env->GetObjectArrayElement(values, static_cast<jsize>(index)));
+        result[index] = to_utf8(env, value);
+        env->DeleteLocalRef(value);
+    }
+    return result;
+}
+
+// An array of objects of class_name, each converted by convert() within its own local frame.
+template<typename T, typename Convert>
+jobjectArray to_java_objects(JNIEnv* env, const char* class_name, const std::vector<T>& values, Convert convert)
+{
+    const jclass element_class = env->FindClass(class_name);
+    const jobjectArray array = env->NewObjectArray(static_cast<jsize>(values.size()), element_class, nullptr);
+    env->DeleteLocalRef(element_class);
+    for (std::size_t index = 0; array != nullptr && index < values.size(); ++index) {
+        if (env->PushLocalFrame(16) != JNI_OK) {
+            return nullptr;
+        }
+        const jobject element = env->PopLocalFrame(convert(env, values[index]));
+        env->SetObjectArrayElement(array, static_cast<jsize>(index), element);
+        env->DeleteLocalRef(element);
+    }
+    return array;
+}
+
+// NativePresetItem
+jobject to_java(JNIEnv* env, const orcinus::orca::PresetItem& item)
+{
+    const jclass item_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePresetItem");
+    const jmethodID constructor = env->GetMethodID(item_class, "<init>", "(Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Z)V");
+    return env->NewObject(
+        item_class,
+        constructor,
+        to_java(env, item.name),
+        to_java(env, item.label),
+        static_cast<jlong>(item.group),
+        to_java(env, item.subgroup),
+        item.selected ? JNI_TRUE : JNI_FALSE
+    );
+}
+
+// NativePresetState
+jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
+{
+    const char* item_class = "app/orcinus/shadow/slicing/nativebridge/NativePresetItem";
+    const auto item = [](JNIEnv* item_env, const orcinus::orca::PresetItem& value) { return to_java(item_env, value); };
+    const jclass state_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePresetState");
+    const jmethodID constructor = env->GetMethodID(
+        state_class,
+        "<init>",
+        "(JLjava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;"
+        "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
+        "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
+        "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
+        "[Ljava/lang/String;Ljava/lang/String;)V"
+    );
+    return env->NewObject(
+        state_class,
+        constructor,
+        static_cast<jlong>(state.status),
+        to_java(env, state.message),
+        state.setup_required ? JNI_TRUE : JNI_FALSE,
+        to_java(env, state.selection.printer),
+        to_java(env, state.selection.filament),
+        to_java(env, state.selection.process),
+        to_java_objects(env, item_class, state.printers, item),
+        to_java_objects(env, item_class, state.filaments, item),
+        to_java_objects(env, item_class, state.processes, item),
+        to_java(env, state.nozzle_diameters),
+        to_java(env, state.nozzle_diameter)
+    );
+}
+
 orcinus::orca::ProfileSelection to_profiles(JNIEnv* env, jstring printer, jstring filament, jstring process)
 {
     orcinus::orca::ProfileSelection profiles;
@@ -442,4 +532,102 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFlatteningPl
         counts_array,
         to_java(env, vertices)
     );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describePresets(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::describe_presets());
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_selectPreset(JNIEnv* env, jobject /* this */, jlong choice, jstring value)
+{
+    return to_java(env, orcinus::orca::select_preset(static_cast<orcinus::orca::PresetChoice>(choice), to_utf8(env, value)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeSetupPrinters(JNIEnv* env, jobject /* this */)
+{
+    const orcinus::orca::SetupPrinters result = orcinus::orca::describe_setup_printers();
+    const jobjectArray models = to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativeSetupPrinterModel",
+        result.models,
+        [](JNIEnv* model_env, const orcinus::orca::SetupPrinterModel& model) {
+            const jclass model_class = model_env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSetupPrinterModel");
+            const jmethodID constructor = model_env->GetMethodID(
+                model_class,
+                "<init>",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)V"
+            );
+            return model_env->NewObject(
+                model_class,
+                constructor,
+                to_java(model_env, model.vendor),
+                to_java(model_env, model.model),
+                to_java(model_env, model.name),
+                to_java(model_env, model.nozzle_diameters),
+                to_java(model_env, model.default_materials),
+                to_java(model_env, model.cover),
+                to_java(model_env, model.installed_nozzles)
+            );
+        }
+    );
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSetupPrinters");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(JLjava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeSetupPrinterModel;)V"
+    );
+    return env->NewObject(result_class, constructor, static_cast<jlong>(result.status), to_java(env, result.message), models);
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeSetupFilaments(JNIEnv* env, jobject /* this */, jobjectArray models)
+{
+    const orcinus::orca::SetupFilaments result = orcinus::orca::describe_setup_filaments(to_strings(env, models));
+    const jobjectArray filaments = to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativeSetupFilament",
+        result.filaments,
+        [](JNIEnv* filament_env, const orcinus::orca::SetupFilament& filament) {
+            const jclass filament_class = filament_env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSetupFilament");
+            const jmethodID constructor = filament_env->GetMethodID(
+                filament_class,
+                "<init>",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[IZ)V"
+            );
+            const jintArray filament_models = filament_env->NewIntArray(static_cast<jsize>(filament.models.size()));
+            filament_env->SetIntArrayRegion(filament_models, 0, static_cast<jsize>(filament.models.size()), filament.models.data());
+            return filament_env->NewObject(
+                filament_class,
+                constructor,
+                to_java(filament_env, filament.name),
+                to_java(filament_env, filament.vendor),
+                to_java(filament_env, filament.type),
+                filament_models,
+                filament.selected ? JNI_TRUE : JNI_FALSE
+            );
+        }
+    );
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSetupFilaments");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(JLjava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeSetupFilament;)V"
+    );
+    return env->NewObject(result_class, constructor, static_cast<jlong>(result.status), to_java(env, result.message), filaments);
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_applySetup(JNIEnv* env, jobject /* this */, jobjectArray models, jobjectArray filaments)
+{
+    return to_java(env, orcinus::orca::apply_setup(to_strings(env, models), to_strings(env, filaments)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_applyDefaultSetup(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::apply_default_setup());
 }

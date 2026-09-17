@@ -7,6 +7,17 @@
     <string name="collapse_sidebar">Свернуть боковую панель</string>
     <string name="expand_sidebar">Развернуть боковую панель</string>
 
+    <string name="nozzle_diameter">Диаметр сопла</string>
+    <string name="user_presets">Пользовательские профили</string>
+    <string name="bundle_presets">Профили пакетов</string>
+    <string name="system_presets">Системные профили</string>
+    <string name="unspecified">Неизвестные</string>
+    <string name="select_printers">Выбрать принтеры</string>
+    <string name="select_filaments">Выбрать материалы</string>
+    <string name="search">Поиск</string>
+    <string name="clear_search">Очистить поиск</string>
+    <string name="millimeters">%1$s мм</string>
+
     <string name="engine_starting">Запуск ядра OrcaSlicer…</string>
     <string name="engine_ready">Ядро %1$s</string>
     <string name="engine_unavailable">Ядро OrcaSlicer недоступно</string>

@@ -41,28 +41,22 @@ function Invoke-Adb {
     }
 }
 
-Invoke-Adb @('shell', "rm -rf $deviceDir/data $deviceDir/tmp $deviceDir/orca && mkdir -p $deviceDir/tmp $deviceDir/orca/data/system $deviceDir/orca/resources")
+Invoke-Adb @('shell', "rm -rf $deviceDir/data $deviceDir/tmp $deviceDir/orca && mkdir -p $deviceDir/tmp $deviceDir/orca/data $deviceDir/orca/resources")
 Invoke-Adb @('push', $testData, "$deviceDir/")
 
 if ($Suite -contains 'orca_engine_adapter_tests') {
-    # Same layout the app materializes: vendor bundles in data/system, runtime tables in resources.
+    # Same layout the app materializes: every vendor profile and the runtime
+    # tables in resources; the engine installs vendor bundles into data/system.
+    # The 12 000 profile files go over adb as one archive.
     $orcaResources = Join-Path $repo 'upstream/OrcaSlicer/resources'
-    foreach ($folder in 'info', 'flush') {
-        Invoke-Adb @('push', (Join-Path $orcaResources $folder), "$deviceDir/orca/resources/")
+    New-Item -ItemType Directory -Force -Path $deviceBinaries | Out-Null
+    $archive = Join-Path $deviceBinaries 'resources.tar'
+    & "$env:SystemRoot\System32\tar.exe" -cf $archive -C $orcaResources profiles info flush
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Unable to archive the Orca resources'
     }
-    foreach ($vendor in 'OrcaFilamentLibrary', 'Creality') {
-        Invoke-Adb @('push', (Join-Path $orcaResources "profiles/$vendor.json"), "$deviceDir/orca/data/system/")
-        Invoke-Adb @('push', (Join-Path $orcaResources "profiles/$vendor"), "$deviceDir/orca/data/system/")
-    }
-    # Bed models and textures, which Orca looks up in resources/profiles/<vendor>.
-    $bedFiles = Join-Path $deviceBinaries 'bed-files'
-    Remove-Item -LiteralPath $bedFiles -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force -Path (Join-Path $bedFiles 'Creality') | Out-Null
-    Get-ChildItem -LiteralPath (Join-Path $orcaResources 'profiles/Creality') -File |
-        Where-Object { $_.Name -like 'creality_k2plus_buildplate_*' } |
-        Copy-Item -Destination (Join-Path $bedFiles 'Creality')
-    Invoke-Adb @('shell', "mkdir -p $deviceDir/orca/resources/profiles")
-    Invoke-Adb @('push', (Join-Path $bedFiles 'Creality'), "$deviceDir/orca/resources/profiles/")
+    Invoke-Adb @('push', $archive, "$deviceDir/resources.tar")
+    Invoke-Adb @('shell', "tar -xf $deviceDir/resources.tar -C $deviceDir/orca/resources && rm $deviceDir/resources.tar")
 }
 
 $failed = @()
@@ -79,6 +73,16 @@ foreach ($name in $Suite) {
         throw "llvm-strip failed for $binary"
     }
     Invoke-Adb @('push', $stripped, "$deviceDir/$name")
+    if ($name -eq 'orca_engine_adapter_tests' -and -not $Filter) {
+        # The engine starts once per process: the first-run cases need their own
+        # process and an empty data directory, and leave a configured one behind.
+        Write-Output "=== $name [FirstRun]"
+        & $adb @adbTarget shell "cd $deviceDir && chmod 755 $name && TMPDIR=$deviceDir/tmp ./$name '[FirstRun]'"
+        if ($LASTEXITCODE -ne 0) {
+            $failed += "$name [FirstRun]"
+        }
+        Invoke-Adb @('shell', "rm -rf $deviceDir/orca/data && mkdir -p $deviceDir/orca/data")
+    }
     Write-Output "=== $name $Filter"
     $spec = ''
     if ($Filter) {

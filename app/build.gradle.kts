@@ -131,6 +131,7 @@ dependencies {
     implementation(project(":feature:about"))
     implementation(project(":feature:prepare"))
     implementation(project(":feature:preview"))
+    implementation(project(":feature:setup"))
     implementation(project(":feature:sidebar"))
     implementation(project(":slicing:api"))
     implementation(project(":slicing:native"))

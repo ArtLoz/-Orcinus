@@ -33,8 +33,13 @@ import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetChoice
+import app.orcinus.shadow.core.model.Presets
+import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SetupFilamentsOutcome
+import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
@@ -53,6 +58,7 @@ import app.orcinus.shadow.domain.PlaceModelUseCase
 import app.orcinus.shadow.domain.PlaceModelsUseCase
 import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import app.orcinus.shadow.storage.api.GcodeOutputs
@@ -405,7 +411,7 @@ class PlateUseCasesTest {
 
     @Test
     fun `nothing is sliced before the engine is ready`() {
-        val repository = FakeRepository(PlateState(PROFILES, objects = listOf(CUBE)))
+        val repository = FakeRepository(PlateState(presets = PRESETS, objects = listOf(CUBE)))
         val engine = FakeEngine()
 
         slicePlate(engine, repository)()
@@ -530,31 +536,150 @@ class PlateUseCasesTest {
     }
 
     @Test
-    fun `a started engine describes the plate`() {
-        val repository = FakeRepository(PlateState(PROFILES))
+    fun `a started engine reports the presets it remembers and describes the plate of their printer`() {
+        val repository = FakeRepository(PlateState())
         val files = FakeSceneFiles()
+        val inspector = FakeInspector()
 
-        runSuspend { StartEngineUseCase(GetEngineStatusUseCase(FakeEngine()), FakeInspector(), files, repository)() }
+        runSuspend { startEngine(FakeEngine(), FakePresetManager(), inspector, repository, files)() }
 
         val state = repository.state.value
         assertEquals(EngineAvailability.READY, state.engine.availability)
+        assertEquals(PRESETS, state.presets)
+        assertEquals(PROFILES, state.profiles)
         assertEquals(PLATE, state.plate)
+        assertEquals(listOf(PROFILES), inspector.described)
         assertTrue(files.clearedObjects)
     }
 
     @Test
+    fun `a started engine without a printer set up leaves the plate for the Setup Wizard`() {
+        val repository = FakeRepository(PlateState())
+        val inspector = FakeInspector()
+        val presets = FakePresetManager(presets = PresetsOutcome.Success(PRESETS.copy(setupRequired = true)))
+
+        runSuspend { startEngine(FakeEngine(), presets, inspector, repository)() }
+
+        val state = repository.state.value
+        assertTrue(state.presets?.setupRequired == true)
+        assertNull(state.profiles)
+        assertNull(state.plate)
+        assertTrue(inspector.described.isEmpty())
+        assertFalse(state.canSlice)
+    }
+
+    @Test
     fun `an engine that cannot start is reported as unavailable`() {
-        val repository = FakeRepository(PlateState(PROFILES))
+        val repository = FakeRepository(PlateState())
         val engine = FakeEngine(status = EngineStatus(EngineVersion("orca"), ready = false, message = "no profiles"))
 
-        runSuspend { StartEngineUseCase(GetEngineStatusUseCase(engine), FakeInspector(), FakeSceneFiles(), repository)() }
+        runSuspend { startEngine(engine, FakePresetManager(), FakeInspector(), repository)() }
 
         val state = repository.state.value
         assertEquals(EngineAvailability.UNAVAILABLE, state.engine.availability)
         assertEquals(PlateProblemKind.ENGINE_UNAVAILABLE, state.problem?.kind)
         assertEquals("no profiles", state.problem?.detail)
+        assertNull(state.presets)
         assertNull(state.plate)
     }
+
+    @Test
+    fun `another printer describes its plate, judges whether the objects fit, and drops the G-code`() {
+        val result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/old.gcode"), STATISTICS)
+        val repository = FakeRepository(readyState(CUBE).copy(result = result))
+        val inspector = FakeInspector(placedObjects = { plate -> plate.map { INSPECTION.copy(mesh = it.mesh, placement = it.placement, fit = BuildVolumeFit.OUTSIDE) } })
+        val presets = FakePresetManager(selected = { PresetsOutcome.Success(OTHER_PRINTER) })
+        val choice = PresetChoice.PrinterModel("Other Printer")
+
+        SelectPresetUseCase(presets, platePresets(inspector, repository), repository, scope)(choice)
+
+        val state = repository.state.value
+        assertEquals(listOf<PresetChoice>(choice), presets.choices)
+        assertEquals(OTHER_PRINTER.selection, state.profiles)
+        assertFalse(state.changingPresets)
+        assertNull(state.result)
+        assertEquals(listOf(OTHER_PRINTER.selection), inspector.described)
+        assertEquals(PlateManipulation.UpdatePrintVolume, inspector.plateManipulation)
+        assertEquals(BuildVolumeFit.OUTSIDE, state.objects.single().inspection.fit)
+        assertFalse(state.objects.single().placing)
+    }
+
+    @Test
+    fun `another process keeps the plate as it is`() {
+        val repository = FakeRepository(readyState(CUBE).copy(plate = PLATE))
+        val inspector = FakeInspector()
+        val otherProcess = PRESETS.copy(selection = PROFILES.copy(process = ProfileId("other process")))
+        val presets = FakePresetManager(selected = { PresetsOutcome.Success(otherProcess) })
+
+        SelectPresetUseCase(presets, platePresets(inspector, repository), repository, scope)(PresetChoice.Process(ProfileId("other process")))
+
+        assertEquals(otherProcess, repository.state.value.presets)
+        assertTrue(inspector.described.isEmpty())
+        assertNull(inspector.plateManipulation)
+    }
+
+    @Test
+    fun `a preset the engine cannot select is reported and the selection stays`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val presets = FakePresetManager(selected = { PresetsOutcome.Failure("Configuration incompatible") })
+
+        SelectPresetUseCase(presets, platePresets(FakeInspector(), repository), repository, scope)(PresetChoice.NozzleDiameter("0.6"))
+
+        val state = repository.state.value
+        assertEquals(PRESETS, state.presets)
+        assertFalse(state.changingPresets)
+        assertEquals(PlateProblemKind.PRESETS_FAILED, state.problem?.kind)
+        assertEquals("Configuration incompatible", state.problem?.detail)
+    }
+
+    @Test
+    fun `no preset is selected while the plate is busy`() {
+        val repository = FakeRepository(readyState(CUBE).copy(importing = true))
+        val presets = FakePresetManager()
+
+        SelectPresetUseCase(presets, platePresets(FakeInspector(), repository), repository, scope)(PresetChoice.Filament(ProfileId("PLA")))
+
+        assertTrue(presets.choices.isEmpty())
+        assertFalse(repository.state.value.changingPresets)
+    }
+
+    @Test
+    fun `finishing the Setup Wizard installs the chosen printers and describes the plate of the one selected`() {
+        val repository = FakeRepository(readyState().copy(presets = PRESETS.copy(setupRequired = true)))
+        val inspector = FakeInspector()
+        val presets = FakePresetManager()
+        val applySetup = ApplySetupUseCase(presets, platePresets(inspector, repository), repository, scope)
+
+        val outcome = runSuspend { applySetup(listOf("Creality K2 Plus"), listOf("Generic PLA @K2 Plus-all")) }
+
+        assertEquals(PresetsOutcome.Success(PRESETS), outcome)
+        assertEquals(listOf("Creality K2 Plus") to listOf("Generic PLA @K2 Plus-all"), presets.appliedSetup)
+        assertEquals(PROFILES, repository.state.value.profiles)
+        assertEquals(PLATE, repository.state.value.plate)
+        assertEquals(listOf(PROFILES), inspector.described)
+    }
+
+    @Test
+    fun `closing the Setup Wizard installs OrcaSlicer's default printer`() {
+        val repository = FakeRepository(readyState().copy(presets = PRESETS.copy(setupRequired = true)))
+        val presets = FakePresetManager()
+
+        runSuspend { ApplySetupUseCase(presets, platePresets(FakeInspector(), repository), repository, scope).defaults() }
+
+        assertTrue(presets.appliedDefaults)
+        assertEquals(PROFILES, repository.state.value.profiles)
+    }
+
+    private fun startEngine(
+        engine: FakeEngine,
+        presets: FakePresetManager,
+        inspector: FakeInspector,
+        repository: FakeRepository,
+        files: FakeSceneFiles = FakeSceneFiles(),
+    ) = StartEngineUseCase(GetEngineStatusUseCase(engine), presets, platePresets(inspector, repository, files), files, repository)
+
+    private fun platePresets(inspector: FakeInspector, repository: FakeRepository, files: FakeSceneFiles = FakeSceneFiles()) =
+        PlatePresets(inspector, files, repository, placePlateObjects(inspector, repository))
 
     private fun slicePlate(engine: FakeEngine, repository: PlateRepository, files: FakeSceneFiles = FakeSceneFiles()) = SlicePlateUseCase(
         sliceModel = SliceModelUseCase(engine),
@@ -589,7 +714,7 @@ class PlateUseCasesTest {
         Transform3(INSPECTION.placement.columns.toMutableList().also { it[12] = x; it[13] = y; it[14] = z })
 
     private fun readyState(vararg objects: PlateObject) = PlateState(
-        profiles = PROFILES,
+        presets = PRESETS,
         engine = EngineState(EngineAvailability.READY, EngineVersion("orca")),
         objects = objects.toList(),
     )
@@ -628,9 +753,12 @@ class PlateUseCasesTest {
         var manipulation: Manipulation? = null
         var plateManipulation: PlateManipulation? = null
         var profiles: SlicingProfileSelection? = null
+        val described = mutableListOf<SlicingProfileSelection>()
 
-        override suspend fun describePlate(profiles: SlicingProfileSelection, directory: ScenePath) =
-            PlateDescriptionOutcome.Success(PLATE)
+        override suspend fun describePlate(profiles: SlicingProfileSelection, directory: ScenePath): PlateDescriptionOutcome {
+            described += profiles
+            return PlateDescriptionOutcome.Success(PLATE)
+        }
 
         override suspend fun inspect(model: ModelSource, profiles: SlicingProfileSelection, mesh: ScenePath, plate: List<PlacedModel>): ModelInspectionOutcome {
             inspected += model
@@ -726,8 +854,49 @@ class PlateUseCasesTest {
         }
     }
 
+    private class FakePresetManager(
+        private val presets: PresetsOutcome = PresetsOutcome.Success(PRESETS),
+        private val selected: (PresetChoice) -> PresetsOutcome = { PresetsOutcome.Success(PRESETS) },
+        private val setup: PresetsOutcome = PresetsOutcome.Success(PRESETS),
+    ) : PresetManager {
+        val choices = mutableListOf<PresetChoice>()
+        var appliedSetup: Pair<List<String>, List<String>>? = null
+        var appliedDefaults = false
+
+        override suspend fun presets() = presets
+
+        override suspend fun selectPreset(choice: PresetChoice): PresetsOutcome {
+            choices += choice
+            return selected(choice)
+        }
+
+        override suspend fun setupPrinters() = SetupPrintersOutcome.Failure("not used")
+
+        override suspend fun setupFilaments(models: List<String>) = SetupFilamentsOutcome.Failure("not used")
+
+        override suspend fun applySetup(models: List<String>, filaments: List<String>): PresetsOutcome {
+            appliedSetup = models to filaments
+            return setup
+        }
+
+        override suspend fun applyDefaultSetup(): PresetsOutcome {
+            appliedDefaults = true
+            return setup
+        }
+    }
+
     private companion object {
         val PROFILES = SlicingProfileSelection(ProfileId("printer"), ProfileId("filament"), ProfileId("process"))
+        val PRESETS = Presets(
+            selection = PROFILES,
+            setupRequired = false,
+            printers = emptyList(),
+            filaments = emptyList(),
+            processes = emptyList(),
+            nozzleDiameters = listOf("0.4"),
+            nozzleDiameter = "0.4",
+        )
+        val OTHER_PRINTER = PRESETS.copy(selection = SlicingProfileSelection(ProfileId("other printer"), ProfileId("filament"), ProfileId("other process")))
         val STATISTICS = SliceStatistics(100, 731, 1209.0)
         val INSPECTION = ModelInspection(
             facetCount = 12,

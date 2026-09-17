@@ -54,7 +54,11 @@ import app.orcinus.shadow.feature.prepare.navigation.prepareEntry
 import app.orcinus.shadow.feature.preview.R as PreviewR
 import app.orcinus.shadow.feature.preview.navigation.PreviewNavKey
 import app.orcinus.shadow.feature.preview.navigation.previewEntry
+import app.orcinus.shadow.feature.setup.SetupStart
+import app.orcinus.shadow.feature.setup.navigation.SetupNavKey
+import app.orcinus.shadow.feature.setup.navigation.setupEntry
 import app.orcinus.shadow.feature.sidebar.PlateSidebar
+import app.orcinus.shadow.feature.sidebar.PresetWizardPage
 import app.orcinus.shadow.feature.sidebar.R as SidebarR
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -91,6 +95,13 @@ fun OrcinusApp(
 ) {
     val shell = viewModel { AppShellViewModel(container.observePlate, container.startEngine, container.slicePlate) }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
+    val plate by shell.plate.collectAsStateWithLifecycle()
+    // GUI_App::config_wizard_startup(): the Setup Wizard opens while no printer is set up.
+    LaunchedEffect(plate.presets?.setupRequired) {
+        if (plate.presets?.setupRequired == true && backStack.none { it is SetupNavKey }) {
+            backStack.add(SetupNavKey(SetupStart.FIRST_RUN))
+        }
+    }
     NavDisplay(
         backStack = backStack,
         onBack = { backStack.removeLastOrNull() },
@@ -105,9 +116,16 @@ fun OrcinusApp(
                     container = container,
                     shell = shell,
                     onSliceRequested = onSliceRequested,
+                    onOpenWizard = { page ->
+                        backStack.add(SetupNavKey(if (page == PresetWizardPage.PRINTERS) SetupStart.PRINTERS else SetupStart.FILAMENTS))
+                    },
                     onOpenAbout = { backStack.add(AboutNavKey) },
                 )
             }
+            setupEntry(
+                createViewModel = container::setupWizardViewModel,
+                onClose = { backStack.removeAll { it is SetupNavKey } },
+            )
             aboutEntries(
                 appInfo = container.appInfo,
                 viewModels = container,
@@ -132,6 +150,7 @@ private fun Workspace(
     container: AppContainer,
     shell: AppShellViewModel,
     onSliceRequested: () -> Unit,
+    onOpenWizard: (PresetWizardPage) -> Unit,
     onOpenAbout: () -> Unit,
 ) {
     val plate by shell.plate.collectAsStateWithLifecycle()
@@ -179,6 +198,10 @@ private fun Workspace(
         sidebar = {
             PlateSidebar(
                 createViewModel = container::sidebarViewModel,
+                onOpenWizard = { page ->
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    onOpenWizard(page)
+                },
                 onOpenAbout = {
                     // The drawer of a phone is closed when the page comes back.
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false

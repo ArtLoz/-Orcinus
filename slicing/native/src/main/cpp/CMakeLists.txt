@@ -6,6 +6,7 @@ add_library(orca_engine_adapter STATIC
     android_log_sink.cpp
     nanosvg.cpp
     orca_engine_adapter.cpp
+    setup_catalog.cpp
     # libvgcode::convert() from GCodeProcessorResult, as the desktop preview loads G-code.
     "${LIBDIR}/slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp"
 )

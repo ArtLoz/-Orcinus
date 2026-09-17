@@ -1,3 +1,7 @@
+import java.time.LocalDateTime
+import java.util.zip.CRC32
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 
 plugins {
@@ -51,19 +55,19 @@ abstract class BuildOrcaEngine @Inject constructor(
 }
 
 /**
- * Packages OrcaSlicer's runtime files from the pinned submodule: vendor profile
- * bundles (loaded by PresetBundle from data/system), the info/ and flush/
- * tables read from the resources directory, and the bed models and textures the
- * vendors' printer models name, which Orca looks up in resources/profiles.
- * manifest.txt lists every file for OrcaAssets, which copies them into app
- * storage.
+ * Packages OrcaSlicer's runtime files from the pinned submodule as the asset
+ * orca/resources.zip, laid out as Orca's resources directory: every vendor's
+ * profiles under profiles/, with the printer covers, bed models, and textures
+ * they name, and the info/ and flush/ tables. OrcaAssets extracts it into app
+ * storage; the engine installs the vendor bundles the Setup Wizard chooses from
+ * there into data/system, as the desktop app does. The archive's entries are
+ * sorted and dated alike, so it only changes with the files. They are stored
+ * uncompressed: the APK compresses the archive as a whole, which suits 12 000
+ * small JSON files better than compressing each.
  */
 abstract class PrepareOrcaAssets : DefaultTask() {
     @get:Internal
     abstract val orcaResources: DirectoryProperty
-
-    @get:Input
-    abstract val vendors: ListProperty<String>
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -77,50 +81,29 @@ abstract class PrepareOrcaAssets : DefaultTask() {
         val resources = orcaResources.get().asFile
         val root = outputDirectory.get().asFile.resolve("orca")
         root.deleteRecursively()
-        val manifest = mutableListOf<String>()
-
-        fun copyTree(source: File, destination: String, include: (File) -> Boolean) {
-            source.walkTopDown().filter { it.isFile && include(it) }.forEach { file ->
-                val entry = "$destination/${file.relativeTo(source).invariantSeparatorsPath}"
-                file.copyTo(root.resolve(entry))
-                manifest += entry
+        root.mkdirs()
+        val entries = packagedFiles.files.filter(File::isFile)
+            .associateBy { it.relativeTo(resources).invariantSeparatorsPath }
+            .toSortedMap()
+        ZipOutputStream(root.resolve("resources.zip").outputStream().buffered()).use { archive ->
+            entries.forEach { (name, file) ->
+                val bytes = file.readBytes()
+                val entry = ZipEntry(name).apply {
+                    timeLocal = LocalDateTime.of(1980, 2, 1, 0, 0)
+                    method = ZipEntry.STORED
+                    size = bytes.size.toLong()
+                    compressedSize = size
+                    crc = CRC32().apply { update(bytes) }.value
+                }
+                archive.putNextEntry(entry)
+                archive.write(bytes)
+                archive.closeEntry()
             }
         }
-
-        listOf("info", "flush").forEach { folder ->
-            copyTree(resources.resolve(folder), "resources/$folder") { true }
-        }
-        vendors.get().forEach { vendor ->
-            val bundle = resources.resolve("profiles/$vendor.json")
-            check(bundle.isFile) { "OrcaSlicer vendor bundle is missing: $bundle" }
-            bundle.copyTo(root.resolve("data/system/${bundle.name}"))
-            manifest += "data/system/${bundle.name}"
-            copyTree(resources.resolve("profiles/$vendor"), "data/system/$vendor") { it.extension == "json" }
-            bedFiles(resources.resolve("profiles/$vendor")).forEach { file ->
-                val entry = "resources/profiles/$vendor/${file.name}"
-                file.copyTo(root.resolve(entry))
-                manifest += entry
-            }
-        }
-
-        root.resolve("manifest.txt").writeText(manifest.sorted().joinToString(separator = "\n", postfix = "\n"))
-    }
-
-    /** Files named by bed_model and bed_texture in a vendor's printer model definitions (VendorProfile::PrinterModel). */
-    private fun bedFiles(vendorDirectory: File): List<File> {
-        val reference = Regex("\"(?:bed_model|bed_texture)\"\\s*:\\s*\"([^\"]+)\"")
-        return vendorDirectory.resolve("machine").listFiles { file -> file.extension == "json" }.orEmpty()
-            .flatMap { definition -> reference.findAll(definition.readText()).map { it.groupValues[1] }.toList() }
-            .distinct()
-            .map(vendorDirectory::resolve)
-            .filter(File::isFile)
-            .sortedBy(File::getName)
     }
 }
 
 val orcaResourcesDirectory = rootProject.layout.projectDirectory.dir("upstream/OrcaSlicer/resources")
-// OrcaFilamentLibrary holds filaments that other vendor bundles may inherit from.
-val bundledOrcaVendors = listOf("OrcaFilamentLibrary", "Creality")
 
 val buildOrcaEngine = tasks.register<BuildOrcaEngine>("buildOrcaEngine") {
     engineDirectory.set(rootProject.layout.projectDirectory.dir("engine"))
@@ -131,14 +114,10 @@ val buildOrcaEngine = tasks.register<BuildOrcaEngine>("buildOrcaEngine") {
 
 val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
     orcaResources.set(orcaResourcesDirectory)
-    vendors.set(bundledOrcaVendors)
     packagedFiles.from(
         orcaResourcesDirectory.dir("info"),
         orcaResourcesDirectory.dir("flush"),
-        bundledOrcaVendors.map { orcaResourcesDirectory.file("profiles/$it.json") },
-        bundledOrcaVendors.map { vendor ->
-            orcaResourcesDirectory.dir("profiles/$vendor").asFileTree.matching { include("**/*.json", "*.stl", "*.svg", "*.png") }
-        },
+        orcaResourcesDirectory.dir("profiles").asFileTree.matching { include("**/*.json", "**/*.png", "**/*.stl", "**/*.svg") },
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaAssets"))
 }

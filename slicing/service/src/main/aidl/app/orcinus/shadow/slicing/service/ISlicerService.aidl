@@ -9,7 +9,10 @@ import app.orcinus.shadow.slicing.service.ModelSourceParcel;
 import app.orcinus.shadow.slicing.service.PlacedModelParcel;
 import app.orcinus.shadow.slicing.service.PlateDescriptionParcel;
 import app.orcinus.shadow.slicing.service.PlateInspectionParcel;
+import app.orcinus.shadow.slicing.service.PresetsParcel;
 import app.orcinus.shadow.slicing.service.ProfilesParcel;
+import app.orcinus.shadow.slicing.service.SetupFilamentsParcel;
+import app.orcinus.shadow.slicing.service.SetupPrintersParcel;
 import app.orcinus.shadow.slicing.service.SliceRequestParcel;
 
 /** Binder interface of SlicerService. Calls block; clients call off the main thread. */
@@ -44,6 +47,18 @@ interface ISlicerService {
         in @nullable ArrangeSettingsParcel arrangeSettings
     );
     FlatteningPlanesParcel flatteningPlanes(in ModelSourceParcel model, in ProfilesParcel profiles, String meshPath, in double[] placement);
+
+    PresetsParcel presets();
+    /** kind: the PresetChoice's simple name; value: its preset name, printer model, or nozzle diameter. */
+    PresetsParcel selectPreset(String kind, String value);
+    /**
+     * The Setup Wizard's data comes in two calls, since every filament of every
+     * printer model together would exceed the binder transaction limit.
+     */
+    SetupPrintersParcel setupPrinters();
+    SetupFilamentsParcel setupFilaments(in String[] models);
+    PresetsParcel applySetup(in String[] models, in String[] filaments);
+    PresetsParcel applyDefaultSetup();
 
     /** Returns at once; the result arrives through the callback. */
     void slice(in SliceRequestParcel request, ISliceCallback callback);

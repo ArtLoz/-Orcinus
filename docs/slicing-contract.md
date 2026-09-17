@@ -6,17 +6,89 @@ inside the native adapter.
 
 ## Process
 
-The UI never loads the engine. `RemoteSlicerEngine` implements `SlicerEngine`
-and `PlateInspector` by binding to `SlicerService`, which runs
+The UI never loads the engine. `RemoteSlicerEngine` implements `SlicerEngine`,
+`PlateInspector`, and `PresetManager` by binding to `SlicerService`, which runs
 `NativeSlicerEngine` in the `:slicer` process. The contract below is the same on
 both sides; every call suspends because it may cross the process boundary.
 
 ## Engine status
 
 `SlicerEngine.status()` prepares the engine on first use and returns
-`EngineStatus(version, ready, message)`. The native implementation copies the
-bundled Orca files into app storage, loads the system profiles through Orca's
-`PresetBundle`, and reports the reason when it cannot.
+`EngineStatus(version, ready, message)`. The native implementation extracts the
+bundled Orca resources into app storage when a new APK is installed, then starts
+as the desktop app does: it reads `OrcaSlicer.conf` from the data directory when
+there is one, installs vendor bundles from `resources/profiles` into
+`data/system` (`PresetUpdater::check_installed_vendor_profiles` with updates
+enabled: the filament library and Orca's Custom printers always, the bundle of
+an enabled vendor when it is missing or older, and it removes the bundle of a
+vendor no longer enabled), and loads the installed presets through
+`PresetBundle::load_presets`. It is not ready when the resources hold no vendor
+bundle or loading fails, and reports the reason.
+
+## Presets and the Setup Wizard
+
+The engine keeps the installed printers and filaments and the selection in its
+`AppConfig`, saved to `OrcaSlicer.conf` after every change, so they outlive the
+process. `AppConfig::save()` refuses threads other than the one libslic3r
+considers the main thread; the adapter records the binder thread of the call
+(`save_main_thread_id`) under its engine lock before saving.
+
+`PresetManager.presets()` returns `Presets`:
+
+- the selection (printer, first filament, process);
+- `setupRequired`: `GUI_App::config_wizard_startup()` would run the Setup
+  Wizard, because the app had no configuration yet or only default printers are
+  installed;
+- the lists of the sidebar's combo boxes in their order
+  (`PlaterPresetComboBox::update` for printers and filaments,
+  `TabPresetComboBox::update` of the process tab, with the default preferences
+  that hide unsupported presets and do not group user filaments): user presets
+  sorted by alias, bundle presets by bundle, system presets; system printers
+  once per printer model, system filaments in OrcaSlicer's order with their
+  vendor as submenu;
+- the nozzle diameters of the selected printer model and the selected one
+  (`Sidebar::update_presets`, `get_diameter_string`).
+
+`PresetManager.selectPreset(choice)` selects as the sidebar does and remembers
+the selection (`export_selections`):
+
+- `Printer`: `Tab::select_preset` of the printer tab, `update_compatible`, and,
+  with "Remember printer configuration" on as by default, the process and
+  filaments the printer used last (`update_selections`);
+- `PrinterModel`: a system preset of the model, with the selected printer's
+  nozzle where it has one (`get_similar_printer_preset`), made visible;
+- `NozzleDiameter`: `Sidebar::priv::switch_diameter`;
+- `Filament`: `set_filament_preset` and the filament tab's `select_preset`;
+- `Process`: the process tab's `select_preset`, which changes the filament when
+  it is not compatible with the process.
+
+The Setup Wizard's data mirrors what `GuideFrame::LoadProfileData` gives its web
+pages. `setupPrinters()` lists every printer model of every vendor bundle (the
+installed bundles first, then the others in the resources): vendor, model id,
+name, nozzle diameters, default materials, cover file, and the nozzles already
+installed. `setupFilaments(models)` lists the instantiable filament presets
+whose `compatible_printers` name a printer of a chosen model with one of its
+nozzles, or no known printer (then for every printer), with vendor and type
+from the preset or the presets it inherits (`GetFilamentInfo`), and marks
+those installed or among the chosen models' default materials. The first bundle
+that defines a name wins; model ids are unique across the bundles.
+
+`applySetup(models, filaments)` is the wizard's Finish (`SaveProfile`,
+`apply_config`): the vendors section holds exactly the chosen models, each with
+all its nozzle diameters, and the filaments section exactly the chosen
+filaments; the preferred printer is the first model the wizard installs anew or
+with another nozzle, Custom printers first; `PresetBundle::apply_vendor_config`
+installs missing bundles, replaces `@System` filaments with a vendor's own,
+loads the presets, selects, and the configuration is saved.
+`applyDefaultSetup()` is `GuideFrame::run()` for a closed wizard while only
+default printers are installed: OrcaSlicer's default printer and filament.
+`ORCA_DEFAULT_PRINTER_MODEL` names the preset "MyKlipper 0.4 nozzle" rather
+than its printer model, "Generic Klipper Printer", so the desktop app installs
+no printer there; the adapter installs the model of that preset.
+
+A request that names presets other than the selected ones is still served as
+before: the adapter selects them on a copy of the configuration, and shows the
+remembered selection again at the next preset call.
 
 ## Request
 
@@ -95,7 +167,9 @@ in the plate's order:
   (`OrientJob::prepare_selection`);
 - `Arrange(settings)`: `ArrangeJob` from the arrange options (`prepare_all`)
   for every object, with the spacing, rotation, and alignment to the Y axis, the
-  plate's excluded areas, and the printer's shrunk bed.
+  plate's excluded areas, and the printer's shrunk bed;
+- `UpdatePrintVolume`: `Plater::on_config_change()` for another printer: the
+  objects stay, and their fit is judged against its build volume.
 
 The adapter keeps the models of the plate's objects loaded, by file and its
 modification time, so manipulating and slicing an object does not read its
@@ -135,9 +209,10 @@ coroutine and therefore the job.
 
 Native pipeline, mirroring the desktop app's background slicing:
 
-1. Select profiles like the desktop start-up: mark the printer model and filament
-   as installed in `AppConfig`, call `PresetBundle::load_selections`, and take
-   `PresetBundle::full_config()`.
+1. Take `PresetBundle::full_config()` of the selected presets. Presets other
+   than the selected ones are selected like the desktop start-up, on a copy of
+   the `AppConfig`: the printer model and filament are marked as installed, and
+   `PresetBundle::load_selections` selects them.
 2. Load every object with Orca's `load_stl` (or build the cube) into one
    `Model`, in the plate's order. Centre each mesh as inspection did, give the
    instance its transformation and auto drop, and drop an instance above the

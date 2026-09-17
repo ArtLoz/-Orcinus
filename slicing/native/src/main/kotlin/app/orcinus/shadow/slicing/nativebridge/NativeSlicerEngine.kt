@@ -22,8 +22,17 @@ import app.orcinus.shadow.core.model.PlateGeometry
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetChoice
+import app.orcinus.shadow.core.model.PresetGroup
+import app.orcinus.shadow.core.model.PresetListItem
+import app.orcinus.shadow.core.model.Presets
+import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SetupFilament
+import app.orcinus.shadow.core.model.SetupFilamentsOutcome
+import app.orcinus.shadow.core.model.SetupPrinterModel
+import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
@@ -35,6 +44,7 @@ import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
@@ -46,7 +56,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** OrcaSlicer engine running in this process through the JNI bridge. */
-class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
+class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, PresetManager {
     private val applicationContext = context.applicationContext
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
@@ -214,6 +224,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
             manipulation = when (manipulation) {
                 is PlateManipulation.AutoOrient -> 0L
                 is PlateManipulation.Arrange -> 1L
+                PlateManipulation.UpdatePrintVolume -> 2L
             },
             arrangeDistance = arrange.distance,
             arrangeEnableRotation = arrange.enableRotation,
@@ -259,6 +270,97 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
             },
         )
     }
+
+    override suspend fun presets(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.describePresets().toOutcome()
+    }
+
+    override suspend fun selectPreset(choice: PresetChoice): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        when (choice) {
+            is PresetChoice.Printer -> NativeBindings.selectPreset(NativePresetChoice.PRINTER, choice.preset.value)
+            is PresetChoice.PrinterModel -> NativeBindings.selectPreset(NativePresetChoice.PRINTER_MODEL, choice.model)
+            is PresetChoice.NozzleDiameter -> NativeBindings.selectPreset(NativePresetChoice.NOZZLE_DIAMETER, choice.diameter)
+            is PresetChoice.Filament -> NativeBindings.selectPreset(NativePresetChoice.FILAMENT, choice.preset.value)
+            is PresetChoice.Process -> NativeBindings.selectPreset(NativePresetChoice.PROCESS, choice.preset.value)
+        }.toOutcome()
+    }
+
+    override suspend fun setupPrinters(): SetupPrintersOutcome = whenReady(SetupPrintersOutcome::Failure) {
+        val result = NativeBindings.describeSetupPrinters()
+        if (result.status != NativeSceneStatus.SUCCESS) {
+            SetupPrintersOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not list the printers" })
+        } else {
+            SetupPrintersOutcome.Success(
+                result.models.map { model ->
+                    SetupPrinterModel(
+                        vendor = model.vendor,
+                        id = model.model,
+                        name = model.name,
+                        nozzleDiameters = model.nozzleDiameters.toList(),
+                        defaultMaterials = model.defaultMaterials.toList(),
+                        cover = model.cover,
+                        installedNozzles = model.installedNozzles.toList(),
+                    )
+                },
+            )
+        }
+    }
+
+    override suspend fun setupFilaments(models: List<String>): SetupFilamentsOutcome = whenReady(SetupFilamentsOutcome::Failure) {
+        val result = NativeBindings.describeSetupFilaments(models.toTypedArray())
+        if (result.status != NativeSceneStatus.SUCCESS) {
+            SetupFilamentsOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not list the filaments" })
+        } else {
+            SetupFilamentsOutcome.Success(
+                result.filaments.map { filament ->
+                    SetupFilament(filament.name, filament.vendor, filament.type, filament.models.toList(), filament.selected)
+                },
+            )
+        }
+    }
+
+    override suspend fun applySetup(models: List<String>, filaments: List<String>): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.applySetup(models.toTypedArray(), filaments.toTypedArray()).toOutcome()
+    }
+
+    override suspend fun applyDefaultSetup(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.applyDefaultSetup().toOutcome()
+    }
+
+    /** Runs [block] on the IO dispatcher once the engine is ready, or reports why it is not. */
+    private suspend fun <T> whenReady(failure: (String) -> T, block: () -> T): T = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (engineStatus.ready) block() else failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+    }
+
+    private fun NativePresetState.toOutcome(): PresetsOutcome {
+        if (status != NativeSceneStatus.SUCCESS) {
+            return PresetsOutcome.Failure(message.ifBlank { "OrcaSlicer could not select the presets" })
+        }
+        return PresetsOutcome.Success(
+            Presets(
+                selection = SlicingProfileSelection(ProfileId(printer), ProfileId(filament), ProfileId(process)),
+                setupRequired = setupRequired,
+                printers = printers.map { it.toItem() },
+                filaments = filaments.map { it.toItem() },
+                processes = processes.map { it.toItem() },
+                nozzleDiameters = nozzleDiameters.toList(),
+                nozzleDiameter = nozzleDiameter,
+            ),
+        )
+    }
+
+    private fun NativePresetItem.toItem() = PresetListItem(
+        name = name,
+        label = label,
+        group = when (group) {
+            NativePresetGroup.USER -> PresetGroup.USER
+            NativePresetGroup.BUNDLE -> PresetGroup.BUNDLE
+            else -> PresetGroup.SYSTEM
+        },
+        subgroup = subgroup,
+        selected = selected,
+    )
 
     private fun NativeModelInspection.toOutcome(mesh: ScenePath): ModelInspectionOutcome {
         if (status != NativeSceneStatus.SUCCESS) {
@@ -364,13 +466,6 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector {
     )
 
     companion object {
-        /** Profiles bundled with the app (Creality vendor bundle). */
-        val k2PlusProfiles = SlicingProfileSelection(
-            printer = ProfileId("Creality K2 Plus 0.4 nozzle"),
-            filament = ProfileId("Generic PLA @K2 Plus-all"),
-            process = ProfileId("0.20mm Standard @Creality K2 Plus 0.4 nozzle"),
-        )
-
         /** Print::export_gcode reports 80 % when G-code generation starts. */
         private const val GCODE_EXPORT_PERCENT = 80
 

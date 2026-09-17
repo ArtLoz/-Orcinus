@@ -22,12 +22,17 @@ import app.orcinus.shadow.domain.about.GetThirdPartyComponentUseCase
 import app.orcinus.shadow.domain.about.GetThirdPartyComponentsUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
+import app.orcinus.shadow.domain.plate.ApplySetupUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
+import app.orcinus.shadow.domain.plate.GetSetupFilamentsUseCase
+import app.orcinus.shadow.domain.plate.GetSetupPrintersUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.PlatePresets
+import app.orcinus.shadow.domain.plate.SelectPresetUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
 import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
@@ -36,8 +41,9 @@ import app.orcinus.shadow.feature.about.ThirdPartyViewModel
 import app.orcinus.shadow.feature.about.navigation.AboutViewModelFactory
 import app.orcinus.shadow.feature.prepare.PrepareViewModel
 import app.orcinus.shadow.feature.preview.PreviewViewModel
+import app.orcinus.shadow.feature.setup.SetupStart
+import app.orcinus.shadow.feature.setup.SetupWizardViewModel
 import app.orcinus.shadow.feature.sidebar.SidebarViewModel
-import app.orcinus.shadow.slicing.nativebridge.NativeSlicerEngine
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
 import app.orcinus.shadow.storage.android.AppGcodeOutputs
 import app.orcinus.shadow.storage.android.AppSceneFiles
@@ -57,12 +63,16 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val engine = RemoteSlicerEngine(applicationContext, OrcaSlicerService::class.java)
-    private val plateRepository = InMemoryPlateRepository(NativeSlicerEngine.k2PlusProfiles)
+    private val plateRepository = InMemoryPlateRepository()
     private val sceneFiles = AppSceneFiles(applicationContext)
     private val inspectModel = InspectModelUseCase(engine)
+    private val placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope)
+    private val platePresets = PlatePresets(engine, sceneFiles, plateRepository, placePlateObjects)
+    private val selectPreset = SelectPresetUseCase(engine, platePresets, plateRepository, applicationScope)
+    private val applySetup = ApplySetupUseCase(engine, platePresets, plateRepository, applicationScope)
 
     val observePlate = ObservePlateUseCase(plateRepository)
-    val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, sceneFiles, plateRepository)
+    val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, platePresets, sceneFiles, plateRepository)
     val slicePlate = SlicePlateUseCase(SliceModelUseCase(engine), AppGcodeOutputs(applicationContext), sceneFiles, plateRepository, applicationScope)
     private val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
@@ -95,7 +105,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             addModelToPlate = addModelToPlate,
             addCalibrationCubeToPlate = addCalibrationCube,
             placePlateObject = placePlateObject,
-            placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope),
+            placePlateObjects = placePlateObjects,
             setPlateObjectAutoDrop = SetPlateObjectAutoDropUseCase(plateRepository, placePlateObject),
             deletePlateObject = DeletePlateObjectUseCase(sceneFiles, plateRepository),
             describeFlatteningPlanes = DescribeFlatteningPlanesUseCase(engine),
@@ -107,7 +117,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     fun previewViewModel() = PreviewViewModel(observePlate = observePlate, slicePlate = slicePlate)
 
-    fun sidebarViewModel() = SidebarViewModel(observePlate = observePlate)
+    fun sidebarViewModel() = SidebarViewModel(observePlate = observePlate, selectPreset = selectPreset)
+
+    fun setupWizardViewModel(start: SetupStart) = SetupWizardViewModel(
+        start = start,
+        getSetupPrinters = GetSetupPrintersUseCase(engine),
+        getSetupFilaments = GetSetupFilamentsUseCase(engine),
+        applySetup = applySetup,
+    )
 
     override fun thirdPartyViewModel() = ThirdPartyViewModel(GetThirdPartyComponentsUseCase(noticeCatalog))
 

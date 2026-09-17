@@ -72,7 +72,8 @@ class PrepareViewModel(
         viewModelScope.launch {
             combine(plate, view) { plate, view ->
                 val target = plate.objects.firstOrNull { view.gizmo == PlateGizmo.LAY_ON_FACE && it.inspection.mesh == view.selectedMesh }
-                target?.let { FlatteningKey(it, plate.profiles, it.inspection.dimensions, it.inspection.unscaledDimensions) }
+                val profiles = plate.profiles
+                if (target == null || profiles == null) null else FlatteningKey(target, profiles, target.inspection.dimensions, target.inspection.unscaledDimensions)
             }
                 .distinctUntilChanged { old, new -> old?.sameFaces(new) ?: (new == null) }
                 .collectLatest { key ->

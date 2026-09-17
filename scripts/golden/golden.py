@@ -34,6 +34,9 @@ CONFIG_VALUE_DIFFERENCES = {
     'extruder_colour': 'follows filament_colour',
     'flush_volumes_matrix': 'the command line sizes the purge table for several filaments',
     'flush_volumes_vector': 'the command line sizes the purge table for several filaments',
+    'extruder_ams_count': 'the app configuration remembers it per printer (export_selections), which turns no AMS '
+                          'into one empty entry, as in the desktop app after a restart; the command line reads no '
+                          'app configuration',
 }
 DESKTOP_ONLY_KEYS = {'compatible_printers_condition', 'different_settings_to_system', 'inherits_group'}
 ANDROID_ONLY_KEYS = {

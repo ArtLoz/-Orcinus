@@ -53,6 +53,12 @@ sealed interface PlateManipulation {
 
     /** ArrangeJob from the arrange options (prepare_all): every object arranged on the plate with [settings]. */
     data class Arrange(val settings: ArrangeSettings) : PlateManipulation
+
+    /**
+     * Plater::on_config_change() for another printer: every object stays where
+     * it is, and whether it fits is judged against that printer's build volume.
+     */
+    data object UpdatePrintVolume : PlateManipulation
 }
 
 /** OrcaSlicer's arrange options (GLCanvas3D::ArrangeSettings), with its defaults. */

@@ -48,6 +48,7 @@ fun PlateProblem.title(): String = stringResource(
         PlateProblemKind.ENGINE_CRASHED -> R.string.problem_engine_crashed
         PlateProblemKind.SLICE_CANCELLED -> R.string.problem_slice_cancelled
         PlateProblemKind.PLACEMENT_FAILED -> R.string.problem_placement_failed
+        PlateProblemKind.PRESETS_FAILED -> R.string.problem_presets_failed
     },
 )
 

@@ -79,7 +79,7 @@ val orcaImages = rootProject.layout.projectDirectory.dir("upstream/OrcaSlicer/re
 val orcaIconNames = listOf(
     "add", "cali_page_caption_prev", "canvas_menu", "canvas_zoom", "check_half", "checked",
     "check_half_disabled", "check_off", "check_off_disabled", "check_on", "check_on_disabled",
-    "cog", "collapse", "delete", "drop_down", "edit", "filament", "help", "hms_arrow",
+    "cog", "collapse", "cross", "delete", "drop_down", "edit", "filament", "help", "hms_arrow",
     "im_hidden", "im_visible", "instance_add", "instance_remove", "monitor_item_cost", "monitor_item_prediction", "param_cooling", "param_infill",
     "param_layer_height", "param_precision", "param_retraction", "param_seam", "param_speed",
     "param_support", "param_wall", "plate_settings", "printer", "process", "search", "seperator",

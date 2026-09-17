@@ -1,5 +1,6 @@
 {
   "profiles": {
+    "printer_model": "Creality K2 Plus",
     "printer": "Creality K2 Plus 0.4 nozzle",
     "filament": "Generic PLA @K2 Plus-all",
     "process": "0.20mm Standard @Creality K2 Plus 0.4 nozzle",

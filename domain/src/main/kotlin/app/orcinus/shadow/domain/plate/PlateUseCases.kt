@@ -20,7 +20,11 @@ import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.PresetChoice
+import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SetupFilamentsOutcome
+import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
@@ -38,11 +42,13 @@ import app.orcinus.shadow.domain.SliceProgressObserver
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.domain.source
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.storage.api.GcodeOutputs
 import app.orcinus.shadow.storage.api.SceneFiles
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -58,18 +64,21 @@ class ObservePlateUseCase(private val repository: PlateRepository) {
 /**
  * Prepares the engine and the plate once per process; later calls return at
  * once. Object meshes and toolpaths left by an earlier process are deleted,
- * since its plate is gone, and the engine describes the plate of the selected
- * printer.
+ * since its plate is gone. The engine reports the presets its app configuration
+ * remembers and describes the plate of the selected printer, unless the Setup
+ * Wizard has yet to install one.
  */
 class StartEngineUseCase(
     private val getEngineStatus: GetEngineStatusUseCase,
-    private val inspector: PlateInspector,
+    private val presetManager: PresetManager,
+    private val platePresets: PlatePresets,
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
 ) {
     suspend operator fun invoke() {
-        if (repository.state.value.engine.availability == EngineAvailability.READY) return
-        if (repository.state.value.objects.isEmpty()) {
+        val state = repository.state.value
+        if (state.engine.availability == EngineAvailability.READY && state.presets != null) return
+        if (state.objects.isEmpty()) {
             sceneFiles.deleteAllObjectMeshes()
             sceneFiles.deleteToolpathsExcept(null)
         }
@@ -84,11 +93,121 @@ class StartEngineUseCase(
             )
         }
         if (!status.ready) return
-        // Without a description the 3D view shows no plate; slicing does not depend on it.
-        val plate = inspector.describePlate(repository.state.value.profiles, sceneFiles.plateDirectory())
-        if (plate is PlateDescriptionOutcome.Success) {
-            repository.update { it.copy(plate = plate.description) }
+        platePresets.apply(before = null, outcome = presetManager.presets())
+    }
+}
+
+/**
+ * Brings the plate to the presets the engine reports. G-code sliced with other
+ * presets no longer applies. The plate is described again for another printer
+ * or filament, whose colour it shows, and the objects' fit is judged against
+ * another printer's build volume, as Plater::on_config_change() does. Presets
+ * that still need the Setup Wizard leave the plate undescribed.
+ */
+class PlatePresets(
+    private val inspector: PlateInspector,
+    private val sceneFiles: SceneFiles,
+    private val repository: PlateRepository,
+    private val placePlateObjects: PlacePlateObjectsUseCase,
+) {
+    /** Applies [outcome] of a change that started from the selection [before]. */
+    suspend fun apply(before: SlicingProfileSelection?, outcome: PresetsOutcome) {
+        val presets = when (outcome) {
+            is PresetsOutcome.Failure -> {
+                repository.update { it.copy(changingPresets = false, problem = PlateProblem(PlateProblemKind.PRESETS_FAILED, outcome.message)) }
+                return
+            }
+            is PresetsOutcome.Success -> outcome.presets
         }
+        repository.update { state ->
+            val updated = state.copy(presets = presets, changingPresets = false)
+            updated.copy(result = state.result.takeIf { updated.profiles == before })
+        }
+        val profiles = repository.state.value.profiles ?: return
+        val plateChanged = before?.printer != profiles.printer || before.filament != profiles.filament
+        if (plateChanged || repository.state.value.plate == null) {
+            // Without a description the 3D view shows no plate; slicing does not depend on it.
+            val plate = inspector.describePlate(profiles, sceneFiles.plateDirectory())
+            if (plate is PlateDescriptionOutcome.Success) {
+                repository.update { if (it.profiles == profiles) it.copy(plate = plate.description) else it }
+            }
+        }
+        if (before != null && before.printer != profiles.printer) {
+            placePlateObjects(PlateManipulation.UpdatePrintVolume)
+        }
+    }
+}
+
+/**
+ * Selects a preset as OrcaSlicer's sidebar does, and brings the plate to the
+ * presets that come with it. Nothing changes while the plate is busy, while an
+ * object's placement is settling, or before a printer is set up.
+ */
+class SelectPresetUseCase(
+    private val presetManager: PresetManager,
+    private val platePresets: PlatePresets,
+    private val repository: PlateRepository,
+    private val applicationScope: CoroutineScope,
+) {
+    operator fun invoke(choice: PresetChoice) {
+        var before: SlicingProfileSelection? = null
+        repository.update { state ->
+            before = null
+            if (state.busy || state.objects.any(PlateObject::placing)) return@update state
+            before = state.profiles ?: return@update state
+            state.copy(changingPresets = true, problem = null)
+        }
+        val selection = before ?: return
+        applicationScope.launch {
+            platePresets.apply(selection, presetManager.selectPreset(choice))
+        }
+    }
+}
+
+/** The printer models the Setup Wizard offers. */
+class GetSetupPrintersUseCase(private val presetManager: PresetManager) {
+    suspend operator fun invoke(): SetupPrintersOutcome = presetManager.setupPrinters()
+}
+
+/** The filaments the Setup Wizard offers for the printer models with the ids [models]. */
+class GetSetupFilamentsUseCase(private val presetManager: PresetManager) {
+    suspend operator fun invoke(models: List<String>): SetupFilamentsOutcome = presetManager.setupFilaments(models)
+}
+
+/**
+ * The Setup Wizard's Finish, or its closing while no printer is installed
+ * (GuideFrame::run): the engine installs the printers and filaments and selects
+ * a printer, and the plate is brought to the new presets. The change runs in
+ * the application scope, so it completes when the wizard's screen goes away;
+ * the caller gets the engine's answer. Returns null when the plate is busy.
+ */
+class ApplySetupUseCase(
+    private val presetManager: PresetManager,
+    private val platePresets: PlatePresets,
+    private val repository: PlateRepository,
+    private val applicationScope: CoroutineScope,
+) {
+    /** Installs the printer models with the ids [models] and the [filaments]. */
+    suspend operator fun invoke(models: List<String>, filaments: List<String>): PresetsOutcome? =
+        change { presetManager.applySetup(models, filaments) }
+
+    /** OrcaSlicer's default printer and filament, when no printer is installed. */
+    suspend fun defaults(): PresetsOutcome? = change { presetManager.applyDefaultSetup() }
+
+    private suspend fun change(apply: suspend () -> PresetsOutcome): PresetsOutcome? {
+        var accepted = false
+        var before: SlicingProfileSelection? = null
+        repository.update { state ->
+            accepted = false
+            if (state.busy || state.presets == null || state.objects.any(PlateObject::placing)) return@update state
+            accepted = true
+            before = state.profiles
+            state.copy(changingPresets = true, problem = null)
+        }
+        if (!accepted) return null
+        return applicationScope.async {
+            apply().also { platePresets.apply(before, it) }
+        }.await()
     }
 }
 
@@ -142,8 +261,9 @@ private class PlateObjectLoader(
         var request: Pair<SlicingProfileSelection, List<PlacedModel>>? = null
         repository.update { state ->
             request = null
-            if (state.busy) return@update state
-            request = state.profiles to state.objects.map { it.placed() }
+            val profiles = state.profiles
+            if (state.busy || profiles == null) return@update state
+            request = profiles to state.objects.map { it.placed() }
             state.copy(importing = true, problem = null)
         }
         val (selection, plate) = request ?: return
@@ -200,12 +320,13 @@ class PlacePlateObjectUseCase(
         repository.update { state ->
             request = null
             val target = state.objects.withMesh(mesh)
+            val profiles = state.profiles
             val unchanged = target?.inspection?.placement == placement && manipulation.keepsUnchangedPlacement()
-            if (target == null || state.busy || unchanged) {
+            if (target == null || profiles == null || state.busy || unchanged) {
                 return@update state
             }
             val moved = target.with(target.inspection.copy(placement = placement), placing = true)
-            request = Triple(moved, target.inspection.placement, state.profiles)
+            request = Triple(moved, target.inspection.placement, profiles)
             // G-code no longer applies once the object stands elsewhere.
             state.copy(objects = state.objects.replaced(moved), result = state.result.takeIf { placement == target.inspection.placement })
         }
@@ -258,9 +379,10 @@ class PlacePlateObjectsUseCase(
         var request: Triple<List<PlateObject>, Set<ScenePath>, SlicingProfileSelection>? = null
         repository.update { state ->
             request = null
-            if (state.busy || state.objects.isEmpty() || state.objects.any(PlateObject::placing)) return@update state
+            val profiles = state.profiles
+            if (state.busy || profiles == null || state.objects.isEmpty() || state.objects.any(PlateObject::placing)) return@update state
             val targets = manipulation.targets(state.objects)
-            request = Triple(state.objects, targets, state.profiles)
+            request = Triple(state.objects, targets, profiles)
             state.copy(objects = state.objects.map { if (it.inspection.mesh in targets) it.with(it.inspection, placing = true) else it })
         }
         val (plate, targets, profiles) = request ?: return
@@ -297,12 +419,15 @@ class PlacePlateObjectsUseCase(
         }
     }
 
-    /** OrientJob places the selected objects, or all of them when none of the plate's is selected; ArrangeJob places all. */
+    /**
+     * OrientJob places the selected objects, or all of them when none of the plate's is selected;
+     * ArrangeJob places all, and another printer judges the fit of all.
+     */
     private fun PlateManipulation.targets(objects: List<PlateObject>): Set<ScenePath> {
         val meshes = objects.mapTo(LinkedHashSet()) { it.inspection.mesh }
         return when (this) {
             is PlateManipulation.AutoOrient -> selected.intersect(meshes).ifEmpty { meshes }
-            is PlateManipulation.Arrange -> meshes
+            is PlateManipulation.Arrange, PlateManipulation.UpdatePrintVolume -> meshes
         }
     }
 }
@@ -365,15 +490,15 @@ class SlicePlateUseCase(
 ) {
     operator fun invoke() {
         val jobId = SliceJobId(UUID.randomUUID().toString())
-        var started: PlateState? = null
+        var started: Pair<List<PlateObject>, SlicingProfileSelection>? = null
         repository.update { state ->
             started = null
-            if (!state.canSlice) return@update state
-            started = state
+            val profiles = state.profiles
+            if (!state.canSlice || profiles == null) return@update state
+            started = state.objects to profiles
             state.copy(slicing = PlateSlicing(jobId), problem = null)
         }
-        val state = started ?: return
-        val objects = state.objects
+        val (objects, profiles) = started ?: return
 
         applicationScope.launch {
             val request = SliceRequest(
@@ -381,9 +506,9 @@ class SlicePlateUseCase(
                 objects = objects.map { it.placed() },
                 output = outputs.outputFor(objects.outputName()),
                 toolpaths = sceneFiles.newToolpaths(),
-                printerProfile = state.profiles.printer,
-                filamentProfile = state.profiles.filament,
-                processProfile = state.profiles.process,
+                printerProfile = profiles.printer,
+                filamentProfile = profiles.filament,
+                processProfile = profiles.process,
             )
             val outcome = try {
                 sliceModel(request, SliceProgressObserver { progress ->

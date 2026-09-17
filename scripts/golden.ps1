@@ -84,15 +84,16 @@ if (-not $python) {
 $desktop = Initialize-Reference
 Invoke-Checked $python @($golden, 'prepare', '--out', $work)
 
-# Same layout the app materializes: vendor bundles in data/system, runtime tables in resources.
+# Same layout the app materializes: vendor profiles and runtime tables in
+# resources; orca_engine_slice installs the printer as the Setup Wizard does.
 $orcaResources = Join-Path $repo 'upstream/OrcaSlicer/resources'
-Invoke-Adb @('shell', "rm -rf $deviceDir && mkdir -p $deviceDir/orca/data/system $deviceDir/orca/resources $deviceDir/tmp $deviceDir/out")
+Invoke-Adb @('shell', "rm -rf $deviceDir && mkdir -p $deviceDir/orca/data $deviceDir/orca/resources/profiles $deviceDir/tmp $deviceDir/out")
 foreach ($folder in 'info', 'flush') {
     Invoke-Adb @('push', (Join-Path $orcaResources $folder), "$deviceDir/orca/resources/")
 }
 foreach ($vendor in $cases.profiles.vendors) {
-    Invoke-Adb @('push', (Join-Path $orcaResources "profiles/$vendor.json"), "$deviceDir/orca/data/system/")
-    Invoke-Adb @('push', (Join-Path $orcaResources "profiles/$vendor"), "$deviceDir/orca/data/system/")
+    Invoke-Adb @('push', (Join-Path $orcaResources "profiles/$vendor.json"), "$deviceDir/orca/resources/profiles/")
+    Invoke-Adb @('push', (Join-Path $orcaResources "profiles/$vendor"), "$deviceDir/orca/resources/profiles/")
 }
 Invoke-Adb @('push', (Join-Path $work 'models'), "$deviceDir/")
 $stripped = Join-Path $work 'orca_engine_slice'
@@ -120,7 +121,7 @@ foreach ($name in $Model) {
     if ($process.ExitCode -ne 0) {
         throw "Desktop OrcaSlicer failed on $name with exit code $($process.ExitCode)"
     }
-    Invoke-Adb @('shell', "cd $deviceDir && ./orca_engine_slice $deviceDir/orca/data $deviceDir/orca/resources $deviceDir/tmp models/$name.stl out/$name.gcode '$($profiles.printer)' '$($profiles.filament)' '$($profiles.process)'")
+    Invoke-Adb @('shell', "cd $deviceDir && ./orca_engine_slice $deviceDir/orca/data $deviceDir/orca/resources $deviceDir/tmp models/$name.stl out/$name.gcode '$($profiles.printer_model)' '$($profiles.printer)' '$($profiles.filament)' '$($profiles.process)'")
     Invoke-Adb @('pull', "$deviceDir/out/$name.gcode", (Join-Path $work "android/$name.gcode"))
 }
 

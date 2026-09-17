@@ -1,0 +1,101 @@
+package app.orcinus.shadow.core.model
+
+/** The sections of OrcaSlicer's preset combo boxes. */
+enum class PresetGroup {
+    /** "User presets" */
+    USER,
+
+    /** "Bundle presets": presets of a subscribed preset bundle. */
+    BUNDLE,
+
+    /** "System presets" */
+    SYSTEM,
+}
+
+/** An entry of a preset combo box of OrcaSlicer's sidebar, in the combo box's order. */
+data class PresetListItem(
+    /** What choosing the entry selects: the preset name, or for a system printer its printer model. */
+    val name: String,
+    /** The text the combo box shows. */
+    val label: String,
+    val group: PresetGroup,
+    /** The submenu: the vendor of a system filament, the bundle of a bundle preset; empty for none. */
+    val subgroup: String,
+    val selected: Boolean,
+)
+
+/** The presets OrcaSlicer's sidebar offers, for the selection its app configuration remembers. */
+data class Presets(
+    /** The selected printer, first filament, and process. */
+    val selection: SlicingProfileSelection,
+    /** OrcaSlicer would run its Setup Wizard: nothing was set up yet, or only default printers are installed. */
+    val setupRequired: Boolean,
+    val printers: List<PresetListItem>,
+    val filaments: List<PresetListItem>,
+    val processes: List<PresetListItem>,
+    /** The nozzle diameters of the selected printer model, "0.4". */
+    val nozzleDiameters: List<String>,
+    /** The nozzle diameter of the selected printer. */
+    val nozzleDiameter: String,
+)
+
+sealed interface PresetsOutcome {
+    data class Success(val presets: Presets) : PresetsOutcome
+
+    data class Failure(val message: String) : PresetsOutcome
+}
+
+/** What a choice in OrcaSlicer's sidebar selects. */
+sealed interface PresetChoice {
+    /** A printer preset; the process and filament the printer used last come with it. */
+    data class Printer(val preset: ProfileId) : PresetChoice
+
+    /** A system printer model, with the nozzle of the selected printer when it has one. */
+    data class PrinterModel(val model: String) : PresetChoice
+
+    /** Another nozzle diameter of the selected printer model. */
+    data class NozzleDiameter(val diameter: String) : PresetChoice
+
+    data class Filament(val preset: ProfileId) : PresetChoice
+
+    data class Process(val preset: ProfileId) : PresetChoice
+}
+
+/** A printer model the Setup Wizard offers. */
+data class SetupPrinterModel(
+    /** The vendor bundle, for example "Creality". */
+    val vendor: String,
+    /** The model id, for example "Creality K2 Plus". */
+    val id: String,
+    val name: String,
+    val nozzleDiameters: List<String>,
+    /** Filament presets the wizard selects with the model. */
+    val defaultMaterials: List<String>,
+    /** The model's picture in the engine's resources. */
+    val cover: String,
+    /** The nozzle diameters already installed; empty for a model that is not. */
+    val installedNozzles: List<String>,
+)
+
+sealed interface SetupPrintersOutcome {
+    data class Success(val models: List<SetupPrinterModel>) : SetupPrintersOutcome
+
+    data class Failure(val message: String) : SetupPrintersOutcome
+}
+
+/** A filament preset the Setup Wizard offers for the printer models chosen on its printer page. */
+data class SetupFilament(
+    val name: String,
+    val vendor: String,
+    val type: String,
+    /** Indices of the chosen printer models the filament is for; empty for every printer. */
+    val models: List<Int>,
+    /** Installed, or a default material of a chosen model. */
+    val selected: Boolean,
+)
+
+sealed interface SetupFilamentsOutcome {
+    data class Success(val filaments: List<SetupFilament>) : SetupFilamentsOutcome
+
+    data class Failure(val message: String) : SetupFilamentsOutcome
+}

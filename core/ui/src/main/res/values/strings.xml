@@ -12,4 +12,5 @@
     <string name="problem_engine_crashed">Ядро OrcaSlicer аварийно завершилось. Нарезку можно запустить снова.</string>
     <string name="problem_slice_cancelled">Нарезка отменена</string>
     <string name="problem_placement_failed">Не удалось переместить модель</string>
+    <string name="problem_presets_failed">Не удалось выбрать профиль</string>
 </resources>
