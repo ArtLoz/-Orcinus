@@ -1,4 +1,4 @@
-package app.orcinus.shadow.feature.sidebar
+package app.orcinus.shadow.core.ui.preset
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -42,9 +42,30 @@ import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.orcaClickable
+import app.orcinus.shadow.core.designsystem.component.orcaSelectable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.PresetGroup
 import app.orcinus.shadow.core.model.PresetListItem
+import app.orcinus.shadow.core.ui.R
+
+/** An entry under the list: what it can do besides choosing a preset. */
+@Composable
+private fun SheetAction(text: String, icon: Int, onClick: () -> Unit) {
+    val colors = OrcaTheme.colors
+    HorizontalDivider(color = colors.separator, thickness = 1.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .orcaClickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(icon), contentDescription = null, tint = colors.textSide, modifier = Modifier.size(OrcaTheme.dimensions.icon))
+        Text(text, color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 12.dp))
+    }
+}
 
 private sealed interface SheetRow {
     val key: String
@@ -70,13 +91,16 @@ private sealed interface SheetRow {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun PresetListSheet(
+fun PresetListSheet(
     title: String,
     items: List<PresetListItem>,
     onDismiss: () -> Unit,
     onChoose: (PresetListItem) -> Unit,
     action: String? = null,
     onAction: () -> Unit = {},
+    /** A second entry under it, as the printer list has two. */
+    secondAction: String? = null,
+    onSecondAction: () -> Unit = {},
 ) {
     val colors = OrcaTheme.colors
     var search by rememberSaveable { mutableStateOf("") }
@@ -131,20 +155,8 @@ internal fun PresetListSheet(
                     }
                 }
             }
-            action?.let {
-                HorizontalDivider(color = colors.separator, thickness = 1.dp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(role = Role.Button, onClick = onAction)
-                        .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(painterResource(DesignR.drawable.orca_edit), contentDescription = null, tint = colors.textSide, modifier = Modifier.size(OrcaTheme.dimensions.icon))
-                    Text(it, color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 12.dp))
-                }
-            }
+            action?.let { SheetAction(it, DesignR.drawable.orca_edit, onAction) }
+            secondAction?.let { SheetAction(it, DesignR.drawable.orca_add, onSecondAction) }
         }
     }
 }
@@ -156,7 +168,7 @@ private fun PresetRow(item: PresetListItem, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .background(if (item.selected) colors.accentSelected else colors.window)
-            .selectable(selected = item.selected, role = Role.RadioButton, onClick = onClick)
+            .orcaSelectable(selected = item.selected, role = Role.RadioButton, onClick = onClick)
             .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,

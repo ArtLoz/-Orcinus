@@ -6,6 +6,9 @@
 <resources>
     <string name="setup_wizard">Мастер настройки</string>
     <string name="printer_selection">Выбор принтера</string>
+    <!-- Вкладка «Custom Filaments» страницы материалов мастера Orca. -->
+    <string name="custom_filaments">Свои материалы</string>
+    <string name="create_new_filament">Создать</string>
     <string name="filament_selection">Выбор материала</string>
     <string name="back">Назад</string>
     <string name="next">Далее</string>

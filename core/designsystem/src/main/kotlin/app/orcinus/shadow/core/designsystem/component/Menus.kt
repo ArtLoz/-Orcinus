@@ -48,13 +48,15 @@ fun OrcaMenuItem(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    /** What stands where OrcaSlicer's menu icon does; empty space keeps the items aligned. */
+    leading: @Composable () -> Unit = { Spacer(Modifier.size(OrcaTheme.dimensions.iconSmall)) },
 ) {
     val colors = OrcaTheme.colors
     DropdownMenuItem(
         text = { Text(text, color = if (enabled) colors.text else colors.textDisabled, style = OrcaTheme.typography.body14, maxLines = 1, softWrap = false) },
         onClick = onClick,
         enabled = enabled,
-        leadingIcon = { Spacer(Modifier.size(OrcaTheme.dimensions.iconSmall)) },
+        leadingIcon = leading,
     )
 }
 

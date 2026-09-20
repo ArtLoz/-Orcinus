@@ -7,7 +7,8 @@ inside the native adapter.
 ## Process
 
 The UI never loads the engine. `RemoteSlicerEngine` implements `SlicerEngine`,
-`PlateInspector`, and `PresetManager` by binding to `SlicerService`, which runs
+`PlateInspector`, `PresetManager`, and `PresetSettingsEditor` by binding to
+`SlicerService`, which runs
 `NativeSlicerEngine` in the `:slicer` process. The contract below is the same on
 both sides; every call suspends because it may cross the process boundary.
 
@@ -86,9 +87,233 @@ default printers are installed: OrcaSlicer's default printer and filament.
 than its printer model, "Generic Klipper Printer", so the desktop app installs
 no printer there; the adapter installs the model of that preset.
 
+## The filaments of the plate
+
+`PresetBundle::filament_presets` is the list the sidebar shows, one entry per
+filament the plate prints with. `Presets` carries it whole (`selection.filaments`)
+with the colour of each (`filament_colors`, "#RRGGBB" of `project_config`'s
+`filament_colour`). `addFilament()` is `Sidebar::add_custom_filament`: the new
+slot starts with the preset of the first one and takes the next colour of
+OrcaSlicer's palette of sixteen; `removeFilament(index)` is
+`Sidebar::delete_filament`, which keeps at least one; `selectFilament(index,
+name)` sets that slot alone (`set_filament_preset`), and the filament tab keeps
+editing the first; `setFilamentColor(index, color)` writes `filament_colour`.
+
+A slice request carries every filament (`filamentProfiles`); the adapter sets
+`filament_settings_id` to their number and each slot before slicing, so the
+G-code changes tools. Which filament prints an item is the `extruder` key of its
+settings (`ObjectList::set_extruder_for_selected_items`), on an object, on a
+part of the model or a modifier, or on a height range; 0 means the item follows
+what it belongs to. The key is not one of the settings tabs' options
+(`SettingsFactory::get_bundle` drops it), so it never appears among an item's
+own settings.
+
+`describeWipeTower(plate, profiles, plateSettings)` answers what the desktop
+canvas would draw (GLCanvas3D::reload_scene): whether the plate prints a wipe
+tower at all — the process preset asks for one and more than one filament is
+printed on the plate (PartPlate::get_extruders) — where it stands, how wide,
+deep and tall it is (PartPlate::estimate_wipe_tower_size, up to the tallest
+object), its rotation and brim, and the filaments printed on the plate. The
+position comes from wipe_tower_x and wipe_tower_y of the plate's settings;
+without them the engine answers with the position a new tower takes
+(PartPlateList::set_default_wipe_tower_pos_for_plate). The app writes the
+position back into the plate's settings, so the slice request carries it like
+any other plate setting.
+
+`describeFlushVolumes(plate, profiles, plateSettings)` answers what the desktop
+dialog shows (WipingDialog): how much filament goes into the wipe tower for
+every pair of filaments, as a matrix per nozzle, one row per filament printed
+from. flush_volumes_matrix and flush_multiplier among the plate's settings are
+the project's own values; the answer also carries the volumes OrcaSlicer works
+out from the filament colours (CalcFlushingVolumes, over libslic3r's
+FlushVolCalculator), so the app can offer them back, and whether the two differ
+(is_flush_config_modified). The app writes what the user submits into the
+plate's settings, which the slice request carries.
+
+## Painting a model
+
+`beginPainting(object, part, profiles, facets, meshPrefix)` opens OrcaSlicer's
+colour painting gizmo on one volume (GLGizmoMmuSegmentation): the engine builds
+a TriangleSelector over its mesh, reads the facets it is already painted with,
+and keeps it until `endPainting()`, as the desktop gizmo keeps its selectors.
+`paint(stroke, meshPrefix)` is one touch of a finger: the ray is cast into the
+mesh (AABBMesh::query_ray_hit) and the triangles under the cursor take the
+filament, with the brush (SinglePointCursor and select_patch), the smart fill or
+the bucket fill. Every answer carries the triangles painted with each filament,
+written as a mesh per filament for the 3D view, and says whether the stroke met
+the model at all. `endPainting()` reports the painted facets
+(TriangleSelector::TriangleSplittingData, as hexadecimal text), which the app
+keeps with the object and sends back with the plate: a slice request carries
+them per object and per part, and the engine applies them to
+ModelVolume::mmu_segmentation_facets, so the print changes filament over the
+painted surface.
+
 A request that names presets other than the selected ones is still served as
 before: the adapter selects them on a copy of the configuration, and shows the
 remembered selection again at the next preset call.
+
+## Settings tabs
+
+`PresetSettingsEditor` edits a preset as OrcaSlicer's settings tab does. The
+process, filament, and machine tabs (`TabPrint`, `TabFilament`, `TabPrinter`)
+are served, and the settings an object or the plate overrides the process
+preset with (`TabPrintObject`, `TabPrintPlate`); the tabs of a part and of a
+height range (`TabPrintPart`, `TabPrintLayer`) are not.
+
+Every request builds the tab of its kind, loads the selection
+(`Tab::load_current_preset`), activates the page the app shows, runs the action,
+and describes the tab again. The page matters: the desktop app toggles the
+fields of the page it shows (`Tab::activate_selected_page`), and only its
+message boxes appear.
+
+- `settingsTab(kind)` gives, for every option the tab can show, what its field
+  needs to draw it: type, label, side text, mode, GUI type, enum values and
+  labels. The rest of the definition stays in the engine, which checks the
+  values, tells the field what to show and writes the tooltip; a tab crosses two
+  processes, so what the app never reads is not sent. The pages themselves come with the edited preset, because the
+  tab lays them out for it (the extruder pages of a printer, the filament
+  overrides).
+- `settings(kind, page)` describes the edited preset: its name and combo box
+  label (with OrcaSlicer's `"* "` suffix when modified), whether it is dirty,
+  default, system, has a parent, can be deleted, the settings mode, the name
+  `SavePresetDialog` would offer, the pages with their groups and lines, the
+  page whose fields the tab toggled, and each setting's value as the field shows
+  it (`get_config_value`), whether it differs from the saved preset and from the
+  system parent (the label colours of `Tab::decorate`), whether
+  `ConfigManipulation` and the tab's `toggle_options` enable and show it, the
+  choices of combo boxes whose entries depend on the configuration, and, for a
+  filament override, whether it is set at all.
+- `changeSetting(kind, page, id, text)` is the field's text committed: converted
+  and checked as `Field::get_value` does (invalid numbers, ranges, percentages,
+  rotation templates, reserved keywords in a custom G-code), applied with
+  `change_opt_value`, then `Tab::on_value_change` and the tab's `update` run,
+  which may correct other values. An id names one value of a vector setting
+  (`"retraction_length#0"`), as the tab's lines do.
+- `resetSettings(kind, page, ids)` is the undo button of those settings
+  (`Tab::on_roll_back_value`), or of every modified setting when `ids` is empty.
+- `setSettingOverride(kind, page, id, enabled)` is the check box before a
+  filament override (`Tab::create_near_label_widget`): on, the filament takes
+  over the value it overrides; off, it leaves it to the printer or the process.
+- `setCompatiblePresets(kind, page, key, presets)` is the list behind the "Set"
+  button of `compatible_printers` and `compatible_prints`; an empty list means
+  every preset. `compatiblePresetChoices(kind, key)` lists what that dialog
+  offers.
+- `setSettingsMode(kind, mode)` sets simple, advanced, or expert mode, saved in
+  the app configuration (`user_mode`).
+
+The settings of an object, of one of its parts, of one of its height ranges and
+of the plate (`PresetKind.OBJECT`, `PART`, `LAYER` and `PLATE`) are the process settings it overrides,
+so the same requests serve them, with the overrides the app keeps. The engine holds no plate of its own: `settings`,
+`changeSetting`, `resetSettings` and `setSettingsMode` carry a
+`ModelSettingsRequest` — what every selected object overrides
+(`TabPrintModel::set_model_config`) and what the plate overrides, which an
+object's settings follow (`curr_bed_type`, `print_sequence`, `spiral_mode`), and
+what the object a part or a height range belongs to overrides (`parent`,
+`TabPrintPart` and `TabPrintLayer`) —
+and the result gives the overrides back in `PresetSettings.modelSettings`, one
+per object in the order the request carried them. The app keeps them with the
+objects (`PlateObject.settings`), with their parts (`ObjectPart.settings`) and
+with the plate (`PlateState.plateSettings`), and sends them with the next
+request and with slicing.
+
+Several selected objects are merged as the desktop app merges them: a setting
+they agree on shows its value, and one they disagree on is a null key
+(`TabPrintModel::m_null_keys`), which the result marks with `mixed` and shows no
+value for. A change is written into every selected object.
+
+An object's tab is the process tab with its "Frequent" page first and only the
+settings of `PrintObjectConfig` and `PrintRegionConfig` left on the pages; the
+plate's tab is the "Plate Settings" page of `plate_keys`. A part's tab
+(`TabPrintPart`) keeps only the settings of `PrintRegionConfig`, and the value
+an override goes back to is the one of the object the part belongs to, not of
+the process preset: the desktop app reaches it through the model tab
+(`m_parent_tab`), the app sends it as `parent`. A height range's tab
+(`TabPrintLayer`) is the same with its own layer height added, which a range
+always carries: a range that arrives without one is given the layer height of
+its object (`notify_changed`), and a range whose height is the object's is not
+marked as changed. A changed value
+becomes an override of the object, `resetSettings` with an id removes that one
+(the desktop app's arrow back to the value of the process preset), and with no
+id removes every one of them (`TabPrintModel::reset_model_config`). The
+bed type of the plate is named by its key, where the desktop app's combo box
+lists the types without the default one and shifts them by one.
+
+`physicalPrinters`, `savePhysicalPrinter` and `deletePhysicalPrinter` are
+OrcaSlicer's `PhysicalPrinterDialog`: the printers the app can send G-code to,
+each with the presets it prints with and the settings of its host. The engine
+loads them from the data directory itself, because this build of OrcaSlicer
+never loads them. Sending the G-code is not part of the contract: it goes over
+the network from the app.
+
+`importPresets` and `exportPresets` are the Import Configs and Export Preset
+Bundle of the desktop app's File menu: the user presets of OrcaSlicer's
+configuration files are installed (a preset of the same name is replaced), and
+the user presets of the selection are written as one .json each. The engine
+works with plain files, so the app copies a picked document in and the exported
+files out.
+
+`comparePresets` is `DiffPresetDialog`: the settings two presets of one kind
+differ in, each with the value both of them hold, described like the unsaved
+changes of a tab. A system printer may be named by its printer model, as the
+app's preset lists name it.
+
+`searchCatalog` lists every setting the process, filament and printer tabs show
+(Search::OptionsSearcher), each with the page and group it sits in and the mode
+it belongs to. The texts are untranslated like every text that crosses the
+boundary, so the app matches a query against the translated ones.
+
+`bedShape` and `setBedShape` are OrcaSlicer's `BedShapeDialog`: the printable
+area of the edited printer as its dialog shows it (a rectangle by its bounding
+box and the place of the G-code origin, a circle by its diameter, everything
+else as its points), and the shape the dialog was closed with, which is written
+into `printable_area`, `bed_custom_texture` and `bed_custom_model` of the edited
+printer preset (`TabPrinter::create_bed_shape_widget`). The points are built as
+`BedShapePanel::update_shape()` builds them, and a custom shape is the
+horizontal projection of a model file (`load_stl`).
+
+Not ported: the custom layer sequences of `PlateSettingsDialog` — choosing
+"Customize" writes the filaments in their order.
+- `settingTooltip(kind, id)` is the field's tooltip
+  (`get_formatted_tooltip_text`): the option's tooltip, its name, the parent
+  preset's value, and the range of a bounded number.
+- `checkPresetName(kind, name)` is `SavePresetDialog::Item::update`: valid, a
+  warning (such as replacing an existing user preset), or invalid, with the
+  message. `savePreset(kind, name)` is `Tab::save_preset`; `deletePreset(kind)`
+  is `Tab::delete_preset`, which asks first and then selects the parent or the
+  next visible preset. Both save the configuration.
+
+`selectPreset(choice, action)` is `Tab::select_preset`. With `ASK` and an edited
+preset of that kind that is dirty, nothing is selected: the result carries the
+unsaved changes as `UnsavedChangesDialog` lists them (the page, the group, the
+label, and the value before and after), the name its Save button would offer,
+and whether they can be moved (a printer never moves them, and neither does a
+filament of another type). The caller asks the user and selects again with
+`TRANSFER` (`Tab::cache_config_diff`, then `Tab::apply_config_from_cache` once
+the preset is selected) or `DISCARD`; saving them first is `savePreset`.
+
+The desktop app's modal dialogs are data. A notice (`MessageDialog` with OK) is
+returned with the result, in order. A question (Yes/No) that the call has no
+answer for ends the call: the adapter restores the edited preset and the tab's
+state and returns only the question, with its id. The caller asks the user and
+calls again with the answers so far, keyed by question id; the port then runs
+the same code with those answers, as the desktop app continues after its
+dialog. `PresetSettingsOutcome.Question.loadsSelection` marks a question raised
+while the selection was loaded, which the caller answers with
+`settings(kind, page, answers)`.
+
+Not ported yet: the bed shape dialog (`BedShapeDialog`) and the ramming
+parameters dialog (`RammingDialog`). Their lines show the value of the setting
+in a field, in the text the desktop app shows for it.
+
+Texts are not translated in the engine. Labels, tooltips, and dialog texts
+cross the boundary as `OrcaText`: OrcaSlicer's msgid with its context, plural
+form and count, and arguments that may themselves be msgids; the app
+translates them with OrcaSlicer's catalogue, as `_L` and `wxString::Format`
+would.
+
+The edited preset lives in the engine process. A slice whose request names the
+selected presets slices their edited values (`PresetBundle::full_config()`),
+as the desktop app slices unsaved changes.
 
 ## Request
 
@@ -97,7 +322,15 @@ remembered selection again at the next preset call.
 - a caller-generated `SliceJobId` used by progress, results, and cancellation;
 - the objects of the plate as `PlacedModel`s: a `ModelSource` (an imported
   local STL or the built-in 20 mm calibration cube), the object's mesh file,
-  its placement, and its auto drop;
+  the settings it overrides (`ModelObject::config`), the parts added to it
+  (`ModelObject::volumes`: one of OrcaSlicer's shapes, its type, and its
+  transformation in the object), and its copies
+  (`ModelObject::instances`), each with its placement, its auto drop and
+  `ModelInstance::printable`, which the object list's check box switches: a
+  copy that is not printable stays on the plate and is left out of the print,
+  so a plate with nothing printable has nothing to slice;
+- the settings of the plate, which are laid over the presets as
+  `BackgroundSlicingProcess::apply` lays a `PartPlate`'s over them;
 - an `OutputPath` for the G-code;
 - optionally a `ScenePath` for the toolpaths file of the preview;
 - printer, filament, and process profile names as Orca knows them.
@@ -112,6 +345,16 @@ A placement is the instance transformation, column-major 4 x 4, as inspection
 reported it and the user may have changed it. The native adapter also accepts
 an object without one, which it places as a new object; `orca_engine_slice`
 slices a single STL that way for the comparison with desktop OrcaSlicer.
+
+`addPart(object, shape, type, profiles, mesh)` is
+`ObjectList::load_generic_subobject()`: one of OrcaSlicer's shapes ("Cube",
+"Cylinder", "Sphere", "Slab", "Cone", "Disc", "Torus") joins the object as a
+part, a negative volume, a modifier, or a support blocker or enforcer. The
+engine sizes it as the desktop app does (5% of the largest side of the bed, a
+slab from the object's bounding box), places it at the object's right front
+corner, writes its mesh for the 3D view and reports where it stands in the
+object. Parts reach slicing with their type and their own settings
+(`ModelVolume::config`).
 
 ## Model import and inspection
 

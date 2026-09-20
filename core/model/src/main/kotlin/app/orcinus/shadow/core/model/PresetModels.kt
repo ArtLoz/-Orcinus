@@ -33,6 +33,10 @@ data class Presets(
     val printers: List<PresetListItem>,
     val filaments: List<PresetListItem>,
     val processes: List<PresetListItem>,
+    /** project_config's filament_colour: the colour of every filament of the plate, "#RRGGBB". */
+    val filamentColors: List<String> = emptyList(),
+    /** filament_type of every filament of the plate ("PLA", "PETG" ...), in the same order. */
+    val filamentTypes: List<String> = emptyList(),
     /** The nozzle diameters of the selected printer model, "0.4". */
     val nozzleDiameters: List<String>,
     /** The nozzle diameter of the selected printer. */
@@ -41,6 +45,21 @@ data class Presets(
 
 sealed interface PresetsOutcome {
     data class Success(val presets: Presets) : PresetsOutcome
+
+    /**
+     * Nothing was selected: the edited preset of [kind] has unsaved changes.
+     * The app asks what happens to them and selects again with a
+     * [PresetChangeAction].
+     */
+    data class UnsavedChanges(
+        val presets: Presets,
+        val kind: PresetKind,
+        val changes: List<PresetChange>,
+        val canTransfer: Boolean,
+        /** The name the dialog's Save button suggests. */
+        val saveName: String,
+        val saveNameCopySuffix: Boolean,
+    ) : PresetsOutcome
 
     data class Failure(val message: String) : PresetsOutcome
 }

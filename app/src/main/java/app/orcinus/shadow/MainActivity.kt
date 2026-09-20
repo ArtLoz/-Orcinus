@@ -10,7 +10,10 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.CompositionLocalProvider
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
+import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
+import app.orcinus.shadow.core.ui.orca.rememberOrcaCatalog
 import app.orcinus.shadow.ui.OrcinusApp
 
 class MainActivity : ComponentActivity() {
@@ -30,7 +33,10 @@ class MainActivity : ComponentActivity() {
         val container = (application as OrcinusApplication).container
         setContent {
             OrcinusTheme {
-                OrcinusApp(container = container, onSliceRequested = ::requestNotificationPermission)
+                // OrcaSlicer's own texts, such as its settings, come from its catalogue.
+                CompositionLocalProvider(LocalOrcaCatalog provides rememberOrcaCatalog()) {
+                    OrcinusApp(container = container, onSliceRequested = ::requestNotificationPermission)
+                }
             }
         }
     }

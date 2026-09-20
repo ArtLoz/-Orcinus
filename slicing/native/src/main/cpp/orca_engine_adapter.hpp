@@ -3,8 +3,14 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
+
+namespace Slic3r {
+class ModelVolume;
+}
 
 namespace orcinus::orca {
 
@@ -36,8 +42,12 @@ EngineInitialization initialize(const EngineDirectories& directories);
 
 struct ProfileSelection {
     std::string printer;
+    // The first filament, which a plate with one filament prints with.
     std::string filament;
     std::string process;
+    // PresetBundle::filament_presets: every filament of the plate, in the order
+    // the sidebar lists them. Empty means the one of `filament` alone.
+    std::vector<std::string> filaments;
 };
 
 enum class SliceStatus : std::int64_t {
@@ -60,26 +70,96 @@ struct SliceResult {
     std::int64_t filament_micrometers{0};
     // The toolpaths file was written for the G-code viewer.
     bool toolpaths_written{false};
+    // The mesh of the wipe tower the slice built was written for the 3D view.
+    bool wipe_tower_written{false};
+};
+
+// A thumbnail of the plate the app rendered for the G-code, as the desktop app
+// renders it when the G-code is exported (GLCanvas3D::render_thumbnail): width x
+// height RGBA pixels in a file, the bottom row first, as glReadPixels() reads them.
+struct ThumbnailImage {
+    std::int32_t width{0};
+    std::int32_t height{0};
+    std::string path;
 };
 
 // Receives Orca's slicing status: percent in [0, 100] and its status text.
 using ProgressCallback = std::function<void(int percent, const std::string& message)>;
 
-// Where the user put an object: its instance transformation, column-major
-// 4 x 4, and ModelInstance::auto_drop, which lets an object stay above the plate
-// when off.
+// Where the user put one copy of an object (ModelInstance): its transformation,
+// column-major 4 x 4, ModelInstance::auto_drop, which lets it stay above the
+// plate when off, and ModelInstance::printable, which the object list's check
+// box switches.
 struct ObjectPlacement {
     std::vector<double> matrix;
     bool auto_drop{true};
+    bool printable{true};
+};
+
+// The settings an object or the plate overrides the process preset with, as the
+// desktop app keeps them in a ModelConfig: the keys the user set, with their
+// values as OrcaSlicer writes them into a project.
+struct ModelSettings {
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+};
+
+// ModelVolumeType of Model.hpp: what a part of an object is for.
+enum class VolumeType : std::int64_t {
+    // MODEL_PART: printed with the object.
+    part = 0,
+    // NEGATIVE_VOLUME: taken out of the object.
+    negative = 1,
+    // PARAMETER_MODIFIER: the settings of the object apply to it alone.
+    modifier = 2,
+    // SUPPORT_BLOCKER and SUPPORT_ENFORCER.
+    support_blocker = 3,
+    support_enforcer = 4,
+};
+
+// A part added to an object (ModelVolume): one of the shapes the desktop app
+// generates (ObjectList::load_generic_subobject), with its transformation in
+// the object's coordinates and the settings it overrides.
+struct ObjectPart {
+    // "Cube", "Cylinder", "Sphere", "Slab", "Cone", "Disc" or "Torus", as
+    // create_mesh() of GUI_ObjectList.cpp names them.
+    std::string shape;
+    VolumeType type{VolumeType::part};
+    // Column-major 4 x 4, in the object's coordinates.
+    std::vector<double> matrix;
+    // The settings of the part (ModelVolume::config).
+    ModelSettings settings;
+    // The facets painted with the filaments of the plate, as begin_painting()
+    // and end_painting() hand them over; empty for a part painted with nothing.
+    std::string painted;
+};
+
+// A height range of an object (one entry of ModelObject::layer_config_ranges):
+// the slab between two heights in the object's coordinates, with the settings
+// the desktop app slices it with — at least its own layer height.
+struct LayerRange {
+    double bottom{0.0};
+    double top{0.0};
+    ModelSettings settings;
 };
 
 // An object on the plate: the STL file it is loaded from, empty for the
-// built-in 20 mm calibration cube, and where it stands. With an empty matrix
-// the object is placed as the desktop app places an object added to the plate
-// that holds the objects before it.
+// built-in 20 mm calibration cube, the parts added to it, and where its copies
+// stand (ModelObject::instances). Without an instance the object is placed as
+// the desktop app places an object added to the plate that holds the objects
+// before it.
 struct PlateObject {
     std::string model_path;
-    ObjectPlacement placement;
+    std::vector<ObjectPart> parts;
+    std::vector<ObjectPlacement> instances;
+    // The settings of the object (ModelObject::config), which the process
+    // preset is sliced with for it and which its copies share.
+    ModelSettings settings;
+    // The height ranges of the object, in their order from the bed up.
+    std::vector<LayerRange> layer_ranges;
+    // The facets of the object's own mesh painted with the filaments of the
+    // plate (ModelVolume::mmu_segmentation_facets).
+    std::string painted;
 };
 
 // Slices the objects of the plate and writes G-code to output_path only after
@@ -94,7 +174,17 @@ SliceResult slice(
     const std::string& output_path,
     const std::string& toolpaths_path,
     const ProfileSelection& profiles,
-    const ProgressCallback& on_progress
+    // The settings of the plate, which the print is sliced with
+    // (BackgroundSlicingProcess::apply of the desktop app).
+    const ModelSettings& plate_settings,
+    const ProgressCallback& on_progress,
+    // Where the wipe tower the slice built is written, as the desktop app
+    // draws it on the plate once the plate is sliced
+    // (GLVolumeCollection::load_real_wipe_tower_preview); empty writes none.
+    const std::string& wipe_tower_mesh_path = {},
+    // The thumbnails the G-code is exported with (the ThumbnailsGeneratorCallback
+    // of BackgroundSlicingProcess); a size the app rendered none of is left out.
+    const std::vector<ThumbnailImage>& thumbnails = {}
 );
 
 // Returns true only when job_id is the active job and cancellation was requested.
@@ -117,6 +207,19 @@ enum class SceneStatus : std::int64_t {
     model_read_failed = 3,
     write_failed = 4,
 };
+
+// The thumbnails the G-code of the selected printer holds: the sizes of its
+// "thumbnails" setting, in order (GCodeThumbnails::make_and_check_thumbnail_list).
+// None for a Bambu Lab printer, whose G-code holds its configuration instead.
+// The app renders them before it slices with profiles.
+struct ThumbnailSizes {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // Width and height of each thumbnail, one after another.
+    std::vector<std::int32_t> sizes;
+};
+
+ThumbnailSizes thumbnail_sizes(const ProfileSelection& profiles);
 
 // The plate of the selected printer as desktop OrcaSlicer draws it (Bed3D and
 // PartPlate), in millimetres on the plate plane. Files are written into the
@@ -266,12 +369,30 @@ ModelInspection place_model(
     const std::array<double, 3>& face_normal
 );
 
+// The copies of one object as placed, in the object's order.
+struct PlateObjectInspection {
+    std::vector<ModelInspection> instances;
+};
+
 struct PlateInspection {
     SceneStatus status{SceneStatus::model_read_failed};
     std::string message;
     // Every object of the plate as placed, in the plate's order.
-    std::vector<ModelInspection> objects;
+    std::vector<PlateObjectInspection> objects;
 };
+
+// ObjectList::load_generic_subobject(): a shape added to the object as a part,
+// a negative volume, a modifier, or a support blocker or enforcer. The shape is
+// the size the desktop app gives it (5% of the largest side of the bed, a slab
+// from the object's bounding box), it is placed beside the object as the
+// desktop app places it, and its mesh is written to mesh_path for the 3D view.
+ModelInspection add_object_part(
+    const PlateObject& object,
+    const std::string& shape,
+    VolumeType type,
+    const ProfileSelection& profiles,
+    const std::string& mesh_path
+);
 
 // Commits a manipulation of the objects of plate as the desktop app's job does.
 // selected marks the objects auto orient turns, one flag per object.
@@ -282,6 +403,205 @@ PlateInspection place_objects(
     PlateManipulation manipulation,
     const ArrangeSettings& arrange_settings
 );
+
+// The wipe tower of the plate, which the desktop app draws as a volume of its
+// own (GLVolumeCollection::load_wipe_tower_preview): a box striped with the
+// colours of the filaments printed on the plate. It stands where wipe_tower_x
+// and wipe_tower_y of the project put it — the app keeps them among the
+// settings of the plate — and its size follows the process preset and the
+// objects on the plate (PartPlate::estimate_wipe_tower_size).
+struct WipeTowerState {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // Whether the plate prints one at all: the process preset enables the prime
+    // tower and the plate prints with more than one filament.
+    bool shown{false};
+    // Its front left corner on the plate (wipe_tower_x, wipe_tower_y).
+    double x{0.0};
+    double y{0.0};
+    double width{0.0};
+    double depth{0.0};
+    // The tallest object of the plate, which the tower is printed up to.
+    double height{0.0};
+    // wipe_tower_rotation_angle, in degrees.
+    double rotation{0.0};
+    // prime_tower_brim_width, with a negative (automatic) width resolved.
+    double brim_width{0.0};
+    // The filaments printed on the plate (PartPlate::get_extruders), 1-based
+    // and in order: the desktop app stripes the tower with their colours.
+    std::vector<int> filaments;
+};
+
+// Describes the wipe tower of the plate. Without wipe_tower_x and wipe_tower_y
+// among the plate's settings it stands where the desktop app puts it first
+// (PartPlateList::set_default_wipe_tower_pos_for_plate), so the answer also
+// tells the app the position to keep.
+WipeTowerState describe_wipe_tower(
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings
+);
+
+// The flushing volumes of the plate (WipingDialog): how much filament is
+// pushed into the wipe tower when the print changes from one filament to
+// another. OrcaSlicer keeps a matrix per nozzle in the project, one row per
+// filament printed from, and works the volumes out from the filament colours
+// when the project carries none.
+struct FlushVolumes {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // How many filaments the plate has, which is the matrix's side.
+    int filaments{0};
+    // How many nozzles the printer has: the project keeps a matrix per nozzle.
+    int nozzles{1};
+    // nozzles * filaments * filaments, row by row: from the filament of the row
+    // to the one of the column.
+    std::vector<double> matrix;
+    // The volumes OrcaSlicer works out from the colours, in the same shape.
+    std::vector<double> automatic;
+    // flush_multiplier, one per nozzle.
+    std::vector<double> multipliers;
+    // is_flush_config_modified(): the project's volumes are not the ones
+    // OrcaSlicer would work out on its own, which its sidebar marks.
+    bool modified{false};
+};
+
+// Describes the flushing volumes of the plate. flush_volumes_matrix and
+// flush_multiplier among the plate's settings are the project's own; without
+// them the answer holds the calculated volumes, which the app then keeps.
+FlushVolumes describe_flush_volumes(
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings
+);
+
+// What changed about the filaments of the plate, after which the desktop app
+// works its flushing volumes out again (Sidebar::auto_calc_flushing_volumes).
+enum class FlushVolumesChange : std::int64_t {
+    // Sidebar::add_custom_filament(): the filament at index was added.
+    filament_added = 0,
+    // Sidebar::delete_filament(): the filament at index was taken out.
+    filament_removed = 1,
+    // on_filament_color_changed(): the colour of the filament at index changed.
+    color_changed = 2,
+    // on_select_preset() of a filament combo box: the filament at index prints with another preset.
+    filament_changed = 3,
+    // on_select_preset() of the printer combo box: another printer was selected.
+    printer_changed = 4,
+    // Tab::on_value_change() of long_retractions_when_cut or filament_long_retractions_when_cut.
+    long_retraction_changed = 5,
+};
+
+// The project's flushing volumes after change, as the desktop app keeps them:
+// the matrix brought to the filaments of the selection
+// (PresetBundle::update_multi_material_filament_presets), then the volumes from
+// and to the changed filament — or every filament — worked out from the
+// colours again where the desktop app does it, following its "Auto flush
+// after changing..." preference (auto_calculate_flush). updated tells whether
+// the project's matrix or multipliers differ from the ones the plate held.
+struct FlushVolumesUpdate {
+    FlushVolumes volumes;
+    bool updated{false};
+};
+
+FlushVolumesUpdate update_flush_volumes(
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings,
+    FlushVolumesChange change,
+    std::int64_t index
+);
+
+// Applies painted facets to a volume of a loaded model, as a project does.
+bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& facets);
+
+// Painting a model with the filaments of the plate (GLGizmoMmuSegmentation):
+// which tool the finger paints with.
+enum class PaintTool : std::int64_t {
+    // A round brush that follows the finger (CursorType::SPHERE).
+    brush = 0,
+    // Smart fill: the facets that lie flat enough against the touched one.
+    fill = 1,
+    // Bucket fill: the whole surface up to its sharp edges.
+    bucket = 2,
+};
+
+// One touch of the finger on a model being painted.
+struct PaintStroke {
+    // The finger's ray in world coordinates, as the 3D view casts it.
+    double origin[3]{0.0, 0.0, 0.0};
+    double direction[3]{0.0, 0.0, 0.0};
+    // The filament to paint with, 1-based; 0 takes the paint off again.
+    int filament{0};
+    // The brush's radius in millimetres (GLGizmoPainterBase::m_cursor_radius).
+    double radius{2.0};
+    PaintTool tool{PaintTool::brush};
+    // The angle the fills keep to (m_smart_fill_angle), in degrees.
+    double angle{30.0};
+};
+
+// What a painting session answers with: the triangles painted with each
+// filament, written as meshes for the 3D view, and, when the session is closed,
+// the painted facets for the app to keep with the object.
+struct PaintingState {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // Whether the stroke met the model at all.
+    bool hit{false};
+    // The filaments the model is painted with, 1-based, and the mesh of each.
+    std::vector<int> filaments;
+    std::vector<std::string> meshes;
+    // The painted facets of the volume, as the app keeps them.
+    std::string facets;
+};
+
+// Opens a painting session for the object, or for one of its parts, with the
+// facets it is already painted with. The engine keeps the session until
+// end_painting(), as the desktop gizmo keeps its selectors while it is open.
+PaintingState begin_painting(
+    const PlateObject& object,
+    // The part of the object to paint; -1 paints the object's own mesh.
+    int part,
+    const ProfileSelection& profiles,
+    const std::string& facets,
+    // Where the meshes of the painted triangles are written, "<prefix>-<filament>.mesh".
+    const std::string& mesh_prefix
+);
+
+PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix);
+
+// Closes the session and reports the painted facets.
+PaintingState end_painting();
+
+// A text of the desktop app. msgid, with its gettext context when it has one,
+// is translated as _() translates it (with msgid_plural, as _L_PLURAL() does
+// for count), then its placeholders (%s, %d, %.3f, %1%) are filled with args,
+// translated first when translate_args is set. Texts the desktop app shows
+// untranslated are not in the catalogue.
+struct UiText {
+    std::string context;
+    std::string msgid;
+    std::string msgid_plural;
+    std::int64_t count{0};
+    std::vector<std::string> args;
+    bool translate_args{false};
+};
+
+// What the desktop app's settings tabs edit (Preset::Type): the presets, and
+// the settings an object or the plate overrides them with.
+enum class PresetKind : std::int64_t {
+    print = 0,
+    filament = 1,
+    printer = 2,
+    // TabPrintObject: the process settings of one object (Preset::TYPE_MODEL).
+    object = 3,
+    // TabPrintPlate: the settings of the plate (Preset::TYPE_PLATE).
+    plate = 4,
+    // TabPrintPart: the settings of one part of an object.
+    part = 5,
+    // TabPrintLayer: the settings of one height range of an object.
+    layer = 6,
+};
 
 // The sections of a preset combo box of the desktop app.
 enum class PresetGroup : std::int64_t {
@@ -307,6 +627,19 @@ struct PresetItem {
     bool selected{false};
 };
 
+// A value the edited preset changed, as UnsavedChangesDialog lists it: where
+// its setting sits in the tab, and the value before and after the change.
+struct PresetChange {
+    // The option's id, as the tab's lines name it ("retraction_length#0").
+    std::string id;
+    // The page of the tab (Tab::translate_category), and the option group.
+    std::vector<UiText> category;
+    std::vector<UiText> group;
+    std::vector<UiText> label;
+    std::vector<UiText> old_value;
+    std::vector<UiText> new_value;
+};
+
 struct PresetState {
     SceneStatus status{SceneStatus::engine_not_ready};
     std::string message;
@@ -315,6 +648,11 @@ struct PresetState {
     bool setup_required{false};
     // The selected printer, first filament, and process presets.
     ProfileSelection selection;
+    // project_config's filament_colour: the colour of every filament, "#RRGGBB".
+    std::vector<std::string> filament_colors;
+    // filament_type of every filament's preset ("PLA", "PETG" ...), which the
+    // send dialog of a printer with material boxes matches its slots by.
+    std::vector<std::string> filament_types;
     // PlaterPresetComboBox::update() for printers and the first filament.
     std::vector<PresetItem> printers;
     std::vector<PresetItem> filaments;
@@ -324,10 +662,23 @@ struct PresetState {
     // model and the one of the selected printer, "0.4".
     std::vector<std::string> nozzle_diameters;
     std::string nozzle_diameter;
+    // Tab::may_discard_current_dirty_preset(): nothing was selected, because
+    // the edited preset of changed_kind has the unsaved changes below. The app
+    // asks the user and selects again with a PresetChangeAction.
+    bool asks_unsaved_changes{false};
+    PresetKind changed_kind{PresetKind::print};
+    std::vector<PresetChange> unsaved_changes;
+    // The changes can be moved to the preset that is selected (the dialog's
+    // Transfer button, which a printer and a filament of another type lack).
+    bool can_transfer{false};
+    // The name its Save button suggests (SavePresetDialog::Item::Item()).
+    std::string save_name;
+    bool save_name_copy_suffix{false};
 };
 
 // The preset combo boxes for the selection the app configuration remembers.
 PresetState describe_presets();
+
 
 // What a preset choice selects.
 enum class PresetChoice : std::int64_t {
@@ -345,9 +696,36 @@ enum class PresetChoice : std::int64_t {
     process = 4,
 };
 
+// What happens to the unsaved changes of the edited preset when another one is
+// selected (UnsavedChangesDialog's buttons).
+enum class PresetChangeAction : std::int64_t {
+    // Ask: a dirty preset selects nothing and reports its changes.
+    ask = 0,
+    // The changed values move to the preset that is selected (Tab::cache_config_diff).
+    transfer = 1,
+    // The changes are lost with the preset they were made in.
+    discard = 2,
+};
+
 // Selects a preset as the desktop app's sidebar does and remembers the
-// selection in the app configuration (PresetBundle::export_selections).
-PresetState select_preset(PresetChoice choice, const std::string& value);
+// selection in the app configuration (PresetBundle::export_selections). The
+// unsaved changes of the edited preset are kept, moved, or lost, as action
+// says; saving them is a request of the settings tab.
+PresetState select_preset(PresetChoice choice, const std::string& value, PresetChangeAction action = PresetChangeAction::ask);
+
+// Sidebar::add_custom_filament(): another filament joins the plate, with the
+// next colour of OrcaSlicer's palette (Plater::get_next_color_for_filament).
+PresetState add_filament();
+
+// Sidebar::delete_filament(): the filament at index leaves the plate; the first
+// one cannot, as the desktop app keeps at least one.
+PresetState remove_filament(std::int64_t index);
+
+// The preset of the filament at index (PlaterPresetComboBox of that slot).
+PresetState select_filament(std::int64_t index, const std::string& name, PresetChangeAction action = PresetChangeAction::ask);
+
+// The colour the sidebar shows for a filament (project_config's filament_colour).
+PresetState set_filament_color(std::int64_t index, const std::string& color);
 
 // A printer model of the Setup Wizard's printer page.
 struct SetupPrinterModel {
@@ -405,5 +783,761 @@ PresetState apply_setup(const std::vector<std::string>& models, const std::vecto
 // installed: OrcaSlicer's default printer and filament. Saves the configuration,
 // so the wizard is not required again.
 PresetState apply_default_setup();
+
+
+// Which settings the tabs show (ConfigOptionMode). The app configuration keeps
+// "user_mode"; with "developer_mode" the tabs show develop settings too.
+enum class SettingsMode : std::int64_t {
+    simple = 0,
+    advanced = 1,
+    expert = 2,
+    develop = 3,
+};
+
+// A setting as PrintConfigDef defines it (ConfigOptionDef). Texts are the
+// untranslated msgids of the desktop app.
+struct SettingDefinition {
+    std::string key;
+    // ConfigOptionType
+    std::int64_t type{0};
+    std::string label;
+    std::string full_label;
+    std::string category;
+    std::string tooltip;
+    // A unit, usually.
+    std::string sidetext;
+    // ConfigOptionMode
+    std::int64_t mode{0};
+    // ConfigOptionDef::GUIType
+    std::int64_t gui_type{0};
+    std::string gui_flags;
+    std::vector<std::string> enum_values;
+    std::vector<std::string> enum_labels;
+    // -FLT_MAX and FLT_MAX when unbounded.
+    double min{0.0};
+    double max{0.0};
+    bool nullable{false};
+    bool readonly{false};
+    bool multiline{false};
+    bool full_width{false};
+    bool is_code{false};
+    std::int32_t height{-1};
+};
+
+struct SettingDefinitions {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<SettingDefinition> settings;
+};
+
+// Every setting of a kind of preset (Preset::print_options(),
+// filament_options(), printer_options()), and the settings a tab defines
+// itself, such as the extruder count of the printer tab.
+SettingDefinitions describe_setting_definitions(PresetKind kind);
+
+// What a line shows in place of the fields of its options
+// (Tab::create_line_with_widget).
+enum class SettingWidget : std::int64_t {
+    none = 0,
+    // TabPrinter::create_bed_shape_widget(): the shape of the printable area.
+    bed_shape = 1,
+    // Tab::compatible_widget_create(): the presets the edited preset is for.
+    compatible_printers = 2,
+    compatible_prints = 3,
+    // RammingDialog for filament_ramming_parameters.
+    ramming = 4,
+};
+
+// An option a line of a settings tab shows (Option of OptionsGroup.hpp).
+struct SettingsLineOption {
+    // The option's id: its key, and for one value of a vector setting the
+    // index the line shows ("retraction_length#0").
+    std::string id;
+    std::string key;
+    // -1 for a setting the line shows whole.
+    std::int32_t index{-1};
+    // The definition's label, or the one the tab gave the option.
+    std::string label;
+    bool full_width{false};
+    bool is_code{false};
+    bool multiline{false};
+    // In lines of text; -1 for the default.
+    std::int32_t height{-1};
+    // The field offers EditGCodeDialog (OptionsGroup::build_field(): a custom
+    // G-code of a group the tab gave edit_custom_gcode).
+    bool edit_custom_gcode{false};
+};
+
+// A line of an option group (Line of OptionsGroup.hpp).
+struct SettingsLine {
+    // The label of the line; for a line of one option its label
+    // (create_single_option_line).
+    std::string label;
+    std::string tooltip;
+    // append_separator(): a line without options.
+    bool separator{false};
+    SettingWidget widget{SettingWidget::none};
+    // A filament override (TabFilament::add_filament_overrides_page): the check
+    // box before the label switches the override on.
+    bool has_override{false};
+    std::vector<SettingsLineOption> options;
+};
+
+struct SettingsGroup {
+    std::string title;
+    // An icon of resources/images.
+    std::string icon;
+    std::vector<SettingsLine> lines;
+};
+
+struct SettingsPage {
+    // The page's name, which requests name it by.
+    std::string title;
+    // What the tab shows for it (Tab::translate_category).
+    std::vector<UiText> label;
+    std::string icon;
+    std::vector<SettingsGroup> groups;
+};
+
+// How a message box of the desktop app looks.
+enum class DialogIcon : std::int64_t {
+    info = 0,
+    warning = 1,
+    error = 2,
+    question = 3,
+};
+
+// A message box the desktop app shows while it applies a change.
+struct SettingsDialog {
+    // The check that shows it; an answer to a question names it.
+    std::string id;
+    DialogIcon icon{DialogIcon::warning};
+    // The caption's parts; none for the app's own caption.
+    std::vector<UiText> title;
+    // The parts of the message, in order.
+    std::vector<UiText> text;
+    // Yes and No; otherwise the box only informs.
+    bool question{false};
+    // Labels of the Yes and No buttons when the box has its own.
+    UiText yes;
+    UiText no;
+};
+
+// A setting of the edited preset as its field shows it (Tab::update_changed_ui,
+// ConfigManipulation's toggles).
+struct SettingState {
+    // The option's id, as the lines of the pages name it.
+    std::string id;
+    std::string key;
+    // The field's text (ConfigOptionsGroup::get_config_value): "0.2", "15%",
+    // "1" or "0" for a check box, the enum key ("grid") for a combo box.
+    std::string value;
+    // Differs from the saved preset.
+    bool modified{false};
+    // Equals the preset the edited one inherits from.
+    bool system{false};
+    // toggle_field
+    bool enabled{true};
+    // toggle_line
+    bool visible{true};
+    // The tab sets the entries of the combo box (TabPrint::toggle_options, the
+    // filament lists): their values and labels, which replace the definition's.
+    bool has_choices{false};
+    std::vector<std::string> choice_values;
+    std::vector<std::string> choice_labels;
+    // A filament override that is not set: the field shows the value of the
+    // printer or process preset, which the line's check box switches to the
+    // filament's (TabFilament::update_filament_overrides_page).
+    bool nullable{false};
+    bool is_nil{false};
+    // The objects the list has selected disagree on the value, so the field
+    // shows none (TabPrintModel::m_null_keys); a change applies to all of them.
+    bool mixed{false};
+    // Whether that check box can be used at all.
+    bool override_enabled{true};
+    // The names a setting of several values holds: the presets of
+    // compatible_printers and compatible_prints, which their widget edits.
+    std::vector<std::string> list_values;
+};
+
+// The edited preset of a kind as its settings tab shows it.
+struct PresetSettings {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    PresetKind kind{PresetKind::print};
+    // The selected preset.
+    std::string preset;
+    // Preset::label(): the name or the alias, after the "* " of a modified preset.
+    std::string label;
+    bool dirty{false};
+    bool is_default{false};
+    bool is_system{false};
+    // The edited preset inherits from another one (get_selected_preset_parent()).
+    bool has_parent{false};
+    // Tab::delete_preset() is offered: a user preset.
+    bool can_delete{false};
+    SettingsMode mode{SettingsMode::simple};
+    // The pages the tab lays out for the edited preset; the printer tab builds
+    // them from its configuration (TabPrinter::build_unregular_pages).
+    std::vector<SettingsPage> pages;
+    // The page whose fields the tab toggled (Tab::activate_selected_page).
+    std::string active_page;
+    // Tab::m_variant_combo: the extruder variants the filament tab can show
+    // ("drive: nozzle"), and the one it shows. The desktop switch appears only
+    // with more than one variant (m_variant_combo->Enable(options.size() > 1)).
+    std::vector<std::string> variants;
+    int variant{0};
+    std::vector<SettingState> settings;
+    // The name SavePresetDialog suggests: the preset's name, followed by " - "
+    // and the translation of "Copy" (context "PresetName") when copy_suffix is set.
+    std::string save_name;
+    bool save_name_copy_suffix{false};
+    // Message boxes the change showed, in order; they informed only.
+    std::vector<SettingsDialog> notices;
+    // A question the change asks before it applies anything: the change is
+    // requested again with the answer. When loading the selection into the tab
+    // asks it, describe_settings() is requested with the answer instead.
+    bool has_question{false};
+    SettingsDialog question;
+    bool question_loads_selection{false};
+    // The settings of the objects or of the plate the tab edits, after the
+    // change, in the order the request carried them: the app keeps them with
+    // the objects and sends them back with every request, since the engine
+    // holds no plate of its own.
+    bool has_model_settings{false};
+    std::vector<ModelSettings> model_settings;
+};
+
+// Answers to the questions a change asked, by dialog id: true for Yes.
+using DialogAnswers = std::vector<std::pair<std::string, bool>>;
+
+// What a request of the settings of an object or of the plate carries, since
+// the engine keeps no plate of its own: the overrides of the object or plate
+// the tab edits, and the ones of the plate, which the settings of an object
+// follow (curr_bed_type, print_sequence, spiral_mode). The requests of a preset
+// tab carry nothing.
+struct ModelSettingsRequest {
+    // One per object the list has selected, in the plate's order; the settings
+    // of the plate are a single entry.
+    std::vector<ModelSettings> settings;
+    ModelSettings plate;
+    // The settings a part sits on: the ones of the object it belongs to
+    // (TabPrintPart::m_parent_tab).
+    ModelSettings parent;
+};
+
+// The edited preset of a kind, with page shown (Tab::activate_selected_page;
+// the page the tab shows already when page is empty). Loading another selection
+// into the tab may ask questions, as Tab::load_current_preset() does. For
+// PresetKind::object and plate the settings of the object are described
+// instead (TabPrintObject, TabPrintPlate), and the result carries them back.
+PresetSettings describe_settings(PresetKind kind, const std::string& page, const DialogAnswers& answers, const ModelSettingsRequest& model = {});
+
+// A field of the tab changed to text (Field::get_value(), change_opt_value,
+// Tab::on_value_change, Tab::update): the edited preset gets the value and the
+// corrections the desktop app makes. id is the option's, as the pages name it.
+// On the settings of an object the value becomes an override of it.
+PresetSettings change_setting(PresetKind kind, const std::string& page, const std::string& id, const std::string& text, const DialogAnswers& answers,
+                              const ModelSettingsRequest& model = {});
+
+// The undo buttons: the settings, or every modified setting when ids is
+// empty, back to the saved preset (OptionsGroup::back_to_initial_value,
+// Tab::on_roll_back_value). On the settings of an object the overrides are
+// removed, so the values of the process preset apply again.
+PresetSettings reset_settings(PresetKind kind, const std::string& page, const std::vector<std::string>& ids, const DialogAnswers& answers,
+                              const ModelSettingsRequest& model = {});
+
+// The check box of a filament override (TabFilament::add_filament_overrides_page):
+// switched on, the setting takes the value of the printer or process preset it
+// overrides; switched off, the filament leaves it to them.
+PresetSettings set_setting_override(PresetKind kind, const std::string& page, const std::string& id, bool enabled, const DialogAnswers& answers);
+
+// The presets a preset is compatible with (Tab::compatible_widget_create):
+// their names, or none for every preset. key is "compatible_printers" or
+// "compatible_prints".
+PresetSettings set_compatible_presets(PresetKind kind, const std::string& page, const std::string& key, const std::vector<std::string>& presets,
+                                      const DialogAnswers& answers);
+
+// RammingDialog closed with OK (the "Set ..." button of the filament tab):
+// load_key_value("filament_ramming_parameters", dlg.get_parameters()) and
+// update_changed_ui(). parameters is what the dialog wrote,
+// "<width %> <spacing %> <speeds...>| <time> <speed> ...".
+PresetSettings set_ramming_parameters(PresetKind kind, const std::string& page, const std::string& parameters, const DialogAnswers& answers);
+
+// The names the list of compatible presets offers, in the order of the collection.
+struct PresetNames {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<std::string> names;
+};
+
+PresetNames compatible_preset_choices(PresetKind kind, const std::string& key);
+
+// A printer the app can send G-code to (PhysicalPrinter): its name, the printer
+// presets it prints with, and the settings of its host as the desktop app's
+// PhysicalPrinterDialog holds them (host_type, print_host, printhost_apikey
+// and the rest of PhysicalPrinter::print_host_options()).
+struct PhysicalPrinterState {
+    std::string name;
+    std::vector<std::string> preset_names;
+    ModelSettings settings;
+};
+
+struct PhysicalPrinters {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<PhysicalPrinterState> printers;
+};
+
+// PhysicalPrinterCollection: the printers the user set up, in its order.
+PhysicalPrinters physical_printers();
+
+// PhysicalPrinterCollection::save_printer(): a printer of that name is
+// replaced, and one that is not there yet is added. renamed_from is the name it
+// had before, as the dialog renames a printer.
+PhysicalPrinters save_physical_printer(const PhysicalPrinterState& printer, const std::string& renamed_from);
+
+// PhysicalPrinterCollection::delete_printer()
+PhysicalPrinters delete_physical_printer(const std::string& name);
+
+// The presets a configuration file brought in, or the files an export wrote
+// (MainFrame::load_config_file and export_config).
+struct ConfigTransfer {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // The files that were written, or the presets that were imported.
+    std::vector<std::string> names;
+    // ConfigsOverwriteConfirmDialog: a preset of this name is already there and
+    // the import has not been told what to do with it. The app asks the user
+    // and imports again with the answer.
+    std::string overwrite_preset;
+};
+
+// What the user answers about a preset the import would replace, in the order
+// of the dialog's buttons (No, Yes, No to All, Yes to All).
+enum class ConfigOverwriteAnswer : std::int64_t {
+    no = 0,
+    yes = 1,
+    no_to_all = 2,
+    yes_to_all = 3,
+};
+
+// PresetBundle::import_presets(): the user presets of the files, which are
+// OrcaSlicer's .json, .zip, .orca_printer, .orca_bundle and .orca_filament.
+// Only non-system presets compatible with the installed printers arrive.
+//
+// A preset that is already there is replaced only once the user says so:
+// answers holds what was said about each preset by name, and an import that
+// meets a preset it has no answer for stops and asks (overwrite_preset). The
+// answers of the presets that were already there when the first import ran are
+// the ones it asks for, so an import that runs again asks nothing new.
+ConfigTransfer import_presets(const std::vector<std::string>& paths, const std::map<std::string, ConfigOverwriteAnswer>& answers = {});
+
+// ExportConfigsDialog: what the dialog writes (the radio buttons it opens with).
+enum class ConfigExportKind : std::int64_t {
+    // "Printer config bundle(.orca_printer)": a printer with its filament and
+    // process presets, one file per printer.
+    printer_bundle = 0,
+    // "Filament bundle(.orca_filament)": every preset of a filament name.
+    filament_bundle = 1,
+    // "Printer presets(.zip)"
+    printer_presets = 2,
+    // "Filament presets(.zip)"
+    filament_presets = 3,
+    // "Process presets(.zip)"
+    process_presets = 4,
+};
+
+// A check box of the dialog: a printer preset for the printer exports, or the
+// name a filament's presets share for the filament ones.
+struct ConfigExportEntry {
+    std::string name;
+    // How many presets the entry carries, which the app shows beside its name.
+    std::int64_t count{0};
+};
+
+// ExportConfigsDialog::data_init() and select_curr_radiobox(): what the dialog
+// offers for an export kind.
+struct ConfigExportOptions {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<ConfigExportEntry> entries;
+    // The line the dialog shows under the list (m_serial_text).
+    std::string note;
+};
+
+ConfigExportOptions config_export_options(ConfigExportKind kind);
+
+// The dialog's OK: the entries chosen by name are written into directory, and
+// the files it wrote come back. A printer preset is written without the address
+// and the credentials of its physical printer (earse_preset_fields_for_safe).
+ConfigTransfer export_configs(ConfigExportKind kind, const std::vector<std::string>& names, const std::string& directory);
+
+// CreateFilamentPresetDialog: a preset the dialog offers to make the filament
+// from, with the printer it would be made for (its check box).
+struct FilamentPresetChoice {
+    std::string printer;
+    std::string preset;
+};
+
+// What the dialog offers: the vendors and the types it lists, the filaments of
+// the chosen type, and the presets of the chosen filament.
+struct CreateFilamentOptions {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // The vendor combo box (filament_vendors), and the type one
+    // (the types the installed filaments are of).
+    std::vector<std::string> vendors;
+    std::vector<std::string> types;
+    // "Create Based on Current Filament": the filaments of the chosen type by
+    // the name their presets share, and the presets of the chosen one.
+    std::vector<std::string> base_filaments;
+    std::vector<FilamentPresetChoice> presets;
+    // "Copy Current Filament Preset": every preset of the chosen type.
+    std::vector<FilamentPresetChoice> copy_presets;
+};
+
+// The lists the dialog shows for the chosen type and filament; both may be
+// empty, as the dialog opens with nothing chosen.
+CreateFilamentOptions create_filament_options(const std::string& type, const std::string& base_filament);
+
+// What the dialog's Create button was filled in with.
+struct CreateFilamentRequest {
+    // The vendor from the list, or the one the user wrote ("Can not find vendor").
+    std::string vendor;
+    bool custom_vendor{false};
+    std::string type;
+    std::string serial;
+    // The presets the check boxes have chosen, of either radio button.
+    std::vector<FilamentPresetChoice> presets;
+};
+
+// The Create button: the filament is cloned for every chosen preset
+// (PresetCollection::clone_presets_for_filament). A question stops it until
+// the app answers, as a settings request does.
+struct PresetCreation {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    bool has_question{false};
+    SettingsDialog question;
+    // The name of the filament that was created ("<vendor> <type> <serial>").
+    std::string name;
+};
+
+PresetCreation create_filament(const CreateFilamentRequest& request, const DialogAnswers& answers);
+
+// CreatePrinterPresetDialog: what its two pages offer — the printer it names
+// (the vendors and models the dialog knows, and the nozzles), and the presets
+// it is made from (the vendors whose profiles the app has, their printer
+// presets, and the filament and process presets that come with the chosen one).
+struct CreatePrinterOptions {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<std::string> vendors;
+    std::vector<std::string> models;
+    std::vector<std::string> nozzle_diameters;
+    std::vector<std::string> preset_vendors;
+    // "<model> @ <nozzle> nozzle", by the nozzle of each.
+    std::vector<std::string> printer_presets;
+    std::vector<std::string> filament_presets;
+    std::vector<std::string> process_presets;
+    // The printable area of the chosen printer preset, x and y of every point,
+    // and how high it prints; the first page opens with them.
+    std::vector<double> printable_area;
+    double max_print_height{0.0};
+};
+
+CreatePrinterOptions create_printer_options(
+    const std::string& vendor,
+    const std::string& nozzle,
+    const std::string& preset_vendor,
+    const std::string& printer_preset
+);
+
+// What the dialog's Create button was filled in with.
+struct CreatePrinterRequest {
+    // The printer the first page names: its model, its nozzle ("0.4"), and its
+    // printable area.
+    std::string model;
+    std::string nozzle;
+    std::vector<double> printable_area;
+    double max_print_height{0.0};
+    std::string custom_texture;
+    std::string custom_model;
+    // The presets of the second page: the vendor and the printer preset it is
+    // made from, and the filament and process presets that come with it.
+    std::string preset_vendor;
+    std::string printer_preset;
+    std::vector<std::string> filament_presets;
+    std::vector<std::string> process_presets;
+};
+
+PresetCreation create_printer(const CreatePrinterRequest& request, const DialogAnswers& answers);
+
+// GuideFrame::update_custom_filaments(): a filament of the user's own, which
+// the app lists to edit (EditFilamentPresetDialog).
+struct CustomFilament {
+    // The filament id its presets share, which the edit dialog is opened with.
+    std::string id;
+    // The name the presets share ("Creality PLA Orcinus").
+    std::string name;
+};
+
+struct CustomFilaments {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<CustomFilament> filaments;
+};
+
+CustomFilaments custom_filaments();
+
+// EditFilamentPresetDialog: what it shows for a filament of the user's own —
+// the vendor, the type and the serial its name carries, and its presets by the
+// printer each of them is for (get_same_filament_id_presets).
+struct FilamentPresetList {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::string name;
+    std::string vendor;
+    std::string type;
+    std::string serial;
+    std::vector<FilamentPresetChoice> presets;
+};
+
+FilamentPresetList filament_presets(const std::string& filament_id);
+
+// The Delete button of one of its rows (EditFilamentPresetDialog::delete_preset):
+// the preset is deleted once the user has answered, and the filaments select
+// another one. A preset other presets inherit from cannot be deleted.
+PresetCreation delete_filament_preset(const std::string& preset_name, const DialogAnswers& answers);
+
+// The presets one side of DiffPresetDialog selects in its combo boxes. An empty
+// name is the preset the app has selected, which the dialog opens with.
+struct ComparedPresets {
+    std::string printer;
+    std::string print;
+    std::string filament;
+};
+
+// A row of DiffPresetDialog: the combo boxes of one preset kind, and what the
+// presets they select differ in, described the way the unsaved changes of a
+// tab are.
+struct PresetKindComparison {
+    PresetKind kind{PresetKind::printer};
+    // PresetComboBox::update() of either side, and the preset it selects.
+    std::vector<PresetItem> left_presets;
+    std::vector<PresetItem> right_presets;
+    std::string left;
+    std::string right;
+    // Why the presets were not compared, which the dialog's bottom line says
+    // ("One of the presets does not exist"); empty when they were.
+    std::string problem;
+    // The settings the presets differ in; none shows the "equal" icon.
+    std::vector<PresetChange> changes;
+    // enable_transfer(): the preset the app edits of this kind, and whether it
+    // has unsaved changes, which only a transfer into it keeps.
+    std::string edited;
+    bool edited_dirty{false};
+};
+
+struct PresetComparison {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // The printer, filament and process rows, in the dialog's order.
+    std::vector<PresetKindComparison> kinds;
+};
+
+// DiffPresetDialog::show() and update_tree() for every preset kind at once, as
+// ParamsPanel's compare button opens it. Each side is a copy of the app's
+// presets (update_bundles_from_app), in which the printer and the process it
+// selects make the lists of the presets compatible with them
+// (update_compatibility). show_all lists the incompatible process and filament
+// presets too ("Show all presets (including incompatible)").
+PresetComparison compare_presets(const ComparedPresets& left, const ComparedPresets& right, bool show_all);
+
+// Tab::transfer_options() for DiffPresetDialog's Transfer: the values options
+// hold in the preset from move into the preset to, which the app selects and
+// edits with them as unsaved changes. options are the ids the dialog lists
+// ("retraction_length#0"); "extruders_count" moves the extruder count.
+PresetState transfer_preset_options(PresetKind kind, const std::string& from, const std::string& to, const std::vector<std::string>& options);
+
+// One setting the search can find (Search::Option): where it sits, which is
+// what OptionsSearcher matches a query against. The texts are untranslated, as
+// every text that crosses the boundary is; the app matches the query against
+// the translated ones, since it holds the catalogue.
+struct SearchOption {
+    // The tab the setting is on, and the setting itself.
+    PresetKind kind{PresetKind::print};
+    std::string key;
+    // The id of its field, which the tab shows the setting under.
+    std::string id;
+    // The page and the group of the tab it sits in.
+    std::vector<UiText> page;
+    std::vector<UiText> group;
+    std::vector<UiText> label;
+    // The settings mode the setting belongs to (ConfigOptionDef::mode).
+    SettingsMode mode{SettingsMode::simple};
+};
+
+struct SearchCatalog {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<SearchOption> options;
+};
+
+// Search::OptionsSearcher::append_options(): every setting the process,
+// filament and printer tabs show, with the page and group it sits in.
+SearchCatalog search_catalog();
+
+// ParamType of EditGCodeDialog.hpp: how a placeholder is written into G-code.
+enum class GcodePlaceholderType : std::int64_t {
+    // A group of placeholders.
+    undef = 0,
+    // "key"
+    scalar = 1,
+    // "key[]", with the index to fill in.
+    vector = 2,
+    // "key[current_extruder]"
+    filament_vector = 3,
+};
+
+// A node of EditGCodeDialog's list of placeholders (ParamsNode): a group, a
+// subgroup, or a placeholder, in the order the dialog appends them.
+struct GcodePlaceholder {
+    // The group the node is in, as an index of the list; -1 for a group.
+    std::int32_t parent{-1};
+    GcodePlaceholderType type{GcodePlaceholderType::undef};
+    // The name of a group or subgroup.
+    std::vector<UiText> label;
+    // The setting a placeholder stands for, and the text the list shows for it,
+    // which the dialog writes into the G-code.
+    std::string key;
+    std::string text;
+    // An icon of resources/images.
+    std::string icon;
+    // The dialog opens with the group expanded ("Specific for %1%").
+    bool expanded{false};
+};
+
+struct GcodePlaceholders {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // Tab::get_custom_gcode(): the G-code the dialog opens with.
+    std::string value;
+    std::vector<GcodePlaceholder> placeholders;
+};
+
+// EditGCodeDialog::init_params_list() for the custom G-code key of the tab of
+// kind: the slicing state, the universal placeholders, the ones specific to
+// the G-code, and the settings of the presets by the pages of their tabs.
+GcodePlaceholders describe_gcode_placeholders(PresetKind kind, const std::string& key);
+
+// EditGCodeDialog::selection_changed(): what the dialog says about a placeholder.
+struct GcodePlaceholderInfo {
+    // The label of its definition, full label first when it has both; empty
+    // when it has neither, and the dialog shows the key itself.
+    std::vector<UiText> label;
+    // The type of its value ("float", "integer[]"), which the dialog does not translate.
+    std::string type;
+    // The tooltip of its definition.
+    std::vector<UiText> description;
+    // No definition was found ("Undef optptr").
+    bool undefined{false};
+};
+
+// presets: the placeholder is one of the "Presets" group, whose definitions
+// win over the placeholders of the same name.
+GcodePlaceholderInfo describe_gcode_placeholder(const std::string& key, bool presets);
+
+// Tab::edit_custom_gcode() once EditGCodeDialog is closed with OK: the edited
+// G-code goes into the preset (Tab::set_custom_gcode), without the checks a
+// change of the field makes.
+PresetSettings edit_custom_gcode(PresetKind kind, const std::string& page, const std::string& key, const std::string& value,
+                                 const DialogAnswers& answers);
+
+// BedShape::PageType of BedShapeDialog.cpp: the shape of the printable area.
+enum class BedShapeKind : std::int64_t {
+    rectangle = 0,
+    circle = 1,
+    custom = 2,
+};
+
+// The printable area of the edited printer as its dialog shows it
+// (BedShape::get_page_type and apply_optgroup_values). The rectangle values are
+// the bounding box of the area and the distance of its origin from the front
+// left corner, as the desktop app computes them for every shape but a circle.
+struct BedShapeState {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    BedShapeKind kind{BedShapeKind::rectangle};
+    double size_x{0.0};
+    double size_y{0.0};
+    double origin_x{0.0};
+    double origin_y{0.0};
+    double diameter{0.0};
+    // bed_custom_texture and bed_custom_model of the printer preset.
+    std::string texture;
+    std::string model;
+    // The points of the area, x and y per point, which a custom shape is drawn from.
+    std::vector<double> points;
+};
+
+BedShapeState describe_bed_shape();
+
+// BedShapePanel::update_shape() and TabPrinter::create_bed_shape_widget(): the
+// points the dialog builds are written into the edited printer preset, with the
+// texture and the model beside them. A custom shape is the horizontal
+// projection of the model at custom_path (BedShapePanel::load_stl); the other
+// shapes ignore it.
+PresetSettings set_bed_shape(
+    BedShapeKind kind,
+    double size_x,
+    double size_y,
+    double origin_x,
+    double origin_y,
+    double diameter,
+    const std::string& custom_path,
+    const std::string& texture,
+    const std::string& model,
+    const DialogAnswers& answers
+);
+
+// GUI_App::save_mode(), then the tab of kind with the saved mode.
+PresetSettings set_settings_mode(PresetKind kind, SettingsMode mode, const ModelSettingsRequest& model = {});
+
+// Tab::m_variant_combo: the tab shows the values of another extruder variant
+// (Tab::update_extruder_variants, switch_excluder).
+PresetSettings set_settings_variant(PresetKind kind, const std::string& page, int variant, const DialogAnswers& answers,
+                                    const ModelSettingsRequest& model = {});
+
+// get_formatted_tooltip_text(): the tooltip of a setting's field, with the
+// value of the parent preset and the range.
+std::vector<UiText> setting_tooltip(PresetKind kind, const std::string& id);
+
+// SavePresetDialog::Item::update(): whether a name can be saved as.
+enum class PresetNameCheck : std::int64_t {
+    valid = 0,
+    // The preset exists and would be overwritten.
+    warning = 1,
+    invalid = 2,
+};
+
+struct PresetNameValidation {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    PresetNameCheck check{PresetNameCheck::invalid};
+    std::vector<UiText> info;
+};
+
+PresetNameValidation check_preset_name(PresetKind kind, const std::string& name);
+
+// SavePresetDialog's OK and Tab::save_preset(): the edited preset is saved as a
+// user preset with name, replacing a user preset of that name, and becomes the
+// selection.
+PresetSettings save_preset(PresetKind kind, const std::string& name);
+
+// Tab::delete_preset() for the selected user preset, which asks first; another
+// preset is selected.
+PresetSettings delete_preset(PresetKind kind, const DialogAnswers& answers);
 
 }  // namespace orcinus::orca

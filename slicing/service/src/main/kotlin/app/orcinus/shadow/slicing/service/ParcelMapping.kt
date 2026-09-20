@@ -5,17 +5,28 @@ import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.ThumbnailSize
+import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.EngineStatus
 import app.orcinus.shadow.core.model.EngineVersion
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.FlushVolumes
+import app.orcinus.shadow.core.model.FlushVolumesOutcome
+import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PaintedFacets
+import app.orcinus.shadow.core.model.PaintedSurface
+import app.orcinus.shadow.core.model.PaintingOutcome
+import app.orcinus.shadow.core.model.PlacedInstance
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
@@ -23,8 +34,10 @@ import app.orcinus.shadow.core.model.PlateGeometry
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetChange
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetGroup
+import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetListItem
 import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.PresetsOutcome
@@ -42,6 +55,9 @@ import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.WipeTowerOutcome
 
 // Both processes run the same APK, so enum names are a safe wire format.
 
@@ -62,9 +78,14 @@ internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
     it.objects = objects.toParcels()
     it.outputPath = output.value
     it.toolpathsPath = toolpaths?.value
+    it.wipeTowerPath = wipeTower?.value
     it.printerProfile = printerProfile.value
     it.filamentProfile = filamentProfile.value
+    it.filamentProfiles = filamentProfiles.map(ProfileId::value).toTypedArray()
     it.processProfile = processProfile.value
+    it.plateSettings = plateSettings.toParcel()
+    it.thumbnailSizes = thumbnails.flatMap { image -> listOf(image.size.width, image.size.height) }.toIntArray()
+    it.thumbnailPaths = thumbnails.map { image -> image.path.value }.toTypedArray()
 }
 
 internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
@@ -72,27 +93,90 @@ internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
     objects = objects.toPlacedModels(),
     output = OutputPath(outputPath),
     toolpaths = toolpathsPath?.let(::ScenePath),
+    wipeTower = wipeTowerPath?.let(::ScenePath),
     printerProfile = ProfileId(printerProfile),
     filamentProfile = ProfileId(filamentProfile),
+    filamentProfiles = filamentProfiles.orEmpty().map(::ProfileId),
     processProfile = ProfileId(processProfile),
+    plateSettings = plateSettings.toModelSettings(),
+    thumbnails = thumbnailPaths.orEmpty().mapIndexedNotNull { index, path ->
+        val sizes = thumbnailSizes ?: return@mapIndexedNotNull null
+        if (2 * index + 1 >= sizes.size) null else ThumbnailImage(ThumbnailSize(sizes[2 * index], sizes[2 * index + 1]), ScenePath(path))
+    },
 )
 
-internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(size) { index ->
-    val placed = this[index]
-    PlacedModelParcel().also {
-        it.model = placed.model.toParcel()
-        it.meshPath = placed.mesh.value
-        it.placement = placed.placement.columns.toDoubleArray()
-        it.autoDrop = placed.autoDrop
+internal fun ThumbnailSizesOutcome.toParcel() = ThumbnailSizesParcel().also {
+    when (this) {
+        is ThumbnailSizesOutcome.Failure -> it.error = message
+        is ThumbnailSizesOutcome.Success -> it.sizes = sizes.flatMap { size -> listOf(size.width, size.height) }.toIntArray()
     }
 }
 
-internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map {
+internal fun ThumbnailSizesParcel.toThumbnailSizesOutcome(): ThumbnailSizesOutcome {
+    error?.let { return ThumbnailSizesOutcome.Failure(it) }
+    val widthsAndHeights = sizes ?: IntArray(0)
+    return ThumbnailSizesOutcome.Success(widthsAndHeights.toList().chunked(2).filter { it.size == 2 }.map { ThumbnailSize(it[0], it[1]) })
+}
+
+internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(size) { index ->
+    val placed = this[index]
+    PlacedModelParcel().also { parcel ->
+        parcel.model = placed.model.toParcel()
+        parcel.meshPath = placed.mesh.value
+        parcel.instances = Array(placed.instances.size) { copy ->
+            val instance = placed.instances[copy]
+            PlacedInstanceParcel().also {
+                it.placement = instance.placement.columns.toDoubleArray()
+                it.autoDrop = instance.autoDrop
+                it.printable = instance.printable
+            }
+        }
+        parcel.settings = placed.settings.toParcel()
+        parcel.parts = Array(placed.parts.size) { at ->
+            val part = placed.parts[at]
+            ObjectPartParcel().also {
+                it.shape = part.shape
+                it.type = part.type.name
+                it.meshPath = part.mesh.value
+                it.placement = part.placement.columns.toDoubleArray()
+                it.settings = part.settings.toParcel()
+                it.painted = part.painted.value.takeUnless(String::isEmpty)
+            }
+        }
+        parcel.painted = placed.painted.value.takeUnless(String::isEmpty)
+        parcel.layerRanges = Array(placed.layerRanges.size) { at ->
+            val range = placed.layerRanges[at]
+            LayerRangeParcel().also {
+                it.bottom = range.bottom
+                it.top = range.top
+                it.settings = range.settings.toParcel()
+            }
+        }
+    }
+}
+
+internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map { parcel ->
     PlacedModel(
-        model = checkNotNull(it.model) { "A plate object has no model" }.toModelSource(),
-        mesh = ScenePath(it.meshPath),
-        placement = Transform3(it.placement.toList()),
-        autoDrop = it.autoDrop,
+        model = checkNotNull(parcel.model) { "A plate object has no model" }.toModelSource(),
+        mesh = ScenePath(parcel.meshPath),
+        instances = parcel.instances.orEmpty().map {
+            PlacedInstance(placement = Transform3(it.placement.toList()), autoDrop = it.autoDrop, printable = it.printable)
+        },
+        settings = parcel.settings.toModelSettings(),
+        parts = parcel.parts.orEmpty().map {
+            ObjectPart(
+                shape = it.shape,
+                type = VolumeType.valueOf(it.type),
+                mesh = ScenePath(it.meshPath),
+                placement = Transform3(it.placement.toList()),
+                settings = it.settings.toModelSettings(),
+                painted = PaintedFacets(it.painted.orEmpty()),
+            )
+        },
+        layerRanges = parcel.layerRanges.orEmpty().map {
+            LayerRange(bottom = it.bottom, top = it.top, settings = it.settings.toModelSettings())
+        },
+        painted = PaintedFacets(parcel.painted.orEmpty()),
     )
 }
 
@@ -103,6 +187,7 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.kind = SliceOutcomeParcel.SUCCESS
             it.gcodePath = gcodePath.value
             it.toolpathsPath = toolpaths?.value
+            it.wipeTowerPath = wipeTower?.value
             it.layerCount = statistics.layerCount
             it.estimatedPrintTimeSeconds = statistics.estimatedPrintTimeSeconds
             it.filamentMillimeters = statistics.filamentMillimeters
@@ -127,6 +212,7 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             gcodePath = OutputPath(checkNotNull(gcodePath)),
             statistics = SliceStatistics(layerCount, estimatedPrintTimeSeconds, filamentMillimeters),
             toolpaths = toolpathsPath?.let(::ScenePath),
+            wipeTower = wipeTowerPath?.let(::ScenePath),
         )
 
         SliceOutcomeParcel.FAILURE -> SliceOutcome.Failure(
@@ -145,9 +231,15 @@ internal fun SlicingProfileSelection.toParcel() = ProfilesParcel().also {
     it.printer = printer.value
     it.filament = filament.value
     it.process = process.value
+    it.filaments = filaments.map(ProfileId::value).toTypedArray()
 }
 
-internal fun ProfilesParcel.toProfiles() = SlicingProfileSelection(ProfileId(printer), ProfileId(filament), ProfileId(process))
+internal fun ProfilesParcel.toProfiles() = SlicingProfileSelection(
+    printer = ProfileId(printer),
+    filament = ProfileId(filament),
+    process = ProfileId(process),
+    filaments = filaments.orEmpty().map(::ProfileId),
+)
 
 internal fun ModelSource.toParcel() = ModelSourceParcel().also {
     when (this) {
@@ -203,15 +295,101 @@ internal fun PlateInspectionOutcome.toParcel() = PlateInspectionParcel().also {
     when (this) {
         is PlateInspectionOutcome.Failure -> it.error = message
         is PlateInspectionOutcome.Success -> it.inspections = Array(inspections.size) { index ->
-            ModelInspectionOutcome.Success(inspections[index]).toParcel()
+            PlateObjectInspectionParcel().also { object_ ->
+                object_.instances = Array(inspections[index].size) { copy ->
+                    ModelInspectionOutcome.Success(inspections[index][copy]).toParcel()
+                }
+            }
         }
     }
 }
 
 internal fun PlateInspectionParcel.toPlateInspectionOutcome(): PlateInspectionOutcome {
     error?.let { return PlateInspectionOutcome.Failure(it) }
-    return PlateInspectionOutcome.Success(checkNotNull(inspections).map { it.toInspection() })
+    return PlateInspectionOutcome.Success(checkNotNull(inspections).map { object_ -> object_.instances.orEmpty().map { it.toInspection() } })
 }
+
+internal fun FlushVolumesOutcome.toParcel() = FlushVolumesParcel().also {
+    when (this) {
+        is FlushVolumesOutcome.Failure -> it.error = message
+        is FlushVolumesOutcome.Success -> with(volumes) {
+            it.filaments = filaments
+            it.nozzles = nozzles
+            it.matrix = matrix.toDoubleArray()
+            it.automatic = automatic.toDoubleArray()
+            it.multipliers = multipliers.toDoubleArray()
+            it.modified = modified
+        }
+    }
+    it.updated = this is FlushVolumesOutcome.Success && updated
+}
+
+internal fun FlushVolumesParcel.toOutcome(): FlushVolumesOutcome = error?.let(FlushVolumesOutcome::Failure)
+    ?: FlushVolumesOutcome.Success(
+        FlushVolumes(
+            filaments = filaments,
+            nozzles = nozzles,
+            matrix = matrix?.toList().orEmpty(),
+            automatic = automatic?.toList().orEmpty(),
+            multipliers = multipliers?.toList().orEmpty(),
+            modified = modified,
+        ),
+        updated = updated,
+    )
+
+internal fun PaintingOutcome.toParcel() = PaintingParcel().also {
+    when (this) {
+        is PaintingOutcome.Failure -> it.error = message
+        is PaintingOutcome.Success -> with(surface) {
+            it.hit = hit
+            it.filaments = filaments.toIntArray()
+            it.meshes = meshes.map(ScenePath::value).toTypedArray()
+            it.facets = facets.value
+        }
+    }
+}
+
+internal fun PaintingParcel.toOutcome(): PaintingOutcome = error?.let(PaintingOutcome::Failure)
+    ?: PaintingOutcome.Success(
+        PaintedSurface(
+            hit = hit,
+            filaments = filaments?.toList().orEmpty(),
+            meshes = meshes?.map(::ScenePath).orEmpty(),
+            facets = PaintedFacets(facets.orEmpty()),
+        ),
+    )
+
+internal fun WipeTowerOutcome.toParcel() = WipeTowerParcel().also {
+    when (this) {
+        is WipeTowerOutcome.Failure -> it.error = message
+        is WipeTowerOutcome.Success -> with(tower) {
+            it.shown = shown
+            it.x = x
+            it.y = y
+            it.width = width
+            it.depth = depth
+            it.height = height
+            it.rotation = rotation
+            it.brimWidth = brimWidth
+            it.filaments = filaments.toIntArray()
+        }
+    }
+}
+
+internal fun WipeTowerParcel.toOutcome(): WipeTowerOutcome = error?.let(WipeTowerOutcome::Failure)
+    ?: WipeTowerOutcome.Success(
+        WipeTower(
+            shown = shown,
+            x = x,
+            y = y,
+            width = width,
+            depth = depth,
+            height = height,
+            rotation = rotation,
+            brimWidth = brimWidth,
+            filaments = filaments?.toList().orEmpty(),
+        ),
+    )
 
 internal fun PlateDescriptionOutcome.toParcel() = PlateDescriptionParcel().also {
     when (this) {
@@ -310,37 +488,80 @@ internal fun plateManipulationOf(name: String, selected: Array<String>, arrange:
     else -> error("Unknown manipulation $name")
 }
 
-internal fun PresetsOutcome.toParcel() = PresetsParcel().also {
+internal fun PresetsOutcome.toParcel() = PresetsParcel().also { parcel ->
     when (this) {
-        is PresetsOutcome.Failure -> it.error = message
-        is PresetsOutcome.Success -> with(presets) {
-            it.selection = selection.toParcel()
-            it.setupRequired = setupRequired
-            it.printers = printers.toParcels()
-            it.filaments = filaments.toParcels()
-            it.processes = processes.toParcels()
-            it.nozzleDiameters = nozzleDiameters.toTypedArray()
-            it.nozzleDiameter = nozzleDiameter
+        is PresetsOutcome.Failure -> parcel.error = message
+        is PresetsOutcome.Success -> parcel.fill(presets)
+        is PresetsOutcome.UnsavedChanges -> {
+            parcel.fill(presets)
+            parcel.asksUnsavedChanges = true
+            parcel.changedKind = kind.name
+            parcel.canTransfer = canTransfer
+            parcel.saveName = saveName
+            parcel.saveNameCopySuffix = saveNameCopySuffix
+            parcel.unsavedChanges = Array(changes.size) { index ->
+                val change = changes[index]
+                PresetChangeParcel().also {
+                    it.id = change.id
+                    it.category = change.category.toParcels()
+                    it.group = change.group.toParcels()
+                    it.label = change.label.toParcels()
+                    it.oldValue = change.oldValue.toParcels()
+                    it.newValue = change.newValue.toParcels()
+                }
+            }
         }
     }
 }
 
+private fun PresetsParcel.fill(presets: Presets) {
+    selection = presets.selection.toParcel()
+    setupRequired = presets.setupRequired
+    printers = presets.printers.toParcels()
+    filaments = presets.filaments.toParcels()
+    processes = presets.processes.toParcels()
+    filamentColors = presets.filamentColors.toTypedArray()
+    filamentTypes = presets.filamentTypes.toTypedArray()
+    nozzleDiameters = presets.nozzleDiameters.toTypedArray()
+    nozzleDiameter = presets.nozzleDiameter
+}
+
 internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
     error?.let { return PresetsOutcome.Failure(it) }
-    return PresetsOutcome.Success(
-        Presets(
-            selection = checkNotNull(selection).toProfiles(),
-            setupRequired = setupRequired,
-            printers = printers.toItems(),
-            filaments = filaments.toItems(),
-            processes = processes.toItems(),
-            nozzleDiameters = nozzleDiameters.orEmpty().toList(),
-            nozzleDiameter = nozzleDiameter.orEmpty(),
-        ),
+    val presets = Presets(
+        selection = checkNotNull(selection).toProfiles(),
+        setupRequired = setupRequired,
+        printers = printers.toItems(),
+        filaments = filaments.toItems(),
+        processes = processes.toItems(),
+        filamentColors = filamentColors.orEmpty().toList(),
+        filamentTypes = filamentTypes.orEmpty().toList(),
+        nozzleDiameters = nozzleDiameters.orEmpty().toList(),
+        nozzleDiameter = nozzleDiameter.orEmpty(),
+    )
+    if (!asksUnsavedChanges) {
+        return PresetsOutcome.Success(presets)
+    }
+    return PresetsOutcome.UnsavedChanges(
+        presets = presets,
+        kind = PresetKind.valueOf(changedKind.orEmpty()),
+        changes = unsavedChanges.orEmpty().map { change ->
+            PresetChange(
+                id = change.id,
+                category = change.category.toTexts(),
+                group = change.group.toTexts(),
+                label = change.label.toTexts(),
+                oldValue = change.oldValue.toTexts(),
+                newValue = change.newValue.toTexts(),
+            )
+        },
+        canTransfer = canTransfer,
+        saveName = saveName.orEmpty(),
+        saveNameCopySuffix = saveNameCopySuffix,
     )
 }
 
-private fun List<PresetListItem>.toParcels(): Array<PresetItemParcel> = Array(size) { index ->
+internal fun List<PresetListItem>.toParcels(): Array<PresetItemParcel> = Array(size) { index ->
     val item = this[index]
     PresetItemParcel().also {
         it.name = item.name
@@ -351,7 +572,7 @@ private fun List<PresetListItem>.toParcels(): Array<PresetItemParcel> = Array(si
     }
 }
 
-private fun Array<PresetItemParcel>?.toItems(): List<PresetListItem> =
+internal fun Array<PresetItemParcel>?.toItems(): List<PresetListItem> =
     orEmpty().map { PresetListItem(it.name, it.label, PresetGroup.valueOf(it.group), it.subgroup, it.selected) }
 
 internal fun PresetChoice.parcelKind(): String = when (this) {

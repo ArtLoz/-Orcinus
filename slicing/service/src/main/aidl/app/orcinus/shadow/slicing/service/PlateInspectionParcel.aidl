@@ -1,10 +1,10 @@
 package app.orcinus.shadow.slicing.service;
 
-import app.orcinus.shadow.slicing.service.InspectionParcel;
+import app.orcinus.shadow.slicing.service.PlateObjectInspectionParcel;
 
 /** PlateInspectionOutcome flattened; a non-null error means failure. */
 parcelable PlateInspectionParcel {
     @nullable String error;
-    /** Every object as placed, in the plate's order. */
-    @nullable InspectionParcel[] inspections;
+    /** The copies of every object as placed, in the plate's order. */
+    @nullable PlateObjectInspectionParcel[] inspections;
 }

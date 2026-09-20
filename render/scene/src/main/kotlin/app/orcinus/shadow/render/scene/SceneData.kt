@@ -3,9 +3,15 @@ package app.orcinus.shadow.render.scene
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.ObjectPart
+import app.orcinus.shadow.core.model.PaintedMesh
 import app.orcinus.shadow.core.model.PlateDescription
+import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.render.scene.gl.GlVertexArray
 import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
@@ -19,6 +25,32 @@ import java.util.concurrent.ConcurrentHashMap
 
 // Heights OrcaSlicer draws the plate at, keeping its layers apart
 // (src/slic3r/GUI/PartPlate.cpp and 3DBed.cpp).
+/**
+ * The scene index of the wipe tower, which is no object of the plate: the view
+ * reports it as the selection when the tower is picked.
+ */
+const val WIPE_TOWER_INDEX = -1
+
+/** Orca: the tower's preview is drawn half transparent (load_wipe_tower_preview). */
+private const val WIPE_TOWER_ALPHA = 0.66f
+
+/** The colour of a stripe whose filament the plate does not list. */
+private val WIPE_TOWER_FALLBACK = ColorRgba(1f, 1f, 1f)
+
+/** load_wipe_tower_preview(): a tower this shallow is not drawn, and a flat one is given a sliver of height. */
+private const val WIPE_TOWER_MIN_DEPTH = 0.01
+private const val WIPE_TOWER_MIN_HEIGHT = 0.1
+
+/** The triangles of a box over the eight corners boxPositions() writes, wound outwards. */
+private val BOX_TRIANGLES = intArrayOf(
+    0, 2, 1, 0, 3, 2,
+    4, 5, 6, 4, 6, 7,
+    0, 1, 5, 0, 5, 4,
+    1, 2, 6, 1, 6, 5,
+    2, 3, 7, 2, 7, 6,
+    3, 0, 4, 3, 4, 7,
+)
+
 internal const val GROUND_Z = -0.03f
 internal const val GROUND_Z_GRIDLINE = -0.26f
 internal const val LOGO_Z = GROUND_Z + 0.02f
@@ -64,10 +96,20 @@ internal class SceneObject(
     val sphereRadius: Double,
     /** ModelInstance::auto_drop: a manipulation rests the object on the plate. */
     val autoDrop: Boolean = true,
+    /** ModelInstance::printable: an object that is not printed is drawn in OrcaSlicer's unprintable colour. */
+    val printable: Boolean = true,
+    /** GLVolume::is_transparent(): drawn after the opaque volumes, blended (GLVolumeCollection::render). */
+    val transparent: Boolean = false,
+    /**
+     * The triangles painted with a filament, which lie on the object's own
+     * surface: they are drawn with a depth bias so the paint wins over it.
+     */
+    val overlay: Boolean = false,
 ) {
     val bounds = mesh.bounds.transformed(world)
 
-    fun withWorld(world: Affine3) = SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop)
+    fun withWorld(world: Affine3) =
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay)
 
     /** The bounding sphere's centre in world coordinates. */
     fun sphereCenter(): Vec3 = world.transformPoint(sphereCenter)
@@ -140,8 +182,29 @@ internal object VolumeColors {
     private const val FULL_TRANSPARENT_MODIFIED_TO_FIX_ALPHA = 0.3f
     private const val FULL_BLACK_THRESHOLD = 0.2f
 
+    /** GLVolume::UNPRINTABLE_COLOR, which an object that is not printed is drawn in. */
+    private val UNPRINTABLE = ColorRgba(0f, 0f, 0f, 0.5f)
+
+    /** The colours of the parts of an object (GLVolume of 3DScene.cpp). */
+    private val MODEL_MODIFIER = ColorRgba(1f, 1f, 0f, 0.6f)
+    private val MODEL_NEGATIVE = ColorRgba(0.3f, 0.3f, 0.3f, 0.4f)
+    private val SUPPORT_ENFORCER = ColorRgba(0.3f, 0.3f, 1f, 0.4f)
+    private val SUPPORT_BLOCKER = ColorRgba(1f, 0.3f, 0.3f, 0.4f)
+
+    /** color_from_model_volume(): a part prints in the filament's colour, the others in their own. */
+    fun of(type: VolumeType, color: ColorRgba): ColorRgba = when (type) {
+        VolumeType.PART -> color
+        VolumeType.NEGATIVE -> MODEL_NEGATIVE
+        VolumeType.MODIFIER -> MODEL_MODIFIER
+        VolumeType.SUPPORT_BLOCKER -> SUPPORT_BLOCKER
+        VolumeType.SUPPORT_ENFORCER -> SUPPORT_ENFORCER
+    }
+
     /** GLVolume::set_render_color(): the filament colour, brightened when selected. */
-    fun render(color: ColorRgba, selected: Boolean): ColorRgba {
+    fun render(color: ColorRgba, selected: Boolean, printable: Boolean = true): ColorRgba {
+        if (!printable) {
+            return if (selected) brighten(UNPRINTABLE) else UNPRINTABLE
+        }
         val base = adjustForRendering(color)
         return if (selected) brighten(base) else base
     }
@@ -221,8 +284,30 @@ internal object SceneLoader {
         )
     }
 
-    fun loadObject(index: Int, plateObject: PlateObject, color: ColorRgba, meshes: MeshCache): SceneObject {
-        val inspection = plateObject.inspection
+    /**
+     * One copy of an object as the scene draws it: the object's mesh with the
+     * copy's transformation, which every copy of an object shares
+     * (ModelObject::instances).
+     */
+    /** One part of an object as the scene draws it: its mesh, inside the copy. */
+    fun loadPart(index: Int, part: ObjectPart, instance: PlateInstance, color: ColorRgba, meshes: MeshCache): SceneObject {
+        val world = Affine3(instance.inspection.placement.columns.toDoubleArray()) * Affine3(part.placement.columns.toDoubleArray())
+        val mesh = meshes[part.mesh.value]
+        return SceneObject(
+            index = index,
+            key = part.mesh.value,
+            mesh = mesh,
+            world = world,
+            color = VolumeColors.of(part.type, color),
+            sphereCenter = mesh.bounds.center(),
+            sphereRadius = 0.5 * mesh.bounds.maxSize(),
+            autoDrop = instance.autoDrop,
+            printable = instance.printable,
+        )
+    }
+
+    fun loadObject(index: Int, plateObject: PlateObject, instance: PlateInstance, color: ColorRgba, meshes: MeshCache): SceneObject {
+        val inspection = instance.inspection
         val world = Affine3(inspection.placement.columns.toDoubleArray())
         val sphere = inspection.boundingSphere
         return SceneObject(
@@ -233,7 +318,82 @@ internal object SceneLoader {
             color = color,
             sphereCenter = world.inverse().transformPoint(Vec3(sphere.center.x, sphere.center.y, sphere.center.z)),
             sphereRadius = sphere.radius,
-            autoDrop = plateObject.autoDrop,
+            autoDrop = instance.autoDrop,
+            printable = instance.printable,
+        )
+    }
+
+    /**
+     * The triangles of an object painted with one filament
+     * (GLGizmoMmuSegmentation): the engine writes them as a mesh of their own,
+     * which the view draws over the object in that filament's colour.
+     */
+    fun loadPaintedMesh(
+        index: Int,
+        painted: PaintedMesh,
+        instance: PlateInstance,
+        color: ColorRgba,
+        meshes: MeshCache,
+    ): SceneObject {
+        val world = Affine3(instance.inspection.placement.columns.toDoubleArray())
+        val mesh = meshes[painted.mesh.value]
+        return SceneObject(
+            index = index,
+            key = painted.mesh.value,
+            mesh = mesh,
+            world = world,
+            color = color,
+            sphereCenter = mesh.bounds.center(),
+            sphereRadius = 0.5 * mesh.bounds.maxSize(),
+            autoDrop = instance.autoDrop,
+            printable = instance.printable,
+            overlay = true,
+        )
+    }
+
+    /**
+     * GLVolumeCollection::load_wipe_tower_preview(): the tower is a box as wide
+     * and deep as the engine reports, standing on the plate at its front left
+     * corner, turned by wipe_tower_rotation_angle and drawn half transparent.
+     * The desktop app stripes it with the colour of every filament printed on
+     * the plate; one volume takes the colour of the first, since the scene
+     * moves a volume as a whole.
+     */
+    fun loadWipeTower(tower: WipeTower, colors: List<ColorRgba>, built: ScenePath? = null): SceneObject? {
+        if (built == null && tower.depth < WIPE_TOWER_MIN_DEPTH) return null
+        val height = if (tower.height == 0.0) WIPE_TOWER_MIN_HEIGHT else tower.height
+        val world = Affine3.assemble(
+            Vec3(tower.x, tower.y, 0.0),
+            Vec3(0.0, 0.0, Math.toRadians(tower.rotation)),
+            Vec3(1.0, 1.0, 1.0),
+        )
+        // load_real_wipe_tower_preview(): once the plate is sliced, the tower
+        // the slice built, with its ribs and brim, stands where the box stood.
+        val mesh = built?.let { runCatching { MeshFiles.read(File(it.value)) }.getOrNull() }
+            ?: MeshFiles.fromIndexed(boxPositions(tower.width, tower.depth, height), BOX_TRIANGLES)
+        val filament = tower.filaments.firstOrNull() ?: 1
+        val color = colors.getOrNull(filament - 1) ?: colors.firstOrNull() ?: WIPE_TOWER_FALLBACK
+        return SceneObject(
+            index = WIPE_TOWER_INDEX,
+            key = built?.value ?: "wipe-tower:${tower.width}:${tower.depth}:$height",
+            mesh = mesh,
+            world = world,
+            color = color.copy(alpha = WIPE_TOWER_ALPHA),
+            sphereCenter = mesh.bounds.center(),
+            sphereRadius = 0.5 * mesh.bounds.maxSize(),
+            transparent = true,
+        )
+    }
+
+    /** make_cube(): a box standing at the origin. */
+    private fun boxPositions(width: Double, depth: Double, height: Double): FloatArray {
+        val x = width.toFloat()
+        val y0 = 0f
+        val y1 = depth.toFloat()
+        val z = height.toFloat()
+        return floatArrayOf(
+            0f, y0, 0f, x, y0, 0f, x, y1, 0f, 0f, y1, 0f,
+            0f, y0, z, x, y0, z, x, y1, z, 0f, y1, z,
         )
     }
 

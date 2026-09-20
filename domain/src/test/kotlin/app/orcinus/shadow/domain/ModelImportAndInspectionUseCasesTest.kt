@@ -4,6 +4,9 @@ import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.FlushVolumes
+import app.orcinus.shadow.core.model.FlushVolumesChange
+import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelDimensions
@@ -11,7 +14,13 @@ import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.PaintStroke
+import app.orcinus.shadow.core.model.PaintedFacets
+import app.orcinus.shadow.core.model.PaintedSurface
+import app.orcinus.shadow.core.model.PaintingOutcome
+import app.orcinus.shadow.core.model.PlacedInstance
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
@@ -21,6 +30,9 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.storage.api.ModelFileImporter
 import kotlin.coroutines.Continuation
@@ -139,6 +151,37 @@ class ModelImportAndInspectionUseCasesTest {
     private class RecordingInspector(
         private val outcome: ModelInspectionOutcome,
     ) : PlateInspector {
+        override suspend fun beginPainting(
+            plateObject: PlacedModel,
+            part: Int?,
+            profiles: SlicingProfileSelection,
+            facets: PaintedFacets,
+            meshPrefix: ScenePath,
+        ): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
+
+        override suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome =
+            PaintingOutcome.Success(PaintedSurface())
+
+        override suspend fun endPainting(): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
+        override suspend fun describeFlushVolumes(
+            plate: List<PlacedModel>,
+            profiles: SlicingProfileSelection,
+            plateSettings: ModelSettings,
+        ): FlushVolumesOutcome = FlushVolumesOutcome.Success(FlushVolumes())
+
+        override suspend fun updateFlushVolumes(
+            plate: List<PlacedModel>,
+            profiles: SlicingProfileSelection,
+            plateSettings: ModelSettings,
+            change: FlushVolumesChange,
+            index: Int,
+        ): FlushVolumesOutcome = FlushVolumesOutcome.Success(FlushVolumes())
+
+        override suspend fun describeWipeTower(
+            plate: List<PlacedModel>,
+            profiles: SlicingProfileSelection,
+            plateSettings: ModelSettings,
+        ): WipeTowerOutcome = WipeTowerOutcome.Success(WipeTower())
         var model: ModelSource? = null
         var profiles: SlicingProfileSelection? = null
         var mesh: ScenePath? = null
@@ -177,8 +220,16 @@ class ModelImportAndInspectionUseCasesTest {
             manipulation: PlateManipulation,
         ): PlateInspectionOutcome {
             this.plate = plate
-            return PlateInspectionOutcome.Success(plate.map { (outcome as ModelInspectionOutcome.Success).inspection.copy(mesh = it.mesh) })
+            return PlateInspectionOutcome.Success(plate.map { listOf((outcome as ModelInspectionOutcome.Success).inspection.copy(mesh = it.mesh)) })
         }
+
+        override suspend fun addPart(
+            plateObject: PlacedModel,
+            shape: String,
+            type: VolumeType,
+            profiles: SlicingProfileSelection,
+            mesh: ScenePath,
+        ) = ModelInspectionOutcome.Failure("not used")
 
         override suspend fun flatteningPlanes(
             model: ModelSource,
@@ -219,3 +270,10 @@ class ModelImportAndInspectionUseCasesTest {
         )
     }
 }
+
+/**
+ * The tests name the one copy every object in them has, as the app did before
+ * OrcaSlicer's instances were ported.
+ */
+private fun PlacedModel(model: ModelSource, mesh: ScenePath, placement: Transform3, autoDrop: Boolean = true) =
+    PlacedModel(model, mesh, listOf(PlacedInstance(placement, autoDrop)))

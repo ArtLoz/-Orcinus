@@ -33,6 +33,14 @@
     <string name="gizmo_lay_on_face">Поверхностью на стол</string>
     <string name="gizmo_cut">Разрезать/вырезать</string>
     <string name="gizmo_mesh_boolean">Булевы операции</string>
+    <string name="gizmo_color_painting">Раскраска</string>
+    <string name="painting_filament">Материал</string>
+    <string name="painting_brush">Кисть</string>
+    <string name="painting_eraser">Стереть</string>
+    <string name="painting_done">Готово</string>
+    <string name="painting_tool_brush">Кисть</string>
+    <string name="painting_tool_fill">Заливка</string>
+    <string name="painting_tool_bucket">Вся грань</string>
     <string name="gizmo_support_painting">Рисование поддержек</string>
     <string name="gizmo_seam_painting">Рисование шва</string>
     <string name="gizmo_fuzzy_skin_painting">Рисование нечёткой оболочки</string>
@@ -56,9 +64,6 @@
     <string name="unit_mm">мм</string>
     <string name="object_clashed">Модель выходит за границы стола или превышает высоту печати.\nУместите всю модель в границы стола (или за его пределы) и убедитесь, что высота модели находится в пределах области печати.</string>
 
-    <string name="object_menu_delete">Удалить</string>
-    <!-- MenuFactory::append_menu_item_auto_drop(): "Auto Drop", untranslated in OrcaSlicer's Russian catalogue; worded like its «Автоориентация». -->
-    <string name="object_menu_auto_drop">Автоопускание на стол</string>
 
     <string name="object_name">Имя модели: %1$s</string>
     <string name="object_size">Размер: %1$s</string>

@@ -3,19 +3,59 @@
 <resources>
     <string name="section_printer">Принтер</string>
     <string name="section_filament">Материал</string>
+    <!-- Sidebar::add_custom_filament() and delete_filament(). -->
+    <string name="filament_add">Добавить материал</string>
+    <string name="filament_remove">Убрать материал</string>
     <string name="section_process">Настройки</string>
+    <string name="section_objects">Объекты</string>
+    <!-- ObjectDataViewModel: the copies of an object, which OrcaSlicer leaves untranslated ("Instance %d"). -->
+    <string name="object_instance_name">Экземпляр %1$d</string>
+    <!-- MenuFactory::append_menu_item_instance(): copies of an object, named as the toolbar names them. -->
+    <string name="object_menu_add_instance">Добавить экземпляр</string>
+    <string name="object_menu_remove_instance">Удалить экземпляр</string>
+    <!-- MenuFactory::append_menu_items_add_volume(): the shapes added to an object. -->
+    <string name="object_menu_add_part">Добавить деталь</string>
+    <string name="object_menu_add_negative">Добавить вычитание</string>
+    <string name="object_menu_add_modifier">Добавить модификатор</string>
+    <string name="object_menu_add_support_blocker">Добавить блокатор поддержек</string>
+    <!-- MenuFactory::append_menu_item_layers_editing() and the menu of a range's row. -->
+    <string name="object_menu_height_range">Диапазон высот</string>
+    <string name="object_menu_add_range_after">Добавить диапазон после</string>
+    <string name="object_menu_edit_range">Изменить высоты</string>
+    <!-- ObjectDataViewModel: "Range 0.00-2.00 (mm)". -->
+    <string name="object_layer_range">Диапазон %1$.2f-%2$.2f (мм)</string>
+    <string name="object_range_bottom">Снизу</string>
+    <string name="object_range_top">Сверху</string>
+    <string name="object_range_unit">мм</string>
+    <string name="object_range_apply">Применить</string>
+    <!-- Import Configs and Export Preset Bundle of the desktop app's File menu. -->
+    <string name="config_import">Импорт конфигурации</string>
+    <string name="config_export">Экспорт конфигурации</string>
+    <string name="config_imported">Импортировано профилей: %1$d</string>
+    <string name="config_exported">Экспортировано файлов: %1$d</string>
+    <string name="config_import_hint">Только пользовательские профили, совместимые с установленными принтерами. Профиль с тем же именем будет заменён.</string>
+    <string name="object_menu_add_support_enforcer">Добавить усилитель поддержек</string>
+    <!-- create_mesh() of GUI_ObjectList.cpp: the shapes a part can have. -->
+    <string name="object_shape_title">Форма детали</string>
+    <string name="object_shape_cube">Куб</string>
+    <string name="object_shape_cylinder">Цилиндр</string>
+    <string name="object_shape_sphere">Сфера</string>
+    <string name="object_shape_slab">Плита</string>
+    <string name="object_shape_cone">Конус</string>
+    <string name="object_shape_disc">Диск</string>
+    <string name="object_shape_torus">Тор</string>
+    <!-- ObjectDataViewModel: what a part of an object is called in the list. -->
+    <string name="object_part_name">Деталь (%1$s)</string>
+    <string name="object_part_negative">Вычитание (%1$s)</string>
+    <string name="object_part_modifier">Модификатор (%1$s)</string>
+    <string name="object_part_support_blocker">Блокатор поддержек (%1$s)</string>
+    <string name="object_part_support_enforcer">Усилитель поддержек (%1$s)</string>
     <string name="collapse_sidebar">Свернуть боковую панель</string>
     <string name="expand_sidebar">Развернуть боковую панель</string>
 
     <string name="nozzle_diameter">Диаметр сопла</string>
-    <string name="user_presets">Пользовательские профили</string>
-    <string name="bundle_presets">Профили пакетов</string>
-    <string name="system_presets">Системные профили</string>
-    <string name="unspecified">Неизвестные</string>
     <string name="select_printers">Выбрать принтеры</string>
     <string name="select_filaments">Выбрать материалы</string>
-    <string name="search">Поиск</string>
-    <string name="clear_search">Очистить поиск</string>
     <string name="millimeters">%1$s мм</string>
 
     <string name="engine_starting">Запуск ядра OrcaSlicer…</string>

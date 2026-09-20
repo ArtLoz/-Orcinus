@@ -58,12 +58,13 @@ abstract class BuildOrcaEngine @Inject constructor(
  * Packages OrcaSlicer's runtime files from the pinned submodule as the asset
  * orca/resources.zip, laid out as Orca's resources directory: every vendor's
  * profiles under profiles/, with the printer covers, bed models, and textures
- * they name, and the info/ and flush/ tables. OrcaAssets extracts it into app
- * storage; the engine installs the vendor bundles the Setup Wizard chooses from
- * there into data/system, as the desktop app does. The archive's entries are
- * sorted and dated alike, so it only changes with the files. They are stored
- * uncompressed: the APK compresses the archive as a whole, which suits 12 000
- * small JSON files better than compressing each.
+ * they name, the info/ and flush/ tables, and the printer types of printers/.
+ * OrcaAssets extracts it into app storage; the engine installs the vendor
+ * bundles the Setup Wizard chooses from there into data/system, as the desktop
+ * app does. The archive's entries are sorted and dated alike, so it only
+ * changes with the files. They are stored uncompressed: the APK compresses the
+ * archive as a whole, which suits 12 000 small JSON files better than
+ * compressing each.
  */
 abstract class PrepareOrcaAssets : DefaultTask() {
     @get:Internal
@@ -117,6 +118,8 @@ val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
     packagedFiles.from(
         orcaResourcesDirectory.dir("info"),
         orcaResourcesDirectory.dir("flush"),
+        // DevPrinterConfigUtil's printer types, which ConfigManipulation asks.
+        orcaResourcesDirectory.dir("printers").asFileTree.matching { include("*.json") },
         orcaResourcesDirectory.dir("profiles").asFileTree.matching { include("**/*.json", "**/*.png", "**/*.stl", "**/*.svg") },
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaAssets"))
@@ -151,8 +154,17 @@ androidComponents {
     }
 }
 
+// The port of OrcaSlicer's settings tabs is checked against the pinned sources.
+tasks.withType<Test>().configureEach {
+    systemProperty("orcinus.upstreamTab", rootProject.layout.projectDirectory.file("upstream/OrcaSlicer/src/slic3r/GUI/Tab.cpp").asFile.absolutePath)
+    systemProperty("orcinus.adapterSources", layout.projectDirectory.dir("src/main/cpp").asFile.absolutePath)
+    systemProperty("orcinus.consumerRules", layout.projectDirectory.file("consumer-rules.pro").asFile.absolutePath)
+}
+
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":slicing:api"))
     implementation(libs.kotlinx.coroutines.core)
+
+    testImplementation(kotlin("test-junit"))
 }

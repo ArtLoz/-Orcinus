@@ -60,6 +60,12 @@ data class OrcaColors(
     val textSide: Color,
     val textDisabled: Color,
     val textDisabledOnBox: Color,
+    /** A setting's label (GUI_App's label colours): its value differs from the saved preset. */
+    val labelModified: Color,
+    /** The value equals the preset the edited one inherits from. */
+    val labelSystem: Color,
+    /** The value is saved but differs from the parent preset, or the preset is the default one. */
+    val labelDefault: Color,
 
     // 3D canvas
     val canvas: Color,
@@ -114,6 +120,9 @@ val OrcaLightColors = OrcaColors(
     textSide = Color(0xFF6B6B6A),
     textDisabled = Color(0xFF6B6B6B),
     textDisabledOnBox = Color(0xFFACACAC),
+    labelModified = Color(0xFFF1754E),
+    labelSystem = Color(0xFF363636),
+    labelDefault = Color(0xFF363636),
 
     canvas = rgba(0.906f, 0.906f, 0.906f),
     plate = rgba(0.3255f, 0.337f, 0.337f),
@@ -163,6 +172,9 @@ val OrcaDarkColors = OrcaColors(
     textSide = Color(0xFFB3B3B5),
     textDisabled = Color(0xFF818183),
     textDisabledOnBox = Color(0xFF65656A),
+    labelModified = Color(0xFFF1754E),
+    labelSystem = Color(0xFFB2B3B5),
+    labelDefault = Color(250, 250, 250),
 
     canvas = rgba(0.329f, 0.329f, 0.353f),
     plate = rgba(0.255f, 0.255f, 0.283f),

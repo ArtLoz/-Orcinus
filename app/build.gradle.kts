@@ -125,14 +125,18 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
 
 dependencies {
     implementation(project(":core:designsystem"))
+    implementation(project(":core:ui"))
     implementation(project(":data:notices"))
     implementation(project(":data:plate"))
     implementation(project(":domain"))
     implementation(project(":feature:about"))
     implementation(project(":feature:prepare"))
     implementation(project(":feature:preview"))
+    implementation(project(":feature:settings"))
     implementation(project(":feature:setup"))
     implementation(project(":feature:sidebar"))
+    implementation(project(":network:printhost"))
+    implementation(project(":render:scene"))
     implementation(project(":slicing:api"))
     implementation(project(":slicing:native"))
     implementation(project(":slicing:service"))

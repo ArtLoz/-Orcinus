@@ -16,9 +16,13 @@ import kotlin.math.sin
  * OrcaSlicer's scene camera (src/slic3r/GUI/Camera.cpp), ported line by line.
  * The camera orbits a target at a fixed distance and zooms by scaling the
  * view frustum rather than by moving, so framing and gestures behave as on
- * desktop. Only the perspective projection, OrcaSlicer's default, is ported.
+ * desktop. The 3D view uses the perspective projection, OrcaSlicer's default;
+ * the G-code thumbnails the orthographic one.
  */
 internal class OrcaCamera {
+    /** Camera::EType::Ortho; the perspective projection otherwise. */
+    var orthographic = false
+
     /** Degrees above the plate: 90 looks straight down. */
     var zenit = 45.0
         private set
@@ -45,7 +49,7 @@ internal class OrcaCamera {
     var farZ = 0.0
         private set
 
-    /** Column-major perspective projection from the last applyProjection(). */
+    /** Column-major projection from the last applyProjection(). */
     var projectionMatrix = DoubleArray(16)
         private set
 
@@ -131,10 +135,16 @@ internal class OrcaCamera {
         farZ = far
 
         val inverseZoom = 1.0 / zoom
+        var w = 0.5 * viewportWidth * inverseZoom
+        var h = 0.5 * viewportHeight * inverseZoom
+        if (orthographic) {
+            projectionMatrix = ortho(-w, w, -h, h, nearZ, farZ)
+            return
+        }
         // Scale the near plane to keep width and height constant on the plane at z = distance.
         val scale = nearZ / distance
-        val w = 0.5 * viewportWidth * inverseZoom * scale
-        val h = 0.5 * viewportHeight * inverseZoom * scale
+        w *= scale
+        h *= scale
         projectionMatrix = perspective(-w, w, -h, h, nearZ, farZ)
     }
 
@@ -284,6 +294,19 @@ internal class OrcaCamera {
         private const val FRUSTUM_MIN_NEAR_Z = 100.0
         private const val FRUSTUM_Z_MARGIN = 10.0
         private const val EPSILON = 1e-4
+
+        /** Camera::apply_projection() for the orthographic type, column-major. */
+        private fun ortho(left: Double, right: Double, bottom: Double, top: Double, near: Double, far: Double): DoubleArray {
+            val inverseDx = 1.0 / (right - left)
+            val inverseDy = 1.0 / (top - bottom)
+            val inverseDz = 1.0 / (far - near)
+            return doubleArrayOf(
+                2.0 * inverseDx, 0.0, 0.0, 0.0,
+                0.0, 2.0 * inverseDy, 0.0, 0.0,
+                0.0, 0.0, -2.0 * inverseDz, 0.0,
+                -(left + right) * inverseDx, -(bottom + top) * inverseDy, -(near + far) * inverseDz, 1.0,
+            )
+        }
 
         /** Camera::apply_projection() for the perspective type, column-major. */
         private fun perspective(left: Double, right: Double, bottom: Double, top: Double, near: Double, far: Double): DoubleArray {

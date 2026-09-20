@@ -53,7 +53,8 @@ int main(int argc, char** argv)
     profiles.process = argv[9];
     orca::PlateObject model;
     model.model_path = argv[4];
-    const orca::SliceResult result = orca::slice("golden", {model}, argv[5], {}, profiles, {});
+    // The golden run prints with the presets alone: the plate overrides nothing.
+    const orca::SliceResult result = orca::slice("golden", {model}, argv[5], {}, profiles, {}, {});
 
     std::printf("status=%lld layers=%lld time_s=%lld filament_um=%lld message=%s\n",
         static_cast<long long>(result.status),

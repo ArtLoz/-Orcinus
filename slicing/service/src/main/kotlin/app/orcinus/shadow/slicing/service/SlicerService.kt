@@ -7,14 +7,35 @@ import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.BedShapeKind
+import app.orcinus.shadow.core.model.ComparedPresets
+import app.orcinus.shadow.core.model.ConfigExportKind
+import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
+import app.orcinus.shadow.core.model.CreateFilamentRequest
+import app.orcinus.shadow.core.model.CreatePrinterRequest
+import app.orcinus.shadow.core.model.FilamentPresetChoice
+import app.orcinus.shadow.core.model.FlushVolumesChange
+import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.PaintStroke
+import app.orcinus.shadow.core.model.PaintTool
+import app.orcinus.shadow.core.model.PaintedFacets
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetChangeAction
+import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
+import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -34,7 +55,7 @@ import kotlinx.coroutines.runBlocking
  * notification, so slicing continues when the app leaves the screen. It stops
  * itself when the job ends.
  */
-abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector, E : PresetManager {
+abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -113,15 +134,103 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             engine.placeObjects(plate.toPlacedModels(), profiles.toProfiles(), plateManipulationOf(manipulation, selected, arrangeSettings))
         }.toParcel()
 
+        override fun updateFlushVolumes(
+            plate: Array<PlacedModelParcel>,
+            profiles: ProfilesParcel,
+            plateSettings: ModelSettingsParcel,
+            change: String,
+            index: Int,
+        ): FlushVolumesParcel = runBlocking {
+            engine.updateFlushVolumes(
+                plate.toPlacedModels(),
+                profiles.toProfiles(),
+                plateSettings.toModelSettings(),
+                FlushVolumesChange.valueOf(change),
+                index,
+            )
+        }.toParcel()
+
+        override fun describeFlushVolumes(
+            plate: Array<PlacedModelParcel>,
+            profiles: ProfilesParcel,
+            plateSettings: ModelSettingsParcel,
+        ): FlushVolumesParcel = runBlocking {
+            engine.describeFlushVolumes(plate.toPlacedModels(), profiles.toProfiles(), plateSettings.toModelSettings())
+        }.toParcel()
+
+        override fun beginPainting(
+            plateObject: PlacedModelParcel,
+            part: Int,
+            profiles: ProfilesParcel,
+            facets: String,
+            meshPrefix: String,
+        ): PaintingParcel = runBlocking {
+            engine.beginPainting(
+                plateObject = arrayOf(plateObject).toPlacedModels().first(),
+                part = part.takeIf { it >= 0 },
+                profiles = profiles.toProfiles(),
+                facets = PaintedFacets(facets),
+                meshPrefix = ScenePath(meshPrefix),
+            )
+        }.toParcel()
+
+        override fun paintStroke(
+            origin: DoubleArray,
+            direction: DoubleArray,
+            filament: Int,
+            radius: Double,
+            tool: String,
+            angle: Double,
+            meshPrefix: String,
+        ): PaintingParcel = runBlocking {
+            engine.paint(
+                PaintStroke(
+                    origin = Vector3(origin[0], origin[1], origin[2]),
+                    direction = Vector3(direction[0], direction[1], direction[2]),
+                    filament = filament,
+                    radius = radius,
+                    tool = PaintTool.valueOf(tool),
+                    angle = angle,
+                ),
+                ScenePath(meshPrefix),
+            )
+        }.toParcel()
+
+        override fun endPainting(): PaintingParcel = runBlocking { engine.endPainting() }.toParcel()
+
+        override fun describeWipeTower(
+            plate: Array<PlacedModelParcel>,
+            profiles: ProfilesParcel,
+            plateSettings: ModelSettingsParcel,
+        ): WipeTowerParcel = runBlocking {
+            engine.describeWipeTower(plate.toPlacedModels(), profiles.toProfiles(), plateSettings.toModelSettings())
+        }.toParcel()
+
         override fun flatteningPlanes(model: ModelSourceParcel, profiles: ProfilesParcel, meshPath: String, placement: DoubleArray): FlatteningPlanesParcel =
             runBlocking {
                 engine.flatteningPlanes(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath), Transform3(placement.toList()))
             }.toParcel()
 
+        override fun addObjectPart(
+            plateObject: PlacedModelParcel,
+            shape: String,
+            type: String,
+            profiles: ProfilesParcel,
+            meshPath: String,
+        ): InspectionParcel = runBlocking {
+            engine.addPart(
+                arrayOf(plateObject).toPlacedModels().first(),
+                shape,
+                VolumeType.valueOf(type),
+                profiles.toProfiles(),
+                ScenePath(meshPath),
+            )
+        }.toParcel()
+
         override fun presets(): PresetsParcel = runBlocking { engine.presets() }.toParcel()
 
-        override fun selectPreset(kind: String, value: String): PresetsParcel =
-            runBlocking { engine.selectPreset(presetChoiceOf(kind, value)) }.toParcel()
+        override fun selectPreset(kind: String, value: String, action: String): PresetsParcel =
+            runBlocking { engine.selectPreset(presetChoiceOf(kind, value), PresetChangeAction.valueOf(action)) }.toParcel()
 
         override fun setupPrinters(): SetupPrintersParcel = runBlocking { engine.setupPrinters() }.toParcel()
 
@@ -133,11 +242,301 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun applyDefaultSetup(): PresetsParcel = runBlocking { engine.applyDefaultSetup() }.toParcel()
 
+        override fun settingsTab(kind: String): SettingsTabParcel = runBlocking { engine.settingsTab(PresetKind.valueOf(kind)) }.toParcel()
+
+        override fun settings(
+            kind: String,
+            page: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+            models: Array<ModelSettingsParcel>?,
+            plate: ModelSettingsParcel?,
+            parent: ModelSettingsParcel?,
+        ): PresetSettingsParcel =
+            runBlocking { engine.settings(PresetKind.valueOf(kind), page, answersOf(answerIds, answers), modelRequestOf(models, plate, parent)) }.toParcel()
+
+        override fun changeSetting(
+            kind: String,
+            page: String,
+            id: String,
+            text: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+            models: Array<ModelSettingsParcel>?,
+            plate: ModelSettingsParcel?,
+            parent: ModelSettingsParcel?,
+        ): PresetSettingsParcel = runBlocking {
+            engine.changeSetting(PresetKind.valueOf(kind), page, id, text, answersOf(answerIds, answers), modelRequestOf(models, plate, parent))
+        }.toParcel()
+
+        override fun resetSettings(
+            kind: String,
+            page: String,
+            ids: Array<String>,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+            models: Array<ModelSettingsParcel>?,
+            plate: ModelSettingsParcel?,
+            parent: ModelSettingsParcel?,
+        ): PresetSettingsParcel = runBlocking {
+            engine.resetSettings(PresetKind.valueOf(kind), page, ids.toList(), answersOf(answerIds, answers), modelRequestOf(models, plate, parent))
+        }.toParcel()
+
+        override fun setSettingOverride(
+            kind: String,
+            page: String,
+            id: String,
+            enabled: Boolean,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): PresetSettingsParcel =
+            runBlocking { engine.setSettingOverride(PresetKind.valueOf(kind), page, id, enabled, answersOf(answerIds, answers)) }.toParcel()
+
+        override fun setCompatiblePresets(
+            kind: String,
+            page: String,
+            key: String,
+            presets: Array<String>,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): PresetSettingsParcel = runBlocking {
+            engine.setCompatiblePresets(PresetKind.valueOf(kind), page, key, presets.toList(), answersOf(answerIds, answers))
+        }.toParcel()
+
+        override fun addFilament(): PresetsParcel = runBlocking { engine.addFilament() }.toParcel()
+
+        override fun removeFilament(index: Int): PresetsParcel = runBlocking { engine.removeFilament(index) }.toParcel()
+
+        override fun selectFilament(index: Int, name: String, action: String): PresetsParcel =
+            runBlocking { engine.selectFilament(index, ProfileId(name), PresetChangeAction.valueOf(action)) }.toParcel()
+
+        override fun setFilamentColor(index: Int, color: String): PresetsParcel =
+            runBlocking { engine.setFilamentColor(index, color) }.toParcel()
+
+        override fun physicalPrinters(): PhysicalPrintersParcel = runBlocking { engine.physicalPrinters() }.toParcel()
+
+        override fun savePhysicalPrinter(printer: PhysicalPrinterParcel, renamedFrom: String?): PhysicalPrintersParcel =
+            runBlocking { engine.savePhysicalPrinter(printer.toPhysicalPrinter(), renamedFrom) }.toParcel()
+
+        override fun deletePhysicalPrinter(name: String): PhysicalPrintersParcel =
+            runBlocking { engine.deletePhysicalPrinter(name) }.toParcel()
+
+        override fun importPresets(paths: Array<String>, answerPresets: Array<String>, answers: LongArray): ConfigTransferParcel =
+            runBlocking {
+                engine.importPresets(
+                    paths.toList(),
+                    answerPresets.mapIndexed { index, preset ->
+                        preset to ConfigOverwriteAnswer.entries[answers.getOrElse(index) { 0 }.toInt()]
+                    }.toMap(),
+                )
+            }.toParcel()
+
+        override fun createFilamentOptions(type: String, baseFilament: String): CreateFilamentOptionsParcel =
+            runBlocking { engine.createFilamentOptions(type, baseFilament) }.toParcel()
+
+        override fun createFilament(
+            vendor: String,
+            customVendor: Boolean,
+            type: String,
+            serial: String,
+            printers: Array<String>,
+            presets: Array<String>,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): PresetCreationParcel = runBlocking {
+            engine.createFilament(
+                CreateFilamentRequest(
+                    vendor = vendor,
+                    customVendor = customVendor,
+                    type = type,
+                    serial = serial,
+                    presets = printers.mapIndexedNotNull { index, printer ->
+                        presets.getOrNull(index)?.let { FilamentPresetChoice(printer, it) }
+                    },
+                ),
+                answersOf(answerIds, answers),
+            )
+        }.toParcel()
+
+        override fun createPrinterOptions(
+            vendor: String,
+            nozzle: String,
+            presetVendor: String,
+            printerPreset: String,
+        ): CreatePrinterOptionsParcel = runBlocking { engine.createPrinterOptions(vendor, nozzle, presetVendor, printerPreset) }.toParcel()
+
+        override fun createPrinter(
+            model: String,
+            nozzle: String,
+            printableArea: DoubleArray,
+            maxPrintHeight: Double,
+            customTexture: String,
+            customModel: String,
+            presetVendor: String,
+            printerPreset: String,
+            filamentPresets: Array<String>,
+            processPresets: Array<String>,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): PresetCreationParcel = runBlocking {
+            engine.createPrinter(
+                CreatePrinterRequest(
+                    model = model,
+                    nozzle = nozzle,
+                    printableArea = (printableArea.indices step 2).mapNotNull { index ->
+                        printableArea.getOrNull(index + 1)?.let { Point2(printableArea[index], it) }
+                    },
+                    maxPrintHeight = maxPrintHeight,
+                    customTexture = customTexture,
+                    customModel = customModel,
+                    presetVendor = presetVendor,
+                    printerPreset = printerPreset,
+                    filamentPresets = filamentPresets.toList(),
+                    processPresets = processPresets.toList(),
+                ),
+                answersOf(answerIds, answers),
+            )
+        }.toParcel()
+
+        override fun customFilaments(): CustomFilamentsParcel = runBlocking { engine.customFilaments() }.toParcel()
+
+        override fun filamentPresets(filamentId: String): FilamentPresetsParcel =
+            runBlocking { engine.filamentPresets(filamentId) }.toParcel()
+
+        override fun deleteFilamentPreset(preset: String, answerIds: Array<String>, answers: BooleanArray): PresetCreationParcel =
+            runBlocking { engine.deleteFilamentPreset(preset, answersOf(answerIds, answers)) }.toParcel()
+
+        override fun configExportOptions(kind: String): ConfigExportOptionsParcel =
+            runBlocking { engine.configExportOptions(ConfigExportKind.valueOf(kind)) }.toParcel()
+
+        override fun exportConfigs(kind: String, names: Array<String>, directory: String): ConfigTransferParcel =
+            runBlocking { engine.exportConfigs(ConfigExportKind.valueOf(kind), names.toList(), directory) }.toParcel()
+
+        override fun comparePresets(left: Array<String>, right: Array<String>, showAll: Boolean): PresetComparisonParcel =
+            runBlocking { engine.comparePresets(left.toCompared(), right.toCompared(), showAll) }.toParcel()
+
+        /** The order the service passes the presets of a side in. */
+        private fun Array<String>.toCompared() = ComparedPresets(
+            printer = getOrElse(0) { "" },
+            print = getOrElse(1) { "" },
+            filament = getOrElse(2) { "" },
+        )
+
+        override fun transferPresetOptions(kind: String, from: String, to: String, options: Array<String>): PresetsParcel =
+            runBlocking { engine.transferPresetOptions(PresetKind.valueOf(kind), from, to, options.toList()) }.toParcel()
+
+        override fun searchCatalog(): SearchCatalogParcel = runBlocking { engine.searchCatalog() }.toParcel()
+
+        override fun gcodePlaceholders(kind: String, key: String): GcodePlaceholdersParcel =
+            runBlocking { engine.gcodePlaceholders(PresetKind.valueOf(kind), key) }.toParcel()
+
+        override fun gcodePlaceholder(key: String, presets: Boolean): GcodePlaceholderInfoParcel =
+            runBlocking { engine.gcodePlaceholder(key, presets) }.toParcel()
+
+        override fun editCustomGcode(
+            kind: String,
+            page: String,
+            key: String,
+            value: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): PresetSettingsParcel = runBlocking {
+            engine.editCustomGcode(PresetKind.valueOf(kind), page, key, value, answersOf(answerIds, answers))
+        }.toParcel()
+
+        override fun setRammingParameters(
+            kind: String,
+            page: String,
+            parameters: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): PresetSettingsParcel = runBlocking {
+            engine.setRammingParameters(PresetKind.valueOf(kind), page, parameters, answersOf(answerIds, answers))
+        }.toParcel()
+
+        override fun bedShape(): BedShapeParcel = runBlocking { engine.bedShape() }.toParcel()
+
+        override fun setBedShape(
+            kind: String,
+            sizeX: Double,
+            sizeY: Double,
+            originX: Double,
+            originY: Double,
+            diameter: Double,
+            customPath: String?,
+            texture: String,
+            model: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): PresetSettingsParcel = runBlocking {
+            engine.setBedShape(
+                shape = BedShape(
+                    kind = BedShapeKind.valueOf(kind),
+                    sizeX = sizeX,
+                    sizeY = sizeY,
+                    originX = originX,
+                    originY = originY,
+                    diameter = diameter,
+                    texture = texture,
+                    model = model,
+                ),
+                customPath = customPath?.let(::ModelPath),
+                answers = answersOf(answerIds, answers),
+            )
+        }.toParcel()
+
+        override fun compatiblePresetChoices(kind: String, key: String): PresetNamesParcel =
+            runBlocking { engine.compatiblePresetChoices(PresetKind.valueOf(kind), key) }.toParcel()
+
+        override fun setSettingsMode(
+            kind: String,
+            mode: String,
+            models: Array<ModelSettingsParcel>?,
+            plate: ModelSettingsParcel?,
+            parent: ModelSettingsParcel?,
+        ): PresetSettingsParcel = runBlocking {
+            engine.setSettingsMode(PresetKind.valueOf(kind), SettingsMode.valueOf(mode), modelRequestOf(models, plate, parent))
+        }.toParcel()
+
+        override fun setSettingsVariant(
+            kind: String,
+            page: String,
+            variant: Int,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+            models: Array<ModelSettingsParcel>?,
+            plate: ModelSettingsParcel?,
+            parent: ModelSettingsParcel?,
+        ): PresetSettingsParcel = runBlocking {
+            engine.setSettingsVariant(
+                PresetKind.valueOf(kind),
+                page,
+                variant,
+                answersOf(answerIds, answers),
+                modelRequestOf(models, plate, parent),
+            )
+        }.toParcel()
+
+        override fun settingTooltip(kind: String, id: String): Array<OrcaTextParcel> =
+            runBlocking { engine.settingTooltip(PresetKind.valueOf(kind), id) }.toParcels()
+
+        override fun checkPresetName(kind: String, name: String): PresetNameParcel =
+            runBlocking { engine.checkPresetName(PresetKind.valueOf(kind), name) }.toParcel()
+
+        override fun savePreset(kind: String, name: String): PresetSettingsParcel =
+            runBlocking { engine.savePreset(PresetKind.valueOf(kind), name) }.toParcel()
+
+        override fun deletePreset(kind: String, answerIds: Array<String>, answers: BooleanArray): PresetSettingsParcel =
+            runBlocking { engine.deletePreset(PresetKind.valueOf(kind), answersOf(answerIds, answers)) }.toParcel()
+
         override fun slice(request: SliceRequestParcel, callback: ISliceCallback) {
             startJob(request.toSliceRequest(), callback)
         }
 
         override fun cancel(jobId: String): Boolean = runBlocking { engine.cancel(SliceJobId(jobId)) }
+
+        override fun thumbnailSizes(profiles: ProfilesParcel): ThumbnailSizesParcel =
+            runBlocking { engine.thumbnailSizes(profiles.toProfiles()) }.toParcel()
     }
 
     private fun startJob(request: SliceRequest, callback: ISliceCallback) {

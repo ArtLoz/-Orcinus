@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.PresetChangeParcel;
 import app.orcinus.shadow.slicing.service.PresetItemParcel;
 import app.orcinus.shadow.slicing.service.ProfilesParcel;
 
@@ -11,6 +12,17 @@ parcelable PresetsParcel {
     @nullable PresetItemParcel[] printers;
     @nullable PresetItemParcel[] filaments;
     @nullable PresetItemParcel[] processes;
+    /** The colour of every filament of the plate, "#RRGGBB". */
+    @nullable String[] filamentColors;
+    /** filament_type of every filament of the plate. */
+    @nullable String[] filamentTypes;
     @nullable String[] nozzleDiameters;
     @nullable String nozzleDiameter;
+    /** Nothing was selected: the preset of changedKind has these unsaved changes. */
+    boolean asksUnsavedChanges;
+    @nullable String changedKind;
+    @nullable PresetChangeParcel[] unsavedChanges;
+    boolean canTransfer;
+    @nullable String saveName;
+    boolean saveNameCopySuffix;
 }

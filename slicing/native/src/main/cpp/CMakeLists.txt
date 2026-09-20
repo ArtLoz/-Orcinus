@@ -4,9 +4,27 @@
 
 add_library(orca_engine_adapter STATIC
     android_log_sink.cpp
+    color_space.cpp
+    config_manipulation.cpp
+    create_presets.cpp
+    create_printer.cpp
+    engine_context.cpp
+    flush_volumes.cpp
     nanosvg.cpp
     orca_engine_adapter.cpp
+    painting.cpp
+    preset_export.cpp
+    presets.cpp
+    settings_dialogs.cpp
+    settings_fields.cpp
+    settings_tab.cpp
+    settings_tabs.cpp
     setup_catalog.cpp
+    tab_filament.cpp
+    tab_print.cpp
+    tab_print_model.cpp
+    tab_printer.cpp
+    wipe_tower.cpp
     # libvgcode::convert() from GCodeProcessorResult, as the desktop preview loads G-code.
     "${LIBDIR}/slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp"
 )

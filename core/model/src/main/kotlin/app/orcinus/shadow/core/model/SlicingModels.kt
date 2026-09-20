@@ -102,8 +102,8 @@ sealed interface ModelInspectionOutcome {
 }
 
 sealed interface PlateInspectionOutcome {
-    /** Every object as placed, in the order the plate listed them. */
-    data class Success(val inspections: List<ModelInspection>) : PlateInspectionOutcome
+    /** The copies of every object as placed, in the order the plate listed them. */
+    data class Success(val inspections: List<List<ModelInspection>>) : PlateInspectionOutcome
 
     data class Failure(val message: String) : PlateInspectionOutcome
 }
@@ -119,14 +119,30 @@ sealed interface ModelSource {
 }
 
 /** An object on the plate as the engine loads it. */
+/** Where one copy of an object stands (ModelInstance). */
+data class PlacedInstance(
+    /** The instance transformation, as inspection reported it. */
+    val placement: Transform3,
+    /** ModelInstance::auto_drop: off keeps a copy above the plate where the user put it. */
+    val autoDrop: Boolean = true,
+    /** ModelInstance::printable: a copy that is not printable is not sliced. */
+    val printable: Boolean = true,
+)
+
 data class PlacedModel(
     val model: ModelSource,
     /** The mesh file inspection wrote for the object, which identifies it. */
     val mesh: ScenePath,
-    /** Where the object stands on the plate: its instance transformation. */
-    val placement: Transform3,
-    /** ModelInstance::auto_drop: off keeps an object above the plate where the user put it. */
-    val autoDrop: Boolean = true,
+    /** The copies of the object on the plate (ModelObject::instances). */
+    val instances: List<PlacedInstance>,
+    /** The settings of the object (ModelObject::config), which its copies share. */
+    val settings: ModelSettings = ModelSettings(),
+    /** The parts added to the object (ModelObject::volumes). */
+    val parts: List<ObjectPart> = emptyList(),
+    /** The height ranges of the object (ModelObject::layer_config_ranges). */
+    val layerRanges: List<LayerRange> = emptyList(),
+    /** The facets of the object's own mesh painted with the filaments of the plate. */
+    val painted: PaintedFacets = PaintedFacets(),
 )
 
 @JvmInline
@@ -137,9 +153,18 @@ value class ProfileId(val value: String)
 
 data class SlicingProfileSelection(
     val printer: ProfileId,
+    /** The first filament, which an object prints with unless it says otherwise. */
     val filament: ProfileId,
     val process: ProfileId,
-)
+    /**
+     * PresetBundle::filament_presets: every filament of the plate, in the order
+     * the sidebar lists them. Empty means the one [filament] names.
+     */
+    val filaments: List<ProfileId> = emptyList(),
+) {
+    /** The filaments of the plate, always at least one. */
+    val allFilaments: List<ProfileId> get() = filaments.ifEmpty { listOf(filament) }
+}
 
 data class SliceRequest(
     val jobId: SliceJobId,
@@ -148,10 +173,35 @@ data class SliceRequest(
     val output: OutputPath,
     /** Where the engine also writes the G-code's toolpaths for the preview; null writes none. */
     val toolpaths: ScenePath? = null,
+    /** Where the engine writes the wipe tower the slice builds, for the 3D view; null writes none. */
+    val wipeTower: ScenePath? = null,
     val printerProfile: ProfileId,
     val filamentProfile: ProfileId,
+    /** Every filament of the plate; empty prints with [filamentProfile] alone. */
+    val filamentProfiles: List<ProfileId> = emptyList(),
     val processProfile: ProfileId,
+    /** The settings of the plate, which the print is sliced with. */
+    val plateSettings: ModelSettings = ModelSettings(),
+    /** The pictures of the plate the G-code carries for the printer's screen; empty writes none. */
+    val thumbnails: List<ThumbnailImage> = emptyList(),
 )
+
+/** The size of a G-code thumbnail in pixels, as the printer's "thumbnails" setting lists it. */
+data class ThumbnailSize(val width: Int, val height: Int)
+
+/**
+ * A picture of the plate for the G-code, rendered as OrcaSlicer renders it
+ * while it exports G-code (GLCanvas3D::render_thumbnail): RGBA pixels, the
+ * bottom row first, as glReadPixels() reads them.
+ */
+data class ThumbnailImage(val size: ThumbnailSize, val path: ScenePath)
+
+sealed interface ThumbnailSizesOutcome {
+    /** The thumbnails of the printer's G-code, in order; none for a printer whose G-code holds none. */
+    data class Success(val sizes: List<ThumbnailSize>) : ThumbnailSizesOutcome
+
+    data class Failure(val message: String) : ThumbnailSizesOutcome
+}
 
 enum class SliceStage {
     PREPARING,
@@ -209,6 +259,8 @@ sealed interface SliceOutcome {
         val statistics: SliceStatistics,
         /** The requested toolpaths file, or null when none was written. */
         val toolpaths: ScenePath? = null,
+        /** The requested wipe tower mesh, or null when the plate prints none. */
+        val wipeTower: ScenePath? = null,
     ) : SliceOutcome
 
     data class Failure(

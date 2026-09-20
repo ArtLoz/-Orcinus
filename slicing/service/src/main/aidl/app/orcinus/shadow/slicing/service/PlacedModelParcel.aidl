@@ -1,12 +1,23 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.ModelSettingsParcel;
+import app.orcinus.shadow.slicing.service.LayerRangeParcel;
 import app.orcinus.shadow.slicing.service.ModelSourceParcel;
+import app.orcinus.shadow.slicing.service.ObjectPartParcel;
+import app.orcinus.shadow.slicing.service.PlacedInstanceParcel;
 
 /** PlacedModel. */
 parcelable PlacedModelParcel {
     ModelSourceParcel model;
     String meshPath;
-    /** Instance transformation, column-major 4 x 4. */
-    double[] placement;
-    boolean autoDrop;
+    /** The copies of the object on the plate (ModelObject::instances). */
+    PlacedInstanceParcel[] instances;
+    /** The settings of the object; null when it overrides none. */
+    @nullable ModelSettingsParcel settings;
+    /** The parts added to the object (ModelObject::volumes). */
+    @nullable ObjectPartParcel[] parts;
+    /** The height ranges of the object (ModelObject::layer_config_ranges). */
+    @nullable LayerRangeParcel[] layerRanges;
+    /** The facets painted with the filaments of the plate; null when none are. */
+    @nullable String painted;
 }

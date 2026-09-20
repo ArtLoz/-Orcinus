@@ -40,7 +40,12 @@ import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.extruderNumber
+import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Line3
@@ -76,7 +81,21 @@ import kotlinx.coroutines.withContext
 fun PlateView(
     plate: PlateDescription?,
     objects: List<PlateObject>,
+    /** The wipe tower of the plate, drawn when the plate prints with several filaments. */
+    wipeTower: WipeTower? = null,
+    /** The colour of every filament of the plate, which the tower takes its own from. */
+    filamentColors: List<ColorRgba> = emptyList(),
+    /** The tower the last slice built, which replaces the estimated box. */
+    builtWipeTower: ScenePath? = null,
+    /** GLCanvas3D::WipeTowerInfo::apply_wipe_tower(): the tower was dragged to that corner. */
+    onMoveWipeTower: (x: Double, y: Double) -> Unit = { _, _ -> },
+    /** The colour painting tool is open: a finger paints instead of moving the object. */
+    painting: Boolean = false,
+    /** A stroke of the finger, as a ray in world coordinates. */
+    onPaint: (origin: Vector3, direction: Vector3) -> Unit = { _, _ -> },
     selectedObject: Int?,
+    /** Every selected object, which the scene draws as selected; the tools work on a single one. */
+    selectedObjects: Set<Int> = setOfNotNull(selectedObject),
     gizmo: PlateGizmo?,
     flatteningPlanes: List<FlatteningPlane>,
     editable: Boolean,
@@ -124,11 +143,44 @@ fun PlateView(
 
     val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
     val meshes = remember { MeshCache() }
-    LaunchedEffect(objects, color) {
+    LaunchedEffect(wipeTower, filamentColors, builtWipeTower) {
+        val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower) } }
+        controller.setWipeTower(tower)
+    }
+    LaunchedEffect(objects, color, filamentColors) {
         val loaded = withContext(Dispatchers.IO) {
-            meshes.retain(objects.mapTo(HashSet()) { it.inspection.mesh.value })
-            objects.mapIndexedNotNull { index, plateObject ->
-                runCatching { SceneLoader.loadObject(index, plateObject, color, meshes) }.getOrNull()
+            meshes.retain(
+                objects.flatMapTo(HashSet()) { plateObject ->
+                    listOf(plateObject.mesh.value) +
+                        plateObject.parts.map { part -> part.mesh.value } +
+                        plateObject.paintedMeshes.map { painted -> painted.mesh.value }
+                },
+            )
+            // The scene draws every copy of every object, numbered in the
+            // plate's order, as the app's selection counts them.
+            var index = 0
+            objects.flatMap { plateObject ->
+                plateObject.instances.flatMap { instance ->
+                    // The copy itself is picked and moved; its parts carry its
+                    // own index, so they are picked and moved with it.
+                    val copyIndex = index++
+                    // GLVolumeCollection::update_colors_by_extruder(): every
+                    // volume is drawn in the colour of the filament it prints
+                    // with; a part without one of its own takes its object's.
+                    val objectColor = filamentColors.getOrNull(plateObject.extruderNumber - 1) ?: color
+                    val copy = runCatching { SceneLoader.loadObject(copyIndex, plateObject, instance, objectColor, meshes) }.getOrNull()
+                    val parts = plateObject.parts.mapNotNull { part ->
+                        val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
+                        val partColor = filamentColors.getOrNull(extruder - 1) ?: color
+                        runCatching { SceneLoader.loadPart(copyIndex, part, instance, partColor, meshes) }.getOrNull()
+                    }
+                    // The colours the object is painted with, over its surface.
+                    val painted = plateObject.paintedMeshes.mapNotNull { mesh ->
+                        val paint = filamentColors.getOrNull(mesh.filament - 1) ?: color
+                        runCatching { SceneLoader.loadPaintedMesh(copyIndex, mesh, instance, paint, meshes) }.getOrNull()
+                    }
+                    listOfNotNull(copy) + parts + painted
+                }
             }
         }
         controller.setObjects(loaded)
@@ -138,11 +190,18 @@ fun PlateView(
     SideEffect {
         controller.onSelectObject = onSelectObject
         controller.onPlaceObject = onPlaceObject
+        controller.onMoveWipeTower = onMoveWipeTower
+        controller.onPaint = { ray ->
+            val direction = ray.b - ray.a
+            onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z))
+        }
+        controller.setPainting(painting)
         controller.onOpenObjectMenu = { index, x, y ->
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             onOpenObjectMenu(index, Offset(x, y))
         }
         controller.setSelection(selectedObject)
+        controller.setSelected(selectedObjects)
         controller.setGizmo(gizmo)
         controller.setFlatteningPlanes(flatteningPlanes)
         controller.setEditable(editable)
@@ -274,9 +333,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private val camera = OrcaCamera()
     private var bed: SceneBed? = null
     private var objects: List<SceneObject> = emptyList()
+    /** The objects of the plate alone; the scene also draws the wipe tower. */
+    private var plateObjects: List<SceneObject> = emptyList()
+    private var wipeTower: SceneObject? = null
+    /** The colour painting tool is open, so a finger paints (GLGizmoMmuSegmentation). */
+    private var painting = false
+    private var paintingStroke = false
     private var layer: PlateLayer? = null
     private var layerBox: Box3? = null
     private var selectedIndex: Int? = null
+    private var selectedIndexes: Set<Int> = emptySet()
     private var gizmo: PlateGizmo? = null
     private var flatteningPlanes: List<FlatteningPlane> = emptyList()
     private var layOnFace = LayOnFaceGizmo(emptyList())
@@ -288,6 +354,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var framedBed: SceneBed? = null
 
     var onSelectObject: (Int?) -> Unit = {}
+    var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
+    var onPaint: (Line3) -> Unit = {}
     var onPlaceObject: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
     var onOpenObjectMenu: (Int, Float, Float) -> Unit = { _, _, _ -> }
 
@@ -363,7 +431,22 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** New objects replace what a finger was moving: the scene no longer has it where the move began. */
     fun setObjects(objects: List<SceneObject>) {
         drag = null
-        showObjects(objects)
+        plateObjects = objects
+        showObjects(plateObjects + listOfNotNull(wipeTower))
+    }
+
+    fun setPainting(value: Boolean) {
+        if (painting == value) return
+        painting = value
+        paintingStroke = false
+        drag = null
+    }
+
+    /** The wipe tower stands in the scene beside the objects, and is picked and moved like one. */
+    fun setWipeTower(tower: SceneObject?) {
+        if (wipeTower?.key == tower?.key && wipeTower?.world == tower?.world && wipeTower?.color == tower?.color) return
+        wipeTower = tower
+        showObjects(plateObjects + listOfNotNull(tower))
     }
 
     fun setFlatteningPlanes(planes: List<FlatteningPlane>) {
@@ -377,6 +460,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (this.gizmo == gizmo) return
         this.gizmo = gizmo
         if (drag != null && drag !is ObjectDrag) drag = null
+        invalidate()
+    }
+
+    fun setSelected(indexes: Set<Int>) {
+        if (selectedIndexes == indexes) return
+        selectedIndexes = indexes
         invalidate()
     }
 
@@ -399,6 +488,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * false when the finger is on neither.
      */
     fun press(x: Float, y: Float, grabberRadius: Float): Boolean {
+        if (painting) {
+            // GLGizmoPainterBase::gizmo_event(): the stroke starts where the
+            // finger went down, and the engine finds the triangle under it.
+            val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
+            paintingStroke = true
+            onPaint(ray)
+            return true
+        }
         if (gizmo == PlateGizmo.LAY_ON_FACE && editable) {
             val target = objects.firstOrNull { it.index == selectedIndex }
             val ray = camera.mouseRay(x.toDouble(), y.toDouble())
@@ -421,10 +518,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return true
         }
         val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
-        val (target, hit) = objects
+        val (volume, hit) = objects
             .mapNotNull { sceneObject -> sceneObject.raycast(ray)?.let { sceneObject to it } }
             .minByOrNull { (_, hit) -> (hit - ray.a).norm() }
             ?: return false
+        // A part of an object is picked with the object it belongs to, as the
+        // desktop canvas moves the instance, not the volume.
+        val target = objects.firstOrNull { it.index == volume.index } ?: volume
         select(target.index)
         drag = if (editable) ObjectDrag(target.index, target.world, hit) else null
         return true
@@ -436,6 +536,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * in the plane of the screen when the camera looks along the plate.
      */
     fun moveTo(x: Float, y: Float) {
+        if (paintingStroke) {
+            // The brush follows the finger, as the desktop gizmo paints while
+            // the left button is held.
+            camera.mouseRay(x.toDouble(), y.toDouble())?.let(onPaint)
+            return
+        }
         val drag = drag ?: return
         val target = objects.firstOrNull { it.index == drag.index } ?: return
         val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
@@ -502,6 +608,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * and the placement goes to the app. A press that never moved changes nothing.
      */
     fun endMove() {
+        if (paintingStroke) {
+            paintingStroke = false
+            return
+        }
         val drag = drag ?: return
         this.drag = null
         if (!drag.moved) {
@@ -509,6 +619,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return
         }
         val target = objects.firstOrNull { it.index == drag.index } ?: return
+        if (target.index == WIPE_TOWER_INDEX) {
+            // apply_wipe_tower(): the tower keeps to the plate, so only its
+            // corner on the plate is written back.
+            val corner = target.world.translation()
+            onMoveWipeTower(corner.x, corner.y)
+            return
+        }
         val manipulation = when (drag) {
             is RotateGrabberDrag -> Manipulation.Rotate
             is ScaleGrabberDrag -> Manipulation.Scale
@@ -614,8 +731,27 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         onSelectObject(index)
     }
 
+    /**
+     * The moved volume replaces the one it was made from; the other volumes of
+     * the same copy — the parts of the object — follow it through the same
+     * transformation, as the desktop app moves a ModelObject with its volumes.
+     */
     private fun replaceObject(sceneObject: SceneObject) {
-        showObjects(objects.map { if (it.index == sceneObject.index) sceneObject else it })
+        if (sceneObject.index == WIPE_TOWER_INDEX) {
+            wipeTower = sceneObject
+        } else {
+            val previous = plateObjects.firstOrNull { it.index == sceneObject.index && it.key == sceneObject.key }
+            val transform = previous?.let { sceneObject.world * it.world.inverse() }
+            plateObjects = plateObjects.map { volume ->
+                when {
+                    volume.index != sceneObject.index -> volume
+                    volume.key == sceneObject.key -> sceneObject
+                    transform == null -> volume
+                    else -> volume.withWorld(transform * volume.world)
+                }
+            }
+        }
+        showObjects(plateObjects + listOfNotNull(wipeTower))
     }
 
     private fun showObjects(objects: List<SceneObject>) {
@@ -644,6 +780,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 dark = dark,
                 pixelScale = density,
                 selectedIndex = selectedIndex,
+                selectedIndexes = selectedIndexes,
                 gizmo = gizmoFrame(),
             ),
         )

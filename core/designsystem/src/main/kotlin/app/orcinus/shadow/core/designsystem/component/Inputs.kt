@@ -31,10 +31,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R
@@ -42,7 +44,10 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 
 /**
  * OrcaSlicer's parameter input (Widgets/TextInput): a thin bordered box with an
- * optional unit on the right. The border turns to the accent colour on focus.
+ * optional unit on the right, then [trailing] content at the edge of the box,
+ * such as the drop-down arrow of an editable combo box (Widgets/ComboBox). The
+ * border turns to the accent colour on focus. [hint] shows while the box is
+ * empty, as a search control's descriptive text does.
  */
 @Composable
 fun OrcaTextField(
@@ -54,6 +59,8 @@ fun OrcaTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     textStyle: TextStyle = OrcaTheme.typography.body14,
+    trailing: (@Composable RowScope.() -> Unit)? = null,
+    hint: String? = null,
 ) {
     val colors = OrcaTheme.colors
     val interaction = remember { MutableInteractionSource() }
@@ -75,11 +82,17 @@ fun OrcaTextField(
                     .clip(OrcaTheme.shapes.control)
                     .background(if (enabled) colors.window else colors.controlDisabledBackground)
                     .border(1.dp, if (focused) colors.accent else colors.border, OrcaTheme.shapes.control)
-                    .padding(horizontal = 8.dp),
+                    .padding(start = 8.dp, end = if (trailing == null) 8.dp else 0.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.weight(1f)) { field() }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (hint != null && value.isEmpty()) {
+                        Text(hint, color = colors.textSide, style = textStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    field()
+                }
                 unit?.let { Text(it, color = colors.textSide, style = OrcaTheme.typography.body12, modifier = Modifier.padding(start = 6.dp)) }
+                trailing?.invoke(this)
             }
         },
     )
@@ -134,6 +147,8 @@ fun <T> OrcaComboBox(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     leading: @Composable RowScope.() -> Unit = {},
+    /** What stands before every item of the list, as OrcaSlicer's BitmapComboBox draws an icon. */
+    itemLeading: (@Composable (T) -> Unit)? = null,
 ) {
     val colors = OrcaTheme.colors
     var expanded by remember { mutableStateOf(false) }
@@ -152,6 +167,7 @@ fun <T> OrcaComboBox(
                         expanded = false
                         onSelect(item)
                     },
+                    leadingIcon = itemLeading?.let { leadingOf -> { leadingOf(item) } },
                     modifier = if (item == selected) Modifier.background(colors.accentSelected) else Modifier,
                 )
             }
@@ -172,13 +188,83 @@ fun OrcaFilamentSlot(
             .background(color),
         contentAlignment = Alignment.Center,
     ) {
-        Text(number.toString(), color = OrcaTheme.colors.onAccent, style = OrcaTheme.typography.body13)
+        // A pale filament needs dark text over it, as OrcaSlicer's own colour
+        // fields pick the ink for the swatch they stand on.
+        Text(
+            number.toString(),
+            color = if (color.luminance() > LIGHT_SWATCH) Color.Black else Color.White,
+            style = OrcaTheme.typography.body13,
+        )
     }
 }
+
+/** Above this a swatch is pale enough to take dark text. */
+private const val LIGHT_SWATCH = 0.45f
 
 /** A leading icon for combo fields, spaced like OrcaSlicer's preset icons. */
 @Composable
 fun RowScope.OrcaFieldIcon(@DrawableRes icon: Int) {
     Icon(painterResource(icon), contentDescription = null, tint = OrcaTheme.colors.textSide, modifier = Modifier.size(OrcaTheme.dimensions.iconSmall))
     Spacer(Modifier.width(8.dp))
+}
+
+/**
+ * OrcaSlicer's SpinInput (Widgets/SpinInput): a whole number with its unit
+ * between the decrease and increase arrows, kept within [range] and moved by
+ * [step]. A disabled one only shows its value.
+ */
+@Composable
+fun OrcaSpinInput(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    range: IntRange,
+    decreaseDescription: String,
+    increaseDescription: String,
+    modifier: Modifier = Modifier,
+    step: Int = 1,
+    unit: String? = null,
+    enabled: Boolean = true,
+) {
+    val colors = OrcaTheme.colors
+    Row(
+        modifier = modifier
+            .height(OrcaTheme.dimensions.parameterControlHeight)
+            .clip(OrcaTheme.shapes.control)
+            .background(if (enabled) colors.window else colors.controlDisabledBackground)
+            .border(1.dp, colors.border, OrcaTheme.shapes.control),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SpinArrow(R.drawable.orca_spin_dec, decreaseDescription, enabled && value > range.first) {
+            onValueChange((value - step).coerceIn(range))
+        }
+        Text(
+            text = if (unit == null) value.toString() else "$value $unit",
+            color = if (enabled) colors.text else colors.textDisabled,
+            style = OrcaTheme.typography.body14,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center,
+        )
+        SpinArrow(R.drawable.orca_spin_inc, increaseDescription, enabled && value < range.last) {
+            onValueChange((value + step).coerceIn(range))
+        }
+    }
+}
+
+@Composable
+private fun SpinArrow(@DrawableRes icon: Int, description: String, enabled: Boolean, onClick: () -> Unit) {
+    val colors = OrcaTheme.colors
+    Box(
+        modifier = Modifier
+            .size(OrcaTheme.dimensions.parameterControlHeight)
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = description, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = description,
+            tint = if (enabled) colors.textSide else colors.textDisabled,
+            modifier = Modifier.size(OrcaTheme.dimensions.iconSmall),
+        )
+    }
 }

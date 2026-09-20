@@ -2,6 +2,7 @@ package app.orcinus.shadow.core.designsystem.component
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.HorizontalDivider
@@ -43,7 +45,9 @@ fun OrcaSidebarTitle(
             .fillMaxWidth()
             .height(OrcaTheme.dimensions.sidebarTitleHeight)
             .background(Brush.verticalGradient(listOf(colors.sidebarTitleTop, colors.sidebarTitleBottom)))
-            .padding(start = 12.dp, end = 4.dp),
+            // The actions of a title, such as the mode switch, take touches up
+            // to the edge of the panel; their own padding keeps them in place.
+            .padding(start = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(painterResource(icon), contentDescription = null, tint = colors.textSide, modifier = Modifier.size(OrcaTheme.dimensions.icon))
@@ -76,7 +80,10 @@ fun OrcaSidebarSection(
     }
 }
 
-/** Heading of a parameter group (Layer height, Seam, ...) with its param_ icon. */
+/**
+ * Heading of a parameter group (Layer height, Seam, ...) with its param_ icon,
+ * drawn in its own colours at 18 as StaticLine draws it.
+ */
 @Composable
 fun OrcaParameterGroupHeader(
     title: String,
@@ -91,7 +98,7 @@ fun OrcaParameterGroupHeader(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(painterResource(icon), contentDescription = null, tint = colors.textLabel, modifier = Modifier.size(OrcaTheme.dimensions.iconSmall))
+            Icon(painterResource(icon), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(18.dp))
             Text(title, color = colors.text, style = OrcaTheme.typography.head14, modifier = Modifier.padding(start = 8.dp))
         }
         HorizontalDivider(color = colors.separator, thickness = 1.dp)
@@ -123,7 +130,10 @@ fun OrcaParameterRow(
     }
 }
 
-/** OrcaSlicer's settings page tabs (Quality, Strength, Support, ...): accent text and underline when selected. */
+/**
+ * OrcaSlicer's settings page tabs (Quality, Strength, Support, ...): accent text
+ * and underline when selected. The tabs scroll sideways when they do not fit.
+ */
 @Composable
 fun OrcaUnderlineTabs(
     titles: List<String>,
@@ -136,6 +146,7 @@ fun OrcaUnderlineTabs(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .selectableGroup(),
         ) {
             titles.forEachIndexed { index, title ->

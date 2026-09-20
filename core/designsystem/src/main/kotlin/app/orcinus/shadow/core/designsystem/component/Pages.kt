@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +42,8 @@ fun OrcaPageTopBar(
     backDescription: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** What the bar shows at its end, such as the search button of the settings. */
+    actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = OrcaTheme.colors
     Row(
@@ -65,9 +68,11 @@ fun OrcaPageTopBar(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
+                .weight(1f)
                 .padding(start = 4.dp, end = 12.dp)
                 .semantics { heading() },
         )
+        actions?.invoke(this)
     }
 }
 

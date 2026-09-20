@@ -11,6 +11,8 @@ parcelable SliceOutcomeParcel {
     @nullable String gcodePath;
     /** The toolpaths file of a success, when one was written. */
     @nullable String toolpathsPath;
+    /** The wipe tower mesh of a success, when the plate prints one. */
+    @nullable String wipeTowerPath;
     int layerCount;
     long estimatedPrintTimeSeconds;
     double filamentMillimeters;

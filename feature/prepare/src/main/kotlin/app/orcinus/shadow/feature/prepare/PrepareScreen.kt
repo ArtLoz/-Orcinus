@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +61,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaCanvasToolbar
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasToolbarSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
+import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
 import app.orcinus.shadow.core.designsystem.component.OrcaGizmoPanel
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
@@ -70,6 +72,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
 import app.orcinus.shadow.core.designsystem.component.OrcaProgressNotification
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
+import app.orcinus.shadow.core.designsystem.component.textLocale
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
@@ -81,6 +84,8 @@ import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.PaintTool
+import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.ScenePath
@@ -89,6 +94,7 @@ import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
@@ -114,6 +120,15 @@ internal fun PrepareRoute(
         onAddModel = { modelPicker.launch(arrayOf("*/*")) },
         onAddCalibrationCube = viewModel::addCalibrationCube,
         onSelectObject = viewModel::selectObject,
+        onMoveWipeTower = viewModel::moveWipeTower,
+        onTogglePainting = viewModel::togglePainting,
+        paintingActions = PaintingActions(
+            paint = viewModel::paint,
+            setFilament = viewModel::paintWith,
+            setRadius = viewModel::setBrushRadius,
+            setTool = viewModel::setPaintTool,
+            close = viewModel::closePainting,
+        ),
         onPlaceObject = viewModel::placeObject,
         onSetAutoDrop = viewModel::setAutoDrop,
         onDeleteObject = viewModel::deleteObject,
@@ -121,6 +136,8 @@ internal fun PrepareRoute(
         onCloseGizmo = viewModel::closeGizmo,
         onSetPosition = viewModel::setPosition,
         onAutoOrient = viewModel::autoOrient,
+        onAddInstance = viewModel::addInstance,
+        onRemoveInstance = viewModel::removeInstance,
         arrangeActions = ArrangeActions(
             toggle = viewModel::toggleArrangeOptions,
             change = viewModel::setArrangeSettings,
@@ -148,6 +165,20 @@ internal fun PrepareRoute(
     )
 }
 
+/** What the colour painting tool does while it is open (GLGizmoMmuSegmentation). */
+internal class PaintingActions(
+    /** A stroke of the finger, as a ray in world coordinates. */
+    val paint: (origin: Vector3, direction: Vector3) -> Unit,
+    val setFilament: (Int) -> Unit,
+    val setRadius: (Double) -> Unit,
+    val setTool: (PaintTool) -> Unit,
+    val close: () -> Unit,
+) {
+    companion object {
+        val NONE = PaintingActions({ _, _ -> }, {}, {}, {}, {})
+    }
+}
+
 /**
  * OrcaSlicer's Prepare page: the 3D plate view, edge to edge, with the model
  * toolbar and the notifications over it. The sidebar belongs to the app shell.
@@ -159,6 +190,9 @@ internal fun PrepareScreen(
     onAddModel: () -> Unit,
     onAddCalibrationCube: () -> Unit,
     onSelectObject: (Int?) -> Unit,
+    onMoveWipeTower: (Double, Double) -> Unit,
+    onTogglePainting: () -> Unit,
+    paintingActions: PaintingActions,
     onPlaceObject: (Int, Transform3, Manipulation) -> Unit,
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
     onDeleteObject: (index: Int) -> Unit,
@@ -166,6 +200,8 @@ internal fun PrepareScreen(
     onCloseGizmo: () -> Unit,
     onSetPosition: (axis: Int, value: Double) -> Unit,
     onAutoOrient: () -> Unit,
+    onAddInstance: () -> Unit,
+    onRemoveInstance: () -> Unit,
     arrangeActions: ArrangeActions,
     rotationActions: RotationActions,
     scaleActions: ScaleActions,
@@ -180,7 +216,14 @@ internal fun PrepareScreen(
             PlateView(
                 plate = state.plate,
                 objects = state.sceneObjects,
+                wipeTower = state.wipeTower,
+                filamentColors = state.filamentColors,
+                builtWipeTower = state.builtWipeTower,
+                onMoveWipeTower = onMoveWipeTower,
+                painting = state.painting != null,
+                onPaint = paintingActions.paint,
                 selectedObject = state.selectedObject,
+                selectedObjects = state.selectedObjects,
                 gizmo = state.gizmo,
                 flatteningPlanes = state.flatteningPlanes,
                 editable = state.canEditPlate,
@@ -207,13 +250,24 @@ internal fun PrepareScreen(
             ) {
                 // The toolbar starts after the sidebar button; the gizmo windows below may use the whole width.
                 Box(Modifier.padding(start = OrcaSidebarToggleSpace - CanvasMargin)) {
-                    CanvasToolbar(state, onAddModel, onAddCalibrationCube, onAutoOrient, arrangeActions.toggle, onToggleGizmo)
+                    CanvasToolbar(
+                        state,
+                        onTogglePainting,
+                        onAddModel,
+                        onAddCalibrationCube,
+                        onAutoOrient,
+                        onAddInstance,
+                        onRemoveInstance,
+                        arrangeActions.toggle,
+                        onToggleGizmo,
+                    )
                 }
                 val position = state.selectedPosition
                 val rotation = state.selectedRotation
                 val scale = state.selectedScale
                 val size = state.selectedSize
                 when {
+                    state.painting != null -> PaintingPanel(state, state.painting, paintingActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null -> ScaleGizmoPanel(state, scale, size, scaleActions, onCloseGizmo)
                     state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(position, onSetPosition, onCloseGizmo)
@@ -270,7 +324,7 @@ private fun ObjectContextMenu(
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
     onDeleteObject: (index: Int) -> Unit,
 ) {
-    val target = state.sceneObjects.getOrNull(menu.index)
+    val target = state.sceneCopies.getOrNull(menu.index)?.instance
     OrcaContextMenu(
         expanded = target != null,
         position = IntOffset(menu.position.x.roundToInt(), menu.position.y.roundToInt()),
@@ -279,7 +333,7 @@ private fun ObjectContextMenu(
         if (target == null) return@OrcaContextMenu
         // append_menu_item_delete()
         OrcaMenuItem(
-            text = stringResource(R.string.object_menu_delete),
+            text = stringResource(UiR.string.object_menu_delete),
             enabled = state.canEditPlate,
             onClick = {
                 onDismiss()
@@ -289,7 +343,7 @@ private fun ObjectContextMenu(
         OrcaMenuSeparator()
         // append_menu_item_auto_drop(): checked while the object drops onto the plate.
         OrcaMenuCheckItem(
-            text = stringResource(R.string.object_menu_auto_drop),
+            text = stringResource(UiR.string.object_menu_auto_drop),
             checked = target.autoDrop,
             enabled = state.canEditPlate,
             onClick = {
@@ -345,16 +399,16 @@ private fun Notifications(
             onCancel = onCancelSlicing,
         )
     } else {
-        state.selectedPlateObject?.let { ObjectInfo(it) }
+        state.selectedCopy?.let { ObjectInfo(it) }
     }
 }
 
 @Composable
-private fun ObjectInfo(plateObject: PlateObject) {
+private fun ObjectInfo(copy: SceneCopy) {
     OrcaNotification {
-        OrcaNotificationText(stringResource(R.string.object_name, plateObject.displayName()), emphasized = true)
-        OrcaNotificationText(stringResource(R.string.object_size, plateObject.inspection.dimensions.sizeText()))
-        OrcaNotificationText(stringResource(R.string.object_triangles, plateObject.inspection.facetCount))
+        OrcaNotificationText(stringResource(R.string.object_name, copy.plateObject.displayName()), emphasized = true)
+        OrcaNotificationText(stringResource(R.string.object_size, copy.instance.inspection.dimensions.sizeText()))
+        OrcaNotificationText(stringResource(R.string.object_triangles, copy.instance.inspection.facetCount))
     }
 }
 
@@ -368,9 +422,12 @@ private fun ObjectInfo(plateObject: PlateObject) {
 @Composable
 private fun CanvasToolbar(
     state: PrepareUiState,
+    onTogglePainting: () -> Unit,
     onAddModel: () -> Unit,
     onAddCalibrationCube: () -> Unit,
     onAutoOrient: () -> Unit,
+    onAddInstance: () -> Unit,
+    onRemoveInstance: () -> Unit,
     onToggleArrange: () -> Unit,
     onToggleGizmo: (PlateGizmo) -> Unit,
 ) {
@@ -399,8 +456,18 @@ private fun CanvasToolbar(
             selected = state.arrangeOptionsOpen,
         )
         OrcaCanvasToolbarSeparator()
-        unavailable(DesignR.drawable.orca_instance_add, R.string.toolbar_add_instance)
-        unavailable(DesignR.drawable.orca_instance_remove, R.string.toolbar_remove_instance)
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_instance_add,
+            contentDescription = stringResource(R.string.toolbar_add_instance),
+            onClick = onAddInstance,
+            enabled = state.canCopy,
+        )
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_instance_remove,
+            contentDescription = stringResource(R.string.toolbar_remove_instance),
+            onClick = onRemoveInstance,
+            enabled = state.canRemoveCopy,
+        )
         unavailable(DesignR.drawable.orca_split_objects, R.string.toolbar_split_objects)
         unavailable(DesignR.drawable.orca_split_parts, R.string.toolbar_split_parts)
         unavailable(DesignR.drawable.orca_toolbar_variable_layer_height, R.string.toolbar_variable_layer_height)
@@ -411,6 +478,14 @@ private fun CanvasToolbar(
         gizmo(DesignR.drawable.orca_toolbar_flatten, R.string.gizmo_lay_on_face, PlateGizmo.LAY_ON_FACE)
         gizmo(DesignR.drawable.orca_toolbar_cut, R.string.gizmo_cut, null)
         gizmo(DesignR.drawable.orca_toolbar_meshboolean, R.string.gizmo_mesh_boolean, null)
+        // GLGizmoMmuSegmentation: the object is painted with the filaments of the plate.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_mmu_segmentation,
+            contentDescription = stringResource(R.string.gizmo_color_painting),
+            onClick = onTogglePainting,
+            enabled = state.canPaint,
+            selected = state.painting != null,
+        )
         gizmo(DesignR.drawable.orca_toolbar_support, R.string.gizmo_support_painting, null)
         gizmo(DesignR.drawable.orca_toolbar_seam, R.string.gizmo_seam_painting, null)
         gizmo(DesignR.drawable.orca_toolbar_fuzzy_skin_paint, R.string.gizmo_fuzzy_skin_painting, null)
@@ -422,6 +497,107 @@ private fun CanvasToolbar(
         unavailable(DesignR.drawable.orca_toolbar_assemble, R.string.toolbar_assembly_view)
     }
 }
+
+/**
+ * The colour painting tool while it is open (GLGizmoMmuSegmentation's window):
+ * which filament the finger paints with, how wide the brush is and which tool
+ * paints. The desktop window has a row per filament with its colour; a phone
+ * shows them as chips a thumb can reach.
+ */
+@Composable
+private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions: PaintingActions) {
+    OrcaGizmoPanel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.gizmo_color_painting),
+                color = OrcaTheme.colors.onCanvasPanel,
+                style = OrcaTheme.typography.head14,
+                modifier = Modifier.weight(1f),
+            )
+            OrcaButton(
+                text = stringResource(R.string.painting_done),
+                size = OrcaButtonSize.Compact,
+                onClick = actions.close,
+            )
+        }
+        Text(
+            text = stringResource(R.string.painting_filament),
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(vertical = 6.dp),
+        ) {
+            state.filamentColors.forEachIndexed { index, color ->
+                val filament = index + 1
+                OrcaFilamentSlot(
+                    number = filament,
+                    color = Color(color.red, color.green, color.blue, color.alpha),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .border(
+                            width = if (painting.filament == filament) 2.dp else 1.dp,
+                            color = if (painting.filament == filament) OrcaTheme.colors.accent else OrcaTheme.colors.border,
+                        )
+                        .clickable { actions.setFilament(filament) },
+                )
+            }
+            // The eraser takes the paint off again, as the desktop gizmo does
+            // with the right button (EnforcerBlockerType::NONE).
+            OrcaButton(
+                text = stringResource(R.string.painting_eraser),
+                style = if (painting.filament == 0) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
+                size = OrcaButtonSize.Compact,
+                onClick = { actions.setFilament(0) },
+            )
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(
+                PaintTool.BRUSH to R.string.painting_tool_brush,
+                PaintTool.FILL to R.string.painting_tool_fill,
+                PaintTool.BUCKET to R.string.painting_tool_bucket,
+            ).forEach { (tool, label) ->
+                OrcaButton(
+                    text = stringResource(label),
+                    style = if (painting.tool == tool) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
+                    size = OrcaButtonSize.Compact,
+                    onClick = { actions.setTool(tool) },
+                )
+            }
+        }
+        if (painting.tool == PaintTool.BRUSH) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                Text(
+                    text = stringResource(R.string.painting_brush),
+                    color = OrcaTheme.colors.onCanvasPanel,
+                    style = OrcaTheme.typography.body12,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Slider(
+                    value = painting.radius.toFloat(),
+                    onValueChange = { actions.setRadius(it.toDouble()) },
+                    valueRange = BRUSH_MIN..BRUSH_MAX,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = String.format(textLocale(), "%.1f мм", painting.radius),
+                    color = OrcaTheme.colors.onCanvasPanel,
+                    style = OrcaTheme.typography.body12,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+/** GLGizmoPainterBase::get_cursor_radius_min/max for a finger. */
+private const val BRUSH_MIN = 0.4f
+private const val BRUSH_MAX = 8.0f
 
 /**
  * GizmoObjectManipulation::do_render_move_window() in world coordinates: the
@@ -786,7 +962,7 @@ private val PreviewInspection = ModelInspection(
 private val PreviewState = PrepareUiState(
     plate = null,
     importing = false,
-    sceneObjects = listOf(PlateObject.CalibrationCube(PreviewInspection)),
+    sceneObjects = listOf(PlateObject.CalibrationCube(listOf(PlateInstance(PreviewInspection)))),
     selectedObject = null,
     gizmo = null,
     flatteningPlanes = emptyList(),
@@ -810,7 +986,10 @@ private val PreviewState = PrepareUiState(
 @Preview(name = "Compact dark", widthDp = 400, heightDp = 800, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun PrepareCompactPreview() = OrcinusTheme {
-    PrepareScreen(PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, {}, { _, _ -> }, {}, PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {})
+    PrepareScreen(
+        PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
+    )
 }
 
 @Preview(name = "Wide", widthDp = 1000, heightDp = 640)
@@ -825,6 +1004,7 @@ private fun PrepareWidePreview() = OrcinusTheme {
             canEditPlate = true,
             canSlice = true,
         ),
-        OrcaWindowLayout.Wide, {}, {}, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, {}, { _, _ -> }, {}, PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
+        OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }

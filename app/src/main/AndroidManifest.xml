@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      PrintHost::upload: the sliced G-code is sent to a printer on the network.
+      A printer on the local network answers over plain http, which the desktop
+      app talks to as well, so cleartext traffic is allowed for it.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 17 asks the user before an app reaches devices of the local
+         network, such as the printers G-code is sent to. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
     <application
         android:name=".OrcinusApplication"
         android:allowBackup="true"
@@ -8,6 +18,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Orcinus">
         <activity
             android:name=".MainActivity"

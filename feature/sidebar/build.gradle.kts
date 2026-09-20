@@ -22,6 +22,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.activity.compose)
     implementation(project(":core:designsystem"))
     implementation(project(":core:ui"))
     implementation(project(":domain"))
@@ -31,4 +32,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation(kotlin("test-junit"))
 }

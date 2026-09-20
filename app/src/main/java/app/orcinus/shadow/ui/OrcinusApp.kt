@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -42,10 +43,12 @@ import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarLayout
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.di.AppContainer
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
+import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.feature.about.navigation.AboutNavKey
 import app.orcinus.shadow.feature.about.navigation.aboutEntries
 import app.orcinus.shadow.feature.prepare.R as PrepareR
@@ -55,6 +58,8 @@ import app.orcinus.shadow.feature.preview.R as PreviewR
 import app.orcinus.shadow.feature.preview.navigation.PreviewNavKey
 import app.orcinus.shadow.feature.preview.navigation.previewEntry
 import app.orcinus.shadow.feature.setup.SetupStart
+import app.orcinus.shadow.feature.settings.navigation.PresetSettingsNavKey
+import app.orcinus.shadow.feature.settings.navigation.presetSettingsEntry
 import app.orcinus.shadow.feature.setup.navigation.SetupNavKey
 import app.orcinus.shadow.feature.setup.navigation.setupEntry
 import app.orcinus.shadow.feature.sidebar.PlateSidebar
@@ -86,7 +91,7 @@ data object WorkspaceNavKey : NavKey
 /**
  * The app: the workspace at the root of the back stack, and pages opened over
  * the whole window on top of it.
- */
+*/
 @Composable
 fun OrcinusApp(
     container: AppContainer,
@@ -106,6 +111,8 @@ fun OrcinusApp(
         backStack = backStack,
         onBack = { backStack.removeLastOrNull() },
         modifier = modifier,
+        // A page can open over the workspace instead of replacing it.
+        sceneStrategies = remember { listOf(PageOverlaySceneStrategy<NavKey>()) },
         entryDecorators = listOf(
             rememberSaveableStateHolderNavEntryDecorator(),
             rememberViewModelStoreNavEntryDecorator(),
@@ -119,12 +126,28 @@ fun OrcinusApp(
                     onOpenWizard = { page ->
                         backStack.add(SetupNavKey(if (page == PresetWizardPage.PRINTERS) SetupStart.PRINTERS else SetupStart.FILAMENTS))
                     },
+                    onOpenSettings = { kind -> backStack.add(PresetSettingsNavKey(kind)) },
+                    // The search of the process panel opens the page of the
+                    // setting it found (Tab::activate_option).
+                    onOpenSetting = { option ->
+                        backStack.add(PresetSettingsNavKey(option.kind, option.id, option.page.firstOrNull()?.msgid))
+                    },
                     onOpenAbout = { backStack.add(AboutNavKey) },
                 )
             }
             setupEntry(
                 createViewModel = container::setupWizardViewModel,
                 onClose = { backStack.removeAll { it is SetupNavKey } },
+            )
+            presetSettingsEntry(
+                createViewModel = container::presetSettingsViewModel,
+                onBack = { backStack.removeLastOrNull() },
+                // A setting the search found on another tab opens that tab in
+                // its place, as the desktop app's search jumps between tabs.
+                onOpenTab = { option ->
+                    backStack.removeLastOrNull()
+                    backStack.add(PresetSettingsNavKey(option.kind, option.id, option.page.firstOrNull()?.msgid))
+                },
             )
             aboutEntries(
                 appInfo = container.appInfo,
@@ -151,6 +174,8 @@ private fun Workspace(
     shell: AppShellViewModel,
     onSliceRequested: () -> Unit,
     onOpenWizard: (PresetWizardPage) -> Unit,
+    onOpenSettings: (PresetKind) -> Unit,
+    onOpenSetting: (SearchOption) -> Unit,
     onOpenAbout: () -> Unit,
 ) {
     val plate by shell.plate.collectAsStateWithLifecycle()
@@ -201,6 +226,14 @@ private fun Workspace(
                 onOpenWizard = { page ->
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
                     onOpenWizard(page)
+                },
+                onOpenSettings = { kind ->
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    onOpenSettings(kind)
+                },
+                onOpenSetting = { option ->
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    onOpenSetting(option)
                 },
                 onOpenAbout = {
                     // The drawer of a phone is closed when the page comes back.

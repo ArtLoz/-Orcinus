@@ -18,7 +18,7 @@ class PlaceModelsUseCase(
         if (plate.isEmpty()) {
             return PlateInspectionOutcome.Failure("The plate has no objects")
         }
-        if (plate.any { placed -> placed.placement.columns.any { !it.isFinite() } }) {
+        if (plate.any { placed -> placed.instances.any { copy -> copy.placement.columns.any { !it.isFinite() } } }) {
             return PlateInspectionOutcome.Failure("A placement is not a finite transformation")
         }
         return inspector.placeObjects(plate, profiles, manipulation)

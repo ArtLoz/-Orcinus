@@ -1,20 +1,17 @@
 #include "orca_engine_adapter.hpp"
 
 #include <algorithm>
-#include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <fstream>
-#include <iomanip>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <numeric>
 #include <set>
-#include <sstream>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -26,6 +23,7 @@
 #include <png.h>
 
 #include "android_log_sink.hpp"
+#include "engine_context.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/ClipperUtils.hpp"
@@ -34,6 +32,7 @@
 #include "libslic3r/Format/STL.hpp"
 #include "libslic3r/Geometry/ConvexHull.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
+#include "libslic3r/GCode/Thumbnails.hpp"
 #include "libslic3r/Layer.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/ModelArrange.hpp"
@@ -43,14 +42,12 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/Tesselate.hpp"
-#include "libslic3r/Thread.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r_version.h"
 
 #include "nanosvg/nanosvg.h"
 #include "nanosvg/nanosvgrast.h"
-#include "setup_catalog.hpp"
 #include "slic3r/GUI/LibVGCode/LibVGCodeWrapper.hpp"
 #include "toolpaths_file.hpp"
 
@@ -62,19 +59,11 @@ namespace orcinus::orca {
 namespace {
 
 namespace fs = boost::filesystem;
+using detail::engine;
 
 // Warning, the level Orca's desktop app uses by default.
 constexpr unsigned int orca_log_level = 2;
 
-std::mutex engine_mutex;
-std::unique_ptr<Slic3r::PresetBundle> preset_bundle;
-// OrcaSlicer.conf of the data directory, and whether it existed when the engine
-// started (GUI_App::m_app_conf_exists).
-std::unique_ptr<Slic3r::AppConfig> engine_config;
-bool engine_config_existed = false;
-// Whether preset_bundle shows the presets engine_config installs and the
-// selection it remembers; select_profiles() may select others.
-bool bundle_follows_config = false;
 std::unique_ptr<EngineInitialization> initialization;
 
 std::mutex job_mutex;
@@ -124,6 +113,34 @@ bool cancellation_requested()
     return cancel_requested;
 }
 
+// Plater::priv::generate_thumbnails() with the thumbnails the app rendered:
+// one for every size the export asks for, read from the file of that size. A
+// size the app rendered none of is left out, as an invalid thumbnail is.
+Slic3r::ThumbnailsList load_thumbnails(const std::vector<ThumbnailImage>& images, const Slic3r::ThumbnailsParams& params)
+{
+    Slic3r::ThumbnailsList thumbnails;
+    for (const Slic3r::Vec2d& size : params.sizes) {
+        // round to ints
+        const long width = std::lround(size.x());
+        const long height = std::lround(size.y());
+        const auto image = std::find_if(images.begin(), images.end(), [width, height](const ThumbnailImage& candidate) {
+            return candidate.width == width && candidate.height == height;
+        });
+        if (image == images.end()) {
+            continue;
+        }
+        Slic3r::ThumbnailData data;
+        data.set(unsigned(width), unsigned(height));
+        std::ifstream file(image->path, std::ios::binary);
+        file.read(reinterpret_cast<char*>(data.pixels.data()), std::streamsize(data.pixels.size()));
+        if (!file || !data.is_valid()) {
+            continue;
+        }
+        thumbnails.push_back(std::move(data));
+    }
+    return thumbnails;
+}
+
 SliceResult failure(const SliceStatus status, std::string message)
 {
     SliceResult result;
@@ -132,13 +149,19 @@ SliceResult failure(const SliceStatus status, std::string message)
     return result;
 }
 
+// The filaments of the plate, in the order the sidebar lists them; a request
+// that carries none prints with the one filament it names.
+std::vector<std::string> filaments_of(const ProfileSelection& profiles)
+{
+    return profiles.filaments.empty() ? std::vector<std::string>{profiles.filament} : profiles.filaments;
+}
+
 bool is_selected(const Slic3r::PresetBundle& bundle, const ProfileSelection& profiles)
 {
     return bundle.printers.get_selected_preset_name() == profiles.printer
         && bundle.prints.get_selected_preset_name() == profiles.process
         && bundle.filaments.get_selected_preset_name() == profiles.filament
-        && !bundle.filament_presets.empty()
-        && bundle.filament_presets.front() == profiles.filament;
+        && bundle.filament_presets == filaments_of(profiles);
 }
 
 // The configuration of the selected presets. Other presets are selected the way
@@ -167,29 +190,43 @@ SliceStatus select_profiles(
         message = "Unknown process profile: " + profiles.process;
         return SliceStatus::profile_not_found;
     }
-    if (bundle.filaments.find_preset(profiles.filament, false) == nullptr) {
-        message = "Unknown filament profile: " + profiles.filament;
-        return SliceStatus::profile_not_found;
+    for (const std::string& filament : filaments_of(profiles)) {
+        if (bundle.filaments.find_preset(filament, false) == nullptr) {
+            message = "Unknown filament profile: " + filament;
+            return SliceStatus::profile_not_found;
+        }
     }
 
-    Slic3r::AppConfig app_config = *engine_config;
+    Slic3r::AppConfig app_config = *engine().config;
     app_config.set_variant(
         printer->vendor->id,
         printer->config.opt_string("printer_model"),
         printer->config.opt_string("printer_variant"),
         true
     );
-    app_config.set(Slic3r::AppConfig::SECTION_FILAMENTS, profiles.filament, "true");
+    for (const std::string& filament : filaments_of(profiles)) {
+        app_config.set(Slic3r::AppConfig::SECTION_FILAMENTS, filament, "true");
+    }
     app_config.set("presets", PRESET_PRINTER_NAME, profiles.printer);
     app_config.set_printer_setting(profiles.printer, PRESET_PRINT_NAME, profiles.process);
     app_config.set_printer_setting(profiles.printer, PRESET_FILAMENT_NAME, profiles.filament);
-    bundle_follows_config = false;
+    engine().bundle_follows_config = false;
     bundle.load_selections(app_config);
+
+    // The plate prints with every filament the app listed, so the bundle is
+    // given as many slots (PresetBundle::set_num_filaments / set_filament_preset).
+    const std::vector<std::string> filaments = filaments_of(profiles);
+    if (bundle.filament_presets.size() != filaments.size()) {
+        bundle.set_num_filaments(unsigned(filaments.size()), std::string());
+    }
+    for (std::size_t index = 0; index < filaments.size(); ++index) {
+        bundle.set_filament_preset(index, filaments[index]);
+    }
+    bundle.update_multi_material_filament_presets();
 
     if (bundle.printers.get_selected_preset_name() != profiles.printer
         || bundle.prints.get_selected_preset_name() != profiles.process
-        || bundle.filament_presets.empty()
-        || bundle.filament_presets.front() != profiles.filament) {
+        || bundle.filament_presets != filaments) {
         message = "Orca selected printer '" + bundle.printers.get_selected_preset_name() + "', process '"
             + bundle.prints.get_selected_preset_name() + "', filament '"
             + (bundle.filament_presets.empty() ? std::string() : bundle.filament_presets.front())
@@ -213,7 +250,7 @@ bool load_model(const std::string& model_path, Slic3r::Model& model)
 }
 
 // The models read for the objects of the plate, by file, each with the file's
-// modification time. Guarded by engine_mutex.
+// modification time. Guarded by engine().mutex.
 struct LoadedModel {
     std::time_t modified{0};
     Slic3r::Model model;
@@ -251,6 +288,52 @@ void keep_models_of(const std::vector<PlateObject>& plate)
         });
         loaded = used ? std::next(loaded) : loaded_models.erase(loaded);
     }
+}
+
+// ModelVolumeType of Model.hpp for the type the app names.
+Slic3r::ModelVolumeType volume_type_of(const VolumeType type)
+{
+    switch (type) {
+    case VolumeType::negative:
+        return Slic3r::ModelVolumeType::NEGATIVE_VOLUME;
+    case VolumeType::modifier:
+        return Slic3r::ModelVolumeType::PARAMETER_MODIFIER;
+    case VolumeType::support_blocker:
+        return Slic3r::ModelVolumeType::SUPPORT_BLOCKER;
+    case VolumeType::support_enforcer:
+        return Slic3r::ModelVolumeType::SUPPORT_ENFORCER;
+    case VolumeType::part:
+    default:
+        return Slic3r::ModelVolumeType::MODEL_PART;
+    }
+}
+
+// create_mesh() of GUI_ObjectList.cpp: the shapes the desktop app adds to an
+// object, sized from the bed and from the object they join.
+Slic3r::TriangleMesh create_mesh(const std::string& type_name, const Slic3r::BoundingBoxf3& bb, const double side)
+{
+    Slic3r::TriangleMesh mesh;
+    if (type_name == "Cube")
+        // Sitting on the print bed, left front front corner at (0, 0).
+        mesh = Slic3r::TriangleMesh(Slic3r::its_make_cube(side, side, side));
+    else if (type_name == "Cylinder")
+        // Centered around 0, sitting on the print bed.
+        // The cylinder has the same volume as the box above.
+        mesh = Slic3r::TriangleMesh(Slic3r::its_make_cylinder(0.5 * side, side));
+    else if (type_name == "Sphere")
+        // Centered around 0, half the sphere below the print bed, half above.
+        // The sphere has the same volume as the box above.
+        mesh = Slic3r::TriangleMesh(Slic3r::its_make_sphere(0.5 * side, PI / 90));
+    else if (type_name == "Slab")
+        // Sitting on the print bed, left front front corner at (0, 0).
+        mesh = Slic3r::TriangleMesh(Slic3r::its_make_cube(bb.size().x() * 1.5, bb.size().y() * 1.5, bb.size().z() * 0.5));
+    else if (type_name == "Cone")
+        mesh = Slic3r::TriangleMesh(Slic3r::its_make_cone(0.5 * side, side));
+    else if (type_name == "Disc")
+        mesh = Slic3r::TriangleMesh(Slic3r::its_make_cylinder(0.5 * side, 0.2f));
+    else if (type_name == "Torus")
+        mesh = Slic3r::TriangleMesh(Slic3r::its_make_torus(0.5 * side, 0.125 * side, (PI / 60)));
+    return mesh;
 }
 
 Slic3r::BuildVolume build_volume_of(const Slic3r::DynamicPrintConfig& config)
@@ -359,22 +442,35 @@ void place_new_object(Slic3r::Model& model, Slic3r::ModelObject& object, const S
     }
 }
 
-// Gives a loaded object the transformation from the app, as the desktop app
+// Gives a loaded object the transformations from the app, as the desktop app
 // commits a moved instance (GLCanvas3D::do_move): the mesh is centred around
-// the origin as for inspect_model(), the instance takes the transformation,
-// and an instance above the plate drops onto it unless its auto drop is off.
-void place_at(Slic3r::ModelObject& object, const ObjectPlacement& placement)
+// the origin as for inspect_model(), every copy takes its transformation, and
+// one above the plate drops onto it unless its auto drop is off.
+void place_at(Slic3r::ModelObject& object, const std::vector<ObjectPlacement>& instances)
 {
-    Slic3r::Transform3d transformation = Slic3r::Transform3d::Identity();
-    std::copy(placement.matrix.begin(), placement.matrix.end(), transformation.data());
     object.center_around_origin();
-    Slic3r::ModelInstance* instance = object.add_instance();
-    instance->set_transformation(Slic3r::Geometry::Transformation(transformation));
-    instance->auto_drop = placement.auto_drop;
-    const double shift_z = object.get_instance_min_z(0);
-    if (instance->auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
-        object.translate_instance(0, Slic3r::Vec3d(0.0, 0.0, -shift_z));
+    for (const ObjectPlacement& placement : instances) {
+        Slic3r::Transform3d transformation = Slic3r::Transform3d::Identity();
+        std::copy(placement.matrix.begin(), placement.matrix.end(), transformation.data());
+        Slic3r::ModelInstance* instance = object.add_instance();
+        instance->set_transformation(Slic3r::Geometry::Transformation(transformation));
+        instance->auto_drop = placement.auto_drop;
+        // ObjectList::toggle_printable_state()
+        instance->printable = placement.printable;
+        const std::size_t index = object.instances.size() - 1;
+        const double shift_z = object.get_instance_min_z(index);
+        if (instance->auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
+            object.translate_instance(index, Slic3r::Vec3d(0.0, 0.0, -shift_z));
+        }
     }
+}
+
+// GLCanvas3D::get_size_proportional_to_max_bed_size(): a share of the largest
+// side of the bed, which sizes the shapes the desktop app adds to an object.
+double size_proportional_to_max_bed_size(const Slic3r::DynamicPrintConfig& config, const double factor)
+{
+    const Slic3r::BoundingBoxf bed = build_volume_of(config).bounding_volume2d();
+    return factor * std::max(bed.size().x(), bed.size().y());
 }
 
 // Loads the objects of the plate into model, in the plate's order; an object
@@ -388,10 +484,46 @@ bool load_plate(const std::vector<PlateObject>& plate, const Slic3r::DynamicPrin
             message = "Unable to read model " + object.model_path;
             return false;
         }
-        if (object.placement.matrix.size() == 16) {
-            place_at(*loaded, object.placement);
+        if (!object.instances.empty()) {
+            place_at(*loaded, object.instances);
         } else {
             place_new_object(model, *loaded, config);
+        }
+        // The settings of the object (ModelObject::config), which Print::apply
+        // lays over the process preset for it.
+        loaded->config.assign_config(detail::model_config(object.settings));
+        // The colours the object is painted with (GLGizmoMmuSegmentation),
+        // which MultiMaterialSegmentation prints.
+        if (!loaded->volumes.empty() && !apply_painted_facets(*loaded->volumes.front(), object.painted)) {
+            message = "The painted facets of the object could not be read";
+            return false;
+        }
+        // The parts added to the object (ModelObject::volumes), which print
+        // with it, are taken out of it, or change its settings.
+        for (const ObjectPart& part : object.parts) {
+            const Slic3r::BoundingBoxf3 instance_bb = loaded->instance_bounding_box(0);
+            Slic3r::TriangleMesh mesh = create_mesh(part.shape, instance_bb, size_proportional_to_max_bed_size(config, 0.1));
+            if (mesh.empty()) {
+                message = "Unknown part shape " + part.shape;
+                return false;
+            }
+            Slic3r::ModelVolume* volume = loaded->add_volume(std::move(mesh), volume_type_of(part.type));
+            if (part.matrix.size() == 16) {
+                Slic3r::Transform3d transformation = Slic3r::Transform3d::Identity();
+                std::copy(part.matrix.begin(), part.matrix.end(), transformation.data());
+                volume->set_transformation(Slic3r::Geometry::Transformation(transformation));
+            }
+            volume->config.assign_config(detail::model_config(part.settings));
+            volume->name = part.shape;
+            if (!apply_painted_facets(*volume, part.painted)) {
+                message = "The painted facets of a part could not be read";
+                return false;
+            }
+        }
+        // The height ranges of the object (ModelObject::layer_config_ranges),
+        // which PrintObject::slice() prints with their own layer height.
+        for (const LayerRange& range : object.layer_ranges) {
+            loaded->layer_config_ranges[{range.bottom, range.top}].assign_config(detail::model_config(range.settings));
         }
     }
     return true;
@@ -403,7 +535,16 @@ bool load_plate(const std::vector<PlateObject>& plate, const Slic3r::DynamicPrin
 // printed, so a plate with no object on it has nothing to slice.
 bool check_print_volume(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, std::string& message)
 {
-    const unsigned int printable = model.update_print_volume_state(build_volume_of(config));
+    model.update_print_volume_state(build_volume_of(config));
+    // ModelInstance::is_printable(): inside the build volume and printed.
+    unsigned int printable = 0;
+    for (const Slic3r::ModelObject* object : model.objects) {
+        for (const Slic3r::ModelInstance* instance : object->instances) {
+            if (instance->is_printable()) {
+                ++printable;
+            }
+        }
+    }
     for (const Slic3r::ModelObject* object : model.objects) {
         for (const Slic3r::ModelInstance* instance : object->instances) {
             if (instance->print_volume_state == Slic3r::ModelInstancePVS_Partly_Outside) {
@@ -775,11 +916,30 @@ SceneStatus scene_status(const SliceStatus status)
     return status == SliceStatus::profile_not_found ? SceneStatus::profile_not_found : SceneStatus::engine_not_ready;
 }
 
+// Whether the bundle installed in the data directory is the one the resources
+// hold (PresetUpdater::priv::check_installed_vendor_profiles()'s version rule).
+bool bundle_is_current(const fs::path& path_in_resources, const fs::path& path_in_vendor)
+{
+    if (!fs::exists(path_in_vendor)) {
+        return false;
+    }
+    const Slic3r::Semver resource_version = Slic3r::get_version_from_json(path_in_resources.string());
+    const Slic3r::Semver vendor_version = Slic3r::get_version_from_json(path_in_vendor.string());
+    const bool version_match = resource_version.maj() == vendor_version.maj() && resource_version.min() == vendor_version.min();
+    return version_match && !(vendor_version < resource_version);
+}
+
 // PresetUpdater::priv::check_installed_vendor_profiles() with profile updates
 // enabled: the filament library and the default bundle are always installed,
 // the bundle of an enabled vendor when it is missing or older than the one in
 // the resources, and the bundle of a vendor no longer enabled is removed.
 // Returns the number of printer vendor bundles in the resources.
+//
+// The desktop app installs the filament library on every start, from a
+// background thread of its updater. Here the app waits for this before it can
+// show anything, and the library is 482 files, so it is installed by the same
+// rule as a vendor bundle: when it is missing or older than the resources. A
+// new app version brings a new library version with it.
 std::size_t install_vendor_bundles(const Slic3r::AppConfig& config)
 {
     std::size_t vendor_bundles = 0;
@@ -787,7 +947,11 @@ std::size_t install_vendor_bundles(const Slic3r::AppConfig& config)
     const fs::path vendor_path = fs::path(Slic3r::data_dir()) / PRESET_SYSTEM_DIR;
     const Slic3r::AppConfig::VendorMap& enabled_vendors = config.vendors();
 
-    std::set<std::string> bundles{Slic3r::PresetBundle::ORCA_FILAMENT_LIBRARY};
+    const std::string library = Slic3r::PresetBundle::ORCA_FILAMENT_LIBRARY;
+    std::set<std::string> bundles;
+    if (!bundle_is_current(rsrc_path / (library + ".json"), vendor_path / (library + ".json"))) {
+        bundles.insert(library);
+    }
     for (const fs::directory_entry& entry : fs::directory_iterator(rsrc_path)) {
         const fs::path& path = entry.path();
         if (!Slic3r::is_json_file(path.string())) {
@@ -796,17 +960,14 @@ std::size_t install_vendor_bundles(const Slic3r::AppConfig& config)
         const fs::path path_in_vendor = vendor_path / path.filename();
         std::string vendor_name = path.filename().string();
         vendor_name.erase(vendor_name.size() - 5);
-        if (bundles.count(vendor_name) > 0) {
+        if (vendor_name == library) {
             continue;
         }
         ++vendor_bundles;
         const bool is_vendor_enabled = vendor_name == Slic3r::PresetBundle::ORCA_DEFAULT_BUNDLE || enabled_vendors.count(vendor_name) > 0;
         if (fs::exists(path_in_vendor)) {
             if (is_vendor_enabled) {
-                const Slic3r::Semver resource_version = Slic3r::get_version_from_json(path.string());
-                const Slic3r::Semver vendor_version = Slic3r::get_version_from_json(path_in_vendor.string());
-                const bool version_match = resource_version.maj() == vendor_version.maj() && resource_version.min() == vendor_version.min();
-                if (!version_match || vendor_version < resource_version) {
+                if (!bundle_is_current(path, path_in_vendor)) {
                     bundles.insert(vendor_name);
                 }
             } else {
@@ -819,7 +980,9 @@ std::size_t install_vendor_bundles(const Slic3r::AppConfig& config)
             bundles.insert(vendor_name);
         }
     }
-    Slic3r::install_vendor_bundles_from_resources(std::vector<std::string>(bundles.begin(), bundles.end()));
+    if (!bundles.empty()) {
+        Slic3r::install_vendor_bundles_from_resources(std::vector<std::string>(bundles.begin(), bundles.end()));
+    }
     return vendor_bundles;
 }
 
@@ -832,7 +995,7 @@ std::string engine_version()
 
 EngineInitialization initialize(const EngineDirectories& directories)
 {
-    const std::lock_guard<std::mutex> lock(engine_mutex);
+    const std::lock_guard<std::mutex> lock(engine().mutex);
     if (initialization != nullptr) {
         return *initialization;
     }
@@ -858,17 +1021,31 @@ EngineInitialization initialize(const EngineDirectories& directories)
         }
         const std::size_t vendor_bundles = install_vendor_bundles(*config);
 
+        // GUI_App::load_language(): a modified preset's label starts with the
+        // translation of "*" and a space, which is "*" in every catalogue.
+        Slic3r::Preset::update_suffix_modified("* ");
         auto bundle = std::make_unique<Slic3r::PresetBundle>();
         // Same substitution rule as the desktop app's start-up.
         bundle->load_presets(*config, Slic3r::ForwardCompatibilitySubstitutionRule::EnableSystemSilent);
+        // The printers the user can send G-code to. This build of OrcaSlicer
+        // never loads them (its own printers are found over the network), so
+        // the app reads them itself from the data directory, where
+        // PhysicalPrinterCollection::save_printer() writes them.
+        Slic3r::PresetsConfigSubstitutions printer_substitutions;
+        bundle->physical_printers.load_printers(
+            Slic3r::data_dir(),
+            "physical_printer",
+            printer_substitutions,
+            Slic3r::ForwardCompatibilitySubstitutionRule::EnableSystemSilent
+        );
         if (vendor_bundles == 0) {
             // The Setup Wizard would offer no printer.
             result->message = "No vendor profiles in " + (fs::path(directories.resources_dir) / "profiles").string();
         } else {
-            preset_bundle = std::move(bundle);
-            engine_config = std::move(config);
-            engine_config_existed = config_existed;
-            bundle_follows_config = true;
+            engine().bundle = std::move(bundle);
+            engine().config = std::move(config);
+            engine().config_existed = config_existed;
+            engine().bundle_follows_config = true;
             result->ready = true;
         }
     } catch (const std::exception& error) {
@@ -885,7 +1062,10 @@ SliceResult slice(
     const std::string& output_path,
     const std::string& toolpaths_path,
     const ProfileSelection& profiles,
-    const ProgressCallback& on_progress
+    const ModelSettings& plate_settings,
+    const ProgressCallback& on_progress,
+    const std::string& wipe_tower_mesh_path,
+    const std::vector<ThumbnailImage>& thumbnails
 )
 {
     if (!acquire_job(job_id)) {
@@ -893,8 +1073,8 @@ SliceResult slice(
     }
     const ActiveJob active_job;
 
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
         return failure(SliceStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
     }
 
@@ -902,10 +1082,13 @@ SliceResult slice(
     try {
         Slic3r::DynamicPrintConfig config;
         std::string message;
-        if (const SliceStatus status = select_profiles(*preset_bundle, profiles, config, message);
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, message);
             status != SliceStatus::success) {
             return failure(status, message);
         }
+        // BackgroundSlicingProcess::apply(): the settings of the plate are laid
+        // over the ones of the presets before the print is applied.
+        config.apply(detail::model_config(plate_settings), true);
 
         Slic3r::Model model;
         if (!load_plate(objects, config, model, message)) {
@@ -939,11 +1122,14 @@ SliceResult slice(
             return failure(SliceStatus::cancelled, {});
         }
 
-        print.is_BBL_printer() = preset_bundle->is_bbl_vendor();
+        print.is_BBL_printer() = engine().bundle->is_bbl_vendor();
         print.process();
 
         Slic3r::GCodeProcessorResult gcode_result;
-        print.export_gcode(temporary_path, &gcode_result, nullptr);
+        // The desktop app renders the thumbnails while the G-code is exported;
+        // the app rendered them before, and they are read as they are asked for.
+        print.export_gcode(temporary_path, &gcode_result,
+                           [&thumbnails](const Slic3r::ThumbnailsParams& params) { return load_thumbnails(thumbnails, params); });
         boost::system::error_code rename_error;
         fs::rename(temporary_path, output_path, rename_error);
         if (rename_error) {
@@ -961,6 +1147,17 @@ SliceResult slice(
         result.estimated_print_time_seconds = std::llround(print_time);
         result.filament_micrometers = std::llround(print.print_statistics().total_used_filament * 1'000.0);
         result.toolpaths_written = !toolpaths_path.empty() && write_toolpaths(gcode_result, print, config, toolpaths_path);
+        // GLCanvas3D::reload_scene(): once the wipe tower is built, the plate
+        // shows it as the slice made it — its ribs and its brim, in the tower's
+        // own coordinates — instead of the box it estimated.
+        if (!wipe_tower_mesh_path.empty() && print.has_wipe_tower() && print.wipe_tower_data().wipe_tower_mesh_data) {
+            Slic3r::TriangleMesh tower = print.wipe_tower_data().wipe_tower_mesh_data->real_wipe_tower_mesh;
+            tower.merge(print.wipe_tower_data().wipe_tower_mesh_data->real_brim_mesh);
+            // its_make_rib_tower() fills the triangles without the mesh's
+            // statistics, so TriangleMesh::empty() calls a rib tower empty;
+            // the desktop app draws from its triangles, and so is this.
+            result.wipe_tower_written = !tower.its.indices.empty() && write_mesh(tower.its, wipe_tower_mesh_path);
+        }
         return result;
     } catch (const Slic3r::CanceledException&) {
         remove_file(temporary_path);
@@ -982,6 +1179,38 @@ SliceResult slice(
     }
 }
 
+ThumbnailSizes thumbnail_sizes(const ProfileSelection& profiles)
+{
+    ThumbnailSizes result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        if (select_profiles(*engine().bundle, profiles, config, result.message) != SliceStatus::success) {
+            result.status = SceneStatus::profile_not_found;
+            return result;
+        }
+        result.status = SceneStatus::success;
+        // GCode::_do_export(): a Bambu Lab printer's G-code holds no thumbnails.
+        if (engine().bundle->is_bbl_vendor()) {
+            return result;
+        }
+        // An invalid list fails the export, which reports it.
+        const auto [thumbnails, errors] = Slic3r::GCodeThumbnails::make_and_check_thumbnail_list(config);
+        for (const auto& [format, size] : thumbnails) {
+            result.sizes.push_back(std::int32_t(std::lround(size.x())));
+            result.sizes.push_back(std::int32_t(std::lround(size.y())));
+        }
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::profile_not_found;
+        result.message = error.what();
+    }
+    return result;
+}
+
 bool cancel(const std::string& job_id)
 {
     const std::lock_guard<std::mutex> lock(job_mutex);
@@ -998,14 +1227,14 @@ bool cancel(const std::string& job_id)
 PlateDescription describe_plate(const ProfileSelection& profiles, const std::string& output_dir)
 {
     PlateDescription result;
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
     }
     try {
         Slic3r::DynamicPrintConfig config;
-        if (const SliceStatus status = select_profiles(*preset_bundle, profiles, config, result.message);
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
             status != SliceStatus::success) {
             result.status = scene_status(status);
             return result;
@@ -1045,7 +1274,7 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
         // existing STL file is used.
         std::string model = config.opt_string("bed_custom_model");
         if (model.empty()) {
-            model = system_bed_model(*preset_bundle, shape);
+            model = system_bed_model(*engine().bundle, shape);
         }
         const std::string model_mesh = (fs::path(output_dir) / "bed_model.mesh").string();
         remove_file(model_mesh);
@@ -1062,7 +1291,7 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
 
         std::string texture = config.opt_string("bed_custom_texture");
         if (texture.empty()) {
-            texture = system_bed_texture(*preset_bundle);
+            texture = system_bed_texture(*engine().bundle);
         }
         const std::string texture_png = (fs::path(output_dir) / "bed_texture.png").string();
         remove_file(texture_png);
@@ -1127,10 +1356,10 @@ Slic3r::Vec3d unscaled_instance_size(const Slic3r::ModelObject& object, const Sl
 // whether it fits the build volume, as the model's update_print_volume_state()
 // found (Plater::priv::update_print_volume_state), with what the gizmo windows
 // show (GizmoObjectManipulation::update_settings_value).
-void describe_placed(const Slic3r::ModelObject& object, ModelInspection& result)
+void describe_placed(const Slic3r::ModelObject& object, const std::size_t index, ModelInspection& result)
 {
-    const Slic3r::ModelInstance& instance = *object.instances.front();
-    const Slic3r::BoundingBoxf3 box = object.instance_bounding_box(0);
+    const Slic3r::ModelInstance& instance = *object.instances[index];
+    const Slic3r::BoundingBoxf3 box = object.instance_bounding_box(index);
     const Slic3r::Vec3d size = box.size();
     const Slic3r::Vec3d center = box.center();
     const Slic3r::Transform3d& matrix = instance.get_matrix();
@@ -1171,15 +1400,15 @@ ModelInspection inspect_model(
 )
 {
     ModelInspection result;
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
         result.status = SceneStatus::engine_not_ready;
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
     }
     try {
         Slic3r::DynamicPrintConfig config;
-        if (const SliceStatus status = select_profiles(*preset_bundle, profiles, config, result.message);
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
             status != SliceStatus::success) {
             result.status = scene_status(status);
             return result;
@@ -1195,7 +1424,7 @@ ModelInspection inspect_model(
             return result;
         }
         std::vector<PlateObject> objects = plate;
-        objects.push_back({model_path, {}});
+        objects.push_back(PlateObject{model_path, {}, {}, {}});
         keep_models_of(objects);
         place_new_object(model, *object, config);
 
@@ -1212,7 +1441,7 @@ ModelInspection inspect_model(
         }
 
         model.update_print_volume_state(build_volume_of(config));
-        describe_placed(*object, result);
+        describe_placed(*object, 0, result);
         result.status = SceneStatus::success;
         result.facet_count = static_cast<std::int64_t>(mesh.indices.size());
         return result;
@@ -1660,8 +1889,8 @@ bool load_placed(const std::string& model_path, const std::vector<double>& place
 FlatteningPlanes describe_flattening_planes(const std::string& model_path, const ProfileSelection& profiles, const std::vector<double>& placement)
 {
     FlatteningPlanes result;
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
         result.status = SceneStatus::engine_not_ready;
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
@@ -1696,8 +1925,8 @@ ModelInspection place_model(
 )
 {
     ModelInspection result;
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
         result.status = SceneStatus::engine_not_ready;
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
@@ -1708,7 +1937,7 @@ ModelInspection place_model(
     }
     try {
         Slic3r::DynamicPrintConfig config;
-        if (const SliceStatus status = select_profiles(*preset_bundle, profiles, config, result.message);
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
             status != SliceStatus::success) {
             result.status = scene_status(status);
             return result;
@@ -1764,9 +1993,87 @@ ModelInspection place_model(
         }
 
         model.update_print_volume_state(build_volume_of(config));
-        describe_placed(object, result);
+        describe_placed(object, 0, result);
         result.status = SceneStatus::success;
         result.facet_count = static_cast<std::int64_t>(object.facets_count());
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        return result;
+    }
+}
+
+ModelInspection add_object_part(
+    const PlateObject& object,
+    const std::string& shape,
+    const VolumeType type,
+    const ProfileSelection& profiles,
+    const std::string& mesh_path
+)
+{
+    ModelInspection result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+
+        Slic3r::Model model;
+        if (!load_plate({object}, config, model, result.message)) {
+            return result;
+        }
+        Slic3r::ModelObject& loaded = *model.objects.front();
+
+        // ObjectList::load_generic_subobject(): the shape is sized from the bed
+        // and placed beside the first copy of the object, on the plate.
+        const Slic3r::BoundingBoxf3 instance_bb = loaded.instance_bounding_box(0);
+        Slic3r::TriangleMesh mesh = create_mesh(shape, instance_bb, size_proportional_to_max_bed_size(config, 0.1));
+        if (mesh.empty()) {
+            result.message = "Unknown part shape " + shape;
+            return result;
+        }
+        Slic3r::ModelVolume* volume = loaded.add_volume(std::move(mesh), volume_type_of(type));
+        const Slic3r::ModelInstance& instance = *loaded.instances.front();
+        const Slic3r::Transform3d no_offset = instance.get_transformation().get_matrix_no_offset();
+        volume->set_transformation(Slic3r::Geometry::Transformation(no_offset.inverse()));
+        const Slic3r::BoundingBoxf3 mesh_bb = volume->mesh().bounding_box();
+        const Slic3r::Vec3d offset = shape == "Slab"
+            // Slab: Lift to print bed
+            ? Slic3r::Vec3d(0., 0., 0.5 * mesh_bb.size().z() + instance_bb.min.z() - instance.get_offset().z())
+            // Translate the new modifier to be pickable: move to the left front
+            // corner of the instance's bounding box, lift to print bed.
+            : Slic3r::Vec3d(instance_bb.max.x(), instance_bb.min.y(), instance_bb.min.z()) + 0.5 * mesh_bb.size() - instance.get_offset();
+        volume->set_offset(no_offset.inverse() * offset);
+
+        const indexed_triangle_set& part_mesh = volume->mesh().its;
+        fs::create_directories(fs::path(mesh_path).parent_path());
+        if (!write_mesh(part_mesh, mesh_path)) {
+            result.status = SceneStatus::write_failed;
+            result.message = "Unable to write " + mesh_path;
+            return result;
+        }
+
+        // The part as the app keeps it: its transformation in the object and its size.
+        const Slic3r::Transform3d matrix = volume->get_matrix();
+        std::copy(matrix.data(), matrix.data() + 16, result.instance_matrix.begin());
+        const Slic3r::Vec3d size = volume->mesh().bounding_box().size();
+        result.size_x = size.x();
+        result.size_y = size.y();
+        result.size_z = size.z();
+        const Slic3r::Vec3d center = volume->mesh().bounding_box().center();
+        result.box_center = {center.x(), center.y(), center.z()};
+        result.unscaled_size = {size.x(), size.y(), size.z()};
+        result.facet_count = static_cast<std::int64_t>(part_mesh.indices.size());
+        result.volume_state = VolumeState::inside;
+        result.status = SceneStatus::success;
         return result;
     } catch (const std::exception& error) {
         result.message = error.what();
@@ -1783,19 +2090,24 @@ PlateInspection place_objects(
 )
 {
     PlateInspection result;
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
         result.status = SceneStatus::engine_not_ready;
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
     }
-    if (std::any_of(plate.begin(), plate.end(), [](const PlateObject& object) { return object.placement.matrix.size() != 16; })) {
+    const auto placed = [](const PlateObject& object) {
+        return !object.instances.empty()
+               && std::all_of(object.instances.begin(), object.instances.end(),
+                              [](const ObjectPlacement& instance) { return instance.matrix.size() == 16; });
+    };
+    if (!std::all_of(plate.begin(), plate.end(), placed)) {
         result.message = "A placement is not a 4 x 4 matrix";
         return result;
     }
     try {
         Slic3r::DynamicPrintConfig config;
-        if (const SliceStatus status = select_profiles(*preset_bundle, profiles, config, result.message);
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
             status != SliceStatus::success) {
             result.status = scene_status(status);
             return result;
@@ -1822,10 +2134,13 @@ PlateInspection place_objects(
 
         model.update_print_volume_state(build_volume_of(config));
         for (const Slic3r::ModelObject* object : model.objects) {
-            ModelInspection& placed = result.objects.emplace_back();
-            describe_placed(*object, placed);
-            placed.status = SceneStatus::success;
-            placed.facet_count = static_cast<std::int64_t>(object->facets_count());
+            PlateObjectInspection& described = result.objects.emplace_back();
+            for (std::size_t index = 0; index < object->instances.size(); ++index) {
+                ModelInspection& instance = described.instances.emplace_back();
+                describe_placed(*object, index, instance);
+                instance.status = SceneStatus::success;
+                instance.facet_count = static_cast<std::int64_t>(object->facets_count());
+            }
         }
         result.status = SceneStatus::success;
         return result;
@@ -1836,633 +2151,33 @@ PlateInspection place_objects(
     }
 }
 
-namespace {
+namespace detail {
 
-using VendorMap = Slic3r::AppConfig::VendorMap;
-
-// The Setup Wizard's printers and filaments, read once per process.
-std::unique_ptr<setup::Catalog> catalog;
-
-const setup::Catalog& setup_catalog()
+SliceStatus select_profiles(
+    Slic3r::PresetBundle& bundle,
+    const ProfileSelection& profiles,
+    Slic3r::DynamicPrintConfig& config,
+    std::string& message
+)
 {
-    if (catalog == nullptr) {
-        catalog = std::make_unique<setup::Catalog>(setup::load(Slic3r::data_dir(), Slic3r::resources_dir()));
-    }
-    return *catalog;
+    return orcinus::orca::select_profiles(bundle, profiles, config, message);
 }
 
-const setup::Model* find_setup_model(const setup::Catalog& data, const std::string& model_id)
+bool load_plate(
+    const std::vector<PlateObject>& plate,
+    const Slic3r::DynamicPrintConfig& config,
+    Slic3r::Model& model,
+    std::string& message
+)
 {
-    const auto model = std::find_if(data.models.begin(), data.models.end(), [&model_id](const setup::Model& candidate) {
-        return candidate.model == model_id;
-    });
-    return model == data.models.end() ? nullptr : &*model;
+    return orcinus::orca::load_plate(plate, config, model, message);
 }
 
-// Shows the selection engine_config remembers again after select_profiles() selected other presets.
-void follow_config(Slic3r::PresetBundle& bundle)
+bool write_mesh(const indexed_triangle_set& its, const std::string& path)
 {
-    if (!bundle_follows_config) {
-        bundle.load_selections(*engine_config);
-        bundle_follows_config = true;
-    }
+    return orcinus::orca::write_mesh(its, path);
 }
 
-// AppConfig::save() refuses to run on any thread but the one the app considers
-// its main thread; the engine's calls run on the service's binder threads, one at a time.
-void save_config()
-{
-    Slic3r::save_main_thread_id();
-    engine_config->save();
-}
-
-// get_diameter_string() of the sidebar (Plater.cpp): "0.4", "0.25".
-std::string diameter_string(const float diameter)
-{
-    std::ostringstream stream;
-    stream << std::fixed << std::setprecision(2) << diameter;
-    std::string text = stream.str();
-    if (text.find('.') != std::string::npos) {
-        text.erase(text.find_last_not_of('0') + 1);
-        if (text.back() == '.') {
-            text += '0';
-        }
-    }
-    return text;
-}
-
-std::string bundle_name(Slic3r::PresetBundle& bundle, const Slic3r::Preset& preset)
-{
-    bundle.bundles.ReadLock();
-    const auto found = bundle.bundles.m_bundles.find(preset.bundle_id);
-    std::string name = found == bundle.bundles.m_bundles.end() ? std::string() : found->second.name;
-    bundle.bundles.ReadUnlock();
-    return name;
-}
-
-std::string lower(std::string text)
-{
-    std::transform(text.begin(), text.end(), text.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return text;
-}
-
-struct ComboEntry {
-    std::string label;
-    std::string vendor;
-    std::string type;
-    std::string bundle;
-};
-
-using ComboEntries = std::map<std::string, ComboEntry>;
-
-// The order of "add_presets" in PlaterPresetComboBox::update(): sorted by the
-// key, a non-empty key before an empty one, then by the name.
-std::vector<ComboEntries::const_iterator> sorted_by(const ComboEntries& entries, const std::function<std::string(const ComboEntry&)>& key)
-{
-    std::vector<ComboEntries::const_iterator> list;
-    for (auto entry = entries.begin(); entry != entries.end(); ++entry) {
-        list.push_back(entry);
-    }
-    std::stable_sort(list.begin(), list.end(), [&key](const auto l, const auto r) {
-        const std::string l_key = lower(key(l->second));
-        const std::string r_key = lower(key(r->second));
-        if (l_key.empty() != r_key.empty()) {
-            return !l_key.empty();
-        }
-        return l_key != r_key ? l_key < r_key : l->first < r->first;
-    });
-    return list;
-}
-
-void append_items(std::vector<PresetItem>& items, const std::vector<ComboEntries::const_iterator>& list, const PresetGroup group,
-                  const std::string& selected, const std::function<std::string(const ComboEntry&)>& subgroup)
-{
-    for (const auto entry : list) {
-        PresetItem& item = items.emplace_back();
-        item.name = entry->first;
-        item.label = entry->second.label;
-        item.group = group;
-        item.subgroup = subgroup(entry->second);
-        item.selected = entry->first == selected;
-    }
-}
-
-// PlaterPresetComboBox::update() for the printer or the first filament, with the
-// desktop app's default preferences: unsupported presets hidden
-// (show_unsupported_presets) and user filaments not grouped (group_filament_presets).
-// Android opens no projects, so no project presets are listed.
-std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const Slic3r::Preset::Type type)
-{
-    const bool is_filament = type == Slic3r::Preset::TYPE_FILAMENT;
-    Slic3r::PresetCollection& collection = is_filament ? bundle.filaments : static_cast<Slic3r::PresetCollection&>(bundle.printers);
-    if (is_filament && bundle.filament_presets.empty()) {
-        return {};
-    }
-
-    ComboEntries user_presets;
-    ComboEntries bundle_presets;
-    ComboEntries system_presets;
-    std::unordered_set<std::string> system_printer_models;
-    std::string selected_user_preset;
-    std::string selected_bundle_preset;
-    std::string selected_system_preset;
-
-    const std::deque<Slic3r::Preset>& presets = collection.get_presets();
-    for (size_t i = presets.front().is_visible ? 0 : collection.num_default_presets(); i < presets.size(); ++i) {
-        Slic3r::Preset& preset = collection.preset(i, true);
-        const bool is_selected = is_filament ? bundle.filament_presets.front() == preset.name : i == collection.get_selected_idx();
-        if (!is_selected && !preset.is_visible) {
-            continue;
-        }
-        if (is_selected && !preset.is_visible) {
-            preset.is_visible = true;
-        }
-
-        std::string name = preset.name;
-        ComboEntry entry{preset.label(false)};
-        if (preset.is_from_bundle()) {
-            entry.bundle = bundle_name(bundle, preset);
-        }
-        if (is_filament) {
-            if (const auto* vendor = preset.config.option<Slic3r::ConfigOptionStrings>("filament_vendor"); vendor != nullptr && !vendor->values.empty()) {
-                entry.vendor = vendor->values.front() == "Bambu Lab" ? "Bambu" : vendor->values.front();
-            }
-            if (const auto* filament_type = preset.config.option<Slic3r::ConfigOptionStrings>("filament_type"); filament_type != nullptr && !filament_type->values.empty()) {
-                entry.type = filament_type->values.front();
-            }
-        }
-
-        if (!preset.is_compatible) {
-            // Unsupported presets.
-            continue;
-        }
-        if (preset.is_default || preset.is_system) {
-            if (!is_filament) {
-                // A system printer is listed once per printer model.
-                name = preset.config.opt_string("printer_model");
-                entry.label = name;
-                if (system_printer_models.insert(name).second) {
-                    system_presets.emplace(name, entry);
-                }
-            } else {
-                system_presets.emplace(name, entry);
-            }
-            if (is_selected) {
-                selected_system_preset = name;
-            }
-        } else if (preset.is_project_embedded) {
-            continue;
-        } else if (preset.is_from_bundle()) {
-            bundle_presets.emplace(name, entry);
-            if (is_selected) {
-                selected_bundle_preset = name;
-            }
-        } else {
-            user_presets.emplace(name, entry);
-            if (is_selected) {
-                selected_user_preset = name;
-            }
-        }
-    }
-
-    std::vector<PresetItem> items;
-    const auto no_subgroup = [](const ComboEntry&) { return std::string(); };
-    append_items(items, sorted_by(user_presets, [](const ComboEntry& entry) { return entry.label; }), PresetGroup::user, selected_user_preset, no_subgroup);
-    append_items(items, sorted_by(bundle_presets, [](const ComboEntry& entry) { return entry.bundle; }), PresetGroup::bundle, selected_bundle_preset,
-                 [](const ComboEntry& entry) { return entry.bundle; });
-
-    std::vector<ComboEntries::const_iterator> system_list;
-    for (auto entry = system_presets.begin(); entry != system_presets.end(); ++entry) {
-        system_list.push_back(entry);
-    }
-    if (is_filament) {
-        static const std::vector<std::string> filament_orders = {"Bambu PLA Basic", "Bambu PLA Matte", "Bambu PETG HF", "Bambu ABS", "Bambu PLA Silk", "Bambu PLA-CF",
-                                                                 "Bambu PLA Galaxy", "Bambu PLA Metal", "Bambu PLA Marble", "Bambu PETG-CF", "Bambu PETG Translucent", "Bambu ABS-GF"};
-        static const std::vector<std::string> first_vendors = {"", "Bambu", "Generic"};
-        static const std::vector<std::string> first_types = {"PLA", "PETG", "ABS", "TPU"};
-        const auto position = [](const std::vector<std::string>& order, const std::string& value) {
-            return std::find(order.begin(), order.end(), value) - order.begin();
-        };
-        std::stable_sort(system_list.begin(), system_list.end(), [&position](const auto l, const auto r) {
-            if (const auto l_order = position(filament_orders, l->first), r_order = position(filament_orders, r->first); l_order != r_order) {
-                return l_order < r_order;
-            }
-            if (const auto l_vendor = position(first_vendors, l->second.vendor), r_vendor = position(first_vendors, r->second.vendor); l_vendor != r_vendor) {
-                return l_vendor < r_vendor;
-            }
-            if (const auto l_type = position(first_types, l->second.type), r_type = position(first_types, r->second.type); l_type != r_type) {
-                return l_type < r_type;
-            }
-            return l->first < r->first;
-        });
-    }
-    append_items(items, system_list, PresetGroup::system, selected_system_preset, [](const ComboEntry& entry) { return entry.vendor; });
-    return items;
-}
-
-// TabPresetComboBox::update() of the process tab: the visible presets
-// compatible with the printer, and the selected one.
-std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::PresetCollection& collection)
-{
-    ComboEntries user_presets;
-    ComboEntries bundle_presets;
-    ComboEntries system_presets;
-    std::string selected;
-
-    const std::deque<Slic3r::Preset>& presets = collection.get_presets();
-    const size_t idx_selected = collection.get_selected_idx();
-    for (size_t i = presets.front().is_visible ? 0 : collection.num_default_presets(); i < presets.size(); ++i) {
-        const Slic3r::Preset& preset = presets[i];
-        if (!preset.is_visible || (!preset.is_compatible && i != idx_selected)) {
-            continue;
-        }
-        if (preset.is_project_embedded) {
-            continue;
-        }
-        if (i == idx_selected) {
-            selected = preset.name;
-        }
-        if (preset.is_default || preset.is_system) {
-            system_presets.emplace(preset.name, ComboEntry{preset.name});
-        } else if (preset.is_from_bundle()) {
-            bundle_presets.emplace(preset.name, ComboEntry{preset.label(false), {}, {}, bundle_name(bundle, preset)});
-        } else {
-            user_presets.emplace(preset.name, ComboEntry{preset.name});
-        }
-    }
-
-    std::vector<PresetItem> items;
-    const auto in_order = [](const ComboEntries& entries) {
-        std::vector<ComboEntries::const_iterator> list;
-        for (auto entry = entries.begin(); entry != entries.end(); ++entry) {
-            list.push_back(entry);
-        }
-        return list;
-    };
-    const auto no_subgroup = [](const ComboEntry&) { return std::string(); };
-    append_items(items, in_order(user_presets), PresetGroup::user, selected, no_subgroup);
-    append_items(items, in_order(bundle_presets), PresetGroup::bundle, selected, [](const ComboEntry& entry) { return entry.bundle; });
-    append_items(items, in_order(system_presets), PresetGroup::system, selected, no_subgroup);
-    return items;
-}
-
-PresetState preset_state(Slic3r::PresetBundle& bundle)
-{
-    PresetState state;
-    state.status = SceneStatus::success;
-    state.setup_required = !engine_config_existed || bundle.printers.only_default_printers();
-    state.selection.printer = bundle.printers.get_selected_preset_name();
-    state.selection.process = bundle.prints.get_selected_preset_name();
-    state.selection.filament = bundle.filament_presets.empty() ? std::string() : bundle.filament_presets.front();
-    state.printers = plater_combo_items(bundle, Slic3r::Preset::TYPE_PRINTER);
-    state.filaments = plater_combo_items(bundle, Slic3r::Preset::TYPE_FILAMENT);
-    state.processes = tab_combo_items(bundle, bundle.prints);
-
-    // Sidebar::update_presets() for a printer with one extruder.
-    const auto* nozzle_diameter = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter");
-    std::vector<std::string> diameters = bundle.printers.diameters_of_selected_printer();
-    const std::string nozzle = nozzle_diameter == nullptr || nozzle_diameter->values.empty() ? std::string() : diameter_string(float(nozzle_diameter->values.front()));
-    if (!diameters.empty() && diameters.front().empty() && !nozzle.empty()) {
-        diameters.front() = nozzle;
-    }
-    if (!nozzle.empty() && std::find(diameters.begin(), diameters.end(), nozzle) == diameters.end()) {
-        diameters.push_back(nozzle);
-    }
-    state.nozzle_diameters = std::move(diameters);
-    state.nozzle_diameter = nozzle;
-    return state;
-}
-
-// Tab::select_preset() of the printer tab with the default preferences, whose
-// "Remember printer configuration" selects the process and filament the
-// printer last used (PresetBundle::update_selections).
-void select_printer(Slic3r::PresetBundle& bundle, const std::string& name)
-{
-    bundle.printers.select_preset_by_name(name, false);
-    bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always, Slic3r::PresetSelectCompatibleType::Always);
-    if (engine_config->get_bool("remember_printer_config")) {
-        bundle.update_selections(*engine_config);
-    }
-}
-
-// get_preferred_printer_model in GuideFrame::apply_config(): the first model of
-// the vendor the wizard installs, or installs another nozzle diameter of, with
-// that nozzle diameter. Reads the vendor profile without inserting an empty one.
-std::string preferred_printer_model(const Slic3r::PresetBundle& bundle, const VendorMap& enabled_vendors, const VendorMap& old_enabled_vendors,
-                                    const std::string& bundle_name, std::string& variant)
-{
-    const auto config = enabled_vendors.find(bundle_name);
-    if (config == enabled_vendors.end()) {
-        return {};
-    }
-    const auto printer_profile = bundle.vendors.find(bundle_name);
-    for (const auto& [model_id, variants] : config->second) {
-        if (variants.empty()) {
-            continue;
-        }
-        variant = *variants.begin();
-        if (variants.size() > 1) {
-            if (printer_profile != bundle.vendors.end() && !printer_profile->second.models.empty()) {
-                const auto& models = printer_profile->second.models;
-                const auto printer_model = std::find_if(models.begin(), models.end(), [&id = model_id](const auto& model) { return model.id == id; });
-                if (printer_model != models.end()) {
-                    for (const auto& printer_variant : printer_model->variants) {
-                        if (variants.count(printer_variant.name) > 0) {
-                            variant = printer_variant.name;
-                            break;
-                        }
-                    }
-                }
-            } else if (variant != Slic3r::PresetBundle::ORCA_DEFAULT_PRINTER_VARIANT
-                       && variants.count(Slic3r::PresetBundle::ORCA_DEFAULT_PRINTER_VARIANT) > 0) {
-                variant = Slic3r::PresetBundle::ORCA_DEFAULT_PRINTER_VARIANT;
-            }
-        }
-
-        const auto config_old = old_enabled_vendors.find(bundle_name);
-        if (config_old == old_enabled_vendors.end()) {
-            return model_id;
-        }
-        const auto model_old = config_old->second.find(model_id);
-        if (model_old == config_old->second.end()) {
-            return model_id;
-        }
-        if (model_old->second != variants) {
-            for (const std::string& added : variants) {
-                if (model_old->second.count(added) == 0) {
-                    variant = added;
-                    return model_id;
-                }
-            }
-        }
-    }
-    variant.clear();
-    return {};
-}
-
-PresetState preset_failure(const SceneStatus status, std::string message)
-{
-    PresetState result;
-    result.status = status;
-    result.message = std::move(message);
-    return result;
-}
-
-}  // namespace
-
-PresetState describe_presets()
-{
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
-        return preset_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
-    }
-    try {
-        follow_config(*preset_bundle);
-        return preset_state(*preset_bundle);
-    } catch (const std::exception& error) {
-        return preset_failure(SceneStatus::profile_not_found, error.what());
-    }
-}
-
-PresetState select_preset(const PresetChoice choice, const std::string& value)
-{
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
-        return preset_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
-    }
-    try {
-        Slic3r::PresetBundle& bundle = *preset_bundle;
-        follow_config(bundle);
-        switch (choice) {
-        case PresetChoice::printer:
-            if (bundle.printers.find_preset(value, false) == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Unknown printer profile: " + value);
-            }
-            select_printer(bundle, value);
-            break;
-        case PresetChoice::printer_model: {
-            // Plater::priv::on_select_preset() for a printer model.
-            Slic3r::Preset* preset = bundle.get_similar_printer_preset(value, {});
-            if (preset == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Unknown printer model: " + value);
-            }
-            preset->is_visible = true;
-            select_printer(bundle, preset->name);
-            break;
-        }
-        case PresetChoice::nozzle_diameter: {
-            // Sidebar::priv::switch_diameter()
-            const auto* nozzle_diameter = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter");
-            if (nozzle_diameter != nullptr && !nozzle_diameter->values.empty() && diameter_string(float(nozzle_diameter->values.front())) == value) {
-                break;
-            }
-            Slic3r::Preset* preset = bundle.get_similar_printer_preset({}, value);
-            if (preset == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Configuration incompatible");
-            }
-            preset->is_visible = true;
-            select_printer(bundle, preset->name);
-            break;
-        }
-        case PresetChoice::filament:
-            if (bundle.filaments.find_preset(value, false) == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Unknown filament profile: " + value);
-            }
-            // Plater::priv::on_select_preset(), then Tab::select_preset() of the filament tab.
-            bundle.set_filament_preset(0, value);
-            bundle.filaments.select_preset_by_name(value, false);
-            break;
-        case PresetChoice::process:
-            if (bundle.prints.find_preset(value, false) == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Unknown process profile: " + value);
-            }
-            // Tab::select_preset() of the process tab.
-            bundle.prints.select_preset_by_name(value, false);
-            bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Never, Slic3r::PresetSelectCompatibleType::Always);
-            break;
-        default:
-            return preset_failure(SceneStatus::profile_not_found, "Unknown preset choice");
-        }
-        bundle.export_selections(*engine_config);
-        save_config();
-        return preset_state(bundle);
-    } catch (const std::exception& error) {
-        return preset_failure(SceneStatus::profile_not_found, error.what());
-    }
-}
-
-SetupPrinters describe_setup_printers()
-{
-    SetupPrinters result;
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
-        result.message = "OrcaSlicer profiles are not loaded";
-        return result;
-    }
-    try {
-        for (const setup::Model& model : setup_catalog().models) {
-            SetupPrinterModel& item = result.models.emplace_back();
-            item.vendor = model.vendor;
-            item.model = model.model;
-            item.name = model.name;
-            item.nozzle_diameters = model.nozzle_diameters;
-            item.default_materials = model.materials;
-            item.cover = model.cover;
-            item.installed_nozzles = setup::installed_nozzles(model, *engine_config);
-        }
-        result.status = SceneStatus::success;
-    } catch (const std::exception& error) {
-        result.status = SceneStatus::profile_not_found;
-        result.message = error.what();
-        result.models.clear();
-    }
-    return result;
-}
-
-SetupFilaments describe_setup_filaments(const std::vector<std::string>& models)
-{
-    SetupFilaments result;
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
-        result.message = "OrcaSlicer profiles are not loaded";
-        return result;
-    }
-    try {
-        const setup::Catalog& data = setup_catalog();
-        std::vector<const setup::Model*> chosen;
-        std::set<std::string> default_materials;
-        for (const std::string& model_id : models) {
-            const setup::Model* model = find_setup_model(data, model_id);
-            if (model == nullptr) {
-                result.status = SceneStatus::profile_not_found;
-                result.message = "Unknown printer model: " + model_id;
-                return result;
-            }
-            chosen.push_back(model);
-            // GuideFrame::OnScriptMessage("save_userguide_models"): the default materials of a chosen model are selected.
-            default_materials.insert(model->materials.begin(), model->materials.end());
-        }
-
-        // GuideFrame::LoadProfile(): the installed filaments are selected.
-        const std::map<std::string, std::string> installed = engine_config->has_section(Slic3r::AppConfig::SECTION_FILAMENTS)
-            ? engine_config->get_section(Slic3r::AppConfig::SECTION_FILAMENTS)
-            : std::map<std::string, std::string>();
-        for (const auto& [name, filament] : data.filaments) {
-            SetupFilament item;
-            for (std::size_t index = 0; index < chosen.size(); ++index) {
-                const bool compatible = std::any_of(chosen[index]->nozzle_diameters.begin(), chosen[index]->nozzle_diameters.end(),
-                    [&filament = filament, model = chosen[index]](const std::string& nozzle) {
-                        return filament.models.count({model->model, nozzle}) > 0;
-                    });
-                if (compatible) {
-                    item.models.push_back(static_cast<std::int32_t>(index));
-                }
-            }
-            // The filament page lists a filament for the chosen printers, or for every printer.
-            if (!filament.models.empty() && item.models.empty()) {
-                continue;
-            }
-            item.name = name;
-            item.vendor = filament.vendor;
-            item.type = filament.type;
-            item.selected = installed.count(name) > 0 || default_materials.count(name) > 0;
-            result.filaments.push_back(std::move(item));
-        }
-        result.status = SceneStatus::success;
-    } catch (const std::exception& error) {
-        result.status = SceneStatus::profile_not_found;
-        result.message = error.what();
-        result.filaments.clear();
-    }
-    return result;
-}
-
-PresetState apply_setup(const std::vector<std::string>& models, const std::vector<std::string>& filaments)
-{
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
-        return preset_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
-    }
-    if (models.empty() || filaments.empty()) {
-        return preset_failure(SceneStatus::profile_not_found, "The Setup Wizard installs at least one printer and one filament");
-    }
-    try {
-        Slic3r::PresetBundle& bundle = *preset_bundle;
-        follow_config(bundle);
-
-        // GuideFrame::SaveProfile()
-        const setup::Catalog& data = setup_catalog();
-        VendorMap vendors;
-        for (const std::string& model_id : models) {
-            const setup::Model* model = find_setup_model(data, model_id);
-            if (model == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Unknown printer model: " + model_id);
-            }
-            vendors[model->vendor][model->model].insert(model->nozzle_diameters.begin(), model->nozzle_diameters.end());
-        }
-        std::map<std::string, std::string> enabled_filaments;
-        for (const std::string& filament : filaments) {
-            enabled_filaments[filament] = "true";
-        }
-        engine_config->set("firstguide", "finish", "1");
-
-        // GuideFrame::apply_config(): Orca's "custom" printers are considered first, then 3rd party.
-        const VendorMap old_vendors = engine_config->vendors();
-        std::string preferred_variant;
-        std::string preferred_model = preferred_printer_model(bundle, vendors, old_vendors, Slic3r::PresetBundle::ORCA_DEFAULT_BUNDLE, preferred_variant);
-        if (preferred_model.empty()) {
-            for (const auto& vendor : vendors) {
-                if (vendor.first == Slic3r::PresetBundle::ORCA_DEFAULT_BUNDLE) {
-                    continue;
-                }
-                preferred_model = preferred_printer_model(bundle, vendors, old_vendors, vendor.first, preferred_variant);
-                if (!preferred_model.empty()) {
-                    break;
-                }
-            }
-        }
-        if (!bundle.apply_vendor_config(vendors, enabled_filaments, engine_config.get(), true, preferred_model, preferred_variant)) {
-            return preset_failure(SceneStatus::write_failed, "Unable to install the vendor bundles");
-        }
-        save_config();
-        engine_config_existed = true;
-        return preset_state(bundle);
-    } catch (const std::exception& error) {
-        return preset_failure(SceneStatus::profile_not_found, error.what());
-    }
-}
-
-PresetState apply_default_setup()
-{
-    const std::lock_guard<std::mutex> engine_lock(engine_mutex);
-    if (preset_bundle == nullptr) {
-        return preset_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
-    }
-    try {
-        Slic3r::PresetBundle& bundle = *preset_bundle;
-        follow_config(bundle);
-        if (bundle.printers.only_default_printers()) {
-            // GuideFrame::run() for a cancelled wizard: install the default printer, clear the
-            // filament section and use the default materials. ORCA_DEFAULT_PRINTER_MODEL names
-            // the preset "MyKlipper 0.4 nozzle", not its printer model "Generic Klipper Printer",
-            // so the desktop app installs no printer here; the model of that preset is installed.
-            std::string model = Slic3r::PresetBundle::ORCA_DEFAULT_PRINTER_MODEL;
-            std::string variant = Slic3r::PresetBundle::ORCA_DEFAULT_PRINTER_VARIANT;
-            if (const Slic3r::Preset* printer = bundle.printers.find_preset(model, false); printer != nullptr && printer->is_system) {
-                model = printer->config.opt_string("printer_model");
-                variant = printer->config.opt_string("printer_variant");
-            }
-            engine_config->set_variant(Slic3r::PresetBundle::ORCA_DEFAULT_BUNDLE, model, variant, true);
-            engine_config->clear_section(Slic3r::AppConfig::SECTION_FILAMENTS);
-            bundle.load_selections(*engine_config, {model, variant, Slic3r::PresetBundle::ORCA_DEFAULT_FILAMENT, std::string()});
-        }
-        bundle.export_selections(*engine_config);
-        save_config();
-        engine_config_existed = true;
-        return preset_state(bundle);
-    } catch (const std::exception& error) {
-        return preset_failure(SceneStatus::profile_not_found, error.what());
-    }
-}
+}  // namespace detail
 
 }  // namespace orcinus::orca

@@ -5,6 +5,7 @@ import app.orcinus.shadow.core.model.EngineVersion
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PlacedInstance
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
@@ -14,6 +15,8 @@ import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStatistics
+import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
@@ -150,6 +153,8 @@ class SliceModelUseCaseTest {
 
         override suspend fun status() = EngineStatus(EngineVersion("fake"), ready = true)
 
+        override suspend fun thumbnailSizes(profiles: SlicingProfileSelection) = ThumbnailSizesOutcome.Success(emptyList())
+
         override suspend fun slice(
             request: SliceRequest,
             progressListener: SliceProgressListener,
@@ -170,3 +175,10 @@ class SliceModelUseCaseTest {
         val JOB_ID = SliceJobId("job-1")
     }
 }
+
+/**
+ * The tests name the one copy every object in them has, as the app did before
+ * OrcaSlicer's instances were ported.
+ */
+private fun PlacedModel(model: ModelSource, mesh: ScenePath, placement: Transform3, autoDrop: Boolean = true) =
+    PlacedModel(model, mesh, listOf(PlacedInstance(placement, autoDrop)))

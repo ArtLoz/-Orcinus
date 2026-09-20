@@ -1,12 +1,23 @@
 package app.orcinus.shadow.feature.setup
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
+import app.orcinus.shadow.core.model.CreateFilamentRequest
+import app.orcinus.shadow.core.model.CustomFilament
+import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.PresetCreationOutcome
+import app.orcinus.shadow.core.model.FilamentPresetsOutcome
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
 import app.orcinus.shadow.core.model.SetupPrinterModel
 import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.domain.plate.ApplySetupUseCase
+import app.orcinus.shadow.domain.plate.CustomFilamentsUseCase
 import app.orcinus.shadow.domain.plate.GetSetupFilamentsUseCase
 import app.orcinus.shadow.domain.plate.GetSetupPrintersUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -91,6 +102,7 @@ class SetupWizardViewModel(
     private val getSetupPrinters: GetSetupPrintersUseCase,
     private val getSetupFilaments: GetSetupFilamentsUseCase,
     private val applySetup: ApplySetupUseCase,
+    private val customFilaments: CustomFilamentsUseCase,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(SetupUiState(start))
     internal val state: StateFlow<SetupUiState> = mutableState.asStateFlow()
@@ -103,6 +115,117 @@ class SetupWizardViewModel(
                     val sorted = PrinterPage.sorted(outcome.models)
                     mutableState.update { it.copy(loadingPrinters = false, printers = sorted, chosen = PrinterPage.installed(sorted)) }
                     if (start == SetupStart.FILAMENTS) loadFilaments()
+                }
+            }
+        }
+    }
+
+    /**
+     * The "Custom Filaments" of the wizard's filament page: the filaments of the
+     * user's own, which CreateFilamentPresetDialog adds to and
+     * EditFilamentPresetDialog changes.
+     */
+    internal var custom: List<CustomFilament> by mutableStateOf(emptyList())
+        private set
+
+    /** The question the creation or the deletion waits for an answer to. */
+    internal var filamentQuestion: SettingsDialog? by mutableStateOf(null)
+        private set
+
+    /**
+     * Whether CreateFilamentPresetDialog is open. Upstream runs it modally and
+     * ends it only once the filament is made, so an answer that refuses a
+     * question comes back to the pages the user has filled in.
+     */
+    internal var creatingFilament: Boolean by mutableStateOf(false)
+        private set
+
+    internal fun openCreateFilament() {
+        creatingFilament = true
+    }
+
+    internal fun closeCreateFilament() {
+        creatingFilament = false
+        filamentQuestion = null
+        pendingCreation = null
+        answers = emptyMap()
+    }
+
+    internal var filamentProblem: String? by mutableStateOf(null)
+        private set
+
+    init {
+        viewModelScope.launch { loadCustomFilaments() }
+    }
+
+    private suspend fun loadCustomFilaments() {
+        custom = (customFilaments.filaments() as? CustomFilamentsOutcome.Success)?.filaments.orEmpty()
+    }
+
+    internal suspend fun filamentOptions(type: String, baseFilament: String): CreateFilamentOptionsOutcome =
+        customFilaments.options(type, baseFilament)
+
+    internal suspend fun filamentPresets(filamentId: String): FilamentPresetsOutcome = customFilaments.presets(filamentId)
+
+    /** The Create button of the dialog, and the answers the user has given it. */
+    internal fun createFilament(request: CreateFilamentRequest) {
+        pendingCreation = request
+        answers = emptyMap()
+        runCreation()
+    }
+
+    /** The Delete button of a preset row. */
+    internal fun deleteFilamentPreset(preset: String) {
+        pendingDeletion = preset
+        answers = emptyMap()
+        runCreation()
+    }
+
+    /** The question's Yes or No: the request runs again with the answer. */
+    internal fun answerFilamentQuestion(yes: Boolean) {
+        val question = filamentQuestion ?: return
+        filamentQuestion = null
+        answers = answers + (question.id to yes)
+        runCreation()
+    }
+
+    internal fun dismissFilamentQuestion() {
+        filamentQuestion = null
+        pendingCreation = null
+        pendingDeletion = null
+    }
+
+    internal fun dismissFilamentProblem() {
+        filamentProblem = null
+    }
+
+    private var pendingCreation: CreateFilamentRequest? = null
+    private var pendingDeletion: String? = null
+    private var answers: Map<String, Boolean> = emptyMap()
+
+    private fun runCreation() {
+        val request = pendingCreation
+        val deletion = pendingDeletion
+        viewModelScope.launch {
+            val outcome = when {
+                request != null -> customFilaments.create(request, answers)
+                deletion != null -> customFilaments.deletePreset(deletion, answers)
+                else -> return@launch
+            }
+            when (outcome) {
+                is PresetCreationOutcome.Question -> filamentQuestion = outcome.question
+                is PresetCreationOutcome.Failure -> {
+                    filamentProblem = outcome.message
+                    pendingCreation = null
+                    pendingDeletion = null
+                }
+                is PresetCreationOutcome.Success -> {
+                    pendingCreation = null
+                    pendingDeletion = null
+                    creatingFilament = false
+                    loadCustomFilaments()
+                    // The wizard's filament list follows the presets it made.
+                    if (state.value.filaments.lines.isNotEmpty()) loadFilaments()
                 }
             }
         }
@@ -234,7 +357,8 @@ class SetupWizardViewModel(
             val outcome = change()
             mutableState.update {
                 when (outcome) {
-                    is PresetsOutcome.Success -> it.copy(applying = false, finished = true)
+                    // The wizard applies its own presets, which have no unsaved changes.
+                    is PresetsOutcome.Success, is PresetsOutcome.UnsavedChanges -> it.copy(applying = false, finished = true)
                     is PresetsOutcome.Failure -> it.copy(applying = false, error = outcome.message)
                     // The plate is busy: nothing changed yet.
                     null -> it.copy(applying = false)

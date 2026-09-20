@@ -2,6 +2,7 @@ package app.orcinus.shadow.storage.android
 
 import android.content.Context
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.storage.api.SceneFiles
 import java.io.File
 import java.util.UUID
@@ -23,6 +24,11 @@ class AppSceneFiles(context: Context) : SceneFiles {
         return ScenePath(File(objects, "${UUID.randomUUID()}.mesh").absolutePath)
     }
 
+    override fun newPaintedMeshes(): ScenePath {
+        objects.mkdirs()
+        return ScenePath(File(objects, "painted-${UUID.randomUUID()}").absolutePath)
+    }
+
     override fun deleteObjectMesh(mesh: ScenePath) {
         val file = File(mesh.value)
         if (file.parentFile == objects) file.delete()
@@ -37,8 +43,19 @@ class AppSceneFiles(context: Context) : SceneFiles {
         return ScenePath(File(toolpaths, "${UUID.randomUUID()}.toolpaths").absolutePath)
     }
 
+    override fun wipeTowerMeshOf(toolpaths: ScenePath): ScenePath = ScenePath(toolpaths.value + WIPE_TOWER_SUFFIX)
+
+    // Not kept by deleteToolpathsExcept(): the G-code holds the thumbnails once it is written.
+    override fun thumbnailOf(toolpaths: ScenePath, size: ThumbnailSize): ScenePath =
+        ScenePath("${toolpaths.value}.thumbnail-${size.width}x${size.height}.rgba")
+
     override fun deleteToolpathsExcept(keep: ScenePath?) {
-        val kept = keep?.let { File(it.value) }
-        toolpaths.listFiles()?.filter { it != kept }?.forEach(File::delete)
+        val kept = setOfNotNull(keep?.let { File(it.value) }, keep?.let { File(wipeTowerMeshOf(it).value) })
+        toolpaths.listFiles()?.filter { it !in kept }?.forEach(File::delete)
+    }
+
+    private companion object {
+        /** The wipe tower of a slice lies beside its toolpaths. */
+        const val WIPE_TOWER_SUFFIX = ".tower.mesh"
     }
 }

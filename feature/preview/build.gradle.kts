@@ -23,6 +23,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.activity.compose)
     implementation(project(":core:designsystem"))
     implementation(project(":core:ui"))
     implementation(project(":domain"))

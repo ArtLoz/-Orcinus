@@ -36,8 +36,8 @@ abstract class ConvertOrcaShaders : DefaultTask() {
 }
 
 val orcaShaders = rootProject.layout.projectDirectory.dir("upstream/OrcaSlicer/resources/shaders/140")
-// Shaders the plate view uses, named as in OrcaSlicer.
-val orcaShaderNames = listOf("flat", "gouraud", "gouraud_light", "hotbed", "printbed")
+// Shaders the plate view and the G-code thumbnails use, named as in OrcaSlicer.
+val orcaShaderNames = listOf("flat", "gouraud", "gouraud_light", "hotbed", "printbed", "thumbnail")
 
 val convertOrcaShaders = tasks.register<ConvertOrcaShaders>("convertOrcaShaders") {
     shaders.from(orcaShaderNames.flatMap { listOf(orcaShaders.file("$it.vs"), orcaShaders.file("$it.fs")) })

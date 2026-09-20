@@ -1,10 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- The OrcaSlicer catalogue the app's texts from OrcaSlicer use: localization/i18n/<language>. Empty for none. -->
+    <string name="orca_catalog_language" translatable="false">ru</string>
+
     <string name="calibration_cube_name">Тестовый куб 20 мм</string>
     <string name="duration_hours_minutes">%1$d ч %2$d мин</string>
     <string name="duration_minutes">%1$d мин</string>
     <string name="length_meters">%1$s м</string>
     <string name="size_millimeters">%1$s × %2$s × %3$s мм</string>
+
+    <!-- The list of an OrcaSlicer preset combo box. -->
+    <string name="user_presets">Пользовательские профили</string>
+    <string name="bundle_presets">Профили пакетов</string>
+    <string name="system_presets">Системные профили</string>
+    <string name="unspecified">Неизвестные</string>
+    <string name="search">Поиск</string>
+    <string name="clear_search">Очистить поиск</string>
+
+    <!-- OrcaSlicer's settings tabs. -->
+    <string name="settings_loading">Загрузка настроек…</string>
+    <string name="setting_tooltip">Показать описание</string>
+    <string name="setting_undo">Отменить изменение «%1$s»</string>
+    <string name="setting_values">Значения</string>
+    <string name="setting_override">Переопределить «%1$s»</string>
+    <string name="setting_compatible_all">Со всеми</string>
+    <string name="setting_compatible_count">Выбрано: %1$d</string>
+    <string name="setting_compatible_choose">Выбрать профили</string>
+    <string name="setting_point_x">X</string>
+    <string name="setting_point_y">Y</string>
+    <string name="setting_color">Цвет</string>
+    <!-- RammingDialog: a touch screen has no Ctrl key, which the desktop app holds for a constant flow rate. -->
+    <string name="ramming_constant_flow">Постоянный расход: двигать все точки вместе</string>
 
     <string name="problem_engine_unavailable">Ядро OrcaSlicer недоступно</string>
     <string name="problem_import_failed">Не удалось открыть модель</string>
@@ -13,4 +39,41 @@
     <string name="problem_slice_cancelled">Нарезка отменена</string>
     <string name="problem_placement_failed">Не удалось переместить модель</string>
     <string name="problem_presets_failed">Не удалось выбрать профиль</string>
+
+    <!-- The object menu of the 3D view and of the object list (MenuFactory). -->
+    <string name="object_menu_delete">Удалить</string>
+    <!-- MenuFactory::append_menu_item_auto_drop(): "Auto Drop", untranslated in OrcaSlicer's Russian catalogue; worded like its «Автоориентация». -->
+    <string name="object_menu_auto_drop">Автоопускание на стол</string>
+    <!-- Search::SearchDialog: what the settings search shows. -->
+    <string name="settings_search">Поиск настроек</string>
+    <string name="settings_search_empty">Ничего не найдено</string>
+    <!-- DiffPresetDialog: comparing two presets. -->
+    <string name="preset_compare">Сравнить пресеты</string>
+    <!-- DiffPresetDialog: кнопка между профилями; подпись у Orca закомментирована. -->
+    <string name="preset_compare_copy">Выбрать тот же профиль справа</string>
+    <!-- EditFilamentPresetDialog: у материала не осталось ни одного профиля. -->
+    <string name="filament_no_presets">У этого материала нет профилей</string>
+    <!-- ExportConfigsDialog: у выбранного вида экспорта нет ни одного пользовательского профиля. -->
+    <string name="config_export_empty">Нечего экспортировать: пользовательских профилей такого вида нет</string>
+    <!-- PhysicalPrinterDialog: the printers the app sends G-code to. -->
+    <string name="printer_host_title">Принтеры по сети</string>
+    <string name="printer_host_empty">Пока нет ни одного принтера</string>
+    <string name="printer_host_add">Добавить принтер</string>
+    <string name="printer_host_name">Название</string>
+    <string name="printer_host_send">Отправить на принтер</string>
+    <string name="printer_host_start">Начать печать сразу</string>
+    <string name="printer_host_sent">Отправлено: %1$s</string>
+    <string name="printer_host_sending">Отправка на принтер: %1$d %%</string>
+    <!-- Результат кнопки «Test»: у Orca своё сообщение на каждый тип хоста. -->
+    <string name="printer_host_test_ok">Связь с принтером работает</string>
+    <!-- PhysicalPrinter::preset_names: в каталоге Orca такой строки нет. -->
+    <string name="printer_host_preset">Профиль принтера</string>
+    <!-- Export G-code of the desktop app's File menu. -->
+    <string name="gcode_save">Сохранить G-code</string>
+    <string name="gcode_saved">G-code сохранён</string>
+    <string name="gcode_save_failed">Не удалось сохранить файл</string>
+    <string name="printer_host_local_network">Нет доступа к устройствам локальной сети: без него принтеры по Wi-Fi недоступны. Разрешите его приложению в настройках Android.</string>
+    <string name="printer_host_printer">Принтер: %s</string>
+    <string name="printer_host_self_test">Калибровка перед печатью</string>
+    <string name="printer_host_filament_mapping">Раскладка материалов по слотам:</string>
 </resources>

@@ -47,9 +47,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +77,10 @@ import app.orcinus.shadow.core.designsystem.component.OrcaLink
 import app.orcinus.shadow.core.designsystem.component.OrcaPageTopBar
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.SetupPrinterModel
+import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.settings.CreateFilamentDialog
+import app.orcinus.shadow.core.ui.settings.EditFilamentDialog
+import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -307,7 +314,51 @@ private fun FilamentPageContent(page: FilamentPageState, viewModel: SetupWizardV
     }
     val colors = OrcaTheme.colors
     val listed = remember(page) { page.listedLines }
+    // The "Custom Filaments" of the wizard's filament page.
+    var editing by rememberSaveable { mutableStateOf<String?>(null) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
+        item(key = "custom") {
+            Column(Modifier.padding(top = 4.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.custom_filaments),
+                        color = colors.text,
+                        style = OrcaTheme.typography.head15,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OrcaButton(
+                        text = stringResource(R.string.create_new_filament),
+                        onClick = viewModel::openCreateFilament,
+                        style = OrcaButtonStyle.Regular,
+                    )
+                }
+                for (filament in viewModel.custom) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = filament.name,
+                            color = colors.text,
+                            style = OrcaTheme.typography.body13,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OrcaIconButton(
+                            icon = DesignR.drawable.orca_edit,
+                            contentDescription = orcaString("Edit Filament"),
+                            onClick = { editing = filament.id },
+                        )
+                    }
+                }
+            }
+        }
         item(key = "filters") {
             Column(Modifier.padding(top = 4.dp)) {
                 FilterChips(
@@ -395,6 +446,55 @@ private fun FilamentPageContent(page: FilamentPageState, viewModel: SetupWizardV
                 }
             }
         }
+    }
+
+    CustomFilamentDialogs(
+        viewModel = viewModel,
+        editing = editing,
+        onDismissEdit = { editing = null },
+    )
+}
+
+/** The dialogs the "Custom Filaments" of the filament page open. */
+@Composable
+private fun CustomFilamentDialogs(
+    viewModel: SetupWizardViewModel,
+    editing: String?,
+    onDismissEdit: () -> Unit,
+) {
+    // The dialog closes itself once the filament is made, so a question that
+    // the user refuses keeps what they have filled in.
+    if (viewModel.creatingFilament) {
+        CreateFilamentDialog(
+            loadOptions = viewModel::filamentOptions,
+            onCreate = viewModel::createFilament,
+            onDismiss = viewModel::closeCreateFilament,
+        )
+    }
+    editing?.let { filamentId ->
+        EditFilamentDialog(
+            filamentId = filamentId,
+            loadPresets = viewModel::filamentPresets,
+            // The filament tab of the app opens the preset; the wizard closes first.
+            onEditPreset = { onDismissEdit() },
+            onDeletePreset = viewModel::deleteFilamentPreset,
+            onDismiss = onDismissEdit,
+        )
+    }
+    viewModel.filamentQuestion?.let { question ->
+        SettingsQuestionDialog(question, onAnswer = viewModel::answerFilamentQuestion)
+    }
+    viewModel.filamentProblem?.let { problem ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissFilamentProblem,
+            confirmButton = { OrcaButton(orcaString("OK"), onClick = viewModel::dismissFilamentProblem) },
+            title = { Text(orcaString("Create Filament"), style = OrcaTheme.typography.head16) },
+            text = { Text(orcaString(problem), color = OrcaTheme.colors.error, style = OrcaTheme.typography.body14) },
+            containerColor = OrcaTheme.colors.window,
+            titleContentColor = OrcaTheme.colors.text,
+            textContentColor = OrcaTheme.colors.text,
+            shape = OrcaTheme.shapes.window,
+        )
     }
 }
 

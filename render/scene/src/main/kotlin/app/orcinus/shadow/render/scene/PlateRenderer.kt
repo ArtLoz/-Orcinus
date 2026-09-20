@@ -24,8 +24,10 @@ internal class SceneFrame(
     val dark: Boolean,
     /** Device pixels per desktop pixel, which OrcaSlicer's line widths are given in. */
     val pixelScale: Float,
-    /** Index of the selected object. */
+    /** Index of the object the tools work on; null when none or several are selected. */
     val selectedIndex: Int?,
+    /** Indexes of every selected object, which the scene draws as selected. */
+    val selectedIndexes: Set<Int> = emptySet(),
     /** The active gizmo on the selected object. */
     val gizmo: GizmoFrame?,
 )
@@ -261,18 +263,51 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         } else {
             program.setInt("print_volume.type", -1)
         }
-        for (sceneObject in objects) {
-            val mesh = gpuObjects[sceneObject.key] ?: continue
-            val color = VolumeColors.render(sceneObject.color, selected = sceneObject.index == frame.selectedIndex)
-            program.setVec4("uniform_color", color.red, color.green, color.blue, color.alpha)
-            program.setMatrix4("volume_world_matrix", sceneObject.world.toFloatArray())
-            program.setMatrix4("view_model_matrix", (frame.view * sceneObject.world).toFloatArray())
-            program.setMatrix3("view_normal_matrix", normalMatrix(frame.view, sceneObject.world))
-            program.setMatrix3("slope.volume_world_normal_matrix", normalMatrix(Affine3(), sceneObject.world))
-            mesh.draw()
+        // GLVolumeCollection::render(): the opaque volumes first, then the
+        // transparent ones blended over them, with the depth buffer kept.
+        for (sceneObject in objects.filterNot(SceneObject::transparent).filterNot(SceneObject::overlay)) {
+            drawVolume(program, frame, sceneObject)
+        }
+        // The painted triangles lie on the object's own surface, so they are
+        // drawn with a bias that keeps them in front of it.
+        val painted = objects.filter(SceneObject::overlay)
+        if (painted.isNotEmpty()) {
+            GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)
+            GLES30.glPolygonOffset(-1f, -1f)
+            for (sceneObject in painted) {
+                drawVolume(program, frame, sceneObject)
+            }
+            GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
+        }
+        val transparent = objects.filter(SceneObject::transparent)
+        if (transparent.isNotEmpty()) {
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+            GLES30.glDepthMask(false)
+            for (sceneObject in transparent) {
+                drawVolume(program, frame, sceneObject)
+            }
+            GLES30.glDepthMask(true)
+            GLES30.glDisable(GLES30.GL_BLEND)
         }
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+    }
+
+    /** GLVolume::render(): one volume with the shader's uniforms for it. */
+    private fun drawVolume(program: GlProgram, frame: SceneFrame, sceneObject: SceneObject) {
+        val mesh = gpuObjects[sceneObject.key] ?: return
+        val color = VolumeColors.render(
+            sceneObject.color,
+            selected = sceneObject.index in frame.selectedIndexes,
+            printable = sceneObject.printable,
+        )
+        program.setVec4("uniform_color", color.red, color.green, color.blue, color.alpha)
+        program.setMatrix4("volume_world_matrix", sceneObject.world.toFloatArray())
+        program.setMatrix4("view_model_matrix", (frame.view * sceneObject.world).toFloatArray())
+        program.setMatrix3("view_normal_matrix", normalMatrix(frame.view, sceneObject.world))
+        program.setMatrix3("slope.volume_world_normal_matrix", normalMatrix(Affine3(), sceneObject.world))
+        mesh.draw()
     }
 
     /**
@@ -280,9 +315,16 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
      * corners of the bounding box, with arrows under it when auto drop is off.
      */
     private fun renderSelection(program: GlProgram, frame: SceneFrame) {
-        val selected = objects.firstOrNull { it.index == frame.selectedIndex } ?: return
-        val box = selected.bounds
-        val autoDrop = selected.autoDrop
+        // The desktop app draws one box around the whole selection; a plate of
+        // a phone holds few objects, so each selected one gets its brackets,
+        // around the copy and the parts that belong to it together.
+        for ((_, volumes) in objects.filter { it.index in frame.selectedIndexes }.groupBy(SceneObject::index)) {
+            val box = volumes.map(SceneObject::bounds).reduce(Box3::merge)
+            renderSelectionOf(program, frame, box, volumes.first().autoDrop)
+        }
+    }
+
+    private fun renderSelectionOf(program: GlProgram, frame: SceneFrame, box: Box3, autoDrop: Boolean) {
         val lines = selectionBox?.takeIf { it.first == box && it.second == autoDrop }?.third ?: run {
             selectionBox?.third?.release()
             GlVertexArray(GlVertexArray.floatBuffer(boundingBoxBrackets(box, autoDrop)), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
@@ -455,21 +497,21 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             listOf(GlProgram.POSITION to 3, GlProgram.NORMAL to 3),
             GLES30.GL_TRIANGLES,
         )
+    }
+}
 
-        /** view_normal_matrix: the view's rotation times the inverse transpose of the model's linear part. */
-        fun normalMatrix(view: Affine3, world: Affine3): FloatArray {
-            val inverse = world.inverse()
-            val linear = view.linearToFloatArray()
-            val result = FloatArray(9)
-            // (inverse)^T at column c, row r is inverse[c, r].
-            for (column in 0 until 3) {
-                for (row in 0 until 3) {
-                    var sum = 0.0
-                    for (k in 0 until 3) sum += linear[k * 3 + row] * inverse[column, k]
-                    result[column * 3 + row] = sum.toFloat()
-                }
-            }
-            return result
+/** view_normal_matrix: the view's rotation times the inverse transpose of the model's linear part. */
+internal fun normalMatrix(view: Affine3, world: Affine3): FloatArray {
+    val inverse = world.inverse()
+    val linear = view.linearToFloatArray()
+    val result = FloatArray(9)
+    // (inverse)^T at column c, row r is inverse[c, r].
+    for (column in 0 until 3) {
+        for (row in 0 until 3) {
+            var sum = 0.0
+            for (k in 0 until 3) sum += linear[k * 3 + row] * inverse[column, k]
+            result[column * 3 + row] = sum.toFloat()
         }
     }
+    return result
 }

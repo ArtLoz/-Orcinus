@@ -36,6 +36,8 @@ class ToolpathsLayer private constructor(
 
     // Requested, and what the current viewer has.
     private var viewType = ToolpathsViewType.FeatureType
+    /** The user picked a view type, which the smart default no longer overrides. */
+    private var viewTypeChosen = false
     private var layerRange: Pair<Int, Int>? = null
     private var visibleMoves: Pair<Int, Int>? = null
     private val roleVisibility = HashMap<ToolpathsRole, Boolean>()
@@ -55,7 +57,10 @@ class ToolpathsLayer private constructor(
     }
 
     /** GCodeViewer::set_view_type() from the legend's combo box. */
-    fun setViewType(type: ToolpathsViewType) = request { viewType = type }
+    fun setViewType(type: ToolpathsViewType) = request {
+        viewType = type
+        viewTypeChosen = true
+    }
 
     /** GCodeViewer::set_layers_z_range(): the visible layers; every move of the top one shows. */
     fun setLayerRange(lower: Int, upper: Int) = request {
@@ -109,6 +114,13 @@ class ToolpathsLayer private constructor(
     }
 
     private fun applyRequests() {
+        // GCodeViewer::load(): OrcaSlicer shows a print of several filaments
+        // in their colours (ColorPrint) and a print of one by the feature type,
+        // unless the user picked a view type.
+        if (!viewTypeChosen) {
+            val used = NativeToolpaths.snapshot(viewer).usedExtruders.size
+            viewType = if (used > 1) ToolpathsViewType.ColorPrint else ToolpathsViewType.FeatureType
+        }
         if (appliedViewType != viewType) {
             NativeToolpaths.setViewType(viewer, viewType.ordinal)
             appliedViewType = viewType

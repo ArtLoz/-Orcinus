@@ -6,18 +6,57 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.RemoteException
+import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.ComparedPresets
+import app.orcinus.shadow.core.model.ConfigExportKind
+import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
+import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
+import app.orcinus.shadow.core.model.ConfigTransferOutcome
+import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
+import app.orcinus.shadow.core.model.CreateFilamentRequest
+import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
+import app.orcinus.shadow.core.model.CreatePrinterRequest
+import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
+import app.orcinus.shadow.core.model.PresetCreationOutcome
+import app.orcinus.shadow.core.model.FilamentPresetChoice
+import app.orcinus.shadow.core.model.FilamentPresetsOutcome
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.PaintStroke
+import app.orcinus.shadow.core.model.PaintedFacets
+import app.orcinus.shadow.core.model.PaintingOutcome
+import app.orcinus.shadow.core.model.PhysicalPrinter
+import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
+import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
+import app.orcinus.shadow.core.model.PresetComparisonOutcome
+import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.PresetNameOutcome
+import app.orcinus.shadow.core.model.PresetNamesOutcome
+import app.orcinus.shadow.core.model.PresetSettingsOutcome
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SearchCatalogOutcome
+import app.orcinus.shadow.core.model.FlushVolumesChange
+import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
+import app.orcinus.shadow.core.model.GcodePlaceholderInfo
+import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
+import app.orcinus.shadow.core.model.SettingsMode
+import app.orcinus.shadow.core.model.SettingsTabOutcome
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
 import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
@@ -28,8 +67,11 @@ import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
+import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
@@ -47,7 +89,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector, PresetManager {
+) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -158,6 +200,88 @@ class RemoteSlicerEngine(
         }
     }
 
+    override suspend fun updateFlushVolumes(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        plateSettings: ModelSettings,
+        change: FlushVolumesChange,
+        index: Int,
+    ): FlushVolumesOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().updateFlushVolumes(plate.toParcels(), profiles.toParcel(), plateSettings.toParcel(), change.name, index).toOutcome()
+        } catch (_: RemoteException) {
+            FlushVolumesOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun describeFlushVolumes(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        plateSettings: ModelSettings,
+    ): FlushVolumesOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().describeFlushVolumes(plate.toParcels(), profiles.toParcel(), plateSettings.toParcel()).toOutcome()
+        } catch (_: RemoteException) {
+            FlushVolumesOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun beginPainting(
+        plateObject: PlacedModel,
+        part: Int?,
+        profiles: SlicingProfileSelection,
+        facets: PaintedFacets,
+        meshPrefix: ScenePath,
+    ): PaintingOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().beginPainting(
+                listOf(plateObject).toParcels().first(),
+                part ?: -1,
+                profiles.toParcel(),
+                facets.value,
+                meshPrefix.value,
+            ).toOutcome()
+        } catch (_: RemoteException) {
+            PaintingOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().paintStroke(
+                doubleArrayOf(stroke.origin.x, stroke.origin.y, stroke.origin.z),
+                doubleArrayOf(stroke.direction.x, stroke.direction.y, stroke.direction.z),
+                stroke.filament,
+                stroke.radius,
+                stroke.tool.name,
+                stroke.angle,
+                meshPrefix.value,
+            ).toOutcome()
+        } catch (_: RemoteException) {
+            PaintingOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun endPainting(): PaintingOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().endPainting().toOutcome()
+        } catch (_: RemoteException) {
+            PaintingOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun describeWipeTower(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        plateSettings: ModelSettings,
+    ): WipeTowerOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().describeWipeTower(plate.toParcels(), profiles.toParcel(), plateSettings.toParcel()).toOutcome()
+        } catch (_: RemoteException) {
+            WipeTowerOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
     override suspend fun flatteningPlanes(
         model: ModelSource,
         profiles: SlicingProfileSelection,
@@ -171,10 +295,20 @@ class RemoteSlicerEngine(
         }
     }
 
+    override suspend fun addPart(
+        plateObject: PlacedModel,
+        shape: String,
+        type: VolumeType,
+        profiles: SlicingProfileSelection,
+        mesh: ScenePath,
+    ): ModelInspectionOutcome = remote(ModelInspectionOutcome::Failure) {
+        addObjectPart(listOf(plateObject).toParcels().first(), shape, type.name, profiles.toParcel(), mesh.value).toInspectionOutcome()
+    }
+
     override suspend fun presets(): PresetsOutcome = remote(PresetsOutcome::Failure) { presets().toPresetsOutcome() }
 
-    override suspend fun selectPreset(choice: PresetChoice): PresetsOutcome =
-        remote(PresetsOutcome::Failure) { selectPreset(choice.parcelKind(), choice.parcelValue()).toPresetsOutcome() }
+    override suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction): PresetsOutcome =
+        remote(PresetsOutcome::Failure) { selectPreset(choice.parcelKind(), choice.parcelValue(), action.name).toPresetsOutcome() }
 
     override suspend fun setupPrinters(): SetupPrintersOutcome =
         remote(SetupPrintersOutcome::Failure) { setupPrinters().toSetupPrintersOutcome() }
@@ -188,6 +322,283 @@ class RemoteSlicerEngine(
     override suspend fun applyDefaultSetup(): PresetsOutcome = remote(PresetsOutcome::Failure) { applyDefaultSetup().toPresetsOutcome() }
 
     /** Calls the service on the IO dispatcher; a dead engine process fails the call. */
+    override suspend fun settingsTab(kind: PresetKind): SettingsTabOutcome =
+        remote(SettingsTabOutcome::Failure) { settingsTab(kind.name).toSettingsTabOutcome() }
+
+    override suspend fun settings(
+        kind: PresetKind,
+        page: String,
+        answers: Map<String, Boolean>,
+        model: ModelSettingsRequest,
+    ): PresetSettingsOutcome = remote(PresetSettingsOutcome::Failure) {
+        settings(
+            kind.name,
+            page,
+            answers.keys.toTypedArray(),
+            answers.values.toBooleanArray(),
+            model.settings.map(ModelSettings::toParcel).toTypedArray(),
+            model.plate.toParcel(),
+            model.parent.toParcel(),
+        ).toPresetSettingsOutcome()
+    }
+
+    override suspend fun changeSetting(
+        kind: PresetKind,
+        page: String,
+        id: String,
+        text: String,
+        answers: Map<String, Boolean>,
+        model: ModelSettingsRequest,
+    ): PresetSettingsOutcome = remote(PresetSettingsOutcome::Failure) {
+        changeSetting(
+            kind.name,
+            page,
+            id,
+            text,
+            answers.keys.toTypedArray(),
+            answers.values.toBooleanArray(),
+            model.settings.map(ModelSettings::toParcel).toTypedArray(),
+            model.plate.toParcel(),
+            model.parent.toParcel(),
+        ).toPresetSettingsOutcome()
+    }
+
+    override suspend fun resetSettings(
+        kind: PresetKind,
+        page: String,
+        ids: List<String>,
+        answers: Map<String, Boolean>,
+        model: ModelSettingsRequest,
+    ): PresetSettingsOutcome = remote(PresetSettingsOutcome::Failure) {
+        resetSettings(
+            kind.name,
+            page,
+            ids.toTypedArray(),
+            answers.keys.toTypedArray(),
+            answers.values.toBooleanArray(),
+            model.settings.map(ModelSettings::toParcel).toTypedArray(),
+            model.plate.toParcel(),
+            model.parent.toParcel(),
+        ).toPresetSettingsOutcome()
+    }
+
+    override suspend fun setSettingOverride(
+        kind: PresetKind,
+        page: String,
+        id: String,
+        enabled: Boolean,
+        answers: Map<String, Boolean>,
+    ): PresetSettingsOutcome = remote(PresetSettingsOutcome::Failure) {
+        setSettingOverride(kind.name, page, id, enabled, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetSettingsOutcome()
+    }
+
+    override suspend fun setCompatiblePresets(
+        kind: PresetKind,
+        page: String,
+        key: String,
+        presets: List<String>,
+        answers: Map<String, Boolean>,
+    ): PresetSettingsOutcome = remote(PresetSettingsOutcome::Failure) {
+        setCompatiblePresets(kind.name, page, key, presets.toTypedArray(), answers.keys.toTypedArray(), answers.values.toBooleanArray())
+            .toPresetSettingsOutcome()
+    }
+
+    override suspend fun createFilamentOptions(type: String, baseFilament: String): CreateFilamentOptionsOutcome =
+        remote(CreateFilamentOptionsOutcome::Failure) { createFilamentOptions(type, baseFilament).toCreateFilamentOptionsOutcome() }
+
+    override suspend fun createFilament(request: CreateFilamentRequest, answers: Map<String, Boolean>): PresetCreationOutcome =
+        remote(PresetCreationOutcome::Failure) {
+            createFilament(
+                request.vendor,
+                request.customVendor,
+                request.type,
+                request.serial,
+                request.presets.map(FilamentPresetChoice::printer).toTypedArray(),
+                request.presets.map(FilamentPresetChoice::preset).toTypedArray(),
+                answers.keys.toTypedArray(),
+                answers.values.toBooleanArray(),
+            ).toPresetCreationOutcome()
+        }
+
+    override suspend fun createPrinterOptions(
+        vendor: String,
+        nozzle: String,
+        presetVendor: String,
+        printerPreset: String,
+    ): CreatePrinterOptionsOutcome = remote(CreatePrinterOptionsOutcome::Failure) {
+        createPrinterOptions(vendor, nozzle, presetVendor, printerPreset).toCreatePrinterOptionsOutcome()
+    }
+
+    override suspend fun createPrinter(request: CreatePrinterRequest, answers: Map<String, Boolean>): PresetCreationOutcome =
+        remote(PresetCreationOutcome::Failure) {
+            createPrinter(
+                request.model,
+                request.nozzle,
+                request.printableArea.flatMap { listOf(it.x, it.y) }.toDoubleArray(),
+                request.maxPrintHeight,
+                request.customTexture,
+                request.customModel,
+                request.presetVendor,
+                request.printerPreset,
+                request.filamentPresets.toTypedArray(),
+                request.processPresets.toTypedArray(),
+                answers.keys.toTypedArray(),
+                answers.values.toBooleanArray(),
+            ).toPresetCreationOutcome()
+        }
+
+    override suspend fun customFilaments(): CustomFilamentsOutcome =
+        remote(CustomFilamentsOutcome::Failure) { customFilaments().toCustomFilamentsOutcome() }
+
+    override suspend fun filamentPresets(filamentId: String): FilamentPresetsOutcome =
+        remote(FilamentPresetsOutcome::Failure) { filamentPresets(filamentId).toFilamentPresetsOutcome() }
+
+    override suspend fun deleteFilamentPreset(preset: String, answers: Map<String, Boolean>): PresetCreationOutcome =
+        remote(PresetCreationOutcome::Failure) {
+            deleteFilamentPreset(preset, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetCreationOutcome()
+        }
+
+    override suspend fun addFilament(): PresetsOutcome = remote(PresetsOutcome::Failure) { addFilament().toPresetsOutcome() }
+
+    override suspend fun removeFilament(index: Int): PresetsOutcome =
+        remote(PresetsOutcome::Failure) { removeFilament(index).toPresetsOutcome() }
+
+    override suspend fun selectFilament(index: Int, name: ProfileId, action: PresetChangeAction): PresetsOutcome =
+        remote(PresetsOutcome::Failure) { selectFilament(index, name.value, action.name).toPresetsOutcome() }
+
+    override suspend fun setFilamentColor(index: Int, color: String): PresetsOutcome =
+        remote(PresetsOutcome::Failure) { setFilamentColor(index, color).toPresetsOutcome() }
+
+    override suspend fun physicalPrinters(): PhysicalPrintersOutcome =
+        remote(PhysicalPrintersOutcome::Failure) { physicalPrinters().toPhysicalPrintersOutcome() }
+
+    override suspend fun savePhysicalPrinter(printer: PhysicalPrinter, renamedFrom: String?): PhysicalPrintersOutcome =
+        remote(PhysicalPrintersOutcome::Failure) { savePhysicalPrinter(printer.toParcel(), renamedFrom).toPhysicalPrintersOutcome() }
+
+    override suspend fun deletePhysicalPrinter(name: String): PhysicalPrintersOutcome =
+        remote(PhysicalPrintersOutcome::Failure) { deletePhysicalPrinter(name).toPhysicalPrintersOutcome() }
+
+    override suspend fun importPresets(paths: List<String>, answers: Map<String, ConfigOverwriteAnswer>): ConfigTransferOutcome =
+        remote(ConfigTransferOutcome::Failure) {
+            importPresets(
+                paths.toTypedArray(),
+                answers.keys.toTypedArray(),
+                answers.values.map { it.ordinal.toLong() }.toLongArray(),
+            ).toConfigTransferOutcome()
+        }
+
+    override suspend fun configExportOptions(kind: ConfigExportKind): ConfigExportOptionsOutcome =
+        remote(ConfigExportOptionsOutcome::Failure) { configExportOptions(kind.name).toConfigExportOptionsOutcome() }
+
+    override suspend fun exportConfigs(kind: ConfigExportKind, names: List<String>, directory: String): ConfigTransferOutcome =
+        remote(ConfigTransferOutcome::Failure) { exportConfigs(kind.name, names.toTypedArray(), directory).toConfigTransferOutcome() }
+
+    override suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean): PresetComparisonOutcome =
+        remote(PresetComparisonOutcome::Failure) { comparePresets(left.names(), right.names(), showAll).toPresetComparisonOutcome() }
+
+    /** The order the service passes the presets of a side in. */
+    private fun ComparedPresets.names() = arrayOf(printer, print, filament)
+
+    override suspend fun transferPresetOptions(kind: PresetKind, from: String, to: String, options: List<String>): PresetsOutcome =
+        remote(PresetsOutcome::Failure) { transferPresetOptions(kind.name, from, to, options.toTypedArray()).toPresetsOutcome() }
+
+    override suspend fun searchCatalog(): SearchCatalogOutcome =
+        remote(SearchCatalogOutcome::Failure) { searchCatalog().toSearchCatalogOutcome() }
+
+    override suspend fun gcodePlaceholders(kind: PresetKind, key: String): GcodePlaceholdersOutcome =
+        remote(GcodePlaceholdersOutcome::Failure) { gcodePlaceholders(kind.name, key).toGcodePlaceholdersOutcome() }
+
+    override suspend fun gcodePlaceholder(key: String, presets: Boolean): GcodePlaceholderInfo =
+        remote({ GcodePlaceholderInfo(emptyList(), "", emptyList(), undefined = true) }) {
+            gcodePlaceholder(key, presets).toGcodePlaceholderInfo()
+        }
+
+    override suspend fun editCustomGcode(
+        kind: PresetKind,
+        page: String,
+        key: String,
+        value: String,
+        answers: Map<String, Boolean>,
+    ): PresetSettingsOutcome = remote(PresetSettingsOutcome::Failure) {
+        editCustomGcode(kind.name, page, key, value, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetSettingsOutcome()
+    }
+
+    override suspend fun setRammingParameters(
+        kind: PresetKind,
+        page: String,
+        parameters: String,
+        answers: Map<String, Boolean>,
+    ): PresetSettingsOutcome = remote(PresetSettingsOutcome::Failure) {
+        setRammingParameters(kind.name, page, parameters, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetSettingsOutcome()
+    }
+
+    override suspend fun bedShape(): BedShapeOutcome = remote(BedShapeOutcome::Failure) { bedShape().toBedShapeOutcome() }
+
+    override suspend fun setBedShape(shape: BedShape, customPath: ModelPath?, answers: Map<String, Boolean>): PresetSettingsOutcome =
+        remote(PresetSettingsOutcome::Failure) {
+            setBedShape(
+                shape.kind.name,
+                shape.sizeX,
+                shape.sizeY,
+                shape.originX,
+                shape.originY,
+                shape.diameter,
+                customPath?.value,
+                shape.texture,
+                shape.model,
+                answers.keys.toTypedArray(),
+                answers.values.toBooleanArray(),
+            ).toPresetSettingsOutcome()
+        }
+
+    override suspend fun compatiblePresetChoices(kind: PresetKind, key: String): PresetNamesOutcome =
+        remote(PresetNamesOutcome::Failure) { compatiblePresetChoices(kind.name, key).toPresetNamesOutcome() }
+
+    override suspend fun setSettingsMode(kind: PresetKind, mode: SettingsMode, model: ModelSettingsRequest): PresetSettingsOutcome =
+        remote(PresetSettingsOutcome::Failure) {
+            setSettingsMode(
+                kind.name,
+                mode.name,
+                model.settings.map(ModelSettings::toParcel).toTypedArray(),
+                model.plate.toParcel(),
+                model.parent.toParcel(),
+            ).toPresetSettingsOutcome()
+        }
+
+    override suspend fun setSettingsVariant(
+        kind: PresetKind,
+        page: String,
+        variant: Int,
+        answers: Map<String, Boolean>,
+        model: ModelSettingsRequest,
+    ): PresetSettingsOutcome =
+        remote(PresetSettingsOutcome::Failure) {
+            setSettingsVariant(
+                kind.name,
+                page,
+                variant,
+                answers.keys.toTypedArray(),
+                answers.values.toBooleanArray(),
+                model.settings.map(ModelSettings::toParcel).toTypedArray(),
+                model.plate.toParcel(),
+                model.parent.toParcel(),
+            ).toPresetSettingsOutcome()
+        }
+
+    override suspend fun settingTooltip(kind: PresetKind, id: String): List<OrcaText> =
+        remote({ emptyList() }) { settingTooltip(kind.name, id).toTexts() }
+
+    override suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome =
+        remote(PresetNameOutcome::Failure) { checkPresetName(kind.name, name).toPresetNameOutcome() }
+
+    override suspend fun savePreset(kind: PresetKind, name: String): PresetSettingsOutcome =
+        remote(PresetSettingsOutcome::Failure) { savePreset(kind.name, name).toPresetSettingsOutcome() }
+
+    override suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean>): PresetSettingsOutcome =
+        remote(PresetSettingsOutcome::Failure) {
+            deletePreset(kind.name, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetSettingsOutcome()
+        }
+
     private suspend fun <T> remote(failure: (String) -> T, call: ISlicerService.() -> T): T = withContext(Dispatchers.IO) {
         try {
             service().call()
@@ -242,6 +653,9 @@ class RemoteSlicerEngine(
             binder.unlinkToDeath(deathRecipient, 0)
         }
     }
+
+    override suspend fun thumbnailSizes(profiles: SlicingProfileSelection): ThumbnailSizesOutcome =
+        remote(ThumbnailSizesOutcome::Failure) { thumbnailSizes(profiles.toParcel()).toThumbnailSizesOutcome() }
 
     override suspend fun cancel(jobId: SliceJobId): Boolean {
         // Cancelling never starts the engine process. A completed connection
