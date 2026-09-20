@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+The launcher icon drawn so it can be animated: the build plate and the fin are
+their own groups, and the fin is revealed through a moving clip so it appears
+layer by layer, the way the printer lays it down. Source: branding/icon.svg.
+
+The splash screen shows the middle two thirds of a 288 dp icon, which is the
+middle 72 of this 108 grid — the same part a launcher shows.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!--
+    The drawing is whole as it stands, because a version of Android that plays
+    no animation shows this first frame; the animators start it from the plate
+    alone (scaleX 0.12) and an empty clip.
+    -->
+    <!-- The plate the fin is printed on; it grows out of its own middle. -->
+    <group
+        android:name="plate"
+        android:pivotX="54"
+        android:pivotY="77">
+        <path
+            android:name="plateBar"
+            android:fillColor="#FF26A69A"
+            android:pathData="M30,75 h48 a2,2 0 0 1 0,4 h-48 a2,2 0 0 1 0,-4 z" />
+    </group>
+    <!-- The print layers, as in the launcher icon. -->
+    <group>
+        <clip-path android:pathData="M0,66h108v6h-108z M0,58h108v6h-108z M0,50h108v6h-108z M0,42h108v6h-108z M0,34h108v6h-108z M0,26h108v6h-108z M0,18h108v6h-108z" />
+        <group android:name="printed">
+            <!-- Grows from the plate upwards, so a layer appears at a time. -->
+            <clip-path
+                android:name="reveal"
+                android:pathData="M0,18 h108 v54 h-108 z" />
+            <path
+                android:name="fin"
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M30,72 C42,62 52,44 70,26 C64,44 64,60 76,72 Z" />
+        </group>
+    </group>
+</vector>

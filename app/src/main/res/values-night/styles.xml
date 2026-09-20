@@ -8,4 +8,15 @@
         <item name="android:enforceStatusBarContrast">false</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+    <!--
+    The launch screen of Android 12 (androidx.core:core-splashscreen): the
+    window shows the app's own icon printing itself while the engine starts,
+    and MainActivity keeps it there until the engine has answered.
+    -->
+    <style name="Theme.Orcinus.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon_animated</item>
+        <item name="windowSplashScreenAnimationDuration">800</item>
+        <item name="postSplashScreenTheme">@style/Theme.Orcinus</item>
+    </style>
 </resources>

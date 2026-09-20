@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+The fin is printed: the clip grows from the plate to the top of the fin, and
+the layer bands of the icon turn that into one layer appearing after another.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android">
+    <objectAnimator
+        android:propertyName="pathData"
+        android:valueFrom="M0,72 h108 v0 h-108 z"
+        android:valueTo="M0,18 h108 v54 h-108 z"
+        android:startOffset="180"
+        android:duration="620"
+        android:interpolator="@android:interpolator/linear_out_slow_in"
+        android:valueType="pathType" />
+</set>

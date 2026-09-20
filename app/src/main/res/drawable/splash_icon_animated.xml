@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+windowSplashScreenAnimatedIcon: the icon prints itself while the engine starts.
+Android 12 and newer play it; the compatibility library shows the same drawing
+still on older versions.
+-->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/splash_icon">
+    <target
+        android:name="plate"
+        android:animation="@animator/splash_plate" />
+    <target
+        android:name="reveal"
+        android:animation="@animator/splash_reveal" />
+</animated-vector>
