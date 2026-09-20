@@ -95,6 +95,9 @@ import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PresetChangeAction
+import app.orcinus.shadow.core.model.PhysicalPrinter
+import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
+import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
 import app.orcinus.shadow.core.model.PresetCreationOutcome
@@ -123,6 +126,7 @@ import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.preset.PresetListSheet
 import app.orcinus.shadow.core.ui.settings.CreatePrinterDialog
+import app.orcinus.shadow.core.ui.settings.PhysicalPrintersSheet
 import app.orcinus.shadow.core.ui.settings.CustomPrinterActions
 import app.orcinus.shadow.core.ui.settings.DiffPresetDialog
 import app.orcinus.shadow.core.ui.settings.ExportConfigsDialog
@@ -158,6 +162,11 @@ import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SelectPresetUseCase
 import app.orcinus.shadow.domain.plate.SetBedShapeUseCase
+import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
+import app.orcinus.shadow.domain.plate.SavePhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.PrinterPresetNamesUseCase
 import app.orcinus.shadow.domain.plate.SetExtruderUseCase
 import app.orcinus.shadow.domain.plate.SetFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
@@ -244,6 +253,11 @@ class SidebarViewModel(
     private val removeObjectPart: RemoveObjectPartUseCase,
     private val removePlateInstance: RemovePlateInstanceUseCase,
     private val deletePlateObject: DeletePlateObjectUseCase,
+    private val physicalPrinters: ObservePhysicalPrintersUseCase,
+    private val savePhysicalPrinter: SavePhysicalPrinterUseCase,
+    private val deletePhysicalPrinter: DeletePhysicalPrinterUseCase,
+    private val testPhysicalPrinter: TestPhysicalPrinterUseCase,
+    private val printerPresetNames: PrinterPresetNamesUseCase,
 ) : ViewModel() {
     val state: StateFlow<SidebarUiState> = observePlate()
         .map(PlateState::toSidebarUiState)
@@ -471,6 +485,23 @@ class SidebarViewModel(
 
     /** Search::OptionsSearcher: every setting the preset tabs show. */
     suspend fun searchCatalog(): SearchCatalogOutcome = settingsTabs.searchCatalog()
+
+    /**
+     * The Connection button of the sidebar's printer title
+     * (Plater's m_printer_connect): the printers of the network the app sends
+     * G-code to.
+     */
+    suspend fun networkPrinters(): PhysicalPrintersOutcome = physicalPrinters()
+
+    suspend fun saveNetworkPrinter(printer: PhysicalPrinter, renamedFrom: String?): PhysicalPrintersOutcome =
+        savePhysicalPrinter(printer, renamedFrom)
+
+    suspend fun deleteNetworkPrinter(name: String): PhysicalPrintersOutcome = deletePhysicalPrinter(name)
+
+    suspend fun testNetworkPrinter(printer: PhysicalPrinter): PrintHostTestOutcome = testPhysicalPrinter(printer)
+
+    suspend fun networkPrinterPresets(): List<String> =
+        (printerPresetNames() as? PresetNamesOutcome.Success)?.names.orEmpty()
 
     /** DiffPresetDialog: the presets of either side, and what the selected ones differ in. */
     suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean): PresetComparisonOutcome =
@@ -866,7 +897,36 @@ fun PlateSidebar(
             open = viewModel::openCreatePrinter,
             close = viewModel::closeCreatePrinter,
         ),
+        network = NetworkPrinterActions(
+            load = viewModel::networkPrinters,
+            save = viewModel::saveNetworkPrinter,
+            delete = viewModel::deleteNetworkPrinter,
+            test = viewModel::testNetworkPrinter,
+            presets = viewModel::networkPrinterPresets,
+        ),
     )
+}
+
+/**
+ * PhysicalPrinterDialog as the sidebar opens it: the printers of the network
+ * the app sends G-code to.
+ */
+internal class NetworkPrinterActions(
+    val load: suspend () -> PhysicalPrintersOutcome,
+    val save: suspend (PhysicalPrinter, String?) -> PhysicalPrintersOutcome,
+    val delete: suspend (String) -> PhysicalPrintersOutcome,
+    val test: suspend (PhysicalPrinter) -> PrintHostTestOutcome,
+    val presets: suspend () -> List<String>,
+) {
+    companion object {
+        val NONE = NetworkPrinterActions(
+            load = { PhysicalPrintersOutcome.Failure("") },
+            save = { _, _ -> PhysicalPrintersOutcome.Failure("") },
+            delete = { PhysicalPrintersOutcome.Failure("") },
+            test = { PrintHostTestOutcome.Failure("") },
+            presets = { emptyList() },
+        )
+    }
 }
 
 private enum class PresetList { PRINTERS, FILAMENTS, PROCESSES }
@@ -889,11 +949,14 @@ internal fun PlateSidebarContent(
     filaments: FilamentActions = FilamentActions.NONE,
     comparison: PresetComparisonActions = PresetComparisonActions.NONE,
     printers: CustomPrinterActions = CustomPrinterActions.NONE,
+    network: NetworkPrinterActions = NetworkPrinterActions.NONE,
 ) {
     // DiffPresetDialog, which the compare button of the process panel opens.
     var comparing by rememberSaveable { mutableStateOf(false) }
     // Search::SearchDialog, which the search button of the panel opens.
     var searching by rememberSaveable { mutableStateOf(false) }
+    // PhysicalPrinterDialog, which the Connection button of the printer opens.
+    var openNetworkPrinters by rememberSaveable { mutableStateOf(false) }
     var openList by rememberSaveable { mutableStateOf<PresetList?>(null) }
     // Whether a tap on a row adds the object to the selection or picks it alone.
     var picking by rememberSaveable { mutableStateOf(false) }
@@ -930,7 +993,16 @@ internal fun PlateSidebarContent(
             .background(OrcaTheme.colors.window),
     ) {
         item(key = "printer") {
-        OrcaSidebarTitle(stringResource(R.string.section_printer), DesignR.drawable.orca_printer)
+        OrcaSidebarTitle(stringResource(R.string.section_printer), DesignR.drawable.orca_printer) {
+            // Plater's m_printer_connect: the printers of the network the app
+            // sends the sliced G-code to.
+            OrcaIconButton(
+                icon = DesignR.drawable.orca_monitor_signal_strong,
+                contentDescription = orcaString("Connection"),
+                onClick = { openNetworkPrinters = true },
+                enabled = enabled,
+            )
+        }
         OrcaSidebarSection {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OrcaComboField(
@@ -1142,6 +1214,16 @@ internal fun PlateSidebarContent(
 
     // CreatePrinterPresetDialog, which the printer list opens. It closes itself
     // once the printer is made, so a question keeps the filled-in pages.
+    if (openNetworkPrinters) {
+        PhysicalPrintersSheet(
+            load = network.load,
+            onSave = network.save,
+            onDelete = network.delete,
+            onDismiss = { openNetworkPrinters = false },
+            onTest = network.test,
+            loadPresets = network.presets,
+        )
+    }
     if (printers.creating) {
         CreatePrinterDialog(
             loadOptions = printers.options,

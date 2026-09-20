@@ -86,6 +86,8 @@ val orcaIconNames = listOf(
     "compare",
     // DiffPresetDialog: the button between the two presets of a kind.
     "equal", "not_equal", "question",
+    // Plater's printer title: the Connection button of PhysicalPrinterDialog.
+    "monitor_signal_strong",
     // ExportConfigsDialog: what it writes (Widgets/RadioBox).
     "radio_on", "radio_off", "radio_disabled",
     "height_range_layer", "height_range_modifier",

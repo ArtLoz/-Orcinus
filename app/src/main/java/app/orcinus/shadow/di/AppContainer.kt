@@ -17,6 +17,7 @@ import app.orcinus.shadow.domain.plate.CustomFilamentsUseCase
 import app.orcinus.shadow.domain.plate.CustomPrinterUseCase
 import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.PrinterPresetNamesUseCase
+import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.GcodeSender
 import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
 import app.orcinus.shadow.domain.plate.SavePhysicalPrinterUseCase
@@ -194,6 +195,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     val savePhysicalPrinter = SavePhysicalPrinterUseCase(engine)
     val deletePhysicalPrinter = DeletePhysicalPrinterUseCase(engine)
     val printerPresetNames = PrinterPresetNamesUseCase(engine)
+    val testPhysicalPrinter = TestPhysicalPrinterUseCase(gcodeSender)
     val sendGcode = SendGcodeUseCase(gcodeSender, plateRepository)
     val exportGcode = ExportGcodeUseCase(AppDocumentExport(applicationContext), plateRepository)
     private val importConfig = ImportConfigUseCase(engine, engine, configFiles, platePresets)
@@ -288,6 +290,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         removeObjectPart = removeObjectPart,
         removePlateInstance = removePlateInstance,
         deletePlateObject = deletePlateObject,
+        physicalPrinters = physicalPrinters,
+        savePhysicalPrinter = savePhysicalPrinter,
+        deletePhysicalPrinter = deletePhysicalPrinter,
+        testPhysicalPrinter = testPhysicalPrinter,
+        printerPresetNames = printerPresetNames,
     )
 
     fun presetSettingsViewModel(kind: PresetKind) = PresetSettingsViewModel(

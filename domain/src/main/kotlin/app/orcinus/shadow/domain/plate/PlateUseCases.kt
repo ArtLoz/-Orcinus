@@ -1024,6 +1024,11 @@ class SavePhysicalPrinterUseCase(private val engine: PresetSettingsEditor) {
         engine.savePhysicalPrinter(printer, renamedFrom)
 }
 
+/** PhysicalPrinterDialog's Test button, for the list the sidebar opens. */
+class TestPhysicalPrinterUseCase(private val uploader: GcodeSender) {
+    suspend operator fun invoke(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
+}
+
 /**
  * PhysicalPrinterDialog's preset combo box: the printer presets a printer of
  * the network can be bound to (Tab::compatible_widget_create lists the same).
