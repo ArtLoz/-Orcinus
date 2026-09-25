@@ -62,6 +62,9 @@ import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.LayerGcodeType
+import app.orcinus.shadow.core.model.LayerGcodeRules
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 
@@ -92,6 +95,11 @@ internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
     it.plateSettings = plateSettings.toParcel()
     it.thumbnailSizes = thumbnails.flatMap { image -> listOf(image.size.width, image.size.height) }.toIntArray()
     it.thumbnailPaths = thumbnails.map { image -> image.path.value }.toTypedArray()
+    it.layerGcodeHeights = layerGcodes.map(LayerGcode::printZ).toDoubleArray()
+    it.layerGcodeTypes = layerGcodes.map { code -> code.type.name }.toTypedArray()
+    it.layerGcodeExtruders = layerGcodes.map(LayerGcode::extruder).toIntArray()
+    it.layerGcodeColors = layerGcodes.map(LayerGcode::color).toTypedArray()
+    it.layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray()
 }
 
 internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
@@ -109,6 +117,17 @@ internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
         val sizes = thumbnailSizes ?: return@mapIndexedNotNull null
         if (2 * index + 1 >= sizes.size) null else ThumbnailImage(ThumbnailSize(sizes[2 * index], sizes[2 * index + 1]), ScenePath(path))
     },
+    layerGcodes = layerGcodeHeights?.let { heights ->
+        heights.indices.map { index ->
+            LayerGcode(
+                printZ = heights[index],
+                type = LayerGcodeType.valueOf(checkNotNull(layerGcodeTypes)[index]),
+                extruder = checkNotNull(layerGcodeExtruders)[index],
+                color = checkNotNull(layerGcodeColors)[index],
+                extra = checkNotNull(layerGcodeExtras)[index],
+            )
+        }
+    }.orEmpty(),
 )
 
 internal fun ThumbnailSizesOutcome.toParcel() = ThumbnailSizesParcel().also {
@@ -292,6 +311,9 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.layerCount = statistics.layerCount
             it.estimatedPrintTimeSeconds = statistics.estimatedPrintTimeSeconds
             it.filamentMillimeters = statistics.filamentMillimeters
+            it.sequential = layerGcodeRules.sequential
+            it.canChangeFilament = layerGcodeRules.canChangeFilament
+            it.hasTemplate = layerGcodeRules.hasTemplate
         }
 
         is SliceOutcome.Failure -> {
@@ -314,6 +336,7 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             statistics = SliceStatistics(layerCount, estimatedPrintTimeSeconds, filamentMillimeters),
             toolpaths = toolpathsPath?.let(::ScenePath),
             wipeTower = wipeTowerPath?.let(::ScenePath),
+            layerGcodeRules = LayerGcodeRules(sequential, canChangeFilament, hasTemplate),
         )
 
         SliceOutcomeParcel.FAILURE -> SliceOutcome.Failure(

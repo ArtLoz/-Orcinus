@@ -1202,7 +1202,8 @@ SliceResult slice(
     const ModelSettings& plate_settings,
     const ProgressCallback& on_progress,
     const std::string& wipe_tower_mesh_path,
-    const std::vector<ThumbnailImage>& thumbnails
+    const std::vector<ThumbnailImage>& thumbnails,
+    const std::vector<LayerGcode>& layer_gcodes
 )
 {
     if (!acquire_job(job_id)) {
@@ -1234,6 +1235,19 @@ SliceResult slice(
         keep_models_of(objects);
         if (std::string outside; !check_print_volume(model, config, outside)) {
             return failure(SliceStatus::invalid_print, outside);
+        }
+        // The codes the layer slider put on the plate (Plater's
+        // EVT_CUSTOMEVT_TICKSCHANGED), with the mode of the slider
+        // (IMSlider::GetTicksValues(), Preview::update_layers_slider_mode()).
+        const std::size_t filament_count = std::max<std::size_t>(profiles.filaments.size(), 1);
+        if (!layer_gcodes.empty()) {
+            Slic3r::CustomGCode::Info info;
+            info.mode = filament_count > 1 ? Slic3r::CustomGCode::MultiAsSingle : Slic3r::CustomGCode::SingleExtruder;
+            for (const LayerGcode& code : layer_gcodes) {
+                info.gcodes.push_back({code.print_z, static_cast<Slic3r::CustomGCode::Type>(code.type), code.extruder, code.color, code.extra});
+            }
+            std::sort(info.gcodes.begin(), info.gcodes.end());
+            model.plates_custom_gcodes[model.curr_plate_index] = info;
         }
 
         Slic3r::Print print;
@@ -1280,6 +1294,9 @@ SliceResult slice(
 
         SliceResult result;
         result.status = SliceStatus::success;
+        result.sequential = print.config().print_sequence == Slic3r::PrintSequence::ByObject;
+        result.can_change_filament = print.object_extruders().size() <= 1 && !print.config().spiral_mode;
+        result.has_template = !print.config().template_custom_gcode.value.empty();
         result.layer_count = printed_layer_count(print);
         result.estimated_print_time_seconds = std::llround(print_time);
         result.filament_micrometers = std::llround(print.print_statistics().total_used_filament * 1'000.0);

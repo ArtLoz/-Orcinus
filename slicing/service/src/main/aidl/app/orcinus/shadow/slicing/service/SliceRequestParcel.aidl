@@ -22,4 +22,10 @@ parcelable SliceRequestParcel {
     /** The thumbnails the app rendered: width and height of each, and its file. */
     @nullable int[] thumbnailSizes;
     @nullable String[] thumbnailPaths;
+    /** The codes on the layers: height, LayerGcodeType name, filament, colour and G-code of each. */
+    @nullable double[] layerGcodeHeights;
+    @nullable String[] layerGcodeTypes;
+    @nullable int[] layerGcodeExtruders;
+    @nullable String[] layerGcodeColors;
+    @nullable String[] layerGcodeExtras;
 }

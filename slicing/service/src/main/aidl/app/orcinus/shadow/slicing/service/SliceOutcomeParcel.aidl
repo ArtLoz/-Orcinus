@@ -20,4 +20,8 @@ parcelable SliceOutcomeParcel {
     @nullable String failureCode;
     @nullable String message;
     boolean recoverable;
+    /** LayerGcodeRules of a success. */
+    boolean sequential;
+    boolean canChangeFilament;
+    boolean hasTemplate;
 }

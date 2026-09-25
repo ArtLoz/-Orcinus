@@ -66,6 +66,7 @@ import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsScope
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
@@ -1776,6 +1777,7 @@ class SlicePlateUseCase(
         val objects = plate.objects
         val profiles = plate.profiles ?: return
         val plateSettings = plate.plateSettings
+        val layerGcodes = plate.layerGcodes
 
         applicationScope.launch {
             val toolpaths = sceneFiles.newToolpaths()
@@ -1792,6 +1794,7 @@ class SlicePlateUseCase(
                 processProfile = profiles.process,
                 plateSettings = plateSettings,
                 thumbnails = thumbnails,
+                layerGcodes = layerGcodes,
             )
             val outcome = try {
                 sliceModel(request, SliceProgressObserver { progress ->
@@ -1803,7 +1806,7 @@ class SlicePlateUseCase(
             } catch (error: Exception) {
                 SliceOutcome.Failure(jobId, SliceFailureCode.SLICING_FAILED, error.message.orEmpty(), recoverable = true)
             }
-            repository.update { it.withOutcome(objects, outcome) }
+            repository.update { it.withOutcome(objects, layerGcodes, outcome) }
             // Only the toolpaths of the result on the plate stay; a failed or replaced job leaves none.
             sceneFiles.deleteToolpathsExcept(repository.state.value.result?.toolpaths)
         }
@@ -1818,12 +1821,23 @@ class SlicePlateUseCase(
         is PlateObject.CalibrationCube -> CALIBRATION_CUBE
     }
 
-    private fun PlateState.withOutcome(objects: List<PlateObject>, outcome: SliceOutcome): PlateState {
+    private fun PlateState.withOutcome(objects: List<PlateObject>, sliced: List<LayerGcode>, outcome: SliceOutcome): PlateState {
         if (slicing?.jobId != outcome.jobId) return this  // a newer job replaced this one
         return when (outcome) {
             is SliceOutcome.Success -> copy(
                 slicing = null,
-                result = PlateSliceResult(outcome.jobId, objects, outcome.gcodePath, outcome.statistics, outcome.toolpaths, outcome.wipeTower),
+                result = PlateSliceResult(
+                    outcome.jobId,
+                    objects,
+                    outcome.gcodePath,
+                    outcome.statistics,
+                    outcome.toolpaths,
+                    outcome.wipeTower,
+                    layerGcodes = sliced,
+                    layerGcodeRules = outcome.layerGcodeRules,
+                ),
+                // IMSlider::SetTicksValues(): the codes this print does not allow go.
+                layerGcodes = layerGcodes.allowedBy(outcome.layerGcodeRules),
             )
 
             is SliceOutcome.Failure -> copy(

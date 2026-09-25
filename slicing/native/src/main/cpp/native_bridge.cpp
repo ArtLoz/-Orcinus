@@ -921,9 +921,34 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     jstring filament_profile,
     jobjectArray filament_profiles,
     jstring process_profile,
-    jobject progress_listener
+    jobject progress_listener,
+    jdoubleArray layer_gcode_heights,
+    jlongArray layer_gcode_types,
+    jintArray layer_gcode_extruders,
+    jobjectArray layer_gcode_colors,
+    jobjectArray layer_gcode_extras
 )
 {
+    // The codes on the layers: one entry per code in every array.
+    std::vector<orcinus::orca::LayerGcode> layer_gcodes;
+    {
+        const std::vector<double> heights = to_doubles(env, layer_gcode_heights);
+        const std::vector<std::int32_t> extruders = to_ints(env, layer_gcode_extruders);
+        const std::vector<std::string> colors = to_strings(env, layer_gcode_colors);
+        const std::vector<std::string> extras = to_strings(env, layer_gcode_extras);
+        std::vector<jlong> types(heights.size(), 0);
+        if (layer_gcode_types != nullptr) {
+            env->GetLongArrayRegion(layer_gcode_types, 0, std::min<jsize>(env->GetArrayLength(layer_gcode_types), jsize(types.size())), types.data());
+        }
+        for (std::size_t index = 0; index < heights.size(); ++index) {
+            orcinus::orca::LayerGcode& code = layer_gcodes.emplace_back();
+            code.print_z = heights[index];
+            code.type = static_cast<orcinus::orca::LayerGcodeType>(types[index]);
+            code.extruder = index < extruders.size() ? extruders[index] : 1;
+            code.color = index < colors.size() ? colors[index] : std::string();
+            code.extra = index < extras.size() ? extras[index] : std::string();
+        }
+    }
     // The thumbnails the app rendered: a width and a height per file.
     std::vector<orcinus::orca::ThumbnailImage> thumbnails;
     {
@@ -945,11 +970,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         to_model_settings(env, plate_setting_keys, plate_setting_values),
         [&forward_progress](const int percent, const std::string& message) { forward_progress(percent, message); },
         wipe_tower_path != nullptr ? to_utf8(env, wipe_tower_path) : std::string(),
-        thumbnails
+        thumbnails,
+        layer_gcodes
     );
 
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZ)V");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZZZZ)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -959,7 +985,10 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         static_cast<jlong>(result.estimated_print_time_seconds),
         static_cast<jlong>(result.filament_micrometers),
         result.toolpaths_written ? JNI_TRUE : JNI_FALSE,
-        result.wipe_tower_written ? JNI_TRUE : JNI_FALSE
+        result.wipe_tower_written ? JNI_TRUE : JNI_FALSE,
+        result.sequential ? JNI_TRUE : JNI_FALSE,
+        result.can_change_filament ? JNI_TRUE : JNI_FALSE,
+        result.has_template ? JNI_TRUE : JNI_FALSE
     );
 }
 

@@ -78,6 +78,9 @@ private fun canvasPanelColor() = OrcaTheme.colors.window.copy(alpha = 0.92f)
 
 private enum class RangeThumb { Lower, Higher }
 
+/** A code on a layer (IMSlider's tick), drawn across the track in its colour. */
+data class LayerMark(val layer: Int, val color: Color)
+
 /**
  * The layer range of the G-code preview as a vertical slider drawn straight
  * over the canvas, in the style of Material 3 sliders: a thick rounded track
@@ -102,9 +105,18 @@ fun OrcaLayerRangeSlider(
     stepDownDescription: String,
     oneLayerDescription: String,
     modifier: Modifier = Modifier,
+    /** The codes on the layers, marked on the track. */
+    marks: List<LayerMark> = emptyList(),
+    /**
+     * Opens the menu of the layer the last moved handle is on, which the
+     * desktop slider opens with a right click on the handle; null shows no button.
+     */
+    onLayerMenu: ((layer: Int) -> Unit)? = null,
+    layerMenuDescription: String = "",
 ) {
     val colors = OrcaTheme.colors
     val last = (layerCount - 1).coerceAtLeast(0)
+    val menuSpace = if (onLayerMenu != null) ControlGap + ControlButtonSize else 0.dp
     val currentLower by rememberUpdatedState(lower)
     val currentHigher by rememberUpdatedState(higher)
     val currentOneLayer by rememberUpdatedState(oneLayer)
@@ -137,7 +149,7 @@ fun OrcaLayerRangeSlider(
         BoxWithConstraints(Modifier.fillMaxHeight()) {
             val density = LocalDensity.current
             val trackTop = with(density) { (ControlButtonSize + ControlGap + TrackInset).toPx() }
-            val trackBottom = with(density) { (maxHeight - ControlGap * 3 - ControlButtonSize * 2 - TrackInset).toPx() }
+            val trackBottom = with(density) { (maxHeight - ControlGap * 3 - ControlButtonSize * 2 - menuSpace - TrackInset).toPx() }
             val travel = (trackBottom - trackTop).coerceAtLeast(1f)
             fun yOf(value: Int) = trackTop + travel * (1f - if (last > 0) value.toFloat() / last else 0f)
             val pillHeight = with(density) { PillHeight.toPx() }
@@ -298,6 +310,11 @@ fun OrcaLayerRangeSlider(
                         handle(lowerY, lowerLength.toPx(), if (stepped == RangeThumb.Lower) colors.accent else secondary)
                         handle(higherY, higherLength.toPx(), if (stepped == RangeThumb.Higher) colors.accent else secondary)
                     }
+                    // IMSlider::draw_ticks(): a line across the track at every code.
+                    for (mark in marks) {
+                        val y = yAt(mark.layer.coerceIn(0, last))
+                        drawLine(mark.color, Offset(x - thickness, y), Offset(x + thickness, y), strokeWidth = 2.dp.toPx())
+                    }
                 }
             }
             ControlButton(OrcaGlyphs.ChevronDown, stepDownDescription, enabled = steppedValue > 0) { change(stepped, steppedValue - 1) }
@@ -308,6 +325,10 @@ fun OrcaLayerRangeSlider(
                 enabled = true,
                 selected = oneLayer,
             ) { onOneLayerChange(!oneLayer) }
+            if (onLayerMenu != null) {
+                Box(Modifier.height(ControlGap))
+                ControlButton(OrcaGlyphs.Plus, layerMenuDescription, enabled = layerCount > 0) { onLayerMenu(steppedValue) }
+            }
         }
     }
 }

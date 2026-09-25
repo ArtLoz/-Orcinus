@@ -72,6 +72,33 @@ struct SliceResult {
     bool toolpaths_written{false};
     // The mesh of the wipe tower the slice built was written for the 3D view.
     bool wipe_tower_written{false};
+    // What the layer slider's menu offers for this print (IMSlider::SetDrawMode,
+    // SetModeAndOnlyExtruder): nothing but "Jump to Layer" for a print by
+    // object, a filament change while the objects print with one filament and
+    // the print is no spiral vase, a template when the printer has one.
+    bool sequential{false};
+    bool can_change_filament{true};
+    bool has_template{false};
+};
+
+// CustomGCode::Type of CustomGCode.hpp: what a code on a layer does.
+enum class LayerGcodeType : std::int64_t {
+    color_change = 0,
+    pause_print = 1,
+    tool_change = 2,
+    template_gcode = 3,
+    custom = 4,
+};
+
+// CustomGCode::Item: a code the print runs where the layer at print_z starts,
+// as the layer slider of the preview puts it there. extruder is the filament
+// a tool change switches to, color its colour, extra the G-code of a custom one.
+struct LayerGcode {
+    double print_z{0.0};
+    LayerGcodeType type{LayerGcodeType::custom};
+    int extruder{1};
+    std::string color;
+    std::string extra;
 };
 
 // A thumbnail of the plate the app rendered for the G-code, as the desktop app
@@ -214,7 +241,9 @@ SliceResult slice(
     const std::string& wipe_tower_mesh_path = {},
     // The thumbnails the G-code is exported with (the ThumbnailsGeneratorCallback
     // of BackgroundSlicingProcess); a size the app rendered none of is left out.
-    const std::vector<ThumbnailImage>& thumbnails = {}
+    const std::vector<ThumbnailImage>& thumbnails = {},
+    // The codes on the layers (Model::plates_custom_gcodes); none leaves the plate without.
+    const std::vector<LayerGcode>& layer_gcodes = {}
 );
 
 // Returns true only when job_id is the active job and cancellation was requested.

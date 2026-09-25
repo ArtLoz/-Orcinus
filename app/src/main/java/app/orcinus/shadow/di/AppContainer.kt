@@ -9,6 +9,7 @@ import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
 import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
+import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.storage.android.AppDocumentFolders
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
@@ -356,6 +357,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         printerPresetNames = printerPresetNames,
         sendGcode = sendGcode,
         exportGcode = exportGcode,
+        editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
     )
 
     fun sidebarViewModel() = SidebarViewModel(

@@ -48,6 +48,9 @@ import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.LayerGcodeType
+import app.orcinus.shadow.core.model.LayerGcodeRules
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.storage.api.DocumentFolders
 import app.orcinus.shadow.core.model.withVolume
 import app.orcinus.shadow.core.model.SimplifyOutcome
@@ -2387,6 +2390,33 @@ class PlateUseCasesTest {
         )
         assertEquals(listOf("body"), notice.text[2].args)
         assertEquals(listOf("wheel"), notice.text[3].args)
+    }
+
+    @Test
+    fun `the layer slider keeps one code per layer, and G-code of the user's own takes the layer's place`() {
+        val result = PlateSliceResult(SliceJobId("done"), listOf(CUBE), OutputPath("/gcode/done.gcode"), STATISTICS, layerGcodeRules = LayerGcodeRules(hasTemplate = false))
+        val repository = FakeRepository(readyState(CUBE).copy(result = result))
+        val edit = EditLayerGcodesUseCase(repository)
+
+        edit.add(2.0, LayerGcodeType.PAUSE_PRINT)
+        // IMSlider::add_code_as_tick(): a layer with a code takes no other one.
+        edit.add(2.0, LayerGcodeType.PAUSE_PRINT)
+        // No template in the printer, no filament to change to.
+        edit.add(4.0, LayerGcodeType.TEMPLATE)
+        edit.add(4.0, LayerGcodeType.TOOL_CHANGE, 2)
+
+        assertEquals(listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT)), repository.state.value.layerGcodes)
+
+        edit.addCustom(2.0, "M117 hi")
+        assertEquals(listOf(LayerGcode(2.0, LayerGcodeType.CUSTOM, extra = "M117 hi")), repository.state.value.layerGcodes)
+
+        edit.delete(2.0)
+        assertTrue(repository.state.value.layerGcodes.isEmpty())
+
+        // A print by object offers no codes at all.
+        val sequential = FakeRepository(readyState(CUBE).copy(result = result.copy(layerGcodeRules = LayerGcodeRules(sequential = true))))
+        EditLayerGcodesUseCase(sequential).add(2.0, LayerGcodeType.PAUSE_PRINT)
+        assertTrue(sequential.state.value.layerGcodes.isEmpty())
     }
 
     /** The document picked for an export, which records what was copied into it. */

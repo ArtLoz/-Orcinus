@@ -14,6 +14,10 @@ internal class NativeSliceResult(
     @JvmField val filamentMicrometers: Long,
     @JvmField val toolpathsWritten: Boolean,
     @JvmField val wipeTowerWritten: Boolean,
+    /** What the layer slider's menu offers for the print (SliceResult in orca_engine_adapter.hpp). */
+    @JvmField val sequential: Boolean,
+    @JvmField val canChangeFilament: Boolean,
+    @JvmField val hasTemplate: Boolean,
 ) {
     companion object {
         const val SUCCESS = 0L
@@ -711,6 +715,12 @@ internal object NativeBindings {
         filamentProfiles: Array<String>,
         processProfile: String,
         progressListener: NativeProgressListener,
+        /** The codes on the layers: height, LayerGcodeType, filament, colour and G-code of each. */
+        layerGcodeHeights: DoubleArray,
+        layerGcodeTypes: LongArray,
+        layerGcodeExtruders: IntArray,
+        layerGcodeColors: Array<String>,
+        layerGcodeExtras: Array<String>,
     ): NativeSliceResult
 
     /** The thumbnails the G-code of the printer holds: width and height of each. */

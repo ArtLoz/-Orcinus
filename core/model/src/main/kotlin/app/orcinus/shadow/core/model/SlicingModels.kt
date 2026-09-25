@@ -281,6 +281,43 @@ data class SliceRequest(
     val plateSettings: ModelSettings = ModelSettings(),
     /** The pictures of the plate the G-code carries for the printer's screen; empty writes none. */
     val thumbnails: List<ThumbnailImage> = emptyList(),
+    /** The codes the layer slider put on the layers (Model::plates_custom_gcodes). */
+    val layerGcodes: List<LayerGcode> = emptyList(),
+)
+
+/** CustomGCode::Type: what a code on a layer does. */
+enum class LayerGcodeType {
+    COLOR_CHANGE,
+    PAUSE_PRINT,
+    TOOL_CHANGE,
+    TEMPLATE,
+    CUSTOM,
+}
+
+/**
+ * CustomGCode::Item: a code the print runs where the layer at [printZ] starts,
+ * as the preview's layer slider puts it there. [extruder] is the filament a
+ * filament change switches to and [color] its colour; [extra] is the G-code of
+ * a custom one.
+ */
+data class LayerGcode(
+    val printZ: Double,
+    val type: LayerGcodeType,
+    val extruder: Int = 1,
+    val color: String = "",
+    val extra: String = "",
+)
+
+/**
+ * What the layer slider's menu offers for a sliced print (IMSlider::SetDrawMode,
+ * SetModeAndOnlyExtruder): nothing but "Jump to Layer" for a print by object,
+ * a filament change while the objects print with one filament and the print is
+ * no spiral vase, and a template when the printer has one.
+ */
+data class LayerGcodeRules(
+    val sequential: Boolean = false,
+    val canChangeFilament: Boolean = true,
+    val hasTemplate: Boolean = false,
 )
 
 /** The size of a G-code thumbnail in pixels, as the printer's "thumbnails" setting lists it. */
@@ -358,6 +395,7 @@ sealed interface SliceOutcome {
         val toolpaths: ScenePath? = null,
         /** The requested wipe tower mesh, or null when the plate prints none. */
         val wipeTower: ScenePath? = null,
+        val layerGcodeRules: LayerGcodeRules = LayerGcodeRules(),
     ) : SliceOutcome
 
     data class Failure(

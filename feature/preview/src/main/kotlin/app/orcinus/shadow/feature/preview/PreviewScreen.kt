@@ -55,6 +55,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.parseFilamentColor
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.OutputPath
@@ -110,6 +111,13 @@ internal fun PreviewRoute(
         ),
         gcodeName = viewModel::gcodeName,
         onExportGcode = viewModel::exportGcode,
+        layerGcodeActions = LayerGcodeActions(
+            addPause = viewModel::addPause,
+            addTemplate = viewModel::addTemplate,
+            changeFilament = viewModel::changeFilament,
+            setCustom = viewModel::setCustomGcode,
+            delete = viewModel::deleteLayerGcode,
+        ),
     )
 }
 
@@ -154,6 +162,7 @@ internal fun PreviewScreen(
     /** Export G-code: the name the file is offered under, and the save itself. */
     gcodeName: () -> String = { "plate.gcode" },
     onExportGcode: suspend (ExternalDocumentReference) -> Boolean = { false },
+    layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
 ) {
     val result = state.result
     var sending by rememberSaveable { mutableStateOf(false) }
@@ -200,20 +209,43 @@ internal fun PreviewScreen(
             if (shown != null && view != null) {
                 // PrintHost::upload: the sliced plate goes to a printer of the
                 // user, which the desktop app sends from its sidebar.
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    // Export G-code of the desktop app's File menu.
-                    OrcaButton(
-                        text = stringResource(UiR.string.gcode_save),
-                        onClick = { gcodePicker.launch(gcodeName()) },
-                        modifier = Modifier.weight(1f),
+                // A code changed on the slider makes the slice invalid
+                // (PartPlate::update_slice_result_valid_state): the plate is sliced again first.
+                if (state.outdated) {
+                    Text(
+                        text = stringResource(R.string.layer_codes_outdated),
+                        color = OrcaTheme.colors.textSide,
+                        style = OrcaTheme.typography.body13,
+                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
                     )
+                }
+                if (state.outdated) {
+                    // MainFrame::update_slice_print_status(): the slice button is back, printing waits for it.
+                    val progress = state.slicingProgress
                     OrcaButton(
-                        text = stringResource(UiR.string.printer_host_send),
-                        onClick = openSending,
+                        text = if (progress != null) stringResource(R.string.slicing_progress, (progress * 100).roundToInt()) else stringResource(R.string.slice_plate),
+                        onClick = onSlice,
+                        enabled = state.canSlice,
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 8.dp),
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                     )
+                } else {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        // Export G-code of the desktop app's File menu.
+                        OrcaButton(
+                            text = stringResource(UiR.string.gcode_save),
+                            onClick = { gcodePicker.launch(gcodeName()) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        OrcaButton(
+                            text = stringResource(UiR.string.printer_host_send),
+                            onClick = openSending,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 8.dp),
+                        )
+                    }
                 }
                 ToolpathsSheet(
                     view = view,
@@ -269,6 +301,12 @@ internal fun PreviewScreen(
                     layer = shown,
                     view = view,
                     bottomInset = peek,
+                    layerGcodes = LayerGcodeUi(
+                        codes = state.layerGcodes,
+                        rules = result.layerGcodeRules,
+                        filamentColors = state.filamentColors.map { value -> parseFilamentColor(value)?.let { Color(it.red, it.green, it.blue, it.alpha) } ?: OrcaTheme.colors.accent },
+                        actions = layerGcodeActions,
+                    ),
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),

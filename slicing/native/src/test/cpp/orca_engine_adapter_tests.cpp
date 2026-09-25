@@ -1797,6 +1797,35 @@ TEST_CASE("The wipe tower stands on a plate that prints with two filaments", "[A
     CHECK(moved.y == Catch::Approx(30.0).margin(0.01));
 }
 
+TEST_CASE("A code the layer slider puts on a layer runs where that layer starts", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("layer-code.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    orca::LayerGcode custom;
+    custom.print_z = 2.0;
+    custom.type = orca::LayerGcodeType::custom;
+    custom.extra = "M117 ORCINUS LAYER";
+    const std::string output = output_path("layer-code.gcode");
+
+    const orca::SliceResult result =
+        orca::slice("layer-code", plate_of({}, matrix_of(cube)), output, {}, k2_plus_profiles(), {}, {}, {}, {}, {custom});
+
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    // One filament, printed by layer: the slider offers every code.
+    CHECK_FALSE(result.sequential);
+    CHECK(result.can_change_filament);
+    const std::string gcode = read_file(output);
+    const auto at = gcode.find("M117 ORCINUS LAYER");
+    REQUIRE(at != std::string::npos);
+    CHECK(gcode.find("M117 ORCINUS LAYER", at + 1) == std::string::npos);
+    // The last layer change before it is the one to 2 mm.
+    const auto layer = gcode.rfind(";Z:", at);
+    REQUIRE(layer != std::string::npos);
+    CHECK(std::stod(gcode.substr(layer + 3, 8)) == Catch::Approx(2.0).margin(1e-3));
+}
+
 TEST_CASE("The flushing volumes of the plate reach the G-code", "[Adapter][Scene]")
 {
     require_engine();

@@ -15,6 +15,9 @@ import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.ui.settings.SentFilament
 import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
+import app.orcinus.shadow.core.model.LayerGcode
+import app.orcinus.shadow.core.model.LayerGcodeType
 import app.orcinus.shadow.domain.plate.PrinterPresetNamesUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
 import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
@@ -32,7 +35,16 @@ data class PreviewUiState(
     val plate: PlateDescription?,
     val result: PlateSliceResult?,
     val canSlice: Boolean,
-)
+    /** The codes the layer slider put on the layers. */
+    val layerGcodes: List<LayerGcode> = emptyList(),
+    /** The colour of every filament of the plate, "#RRGGBB". */
+    val filamentColors: List<String> = emptyList(),
+    /** How far the slice that is running has got, from 0 to 1; null when nothing is being sliced. */
+    val slicingProgress: Float? = null,
+) {
+    /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
+    val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
+}
 
 class PreviewViewModel(
     observePlate: ObservePlateUseCase,
@@ -43,6 +55,7 @@ class PreviewViewModel(
     private val printerPresetNames: PrinterPresetNamesUseCase,
     private val sendGcode: SendGcodeUseCase,
     private val exportGcode: ExportGcodeUseCase,
+    private val editLayerGcodes: EditLayerGcodesUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
     val state: StateFlow<PreviewUiState> = observePlate()
@@ -50,6 +63,17 @@ class PreviewViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toPreviewUiState())
 
     fun slice() = slicePlate()
+
+    /** The layer slider's menu (IMSlider::add_code_as_tick, add_custom_gcode, delete_tick). */
+    fun addPause(printZ: Double) = editLayerGcodes.add(printZ, LayerGcodeType.PAUSE_PRINT)
+
+    fun addTemplate(printZ: Double) = editLayerGcodes.add(printZ, LayerGcodeType.TEMPLATE)
+
+    fun changeFilament(printZ: Double, filament: Int) = editLayerGcodes.add(printZ, LayerGcodeType.TOOL_CHANGE, filament)
+
+    fun setCustomGcode(printZ: Double, gcode: String) = editLayerGcodes.addCustom(printZ, gcode)
+
+    fun deleteLayerGcode(printZ: Double) = editLayerGcodes.delete(printZ)
 
     /** PhysicalPrinterDialog: the printers the sliced G-code can be sent to. */
     suspend fun printers(): PhysicalPrintersOutcome = physicalPrinters()
@@ -95,4 +119,11 @@ class PreviewViewModel(
     }
 }
 
-private fun PlateState.toPreviewUiState() = PreviewUiState(plate = plate, result = result, canSlice = canSlice)
+private fun PlateState.toPreviewUiState() = PreviewUiState(
+    plate = plate,
+    result = result,
+    canSlice = canSlice,
+    layerGcodes = layerGcodes,
+    filamentColors = presets?.filamentColors.orEmpty(),
+    slicingProgress = slicing?.let { it.progress?.fraction ?: 0f },
+)

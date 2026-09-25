@@ -22,6 +22,10 @@
     <string name="move_previous">Предыдущее перемещение</string>
     <string name="move_next">Следующее перемещение</string>
     <string name="move_label">%1$d/%2$d</string>
+    <!-- IMSlider's menu of a layer, which the desktop app opens with a right click on the handle. -->
+    <string name="layer_codes">Команды слоя</string>
+    <string name="slicing_progress">Нарезка: %1$d%%</string>
+    <string name="layer_codes_outdated">Команды на слоях изменились — нарежьте стол заново, чтобы они попали в G-code.</string>
 
     <!-- The legend's summary in the collapsed sheet. -->
     <string name="summary_time">Время печати</string>

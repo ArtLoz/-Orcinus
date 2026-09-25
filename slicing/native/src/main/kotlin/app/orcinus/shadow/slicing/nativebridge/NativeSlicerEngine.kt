@@ -77,6 +77,8 @@ import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.LayerGcodeRules
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.SimplifyOutcome
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
@@ -162,9 +164,13 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     filamentProfile = request.filamentProfile.value,
                     filamentProfiles = request.filamentProfiles.map(ProfileId::value).toTypedArray(),
                     processProfile = request.processProfile.value,
-                ) { percent, message ->
-                    progressListener.onProgress(progress(request.jobId, percent, message))
-                }
+                    progressListener = { percent, message -> progressListener.onProgress(progress(request.jobId, percent, message)) },
+                    layerGcodeHeights = request.layerGcodes.map(LayerGcode::printZ).toDoubleArray(),
+                    layerGcodeTypes = request.layerGcodes.map { it.type.ordinal.toLong() }.toLongArray(),
+                    layerGcodeExtruders = request.layerGcodes.map(LayerGcode::extruder).toIntArray(),
+                    layerGcodeColors = request.layerGcodes.map(LayerGcode::color).toTypedArray(),
+                    layerGcodeExtras = request.layerGcodes.map(LayerGcode::extra).toTypedArray(),
+                )
             }
             try {
                 nativeJob.await()
@@ -1505,6 +1511,11 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 ),
                 toolpaths = request.toolpaths?.takeIf { result.toolpathsWritten },
                 wipeTower = request.wipeTower?.takeIf { result.wipeTowerWritten },
+                layerGcodeRules = LayerGcodeRules(
+                    sequential = result.sequential,
+                    canChangeFilament = result.canChangeFilament,
+                    hasTemplate = result.hasTemplate,
+                ),
             )
 
             NativeSliceResult.CANCELLED -> SliceOutcome.Cancelled(request.jobId)

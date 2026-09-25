@@ -372,6 +372,10 @@ data class PlateSliceResult(
     val toolpaths: ScenePath? = null,
     /** The wipe tower as the slice built it, which the plate then shows. */
     val wipeTower: ScenePath? = null,
+    /** The codes on the layers the plate was sliced with. */
+    val layerGcodes: List<LayerGcode> = emptyList(),
+    /** What the layer slider's menu offers for this print. */
+    val layerGcodeRules: LayerGcodeRules = LayerGcodeRules(),
 )
 
 enum class PlateProblemKind {
@@ -539,6 +543,8 @@ data class PlateState(
     val settingsClipboard: SettingsClipboard? = null,
     /** The volume the Simplify gizmo is open on (GLGizmoSimplify::m_volume); null while it is closed. */
     val simplifyTarget: ObjectPartId? = null,
+    /** The codes the preview's layer slider put on the layers (Model::plates_custom_gcodes), by height. */
+    val layerGcodes: List<LayerGcode> = emptyList(),
     /** The states of the plate Undo and Redo return to (Plater's UndoRedo::Stack). */
     val history: PlateHistory = PlateHistory(),
     /** Which settings the app shows: the presets, or the ones of an object (ParamsPanel's Global and Objects). */
