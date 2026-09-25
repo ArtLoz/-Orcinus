@@ -233,7 +233,7 @@ class ThumbnailRenderer(context: Context) {
             program.setMatrix4("view_model_matrix", (view * volume.world).toFloatArray())
             program.setMatrix3("view_normal_matrix", normalMatrix(view, volume.world))
             // GLVolume::is_left_handed(): a mirrored volume turns its faces.
-            val leftHanded = determinant(volume.world) < 0.0
+            val leftHanded = volume.world.isLeftHanded
             if (leftHanded) GLES30.glFrontFace(GLES30.GL_CW)
             // The painted triangles lie on the volume's own surface, drawn over it.
             if (volume.overlay) {
@@ -326,10 +326,5 @@ class ThumbnailRenderer(context: Context) {
         fun Box3.contains(other: Box3) =
             other.min.x >= min.x && other.min.y >= min.y && other.min.z >= min.z &&
                 other.max.x <= max.x && other.max.y <= max.y && other.max.z <= max.z
-
-        fun determinant(world: Affine3): Double =
-            world[0, 0] * (world[1, 1] * world[2, 2] - world[1, 2] * world[2, 1]) -
-                world[0, 1] * (world[1, 0] * world[2, 2] - world[1, 2] * world[2, 0]) +
-                world[0, 2] * (world[1, 0] * world[2, 1] - world[1, 1] * world[2, 0])
     }
 }

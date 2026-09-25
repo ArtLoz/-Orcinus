@@ -1,5 +1,18 @@
 package app.orcinus.shadow.feature.sidebar
 
+import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateItemUseCase
+import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
+import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
+import app.orcinus.shadow.core.ui.plate.RenameDialog
+import app.orcinus.shadow.core.ui.plate.PartShapeSheet
+import app.orcinus.shadow.core.ui.plate.CloneDialog
+import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
+import app.orcinus.shadow.core.model.PlateClipboard
+import app.orcinus.shadow.core.model.PlateDescription
+import app.orcinus.shadow.core.model.Manipulation
 import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -116,6 +129,21 @@ import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SettingsRequest
 import app.orcinus.shadow.core.model.SettingsScope
+import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.SettingsClipboard
+import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.ui.plate.MenuFilament
+import app.orcinus.shadow.core.ui.plate.exportFileName
+import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
+import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
+import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
+import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
+import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
+import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.core.model.SettingsTabState
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.VolumeType
@@ -146,7 +174,12 @@ import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.AddObjectPartUseCase
 import app.orcinus.shadow.domain.plate.AddPlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.CustomPrinterUseCase
+import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
+import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
+import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
+import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.DescribeFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.ExportConfigUseCase
@@ -210,6 +243,16 @@ data class SidebarUiState(
     val rangeSettings: SettingsTabState = SettingsTabState(PresetKind.LAYER),
     /** What the plate overrides the process preset with, which its list row marks. */
     val plateOverrides: ModelSettings = ModelSettings(),
+    /** The plate, whose centre the object menu's Center moves an object over. */
+    val plate: PlateDescription? = null,
+    /** What Copy and Cut took, which the menus' Paste puts back. */
+    val clipboard: PlateClipboard? = null,
+    /** The tower as the engine last described it, which the object menu's Flush Options go by. */
+    val flushing: WipeTower = WipeTower(),
+    /** What "Copy Process Settings" took. */
+    val settingsClipboard: SettingsClipboard? = null,
+    /** The Simplify gizmo is open on the canvas. */
+    val simplifying: Boolean = false,
 ) {
     /** Which settings the Objects side shows: a selected part's, the objects', or the plate's. */
     val modelKind: PresetKind get() = when {
@@ -249,15 +292,33 @@ class SidebarViewModel(
     private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
     private val setPlateObjectAutoDrop: SetPlateObjectAutoDropUseCase,
     private val addPlateInstance: AddPlateInstanceUseCase,
+    private val removeLastPlateInstances: RemoveLastPlateInstancesUseCase,
+    private val setNumberOfInstances: SetNumberOfInstancesUseCase,
+    private val placePlateObject: PlacePlateObjectUseCase,
+    private val renamePlateItem: RenamePlateItemUseCase,
+    private val editPlateObject: EditPlateObjectUseCase,
     private val addObjectPart: AddObjectPartUseCase,
     private val removeObjectPart: RemoveObjectPartUseCase,
     private val removePlateInstance: RemovePlateInstanceUseCase,
+    private val clonePlateObjects: ClonePlateObjectsUseCase,
+    private val separatePlateInstances: SeparatePlateInstancesUseCase,
+    private val fillBedWithInstances: FillBedWithInstancesUseCase,
+    private val copyToClipboard: CopyToClipboardUseCase,
+    private val pasteFromClipboard: PasteFromClipboardUseCase,
     private val deletePlateObject: DeletePlateObjectUseCase,
     private val physicalPrinters: ObservePhysicalPrintersUseCase,
     private val savePhysicalPrinter: SavePhysicalPrinterUseCase,
     private val deletePhysicalPrinter: DeletePhysicalPrinterUseCase,
     private val testPhysicalPrinter: TestPhysicalPrinterUseCase,
     private val printerPresetNames: PrinterPresetNamesUseCase,
+    private val setFlushOption: SetFlushOptionUseCase,
+    private val copySettings: CopyProcessSettingsUseCase,
+    private val pasteSettings: PasteProcessSettingsUseCase,
+    private val exportObjectMesh: ExportObjectMeshUseCase,
+    private val replaceObjectVolume: ReplaceObjectVolumeUseCase,
+    private val openSimplify: OpenSimplifyUseCase,
+    private val changeVolumeType: ChangeVolumeTypeUseCase,
+    private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
 ) : ViewModel() {
     val state: StateFlow<SidebarUiState> = observePlate()
         .map(PlateState::toSidebarUiState)
@@ -388,13 +449,85 @@ class SidebarViewModel(
 
     fun setObjectPrintable(id: PlateInstanceId, printable: Boolean) = setPlateObjectPrintable(id, printable)
 
+    /** The check box of an object's row: every copy of it. */
+    fun setWholeObjectPrintable(mesh: ScenePath, printable: Boolean) = setPlateObjectPrintable.all(mesh, printable)
+
+    fun toggleFlushOption(mesh: ScenePath, option: FlushOption) = setFlushOption(mesh, option)
+
+    /** ObjectList::switch_to_object_process(): the item's own settings are shown. */
+    fun editProcessSettings(item: SettingsItem) = when (item) {
+        is SettingsItem.Object -> openSettingsOf(PlateInstanceId(item.mesh))
+        is SettingsItem.Volume -> openSettingsOfPart(item.id)
+        is SettingsItem.Layer -> openSettingsOfRange(item.id)
+    }
+
+    fun copyProcessSettings(item: SettingsItem) = copySettings(item)
+
+    fun pasteProcessSettings(item: SettingsItem) = pasteSettings(item)
+
+    /** "Export as one STL/DRC" of the object into the document the user picked. */
+    fun exportMesh(mesh: ScenePath, format: MeshFormat, document: ExternalDocumentReference) {
+        viewModelScope.launch { exportObjectMesh(mesh, format, document) }
+    }
+
+    /** "Simplify Model": the gizmo opens on the canvas, over the whole object or one of its volumes. */
+    fun simplifyObject(mesh: ScenePath) = openSimplify.ofObject(PlateInstanceId(mesh), wholeObject = true)
+
+    fun simplifyVolume(id: ObjectPartId) = openSimplify.ofVolume(id)
+
+    /** "Change type" of a volume. */
+    fun setVolumeType(id: ObjectPartId, type: VolumeType) = changeVolumeType(id, type)
+
+    /** "Replace all with 3D files" from the folder the user picked. */
+    fun replaceAllVolumes(copy: PlateInstanceId, folder: ExternalDocumentReference) = replaceAllVolumesUseCase(copy, folder)
+
+    /** "Replace 3D file": the volume takes the mesh of the document the user picked. */
+    fun replaceVolume(copy: PlateInstanceId, volume: Int, document: ExternalDocumentReference) = replaceObjectVolume(copy, volume, document)
+
     fun setObjectAutoDrop(id: PlateInstanceId, autoDrop: Boolean) = setPlateObjectAutoDrop(id, autoDrop)
 
-    fun copyObject(id: PlateInstanceId) = addPlateInstance(id)
+    /** Plater::increase_instances(), decrease_instances() and set_number_of_copies(). */
+    fun addInstance(mesh: ScenePath) = addPlateInstance(mesh)
 
+    fun removeInstance(mesh: ScenePath) = removeLastPlateInstances(mesh)
+
+    fun setInstances(mesh: ScenePath, number: Int) = setNumberOfInstances(mesh, number)
+
+    /** Selection::erase() of one copy. */
     fun removeObjectCopy(id: PlateInstanceId) = removePlateInstance(id)
 
-    fun addPart(mesh: ScenePath, shape: String, type: VolumeType) = addObjectPart(mesh, shape, type)
+    /** "Fill bed with instances" of the whole object, which the list selects. */
+    fun fillBed(mesh: ScenePath) = fillBedWithInstances(mesh)
+
+    /** ObjectList::split_instances() of those copies of the object. */
+    fun setAsIndividual(mesh: ScenePath, instances: Set<Int>) = separatePlateInstances(mesh, instances)
+
+    /** Cut and Copy of copies of objects, and of volumes of an object over one of its copies. */
+    fun copyObjects(copies: Set<PlateInstanceId>, cut: Boolean) = copyToClipboard.objects(copies, cut)
+
+    fun copyVolumes(id: PlateInstanceId, volumes: Set<Int>, cut: Boolean) = copyToClipboard.volumes(id, volumes, cut)
+
+    /** Paste over a copy: the objects the clipboard holds, or its volumes into that object. */
+    fun paste(id: PlateInstanceId) = pasteFromClipboard(id)
+
+    /** The clone dialog's OK for the whole object, with every copy of it. */
+    fun clone(mesh: ScenePath, count: Int, arrange: Boolean) {
+        val target = state.value.objects.firstOrNull { it.mesh == mesh } ?: return
+        clonePlateObjects(target.instances.indices.mapTo(LinkedHashSet()) { PlateInstanceId(mesh, it) }, count, arrange)
+    }
+
+    /** The object menu's Center, Drop and Mirror. */
+    fun manipulate(id: PlateInstanceId, manipulation: Manipulation) = placePlateObject(id, manipulation)
+
+    /** ObjectList::rename_item() */
+    fun rename(mesh: ScenePath, name: String) = renamePlateItem(mesh, name)
+
+    fun renamePart(id: ObjectPartId, name: String) = renamePlateItem(id, name)
+
+    /** The object menu's commands that change meshes. */
+    fun editObject(mesh: ScenePath, edit: ObjectEdit, volume: Int?) = editPlateObject(mesh, edit, volume)
+
+    fun addPart(mesh: ScenePath, shape: String, type: VolumeType, name: String) = addObjectPart(mesh, shape, type, name)
 
     fun removePart(id: ObjectPartId) = removeObjectPart(id)
 
@@ -539,43 +672,12 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     partSettings = settingsTabs[PresetKind.PART] ?: SettingsTabState(PresetKind.PART),
     rangeSettings = settingsTabs[PresetKind.LAYER] ?: SettingsTabState(PresetKind.LAYER),
     plateOverrides = plateSettings,
+    plate = plate,
+    clipboard = clipboard,
+    flushing = flushing,
+    settingsClipboard = settingsClipboard,
+    simplifying = simplifyTarget != null,
 )
-
-/**
- * The shapes a part can have (create_mesh of GUI_ObjectList.cpp), which the
- * desktop app offers in the submenu of its "Add part" items.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PartShapeSheet(type: VolumeType, onDismiss: () -> Unit, onChoose: (String) -> Unit) {
-    val colors = OrcaTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
-        Column(Modifier.navigationBarsPadding()) {
-            Text(
-                text = stringResource(addPartName(type)),
-                color = colors.text,
-                style = OrcaTheme.typography.head16,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            PART_SHAPES.forEach { shape ->
-                Text(
-                    text = stringResource(shapeName(shape)),
-                    color = colors.text,
-                    style = OrcaTheme.typography.body14,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .orcaClickable(role = Role.Button, onClick = { onChoose(shape) })
-                        .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-            }
-        }
-    }
-}
 
 /**
  * The heights a range spans (ObjectList::edit_layer_range), which the desktop
@@ -774,6 +876,12 @@ private fun parseFilamentColor(value: String): Color? {
     return Color(0xFF000000L or rgb)
 }
 
+/**
+ * The type of the documents "Export as one STL/DRC" writes: any file, so the
+ * document provider keeps the extension the suggested name has.
+ */
+private const val MESH_MIME_TYPE = "application/octet-stream"
+
 /** Which Setup Wizard page a preset list opens: its printers or its filaments. */
 enum class PresetWizardPage { PRINTERS, FILAMENTS }
 
@@ -791,9 +899,35 @@ fun PlateSidebar(
     onOpenSettings: (PresetKind) -> Unit,
     onOpenSetting: (SearchOption) -> Unit = {},
     onOpenAbout: () -> Unit,
+    /** A tool of the canvas opened from the sidebar: a drawer over the canvas gets out of its way. */
+    onShowCanvas: () -> Unit = {},
 ) {
     val viewModel = viewModel { createViewModel() }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // "Export as one STL/DRC" and "Replace 3D file": the object waits for the
+    // document the user picks, as the desktop app waits for its file dialog.
+    var meshExport by rememberSaveable { mutableStateOf<Pair<String, MeshFormat>?>(null) }
+    val meshExportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(MESH_MIME_TYPE)) { uri ->
+        val target = meshExport
+        meshExport = null
+        if (uri != null && target != null) viewModel.exportMesh(ScenePath(target.first), target.second, ExternalDocumentReference(uri.toString()))
+    }
+    var replacingAll by rememberSaveable { mutableStateOf<Pair<String, Int>?>(null) }
+    val replacementFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val target = replacingAll
+        replacingAll = null
+        if (uri != null && target != null) {
+            viewModel.replaceAllVolumes(PlateInstanceId(ScenePath(target.first), target.second), ExternalDocumentReference(uri.toString()))
+        }
+    }
+    var replacing by rememberSaveable { mutableStateOf<Triple<String, Int, Int>?>(null) }
+    val replacementPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val target = replacing
+        replacing = null
+        if (uri != null && target != null) {
+            viewModel.replaceVolume(PlateInstanceId(ScenePath(target.first), target.second), target.third, ExternalDocumentReference(uri.toString()))
+        }
+    }
     // Import Configs takes a document, Export Preset Bundle a folder.
     // The file dialog of the desktop app takes several files at once.
     val configPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -836,8 +970,20 @@ fun PlateSidebar(
             selectSettings = viewModel::openSettingsOf,
             setPrintable = viewModel::setObjectPrintable,
             setAutoDrop = viewModel::setObjectAutoDrop,
-            copy = viewModel::copyObject,
+            addInstance = viewModel::addInstance,
+            removeInstance = viewModel::removeInstance,
+            setNumberOfInstances = viewModel::setInstances,
             removeCopy = viewModel::removeObjectCopy,
+            fillBed = viewModel::fillBed,
+            setAsIndividual = viewModel::setAsIndividual,
+            clone = viewModel::clone,
+            copyObjects = viewModel::copyObjects,
+            copyVolumes = viewModel::copyVolumes,
+            paste = viewModel::paste,
+            manipulate = viewModel::manipulate,
+            rename = viewModel::rename,
+            renamePart = viewModel::renamePart,
+            editObject = viewModel::editObject,
             addPart = viewModel::addPart,
             removePart = viewModel::removePart,
             selectPart = viewModel::chooseSettingsPart,
@@ -851,6 +997,32 @@ fun PlateSidebar(
             setPartExtruder = viewModel::setPartExtruder,
             setRangeExtruder = viewModel::setRangeExtruder,
             delete = viewModel::deleteObject,
+            setObjectPrintable = viewModel::setWholeObjectPrintable,
+            toggleFlushOption = viewModel::toggleFlushOption,
+            editProcessSettings = viewModel::editProcessSettings,
+            copyProcessSettings = viewModel::copyProcessSettings,
+            pasteProcessSettings = viewModel::pasteProcessSettings,
+            replaceVolume = { copy, volume ->
+                replacing = Triple(copy.mesh.value, copy.instance, volume)
+                replacementPicker.launch(arrayOf("*/*"))
+            },
+            replaceAllVolumes = { copy ->
+                replacingAll = copy.mesh.value to copy.instance
+                replacementFolderPicker.launch(null)
+            },
+            exportObject = { mesh, format, name ->
+                meshExport = mesh.value to format
+                meshExportPicker.launch(exportFileName(name, format))
+            },
+            simplifyObject = { mesh ->
+                viewModel.simplifyObject(mesh)
+                onShowCanvas()
+            },
+            simplifyVolume = { id ->
+                viewModel.simplifyVolume(id)
+                onShowCanvas()
+            },
+            changeVolumeType = viewModel::setVolumeType,
         ),
         onOpenWizard = onOpenWizard,
         onOpenSettings = onOpenSettings,
@@ -968,6 +1140,10 @@ internal fun PlateSidebarContent(
     var pickingColor by rememberSaveable { mutableStateOf<Int?>(null) }
     // The height range whose heights are being edited.
     var editingRange by remember { mutableStateOf<LayerRangeId?>(null) }
+    // Plater::set_number_of_copies() and ObjectList::rename_item() ask first.
+    var askingCopies by remember { mutableStateOf<ScenePath?>(null) }
+    var cloning by remember { mutableStateOf<ScenePath?>(null) }
+    var renaming by remember { mutableStateOf<RenameRequest?>(null) }
     // The flushing volumes are asked for when their sheet opens.
     var openFlushVolumes by remember { mutableStateOf(false) }
     var flushVolumes by remember { mutableStateOf<FlushVolumesOutcome?>(null) }
@@ -987,6 +1163,10 @@ internal fun PlateSidebarContent(
     // plate's filaments, and is only there when the printer has several
     // (ObjectList::set_filament_column_hidden).
     val filamentColors = presets?.selection?.allFilaments.orEmpty().indices.map { slotColor(presets, state, it) }
+    // "Change Filament" names every filament after its preset, as the combo box shows it.
+    val menuFilaments = presets?.selection?.allFilaments.orEmpty().mapIndexed { index, id ->
+        MenuFilament(presets?.filaments.orEmpty().labelOf(id.value), filamentColors[index])
+    }
     LazyColumn(
         Modifier
             .fillMaxSize()
@@ -1182,9 +1362,13 @@ internal fun PlateSidebarContent(
             enabled = enabled,
             picking = picking,
             filaments = filamentColors,
+            menuFilaments = menuFilaments,
             actions = objectList,
             onChooseShape = { mesh, type -> addingPart = mesh to type },
             onEditRange = { editingRange = it },
+            onAskNumberOfInstances = { askingCopies = it },
+            onAskClone = { cloning = it },
+            onAskRename = { renaming = it },
         )
 
         settingsTabItems(tab)
@@ -1304,14 +1488,57 @@ internal fun PlateSidebarContent(
         }
     }
 
+    askingCopies?.let { mesh ->
+        val target = state.objects.firstOrNull { it.mesh == mesh }
+        if (target == null) {
+            askingCopies = null
+        } else {
+            NumberOfInstancesDialog(
+                current = target.instances.size,
+                onDismiss = { askingCopies = null },
+                onConfirm = { number ->
+                    askingCopies = null
+                    objectList.setNumberOfInstances(mesh, number)
+                },
+            )
+        }
+    }
+    cloning?.let { mesh ->
+        CloneDialog(
+            autoArrange = true,
+            onDismiss = { cloning = null },
+            onFill = {
+                cloning = null
+                objectList.fillBed(mesh)
+            },
+            onClone = { count, arrange ->
+                cloning = null
+                objectList.clone(mesh, count, arrange)
+            },
+        )
+    }
+    renaming?.let { request ->
+        RenameDialog(
+            name = request.name,
+            onDismiss = { renaming = null },
+            onRename = { name ->
+                renaming = null
+                when (request) {
+                    is RenameRequest.Object -> objectList.rename(request.mesh, name)
+                    is RenameRequest.Volume -> objectList.renamePart(request.id, name)
+                }
+            },
+        )
+    }
+
     // The submenu of shapes of the desktop app, as a sheet.
     addingPart?.let { (mesh, type) ->
         PartShapeSheet(
             type = type,
             onDismiss = { addingPart = null },
-            onChoose = { shape ->
+            onChoose = { shape, name ->
                 addingPart = null
-                objectList.addPart(mesh, shape, type)
+                objectList.addPart(mesh, shape, type, name)
             },
         )
     }
@@ -1413,9 +1640,21 @@ private fun PlateSidebarPreview() = OrcinusTheme {
             selectSettings = {},
             setPrintable = { _, _ -> },
             setAutoDrop = { _, _ -> },
-            copy = {},
+            addInstance = {},
+            removeInstance = {},
+            setNumberOfInstances = { _, _ -> },
             removeCopy = {},
-            addPart = { _, _, _ -> },
+            fillBed = {},
+            setAsIndividual = { _, _ -> },
+            clone = { _, _, _ -> },
+            copyObjects = { _, _ -> },
+            copyVolumes = { _, _, _ -> },
+            paste = {},
+            manipulate = { _, _ -> },
+            rename = { _, _ -> },
+            renamePart = { _, _ -> },
+            editObject = { _, _, _ -> },
+            addPart = { _, _, _, _ -> },
             removePart = {},
             selectPart = {},
             selectPartSettings = {},

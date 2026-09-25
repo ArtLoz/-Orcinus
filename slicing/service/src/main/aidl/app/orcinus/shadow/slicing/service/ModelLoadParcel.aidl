@@ -9,4 +9,8 @@ parcelable ModelLoadParcel {
     @nullable SettingsDialogParcel question;
     SettingsDialogParcel[] notices;
     @nullable LoadedObjectParcel[] objects;
+    /** The objects join the end of the plate's list and the edited one leaves it. */
+    boolean appended;
+    /** The volume of the edited object the list selects; -1 for none. */
+    int selectedVolume = -1;
 }

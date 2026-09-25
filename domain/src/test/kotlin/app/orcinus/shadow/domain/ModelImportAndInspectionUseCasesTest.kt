@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain
 
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ExternalDocumentReference
@@ -13,8 +14,13 @@ import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.SimplifyOutcome
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.PaintStroke
@@ -164,6 +170,10 @@ class ModelImportAndInspectionUseCasesTest {
             PaintingOutcome.Success(PaintedSurface())
 
         override suspend fun endPainting(): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
+
+        override suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
+
+        override suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
         override suspend fun describeFlushVolumes(
             plate: List<PlacedModel>,
             profiles: SlicingProfileSelection,
@@ -206,6 +216,90 @@ class ModelImportAndInspectionUseCasesTest {
             plate: List<PlacedModel>,
             prefix: ScenePath,
             answers: Map<String, Boolean>,
+        ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun edit(
+            plate: List<PlacedModel>,
+            index: Int,
+            edit: ObjectEdit,
+            volume: Int?,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+            answers: Map<String, Boolean>,
+        ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun copy(
+            plate: List<PlacedModel>,
+            sources: List<PlacedModel>,
+            count: Int,
+            placement: CopyPlacement,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun addPrimitive(
+            plate: List<PlacedModel>,
+            shape: String,
+            name: String,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun handyModel(file: String): ModelPath? = null
+
+        override suspend fun exportMesh(
+            plate: List<PlacedModel>,
+            index: Int,
+            format: MeshFormat,
+            profiles: SlicingProfileSelection,
+            path: ScenePath,
+        ) = MeshExportOutcome.Failure("not used")
+
+        override suspend fun replaceVolume(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            source: ModelPath,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun simplifyVolume(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            config: SimplifyConfig,
+            profiles: SlicingProfileSelection,
+            path: ScenePath,
+        ) = SimplifyOutcome.Failure("not used")
+
+        override suspend fun setVolumeType(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            type: VolumeType,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun applySimplify(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            config: SimplifyConfig,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun pasteVolumes(
+            plate: List<PlacedModel>,
+            index: Int,
+            instance: Int,
+            source: PlacedModel,
+            volumes: List<Int>,
+            sameInputFile: Boolean,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
         ) = ModelLoadOutcome.Failure("not used")
 
         override suspend fun place(

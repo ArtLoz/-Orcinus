@@ -98,6 +98,8 @@ val orcaIconNames = listOf(
     "param_speed", "param_speed_first", "param_support", "param_support_filament", "param_support_tree", "param_tower",
     "param_travel_speed", "param_wall", "param_wall_generator", "param_wall_surface",
     "mmu_segmentation",
+    // MenuFactory::append_menu_items_mirror()
+    "menu_mirror_x", "menu_mirror_y", "menu_mirror_z", "menu_split_objects", "menu_split_parts",
     // EditGCodeDialog: its add button and the icons of its groups and placeholders.
     "add_copies", "lock_closed", "lock_open", "topbar_close", "im_text_search_close",
     "custom-gcode_advanced", "custom-gcode_cooling_fan", "custom-gcode_extruder", "custom-gcode_filament",
@@ -114,6 +116,8 @@ val orcaIconNames = listOf(
     "toolbar_fuzzy_skin_paint", "toolbar_measure", "toolbar_meshboolean", "toolbar_move",
     "toolbar_open", "toolbar_orient", "toolbar_reset", "toolbar_reset_zero", "toolbar_rotate", "toolbar_scale", "toolbar_seam",
     "toolbar_support", "toolbar_text", "toolbar_variable_layer_height", "undo",
+    // BBLTopbar: Undo and Redo.
+    "topbar_undo", "topbar_redo",
 )
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).

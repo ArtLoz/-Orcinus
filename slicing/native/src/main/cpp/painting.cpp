@@ -171,6 +171,12 @@ struct Session {
     std::unique_ptr<Slic3r::TriangleSelector> selector;
     // Where the volume stands in the world, which the cursor needs.
     Slic3r::Transform3d world{Slic3r::Transform3d::Identity()};
+    // The gizmo's own undo/redo stack: the painting before each stroke, and
+    // the paintings Undo left, the next one last.
+    std::vector<Slic3r::TriangleSelector::TriangleSplittingData> undo;
+    std::vector<Slic3r::TriangleSelector::TriangleSplittingData> redo;
+    // A stroke began and has not met the model yet.
+    bool stroke_pending{false};
 };
 
 Session& session()
@@ -179,9 +185,11 @@ Session& session()
     return current;
 }
 
-/** The triangles painted with each filament, written for the 3D view. */
+/** The triangles painted with each filament, written for the 3D view, and what the tool can undo. */
 void write_painted_meshes(const std::string& mesh_prefix, PaintingState& result)
 {
+    result.can_undo = !session().undo.empty();
+    result.can_redo = !session().redo.empty();
     std::vector<indexed_triangle_set> per_state;
     session().selector->get_facets(per_state);
     for (std::size_t state = 1; state < per_state.size(); ++state) {
@@ -212,6 +220,11 @@ bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& facets
     }
     volume.mmu_segmentation_facets.set_data(std::move(data));
     return true;
+}
+
+std::string painted_facets_of(const Slic3r::ModelVolume& volume)
+{
+    return volume.mmu_segmentation_facets.empty() ? std::string() : serialize(volume.mmu_segmentation_facets.get_data());
 }
 
 PaintingState begin_painting(
@@ -269,6 +282,9 @@ PaintingState begin_painting(
             }
             current.selector->deserialize(data, true);
         }
+        current.undo.clear();
+        current.redo.clear();
+        current.stroke_pending = false;
         current.open = true;
 
         result.status = SceneStatus::success;
@@ -305,6 +321,9 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         const Slic3r::Vec3d direction = (target - source).normalized();
         const Slic3r::AABBMesh::hit_result hit = current.tree->query_ray_hit(source, direction);
         result.status = SceneStatus::success;
+        if (stroke.starts) {
+            current.stroke_pending = true;
+        }
         if (hit.face() < 0) {
             // The finger missed the model, which leaves it as it was.
             result.hit = false;
@@ -312,6 +331,13 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
             return result;
         }
         result.hit = true;
+        // GLGizmoPainterBase::gizmo_event(): the snapshot of the stroke, and
+        // what was undone before is gone.
+        if (current.stroke_pending) {
+            current.undo.push_back(current.selector->serialize());
+            current.redo.clear();
+            current.stroke_pending = false;
+        }
 
         const Slic3r::Vec3f position = hit.position().cast<float>();
         const Slic3r::Transform3d no_translation = Slic3r::Transform3d(current.world.linear());
@@ -368,6 +394,51 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
     }
 }
 
+namespace {
+
+/** Undo or Redo inside the tool: the painting on top of [from] comes back, and the one shown joins [to]. */
+PaintingState step_painting(
+    std::vector<Slic3r::TriangleSelector::TriangleSplittingData>& from,
+    std::vector<Slic3r::TriangleSelector::TriangleSplittingData>& to,
+    const std::string& mesh_prefix
+)
+{
+    PaintingState result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    Session& current = session();
+    if (!current.open || current.selector == nullptr) {
+        result.message = "No painting session is open";
+        return result;
+    }
+    try {
+        result.status = SceneStatus::success;
+        if (!from.empty()) {
+            to.push_back(current.selector->serialize());
+            current.selector->deserialize(from.back(), true);
+            from.pop_back();
+            current.stroke_pending = false;
+        }
+        write_painted_meshes(mesh_prefix, result);
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
+}  // namespace
+
+PaintingState undo_painting(const std::string& mesh_prefix)
+{
+    return step_painting(session().undo, session().redo, mesh_prefix);
+}
+
+PaintingState redo_painting(const std::string& mesh_prefix)
+{
+    return step_painting(session().redo, session().undo, mesh_prefix);
+}
+
 PaintingState end_painting()
 {
     PaintingState result;
@@ -381,6 +452,8 @@ PaintingState end_painting()
     result.facets = serialize(current.selector->serialize());
     result.status = SceneStatus::success;
     current.open = false;
+    current.undo.clear();
+    current.redo.clear();
     current.selector.reset();
     current.tree.reset();
     current.mesh = Slic3r::TriangleMesh();

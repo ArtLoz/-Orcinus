@@ -1,10 +1,21 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.PlateRequest
+import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.core.model.PresetSettings
+import app.orcinus.shadow.core.model.SettingState
+import app.orcinus.shadow.core.model.SettingsTab
+import app.orcinus.shadow.core.model.SettingsTabState
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.CopyPlacement
+import app.orcinus.shadow.core.model.PlateHistory
+import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BuiltInModel
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ComparedPresets
@@ -37,11 +48,27 @@ import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.storage.api.DocumentFolders
+import app.orcinus.shadow.core.model.withVolume
+import app.orcinus.shadow.core.model.SimplifyOutcome
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.storage.api.DocumentExport
+import app.orcinus.shadow.core.model.withInstances
+import app.orcinus.shadow.core.model.withSettings
+import app.orcinus.shadow.core.model.withParts
+import app.orcinus.shadow.core.model.flushesInto
+import app.orcinus.shadow.core.model.SettingsItemKind
+import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.core.model.SettingsClipboard
+import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectPart
@@ -143,6 +170,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 class PlateUseCasesTest {
@@ -240,6 +268,7 @@ class PlateUseCasesTest {
                     ModelSource.LocalFile(ModelPath("/imports/benchy.stl")),
                     benchy.inspection.mesh,
                     listOf(PlacedInstance(translated(-100.0, 175.0, 10.0), autoDrop = false)),
+                    name = "benchy.stl",
                 ),
                 PlacedModel(
                     ModelSource.BuiltIn(BuiltInModel.CALIBRATION_CUBE_20_MM),
@@ -493,16 +522,15 @@ class PlateUseCasesTest {
     }
 
     @Test
-    fun `deleting an object takes it and its mesh off the plate and drops the G-code`() {
+    fun `deleting an object takes it off the plate, keeps it for Undo and drops the G-code`() {
         val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
         val repository = FakeRepository(readyState(CUBE, other).copy(result = PlateSliceResult(SliceJobId("old"), listOf(CUBE, other), OutputPath("/gcode/old.gcode"), STATISTICS)))
-        val files = FakeSceneFiles()
 
-        DeletePlateObjectUseCase(files, repository)(CUBE.inspection.mesh)
+        DeletePlateObjectUseCase(repository)(CUBE.inspection.mesh)
 
         assertEquals(listOf(other), repository.state.value.objects)
         assertNull(repository.state.value.result)
-        assertEquals(listOf(CUBE.inspection.mesh), files.deleted)
+        assertEquals(listOf(CUBE, other), repository.state.value.history.undo.single().objects)
     }
 
     @Test
@@ -525,7 +553,7 @@ class PlateUseCasesTest {
     fun `deleting the selected object leaves the plate selected`() {
         val repository = FakeRepository(readyState(CUBE).copy(selectedInstances = setOf(PlateInstanceId(CUBE.inspection.mesh))))
 
-        DeletePlateObjectUseCase(FakeSceneFiles(), repository)(CUBE.inspection.mesh)
+        DeletePlateObjectUseCase(repository)(CUBE.inspection.mesh)
 
         assertTrue(repository.state.value.selectedInstances.isEmpty())
     }
@@ -533,12 +561,11 @@ class PlateUseCasesTest {
     @Test
     fun `nothing is deleted while slicing`() {
         val repository = FakeRepository(readyState(CUBE).copy(slicing = PlateSlicing(SliceJobId("job"))))
-        val files = FakeSceneFiles()
 
-        DeletePlateObjectUseCase(files, repository)(CUBE.inspection.mesh)
+        DeletePlateObjectUseCase(repository)(CUBE.inspection.mesh)
 
         assertEquals(listOf(CUBE), repository.state.value.objects)
-        assertTrue(files.deleted.isEmpty())
+        assertTrue(repository.state.value.history.undo.isEmpty())
     }
 
     @Test
@@ -626,7 +653,7 @@ class PlateUseCasesTest {
         assertEquals(LOADED.frame, placed.frame)
         assertEquals(LOADED.parts, placed.parts)
         assertEquals(LOADED.volume, placed.volume)
-        assertEquals(LOADED.instances, placed.instances.map(PlateInstance::inspection))
+        assertEquals(LOADED.instances, placed.instances)
         assertEquals(file.path, inspector.loads.single().source)
         assertEquals(files.importPrefixes.single(), inspector.loads.single().prefix)
         assertEquals(PROFILES, inspector.profiles)
@@ -663,23 +690,543 @@ class PlateUseCasesTest {
 
         val asked = repository.state.value
         assertTrue(asked.importing)
-        assertEquals(QUESTION, asked.importQuestion?.question)
-        assertEquals(listOf(NOTICE), asked.importNotices)
+        assertEquals(QUESTION, asked.plateQuestion?.question)
+        assertEquals(PlateRequest.Import(file.path), asked.plateQuestion?.request)
+        assertEquals(listOf(NOTICE), asked.plateNotices)
         assertEquals(listOf(CUBE), asked.objects)
         // Nothing the load wrote before it asked stays.
         assertEquals(files.importPrefixes, files.deletedImports)
 
-        addModel.dismissNotice()
+        DismissPlateNoticeUseCase(repository)()
         addModel.answer(true)
 
         val loaded = repository.state.value
         assertEquals(mapOf("multipart_object" to true), inspector.loads.last().answers)
         assertEquals(file.path, inspector.loads.last().source)
         assertFalse(loaded.importing)
-        assertNull(loaded.importQuestion)
+        assertNull(loaded.plateQuestion)
         assertEquals(2, loaded.objects.size)
         // The message box the first load showed does not show again.
-        assertTrue(loaded.importNotices.isEmpty())
+        assertTrue(loaded.plateNotices.isEmpty())
+    }
+
+    @Test
+    fun `an edited object takes the place of the one it was, and its old meshes go`() {
+        val other = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))))
+        val repository = FakeRepository(readyState(CUBE, other))
+        val inspector = FakeInspector()
+        val files = FakeSceneFiles()
+
+        EditPlateObjectUseCase(inspector, files, repository, scope)(CUBE.mesh, ObjectEdit.SPLIT_TO_PARTS)
+
+        val state = repository.state.value
+        assertFalse(state.editing)
+        assertEquals(FakeInspector.Edit(0, ObjectEdit.SPLIT_TO_PARTS, null, emptyMap()), inspector.edits.single())
+        assertEquals(listOf(LOADED.instances.single().inspection.mesh, other.mesh), state.objects.map { it.mesh })
+        assertEquals(setOf(PlateInstanceId(LOADED.instances.single().inspection.mesh)), state.selectedInstances)
+        // The object before the edit waits for Undo.
+        assertEquals(listOf(CUBE, other), state.history.undo.single().objects)
+    }
+
+    @Test
+    fun `objects an edit loads anew join the end of the plate, and the edited one leaves it`() {
+        val first = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/split-0.mesh")))))
+        val second = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/split-1.mesh")))))
+        val other = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))))
+        val repository = FakeRepository(readyState(CUBE, other))
+        val inspector = FakeInspector()
+        inspector.editOutcome = { answers ->
+            if ("split_auto_drop" in answers) {
+                ModelLoadOutcome.Success(listOf(first, second), emptyList(), appended = true)
+            } else {
+                ModelLoadOutcome.Question(QUESTION.copy(id = "split_auto_drop"), emptyList())
+            }
+        }
+
+        EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope).let { edit ->
+            edit(CUBE.mesh, ObjectEdit.SPLIT_TO_OBJECTS)
+            val asked = repository.state.value
+            assertTrue(asked.busy)
+            assertEquals(PlateRequest.Edit(CUBE.mesh, ObjectEdit.SPLIT_TO_OBJECTS), asked.plateQuestion?.request)
+
+            AnswerPlateQuestionUseCase(repository, addModel(repository, ModelImportOutcome.Failure(ModelImportFailureCode.EMPTY_FILE, ""), inspector, FakeSceneFiles()), edit, settingsTabs(repository))(false)
+        }
+
+        val state = repository.state.value
+        assertEquals(mapOf("split_auto_drop" to false), inspector.edits.last().answers)
+        assertFalse(state.busy)
+        assertNull(state.plateQuestion)
+        assertEquals(listOf(other.mesh, first.instances.single().inspection.mesh, second.instances.single().inspection.mesh), state.objects.map { it.mesh })
+        assertEquals(2, state.selectedInstances.size)
+    }
+
+    @Test
+    fun `an edit that changes nothing leaves the plate and says why`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        inspector.editOutcome = { ModelLoadOutcome.Success(emptyList(), listOf(NOTICE)) }
+
+        EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope)(CUBE.mesh, ObjectEdit.SPLIT_TO_OBJECTS)
+
+        val state = repository.state.value
+        assertFalse(state.editing)
+        assertEquals(listOf(CUBE), state.objects)
+        assertEquals(listOf(NOTICE), state.plateNotices)
+    }
+
+    @Test
+    fun `a clone pastes new objects after the plate's, selects the last paste and arranges the plate`() {
+        val settings = ArrangeSettings(distance = 4.0)
+        val repository = FakeRepository(readyState(CUBE).copy(arrangeSettings = settings))
+        val inspector = FakeInspector()
+
+        ClonePlateObjectsUseCase(inspector, FakeSceneFiles(), repository, placePlateObjects(inspector, repository), scope)(
+            setOf(PlateInstanceId(CUBE.mesh)),
+            count = 2,
+            arrange = true,
+        )
+
+        val copy = inspector.copies.single()
+        assertEquals(listOf(CUBE.mesh), copy.sources.map(PlacedModel::mesh))
+        assertEquals(2, copy.count)
+        assertEquals(CopyPlacement.PASTE, copy.placement)
+        val state = repository.state.value
+        assertFalse(state.busy)
+        assertEquals(listOf(CUBE.mesh, ScenePath("/scene/objects/copy-0.mesh"), ScenePath("/scene/objects/copy-1.mesh")), state.objects.map { it.mesh })
+        assertEquals(setOf(PlateInstanceId(ScenePath("/scene/objects/copy-1.mesh"))), state.selectedInstances)
+        // The copies of the cube name their G-code as the cube does.
+        assertEquals("calibration-cube-20mm", (state.objects.last() as PlateObject.ImportedModel).inputName)
+        assertEquals(PlateManipulation.ArrangePlate(settings), inspector.plateManipulation)
+    }
+
+    @Test
+    fun `a clone of one copy copies that copy alone and leaves the plate unarranged when asked`() {
+        val twoCopies = CUBE.copy(instances = listOf(PlateInstance(INSPECTION), PlateInstance(INSPECTION.copy(placement = translated(40.0, 0.0, 0.0)))))
+        val repository = FakeRepository(readyState(twoCopies))
+        val inspector = FakeInspector()
+
+        ClonePlateObjectsUseCase(inspector, FakeSceneFiles(), repository, placePlateObjects(inspector, repository), scope)(
+            setOf(PlateInstanceId(CUBE.mesh, 1)),
+            count = 1,
+            arrange = false,
+        )
+
+        assertEquals(listOf(translated(40.0, 0.0, 0.0)), inspector.copies.single().sources.single().instances.map { it.placement })
+        assertNull(inspector.plateManipulation)
+        assertEquals(2, repository.state.value.objects.size)
+    }
+
+    @Test
+    fun `setting every copy as an object makes an object of each but the first, the last first`() {
+        val copies = List(3) { PlateInstance(INSPECTION.copy(placement = translated(40.0 * it, 0.0, 0.0))) }
+        val repository = FakeRepository(readyState(CUBE.copy(instances = copies)))
+        val inspector = FakeInspector()
+
+        SeparatePlateInstancesUseCase(inspector, FakeSceneFiles(), repository, scope)(CUBE.mesh, setOf(0, 1, 2))
+
+        val copy = inspector.copies.single()
+        assertEquals(CopyPlacement.KEEP, copy.placement)
+        assertEquals(listOf(listOf(translated(80.0, 0.0, 0.0)), listOf(translated(40.0, 0.0, 0.0))), copy.sources.map { it.instances.map { i -> i.placement } })
+        val state = repository.state.value
+        assertEquals(listOf(copies.first()), state.objects.first().instances)
+        assertEquals(3, state.objects.size)
+        assertEquals(setOf(PlateInstanceId(CUBE.mesh)), state.selectedInstances)
+    }
+
+    @Test
+    fun `setting a copy as an object takes it out of its object`() {
+        val copies = List(3) { PlateInstance(INSPECTION.copy(placement = translated(40.0 * it, 0.0, 0.0))) }
+        val repository = FakeRepository(readyState(CUBE.copy(instances = copies)))
+        val inspector = FakeInspector()
+
+        SeparatePlateInstancesUseCase(inspector, FakeSceneFiles(), repository, scope)(CUBE.mesh, setOf(1))
+
+        assertEquals(listOf(translated(40.0, 0.0, 0.0)), inspector.copies.single().sources.single().instances.map { it.placement })
+        val state = repository.state.value
+        assertEquals(listOf(copies[0], copies[2]), state.objects.first().instances)
+        assertEquals(2, state.objects.size)
+    }
+
+    @Test
+    fun `an object of one copy is not set apart`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+
+        SeparatePlateInstancesUseCase(inspector, FakeSceneFiles(), repository, scope)(CUBE.mesh, setOf(0))
+
+        assertTrue(inspector.copies.isEmpty())
+        assertEquals(listOf(CUBE), repository.state.value.objects)
+    }
+
+    @Test
+    fun `filling the bed adds the copies the job packed onto the plate`() {
+        val settings = ArrangeSettings(distance = 2.0)
+        val inspector = FakeInspector(
+            placedObjects = { plate ->
+                plate.map { placed -> List(4) { INSPECTION.copy(mesh = placed.mesh, placement = translated(40.0 * it, 0.0, 0.0)) } }
+            },
+        )
+        val repository = FakeRepository(readyState(CUBE).copy(arrangeSettings = settings))
+
+        FillBedWithInstancesUseCase(repository, placePlateObjects(inspector, repository))(CUBE.mesh, 0)
+
+        assertEquals(PlateManipulation.FillBed(CUBE.mesh, 0, settings), inspector.plateManipulation)
+        val instances = repository.state.value.objects.single().instances
+        assertEquals(List(4) { translated(40.0 * it, 0.0, 0.0) }, instances.map { it.inspection.placement })
+        assertTrue(instances.all { it.printable && it.autoDrop && !it.placing })
+    }
+
+    @Test
+    fun `copied objects wait on the clipboard and are pasted beside them`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        val files = FakeSceneFiles()
+        val copy = CopyToClipboardUseCase(
+            inspector,
+            files,
+            repository,
+            RemoveObjectPartUseCase(repository),
+            scope,
+        )
+
+        copy.objects(setOf(PlateInstanceId(CUBE.mesh)))
+
+        assertEquals(CopyPlacement.KEEP, inspector.copies.single().placement)
+        val clipboard = repository.state.value.clipboard as PlateClipboard.Objects
+        assertEquals(listOf(ScenePath("/scene/objects/copy-0.mesh")), clipboard.objects.map { it.mesh })
+        // Copying leaves the plate and its G-code as they are.
+        assertEquals(listOf(CUBE), repository.state.value.objects)
+
+        PasteFromClipboardUseCase(inspector, files, repository, scope)()
+
+        val paste = inspector.copies.last()
+        assertEquals(CopyPlacement.PASTE, paste.placement)
+        assertEquals(listOf(ScenePath("/scene/objects/copy-0.mesh")), paste.sources.map(PlacedModel::mesh))
+        val state = repository.state.value
+        assertEquals(2, state.objects.size)
+        assertEquals(listOf(state.objects.last()).allCopies(), state.selectedInstances)
+        // Copying is no step of Undo; pasting is.
+        assertEquals(listOf(listOf(CUBE)), state.history.undo.map { it.objects })
+    }
+
+    @Test
+    fun `cut takes the copies off the plate once the clipboard holds them`() {
+        val twoCopies = CUBE.copy(instances = listOf(PlateInstance(INSPECTION), PlateInstance(INSPECTION.copy(placement = translated(40.0, 0.0, 0.0)))))
+        val repository = FakeRepository(readyState(twoCopies))
+        val files = FakeSceneFiles()
+        val copy = CopyToClipboardUseCase(
+            FakeInspector(),
+            files,
+            repository,
+            RemoveObjectPartUseCase(repository),
+            scope,
+        )
+
+        copy.objects(setOf(PlateInstanceId(CUBE.mesh, 1)), cut = true)
+
+        assertEquals(listOf(PlateInstance(INSPECTION)), repository.state.value.objects.single().instances)
+
+        copy.objects(setOf(PlateInstanceId(CUBE.mesh, 0)), cut = true)
+
+        assertTrue(repository.state.value.objects.isEmpty())
+        assertTrue(repository.state.value.clipboard is PlateClipboard.Objects)
+    }
+
+    @Test
+    fun `copied volumes join the object they are pasted into and are selected`() {
+        val withPart = LOADED.toPlateObject("model.stl")
+        val repository = FakeRepository(readyState(withPart))
+        val inspector = FakeInspector()
+        val files = FakeSceneFiles()
+        val copy = CopyToClipboardUseCase(
+            inspector,
+            files,
+            repository,
+            RemoveObjectPartUseCase(repository),
+            scope,
+        )
+        val target = PlateInstanceId(withPart.mesh)
+
+        copy.volumes(target, setOf(1))
+        val clipboard = repository.state.value.clipboard as PlateClipboard.Volumes
+        assertEquals(listOf(1), clipboard.volumes)
+
+        PasteFromClipboardUseCase(inspector, files, repository, scope)(target)
+
+        val paste = inspector.pasted!!
+        assertEquals(0, paste.index)
+        assertEquals(0, paste.instance)
+        assertEquals(listOf(1), paste.volumes)
+        assertTrue(paste.sameInputFile)
+        val state = repository.state.value
+        assertEquals(ObjectPartId(LOADED.instances.single().inspection.mesh, 1), state.selectedPart)
+        assertFalse(state.editing)
+    }
+
+    @Test
+    fun `volumes are not pasted without an object to join`() {
+        val repository = FakeRepository(readyState(CUBE).copy(clipboard = PlateClipboard.Volumes(CUBE, listOf(0))))
+        val inspector = FakeInspector()
+
+        PasteFromClipboardUseCase(inspector, FakeSceneFiles(), repository, scope)()
+
+        assertNull(inspector.pasted)
+        assertEquals(listOf(CUBE), repository.state.value.objects)
+    }
+
+    @Test
+    fun `the calibration cube written anew keeps the name the app gives it`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        inspector.editOutcome = { ModelLoadOutcome.Success(listOf(LOADED.copy(name = "calibration-cube-20mm")), emptyList()) }
+
+        EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope)(CUBE.mesh, ObjectEdit.FIX)
+
+        val fixed = repository.state.value.objects.single() as PlateObject.ImportedModel
+        // No name of its own: the app names it as the cube, and the engine keeps calling it its own way.
+        assertEquals("", fixed.file.displayName)
+        assertEquals("calibration-cube-20mm", fixed.inputName)
+        assertEquals("", fixed.placed().name)
+    }
+
+    @Test
+    fun `undo brings a deleted object back with its selection, and redo takes it away again`() {
+        val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val selected = setOf(PlateInstanceId(CUBE.mesh))
+        val repository = FakeRepository(readyState(CUBE, other).copy(selectedInstances = selected))
+        val inspector = FakeInspector()
+        val history = UndoRedoPlateUseCase(repository, placePlateObjects(inspector, repository), settingsTabs(repository), scope)
+
+        DeletePlateObjectUseCase(repository)(CUBE.mesh)
+        assertTrue(repository.state.value.canUndo)
+        assertFalse(repository.state.value.canRedo)
+
+        history.undo()
+
+        var state = repository.state.value
+        assertEquals(listOf(CUBE.mesh, other.mesh), state.objects.map { it.mesh })
+        assertEquals(selected, state.selectedInstances)
+        assertFalse(state.canUndo)
+        assertTrue(state.canRedo)
+        // Plater::priv::undo_redo_to() judges the copies against the build volume again.
+        assertEquals(PlateManipulation.UpdatePrintVolume, inspector.plateManipulation)
+
+        history.redo()
+
+        state = repository.state.value
+        assertEquals(listOf(other.mesh), state.objects.map { it.mesh })
+        assertTrue(state.canUndo)
+        assertFalse(state.canRedo)
+    }
+
+    @Test
+    fun `a new action after Undo drops what Undo left`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val history = UndoRedoPlateUseCase(repository, placePlateObjects(FakeInspector(), repository), settingsTabs(repository), scope)
+
+        RenamePlateItemUseCase(repository)(CUBE.mesh, "first")
+        history.undo()
+        assertTrue(repository.state.value.canRedo)
+
+        RenamePlateItemUseCase(repository)(CUBE.mesh, "second")
+
+        val state = repository.state.value
+        assertFalse(state.canRedo)
+        assertEquals(1, state.history.undo.size)
+        assertEquals("second", (state.objects.single() as PlateObject.CalibrationCube).name)
+    }
+
+    @Test
+    fun `judging the fit for another printer is no step of Undo, arranging is`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+
+        placePlateObjects(inspector, repository)(PlateManipulation.UpdatePrintVolume)
+        assertTrue(repository.state.value.history.undo.isEmpty())
+
+        placePlateObjects(inspector, repository)(PlateManipulation.Arrange(ArrangeSettings()))
+        assertEquals(1, repository.state.value.history.undo.size)
+    }
+
+    @Test
+    fun `adding a copy is one step of Undo, the placing of the copy included`() {
+        val repository = FakeRepository(readyState(CUBE).copy(plate = PLATE))
+        val inspector = FakeInspector()
+        val place = PlacePlateObjectUseCase(PlaceModelUseCase(inspector), repository, scope)
+
+        AddPlateInstanceUseCase(repository, place, SelectPlateObjectUseCase(repository))(CUBE.mesh)
+
+        val state = repository.state.value
+        assertEquals(2, state.objects.single().instances.size)
+        assertEquals(listOf(listOf(CUBE)), state.history.undo.map { it.objects })
+    }
+
+    @Test
+    fun `undo leaves the flushing volumes of the project as they are`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val history = UndoRedoPlateUseCase(repository, placePlateObjects(FakeInspector(), repository), settingsTabs(repository), scope)
+
+        RenamePlateItemUseCase(repository)(CUBE.mesh, "renamed")
+        SetFlushVolumesUseCase(repository)(listOf(0.0, 100.0, 100.0, 0.0), listOf(1.0))
+        history.undo()
+
+        val state = repository.state.value
+        assertNull((state.objects.single() as PlateObject.CalibrationCube).name)
+        assertEquals("0.00,100.00,100.00,0.00", state.plateSettings.values["flush_volumes_matrix"])
+    }
+
+    @Test
+    fun `a mesh goes once neither the plate, its history nor the clipboard refers to it`() {
+        val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val repository = FakeRepository(readyState(CUBE, other))
+        val files = FakeSceneFiles()
+        val job = scope.launch { ObjectMeshRetention(repository, files).run() }
+        val history = UndoRedoPlateUseCase(repository, placePlateObjects(FakeInspector(), repository), settingsTabs(repository), scope)
+
+        DeletePlateObjectUseCase(repository)(other.mesh)
+        // Undo can still bring it back.
+        assertTrue(files.deleted.isEmpty())
+
+        history.undo()
+        history.redo()
+        assertTrue(files.deleted.isEmpty())
+
+        // The history forgets the deleted object once a new action drops what follows the active state:
+        // undo the deletion, then act otherwise.
+        history.undo()
+        RenamePlateItemUseCase(repository)(CUBE.mesh, "kept")
+        assertTrue(files.deleted.isEmpty())
+        repository.update { it.copy(history = PlateHistory()) }
+        DeletePlateObjectUseCase(repository)(other.mesh)
+        repository.update { it.copy(history = PlateHistory()) }
+
+        assertEquals(listOf(other.mesh), files.deleted)
+        job.cancel()
+    }
+
+    @Test
+    fun `painting is one step of Undo once the tool closes with the object painted otherwise`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        val paint = PaintObjectUseCase(inspector, FakeSceneFiles(), repository)
+
+        runSuspend { paint.begin(CUBE.mesh) }
+        assertFalse(repository.state.value.canUndo)
+        runSuspend { paint.stroke(PaintStroke(origin = Vector3(0.0, 0.0, 50.0), direction = Vector3(0.0, 0.0, -1.0), filament = 2)) }
+        runSuspend { paint.end() }
+
+        val state = repository.state.value
+        assertNull(state.history.beforeTool)
+        val before = state.history.undo.single().objects.single()
+        assertEquals(CUBE.painted, before.painted)
+        assertEquals(PaintedFacets("painted"), state.objects.single().painted)
+    }
+
+    @Test
+    fun `the painting tool undoes a stroke with its own stack and shows what is left`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        val paint = PaintObjectUseCase(inspector, FakeSceneFiles(), repository)
+
+        runSuspend { paint.begin(CUBE.mesh) }
+        runSuspend { paint.stroke(PaintStroke(Vector3(0.0, 0.0, 50.0), Vector3(0.0, 0.0, -1.0), filament = 2, startsStroke = true)) }
+        assertEquals(true, inspector.stroke?.startsStroke)
+        val undone = runSuspend { paint.undo() }
+
+        assertEquals(1, inspector.undone)
+        assertTrue((undone as PaintingOutcome.Success).surface.canRedo)
+        assertTrue(repository.state.value.objects.single().paintedMeshes.isEmpty())
+    }
+
+    @Test
+    fun `a handy model of two files loads both as one step of Undo, selects both and arranges the plate`() {
+        val repository = FakeRepository(readyState())
+        val inspector = FakeInspector()
+        inspector.load = {
+            val mesh = ScenePath("/scene/objects/handy-${inspector.loads.size}.mesh")
+            ModelLoadOutcome.Success(listOf(LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = mesh))))), emptyList())
+        }
+
+        addModel(repository, ModelImportOutcome.Failure(ModelImportFailureCode.EMPTY_FILE, ""), inspector, FakeSceneFiles()).handy(HandyModel.ORCA_CUBE)
+
+        val state = repository.state.value
+        assertEquals(
+            listOf(ModelPath("/resources/handy_models/OrcaCube_v2.drc"), ModelPath("/resources/handy_models/OrcaPlug_v2.drc")),
+            inspector.loads.map { it.source },
+        )
+        assertEquals(2, state.objects.size)
+        assertEquals(state.objects.allCopies(), state.selectedInstances)
+        // "Import Object" once, then "Arrange".
+        assertEquals(listOf(0, 2), state.history.undo.map { it.objects.size })
+        assertFalse(state.importing)
+        assertEquals(PlateManipulation.ArrangePlate(state.arrangeSettings), inspector.plateManipulation)
+        assertEquals("OrcaCube_v2.drc", (state.objects.first() as PlateObject.ImportedModel).inputName)
+    }
+
+    @Test
+    fun `a handy model with a 3MF file waits for 3MF loading`() {
+        val repository = FakeRepository(readyState())
+        val inspector = FakeInspector()
+
+        addModel(repository, ModelImportOutcome.Failure(ModelImportFailureCode.EMPTY_FILE, ""), inspector, FakeSceneFiles()).handy(HandyModel.ORCASLICED_COMBO)
+
+        assertTrue(inspector.loads.isEmpty())
+        assertFalse(repository.state.value.importing)
+    }
+
+    @Test
+    fun `Orca String Hell suggests the top surface threshold, and Yes sets it to 0`() {
+        val process = PresetSettings(
+            kind = PresetKind.PRINT,
+            preset = "process",
+            label = "process",
+            dirty = false,
+            isDefault = false,
+            isSystem = true,
+            hasParent = true,
+            canDelete = false,
+            mode = SettingsMode.SIMPLE,
+            pages = emptyList(),
+            activePage = "",
+            settings = listOf(
+                SettingState("only_one_wall_top", "only_one_wall_top", "1", modified = false, system = true, enabled = true, visible = true),
+                SettingState("min_width_top_surface", "min_width_top_surface", "300%", modified = false, system = true, enabled = true, visible = true),
+            ),
+            saveName = "process",
+            saveNameCopySuffix = true,
+        )
+        val ready = readyState()
+        val repository = FakeRepository(ready.copy(settingsTabs = ready.settingsTabs + (PresetKind.PRINT to SettingsTabState(PresetKind.PRINT, tab = SettingsTab(PresetKind.PRINT, emptyMap()), settings = process))))
+        val inspector = FakeInspector()
+        val editor = ChangeRecordingEditor()
+        val add = addModel(repository, ModelImportOutcome.Failure(ModelImportFailureCode.EMPTY_FILE, ""), inspector, FakeSceneFiles())
+
+        add.handy(HandyModel.ORCA_STRING_HELL)
+
+        assertEquals(PlateRequest.TopSurfaceSuggestion, repository.state.value.plateQuestion?.request)
+        assertEquals("Suggestion", repository.state.value.plateQuestion?.question?.title?.single()?.msgid)
+
+        val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
+        AnswerPlateQuestionUseCase(repository, add, EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope), tabs)(true)
+
+        assertNull(repository.state.value.plateQuestion)
+        assertEquals(listOf(Triple(PresetKind.PRINT, "min_width_top_surface", "0")), editor.changes)
+    }
+
+    @Test
+    fun `a primitive joins the plate as an object named as the shape, selected, one step of Undo`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+
+        AddPrimitiveUseCase(inspector, FakeSceneFiles(), repository, scope)("Cylinder", "Цилиндр")
+
+        assertEquals(listOf("Cylinder" to "Цилиндр"), inspector.primitives)
+        val state = repository.state.value
+        assertEquals(2, state.objects.size)
+        assertEquals("Цилиндр", (state.objects.last() as PlateObject.ImportedModel).inputName)
+        assertEquals(listOf(state.objects.last()).allCopies(), state.selectedInstances)
+        assertEquals(listOf(listOf(CUBE)), state.history.undo.map { it.objects })
+        assertFalse(state.importing)
     }
 
     @Test
@@ -1104,7 +1651,7 @@ class PlateUseCasesTest {
         val repository = FakeRepository(twoFilaments(cube).copy(selectedPart = ObjectPartId(cube.mesh, 0)))
         val files = FakeSceneFiles()
 
-        RemoveObjectPartUseCase(files, repository)(ObjectPartId(cube.mesh, 1))
+        RemoveObjectPartUseCase(repository)(ObjectPartId(cube.mesh, 1))
 
         val removed = repository.state.value.objects.single()
         assertTrue(removed.parts.isEmpty())
@@ -1113,7 +1660,8 @@ class PlateUseCasesTest {
         assertTrue(removed.volume.settings.values.isEmpty())
         // The row it had is gone with the parts.
         assertNull(repository.state.value.selectedPart)
-        assertEquals(listOf(PART.mesh), files.deleted)
+        // Undo can bring the part back, so its mesh stays.
+        assertTrue(PART.mesh in repository.state.value.referencedMeshes())
     }
 
     @Test
@@ -1121,9 +1669,99 @@ class PlateUseCasesTest {
         val cube = CUBE.copy(parts = listOf(PART))
         val repository = FakeRepository(twoFilaments(cube))
 
-        RemoveObjectPartUseCase(FakeSceneFiles(), repository)(ObjectPartId(cube.mesh, 0))
+        RemoveObjectPartUseCase(repository)(ObjectPartId(cube.mesh, 0))
 
         assertEquals(listOf(PART), repository.state.value.objects.single().parts)
+    }
+
+    @Test
+    fun `more copies are offset from the last one and the last new copy is selected`() {
+        val second = PlateInstance(INSPECTION.copy(placement = moved(INSPECTION.placement, 17.5)))
+        val cube = CUBE.copy(instances = CUBE.instances + second)
+        val repository = FakeRepository(readyState(cube).copy(plate = PLATE))
+        val inspector = FakeInspector()
+        val place = placePlateObject(inspector, repository)
+
+        AddPlateInstanceUseCase(repository, place, SelectPlateObjectUseCase(repository))(cube.mesh, 2)
+
+        val copies = repository.state.value.objects.single().instances
+        assertEquals(4, copies.size)
+        // Plater::increase_instances(): 5% of the 350 mm bed, from the last copy.
+        val lastX = second.inspection.placement.columns[12]
+        assertEquals(listOf(lastX + 17.5, lastX + 35.0), copies.drop(2).map { it.inspection.placement.columns[12] })
+        assertEquals(setOf(PlateInstanceId(cube.mesh, 3)), repository.state.value.selectedInstances)
+    }
+
+    @Test
+    fun `a copy left out of the print keeps the object from getting more`() {
+        val cube = CUBE.copy(instances = listOf(CUBE.instances.single().copy(printable = false)))
+        val repository = FakeRepository(readyState(cube).copy(plate = PLATE))
+
+        AddPlateInstanceUseCase(repository, placePlateObject(FakeInspector(), repository), SelectPlateObjectUseCase(repository))(cube.mesh)
+
+        assertEquals(1, repository.state.value.objects.single().instances.size)
+    }
+
+    @Test
+    fun `removing a copy takes the last one, and the number of copies is set as asked`() {
+        val copies = (0 until 3).map { PlateInstance(INSPECTION.copy(placement = moved(INSPECTION.placement, 20.0 * it))) }
+        val cube = CUBE.copy(instances = copies)
+        val repository = FakeRepository(readyState(cube).copy(plate = PLATE))
+        val files = FakeSceneFiles()
+        val delete = DeletePlateObjectUseCase(repository)
+        val removeLast = RemoveLastPlateInstancesUseCase(repository, delete)
+        val add = AddPlateInstanceUseCase(repository, placePlateObject(FakeInspector(), repository), SelectPlateObjectUseCase(repository))
+        val setNumber = SetNumberOfInstancesUseCase(repository, add, removeLast, delete)
+
+        // Plater::decrease_instances()
+        removeLast(cube.mesh)
+
+        assertEquals(copies.take(2), repository.state.value.objects.single().instances)
+        assertEquals(setOf(PlateInstanceId(cube.mesh, 1)), repository.state.value.selectedInstances)
+
+        setNumber(cube.mesh, 5)
+
+        assertEquals(5, repository.state.value.objects.single().instances.size)
+
+        setNumber(cube.mesh, 1)
+
+        assertEquals(copies.take(1), repository.state.value.objects.single().instances)
+
+        // None takes the object off the plate.
+        setNumber(cube.mesh, 0)
+
+        assertTrue(repository.state.value.objects.isEmpty())
+    }
+
+    @Test
+    fun `an object and its volumes take the names the user enters, but not one a file name cannot hold`() {
+        val file = ImportedModelFile(ModelPath("/scene/objects/a-source.mesh"), "a.step")
+        val imported = PlateObject.ImportedModel(file, listOf(PlateInstance(INSPECTION)), parts = listOf(PART), inputName = "a.step")
+        val repository = FakeRepository(readyState(imported))
+        val rename = RenamePlateItemUseCase(repository)
+
+        rename(imported.mesh, "bracket")
+        rename(imported.mesh, "bad/name")
+        rename(ObjectPartId(imported.mesh, 0), "body")
+        rename(ObjectPartId(imported.mesh, 1), "insert")
+
+        val renamed = repository.state.value.objects.single() as PlateObject.ImportedModel
+        assertEquals("bracket", renamed.file.displayName)
+        // The G-code is still named after the file (input_filename_base).
+        assertEquals("a.step", renamed.inputName)
+        assertEquals("body", renamed.volume.name)
+        assertEquals("insert", renamed.parts.single().name)
+    }
+
+    @Test
+    fun `the object menu manipulates a copy where it stands`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+
+        placePlateObject(inspector, repository)(PlateInstanceId(CUBE.mesh), Manipulation.Mirror(Axis.X))
+
+        assertEquals(Manipulation.Mirror(Axis.X), inspector.manipulation)
+        assertEquals(CUBE.inspection.placement, inspector.placements.single())
     }
 
     @Test
@@ -1418,6 +2056,7 @@ class PlateUseCasesTest {
             inspector = inspector,
             sceneFiles = files,
             repository = repository,
+            placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(inspector), repository, scope),
             applicationScope = scope,
         )
 
@@ -1433,6 +2072,10 @@ class PlateUseCasesTest {
 
     private fun translated(x: Double, y: Double, z: Double) =
         Transform3(INSPECTION.placement.columns.toMutableList().also { it[12] = x; it[13] = y; it[14] = z })
+
+    /** [placement] shifted along X. */
+    private fun moved(placement: Transform3, x: Double) =
+        Transform3(placement.columns.mapIndexed { index, value -> if (index == 12) value + x else value })
 
     private fun readyState(vararg objects: PlateObject) = PlateState(
         presets = PRESETS,
@@ -1481,6 +2124,289 @@ class PlateUseCasesTest {
         )
 
         assertEquals(FlushVolumesChange.PRINTER_CHANGED to -1, updated)
+    }
+
+    @Test
+    fun `export as one STL writes the object into the document picked, then deletes what the engine wrote`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        val files = FakeSceneFiles()
+        val documents = FakeDocuments()
+
+        val exported = runSuspend { ExportObjectMeshUseCase(inspector, files, documents, repository)(CUBE.mesh, MeshFormat.STL, REFERENCE) }
+
+        assertTrue(exported)
+        val written = ScenePath("/scene/objects/import-0-export.stl")
+        assertEquals(listOf(Triple(0, MeshFormat.STL, written)), inspector.exports)
+        assertEquals(listOf(written.value to REFERENCE), documents.copied)
+        assertEquals(files.importPrefixes, files.deletedImports)
+        assertNull(repository.state.value.problem)
+        // Nothing on the plate changes, so there is nothing to undo.
+        assertTrue(repository.state.value.history.undo.isEmpty())
+    }
+
+    @Test
+    fun `an export of the positive parts alone says so, and one that cannot be written fails`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        inspector.export = MeshExportOutcome.Success("negative parts left in")
+
+        runSuspend { ExportObjectMeshUseCase(inspector, FakeSceneFiles(), FakeDocuments(), repository)(CUBE.mesh, MeshFormat.DRC, REFERENCE) }
+
+        assertEquals(PlateProblemKind.EXPORT_WITHOUT_NEGATIVE_VOLUMES, repository.state.value.problem?.kind)
+
+        val failed = runSuspend { ExportObjectMeshUseCase(inspector, FakeSceneFiles(), FakeDocuments(succeeds = false), repository)(CUBE.mesh, MeshFormat.DRC, REFERENCE) }
+
+        assertFalse(failed)
+        assertEquals(PlateProblemKind.EXPORT_FAILED, repository.state.value.problem?.kind)
+    }
+
+    @Test
+    fun `replace 3D file puts the object the engine wrote in place of the old one, selected, as one step of Undo`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        val file = ImportedModelFile(ModelPath("/imports/new.stl"), "new.stl")
+        val replace = ReplaceObjectVolumeUseCase(
+            ImportModelUseCase(object : ModelFileImporter {
+                override suspend fun importModel(reference: ExternalDocumentReference) = ModelImportOutcome.Success(file)
+            }),
+            inspector,
+            FakeSceneFiles(),
+            repository,
+            scope,
+        )
+
+        replace(PlateInstanceId(CUBE.mesh), 0, REFERENCE)
+
+        assertEquals(listOf(FakeInspector.Replacement(0, 0, file.path)), inspector.replacements)
+        val state = repository.state.value
+        assertFalse(state.editing)
+        assertEquals(1, state.objects.size)
+        val replaced = state.objects.single()
+        assertEquals(LOADED.instances.single().inspection.mesh, replaced.mesh)
+        assertEquals(setOf(PlateInstanceId(replaced.mesh)), state.selectedInstances)
+        assertEquals(listOf(listOf(CUBE)), state.history.undo.map { it.objects })
+    }
+
+    @Test
+    fun `copied process settings of an object carry its own, and those of a part carry the object's under them`() {
+        val part = ObjectPart("Cube", VolumeType.MODIFIER, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement, ModelSettings(mapOf("wall_loops" to "5")))
+        val cube = CUBE.withSettings(ModelSettings(mapOf("layer_height" to "0.1", "wall_loops" to "3"))).withParts(listOf(part))
+        val repository = FakeRepository(readyState(cube))
+        val copy = CopyProcessSettingsUseCase(repository)
+
+        copy(SettingsItem.Object(cube.mesh))
+
+        assertEquals(
+            SettingsClipboard(SettingsItemKind.OBJECT, ModelSettings(mapOf("layer_height" to "0.1", "wall_loops" to "3"))),
+            repository.state.value.settingsClipboard,
+        )
+
+        copy(SettingsItem.Volume(ObjectPartId(cube.mesh, 1)))
+
+        assertEquals(
+            SettingsClipboard(SettingsItemKind.VOLUME, ModelSettings(mapOf("layer_height" to "0.1", "wall_loops" to "5"))),
+            repository.state.value.settingsClipboard,
+        )
+    }
+
+    @Test
+    fun `pasted process settings are the engine's, as one step of Undo, and only into an item of the same kind`() {
+        val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val clipboard = SettingsClipboard(SettingsItemKind.OBJECT, ModelSettings(mapOf("wall_loops" to "4")))
+        val repository = FakeRepository(readyState(CUBE, other).copy(settingsClipboard = clipboard))
+        val editor = PastingEditor(ModelSettings(mapOf("wall_loops" to "4", "extruder" to "1")))
+        val paste = PasteProcessSettingsUseCase(editor, repository, settingsTabs(repository), scope)
+
+        paste(SettingsItem.Volume(ObjectPartId(other.mesh, 0)))
+
+        assertTrue(editor.pasted.isEmpty())
+
+        paste(SettingsItem.Object(other.mesh))
+
+        assertEquals(listOf(Triple<ModelSettings, ModelSettings, ModelSettings?>(clipboard.settings, ModelSettings(), null)), editor.pasted)
+        val state = repository.state.value
+        assertEquals(ModelSettings(mapOf("wall_loops" to "4", "extruder" to "1")), state.objects.last().settings)
+        assertEquals(ModelSettings(), state.objects.first().settings)
+        assertEquals(1, state.history.undo.size)
+    }
+
+    @Test
+    fun `a flush option starts from the process preset's value and is the object's own once switched, with the prime tower`() {
+        val tower = WipeTower(filaments = listOf(1, 2), primeTower = true, flushInto = setOf(FlushOption.SUPPORT))
+        val repository = FakeRepository(twoFilaments(CUBE).copy(flushing = tower))
+        val flush = SetFlushOptionUseCase(repository, settingsTabs(repository), scope)
+
+        flush(CUBE.mesh, FlushOption.SUPPORT)
+        flush(CUBE.mesh, FlushOption.INFILL)
+
+        val settings = repository.state.value.objects.single().settings
+        assertEquals(mapOf("flush_into_support" to "0", "flush_into_infill" to "1"), settings.values)
+        assertFalse(repository.state.value.objects.single().flushesInto(FlushOption.SUPPORT, tower.flushInto))
+        // The desktop app changes the object's config without a snapshot.
+        assertTrue(repository.state.value.history.undo.isEmpty())
+
+        val off = FakeRepository(twoFilaments(CUBE).copy(flushing = tower.copy(primeTower = false)))
+        SetFlushOptionUseCase(off, settingsTabs(off), scope)(CUBE.mesh, FlushOption.OBJECTS)
+
+        assertEquals(ModelSettings(), off.state.value.objects.single().settings)
+    }
+
+    @Test
+    fun `the printable check box of an object switches every copy as one step of Undo`() {
+        val copies = CUBE.withInstances(listOf(PlateInstance(INSPECTION), PlateInstance(INSPECTION.copy(placement = translated(60.0, 0.0, 10.0)))))
+        val repository = FakeRepository(readyState(copies))
+
+        SetPlateObjectPrintableUseCase(repository).all(CUBE.mesh, false)
+
+        val state = repository.state.value
+        assertTrue(state.objects.single().instances.none(PlateInstance::printable))
+        assertEquals(1, state.history.undo.size)
+    }
+
+    @Test
+    fun `simplify opens on an object of one volume, and OrcaSlicer refuses an object of several`() {
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement)
+        val parted = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/parted.mesh"))).withParts(listOf(part))
+        val repository = FakeRepository(readyState(CUBE, parted))
+        val open = OpenSimplifyUseCase(repository)
+
+        open.ofObject(PlateInstanceId(parted.mesh), wholeObject = false)
+
+        assertNull(repository.state.value.simplifyTarget)
+        assertEquals("simplify_single_part", repository.state.value.plateNotices.single().id)
+
+        open.ofObject(PlateInstanceId(CUBE.mesh), wholeObject = false)
+
+        assertEquals(ObjectPartId(CUBE.mesh, 0), repository.state.value.simplifyTarget)
+        assertEquals(setOf(PlateInstanceId(CUBE.mesh)), repository.state.value.selectedInstances)
+
+        // A part of the object list's own row.
+        open.close()
+        open.ofVolume(ObjectPartId(parted.mesh, 1))
+
+        assertEquals(ObjectPartId(parted.mesh, 1), repository.state.value.simplifyTarget)
+        assertEquals(ObjectPartId(parted.mesh, 1), repository.state.value.selectedPart)
+
+        open.refuse()
+
+        assertNull(repository.state.value.simplifyTarget)
+        assertEquals("gizmos_open", repository.state.value.plateNotices.last().id)
+    }
+
+    @Test
+    fun `a simplify preview is the engine's mesh in a file of its own, dropped when it fails`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        val files = FakeSceneFiles()
+        val preview = PreviewSimplifyUseCase(inspector, files, repository)
+        val config = SimplifyConfig(useCount = true, decimateRatio = 50f)
+
+        val shown = runSuspend { preview(ObjectPartId(CUBE.mesh, 0), config) }
+
+        assertEquals(SimplifyPreview(ScenePath("/scene/objects/import-0-simplified.mesh"), 6, 12, ScenePath("/scene/objects/import-0")), shown)
+        assertEquals(listOf(FakeInspector.Simplification(0, 0, config, ScenePath("/scene/objects/import-0-simplified.mesh"))), inspector.simplifications)
+        assertTrue(files.deletedImports.isEmpty())
+
+        inspector.simplified = SimplifyOutcome.Failure("no")
+        assertNull(runSuspend { preview(ObjectPartId(CUBE.mesh, 0), config) })
+        assertEquals(listOf(ScenePath("/scene/objects/import-1")), files.deletedImports)
+
+        preview.discard(checkNotNull(shown))
+        assertEquals(ScenePath("/scene/objects/import-0"), files.deletedImports.last())
+    }
+
+    @Test
+    fun `applied simplification replaces the object as one step of Undo, keeps it selected and closes the gizmo`() {
+        val repository = FakeRepository(readyState(CUBE).copy(simplifyTarget = ObjectPartId(CUBE.mesh, 0), selectedInstances = setOf(PlateInstanceId(CUBE.mesh))))
+        val inspector = FakeInspector()
+        val config = SimplifyConfig(maxError = 0.1f)
+
+        ApplySimplifyUseCase(inspector, FakeSceneFiles(), repository, scope)(ObjectPartId(CUBE.mesh, 0), config)
+
+        assertEquals(config, inspector.appliedSimplifications.single().config)
+        val state = repository.state.value
+        assertFalse(state.editing)
+        assertNull(state.simplifyTarget)
+        val simplified = state.objects.single()
+        assertEquals(setOf(PlateInstanceId(simplified.mesh)), state.selectedInstances)
+        assertEquals(listOf(listOf(CUBE)), state.history.undo.map { it.objects })
+    }
+
+    @Test
+    fun `a volume changes type as one step of Undo, and the list selects it where the sorting put it`() {
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement)
+        val parted = CUBE.withParts(listOf(part))
+        val repository = FakeRepository(readyState(parted))
+        val inspector = FakeInspector()
+
+        ChangeVolumeTypeUseCase(inspector, FakeSceneFiles(), repository, scope)(ObjectPartId(parted.mesh, 1), VolumeType.MODIFIER)
+
+        assertEquals(listOf(Triple(0, 1, VolumeType.MODIFIER)), inspector.typeChanges)
+        val state = repository.state.value
+        val changed = state.objects.single()
+        assertEquals(ObjectPartId(changed.mesh, 2), state.selectedPart)
+        assertEquals(1, state.history.undo.size)
+
+        // A volume already of that type is left alone.
+        ChangeVolumeTypeUseCase(inspector, FakeSceneFiles(), repository, scope)(ObjectPartId(changed.mesh, 0), VolumeType.PART)
+        assertEquals(1, inspector.typeChanges.size)
+    }
+
+    @Test
+    fun `replace all takes the files of the same names from the folder, a step of Undo each, and says what it did`() {
+        val wheel = ObjectPart("", VolumeType.PART, ScenePath("/scene/objects/wheel.mesh"), INSPECTION.placement, name = "wheel", inputFile = "/imports/wheel.stl")
+        val body = CUBE.withVolume(ObjectVolume(name = "body", inputFile = "/imports/body.stl")).withParts(listOf(wheel))
+        val repository = FakeRepository(readyState(body))
+        val inspector = FakeInspector()
+        val folders = object : DocumentFolders {
+            override suspend fun find(folder: ExternalDocumentReference, name: String) =
+                ExternalDocumentReference("content://models/$name").takeIf { name == "wheel.stl" }
+
+            override suspend fun displayName(folder: ExternalDocumentReference) = "Models"
+        }
+        val file = ImportedModelFile(ModelPath("/imports/wheel.stl"), "wheel.stl")
+        val importModel = ImportModelUseCase(object : ModelFileImporter {
+            override suspend fun importModel(reference: ExternalDocumentReference) = ModelImportOutcome.Success(file)
+        })
+
+        ReplaceAllVolumesUseCase(importModel, folders, inspector, FakeSceneFiles(), repository, scope)(
+            PlateInstanceId(body.mesh),
+            ExternalDocumentReference("content://models"),
+        )
+
+        assertEquals(listOf(FakeInspector.Replacement(0, 1, file.path)), inspector.replacements)
+        val state = repository.state.value
+        assertFalse(state.editing)
+        assertEquals(1, state.history.undo.size)
+        val notice = state.plateNotices.single()
+        assertEquals("replaced_volumes", notice.id)
+        assertEquals(
+            listOf("Replaced with 3D files from directory:\n", "%s", "✖ Skipped %1%: file does not exist.\n", "✔ Replaced %1%.\n"),
+            notice.text.map { it.msgid },
+        )
+        assertEquals(listOf("body"), notice.text[2].args)
+        assertEquals(listOf("wheel"), notice.text[3].args)
+    }
+
+    /** The document picked for an export, which records what was copied into it. */
+    private class FakeDocuments(private val succeeds: Boolean = true) : DocumentExport {
+        val copied = mutableListOf<Pair<String, ExternalDocumentReference>>()
+
+        override suspend fun copyTo(path: String, document: ExternalDocumentReference): Boolean {
+            copied += path to document
+            return succeeds
+        }
+    }
+
+    /** The engine's settings editor, which answers a paste with [result]. */
+    private class PastingEditor(private val result: ModelSettings) : PresetSettingsEditor by NoSettingsEditor {
+        val pasted = mutableListOf<Triple<ModelSettings, ModelSettings, ModelSettings?>>()
+
+        override suspend fun pasteModelSettings(clipboard: ModelSettings, target: ModelSettings, parent: ModelSettings?): ModelSettingsOutcome {
+            pasted += Triple(clipboard, target, parent)
+            return ModelSettingsOutcome.Success(result)
+        }
     }
 
     /** The flushing volumes stay as they are. */
@@ -1537,6 +2463,16 @@ class PlateUseCasesTest {
 
         override suspend fun endPainting(): PaintingOutcome =
             PaintingOutcome.Success(PaintedSurface(facets = PaintedFacets("painted")))
+
+        /** The tool's own Undo, which takes every painted triangle off. */
+        var undone = 0
+
+        override suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome {
+            undone++
+            return PaintingOutcome.Success(PaintedSurface(canRedo = true))
+        }
+
+        override suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(painted(meshPrefix))
 
         private fun painted(meshPrefix: ScenePath) = PaintedSurface(
             hit = true,
@@ -1618,6 +2554,164 @@ class PlateUseCasesTest {
             this.profiles = profiles
             this.plate = plate
             return load(answers)
+        }
+
+        /** A request to edit an object of the plate. */
+        data class Edit(val index: Int, val edit: ObjectEdit, val volume: Int?, val answers: Map<String, Boolean>)
+
+        val edits = mutableListOf<Edit>()
+
+        /** What an edit answers, for the answers it was given; by default the object as LOADED. */
+        var editOutcome: (Map<String, Boolean>) -> ModelLoadOutcome = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
+
+        override suspend fun edit(
+            plate: List<PlacedModel>,
+            index: Int,
+            edit: ObjectEdit,
+            volume: Int?,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+            answers: Map<String, Boolean>,
+        ): ModelLoadOutcome {
+            edits += Edit(index, edit, volume, answers)
+            this.plate = plate
+            return editOutcome(answers)
+        }
+
+        data class Copy(val sources: List<PlacedModel>, val count: Int, val placement: CopyPlacement)
+
+        val copies = mutableListOf<Copy>()
+
+        /** A new object per source and round, named after its place in the answer. */
+        var copyOutcome: (List<PlacedModel>, Int) -> ModelLoadOutcome = { sources, count ->
+            ModelLoadOutcome.Success(
+                List(sources.size * count) { LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/copy-$it.mesh"))))) },
+                emptyList(),
+            )
+        }
+
+        override suspend fun copy(
+            plate: List<PlacedModel>,
+            sources: List<PlacedModel>,
+            count: Int,
+            placement: CopyPlacement,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            copies += Copy(sources, count, placement)
+            this.plate = plate
+            return copyOutcome(sources, count)
+        }
+
+        val primitives = mutableListOf<Pair<String, String>>()
+
+        override suspend fun addPrimitive(
+            plate: List<PlacedModel>,
+            shape: String,
+            name: String,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            primitives += shape to name
+            return ModelLoadOutcome.Success(listOf(LOADED.copy(name = name)), emptyList())
+        }
+
+        override suspend fun handyModel(file: String): ModelPath = ModelPath("/resources/handy_models/$file")
+
+        val exports = mutableListOf<Triple<Int, MeshFormat, ScenePath>>()
+        var export: MeshExportOutcome = MeshExportOutcome.Success(null)
+
+        override suspend fun exportMesh(
+            plate: List<PlacedModel>,
+            index: Int,
+            format: MeshFormat,
+            profiles: SlicingProfileSelection,
+            path: ScenePath,
+        ): MeshExportOutcome {
+            exports += Triple(index, format, path)
+            return export
+        }
+
+        data class Simplification(val index: Int, val volume: Int, val config: SimplifyConfig, val path: ScenePath)
+
+        val simplifications = mutableListOf<Simplification>()
+        var simplified: SimplifyOutcome = SimplifyOutcome.Success(6, 12)
+
+        override suspend fun simplifyVolume(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            config: SimplifyConfig,
+            profiles: SlicingProfileSelection,
+            path: ScenePath,
+        ): SimplifyOutcome {
+            simplifications += Simplification(index, volume, config, path)
+            return simplified
+        }
+
+        val appliedSimplifications = mutableListOf<Simplification>()
+
+        val typeChanges = mutableListOf<Triple<Int, Int, VolumeType>>()
+        var typeChange: ModelLoadOutcome = ModelLoadOutcome.Success(listOf(LOADED), emptyList(), selectedVolume = 2)
+
+        override suspend fun setVolumeType(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            type: VolumeType,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            typeChanges += Triple(index, volume, type)
+            return typeChange
+        }
+
+        override suspend fun applySimplify(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            config: SimplifyConfig,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            appliedSimplifications += Simplification(index, volume, config, prefix)
+            return replacement
+        }
+
+        data class Replacement(val index: Int, val volume: Int, val source: ModelPath)
+
+        val replacements = mutableListOf<Replacement>()
+        var replacement: ModelLoadOutcome = ModelLoadOutcome.Success(listOf(LOADED), emptyList())
+
+        override suspend fun replaceVolume(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            source: ModelPath,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            replacements += Replacement(index, volume, source)
+            return replacement
+        }
+
+        data class Paste(val index: Int, val instance: Int, val source: PlacedModel, val volumes: List<Int>, val sameInputFile: Boolean)
+
+        var pasted: Paste? = null
+
+        override suspend fun pasteVolumes(
+            plate: List<PlacedModel>,
+            index: Int,
+            instance: Int,
+            source: PlacedModel,
+            volumes: List<Int>,
+            sameInputFile: Boolean,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            pasted = Paste(index, instance, source, volumes, sameInputFile)
+            this.plate = plate
+            return ModelLoadOutcome.Success(listOf(LOADED), emptyList(), selectedVolume = 1)
         }
 
         override suspend fun place(
@@ -1744,6 +2838,23 @@ class PlateUseCasesTest {
         }
     }
 
+    /** The engine's settings editor, which records the settings changed. */
+    private class ChangeRecordingEditor : PresetSettingsEditor by NoSettingsEditor {
+        val changes = mutableListOf<Triple<PresetKind, String, String>>()
+
+        override suspend fun changeSetting(
+            kind: PresetKind,
+            page: String,
+            id: String,
+            text: String,
+            answers: Map<String, Boolean>,
+            model: ModelSettingsRequest,
+        ): PresetSettingsOutcome {
+            changes += Triple(kind, id, text)
+            return PresetSettingsOutcome.Failure("recorded")
+        }
+    }
+
     /** The engine's settings editor, which records what the transfers asked of it. */
     private class RecordingSettingsEditor(
         private val imported: ConfigTransferOutcome = ConfigTransferOutcome.Failure("no import"),
@@ -1812,6 +2923,9 @@ class PlateUseCasesTest {
             answers: Map<String, Boolean>,
             model: ModelSettingsRequest,
         ) = PresetSettingsOutcome.Failure("not used")
+
+        override suspend fun pasteModelSettings(clipboard: ModelSettings, target: ModelSettings, parent: ModelSettings?): ModelSettingsOutcome =
+            ModelSettingsOutcome.Failure("not used")
 
         override suspend fun setSettingOverride(kind: PresetKind, page: String, id: String, enabled: Boolean, answers: Map<String, Boolean>) =
             PresetSettingsOutcome.Failure("not used")
@@ -2028,7 +3142,7 @@ class PlateUseCasesTest {
             ),
             settings = ModelSettings(),
             volume = ObjectVolume("a body", ModelSettings(mapOf("extruder" to "2"))),
-            instances = listOf(INSPECTION.copy(mesh = ScenePath("/scene/objects/import-0-0.mesh"))),
+            instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/import-0-0.mesh")))),
         )
         val NOTICE = SettingsDialog("zero_volume", DialogIcon.INFO, emptyList(), listOf(OrcaText("Objects with zero volume removed")), false, null, null)
         val QUESTION = SettingsDialog("multipart_object", DialogIcon.WARNING, emptyList(), listOf(OrcaText("several objects")), true, null, null)

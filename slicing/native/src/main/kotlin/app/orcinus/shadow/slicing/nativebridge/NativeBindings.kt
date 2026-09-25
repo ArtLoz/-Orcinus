@@ -57,6 +57,10 @@ internal class NativeWipeTower(
     @JvmField val brimWidth: Double,
     /** The filaments printed on the plate, 1-based. */
     @JvmField val filaments: DoubleArray,
+    @JvmField val primeTower: Boolean,
+    @JvmField val flushIntoInfill: Boolean,
+    @JvmField val flushIntoObjects: Boolean,
+    @JvmField val flushIntoSupport: Boolean,
 )
 
 /** Constructed by the native bridge; see FlushVolumes in orca_engine_adapter.hpp. */
@@ -83,6 +87,9 @@ internal class NativePainting(
     /** The mesh of the triangles painted with each of them. */
     @JvmField val meshes: Array<String>,
     @JvmField val facets: String,
+    /** Whether the tool can undo or redo a stroke. */
+    @JvmField val canUndo: Boolean,
+    @JvmField val canRedo: Boolean,
 )
 
 /** Constructed by the native bridge; see ModelInspection in orca_engine_adapter.hpp. */
@@ -90,6 +97,7 @@ internal class NativeModelInspection(
     @JvmField val status: Long,
     @JvmField val message: String,
     @JvmField val facetCount: Long,
+    @JvmField val openEdges: Long,
     @JvmField val sizeX: Double,
     @JvmField val sizeY: Double,
     @JvmField val sizeZ: Double,
@@ -572,6 +580,17 @@ internal class NativePlate(
     /** The settings of every object's own mesh (its first ModelVolume). */
     @JvmField val volumeSettingKeys: Array<Array<String>>,
     @JvmField val volumeSettingValues: Array<Array<String>>,
+    /** The units every object's own mesh and every part were converted from (ModelVolume::source). */
+    @JvmField val volumeFromInches: BooleanArray,
+    @JvmField val volumeFromMeters: BooleanArray,
+    @JvmField val partFromInches: BooleanArray,
+    @JvmField val partFromMeters: BooleanArray,
+    /** ModelObject::name of every object and the name of its own mesh; empty keeps the file's. */
+    @JvmField val names: Array<String>,
+    @JvmField val volumeNames: Array<String>,
+    /** The files every object's own mesh and every part were read from (ModelVolume::source.input_file). */
+    @JvmField val volumeInputFiles: Array<String>,
+    @JvmField val partInputFiles: Array<String>,
 )
 
 /** Constructed by the native bridge; see ImportedObject in orca_engine_adapter.hpp. */
@@ -595,6 +614,25 @@ internal class NativeImportedObject(
     @JvmField val settingValues: Array<String>,
     @JvmField val partSettingKeys: Array<Array<String>>,
     @JvmField val partSettingValues: Array<Array<String>>,
+    /** The painted facets of its own mesh, whether it can be split, and its units. */
+    @JvmField val painted: String,
+    @JvmField val volumeSplittable: Boolean,
+    @JvmField val volumeFromInches: Boolean,
+    @JvmField val volumeFromMeters: Boolean,
+    @JvmField val partPainted: Array<String>,
+    @JvmField val partSplittable: BooleanArray,
+    @JvmField val partFromInches: BooleanArray,
+    @JvmField val partFromMeters: BooleanArray,
+    /** Its height ranges: bottom and top of each, then their settings. */
+    @JvmField val rangeHeights: DoubleArray,
+    @JvmField val rangeSettingKeys: Array<Array<String>>,
+    @JvmField val rangeSettingValues: Array<Array<String>>,
+    /** ModelInstance::auto_drop and printable of every copy. */
+    @JvmField val autoDrops: BooleanArray,
+    @JvmField val printables: BooleanArray,
+    /** ModelVolume::source.input_file of its own mesh and of every part. */
+    @JvmField val volumeInputFile: String,
+    @JvmField val partInputFiles: Array<String>,
 )
 
 /** Constructed by the native bridge; see ImportedModels in orca_engine_adapter.hpp. */
@@ -605,6 +643,9 @@ internal class NativeImportedModels(
     @JvmField val hasQuestion: Boolean,
     @JvmField val question: NativeSettingsDialog,
     @JvmField val objects: Array<NativeImportedObject>,
+    @JvmField val appended: Boolean,
+    /** The volume of the edited object the object list selects; -1 for none. */
+    @JvmField val selectedVolume: Int,
 )
 
 /** SceneStatus in orca_engine_adapter.hpp. */
@@ -737,8 +778,14 @@ internal object NativeBindings {
         radius: Double,
         tool: Long,
         angle: Double,
+        starts: Boolean,
         meshPrefix: String,
     ): NativePainting
+
+    /** The painting tool's own Undo and Redo of a stroke. */
+    external fun undoPainting(meshPrefix: String): NativePainting
+
+    external fun redoPainting(meshPrefix: String): NativePainting
 
     external fun endPainting(): NativePainting
 
@@ -779,6 +826,164 @@ internal object NativeBindings {
     ): NativeImportedModels
 
     /**
+     * export_object_mesh(): the object at [objectIndex] of [plate] written to
+     * [path] in [format] (MeshFormat in orca_engine_adapter.hpp); answers the
+     * status, the message and the warning.
+     */
+    external fun exportObjectMesh(
+        plate: NativePlate,
+        objectIndex: Int,
+        format: Long,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        path: String,
+    ): Array<String>
+
+    /**
+     * paste_model_settings(): the settings of an item once [clipboardKeys] are
+     * pasted into them; answers the status, the message, then every key with
+     * its value.
+     */
+    external fun pasteModelSettings(
+        clipboardKeys: Array<String>,
+        clipboardValues: Array<String>,
+        targetKeys: Array<String>,
+        targetValues: Array<String>,
+        part: Boolean,
+        objectKeys: Array<String>,
+        objectValues: Array<String>,
+    ): Array<String>
+
+    /**
+     * simplify_volume(): answers the status, the message, the triangles of the
+     * decimated mesh and those of the volume.
+     */
+    external fun simplifyVolume(
+        plate: NativePlate,
+        objectIndex: Int,
+        volume: Int,
+        useCount: Boolean,
+        wantedCount: Int,
+        decimateRatio: Float,
+        maxError: Float,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        path: String,
+    ): Array<String>
+
+    /** set_volume_type(): the volume at [volume] takes the type [type] (VolumeType in orca_engine_adapter.hpp). */
+    external fun setVolumeType(
+        plate: NativePlate,
+        objectIndex: Int,
+        volume: Int,
+        type: Long,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** apply_simplify(): the volume takes its decimated mesh. */
+    external fun applySimplify(
+        plate: NativePlate,
+        objectIndex: Int,
+        volume: Int,
+        useCount: Boolean,
+        wantedCount: Int,
+        decimateRatio: Float,
+        maxError: Float,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** replace_volume(): the volume at [volume] of the object at [objectIndex] takes the mesh of [sourcePath]. */
+    external fun replaceVolume(
+        plate: NativePlate,
+        objectIndex: Int,
+        volume: Int,
+        sourcePath: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** add_primitive(): a shape of create_mesh() joins [plate] as an object named [name]. */
+    external fun addPrimitive(
+        plate: NativePlate,
+        shape: String,
+        name: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /**
+     * paste_volumes(): the [volumes] of [source], a plate of the one object the
+     * clipboard copied them from, join the object at [objectIndex] of [plate]
+     * over its copy [instance].
+     */
+    external fun pasteVolumes(
+        plate: NativePlate,
+        objectIndex: Int,
+        instance: Int,
+        source: NativePlate,
+        volumes: IntArray,
+        sameInputFile: Boolean,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /**
+     * copy_objects(): new objects copied from [sources] onto [plate], [count]
+     * rounds of them, placed as [placement] (CopyPlacement in orca_engine_adapter.hpp) says.
+     */
+    external fun copyObjects(
+        plate: NativePlate,
+        sources: NativePlate,
+        count: Int,
+        placement: Long,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /**
+     * edit_object(): [edit] (ObjectEdit in orca_engine_adapter.hpp) of the
+     * object at [objectIndex] of [plate], or of its volume at [volume] (-1 for
+     * the whole object).
+     */
+    external fun editObject(
+        plate: NativePlate,
+        objectIndex: Int,
+        edit: Long,
+        volume: Int,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+        answerIds: Array<String>,
+        answers: BooleanArray,
+    ): NativeImportedModels
+
+    /**
      * Commits [manipulation] (Manipulation in orca_engine_adapter.hpp) of the
      * object, a plate of one, from [previousPlacement] to [placement], column-major 4 x 4.
      */
@@ -798,7 +1003,8 @@ internal object NativeBindings {
     /**
      * Commits [manipulation] (PlateManipulation in orca_engine_adapter.hpp) of
      * the objects of the plate, given as for [slice], with a [selected] flag per
-     * object for auto orient.
+     * object for auto orient and fill bed, and the object's [selectedInstance]
+     * for fill bed (-1 for the whole object).
      */
     external fun placeObjects(
         plate: NativePlate,
@@ -812,6 +1018,7 @@ internal object NativeBindings {
         arrangeEnableRotation: Boolean,
         arrangeAllowMultiMaterials: Boolean,
         arrangeAlignToYAxis: Boolean,
+        selectedInstance: Int,
     ): NativePlateInspection
 
     /** ObjectList::load_generic_subobject(): a shape added to the object as a part. */

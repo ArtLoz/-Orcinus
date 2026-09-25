@@ -32,7 +32,8 @@ import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.OutputPath
-import app.orcinus.shadow.core.model.PendingImport
+import app.orcinus.shadow.core.model.PendingPlateQuestion
+import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.PendingPresetChange
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
@@ -51,6 +52,10 @@ import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.ImportBatch
+import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.core.model.DialogIcon
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetTransfer
 import app.orcinus.shadow.core.model.PresetsOutcome
@@ -81,6 +86,8 @@ import app.orcinus.shadow.core.model.withLayerRangeAt
 import app.orcinus.shadow.core.model.withLayerRanges
 import app.orcinus.shadow.core.model.withPart
 import app.orcinus.shadow.core.model.volumeAt
+import app.orcinus.shadow.core.model.withName
+import app.orcinus.shadow.core.model.withPartAt
 import app.orcinus.shadow.core.model.withVolume
 import app.orcinus.shadow.core.model.withVolumeAt
 import app.orcinus.shadow.core.model.withParts
@@ -542,40 +549,65 @@ class AddModelToPlateUseCase(
     private val inspector: PlateInspector,
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
+    private val placePlateObjects: PlacePlateObjectsUseCase,
     private val applicationScope: CoroutineScope,
 ) {
     operator fun invoke(reference: ExternalDocumentReference) {
+        if (!start()) return
+        applicationScope.launch {
+            when (val imported = importModel(reference)) {
+                is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
+                is ModelImportOutcome.Success -> load(imported.model.path, ImportBatch(), emptyMap(), emptyList())
+            }
+        }
+    }
+
+    /**
+     * MenuFactory::append_submenu_add_handy_model(): the files of [model] load
+     * one after another as Plater::load_files() loads several, the plate is
+     * then arranged for the models that ask for it (ArrangeJob from the menu),
+     * and Orca String Hell ends with OrcaSlicer's suggestion.
+     */
+    fun handy(model: HandyModel) {
+        if (!model.available || !start()) return
+        applicationScope.launch {
+            val files = model.files.map { inspector.handyModel(it) }
+            val first = files.firstOrNull()
+            if (first == null || files.any { it == null }) {
+                return@launch finish(ModelLoadOutcome.Failure("${model.label} is not among OrcaSlicer's handy models"))
+            }
+            val batch = ImportBatch(
+                rest = files.drop(1).filterNotNull(),
+                arrange = model.arrangeAfterImport,
+                suggestTopSurface = model.suggestsTopSurface,
+            )
+            load(first, batch, emptyMap(), emptyList())
+        }
+    }
+
+    /** The plate starts loading unless it is busy or has no presets yet. */
+    private fun start(): Boolean {
         var started = false
         repository.update { state ->
             started = !state.busy && state.profiles != null
             if (started) state.copy(importing = true, problem = null) else state
         }
-        if (!started) return
-        applicationScope.launch {
-            when (val imported = importModel(reference)) {
-                is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
-                is ModelImportOutcome.Success -> load(imported.model.path, emptyMap(), emptyList())
-            }
-        }
+        return started
     }
 
     /** The answer to the question the load asked: the file loads again with every answer so far. */
     fun answer(yes: Boolean) {
-        var pending: PendingImport? = null
+        var pending: PendingPlateQuestion? = null
         repository.update { state ->
-            pending = state.importQuestion
-            if (pending == null) state else state.copy(importQuestion = null)
+            pending = state.plateQuestion?.takeIf { it.request is PlateRequest.Import }
+            if (pending == null) state else state.copy(plateQuestion = null)
         }
         val question = pending ?: return
-        applicationScope.launch { load(question.source, question.answers + (question.question.id to yes), question.shown) }
+        val request = question.request as PlateRequest.Import
+        applicationScope.launch { load(request.source, request.batch, question.answers + (question.question.id to yes), question.shown) }
     }
 
-    /** The first message box of the load was dismissed. */
-    fun dismissNotice() = repository.update { state ->
-        if (state.importNotices.isEmpty()) state else state.copy(importNotices = state.importNotices.drop(1))
-    }
-
-    private suspend fun load(source: ModelPath, answers: Map<String, Boolean>, shown: List<SettingsDialog>) {
+    private suspend fun load(source: ModelPath, batch: ImportBatch, answers: Map<String, Boolean>, shown: List<SettingsDialog>) {
         val state = repository.state.value
         val profiles = state.profiles ?: return finish(ModelLoadOutcome.Failure("No printer is set up"))
         val prefix = sceneFiles.newImportPrefix()
@@ -588,42 +620,161 @@ class AddModelToPlateUseCase(
             ModelLoadOutcome.Failure(error.message.orEmpty())
         }
         if (outcome !is ModelLoadOutcome.Success) sceneFiles.deleteImport(prefix)
-        finish(outcome, source, answers, shown)
+        finish(outcome, source, batch, answers, shown)
     }
 
-    /** The load asks again what it asked before, and shows its message boxes again: each shows once. */
+    /**
+     * The load asks again what it asked before, and shows its message boxes
+     * again: each shows once. A file of a batch that loaded goes on with the
+     * next one, and the last one ends the batch.
+     */
     private fun finish(
         outcome: ModelLoadOutcome,
         source: ModelPath? = null,
+        batch: ImportBatch = ImportBatch(),
         answers: Map<String, Boolean> = emptyMap(),
         shown: List<SettingsDialog> = emptyList(),
-    ) = repository.update { state ->
-        val notices = outcome.notices.filterNot { it in shown }
-        val informed = state.copy(importNotices = state.importNotices + notices)
-        when (outcome) {
-            is ModelLoadOutcome.Success -> informed.copy(
-                importing = false,
-                objects = state.objects + outcome.objects.map { it.toPlateObject() },
-                result = null,
-            )
-            is ModelLoadOutcome.Question -> informed.copy(
-                importQuestion = PendingImport(checkNotNull(source), outcome.question, answers, shown + notices),
-            )
-            is ModelLoadOutcome.Failure -> informed.copy(
-                importing = false,
-                problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, outcome.message),
-            )
+    ) {
+        var next: ImportBatch? = null
+        var done = false
+        repository.update { state ->
+            next = null
+            done = false
+            val notices = outcome.notices.filterNot { it in shown }
+            val informed = state.copy(plateNotices = state.plateNotices + notices)
+            when (outcome) {
+                is ModelLoadOutcome.Success -> {
+                    // ModelObject::input_file: the document the objects came from.
+                    val added = outcome.objects.map { it.toPlateObject(source?.value.orEmpty().substringAfterLast('/')) }
+                    // load_files() selects every object it added.
+                    val loaded = batch.loaded + added.allCopies()
+                    if (batch.rest.isNotEmpty()) next = batch.copy(rest = batch.rest.drop(1), loaded = loaded) else done = true
+                    // load_files(): "Import Object", once for all its files.
+                    (if (added.isEmpty() || batch.loaded.isNotEmpty()) informed else informed.recorded()).copy(
+                        importing = batch.rest.isNotEmpty(),
+                        objects = state.objects + added,
+                        selectedInstances = loaded,
+                        selectedPart = null,
+                        selectedRange = null,
+                        result = if (added.isEmpty()) state.result else null,
+                    )
+                }
+                is ModelLoadOutcome.Question -> informed.copy(
+                    plateQuestion = PendingPlateQuestion(
+                        PlateRequest.Import(checkNotNull(source), batch),
+                        outcome.question,
+                        answers,
+                        shown + notices,
+                    ),
+                )
+                is ModelLoadOutcome.Failure -> informed.copy(
+                    importing = false,
+                    problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, outcome.message),
+                )
+            }
+        }
+        val following = next
+        if (following != null) {
+            applicationScope.launch { load(batch.rest.first(), following, emptyMap(), emptyList()) }
+        } else if (done) {
+            val state = repository.state.value
+            if (batch.arrange && state.objects.isNotEmpty()) placePlateObjects(PlateManipulation.ArrangePlate(state.arrangeSettings))
+            if (batch.suggestTopSurface) suggestTopSurface()
         }
     }
 
-    private fun LoadedObject.toPlateObject() = PlateObject.ImportedModel(
-        file = ImportedModelFile(source, name),
-        instances = instances.map { PlateInstance(it) },
-        settings = settings,
-        parts = parts,
-        frame = frame,
-        volume = volume,
-    )
+    /**
+     * The handy model Orca String Hell has text embossed on its top: with
+     * "Only one wall on top surfaces" on and a "One Wall Threshold" above 0,
+     * OrcaSlicer suggests setting the threshold to 0.
+     */
+    private fun suggestTopSurface() = repository.update { state ->
+        val values = state.settingsTabs[PresetKind.PRINT]?.settings?.settings.orEmpty().associate { it.key to it.value }
+        val oneWallTop = values[ONLY_ONE_WALL_TOP] == "1"
+        val threshold = values[MIN_WIDTH_TOP_SURFACE]?.removeSuffix("%")?.toDoubleOrNull() ?: 0.0
+        if (!oneWallTop || threshold <= 0.0 || state.plateQuestion != null) return@update state
+        state.copy(plateQuestion = PendingPlateQuestion(PlateRequest.TopSurfaceSuggestion, TOP_SURFACE_SUGGESTION, emptyMap(), emptyList()))
+    }
+
+    companion object {
+        const val ONLY_ONE_WALL_TOP = "only_one_wall_top"
+        const val MIN_WIDTH_TOP_SURFACE = "min_width_top_surface"
+
+        /** OrcaSlicer's MessageDialog after loading Orca String Hell. */
+        val TOP_SURFACE_SUGGESTION = SettingsDialog(
+            id = "top_surface_suggestion",
+            icon = DialogIcon.WARNING,
+            title = listOf(OrcaText("Suggestion")),
+            text = listOf(
+                OrcaText(
+                    "This model features text embossment on the top surface. For optimal results, it is " +
+                        "advisable to set the 'One Wall Threshold (min_width_top_surface)' " +
+                        "to 0 for the 'Only One Wall on Top Surfaces' to work best.\n" +
+                        "Yes - Change these settings automatically\n" +
+                        "No  - Do not change these settings for me",
+                ),
+            ),
+            question = true,
+            yes = null,
+            no = null,
+        )
+    }
+}
+
+/**
+ * MenuFactory's "Add Primitive" over empty space (ObjectList::load_shape_object):
+ * a shape of create_mesh() joins the plate as an object named [name], in the
+ * empty cell nearest to its centre, and is selected ("Add Primitive").
+ */
+class AddPrimitiveUseCase(
+    private val inspector: PlateInspector,
+    private val sceneFiles: SceneFiles,
+    private val repository: PlateRepository,
+    private val applicationScope: CoroutineScope,
+) {
+    operator fun invoke(shape: String, name: String) {
+        var request: Pair<List<PlateObject>, SlicingProfileSelection>? = null
+        repository.update { state ->
+            request = null
+            val profiles = state.profiles
+            if (state.busy || profiles == null || state.objects.any(PlateObject::placing)) return@update state
+            request = state.objects to profiles
+            state.copy(importing = true, problem = null)
+        }
+        val (plate, profiles) = request ?: return
+        applicationScope.launch {
+            val prefix = sceneFiles.newImportPrefix()
+            val outcome = try {
+                inspector.addPrimitive(plate.map { it.placed() }, shape, name, profiles, prefix)
+            } catch (cancellation: CancellationException) {
+                sceneFiles.deleteImport(prefix)
+                repository.update { it.copy(importing = false) }
+                throw cancellation
+            } catch (error: Exception) {
+                ModelLoadOutcome.Failure(error.message.orEmpty())
+            }
+            // An object of no file names its G-code after itself.
+            val added = (outcome as? ModelLoadOutcome.Success)?.objects.orEmpty().map { it.toPlateObject(name) }
+            if (added.isEmpty()) sceneFiles.deleteImport(prefix)
+            repository.update { state ->
+                when {
+                    added.isNotEmpty() -> state.recorded().copy(
+                        importing = false,
+                        objects = state.objects + added,
+                        // paste_objects_into_list() selects it.
+                        selectedInstances = added.allCopies(),
+                        selectedPart = null,
+                        selectedRange = null,
+                        result = null,
+                    )
+                    else -> state.copy(
+                        importing = false,
+                        problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, (outcome as? ModelLoadOutcome.Failure)?.message),
+                    )
+                }
+            }
+        }
+    }
 }
 
 /** Adds OrcaSlicer's 20 mm calibration cube to the plate. */
@@ -682,7 +833,17 @@ private class PlateObjectLoader(
 
             repository.update { state ->
                 loaded.fold(
-                    onSuccess = { state.copy(importing = false, objects = state.objects + it, result = null) },
+                    onSuccess = {
+                        state.recorded().copy(
+                            importing = false,
+                            objects = state.objects + it,
+                            // load_model_objects() selects the object it added.
+                            selectedInstances = listOf(it).allCopies(),
+                            selectedPart = null,
+                            selectedRange = null,
+                            result = null,
+                        )
+                    },
                     onFailure = { state.copy(importing = false, problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, it.message)) },
                 )
             }
@@ -711,7 +872,12 @@ class PlacePlateObjectUseCase(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
-    operator fun invoke(id: PlateInstanceId, placement: Transform3, manipulation: Manipulation = Manipulation.Move) {
+    /**
+     * [record] takes a snapshot before the change, as the canvas does before it
+     * commits a manipulation; an action that places copies it has already
+     * recorded leaves it out.
+     */
+    operator fun invoke(id: PlateInstanceId, placement: Transform3, manipulation: Manipulation = Manipulation.Move, record: Boolean = true) {
         var request: Triple<PlateObject, Transform3, SlicingProfileSelection>? = null
         repository.update { state ->
             request = null
@@ -725,7 +891,8 @@ class PlacePlateObjectUseCase(
             val moved = target.with(id.instance, copy.inspection.copy(placement = placement), placing = true)
             request = Triple(moved, copy.inspection.placement, profiles)
             // G-code no longer applies once the copy stands elsewhere.
-            state.copy(objects = state.objects.replaced(moved), result = state.result.takeIf { placement == copy.inspection.placement })
+            (if (record) state.recorded() else state)
+                .copy(objects = state.objects.replaced(moved), result = state.result.takeIf { placement == copy.inspection.placement })
         }
         val (target, previous, profiles) = request ?: return
         val autoDrop = target.instances[id.instance].autoDrop
@@ -757,6 +924,12 @@ class PlacePlateObjectUseCase(
         }
     }
 
+    /** A manipulation of the copy where it stands: the object menu's Center, Drop and Mirror. */
+    operator fun invoke(id: PlateInstanceId, manipulation: Manipulation) {
+        val copy = repository.state.value.objects.withMesh(id.mesh)?.instances?.getOrNull(id.instance) ?: return
+        invoke(id, copy.inspection.placement, manipulation)
+    }
+
     /** Moves, rotations, and scales that end where they began change nothing; the other manipulations still act. */
     private fun Manipulation.keepsUnchangedPlacement() = this == Manipulation.Move || this == Manipulation.Rotate || this == Manipulation.Scale
 }
@@ -782,7 +955,8 @@ class PlacePlateObjectsUseCase(
             if (state.busy || profiles == null || state.objects.isEmpty() || state.objects.any(PlateObject::placing)) return@update state
             val targets = manipulation.targets(state.objects)
             request = Triple(state.objects, targets, profiles)
-            state.copy(
+            // The jobs take "Arrange" and "Orient"; judging the fit for another printer changes no placement.
+            (if (manipulation == PlateManipulation.UpdatePrintVolume) state else state.recorded()).copy(
                 objects = state.objects.map { target ->
                     if (target.mesh !in targets) target else target.withInstances(target.instances.map { it.copy(placing = true) })
                 },
@@ -807,12 +981,15 @@ class PlacePlateObjectsUseCase(
                         return@map current
                     }
                     val placed = (outcome as? PlateInspectionOutcome.Success)?.inspections?.getOrNull(index)
+                    // FillBedJob adds copies, which are printed and drop by themselves as a new ModelInstance does.
+                    val added = placed.orEmpty().drop(current.instances.size).map { PlateInstance(it) }
+                    if (added.isNotEmpty()) moved = true
                     current.withInstances(
                         current.instances.mapIndexed { copy, instance ->
                             val inspection = placed?.getOrNull(copy)
                             if (inspection != null && inspection.placement != before.instances[copy].inspection.placement) moved = true
                             instance.copy(inspection = inspection ?: instance.inspection, placing = false)
-                        },
+                        } + added,
                     )
                 }
                 state.copy(
@@ -830,13 +1007,15 @@ class PlacePlateObjectsUseCase(
 
     /**
      * OrientJob places the selected objects, or all of them when none of the plate's is selected;
-     * ArrangeJob places all, and another printer judges the fit of all.
+     * ArrangeJob and FillBedJob place all, and another printer judges the fit of all.
      */
     private fun PlateManipulation.targets(objects: List<PlateObject>): Set<ScenePath> {
         val meshes = objects.mapTo(LinkedHashSet(), PlateObject::mesh)
         return when (this) {
             is PlateManipulation.AutoOrient -> selected.intersect(meshes).ifEmpty { meshes }
-            is PlateManipulation.Arrange, PlateManipulation.UpdatePrintVolume -> meshes
+            is PlateManipulation.Arrange, PlateManipulation.UpdatePrintVolume,
+            is PlateManipulation.ArrangePlate, is PlateManipulation.FillBed,
+            -> meshes
         }
     }
 }
@@ -859,10 +1038,10 @@ class SetPlateObjectAutoDropUseCase(
             if (target == null || copy == null || state.busy || copy.autoDrop == autoDrop) return@update state
             val updated = copy.copy(autoDrop = autoDrop)
             changed = updated
-            state.copy(objects = state.objects.replaced(target.withInstance(id.instance, updated)))
+            state.recorded().copy(objects = state.objects.replaced(target.withInstance(id.instance, updated)))
         }
         val updated = changed ?: return
-        if (autoDrop) placePlateObject(id, updated.inspection.placement, Manipulation.EnsureOnBed)
+        if (autoDrop) placePlateObject(id, updated.inspection.placement, Manipulation.EnsureOnBed, record = false)
     }
 }
 
@@ -876,8 +1055,18 @@ class SetPlateObjectPrintableUseCase(private val repository: PlateRepository) {
         val target = state.objects.withMesh(id.mesh)
         val copy = target?.instances?.getOrNull(id.instance)
         if (target == null || copy == null || state.busy || copy.printable == printable) return@update state
-        state.copy(
+        state.recorded().copy(
             objects = state.objects.replaced(target.withInstance(id.instance, copy.copy(printable = printable))),
+            result = null,
+        )
+    }
+
+    /** The object's own row: every copy of it, as one step of Undo. */
+    fun all(mesh: ScenePath, printable: Boolean) = repository.update { state ->
+        val target = state.objects.withMesh(mesh)
+        if (target == null || state.busy || target.instances.all { it.printable == printable }) return@update state
+        state.recorded().copy(
+            objects = state.objects.replaced(target.withInstances(target.instances.map { it.copy(printable = printable) })),
             result = null,
         )
     }
@@ -954,7 +1143,8 @@ class SetExtruderUseCase(private val repository: PlateRepository) {
         val filaments = state.profiles?.allFilaments?.size ?: 0
         if (target == null || state.busy || extruder > filaments || extruder < 0) return@update state
         val updated = edit(target) ?: return@update state
-        state.copy(objects = state.objects.replaced(updated), result = null)
+        // ObjectList::update_extruder_in_config(): "Change Filaments".
+        state.recorded().copy(objects = state.objects.replaced(updated), result = null)
     }
 
     private fun ModelSettings.withExtruder(extruder: Int): ModelSettings =
@@ -1004,7 +1194,7 @@ class AddObjectPartUseCase(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
-    operator fun invoke(mesh: ScenePath, shape: String, type: VolumeType) {
+    operator fun invoke(mesh: ScenePath, shape: String, type: VolumeType, name: String = "") {
         var request: Pair<PlateObject, SlicingProfileSelection>? = null
         repository.update { state ->
             request = null
@@ -1029,10 +1219,10 @@ class AddObjectPartUseCase(
                 val current = state.objects.withMesh(mesh)
                 when {
                     current == null -> state
-                    outcome is ModelInspectionOutcome.Success -> state.copy(
+                    outcome is ModelInspectionOutcome.Success -> state.recorded().copy(
                         objects = state.objects.replaced(
                             current.withPart(
-                                ObjectPart(shape = shape, type = type, mesh = partMesh, placement = outcome.inspection.placement),
+                                ObjectPart(shape = shape, type = type, mesh = partMesh, placement = outcome.inspection.placement, name = name),
                             ),
                         ),
                         result = null,
@@ -1050,25 +1240,19 @@ class AddObjectPartUseCase(
 }
 
 /**
- * ObjectList::del_subobject_item(): the part leaves the object, and G-code
- * sliced with it no longer applies. Its mesh file goes with it. Once the object
- * is its own mesh alone, the settings of that mesh become the object's
- * (ObjectList::del_subobject_from_object).
+ * ObjectList::del_subobject_item(): the part leaves the object ("Delete part"),
+ * and G-code sliced with it no longer applies; its mesh stays while Undo can
+ * bring the part back. Once the object is its own mesh alone, the settings of
+ * that mesh become the object's (ObjectList::del_subobject_from_object).
  */
-class RemoveObjectPartUseCase(
-    private val sceneFiles: SceneFiles,
-    private val repository: PlateRepository,
-) {
+class RemoveObjectPartUseCase(private val repository: PlateRepository) {
     operator fun invoke(id: ObjectPartId) {
-        var removed: ScenePath? = null
         repository.update { state ->
-            removed = null
             val target = state.objects.withMesh(id.mesh)
             // The object's own mesh stays: deleting it would leave the object
             // made of its parts, which the app cannot load yet.
             val part = target?.parts?.getOrNull(id.index - 1)
             if (target == null || part == null || state.busy) return@update state
-            removed = part.mesh
             val kept = target.parts.filterIndexed { at, _ -> at != id.index - 1 }
             val updated = if (kept.isEmpty()) {
                 target.withParts(kept)
@@ -1077,14 +1261,13 @@ class RemoveObjectPartUseCase(
             } else {
                 target.withParts(kept)
             }
-            state.copy(
+            state.recorded().copy(
                 // The volumes after it move up, and none is listed once the object is its own mesh alone.
                 selectedPart = state.selectedPart?.takeUnless { it.mesh == id.mesh && (it.index >= id.index || kept.isEmpty()) },
                 objects = state.objects.replaced(updated),
                 result = null,
             )
         }
-        removed?.let(sceneFiles::deleteObjectMesh)
     }
 }
 
@@ -1306,7 +1489,7 @@ class AddLayerRangeUseCase(private val repository: PlateRepository) {
             }
             val updated = target.withLayerRanges(kept + range)
             added = LayerRangeId(mesh, updated.layerRanges.indexOfFirst { it.bottom == range.bottom && it.top == range.top })
-            state.copy(objects = state.objects.replaced(updated), result = null)
+            state.recorded().copy(objects = state.objects.replaced(updated), result = null)
         }
         return added
     }
@@ -1329,7 +1512,7 @@ class RemoveLayerRangeUseCase(private val repository: PlateRepository) {
     operator fun invoke(id: LayerRangeId) = repository.update { state ->
         val target = state.objects.withMesh(id.mesh)
         if (target == null || target.layerRanges.getOrNull(id.index) == null || state.busy) return@update state
-        state.copy(
+        state.recorded().copy(
             selectedRange = state.selectedRange?.takeUnless { it.mesh == id.mesh && it.index >= id.index },
             objects = state.objects.replaced(target.withLayerRanges(target.layerRanges.filterIndexed { at, _ -> at != id.index })),
             result = null,
@@ -1353,7 +1536,7 @@ class EditLayerRangeUseCase(private val repository: PlateRepository) {
         if (others.any { bottom < it.top && it.bottom < top }) return@update state
         val moved = range.copy(bottom = bottom, top = top)
         val updated = target.withLayerRanges(others + moved)
-        state.copy(
+        state.recorded().copy(
             selectedRange = LayerRangeId(id.mesh, updated.layerRanges.indexOfFirst { it === moved }),
             objects = state.objects.replaced(updated),
             result = null,
@@ -1382,43 +1565,140 @@ class SelectLayerRangeUseCase(private val repository: PlateRepository) {
 }
 
 /**
- * Plater::increase_instances(): another copy of the object, offset from the one
- * it was made of by 5% of the largest side of the bed, which the engine then
- * places as it places a moved copy. The copy is selected, as the desktop app
- * selects the instance it added.
+ * Plater::increase_instances(): [count] more copies of the object, each offset
+ * from its last copy by another 5% of the largest side of the bed, which the
+ * engine then places as it places a moved copy. The last new copy is
+ * selected, as the desktop app selects it. A copy that is not printable keeps
+ * the object from getting more (Plater::can_increase_instances).
  */
 class AddPlateInstanceUseCase(
     private val repository: PlateRepository,
     private val placePlateObject: PlacePlateObjectUseCase,
     private val selectPlateObject: SelectPlateObjectUseCase,
 ) {
-    operator fun invoke(id: PlateInstanceId) {
-        var added: Pair<PlateInstanceId, Transform3>? = null
+    operator fun invoke(mesh: ScenePath, count: Int = 1) {
+        var added: List<Pair<PlateInstanceId, Transform3>> = emptyList()
         repository.update { state ->
-            added = null
-            val target = state.objects.withMesh(id.mesh)
-            val copy = target?.instances?.getOrNull(id.instance)
+            added = emptyList()
+            val target = state.objects.withMesh(mesh)
+            val last = target?.instances?.lastOrNull()
             val plate = state.plate
-            if (target == null || copy == null || plate == null || state.busy) return@update state
+            if (target == null || last == null || plate == null || state.busy || count <= 0 ||
+                !target.instances.all(PlateInstance::printable)
+            ) {
+                return@update state
+            }
             // GLCanvas3D::get_size_proportional_to_max_bed_size(0.05)
             val area = plate.geometry.printableArea
             val width = (area.maxOfOrNull { it.x } ?: 0.0) - (area.minOfOrNull { it.x } ?: 0.0)
             val depth = (area.maxOfOrNull { it.y } ?: 0.0) - (area.minOfOrNull { it.y } ?: 0.0)
-            val offset = 0.05 * maxOf(width, depth)
-            val columns = copy.inspection.placement.columns.toMutableList()
-            columns[12] += offset
-            columns[13] += offset
-            val placement = Transform3(columns)
-            // The copy stands where it was made until the engine places it, so
-            // the placement below is a change the engine is asked for.
-            val instance = copy.copy(placing = true)
-            added = PlateInstanceId(id.mesh, target.instances.size) to placement
-            // G-code sliced before no longer applies once another copy prints.
-            state.copy(objects = state.objects.replaced(target.withInstances(target.instances + instance)), result = null)
+            val offsetBase = 0.05 * maxOf(width, depth)
+            added = (1..count).map { step ->
+                val columns = last.inspection.placement.columns.toMutableList()
+                columns[12] += offsetBase * step
+                columns[13] += offsetBase * step
+                PlateInstanceId(mesh, target.instances.size + step - 1) to Transform3(columns)
+            }
+            // A new copy stands where the last one does until the engine
+            // places it, so its placement below is a change the engine is asked for.
+            val copies = List(count) { last.copy(placing = true) }
+            // G-code sliced before no longer applies once more copies print.
+            state.recorded().copy(objects = state.objects.replaced(target.withInstances(target.instances + copies)), result = null)
         }
-        val (instance, placement) = added ?: return
-        selectPlateObject(instance)
-        placePlateObject(instance, placement, Manipulation.Move)
+        if (added.isEmpty()) return
+        selectPlateObject(added.last().first)
+        added.forEach { (instance, placement) -> placePlateObject(instance, placement, Manipulation.Move, record = false) }
+    }
+}
+
+/**
+ * Plater::decrease_instances(): the last [count] copies of the object leave the
+ * plate, and the object goes when that is all of them. The last copy left is
+ * selected.
+ */
+class RemoveLastPlateInstancesUseCase(
+    private val repository: PlateRepository,
+    private val deletePlateObject: DeletePlateObjectUseCase,
+) {
+    operator fun invoke(mesh: ScenePath, count: Int = 1) {
+        var deleteObject = false
+        repository.update { state ->
+            deleteObject = false
+            val target = state.objects.withMesh(mesh)
+            if (target == null || state.busy || target.instances.size <= 1 || count <= 0) return@update state
+            if (target.instances.size <= count) {
+                deleteObject = true
+                return@update state
+            }
+            val kept = target.instances.dropLast(count)
+            state.recorded().copy(
+                objects = state.objects.replaced(target.withInstances(kept)),
+                selectedInstances = setOf(PlateInstanceId(mesh, kept.lastIndex)),
+                selectedPart = null,
+                selectedRange = null,
+                result = null,
+            )
+        }
+        if (deleteObject) deletePlateObject(mesh)
+    }
+}
+
+/**
+ * Plater::set_number_of_copies(): the object gets as many copies as the user
+ * asked for, from 0 to 1000; none takes the object off the plate.
+ */
+class SetNumberOfInstancesUseCase(
+    private val repository: PlateRepository,
+    private val addPlateInstance: AddPlateInstanceUseCase,
+    private val removeLastPlateInstances: RemoveLastPlateInstancesUseCase,
+    private val deletePlateObject: DeletePlateObjectUseCase,
+) {
+    operator fun invoke(mesh: ScenePath, number: Int) {
+        val target = repository.state.value.objects.withMesh(mesh) ?: return
+        if (number !in 0..MAX_COPIES) return
+        val difference = number - target.instances.size
+        when {
+            number == 0 -> deletePlateObject(mesh)
+            difference > 0 -> addPlateInstance(mesh, difference)
+            difference < 0 -> removeLastPlateInstances(mesh, -difference)
+        }
+    }
+
+    companion object {
+        /** GetNumberFromUser(..., 0, 1000, ...) */
+        const val MAX_COPIES = 1000
+    }
+}
+
+/**
+ * ObjectList::rename_item(): an object or one of its volumes takes the name
+ * the user entered. An empty name changes nothing, and neither does a name
+ * with a character a file name cannot hold (Plater::has_illegal_filename_characters).
+ */
+class RenamePlateItemUseCase(private val repository: PlateRepository) {
+    /** The object itself. */
+    operator fun invoke(mesh: ScenePath, name: String) = rename(mesh, name) { it.withName(name) }
+
+    /** One volume of an object (an itVolume row). */
+    operator fun invoke(id: ObjectPartId, name: String) = rename(id.mesh, name) { target ->
+        when {
+            id.index == 0 && target.parts.isNotEmpty() -> target.withVolume(target.volume.copy(name = name))
+            else -> target.parts.getOrNull(id.index - 1)?.let { part -> target.withPartAt(id.index - 1, part.copy(name = name)) }
+        }
+    }
+
+    private fun rename(mesh: ScenePath, name: String, edit: (PlateObject) -> PlateObject?) = repository.update { state ->
+        val target = state.objects.withMesh(mesh)
+        if (target == null || state.busy || name.isEmpty() || hasIllegalCharacters(name)) return@update state
+        val renamed = edit(target) ?: return@update state
+        state.recorded().copy(objects = state.objects.replaced(renamed))
+    }
+
+    companion object {
+        /** Plater::has_illegal_filename_characters() */
+        const val ILLEGAL_CHARACTERS = "<>:/\\|?*\""
+
+        fun hasIllegalCharacters(name: String): Boolean = name.any { it in ILLEGAL_CHARACTERS }
     }
 }
 
@@ -1441,7 +1721,7 @@ class RemovePlateInstanceUseCase(
                 return@update state
             }
             val kept = target.instances.filterIndexed { index, _ -> index != id.instance }
-            state.copy(
+            state.recorded().copy(
                 objects = state.objects.replaced(target.withInstances(kept)),
                 // The copies after it move up, so the selection starts afresh.
                 selectedInstances = state.selectedInstances.filterNot { it.mesh == id.mesh }.toSet(),
@@ -1453,21 +1733,16 @@ class RemovePlateInstanceUseCase(
 }
 
 /**
- * Plater::remove_selected() for the object with the [mesh] file: the object
- * leaves the plate with its mesh file, and G-code sliced with it no longer
- * applies. Nothing is deleted while the plate is busy.
+ * Plater::remove_selected() for the object with the [mesh] file ("Delete
+ * Selected Objects"): the object leaves the plate, and G-code sliced with it no
+ * longer applies; its meshes stay while Undo can bring it back. Nothing is
+ * deleted while the plate is busy.
  */
-class DeletePlateObjectUseCase(
-    private val sceneFiles: SceneFiles,
-    private val repository: PlateRepository,
-) {
+class DeletePlateObjectUseCase(private val repository: PlateRepository) {
     operator fun invoke(mesh: ScenePath) {
-        var deleted: PlateObject? = null
         repository.update { state ->
-            deleted = null
-            if (state.busy) return@update state
-            deleted = state.objects.withMesh(mesh) ?: return@update state
-            state.copy(
+            if (state.busy || state.objects.withMesh(mesh) == null) return@update state
+            state.recorded().copy(
                 objects = state.objects.filterNot { it.mesh == mesh },
                 // The settings follow the selection, which the deleted object leaves.
                 selectedInstances = state.selectedInstances.filterNot { it.mesh == mesh }.toSet(),
@@ -1476,11 +1751,6 @@ class DeletePlateObjectUseCase(
                 result = null,
             )
         }
-        val removed = deleted ?: return
-        // The meshes the object and its parts are drawn and loaded from go with it.
-        sceneFiles.deleteObjectMesh(mesh)
-        removed.parts.forEach { sceneFiles.deleteObjectMesh(it.mesh) }
-        if (removed is PlateObject.ImportedModel) sceneFiles.deleteObjectMesh(ScenePath(removed.file.path.value))
     }
 }
 
@@ -1539,10 +1809,13 @@ class SlicePlateUseCase(
         }
     }
 
-    /** PrintBase::update_object_placeholders(): the G-code is named after the first object the plate prints. */
+    /**
+     * PrintBase::update_object_placeholders(): the G-code is named after the
+     * file of the first object the plate prints (input_filename_base).
+     */
     private fun List<PlateObject>.outputName(): String = when (val named = first { object_ -> object_.instances.any { it.inspection.fit == BuildVolumeFit.INSIDE } }) {
-        is PlateObject.ImportedModel -> named.file.displayName.substringBeforeLast('.')
-        is PlateObject.CalibrationCube -> "calibration-cube-20mm"
+        is PlateObject.ImportedModel -> named.inputName.substringBeforeLast('.')
+        is PlateObject.CalibrationCube -> CALIBRATION_CUBE
     }
 
     private fun PlateState.withOutcome(objects: List<PlateObject>, outcome: SliceOutcome): PlateState {
@@ -1593,10 +1866,10 @@ private inline fun PlateState.withJob(jobId: SliceJobId, change: (PlateSlicing) 
     return copy(slicing = change(job))
 }
 
-private fun List<PlateObject>.withMesh(mesh: ScenePath): PlateObject? = firstOrNull { it.mesh == mesh }
+internal fun List<PlateObject>.withMesh(mesh: ScenePath): PlateObject? = firstOrNull { it.mesh == mesh }
 
 /** The list with [plateObject] in place of the object with its mesh file. */
-private fun List<PlateObject>.replaced(plateObject: PlateObject): List<PlateObject> =
+internal fun List<PlateObject>.replaced(plateObject: PlateObject): List<PlateObject> =
     map { if (it.mesh == plateObject.mesh) plateObject else it }
 
 /** The object with one of its copies placed anew, and whether it is still being placed. */

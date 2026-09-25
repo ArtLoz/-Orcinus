@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <utility>
 #include <functional>
@@ -1750,6 +1751,10 @@ TEST_CASE("The wipe tower stands on a plate that prints with two filaments", "[A
     INFO(alone.message);
     REQUIRE(alone.status == orca::SceneStatus::success);
     CHECK_FALSE(alone.shown);
+    // What the object menu's Flush Options go by is described all the same:
+    // the filaments printed, and the process preset's prime tower.
+    CHECK(alone.filaments == std::vector<int>{1});
+    CHECK(alone.prime_tower);
 
     orca::ProfileSelection profiles = k2_plus_profiles();
     profiles.filaments = {k2_plus_profiles().filament, k2_plus_profiles().filament};
@@ -1870,6 +1875,40 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
     INFO(closed.message);
     REQUIRE(closed.status == orca::SceneStatus::success);
     REQUIRE_FALSE(closed.facets.empty());
+
+    // The tool's own Undo and Redo: a stroke is undone as a whole, and a
+    // stroke that begins off the model and moves onto it is one step too.
+    {
+        const orca::PaintingState again = orca::begin_painting(plate.front(), -1, profiles, {}, output_path("paint-undo"));
+        REQUIRE(again.status == orca::SceneStatus::success);
+        CHECK_FALSE(again.can_undo);
+        orca::PaintStroke first = stroke;
+        first.starts = true;
+        orca::PaintStroke off = stroke;
+        off.origin[0] = center[12] + 500.0;
+        off.starts = true;
+        CHECK_FALSE(orca::paint(off, output_path("paint-undo")).can_undo);
+        const orca::PaintingState onto = orca::paint(stroke, output_path("paint-undo"));
+        CHECK(onto.can_undo);
+        CHECK(onto.filaments.size() == 1);
+        const orca::PaintingState undone = orca::undo_painting(output_path("paint-undo"));
+        REQUIRE(undone.status == orca::SceneStatus::success);
+        CHECK(undone.filaments.empty());
+        CHECK_FALSE(undone.can_undo);
+        CHECK(undone.can_redo);
+        const orca::PaintingState redone = orca::redo_painting(output_path("paint-undo"));
+        CHECK(redone.filaments.size() == 1);
+        CHECK(redone.can_undo);
+        CHECK_FALSE(redone.can_redo);
+        // A new stroke drops what Undo left.
+        CHECK(orca::undo_painting(output_path("paint-undo")).can_redo);
+        const orca::PaintingState repainted = orca::paint(first, output_path("paint-undo"));
+        CHECK(repainted.can_undo);
+        CHECK_FALSE(repainted.can_redo);
+        const orca::PaintingState kept = orca::end_painting();
+        REQUIRE(kept.status == orca::SceneStatus::success);
+        CHECK(kept.facets == closed.facets);
+    }
 
     // A stroke that misses the model paints nothing.
     const orca::PaintingState reopened =
@@ -3116,6 +3155,14 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
     object.model_path = imported.model_path;
     object.matrix = imported.matrix;
     object.settings = imported.settings;
+    object.volume_settings = imported.volume_settings;
+    object.name = imported.name;
+    object.volume_name = imported.volume_name;
+    object.painted = imported.painted;
+    object.volume_from_inches = imported.volume_from_inches;
+    object.volume_from_meters = imported.volume_from_meters;
+    object.volume_input_file = imported.volume_input_file;
+    object.layer_ranges = imported.layer_ranges;
     for (const orca::ImportedPart& part : imported.parts) {
         orca::ObjectPart& added = object.parts.emplace_back();
         added.model_path = part.model_path;
@@ -3123,11 +3170,39 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
         added.type = part.type;
         added.matrix = part.matrix;
         added.settings = part.settings;
+        added.painted = part.painted;
+        added.from_inches = part.from_inches;
+        added.from_meters = part.from_meters;
+        added.input_file = part.input_file;
     }
-    for (const orca::ModelInspection& instance : imported.instances) {
-        object.instances.emplace_back().matrix.assign(instance.instance_matrix.begin(), instance.instance_matrix.end());
+    for (std::size_t index = 0; index < imported.instances.size(); ++index) {
+        orca::ObjectPlacement& instance = object.instances.emplace_back();
+        instance.matrix.assign(imported.instances[index].instance_matrix.begin(), imported.instances[index].instance_matrix.end());
+        instance.auto_drop = index < imported.auto_drops.size() ? bool(imported.auto_drops[index]) : true;
+        instance.printable = index < imported.printables.size() ? bool(imported.printables[index]) : true;
     }
     return object;
+}
+
+// An OBJ of two separate 10 mm cubes side by side: one mesh of two shells.
+std::string two_cube_obj()
+{
+    std::ostringstream obj;
+    const double s = 10;
+    const double vertices[8][3] = {{s, s, 0}, {s, 0, 0}, {0, 0, 0}, {0, s, 0}, {s, s, s}, {0, s, s}, {0, 0, s}, {s, 0, s}};
+    const int faces[12][3] = {{0, 1, 2}, {0, 2, 3}, {4, 5, 6}, {4, 6, 7}, {0, 4, 7}, {0, 7, 1},
+                              {1, 7, 6}, {1, 6, 2}, {2, 6, 5}, {2, 5, 3}, {4, 0, 3}, {4, 3, 5}};
+    for (int cube = 0; cube < 2; ++cube) {
+        for (const auto& vertex : vertices) {
+            obj << "v " << vertex[0] + cube * 20 << ' ' << vertex[1] << ' ' << vertex[2] << '\n';
+        }
+    }
+    for (int cube = 0; cube < 2; ++cube) {
+        for (const auto& face : faces) {
+            obj << "f " << face[0] + 1 + cube * 8 << ' ' << face[1] + 1 + cube * 8 << ' ' << face[2] + 1 + cube * 8 << '\n';
+        }
+    }
+    return obj.str();
 }
 
 std::string import_prefix(const std::string& name)
@@ -3314,6 +3389,331 @@ TEST_CASE("Objects a file stacks at several heights can be loaded as one object 
     }
 }
 
+TEST_CASE("Split to objects makes every body an object where it stood", "[Adapter][Edit]")
+{
+    require_engine();
+    const std::string step = device_dir + "/tmp/import/split-boxes.step";
+    write_two_box_step(step);
+    const orca::ImportedModels imported = orca::import_model(step, k2_plus_profiles(), {}, import_prefix("split-step"), {});
+    REQUIRE(imported.objects.size() == 1);
+    const std::vector<orca::PlateObject> plate = {plate_object_of(imported.objects.front())};
+
+    // The lower box rests on the plate, so the bigger one floats once it is
+    // an object of its own: Plater::priv::split_object() asks first.
+    const orca::ImportedModels asked =
+        orca::edit_object(plate, 0, orca::ObjectEdit::split_to_objects, -1, k2_plus_profiles(), import_prefix("split-asked"), {});
+    INFO(asked.message);
+    REQUIRE(asked.status == orca::SceneStatus::success);
+    REQUIRE(asked.has_question);
+    CHECK(asked.question.id == "split_auto_drop");
+
+    SECTION("keeping auto drop: both rest on the plate")
+    {
+        const orca::ImportedModels split = orca::edit_object(plate, 0, orca::ObjectEdit::split_to_objects, -1, k2_plus_profiles(),
+                                                             import_prefix("split-drop"), {{"split_auto_drop", false}});
+        INFO(split.message);
+        REQUIRE(split.status == orca::SceneStatus::success);
+        CHECK(split.appended);
+        REQUIRE(split.objects.size() == 2);
+        // ModelObject::split(): an object of one body is named after the body.
+        CHECK(split.objects[0].name == imported.objects.front().volume_name);
+        CHECK(split.objects[1].name == imported.objects.front().parts.front().name);
+        for (const orca::ImportedObject& object : split.objects) {
+            CHECK(object.parts.empty());
+            const orca::ModelInspection& copy = object.instances.front();
+            CHECK(copy.box_center[2] - copy.size_z / 2 == Catch::Approx(0.0).margin(1e-6));
+            CHECK(object.auto_drops.front());
+        }
+    }
+
+    SECTION("without auto drop: the bigger box stays where it was")
+    {
+        const orca::ImportedModels split = orca::edit_object(plate, 0, orca::ObjectEdit::split_to_objects, -1, k2_plus_profiles(),
+                                                             import_prefix("split-keep"), {{"split_auto_drop", true}});
+        REQUIRE(split.objects.size() == 2);
+        double highest_bottom = 0.0;
+        for (const orca::ImportedObject& object : split.objects) {
+            const orca::ModelInspection& copy = object.instances.front();
+            highest_bottom = std::max(highest_bottom, copy.box_center[2] - copy.size_z / 2);
+            CHECK_FALSE(object.auto_drops.front());
+        }
+        CHECK(highest_bottom == Catch::Approx(5.0));
+    }
+}
+
+TEST_CASE("An object of one shell cannot be split", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("unsplit.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const orca::ImportedModels split = orca::edit_object(plate_of({}, matrix_of(cube)), 0, orca::ObjectEdit::split_to_objects, -1,
+                                                         k2_plus_profiles(), import_prefix("unsplit"), {});
+    REQUIRE(split.status == orca::SceneStatus::success);
+    CHECK(split.objects.empty());
+    REQUIRE(split.notices.size() == 1);
+    CHECK(split.notices.front().id == "split_failed");
+}
+
+TEST_CASE("Split to parts makes every shell of a mesh a part of the object", "[Adapter][Edit]")
+{
+    require_engine();
+    const std::string obj = device_dir + "/tmp/import/two-cubes.obj";
+    write_text(obj, two_cube_obj());
+    const orca::ImportedModels imported = orca::import_model(obj, k2_plus_profiles(), {}, import_prefix("two-cubes"), {});
+    INFO(imported.message);
+    REQUIRE(imported.objects.size() == 1);
+    // ModelVolume::is_splittable(): one mesh of two shells.
+    CHECK(imported.objects.front().volume_splittable);
+    CHECK(imported.objects.front().parts.empty());
+
+    const orca::ImportedModels split = orca::edit_object({plate_object_of(imported.objects.front())}, 0, orca::ObjectEdit::split_to_parts,
+                                                         -1, k2_plus_profiles(), import_prefix("two-cubes-parts"), {});
+    INFO(split.message);
+    REQUIRE(split.status == orca::SceneStatus::success);
+    CHECK_FALSE(split.appended);
+    REQUIRE(split.objects.size() == 1);
+    const orca::ImportedObject& object = split.objects.front();
+    REQUIRE(object.parts.size() == 1);
+    CHECK_FALSE(object.volume_splittable);
+    // The volume was read from the file, which "Replace all with 3D files"
+    // looks for; ModelVolume::split() forgets it, so reload cannot undo the split.
+    CHECK(fs::path(imported.objects.front().volume_input_file).filename() == "two-cubes.obj");
+    CHECK(object.volume_input_file.empty());
+    CHECK(object.parts.front().input_file.empty());
+    // The object stays where it was, 30 mm wide.
+    CHECK(object.instances.front().size_x == Catch::Approx(30.0));
+    CHECK(object.instances.front().instance_matrix[12] == Catch::Approx(imported.objects.front().instances.front().instance_matrix[12]));
+}
+
+TEST_CASE("Fix model closes an open mesh with CGAL", "[Adapter][Edit]")
+{
+    require_engine();
+    // A 20 mm cube without its top: 10 triangles and a square hole.
+    std::string open = cube_obj(20.0);
+    const std::string top = "f 5 6 7\nf 5 7 8\n";
+    REQUIRE(open.find(top) != std::string::npos);
+    open.replace(open.find(top), top.size(), "");
+    const std::string obj = device_dir + "/tmp/import/open-cube.obj";
+    write_text(obj, open);
+    const orca::ImportedModels imported = orca::import_model(obj, k2_plus_profiles(), {}, import_prefix("open-cube"), {});
+    INFO(imported.message);
+    REQUIRE(imported.objects.size() == 1);
+    CHECK(imported.objects.front().instances.front().facet_count == 10);
+    // The four edges around the hole, which keep Subdivision mesh off.
+    CHECK(imported.objects.front().instances.front().open_edges == 4);
+
+    const orca::ImportedModels fixed = orca::edit_object({plate_object_of(imported.objects.front())}, 0, orca::ObjectEdit::fix, -1,
+                                                         k2_plus_profiles(), import_prefix("open-cube-fixed"), {});
+    INFO(fixed.message);
+    REQUIRE(fixed.status == orca::SceneStatus::success);
+    REQUIRE(fixed.objects.size() == 1);
+    CHECK(fixed.objects.front().instances.front().facet_count >= 12);
+    CHECK(fixed.objects.front().instances.front().open_edges == 0);
+    // The CgalFinished notification names what it repaired.
+    REQUIRE(fixed.notices.size() == 1);
+    CHECK(fixed.notices.front().id == "fix_finished");
+    CHECK(fixed.notices.front().text.front().msgid == "Following model object has been repaired");
+}
+
+// A generated cylinder, a tenth of the bed wide, made 7 mm wide and moved into
+// the middle of a 20 mm cube, through its top.
+orca::ObjectPart through_hole(orca::ObjectPart part)
+{
+    part.matrix = {0.2, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0};
+    return part;
+}
+
+TEST_CASE("Subdivision mesh gives every triangle four, and the object rests on the plate", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("smooth.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    CHECK(cube.open_edges == 0);
+
+    const orca::ImportedModels smoothed = orca::edit_object(plate_of({}, matrix_of(cube)), 0, orca::ObjectEdit::smooth_mesh, -1,
+                                                            k2_plus_profiles(), import_prefix("smoothed"), {});
+    INFO(smoothed.message);
+    REQUIRE(smoothed.status == orca::SceneStatus::success);
+    CHECK_FALSE(smoothed.appended);
+    REQUIRE(smoothed.objects.size() == 1);
+    const orca::ModelInspection& copy = smoothed.objects.front().instances.front();
+    CHECK(copy.facet_count == 48);
+    CHECK(copy.box_center[2] == Catch::Approx(copy.size_z / 2).margin(1e-4));
+}
+
+TEST_CASE("Mesh boolean makes one mesh of the object and its copies, its negative volumes taken out", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("boolean.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const orca::ModelInspection added =
+        orca::add_object_part(plate.front(), "Cylinder", orca::VolumeType::negative, k2_plus_profiles(), output_path("boolean-hole.mesh"));
+    REQUIRE(added.status == orca::SceneStatus::success);
+    orca::ObjectPart hole;
+    hole.shape = "Cylinder";
+    hole.type = orca::VolumeType::negative;
+    hole.matrix.assign(added.instance_matrix.begin(), added.instance_matrix.end());
+    plate.front().parts.push_back(through_hole(hole));
+    // A second copy 40 mm to the right.
+    plate.front().instances.push_back(plate.front().instances.front());
+    plate.front().instances[1].matrix[12] += 40.0;
+
+    const orca::ImportedModels merged = orca::edit_object(plate, 0, orca::ObjectEdit::mesh_boolean, -1, k2_plus_profiles(),
+                                                          import_prefix("merged"), {});
+    INFO(merged.message);
+    REQUIRE(merged.status == orca::SceneStatus::success);
+    CHECK(merged.appended);
+    CHECK(merged.notices.empty());
+    REQUIRE(merged.objects.size() == 1);
+    const orca::ImportedObject& object = merged.objects.front();
+    CHECK(object.parts.empty());
+    REQUIRE(object.instances.size() == 1);
+    const orca::ModelInspection& copy = object.instances.front();
+    // Both cubes, holed.
+    CHECK(copy.size_x == Catch::Approx(60.0).margin(1e-3));
+    CHECK(copy.facet_count > 24);
+    CHECK(copy.box_center[0] == Catch::Approx(cube.instance_matrix[12] + 20.0).margin(1e-3));
+    CHECK(copy.box_center[2] == Catch::Approx(10.0).margin(1e-3));
+}
+
+TEST_CASE("Change type makes a part a modifier, sorted after the solid parts; the last solid part keeps its type", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("type.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const orca::ModelInspection added =
+        orca::add_object_part(plate.front(), "Cube", orca::VolumeType::negative, k2_plus_profiles(), output_path("type-negative.mesh"));
+    REQUIRE(added.status == orca::SceneStatus::success);
+    orca::ObjectPart negative;
+    negative.shape = "Cube";
+    negative.type = orca::VolumeType::negative;
+    negative.matrix.assign(added.instance_matrix.begin(), added.instance_matrix.end());
+    plate.front().parts.push_back(negative);
+
+    SECTION("the negative volume becomes a part: the solid parts come first")
+    {
+        const orca::ImportedModels changed = orca::set_volume_type(plate, 0, 1, orca::VolumeType::part, k2_plus_profiles(), import_prefix("type-part"));
+
+        INFO(changed.message);
+        REQUIRE(changed.status == orca::SceneStatus::success);
+        REQUIRE(changed.objects.size() == 1);
+        REQUIRE(changed.objects.front().parts.size() == 1);
+        CHECK(changed.objects.front().parts.front().type == orca::VolumeType::part);
+        CHECK(changed.selected_volume == 1);
+    }
+    SECTION("the cube itself becomes a modifier: the other volume is the object's own mesh now")
+    {
+        std::vector<orca::PlateObject> two = plate;
+        two.front().parts.front().type = orca::VolumeType::part;
+        const orca::ImportedModels changed = orca::set_volume_type(two, 0, 0, orca::VolumeType::modifier, k2_plus_profiles(), import_prefix("type-modifier"));
+
+        INFO(changed.message);
+        REQUIRE(changed.status == orca::SceneStatus::success);
+        REQUIRE(changed.objects.size() == 1);
+        REQUIRE(changed.objects.front().parts.size() == 1);
+        CHECK(changed.objects.front().parts.front().type == orca::VolumeType::modifier);
+        CHECK(changed.selected_volume == 1);
+    }
+    SECTION("the last solid part stays one, and the message box says so")
+    {
+        const orca::ImportedModels refused = orca::set_volume_type(plate, 0, 0, orca::VolumeType::modifier, k2_plus_profiles(), import_prefix("type-refused"));
+
+        REQUIRE(refused.status == orca::SceneStatus::success);
+        CHECK(refused.objects.empty());
+        REQUIRE(refused.notices.size() == 1);
+        CHECK(refused.notices.front().id == "last_solid_part");
+    }
+}
+
+TEST_CASE("Simplify decimates a volume for its preview, and Apply gives the volume that mesh", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ImportedModels sphere = orca::add_primitive({}, "Sphere", "Sphere", k2_plus_profiles(), import_prefix("simplify-sphere"));
+    INFO(sphere.message);
+    REQUIRE(sphere.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = {plate_object_of(sphere.objects.front())};
+    const std::int64_t original = sphere.objects.front().instances.front().facet_count;
+    REQUIRE(original > 100);
+
+    SECTION("with the decimate ratio: half of the triangles taken away, the count worked out from the ratio")
+    {
+        orca::SimplifyConfig config;
+        config.use_count = true;
+        config.decimate_ratio = 50.f;
+        const std::string path = output_path("simplify-preview.mesh");
+        const orca::SimplifiedVolume preview = orca::simplify_volume(plate, 0, 0, config, k2_plus_profiles(), path);
+
+        INFO(preview.message);
+        REQUIRE(preview.status == orca::SceneStatus::success);
+        CHECK(preview.original_count == original);
+        CHECK(preview.triangle_count <= (original + 1) / 2);
+        CHECK(preview.triangle_count > original / 4);
+        CHECK(fs::file_size(path) > 16);
+    }
+    SECTION("with a detail level: only edges within the error collapse")
+    {
+        orca::SimplifyConfig config;
+        config.max_error = 1.f;
+        const orca::SimplifiedVolume preview = orca::simplify_volume(plate, 0, 0, config, k2_plus_profiles(), output_path("simplify-error.mesh"));
+
+        INFO(preview.message);
+        REQUIRE(preview.status == orca::SceneStatus::success);
+        CHECK(preview.triangle_count < original);
+    }
+    SECTION("apply: the object's mesh is the decimated one, on the plate")
+    {
+        orca::SimplifyConfig config;
+        config.use_count = true;
+        config.wanted_count = 100;
+        const orca::ImportedModels applied = orca::apply_simplify(plate, 0, 0, config, k2_plus_profiles(), import_prefix("simplified"));
+
+        INFO(applied.message);
+        REQUIRE(applied.status == orca::SceneStatus::success);
+        REQUIRE(applied.objects.size() == 1);
+        const orca::ModelInspection& copy = applied.objects.front().instances.front();
+        CHECK(copy.facet_count <= 100);
+        CHECK(copy.box_center[2] == Catch::Approx(copy.size_z / 2).margin(1e-3));
+    }
+    SECTION("a volume the object does not have is refused")
+    {
+        CHECK(orca::simplify_volume(plate, 0, 3, {}, k2_plus_profiles(), output_path("simplify-none.mesh")).status != orca::SceneStatus::success);
+    }
+}
+
+TEST_CASE("Convert from inches scales an object, and Restore to inches scales it back", "[Adapter][Edit]")
+{
+    require_engine();
+    const std::string obj = device_dir + "/tmp/import/inch-cube.obj";
+    write_text(obj, cube_obj(1.0));
+    // A 1 mm cube looks like inches; the load leaves it as it is.
+    const orca::ImportedModels imported =
+        orca::import_model(obj, k2_plus_profiles(), {}, import_prefix("inch-cube"), {{"model_in_inches", false}, {"model_in_meters", false}});
+    INFO(imported.message);
+    REQUIRE(imported.objects.size() == 1);
+    CHECK(imported.objects.front().instances.front().size_x == Catch::Approx(1.0));
+    CHECK_FALSE(imported.objects.front().volume_from_inches);
+
+    const orca::ImportedModels converted = orca::edit_object({plate_object_of(imported.objects.front())}, 0,
+                                                             orca::ObjectEdit::convert_from_inches, -1, k2_plus_profiles(),
+                                                             import_prefix("inch-cube-mm"), {});
+    INFO(converted.message);
+    REQUIRE(converted.objects.size() == 1);
+    CHECK(converted.appended);
+    CHECK(converted.objects.front().instances.front().size_x == Catch::Approx(25.4));
+    CHECK(converted.objects.front().volume_from_inches);
+    // The converted volume keeps the file it was read from, through the plate and back.
+    CHECK(fs::path(converted.objects.front().volume_input_file).filename() == "inch-cube.obj");
+
+    const orca::ImportedModels restored = orca::edit_object({plate_object_of(converted.objects.front())}, 0,
+                                                            orca::ObjectEdit::restore_to_inches, -1, k2_plus_profiles(),
+                                                            import_prefix("inch-cube-back"), {});
+    REQUIRE(restored.objects.size() == 1);
+    CHECK(restored.objects.front().instances.front().size_x == Catch::Approx(1.0));
+    CHECK_FALSE(restored.objects.front().volume_from_inches);
+}
+
 TEST_CASE("A model that looks like metres offers to be scaled to millimetres", "[Adapter][Import]")
 {
     require_engine();
@@ -3336,6 +3736,442 @@ TEST_CASE("A model that looks like metres offers to be scaled to millimetres", "
         orca::import_model(obj, k2_plus_profiles(), {}, import_prefix("tiny-no"), {{"model_in_meters", false}});
     REQUIRE(kept.objects.size() == 1);
     CHECK(kept.objects.front().instances.front().size_x == Catch::Approx(0.02));
+}
+
+TEST_CASE("The object menu mirrors a copy, centres it and drops it as the desktop app does", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("menu.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<double> placed = matrix_of(cube);
+
+    SECTION("mirror along X: about the centre of its bounding box, still on the plate")
+    {
+        const orca::ModelInspection mirrored =
+            orca::place_model({}, k2_plus_profiles(), placed, placed, true, orca::Manipulation::mirror_x, {});
+        INFO(mirrored.message);
+        REQUIRE(mirrored.status == orca::SceneStatus::success);
+        CHECK(mirrored.instance_matrix[0] == Catch::Approx(-1.0));
+        CHECK(mirrored.instance_matrix[5] == Catch::Approx(1.0));
+        CHECK(mirrored.instance_matrix[12] == Catch::Approx(placed[12]));
+        CHECK(mirrored.instance_matrix[14] == Catch::Approx(placed[14]));
+    }
+
+    SECTION("mirror along Z: the upside-down copy rests on the plate again")
+    {
+        const orca::ModelInspection mirrored =
+            orca::place_model({}, k2_plus_profiles(), placed, placed, true, orca::Manipulation::mirror_z, {});
+        REQUIRE(mirrored.status == orca::SceneStatus::success);
+        CHECK(mirrored.instance_matrix[10] == Catch::Approx(-1.0));
+        CHECK(mirrored.box_center[2] == Catch::Approx(10.0));
+    }
+
+    SECTION("center: over the centre of the plate, at the same height")
+    {
+        std::vector<double> aside = placed;
+        aside[12] = 60.0;
+        aside[13] = 80.0;
+        const orca::ModelInspection centred =
+            orca::place_model({}, k2_plus_profiles(), aside, aside, true, orca::Manipulation::center, {});
+        REQUIRE(centred.status == orca::SceneStatus::success);
+        CHECK(centred.box_center[0] == Catch::Approx(175.0));
+        CHECK(centred.box_center[1] == Catch::Approx(175.0));
+        CHECK(centred.instance_matrix[14] == Catch::Approx(placed[14]));
+    }
+
+    SECTION("drop: a copy that does not drop by itself comes down to the plate")
+    {
+        std::vector<double> lifted = placed;
+        lifted[14] += 30.0;
+        const orca::ModelInspection dropped =
+            orca::place_model({}, k2_plus_profiles(), lifted, lifted, false, orca::Manipulation::drop, {});
+        REQUIRE(dropped.status == orca::SceneStatus::success);
+        CHECK(dropped.instance_matrix[14] == Catch::Approx(placed[14]));
+    }
+}
+
+TEST_CASE("Objects are copied, pasted and cloned as the desktop app does", "[Adapter][Copy]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("copy.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<double> centred = matrix_of(cube);
+    const std::vector<orca::PlateObject> plate = plate_of({}, centred);
+
+    SECTION("pasted twice: each copy goes into the empty cell nearest to the cube")
+    {
+        const orca::ImportedModels pasted = orca::copy_objects(plate, plate, 2, orca::CopyPlacement::paste, k2_plus_profiles(), output_path("paste"));
+
+        INFO(pasted.message);
+        REQUIRE(pasted.status == orca::SceneStatus::success);
+        REQUIRE(pasted.objects.size() == 2);
+        REQUIRE(pasted.objects[0].instances.size() == 1);
+        // The cells are the cube's size and 1 mm apart; the one under the cube is covered.
+        const auto& first = pasted.objects[0].instances.front();
+        const auto& second = pasted.objects[1].instances.front();
+        CHECK(std::hypot(first.instance_matrix[12] - 175.0, first.instance_matrix[13] - 175.0) == Catch::Approx(21.0));
+        CHECK(std::hypot(second.instance_matrix[12] - 175.0, second.instance_matrix[13] - 175.0) == Catch::Approx(21.0));
+        CHECK(std::hypot(first.instance_matrix[12] - second.instance_matrix[12], first.instance_matrix[13] - second.instance_matrix[13]) > 20.0);
+        CHECK(first.instance_matrix[14] == Catch::Approx(10.0));
+        CHECK(first.volume_state == orca::VolumeState::inside);
+        CHECK(!pasted.objects[0].mesh_path.empty());
+        CHECK(pasted.objects[0].model_path != pasted.objects[1].model_path);
+    }
+    SECTION("kept: the copy of the second copy stands where that copy does")
+    {
+        std::vector<orca::PlateObject> two = plate;
+        two[0].instances.push_back(two[0].instances.front());
+        two[0].instances[1].matrix[12] = 100.0;
+        std::vector<orca::PlateObject> sources = two;
+        sources[0].instances.erase(sources[0].instances.begin());
+
+        const orca::ImportedModels kept = orca::copy_objects(two, sources, 1, orca::CopyPlacement::keep, k2_plus_profiles(), output_path("keep"));
+
+        INFO(kept.message);
+        REQUIRE(kept.status == orca::SceneStatus::success);
+        REQUIRE(kept.objects.size() == 1);
+        REQUIRE(kept.objects[0].instances.size() == 1);
+        CHECK(kept.objects[0].instances[0].instance_matrix[12] == Catch::Approx(100.0));
+        CHECK(kept.objects[0].instances[0].instance_matrix[13] == Catch::Approx(175.0));
+    }
+    SECTION("several objects pasted keep their layout")
+    {
+        std::vector<orca::PlateObject> two = plate;
+        two.push_back(two.front());
+        two[0].instances[0].matrix[12] = 100.0;
+        two[1].instances[0].matrix[12] = 150.0;
+
+        const orca::ImportedModels pasted = orca::copy_objects(two, two, 1, orca::CopyPlacement::paste, k2_plus_profiles(), output_path("layout"));
+
+        INFO(pasted.message);
+        REQUIRE(pasted.status == orca::SceneStatus::success);
+        REQUIRE(pasted.objects.size() == 2);
+        const auto& a = pasted.objects[0].instances.front().instance_matrix;
+        const auto& b = pasted.objects[1].instances.front().instance_matrix;
+        CHECK(b[12] - a[12] == Catch::Approx(50.0));
+        CHECK(b[13] == Catch::Approx(a[13]));
+        // Wider than deep: the copies move on by the depth of the objects.
+        CHECK(a[13] != Catch::Approx(175.0));
+    }
+    SECTION("nothing to copy is refused")
+    {
+        CHECK(orca::copy_objects(plate, {}, 1, orca::CopyPlacement::paste, k2_plus_profiles(), output_path("none")).status
+              != orca::SceneStatus::success);
+    }
+    SECTION("a copied modifier joins another cube beside it, or keeps its place in a cube of the same file")
+    {
+        std::vector<orca::PlateObject> source = plate;
+        const orca::ModelInspection added =
+            orca::add_object_part(source.front(), "Cube", orca::VolumeType::modifier, k2_plus_profiles(), output_path("clip-part.mesh"));
+        REQUIRE(added.status == orca::SceneStatus::success);
+        orca::ObjectPart part;
+        part.shape = "Cube";
+        part.type = orca::VolumeType::modifier;
+        part.matrix.assign(added.instance_matrix.begin(), added.instance_matrix.end());
+        source.front().parts.push_back(part);
+        std::vector<orca::PlateObject> target = plate;
+        target[0].instances[0].matrix[12] = 100.0;
+
+        const orca::ImportedModels beside =
+            orca::paste_volumes(target, 0, 0, source.front(), {1}, false, k2_plus_profiles(), output_path("pasted-beside"));
+
+        INFO(beside.message);
+        REQUIRE(beside.status == orca::SceneStatus::success);
+        REQUIRE(beside.objects.size() == 1);
+        REQUIRE(beside.objects[0].parts.size() == 1);
+        CHECK(beside.objects[0].parts[0].type == orca::VolumeType::modifier);
+        CHECK(beside.selected_volume == 1);
+        // Beside the right front corner of the cube, whose right side is 10 mm from its centre.
+        CHECK(beside.objects[0].parts[0].matrix[12] >= 10.0 - 1e-6);
+        CHECK(beside.objects[0].instances.front().instance_matrix[12] == Catch::Approx(100.0));
+
+        const orca::ImportedModels kept =
+            orca::paste_volumes(target, 0, 0, source.front(), {1}, true, k2_plus_profiles(), output_path("pasted-kept"));
+
+        REQUIRE(kept.status == orca::SceneStatus::success);
+        REQUIRE(kept.objects[0].parts.size() == 1);
+        for (std::size_t index = 0; index < 16; ++index) {
+            CHECK(kept.objects[0].parts[0].matrix[index] == Catch::Approx(part.matrix[index]).margin(1e-6));
+        }
+        CHECK(orca::paste_volumes(target, 0, 0, source.front(), {5}, false, k2_plus_profiles(), output_path("pasted-none")).status
+              != orca::SceneStatus::success);
+    }
+}
+
+TEST_CASE("A primitive joins the plate as an object of its own", "[Adapter][Copy]")
+{
+    require_engine();
+    SECTION("a cylinder a tenth of the bed wide, on the empty plate's centre, printing with filament 1")
+    {
+        const orca::ImportedModels added = orca::add_primitive({}, "Cylinder", "Cylinder", k2_plus_profiles(), output_path("primitive"));
+
+        INFO(added.message);
+        REQUIRE(added.status == orca::SceneStatus::success);
+        REQUIRE(added.objects.size() == 1);
+        const orca::ImportedObject& cylinder = added.objects.front();
+        CHECK(cylinder.name == "Cylinder");
+        CHECK(cylinder.volume_name == "Cylinder");
+        REQUIRE(cylinder.instances.size() == 1);
+        // 10% of the K2 Plus's 350 mm bed.
+        CHECK(cylinder.instances.front().size_x == Catch::Approx(35.0).margin(0.01));
+        CHECK(cylinder.instances.front().size_z == Catch::Approx(35.0).margin(0.01));
+        CHECK(cylinder.instances.front().instance_matrix[12] == Catch::Approx(175.0));
+        CHECK(cylinder.instances.front().instance_matrix[13] == Catch::Approx(175.0));
+        CHECK(cylinder.instances.front().box_center[2] == Catch::Approx(17.5).margin(0.01));
+        const auto extruder = std::find(cylinder.settings.keys.begin(), cylinder.settings.keys.end(), "extruder");
+        REQUIRE(extruder != cylinder.settings.keys.end());
+        CHECK(cylinder.settings.values[extruder - cylinder.settings.keys.begin()] == "1");
+    }
+    SECTION("an unknown shape is refused")
+    {
+        CHECK(orca::add_primitive({}, "Pyramid", "Pyramid", k2_plus_profiles(), output_path("pyramid")).status != orca::SceneStatus::success);
+    }
+}
+
+// The triangles of a binary STL file, as their corners.
+std::vector<std::array<float, 9>> stl_triangles(const std::string& path)
+{
+    const std::string data = read_file(path);
+    std::vector<std::array<float, 9>> triangles;
+    if (data.size() < 84) {
+        return triangles;
+    }
+    const std::uint32_t count = read_u32(data, 80);
+    for (std::uint32_t index = 0; index < count && 84 + (index + 1) * 50 <= data.size(); ++index) {
+        std::array<float, 9> corners{};
+        std::memcpy(corners.data(), data.data() + 84 + index * 50 + 12, sizeof(float) * 9);
+        triangles.push_back(corners);
+    }
+    return triangles;
+}
+
+TEST_CASE("Export as one STL or DRC writes the whole object", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("export.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+
+    SECTION("a cube as binary STL: its twelve triangles, 20 mm across")
+    {
+        const std::string path = output_path("export-cube.stl");
+        const orca::MeshExport exported = orca::export_object_mesh(plate, 0, orca::MeshFormat::stl, k2_plus_profiles(), path);
+
+        INFO(exported.message);
+        REQUIRE(exported.status == orca::SceneStatus::success);
+        CHECK(exported.warning.empty());
+        const auto triangles = stl_triangles(path);
+        REQUIRE(triangles.size() == 12);
+        float min_x = std::numeric_limits<float>::max();
+        float max_x = std::numeric_limits<float>::lowest();
+        float min_z = std::numeric_limits<float>::max();
+        float max_z = std::numeric_limits<float>::lowest();
+        for (const auto& corners : triangles) {
+            for (int corner = 0; corner < 3; ++corner) {
+                min_x = std::min(min_x, corners[corner * 3]);
+                max_x = std::max(max_x, corners[corner * 3]);
+                min_z = std::min(min_z, corners[corner * 3 + 2]);
+                max_z = std::max(max_z, corners[corner * 3 + 2]);
+            }
+        }
+        CHECK(max_x - min_x == Catch::Approx(20.0).margin(1e-4));
+        CHECK(max_z - min_z == Catch::Approx(20.0).margin(1e-4));
+    }
+    SECTION("a negative volume is taken out of the mesh")
+    {
+        std::vector<orca::PlateObject> holed = plate;
+        const orca::ModelInspection added =
+            orca::add_object_part(holed.front(), "Cylinder", orca::VolumeType::negative, k2_plus_profiles(), output_path("export-hole.mesh"));
+        REQUIRE(added.status == orca::SceneStatus::success);
+        orca::ObjectPart part;
+        part.shape = "Cylinder";
+        part.type = orca::VolumeType::negative;
+        part.matrix.assign(added.instance_matrix.begin(), added.instance_matrix.end());
+        holed.front().parts.push_back(through_hole(part));
+
+        const std::string path = output_path("export-holed.stl");
+        const orca::MeshExport exported = orca::export_object_mesh(holed, 0, orca::MeshFormat::stl, k2_plus_profiles(), path);
+
+        INFO(exported.message);
+        REQUIRE(exported.status == orca::SceneStatus::success);
+        CHECK(exported.warning.empty());
+        CHECK(stl_triangles(path).size() > 12);
+    }
+    SECTION("Draco: a file of the Draco format")
+    {
+        const std::string path = output_path("export-cube.drc");
+        const orca::MeshExport exported = orca::export_object_mesh(plate, 0, orca::MeshFormat::drc, k2_plus_profiles(), path);
+
+        INFO(exported.message);
+        REQUIRE(exported.status == orca::SceneStatus::success);
+        CHECK(read_file(path).rfind("DRACO", 0) == 0);
+    }
+    SECTION("an object the plate does not have is refused")
+    {
+        CHECK(orca::export_object_mesh(plate, 3, orca::MeshFormat::stl, k2_plus_profiles(), output_path("export-none.stl")).status
+              != orca::SceneStatus::success);
+    }
+}
+
+TEST_CASE("Replace 3D file gives a volume the mesh of another file", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("replace.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+
+    SECTION("the cube becomes the 2 x 20 x 10 mm block, the origins of both files together, on the plate")
+    {
+        const orca::ImportedModels replaced =
+            orca::replace_volume(plate, 0, 0, device_dir + "/data/2x20x10.obj", k2_plus_profiles(), import_prefix("replaced"));
+
+        INFO(replaced.message);
+        REQUIRE(replaced.status == orca::SceneStatus::success);
+        CHECK(replaced.notices.empty());
+        REQUIRE(replaced.objects.size() == 1);
+        const orca::ImportedObject& object = replaced.objects.front();
+        CHECK(object.parts.empty());
+        REQUIRE(object.instances.size() == 1);
+        CHECK(object.instances.front().size_x == Catch::Approx(2.0).margin(1e-4));
+        CHECK(object.instances.front().size_y == Catch::Approx(20.0).margin(1e-4));
+        CHECK(object.instances.front().size_z == Catch::Approx(10.0).margin(1e-4));
+        CHECK(object.instances.front().box_center[2] == Catch::Approx(5.0).margin(1e-4));
+        // The volume moves by the difference of the meshes' offsets
+        // (ModelVolume::source.mesh_offset): the block's corner is where the cube's was.
+        CHECK(object.instances.front().box_center[0] == Catch::Approx(cube.instance_matrix[12] - 10.0 + 1.0).margin(1e-4));
+        CHECK(object.instances.front().box_center[1] == Catch::Approx(cube.instance_matrix[13]).margin(1e-4));
+        // The object of one volume takes the name of the new volume.
+        CHECK(object.name == object.volume_name);
+    }
+    SECTION("a file that cannot be read changes nothing")
+    {
+        const orca::ImportedModels missing =
+            orca::replace_volume(plate, 0, 0, device_dir + "/data/missing.obj", k2_plus_profiles(), import_prefix("replace-missing"));
+        CHECK(missing.status != orca::SceneStatus::success);
+        CHECK(missing.objects.empty());
+    }
+    SECTION("a volume the object does not have is refused")
+    {
+        CHECK(orca::replace_volume(plate, 0, 2, device_dir + "/data/2x20x10.obj", k2_plus_profiles(), import_prefix("replace-none")).status
+              != orca::SceneStatus::success);
+    }
+}
+
+// The value of key among settings; empty when they do not set it.
+std::string setting_of(const orca::ModelSettings& settings, const std::string& key)
+{
+    const auto found = std::find(settings.keys.begin(), settings.keys.end(), key);
+    return found == settings.keys.end() ? std::string() : settings.values[found - settings.keys.begin()];
+}
+
+orca::ModelSettings settings_of(const std::vector<std::pair<std::string, std::string>>& entries)
+{
+    orca::ModelSettings settings;
+    for (const auto& [key, value] : entries) {
+        settings.keys.push_back(key);
+        settings.values.push_back(value);
+    }
+    return settings;
+}
+
+TEST_CASE("Paste Process Settings gives an item the settings copied from another", "[Adapter][Settings]")
+{
+    require_engine();
+    SECTION("an object takes every copied setting and keeps its filament")
+    {
+        const orca::PastedSettings pasted = orca::paste_model_settings(
+            settings_of({{"layer_height", "0.12"}, {"wall_loops", "4"}, {"extruder", "2"}}),
+            settings_of({{"extruder", "3"}, {"sparse_infill_density", "10%"}}),
+            false,
+            {});
+
+        INFO(pasted.message);
+        REQUIRE(pasted.status == orca::SceneStatus::success);
+        CHECK(pasted.settings.keys.size() == 3);
+        CHECK(setting_of(pasted.settings, "layer_height") == "0.12");
+        CHECK(setting_of(pasted.settings, "wall_loops") == "4");
+        CHECK(setting_of(pasted.settings, "extruder") == "3");
+        CHECK(setting_of(pasted.settings, "sparse_infill_density").empty());
+    }
+    SECTION("a part takes what differs from its object, none of the object's own options, and keeps its filament")
+    {
+        const orca::PastedSettings pasted = orca::paste_model_settings(
+            settings_of({{"layer_height", "0.11"}, {"wall_loops", "5"}, {"sparse_infill_density", "37%"}}),
+            settings_of({{"extruder", "2"}, {"bottom_shell_layers", "9"}}),
+            true,
+            settings_of({{"wall_loops", "5"}, {"top_shell_layers", "17"}}));
+
+        INFO(pasted.message);
+        REQUIRE(pasted.status == orca::SceneStatus::success);
+        CHECK(setting_of(pasted.settings, "sparse_infill_density") == "37%");
+        // The object has it already.
+        CHECK(setting_of(pasted.settings, "wall_loops").empty());
+        // An option of the object alone.
+        CHECK(setting_of(pasted.settings, "layer_height").empty());
+        // What the object sets and the clipboard does not goes back to the process preset.
+        CHECK_FALSE(setting_of(pasted.settings, "top_shell_layers").empty());
+        CHECK(setting_of(pasted.settings, "top_shell_layers") != "17");
+        CHECK(setting_of(pasted.settings, "bottom_shell_layers").empty());
+        CHECK(setting_of(pasted.settings, "extruder") == "2");
+    }
+    SECTION("an item without a filament of its own gets none")
+    {
+        const orca::PastedSettings pasted =
+            orca::paste_model_settings(settings_of({{"wall_loops", "3"}, {"extruder", "2"}}), {}, false, {});
+        REQUIRE(pasted.status == orca::SceneStatus::success);
+        CHECK(setting_of(pasted.settings, "extruder").empty());
+        CHECK(setting_of(pasted.settings, "wall_loops") == "3");
+    }
+}
+
+TEST_CASE("The menu's arrangement leaves the objects off the plate, and the bed fills with instances", "[Adapter][Copy]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("fill.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<double> centred = matrix_of(cube);
+
+    SECTION("arranging the plate from a menu keeps the cube off it where it is")
+    {
+        std::vector<orca::PlateObject> plate = plate_of({}, centred);
+        plate.push_back(plate.front());
+        plate[0].instances[0].matrix[12] = 20.0;
+        plate[1].instances[0].matrix[12] = 500.0;
+
+        const orca::PlateInspection menu = orca::place_objects(plate, {}, k2_plus_profiles(), orca::PlateManipulation::arrange_plate, {});
+        const orca::PlateInspection all = orca::place_objects(plate, {}, k2_plus_profiles(), orca::PlateManipulation::arrange, {});
+
+        INFO(menu.message);
+        REQUIRE(menu.status == orca::SceneStatus::success);
+        REQUIRE(all.status == orca::SceneStatus::success);
+        CHECK(menu.objects[0].instances[0].instance_matrix[12] == Catch::Approx(175.0).margin(1.0));
+        CHECK(menu.objects[1].instances[0].instance_matrix[12] == Catch::Approx(500.0));
+        CHECK(menu.objects[1].instances[0].volume_state == orca::VolumeState::outside);
+        CHECK(all.objects[1].instances[0].volume_state == orca::VolumeState::inside);
+    }
+    SECTION("fill bed adds copies of the cube, and none lies across the plate edge")
+    {
+        const orca::PlateInspection filled =
+            orca::place_objects(plate_of({}, centred), {true}, k2_plus_profiles(), orca::PlateManipulation::fill_bed, {}, -1);
+
+        INFO(filled.message);
+        REQUIRE(filled.status == orca::SceneStatus::success);
+        REQUIRE(filled.objects.size() == 1);
+        const auto& copies = filled.objects[0].instances;
+        INFO(copies.size() << " copies");
+        const auto inside = std::count_if(copies.begin(), copies.end(), [](const orca::ModelInspection& copy) {
+            return copy.volume_state == orca::VolumeState::inside;
+        });
+        CHECK(inside > 50);
+        CHECK(std::none_of(copies.begin(), copies.end(), [](const orca::ModelInspection& copy) {
+            return copy.volume_state == orca::VolumeState::partly_outside;
+        }));
+    }
+    SECTION("fill bed needs a selected object")
+    {
+        CHECK(orca::place_objects(plate_of({}, centred), {false}, k2_plus_profiles(), orca::PlateManipulation::fill_bed, {}, -1).status
+              != orca::SceneStatus::success);
+    }
 }
 
 TEST_CASE("An object added to the plate goes to its centre, or to the empty cell nearest to it", "[Adapter][Scene]")

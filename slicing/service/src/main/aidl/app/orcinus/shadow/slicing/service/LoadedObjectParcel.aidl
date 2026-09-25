@@ -1,6 +1,8 @@
 package app.orcinus.shadow.slicing.service;
 
 import app.orcinus.shadow.slicing.service.InspectionParcel;
+import app.orcinus.shadow.slicing.service.LayerRangeParcel;
+import app.orcinus.shadow.slicing.service.ObjectVolumeParcel;
 import app.orcinus.shadow.slicing.service.ModelSettingsParcel;
 import app.orcinus.shadow.slicing.service.ObjectPartParcel;
 
@@ -12,8 +14,11 @@ parcelable LoadedObjectParcel {
     double[] frame;
     ObjectPartParcel[] parts;
     ModelSettingsParcel settings;
-    /** ModelVolume::name and config of its own mesh. */
-    String volumeName;
-    ModelSettingsParcel volumeSettings;
+    ObjectVolumeParcel volume;
     InspectionParcel[] instances;
+    /** ModelInstance::auto_drop and printable of every copy. */
+    boolean[] autoDrops;
+    boolean[] printables;
+    @nullable String painted;
+    @nullable LayerRangeParcel[] layerRanges;
 }

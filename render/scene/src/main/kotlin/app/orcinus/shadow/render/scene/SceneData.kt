@@ -105,11 +105,16 @@ internal class SceneObject(
      * surface: they are drawn with a depth bias so the paint wins over it.
      */
     val overlay: Boolean = false,
+    /** GLGizmoSimplify's "Show wireframe": the edges of its triangles are drawn over it. */
+    val wireframe: Boolean = false,
 ) {
     val bounds = mesh.bounds.transformed(world)
 
     fun withWorld(world: Affine3) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay)
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe)
+
+    fun withWireframe(wireframe: Boolean) =
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe)
 
     /** The bounding sphere's centre in world coordinates. */
     fun sphereCenter(): Vec3 = world.transformPoint(sphereCenter)

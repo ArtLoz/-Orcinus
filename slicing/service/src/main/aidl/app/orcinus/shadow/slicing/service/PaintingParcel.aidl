@@ -11,4 +11,7 @@ parcelable PaintingParcel {
     @nullable String[] meshes;
     /** The painted facets, reported when the tool closes. */
     @nullable String facets;
+    /** Whether the tool can undo or redo a stroke. */
+    boolean canUndo;
+    boolean canRedo;
 }

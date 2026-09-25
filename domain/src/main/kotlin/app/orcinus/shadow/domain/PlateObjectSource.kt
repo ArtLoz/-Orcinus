@@ -27,5 +27,9 @@ internal fun PlateObject.placed() = PlacedModel(
     layerRanges = layerRanges,
     painted = painted,
     frame = (this as? PlateObject.ImportedModel)?.frame,
-    volumeSettings = volume.settings,
+    volume = volume,
+    name = when (this) {
+        is PlateObject.ImportedModel -> file.displayName
+        is PlateObject.CalibrationCube -> name.orEmpty()
+    },
 )

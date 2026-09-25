@@ -18,8 +18,9 @@ data object PrepareNavKey : NavKey
 fun EntryProviderScope<NavKey>.prepareEntry(
     createViewModel: () -> PrepareViewModel,
     onSliceRequested: () -> Unit,
+    onOpenSidebar: () -> Unit = {},
 ) {
     entry<PrepareNavKey> {
-        PrepareRoute(viewModel = viewModel { createViewModel() }, onSliceRequested = onSliceRequested)
+        PrepareRoute(viewModel = viewModel { createViewModel() }, onSliceRequested = onSliceRequested, onOpenSidebar = onOpenSidebar)
     }
 }

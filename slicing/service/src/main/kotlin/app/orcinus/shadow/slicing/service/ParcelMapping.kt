@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
@@ -21,6 +22,7 @@ import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
@@ -60,6 +62,7 @@ import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 
 // Both processes run the same APK, so enum names are a safe wire format.
@@ -138,17 +141,43 @@ internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(siz
         parcel.parts = Array(placed.parts.size) { placed.parts[it].toParcel() }
         parcel.painted = placed.painted.value.takeUnless(String::isEmpty)
         parcel.frame = placed.frame?.columns?.toDoubleArray()
-        parcel.volumeSettings = placed.volumeSettings.toParcel()
-        parcel.layerRanges = Array(placed.layerRanges.size) { at ->
-            val range = placed.layerRanges[at]
-            LayerRangeParcel().also {
-                it.bottom = range.bottom
-                it.top = range.top
-                it.settings = range.settings.toParcel()
-            }
-        }
+        parcel.volume = placed.volume.toParcel()
+        parcel.name = placed.name
+        parcel.layerRanges = placed.layerRanges.toParcels()
     }
 }
+
+private fun List<LayerRange>.toParcels(): Array<LayerRangeParcel> = Array(size) { at ->
+    val range = this[at]
+    LayerRangeParcel().also {
+        it.bottom = range.bottom
+        it.top = range.top
+        it.settings = range.settings.toParcel()
+    }
+}
+
+private fun Array<LayerRangeParcel>?.toLayerRanges(): List<LayerRange> =
+    orEmpty().map { LayerRange(bottom = it.bottom, top = it.top, settings = it.settings.toModelSettings()) }
+
+private fun ObjectVolume.toParcel() = ObjectVolumeParcel().also {
+    it.name = name
+    it.settings = settings.toParcel()
+    it.splittable = splittable
+    it.convertedFromInches = convertedFromInches
+    it.convertedFromMeters = convertedFromMeters
+    it.inputFile = inputFile
+}
+
+private fun ObjectVolumeParcel?.toObjectVolume(): ObjectVolume = this?.let {
+    ObjectVolume(
+        name = it.name.orEmpty(),
+        settings = it.settings.toModelSettings(),
+        splittable = it.splittable,
+        convertedFromInches = it.convertedFromInches,
+        convertedFromMeters = it.convertedFromMeters,
+        inputFile = it.inputFile.orEmpty(),
+    )
+} ?: ObjectVolume()
 
 internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map { parcel ->
     PlacedModel(
@@ -159,12 +188,11 @@ internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map 
         },
         settings = parcel.settings.toModelSettings(),
         parts = parcel.parts.orEmpty().map { it.toObjectPart() },
-        layerRanges = parcel.layerRanges.orEmpty().map {
-            LayerRange(bottom = it.bottom, top = it.top, settings = it.settings.toModelSettings())
-        },
+        layerRanges = parcel.layerRanges.toLayerRanges(),
         painted = PaintedFacets(parcel.painted.orEmpty()),
         frame = parcel.frame?.let { Transform3(it.toList()) },
-        volumeSettings = parcel.volumeSettings.toModelSettings(),
+        volume = parcel.volume.toObjectVolume(),
+        name = parcel.name.orEmpty(),
     )
 }
 
@@ -177,6 +205,10 @@ private fun ObjectPart.toParcel() = ObjectPartParcel().also {
     it.painted = painted.value.takeUnless(String::isEmpty)
     it.source = source?.value
     it.name = name
+    it.splittable = splittable
+    it.convertedFromInches = convertedFromInches
+    it.convertedFromMeters = convertedFromMeters
+    it.inputFile = inputFile
 }
 
 private fun ObjectPartParcel.toObjectPart() = ObjectPart(
@@ -188,10 +220,16 @@ private fun ObjectPartParcel.toObjectPart() = ObjectPart(
     painted = PaintedFacets(painted.orEmpty()),
     source = source?.let(::ModelPath),
     name = name.orEmpty(),
+    splittable = splittable,
+    convertedFromInches = convertedFromInches,
+    convertedFromMeters = convertedFromMeters,
+    inputFile = inputFile.orEmpty(),
 )
 
 internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.notices = notices.map { dialog -> dialog.toParcel() }.toTypedArray()
+    it.appended = this is ModelLoadOutcome.Success && appended
+    it.selectedVolume = (this as? ModelLoadOutcome.Success)?.selectedVolume ?: -1
     when (this) {
         is ModelLoadOutcome.Failure -> it.error = message
         is ModelLoadOutcome.Question -> it.question = question.toParcel()
@@ -202,9 +240,12 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
                 parcel.frame = loaded.frame.columns.toDoubleArray()
                 parcel.parts = loaded.parts.map { part -> part.toParcel() }.toTypedArray()
                 parcel.settings = loaded.settings.toParcel()
-                parcel.volumeName = loaded.volume.name
-                parcel.volumeSettings = loaded.volume.settings.toParcel()
-                parcel.instances = loaded.instances.map { instance -> ModelInspectionOutcome.Success(instance).toParcel() }.toTypedArray()
+                parcel.volume = loaded.volume.toParcel()
+                parcel.instances = loaded.instances.map { instance -> ModelInspectionOutcome.Success(instance.inspection).toParcel() }.toTypedArray()
+                parcel.autoDrops = loaded.instances.map(PlateInstance::autoDrop).toBooleanArray()
+                parcel.printables = loaded.instances.map(PlateInstance::printable).toBooleanArray()
+                parcel.painted = loaded.painted.value.takeUnless(String::isEmpty)
+                parcel.layerRanges = loaded.layerRanges.toParcels()
             }
         }.toTypedArray()
     }
@@ -222,11 +263,21 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
                 frame = Transform3(parcel.frame.toList()),
                 parts = parcel.parts.orEmpty().map { it.toObjectPart() },
                 settings = parcel.settings.toModelSettings(),
-                volume = ObjectVolume(parcel.volumeName.orEmpty(), parcel.volumeSettings.toModelSettings()),
-                instances = parcel.instances.orEmpty().map { it.toInspection() },
+                volume = parcel.volume.toObjectVolume(),
+                instances = parcel.instances.orEmpty().mapIndexed { index, instance ->
+                    PlateInstance(
+                        instance.toInspection(),
+                        autoDrop = parcel.autoDrops?.getOrNull(index) ?: true,
+                        printable = parcel.printables?.getOrNull(index) ?: true,
+                    )
+                },
+                painted = PaintedFacets(parcel.painted.orEmpty()),
+                layerRanges = parcel.layerRanges.toLayerRanges(),
             )
         },
         shown,
+        appended,
+        selectedVolume.takeIf { it >= 0 },
     )
 }
 
@@ -307,6 +358,7 @@ internal fun ModelInspectionOutcome.toParcel() = InspectionParcel().also {
         is ModelInspectionOutcome.Failure -> it.error = message
         is ModelInspectionOutcome.Success -> {
             it.facetCount = inspection.facetCount
+            it.openEdges = inspection.openEdges
             it.widthMillimeters = inspection.dimensions.widthMillimeters
             it.depthMillimeters = inspection.dimensions.depthMillimeters
             it.heightMillimeters = inspection.dimensions.heightMillimeters
@@ -331,6 +383,7 @@ internal fun InspectionParcel.toInspectionOutcome(): ModelInspectionOutcome {
 
 private fun InspectionParcel.toInspection() = ModelInspection(
     facetCount = facetCount,
+    openEdges = openEdges,
     dimensions = ModelDimensions(widthMillimeters, depthMillimeters, heightMillimeters),
     boxCenter = checkNotNull(boxCenter).toVector(),
     mesh = ScenePath(checkNotNull(meshPath)),
@@ -395,6 +448,8 @@ internal fun PaintingOutcome.toParcel() = PaintingParcel().also {
             it.filaments = filaments.toIntArray()
             it.meshes = meshes.map(ScenePath::value).toTypedArray()
             it.facets = facets.value
+            it.canUndo = canUndo
+            it.canRedo = canRedo
         }
     }
 }
@@ -406,6 +461,8 @@ internal fun PaintingParcel.toOutcome(): PaintingOutcome = error?.let(PaintingOu
             filaments = filaments?.toList().orEmpty(),
             meshes = meshes?.map(::ScenePath).orEmpty(),
             facets = PaintedFacets(facets.orEmpty()),
+            canUndo = canUndo,
+            canRedo = canRedo,
         ),
     )
 
@@ -422,6 +479,8 @@ internal fun WipeTowerOutcome.toParcel() = WipeTowerParcel().also {
             it.rotation = rotation
             it.brimWidth = brimWidth
             it.filaments = filaments.toIntArray()
+            it.primeTower = primeTower
+            it.flushInto = flushInto.map(FlushOption::name).toTypedArray()
         }
     }
 }
@@ -438,6 +497,8 @@ internal fun WipeTowerParcel.toOutcome(): WipeTowerOutcome = error?.let(WipeTowe
             rotation = rotation,
             brimWidth = brimWidth,
             filaments = filaments?.toList().orEmpty(),
+            primeTower = primeTower,
+            flushInto = flushInto.orEmpty().mapNotNullTo(mutableSetOf()) { name -> FlushOption.entries.firstOrNull { it.name == name } },
         ),
     )
 
@@ -497,6 +558,9 @@ internal fun Manipulation.parcelName(): String = when (this) {
     Manipulation.ResetRotation -> "ResetRotation"
     is Manipulation.LayOnFace -> "LayOnFace"
     Manipulation.EnsureOnBed -> "EnsureOnBed"
+    is Manipulation.Mirror -> "Mirror${axis.name}"
+    Manipulation.Center -> "Center"
+    Manipulation.Drop -> "Drop"
 }
 
 internal fun Manipulation.parcelFaceNormal(): DoubleArray? = (this as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) }
@@ -508,6 +572,11 @@ internal fun manipulationOf(name: String, faceNormal: DoubleArray?): Manipulatio
     "ResetRotation" -> Manipulation.ResetRotation
     "LayOnFace" -> Manipulation.LayOnFace(checkNotNull(faceNormal).toVector())
     "EnsureOnBed" -> Manipulation.EnsureOnBed
+    "MirrorX" -> Manipulation.Mirror(Axis.X)
+    "MirrorY" -> Manipulation.Mirror(Axis.Y)
+    "MirrorZ" -> Manipulation.Mirror(Axis.Z)
+    "Center" -> Manipulation.Center
+    "Drop" -> Manipulation.Drop
     else -> error("Unknown manipulation $name")
 }
 
@@ -515,12 +584,24 @@ internal fun PlateManipulation.parcelName(): String = when (this) {
     is PlateManipulation.AutoOrient -> "AutoOrient"
     is PlateManipulation.Arrange -> "Arrange"
     PlateManipulation.UpdatePrintVolume -> "UpdatePrintVolume"
+    is PlateManipulation.ArrangePlate -> "ArrangePlate"
+    is PlateManipulation.FillBed -> "FillBed"
 }
 
-internal fun PlateManipulation.parcelSelected(): Array<String> =
-    (this as? PlateManipulation.AutoOrient)?.selected.orEmpty().map(ScenePath::value).toTypedArray()
+internal fun PlateManipulation.parcelSelected(): Array<String> = when (this) {
+    is PlateManipulation.AutoOrient -> selected.map(ScenePath::value).toTypedArray()
+    is PlateManipulation.FillBed -> arrayOf(mesh.value)
+    else -> emptyArray()
+}
 
-internal fun PlateManipulation.parcelArrangeSettings(): ArrangeSettingsParcel? = (this as? PlateManipulation.Arrange)?.settings?.let { settings ->
+internal fun PlateManipulation.parcelInstance(): Int = (this as? PlateManipulation.FillBed)?.instance ?: -1
+
+internal fun PlateManipulation.parcelArrangeSettings(): ArrangeSettingsParcel? = when (this) {
+    is PlateManipulation.Arrange -> settings
+    is PlateManipulation.ArrangePlate -> settings
+    is PlateManipulation.FillBed -> settings
+    else -> null
+}?.let { settings ->
     ArrangeSettingsParcel().also {
         it.distance = settings.distance
         it.enableRotation = settings.enableRotation
@@ -529,13 +610,23 @@ internal fun PlateManipulation.parcelArrangeSettings(): ArrangeSettingsParcel? =
     }
 }
 
-internal fun plateManipulationOf(name: String, selected: Array<String>, arrange: ArrangeSettingsParcel?): PlateManipulation = when (name) {
-    "AutoOrient" -> PlateManipulation.AutoOrient(selected.mapTo(LinkedHashSet(), ::ScenePath))
-    "Arrange" -> checkNotNull(arrange).let {
-        PlateManipulation.Arrange(ArrangeSettings(it.distance, it.enableRotation, it.allowMultiMaterialsOnSamePlate, it.alignToYAxis))
+internal fun plateManipulationOf(
+    name: String,
+    selected: Array<String>,
+    arrange: ArrangeSettingsParcel?,
+    instance: Int,
+): PlateManipulation {
+    fun settings() = checkNotNull(arrange).let {
+        ArrangeSettings(it.distance, it.enableRotation, it.allowMultiMaterialsOnSamePlate, it.alignToYAxis)
     }
-    "UpdatePrintVolume" -> PlateManipulation.UpdatePrintVolume
-    else -> error("Unknown manipulation $name")
+    return when (name) {
+        "AutoOrient" -> PlateManipulation.AutoOrient(selected.mapTo(LinkedHashSet(), ::ScenePath))
+        "Arrange" -> PlateManipulation.Arrange(settings())
+        "UpdatePrintVolume" -> PlateManipulation.UpdatePrintVolume
+        "ArrangePlate" -> PlateManipulation.ArrangePlate(settings())
+        "FillBed" -> PlateManipulation.FillBed(ScenePath(selected.single()), instance.takeIf { it >= 0 }, settings())
+        else -> error("Unknown manipulation $name")
+    }
 }
 
 internal fun PresetsOutcome.toParcel() = PresetsParcel().also { parcel ->

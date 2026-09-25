@@ -89,6 +89,8 @@ data class ModelInspection(
     val rotationDegrees: Vector3,
     /** Size of the bounding box without the instance scaling, which scale ratios refer to. */
     val unscaledDimensions: ModelDimensions,
+    /** ModelObject::get_object_stl_stats().open_edges: edges of its meshes that bound one triangle only. */
+    val openEdges: Long = 0,
 ) {
     init {
         require(facetCount > 0) { "A valid model must contain facets" }
@@ -145,8 +147,10 @@ data class PlacedModel(
     val painted: PaintedFacets = PaintedFacets(),
     /** Where the model's own mesh stands in the object; null centres it around the origin. */
     val frame: Transform3? = null,
-    /** The settings of the model's own mesh (its first ModelVolume). */
-    val volumeSettings: ModelSettings = ModelSettings(),
+    /** The model's own mesh as a volume (its first ModelVolume): its settings and units. */
+    val volume: ObjectVolume = ObjectVolume(),
+    /** ModelObject::name; empty keeps the name the engine gives the model. */
+    val name: String = "",
 )
 
 /**
@@ -165,14 +169,72 @@ data class LoadedObject(
     /** The name and settings the file gave its own mesh. */
     val volume: ObjectVolume,
     /** Every copy as it stands; the mesh is the object's own mesh for the 3D view. */
-    val instances: List<ModelInspection>,
+    val instances: List<PlateInstance>,
+    /** The facets of its own mesh painted with the filaments of the plate. */
+    val painted: PaintedFacets = PaintedFacets(),
+    val layerRanges: List<LayerRange> = emptyList(),
 )
+
+/** The file formats "Export as one STL" and "Export as one DRC" write. */
+/**
+ * GLGizmoSimplify::Configuration: how far a mesh is decimated, down to
+ * [wantedCount] triangles with [useCount], or as far as a collapsed edge
+ * keeps within [maxError] (the detail level) without it. [decimateRatio] is
+ * the percentage of triangles taken out, which the window shows; a negative
+ * [wantedCount] takes that percentage of the volume's triangles away.
+ */
+data class SimplifyConfig(
+    val useCount: Boolean = false,
+    val decimateRatio: Float = 50f,
+    val wantedCount: Int = -1,
+    val maxError: Float = 1f,
+) {
+    /** Configuration::fix_count_by_ratio() */
+    fun withCountByRatio(triangleCount: Long): SimplifyConfig = copy(
+        wantedCount = when {
+            decimateRatio <= 0f -> triangleCount.toInt()
+            decimateRatio >= 100f -> 0
+            else -> Math.round(triangleCount * (100f - decimateRatio) / 100f)
+        },
+    )
+}
+
+sealed interface SimplifyOutcome {
+    /** The decimated mesh has [triangles] triangles, written for the 3D view; the volume has [original]. */
+    data class Success(val triangles: Long, val original: Long) : SimplifyOutcome
+
+    data class Failure(val message: String) : SimplifyOutcome
+}
+
+enum class MeshFormat(val extension: String) {
+    STL("stl"),
+    DRC("drc"),
+}
+
+sealed interface MeshExportOutcome {
+    /** Written; [warning] is OrcaSlicer's notification when the negative volumes could not be taken out. */
+    data class Success(val warning: String? = null) : MeshExportOutcome
+
+    data class Failure(val message: String) : MeshExportOutcome
+}
 
 sealed interface ModelLoadOutcome {
     /** The message boxes the load showed; they informed only. */
     val notices: List<SettingsDialog>
 
-    data class Success(val objects: List<LoadedObject>, override val notices: List<SettingsDialog>) : ModelLoadOutcome
+    /**
+     * The objects that came of the load or the edit; none when an edit changed
+     * nothing. [appended] objects join the end of the plate's list, and an
+     * edited object leaves it (load_model_objects); otherwise the one edited
+     * object takes the place of the one it was.
+     */
+    data class Success(
+        val objects: List<LoadedObject>,
+        override val notices: List<SettingsDialog>,
+        val appended: Boolean = false,
+        /** The volume of the edited object the object list selects afterwards (ModelObject::volumes). */
+        val selectedVolume: Int? = null,
+    ) : ModelLoadOutcome
 
     /** The load asks [question] before it adds anything; it is requested again with the answer. */
     data class Question(val question: SettingsDialog, override val notices: List<SettingsDialog>) : ModelLoadOutcome

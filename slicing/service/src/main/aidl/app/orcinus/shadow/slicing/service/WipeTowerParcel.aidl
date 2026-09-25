@@ -13,4 +13,7 @@ parcelable WipeTowerParcel {
     double brimWidth;
     /** The filaments printed on the plate, 1-based. */
     @nullable int[] filaments;
+    boolean primeTower;
+    /** The names of the FlushOption entries the process preset enables. */
+    @nullable String[] flushInto;
 }

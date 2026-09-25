@@ -15,7 +15,9 @@ import app.orcinus.shadow.storage.api.SceneFiles
  * screen: the tool opens on the object the user picked, every drag of a finger
  * paints a stroke, and closing it keeps the painted facets with the object, so
  * the plate is sliced with them. The engine holds the painted mesh while the
- * tool is open, as the desktop gizmo holds its selectors.
+ * tool is open, as the desktop gizmo holds its selectors. The plate before the
+ * tool opened is kept (UndoRedo's EnteringGizmo), and the painting is one step
+ * of Undo once the tool leaves the object painted otherwise.
  */
 class PaintObjectUseCase(
     private val inspector: PlateInspector,
@@ -39,6 +41,7 @@ class PaintObjectUseCase(
         if (outcome is PaintingOutcome.Success) {
             meshPrefix = prefix
             painting = mesh
+            repository.update { it.copy(history = it.history.copy(beforeTool = it.snapshot())) }
             show(mesh, outcome)
         }
         return outcome
@@ -55,6 +58,21 @@ class PaintObjectUseCase(
         return outcome
     }
 
+    /** The tool's own Undo and Redo of a stroke (the gizmo's undo/redo stack). */
+    suspend fun undo(): PaintingOutcome = step { prefix -> inspector.undoPainting(prefix) }
+
+    suspend fun redo(): PaintingOutcome = step { prefix -> inspector.redoPainting(prefix) }
+
+    private suspend fun step(action: suspend (ScenePath) -> PaintingOutcome): PaintingOutcome {
+        val prefix = meshPrefix ?: return PaintingOutcome.Failure("The painting tool is not open")
+        val outcome = action(prefix)
+        val mesh = painting
+        if (outcome is PaintingOutcome.Success && mesh != null) {
+            show(mesh, outcome)
+        }
+        return outcome
+    }
+
     /**
      * Closes the tool: the painted facets are kept with the object, which the
      * slicer then prints with, and G-code sliced before no longer applies.
@@ -64,12 +82,15 @@ class PaintObjectUseCase(
         val outcome = inspector.endPainting()
         meshPrefix = null
         painting = null
-        if (outcome is PaintingOutcome.Success) {
-            repository.update { state ->
-                val target = state.objects.firstOrNull { it.mesh == mesh } ?: return@update state
-                val painted = target.withPainted(outcome.surface.facets, target.paintedMeshes)
-                state.copy(objects = state.objects.map { if (it.mesh == mesh) painted else it }, result = null)
-            }
+        repository.update { state ->
+            val before = state.history.beforeTool
+            val closed = state.copy(history = state.history.copy(beforeTool = null))
+            val target = state.objects.firstOrNull { it.mesh == mesh }
+            // LeavingGizmoNoAction: nothing painted, nothing to undo.
+            if (outcome !is PaintingOutcome.Success || target == null || outcome.surface.facets == target.painted) return@update closed
+            val painted = target.withPainted(outcome.surface.facets, target.paintedMeshes)
+            (if (before != null) closed.recorded(before) else closed)
+                .copy(objects = state.objects.map { if (it.mesh == mesh) painted else it }, result = null)
         }
         return outcome
     }

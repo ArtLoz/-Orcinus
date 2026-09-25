@@ -40,7 +40,22 @@ sealed interface Manipulation {
 
     /** ObjectList::toggle_auto_drop() turning auto drop on: ModelObject::ensure_on_bed(). */
     data object EnsureOnBed : Manipulation
+
+    /**
+     * GLCanvas3D::mirror_selection(): the copy mirrored along [axis] about the
+     * centre of its bounding box, then resting on the plate as after a rotation.
+     */
+    data class Mirror(val axis: Axis) : Manipulation
+
+    /** Selection::center(): the copy over the centre of the plate. */
+    data object Center : Manipulation
+
+    /** Selection::drop(): the copy down or up to the plate, whether it drops by itself or not. */
+    data object Drop : Manipulation
 }
+
+/** Slic3r::Axis. */
+enum class Axis { X, Y, Z }
 
 /** How OrcaSlicer's jobs place several objects of the plate at once. */
 sealed interface PlateManipulation {
@@ -59,6 +74,33 @@ sealed interface PlateManipulation {
      * it is, and whether it fits is judged against that printer's build volume.
      */
     data object UpdatePrintVolume : PlateManipulation
+
+    /**
+     * ArrangeJob from a menu (prepare_partplate), as the clone dialog starts it:
+     * the copies on the plate or over its edge arranged with [settings]; the
+     * ones off it stay where they are.
+     */
+    data class ArrangePlate(val settings: ArrangeSettings) : PlateManipulation
+
+    /**
+     * FillBedJob with instances ("Fill bed with instances"): copies of the
+     * object with the [mesh] file, modelled on its copy [instance] (null for the
+     * whole object), added while the free area of the plate holds more; then
+     * the plate arranged as [ArrangePlate] arranges it.
+     */
+    data class FillBed(val mesh: ScenePath, val instance: Int?, val settings: ArrangeSettings) : PlateManipulation
+}
+
+/** Where copied objects go (CopyPlacement in the engine). */
+enum class CopyPlacement {
+    /** Selection::copy_to_clipboard(), ObjectList::instances_to_separated_object(): where their sources stand. */
+    KEEP,
+
+    /**
+     * Selection::paste_objects_from_clipboard(): the empty cell of the plate
+     * nearest to each source, several sources keeping their layout.
+     */
+    PASTE,
 }
 
 /** OrcaSlicer's arrange options (GLCanvas3D::ArrangeSettings), with its defaults. */
@@ -167,7 +209,29 @@ data class WipeTower(
     val brimWidth: Double = 0.0,
     /** The filaments printed on the plate, 1-based: the tower is striped with their colours. */
     val filaments: List<Int> = emptyList(),
+    /** enable_prime_tower of the edited process preset, which the object menu's Flush Options need. */
+    val primeTower: Boolean = false,
+    /** The flush options the edited process preset enables, which an object follows unless it sets them. */
+    val flushInto: Set<FlushOption> = emptySet(),
 )
+
+/**
+ * The object menu's Flush Options (MenuFactory::append_menu_items_flush_options,
+ * FREQ_SETTINGS_BUNDLE_FFF["Flush options"]): where the filament flushed at a
+ * change goes besides the wipe tower, with the option's key and its menu text.
+ */
+enum class FlushOption(val key: String, val label: String) {
+    INFILL("flush_into_infill", "Flush into objects' infill"),
+    OBJECTS("flush_into_objects", "Flush into this object"),
+    SUPPORT("flush_into_support", "Flush into objects' support"),
+}
+
+/**
+ * Whether the object flushes into [option]: the value it sets itself, or the
+ * process preset's ([process]) when it sets none, as the desktop menu reads it.
+ */
+fun PlateObject.flushesInto(option: FlushOption, process: Set<FlushOption>): Boolean =
+    settings.values[option.key]?.let { it == "1" || it.equals("true", ignoreCase = true) } ?: (option in process)
 
 /**
  * The flushing volumes of the plate (WipingDialog): how much filament goes into
@@ -261,6 +325,8 @@ data class PaintStroke(
     val tool: PaintTool = PaintTool.BRUSH,
     /** The angle the fills keep to (m_smart_fill_angle), in degrees. */
     val angle: Double = 30.0,
+    /** The first touch of a stroke, before which the tool keeps what its Undo returns to. */
+    val startsStroke: Boolean = false,
 )
 
 /** What the painting tool shows after a stroke. */
@@ -273,6 +339,9 @@ data class PaintedSurface(
     val meshes: List<ScenePath> = emptyList(),
     /** The painted facets, reported when the tool closes. */
     val facets: PaintedFacets = PaintedFacets(),
+    /** Whether the tool can undo or redo a stroke (the gizmo's own undo/redo stack). */
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
 )
 
 sealed interface PaintingOutcome {

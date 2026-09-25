@@ -464,6 +464,68 @@ PresetSettings describe_settings(const PresetKind kind, const std::string& page,
     return with_tab(kind, page, answers, model, nullptr);
 }
 
+PastedSettings paste_model_settings(const ModelSettings& clipboard, const ModelSettings& target, const bool part, const ModelSettings& object)
+{
+    PastedSettings result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        follow_config(engine());
+        // wxGetApp().get_tab(Preset::TYPE_PRINT)->get_config()
+        const Slic3r::DynamicPrintConfig& print = engine().bundle->prints.get_edited_preset().config;
+        const Slic3r::DynamicPrintConfig config_cache = model_config(clipboard);
+        Slic3r::DynamicPrintConfig config = model_config(target);
+
+        auto keys = config_cache.keys();
+        // SettingsFactory::get_options(true)
+        const std::vector<std::string> part_options = Slic3r::PrintRegionConfig().keys();
+        std::unique_ptr<Slic3r::ConfigOption> extruder(config.option("extruder") ? config.option("extruder")->clone() : nullptr);
+        config.clear();
+
+        if (part) {
+            const Slic3r::DynamicPrintConfig object_config = model_config(object);
+            Slic3r::DynamicPrintConfig compared;
+            compared.apply_only(print, keys);
+            compared.apply_only(object_config, keys);
+            const auto equals = compared.equal(config_cache);
+            Slic3r::t_config_option_keys global_keys;
+            auto keys2 = object_config.keys();
+            std::copy_if(keys2.begin(), keys2.end(), std::back_inserter(global_keys),
+                         [&equals](auto& e) { return std::find(equals.begin(), equals.end(), e) == equals.end(); });
+            keys.erase(std::remove_if(keys.begin(), keys.end(),
+                         [&equals](auto& e) { return std::find(equals.begin(), equals.end(), e) != equals.end(); }), keys.end());
+            config.apply_only(print, global_keys);
+        }
+
+        for (const std::string& opt_key : keys) {
+            if (part && std::find(part_options.begin(), part_options.end(), opt_key) == part_options.end())
+                continue; // we can't to add object specific options for the part's(itVolume | itLayer) config
+
+            const Slic3r::ConfigOption* option = config_cache.option(opt_key);
+            if (option)
+                config.set_key_value(opt_key, option->clone());
+        }
+        if (extruder)
+            config.set_key_value("extruder", extruder.release());
+        else
+            config.erase("extruder");
+
+        for (const std::string& key : config.keys()) {
+            result.settings.keys.push_back(key);
+            result.settings.values.push_back(config.opt_serialize(key));
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::profile_not_found;
+        result.message = error.what();
+        return result;
+    }
+}
+
 PresetSettings change_setting(const PresetKind kind, const std::string& page, const std::string& id, const std::string& text,
                               const DialogAnswers& answers, const ModelSettingsRequest& model)
 {

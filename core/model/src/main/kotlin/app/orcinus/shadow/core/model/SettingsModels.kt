@@ -42,6 +42,12 @@ value class ModelSettings(val values: Map<String, String> = emptyMap()) {
     val extruderNumber: Int get() = values["extruder"]?.toIntOrNull() ?: 0
 }
 
+sealed interface ModelSettingsOutcome {
+    data class Success(val settings: ModelSettings) : ModelSettingsOutcome
+
+    data class Failure(val message: String) : ModelSettingsOutcome
+}
+
 /**
  * What a request of an object's or the plate's settings carries, since the
  * engine keeps no plate of its own: the overrides of the object or plate the

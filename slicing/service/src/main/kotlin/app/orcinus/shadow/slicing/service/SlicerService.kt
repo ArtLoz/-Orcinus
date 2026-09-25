@@ -12,11 +12,18 @@ import app.orcinus.shadow.core.model.BedShapeKind
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
+import app.orcinus.shadow.core.model.CopyPlacement
+import app.orcinus.shadow.core.model.MeshExportOutcome
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.SimplifyOutcome
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.ModelSettingsOutcome
+import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FlushVolumesChange
-import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PaintedFacets
@@ -114,6 +121,170 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             engine.load(ModelPath(source), profiles.toProfiles(), plate.toPlacedModels(), ScenePath(prefix), answerIds.zip(answers.toList()).toMap())
         }.toParcel()
 
+        override fun edit(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            edit: String,
+            volume: Int,
+            profiles: ProfilesParcel,
+            prefix: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): ModelLoadParcel = runBlocking {
+            engine.edit(
+                plate.toPlacedModels(),
+                index,
+                ObjectEdit.valueOf(edit),
+                volume.takeIf { it >= 0 },
+                profiles.toProfiles(),
+                ScenePath(prefix),
+                answerIds.zip(answers.toList()).toMap(),
+            )
+        }.toParcel()
+
+        override fun exportMesh(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            format: String,
+            profiles: ProfilesParcel,
+            path: String,
+        ): MeshExportParcel = runBlocking {
+            engine.exportMesh(plate.toPlacedModels(), index, MeshFormat.valueOf(format), profiles.toProfiles(), ScenePath(path))
+        }.let { outcome ->
+            MeshExportParcel().also {
+                when (outcome) {
+                    is MeshExportOutcome.Failure -> it.error = outcome.message
+                    is MeshExportOutcome.Success -> it.warning = outcome.warning
+                }
+            }
+        }
+
+        override fun simplifyVolume(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volume: Int,
+            useCount: Boolean,
+            wantedCount: Int,
+            decimateRatio: Float,
+            maxError: Float,
+            profiles: ProfilesParcel,
+            path: String,
+        ): SimplifyParcel = runBlocking {
+            engine.simplifyVolume(
+                plate.toPlacedModels(),
+                index,
+                volume,
+                SimplifyConfig(useCount, decimateRatio, wantedCount, maxError),
+                profiles.toProfiles(),
+                ScenePath(path),
+            )
+        }.let { outcome ->
+            SimplifyParcel().also {
+                when (outcome) {
+                    is SimplifyOutcome.Failure -> it.error = outcome.message
+                    is SimplifyOutcome.Success -> {
+                        it.triangles = outcome.triangles
+                        it.original = outcome.original
+                    }
+                }
+            }
+        }
+
+        override fun setVolumeType(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volume: Int,
+            type: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.setVolumeType(plate.toPlacedModels(), index, volume, VolumeType.valueOf(type), profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun applySimplify(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volume: Int,
+            useCount: Boolean,
+            wantedCount: Int,
+            decimateRatio: Float,
+            maxError: Float,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.applySimplify(
+                plate.toPlacedModels(),
+                index,
+                volume,
+                SimplifyConfig(useCount, decimateRatio, wantedCount, maxError),
+                profiles.toProfiles(),
+                ScenePath(prefix),
+            )
+        }.toParcel()
+
+        override fun replaceVolume(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volume: Int,
+            source: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.replaceVolume(plate.toPlacedModels(), index, volume, ModelPath(source), profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun addPrimitive(
+            plate: Array<PlacedModelParcel>,
+            shape: String,
+            name: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.addPrimitive(plate.toPlacedModels(), shape, name, profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun handyModel(file: String): String? = runBlocking { engine.handyModel(file) }?.value
+
+        override fun pasteVolumes(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            instance: Int,
+            source: PlacedModelParcel,
+            volumes: IntArray,
+            sameInputFile: Boolean,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.pasteVolumes(
+                plate.toPlacedModels(),
+                index,
+                instance,
+                arrayOf(source).toPlacedModels().single(),
+                volumes.toList(),
+                sameInputFile,
+                profiles.toProfiles(),
+                ScenePath(prefix),
+            )
+        }.toParcel()
+
+        override fun copy(
+            plate: Array<PlacedModelParcel>,
+            sources: Array<PlacedModelParcel>,
+            count: Int,
+            placement: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.copy(
+                plate.toPlacedModels(),
+                sources.toPlacedModels(),
+                count,
+                CopyPlacement.valueOf(placement),
+                profiles.toProfiles(),
+                ScenePath(prefix),
+            )
+        }.toParcel()
+
         override fun place(
             plateObject: PlacedModelParcel,
             profiles: ProfilesParcel,
@@ -139,8 +310,9 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             manipulation: String,
             selected: Array<String>,
             arrangeSettings: ArrangeSettingsParcel?,
+            instance: Int,
         ): PlateInspectionParcel = runBlocking {
-            engine.placeObjects(plate.toPlacedModels(), profiles.toProfiles(), plateManipulationOf(manipulation, selected, arrangeSettings))
+            engine.placeObjects(plate.toPlacedModels(), profiles.toProfiles(), plateManipulationOf(manipulation, selected, arrangeSettings, instance))
         }.toParcel()
 
         override fun updateFlushVolumes(
@@ -190,6 +362,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             radius: Double,
             tool: String,
             angle: Double,
+            starts: Boolean,
             meshPrefix: String,
         ): PaintingParcel = runBlocking {
             engine.paint(
@@ -200,10 +373,15 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                     radius = radius,
                     tool = PaintTool.valueOf(tool),
                     angle = angle,
+                    startsStroke = starts,
                 ),
                 ScenePath(meshPrefix),
             )
         }.toParcel()
+
+        override fun undoPainting(meshPrefix: String): PaintingParcel = runBlocking { engine.undoPainting(ScenePath(meshPrefix)) }.toParcel()
+
+        override fun redoPainting(meshPrefix: String): PaintingParcel = runBlocking { engine.redoPainting(ScenePath(meshPrefix)) }.toParcel()
 
         override fun endPainting(): PaintingParcel = runBlocking { engine.endPainting() }.toParcel()
 
@@ -277,6 +455,21 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         ): PresetSettingsParcel = runBlocking {
             engine.changeSetting(PresetKind.valueOf(kind), page, id, text, answersOf(answerIds, answers), modelRequestOf(models, plate, parent))
         }.toParcel()
+
+        override fun pasteModelSettings(
+            clipboard: ModelSettingsParcel,
+            target: ModelSettingsParcel,
+            parent: ModelSettingsParcel?,
+        ): ModelSettingsOutcomeParcel = runBlocking {
+            engine.pasteModelSettings(clipboard.toModelSettings(), target.toModelSettings(), parent?.toModelSettings())
+        }.let { outcome ->
+            ModelSettingsOutcomeParcel().also {
+                when (outcome) {
+                    is ModelSettingsOutcome.Failure -> it.error = outcome.message
+                    is ModelSettingsOutcome.Success -> it.settings = outcome.settings.toParcel()
+                }
+            }
+        }
 
         override fun resetSettings(
             kind: String,

@@ -92,12 +92,15 @@ fun PlateView(
     /** The colour painting tool is open: a finger paints instead of moving the object. */
     painting: Boolean = false,
     /** A stroke of the finger, as a ray in world coordinates. */
-    onPaint: (origin: Vector3, direction: Vector3) -> Unit = { _, _ -> },
+    /** [starts] is true for the first touch of a stroke. */
+    onPaint: (origin: Vector3, direction: Vector3, starts: Boolean) -> Unit = { _, _, _ -> },
     selectedObject: Int?,
     /** Every selected object, which the scene draws as selected; the tools work on a single one. */
     selectedObjects: Set<Int> = setOfNotNull(selectedObject),
     gizmo: PlateGizmo?,
     flatteningPlanes: List<FlatteningPlane>,
+    /** The meshes drawn with the edges of their triangles over them. */
+    wireframes: Set<ScenePath> = emptySet(),
     editable: Boolean,
     onSelectObject: (Int?) -> Unit,
     onPlaceObject: (index: Int, placement: Transform3, manipulation: Manipulation) -> Unit,
@@ -105,6 +108,8 @@ fun PlateView(
     contentDescription: String,
     modifier: Modifier = Modifier,
     layer: PlateLayer? = null,
+    /** A finger held on empty space: the canvas's menu there (MenuFactory::default_menu), at that position; null for none. */
+    onOpenPlateMenu: ((position: Offset) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -147,7 +152,7 @@ fun PlateView(
         val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower) } }
         controller.setWipeTower(tower)
     }
-    LaunchedEffect(objects, color, filamentColors) {
+    LaunchedEffect(objects, color, filamentColors, wireframes) {
         val loaded = withContext(Dispatchers.IO) {
             meshes.retain(
                 objects.flatMapTo(HashSet()) { plateObject ->
@@ -169,10 +174,12 @@ fun PlateView(
                     // with; a part without one of its own takes its object's.
                     val objectColor = filamentColors.getOrNull(plateObject.extruderNumber - 1) ?: color
                     val copy = runCatching { SceneLoader.loadObject(copyIndex, plateObject, instance, objectColor, meshes) }.getOrNull()
+                        ?.let { it.withWireframe(instance.inspection.mesh in wireframes) }
                     val parts = plateObject.parts.mapNotNull { part ->
                         val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
                         val partColor = filamentColors.getOrNull(extruder - 1) ?: color
                         runCatching { SceneLoader.loadPart(copyIndex, part, instance, partColor, meshes) }.getOrNull()
+                            ?.let { it.withWireframe(part.mesh in wireframes) }
                     }
                     // The colours the object is painted with, over its surface.
                     val painted = plateObject.paintedMeshes.mapNotNull { mesh ->
@@ -191,14 +198,20 @@ fun PlateView(
         controller.onSelectObject = onSelectObject
         controller.onPlaceObject = onPlaceObject
         controller.onMoveWipeTower = onMoveWipeTower
-        controller.onPaint = { ray ->
+        controller.onPaint = { ray, starts ->
             val direction = ray.b - ray.a
-            onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z))
+            onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z), starts)
         }
         controller.setPainting(painting)
         controller.onOpenObjectMenu = { index, x, y ->
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             onOpenObjectMenu(index, Offset(x, y))
+        }
+        controller.onOpenPlateMenu = onOpenPlateMenu?.let { open ->
+            { x, y ->
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                open(Offset(x, y))
+            }
         }
         controller.setSelection(selectedObject)
         controller.setSelected(selectedObjects)
@@ -252,17 +265,27 @@ private suspend fun PointerInputScope.detectPlateGestures(
         var dragging = false
         var multiTouch = false
         var menuOpened = false
+        var longPressed = false
         var travelled = 0f
         while (true) {
-            val event = if (controller.holdsObject && !dragging && !multiTouch) {
+            // A finger held still on an object, or on empty space, asks for a menu.
+            val holding = (controller.holdsObject || !pressedObject) && !dragging && !multiTouch && !longPressed
+            val event = if (holding) {
                 val remaining = down.uptimeMillis + longPressTimeoutMillis - SystemClock.uptimeMillis()
                 withTimeoutOrNull(remaining.coerceAtLeast(0L)) { awaitPointerEvent() }
             } else {
                 awaitPointerEvent()
             }
             if (event == null) {
-                // GLCanvas3D::on_mouse() for a right click: the object's context menu, and the finger no longer moves it.
-                menuOpened = controller.openObjectMenu(down.position.x, down.position.y)
+                longPressed = true
+                // GLCanvas3D::on_mouse() for a right click: the object's context
+                // menu, and the finger no longer moves it; over empty space the
+                // canvas's own menu.
+                menuOpened = if (pressedObject) {
+                    controller.openObjectMenu(down.position.x, down.position.y)
+                } else {
+                    controller.openPlateMenu(down.position.x, down.position.y)
+                }
                 continue
             }
             val pressed = event.changes.filter(PointerInputChange::pressed)
@@ -355,9 +378,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     var onSelectObject: (Int?) -> Unit = {}
     var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
-    var onPaint: (Line3) -> Unit = {}
+    var onPaint: (Line3, starts: Boolean) -> Unit = { _, _ -> }
     var onPlaceObject: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
     var onOpenObjectMenu: (Int, Float, Float) -> Unit = { _, _, _ -> }
+    var onOpenPlateMenu: ((Float, Float) -> Unit)? = null
 
     /** A press that may become a manipulation of the object [index], which stood at [startWorld]. */
     private sealed class Drag(val index: Int, val startWorld: Affine3) {
@@ -397,6 +421,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (held.moved) return false
         drag = null
         onOpenObjectMenu(held.index, x, y)
+        return true
+    }
+
+    /**
+     * Plater::priv::on_right_click() over empty space: the canvas's menu at the
+     * point ([x], [y]). Returns false when the view has none.
+     */
+    fun openPlateMenu(x: Float, y: Float): Boolean {
+        val open = onOpenPlateMenu ?: return false
+        open(x, y)
         return true
     }
 
@@ -493,7 +527,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // finger went down, and the engine finds the triangle under it.
             val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
             paintingStroke = true
-            onPaint(ray)
+            onPaint(ray, true)
             return true
         }
         if (gizmo == PlateGizmo.LAY_ON_FACE && editable) {
@@ -539,7 +573,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (paintingStroke) {
             // The brush follows the finger, as the desktop gizmo paints while
             // the left button is held.
-            camera.mouseRay(x.toDouble(), y.toDouble())?.let(onPaint)
+            camera.mouseRay(x.toDouble(), y.toDouble())?.let { onPaint(it, false) }
             return
         }
         val drag = drag ?: return

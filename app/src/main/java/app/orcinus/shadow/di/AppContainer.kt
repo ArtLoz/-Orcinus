@@ -1,5 +1,26 @@
 package app.orcinus.shadow.di
 
+import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
+import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
+import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
+import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
+import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
+import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
+import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
+import app.orcinus.shadow.storage.android.AppDocumentFolders
+import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
+import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
+import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
+import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
+import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
+import app.orcinus.shadow.domain.plate.SetArrangeSettingsUseCase
+import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
+import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
 import android.content.Context
 import app.orcinus.shadow.BuildConfig
 import app.orcinus.shadow.OrcaSlicerService
@@ -47,6 +68,9 @@ import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.AddObjectPartUseCase
 import app.orcinus.shadow.domain.plate.AddPlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.RemoveObjectPartUseCase
+import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateItemUseCase
+import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemovePlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
@@ -79,6 +103,8 @@ import app.orcinus.shadow.domain.plate.PlateThumbnailRenderer
 import app.orcinus.shadow.domain.plate.RenderThumbnailsUseCase
 import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.domain.plate.WipeTowerUpdates
+import app.orcinus.shadow.domain.plate.ObjectMeshRetention
+import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.plate.SetExtruderUseCase
 import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
 import app.orcinus.shadow.domain.plate.SlicePlateUseCase
@@ -135,6 +161,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         applicationScope.launch { startEngine() }
         // The wipe tower follows the plate, as the desktop canvas rebuilds it.
         wipeTowerUpdates.start()
+        // Meshes go once neither the plate, its undo/redo stack nor the clipboard needs them.
+        applicationScope.launch { ObjectMeshRetention(plateRepository, sceneFiles).run() }
     }
 
     val observePlate = ObservePlateUseCase(plateRepository)
@@ -160,8 +188,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         inspector = engine,
         sceneFiles = sceneFiles,
         repository = plateRepository,
+        placePlateObjects = placePlateObjects,
         applicationScope = applicationScope,
     )
+    private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
     private val cancelPlateSlicing = CancelPlateSlicingUseCase(CancelSliceUseCase(engine), plateRepository, applicationScope)
     // Sidebar: the filaments the plate prints with.
@@ -212,11 +242,49 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val placePlateObject = PlacePlateObjectUseCase(PlaceModelUseCase(engine), plateRepository, applicationScope)
     private val setPlateObjectAutoDrop = SetPlateObjectAutoDropUseCase(plateRepository, placePlateObject)
     private val setPlateObjectPrintable = SetPlateObjectPrintableUseCase(plateRepository)
-    private val deletePlateObject = DeletePlateObjectUseCase(sceneFiles, plateRepository)
+    private val deletePlateObject = DeletePlateObjectUseCase(plateRepository)
     private val addPlateInstance = AddPlateInstanceUseCase(plateRepository, placePlateObject, selectPlateObject)
     private val addObjectPart = AddObjectPartUseCase(engine, sceneFiles, plateRepository, applicationScope)
-    private val removeObjectPart = RemoveObjectPartUseCase(sceneFiles, plateRepository)
+    private val removeObjectPart = RemoveObjectPartUseCase(plateRepository)
     private val removePlateInstance = RemovePlateInstanceUseCase(plateRepository, deletePlateObject)
+    private val removeLastPlateInstances = RemoveLastPlateInstancesUseCase(plateRepository, deletePlateObject)
+    private val setNumberOfInstances = SetNumberOfInstancesUseCase(plateRepository, addPlateInstance, removeLastPlateInstances, deletePlateObject)
+    private val renamePlateItem = RenamePlateItemUseCase(plateRepository)
+    private val editPlateObject = EditPlateObjectUseCase(engine, sceneFiles, plateRepository, applicationScope)
+    private val clonePlateObjects = ClonePlateObjectsUseCase(engine, sceneFiles, plateRepository, placePlateObjects, applicationScope)
+    private val separatePlateInstances = SeparatePlateInstancesUseCase(engine, sceneFiles, plateRepository, applicationScope)
+    private val fillBedWithInstances = FillBedWithInstancesUseCase(plateRepository, placePlateObjects)
+    private val copyToClipboard = CopyToClipboardUseCase(
+        engine,
+        sceneFiles,
+        plateRepository,
+        removeObjectPart,
+        applicationScope,
+    )
+    private val pasteFromClipboard = PasteFromClipboardUseCase(engine, sceneFiles, plateRepository, applicationScope)
+    private val undoRedoPlate = UndoRedoPlateUseCase(plateRepository, placePlateObjects, settingsTabs, applicationScope)
+    val answerPlateQuestion = AnswerPlateQuestionUseCase(plateRepository, addModelToPlate, editPlateObject, settingsTabs)
+    private val setFlushOption = SetFlushOptionUseCase(plateRepository, settingsTabs, applicationScope)
+    private val openSimplify = OpenSimplifyUseCase(plateRepository)
+    private val replaceAllVolumes = ReplaceAllVolumesUseCase(
+        ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
+        AppDocumentFolders(applicationContext),
+        engine,
+        sceneFiles,
+        plateRepository,
+        applicationScope,
+    )
+    private val copyProcessSettings = CopyProcessSettingsUseCase(plateRepository)
+    private val pasteProcessSettings = PasteProcessSettingsUseCase(engine, plateRepository, settingsTabs, applicationScope)
+    private val exportObjectMesh = ExportObjectMeshUseCase(engine, sceneFiles, AppDocumentExport(applicationContext), plateRepository)
+    private val replaceObjectVolume = ReplaceObjectVolumeUseCase(
+        ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
+        engine,
+        sceneFiles,
+        plateRepository,
+        applicationScope,
+    )
+    val dismissPlateNotice = DismissPlateNoticeUseCase(plateRepository)
     private val dismissPlateProblem = DismissPlateProblemUseCase(plateRepository)
 
     val appInfo = AppInfo(
@@ -236,20 +304,46 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         return PrepareViewModel(
             observePlate = observePlate,
             addModelToPlate = addModelToPlate,
+            addPrimitive = addPrimitive,
             addCalibrationCubeToPlate = addCalibrationCube,
             placePlateObject = placePlateObject,
             placePlateObjects = placePlateObjects,
             setPlateObjectAutoDrop = setPlateObjectAutoDrop,
             addPlateInstance = addPlateInstance,
             removePlateInstance = removePlateInstance,
+            removeLastPlateInstances = removeLastPlateInstances,
+            setNumberOfInstances = setNumberOfInstances,
+            addObjectPart = addObjectPart,
+            addLayerRange = addLayerRange,
+            selectLayerRange = selectLayerRange,
+            setSettingsScope = setSettingsScope,
+            editPlateObject = editPlateObject,
+            clonePlateObjects = clonePlateObjects,
+            separatePlateInstances = separatePlateInstances,
+            fillBedWithInstances = fillBedWithInstances,
+            setArrangeSettings = SetArrangeSettingsUseCase(plateRepository),
+            copyToClipboard = copyToClipboard,
+            pasteFromClipboard = pasteFromClipboard,
+            undoRedoPlate = undoRedoPlate,
             deletePlateObject = deletePlateObject,
             describeFlatteningPlanes = DescribeFlatteningPlanesUseCase(engine),
             selectPlateObject = selectPlateObject,
             moveTower = moveWipeTower,
-        paintObject = PaintObjectUseCase(engine, sceneFiles, plateRepository),
+            paintObject = PaintObjectUseCase(engine, sceneFiles, plateRepository),
             slicePlate = slicePlate,
             cancelPlateSlicing = cancelPlateSlicing,
             dismissPlateProblem = dismissPlateProblem,
+            setPlateObjectPrintable = setPlateObjectPrintable,
+            setExtruder = setExtruder,
+            setFlushOption = setFlushOption,
+            copyProcessSettings = copyProcessSettings,
+            pasteProcessSettings = pasteProcessSettings,
+            exportObjectMesh = exportObjectMesh,
+            replaceObjectVolume = replaceObjectVolume,
+            openSimplify = openSimplify,
+            previewSimplify = PreviewSimplifyUseCase(engine, sceneFiles, plateRepository),
+            applySimplifyUseCase = ApplySimplifyUseCase(engine, sceneFiles, plateRepository, applicationScope),
+            replaceAllVolumesUseCase = replaceAllVolumes,
         )
     }
 
@@ -289,12 +383,30 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         addObjectPart = addObjectPart,
         removeObjectPart = removeObjectPart,
         removePlateInstance = removePlateInstance,
+        clonePlateObjects = clonePlateObjects,
+        separatePlateInstances = separatePlateInstances,
+        fillBedWithInstances = fillBedWithInstances,
+        copyToClipboard = copyToClipboard,
+        pasteFromClipboard = pasteFromClipboard,
+        removeLastPlateInstances = removeLastPlateInstances,
+        setNumberOfInstances = setNumberOfInstances,
+        placePlateObject = placePlateObject,
+        renamePlateItem = renamePlateItem,
+        editPlateObject = editPlateObject,
         deletePlateObject = deletePlateObject,
         physicalPrinters = physicalPrinters,
         savePhysicalPrinter = savePhysicalPrinter,
         deletePhysicalPrinter = deletePhysicalPrinter,
         testPhysicalPrinter = testPhysicalPrinter,
         printerPresetNames = printerPresetNames,
+        setFlushOption = setFlushOption,
+        copySettings = copyProcessSettings,
+        pasteSettings = pasteProcessSettings,
+        exportObjectMesh = exportObjectMesh,
+        replaceObjectVolume = replaceObjectVolume,
+        openSimplify = openSimplify,
+        changeVolumeType = ChangeVolumeTypeUseCase(engine, sceneFiles, plateRepository, applicationScope),
+        replaceAllVolumesUseCase = replaceAllVolumes,
     )
 
     fun presetSettingsViewModel(kind: PresetKind) = PresetSettingsViewModel(

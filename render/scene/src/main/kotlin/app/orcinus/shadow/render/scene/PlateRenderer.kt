@@ -55,6 +55,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var programs: Programs? = null
     private var gpuBed: GpuBed? = null
     private val gpuObjects = LinkedHashMap<String, GlVertexArray>()
+    /** The edges of the triangles of the meshes drawn as a wireframe, by mesh. */
+    private val gpuWireframes = LinkedHashMap<String, GlVertexArray>()
     private var objects: List<SceneObject> = emptyList()
     private var selectionBox: Triple<Box3, Boolean, GlVertexArray>? = null
     private var grabberCone: GlVertexArray? = null
@@ -93,6 +95,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         programs = Programs(assets)
         gpuBed = null
         gpuObjects.clear()
+        gpuWireframes.clear()
         selectionBox = null
         grabberCone = null
         grabberCube = null
@@ -131,6 +134,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         // GLCanvas3D::_render() for the preview: the G-code after the bed.
         layer?.draw(frame.view.toFloatArray(), frame.projection)
         renderObjects(programs.gouraud, frame)
+        renderWireframes(programs.flat, frame)
         renderSelection(programs.flat, frame)
         frame.gizmo?.let { renderGizmo(programs, it, frame) }
     }
@@ -159,6 +163,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             gpuObjects.keys.filter { it !in keys }.forEach { gpuObjects.remove(it)?.release() }
             newObjects.forEach { sceneObject ->
                 gpuObjects.getOrPut(sceneObject.key) { meshArray(sceneObject.mesh) }
+            }
+            val wired = newObjects.filter(SceneObject::wireframe).associateBy(SceneObject::key)
+            gpuWireframes.keys.filter { it !in wired }.forEach { gpuWireframes.remove(it)?.release() }
+            wired.forEach { (key, sceneObject) ->
+                gpuWireframes.getOrPut(key) {
+                    GlVertexArray(GlVertexArray.floatBuffer(triangleEdges(sceneObject.mesh)), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
+                }
             }
             objects = newObjects
         }
@@ -294,6 +305,29 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
     }
 
+    /**
+     * GLGizmoSimplify::on_render() with "Show wireframe": the edges of the
+     * decimated mesh drawn over it in white, where they are not hidden.
+     */
+    private fun renderWireframes(program: GlProgram, frame: SceneFrame) {
+        val wired = objects.filter(SceneObject::wireframe)
+        if (wired.isEmpty()) return
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDepthFunc(GLES30.GL_LEQUAL)
+        program.use()
+        program.setMatrix4("projection_matrix", frame.projection)
+        program.setVec4("uniform_color", 1f, 1f, 1f, 1f)
+        GLES30.glLineWidth(lineWidth(1f * frame.pixelScale))
+        for (sceneObject in wired) {
+            val lines = gpuWireframes[sceneObject.key] ?: continue
+            program.setMatrix4("view_model_matrix", (frame.view * sceneObject.world).toFloatArray())
+            lines.draw()
+        }
+        GLES30.glLineWidth(1f)
+        GLES30.glDepthFunc(GLES30.GL_LESS)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+    }
+
     /** GLVolume::render(): one volume with the shader's uniforms for it. */
     private fun drawVolume(program: GlProgram, frame: SceneFrame, sceneObject: SceneObject) {
         val mesh = gpuObjects[sceneObject.key] ?: return
@@ -307,7 +341,11 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         program.setMatrix4("view_model_matrix", (frame.view * sceneObject.world).toFloatArray())
         program.setMatrix3("view_normal_matrix", normalMatrix(frame.view, sceneObject.world))
         program.setMatrix3("slope.volume_world_normal_matrix", normalMatrix(Affine3(), sceneObject.world))
+        // GLVolume::render(): a mirrored volume turns its faces.
+        val leftHanded = sceneObject.world.isLeftHanded
+        if (leftHanded) GLES30.glFrontFace(GLES30.GL_CW)
         mesh.draw()
+        if (leftHanded) GLES30.glFrontFace(GLES30.GL_CCW)
     }
 
     /**

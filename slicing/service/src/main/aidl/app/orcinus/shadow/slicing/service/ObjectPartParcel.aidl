@@ -17,4 +17,9 @@ parcelable ObjectPartParcel {
     /** The mesh a volume of a model file is loaded from; null for a generated shape. */
     @nullable String source;
     String name = "";
+    boolean splittable;
+    boolean convertedFromInches;
+    boolean convertedFromMeters;
+    /** ModelVolume::source.input_file; empty for a generated shape. */
+    String inputFile = "";
 }

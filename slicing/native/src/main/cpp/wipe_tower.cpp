@@ -335,6 +335,12 @@ WipeTowerState describe_wipe_tower(
         result.status = SceneStatus::success;
         result.rotation = config_float(config, "wipe_tower_rotation_angle");
         result.filaments = plate_extruders(model, config);
+        // The desktop menu reads them from the edited process preset.
+        const Slic3r::DynamicPrintConfig& process = detail::engine().bundle->prints.get_edited_preset().config;
+        result.prime_tower = config_bool(process, "enable_prime_tower");
+        result.flush_into_infill = config_bool(process, "flush_into_infill");
+        result.flush_into_objects = config_bool(process, "flush_into_objects");
+        result.flush_into_support = config_bool(process, "flush_into_support");
         result.height = plate_height(model);
 
         // GLCanvas3D::reload_scene(): the plate draws a tower once the process

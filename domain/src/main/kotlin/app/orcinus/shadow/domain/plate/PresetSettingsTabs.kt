@@ -221,7 +221,10 @@ class PresetSettingsTabs(
         var before: PresetSettings? = null
         repository.update { state ->
             before = state.tab(kind).settings
-            state
+            // Tab::on_value_change() of an object, a part, a range or the plate: "Change Option".
+            val changed = state.withModelSettings(kind, outcome.settings.modelSettings)
+            val model = changed.objects != state.objects || changed.plateSettings != state.plateSettings
+            (if (model) state.recorded() else state)
                 .withTab(kind) {
                     copy(settings = outcome.settings, page = outcome.settings.activePage, changing = false, notices = notices + outcome.notices)
                 }

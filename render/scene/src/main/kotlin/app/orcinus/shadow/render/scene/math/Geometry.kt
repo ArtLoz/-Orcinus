@@ -139,6 +139,12 @@ internal class Affine3(private val m: DoubleArray = identityElements()) {
     /** A row of the linear part. */
     fun linearRow(row: Int) = Vec3(this[row, 0], this[row, 1], this[row, 2])
 
+    /** GLVolume::is_left_handed(): a mirroring transformation turns the faces inside out. */
+    val isLeftHanded: Boolean
+        get() = this[0, 0] * (this[1, 1] * this[2, 2] - this[1, 2] * this[2, 1]) -
+            this[0, 1] * (this[1, 0] * this[2, 2] - this[1, 2] * this[2, 0]) +
+            this[0, 2] * (this[1, 0] * this[2, 1] - this[1, 1] * this[2, 0]) < 0.0
+
     fun transformPoint(point: Vec3) = Vec3(
         this[0, 0] * point.x + this[0, 1] * point.y + this[0, 2] * point.z + m[12],
         this[1, 0] * point.x + this[1, 1] * point.y + this[1, 2] * point.z + m[13],

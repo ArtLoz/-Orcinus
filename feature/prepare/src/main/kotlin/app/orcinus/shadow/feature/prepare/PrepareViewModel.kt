@@ -1,5 +1,42 @@
 package app.orcinus.shadow.feature.prepare
 
+import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
+import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
+import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
+import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
+import app.orcinus.shadow.domain.plate.SimplifyPreview
+import kotlinx.coroutines.flow.map
+import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
+import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
+import app.orcinus.shadow.domain.plate.SetExtruderUseCase
+import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
+import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
+import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
+import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
+import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
+import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
+import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
+import app.orcinus.shadow.domain.plate.SetArrangeSettingsUseCase
+import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
+import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
+import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
+import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
+import app.orcinus.shadow.domain.plate.AddObjectPartUseCase
+import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
+import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.SettingsScope
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.ArrangeSettings
@@ -10,6 +47,7 @@ import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintTool
+import app.orcinus.shadow.core.model.PaintingOutcome
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateManipulation
@@ -53,12 +91,27 @@ import kotlinx.coroutines.launch
 class PrepareViewModel(
     observePlate: ObservePlateUseCase,
     private val addModelToPlate: AddModelToPlateUseCase,
+    private val addPrimitive: AddPrimitiveUseCase,
     private val addCalibrationCubeToPlate: AddCalibrationCubeToPlateUseCase,
     private val placePlateObject: PlacePlateObjectUseCase,
     private val placePlateObjects: PlacePlateObjectsUseCase,
     private val setPlateObjectAutoDrop: SetPlateObjectAutoDropUseCase,
     private val addPlateInstance: AddPlateInstanceUseCase,
     private val removePlateInstance: RemovePlateInstanceUseCase,
+    private val removeLastPlateInstances: RemoveLastPlateInstancesUseCase,
+    private val setNumberOfInstances: SetNumberOfInstancesUseCase,
+    private val addObjectPart: AddObjectPartUseCase,
+    private val addLayerRange: AddLayerRangeUseCase,
+    private val selectLayerRange: SelectLayerRangeUseCase,
+    private val setSettingsScope: SetSettingsScopeUseCase,
+    private val editPlateObject: EditPlateObjectUseCase,
+    private val clonePlateObjects: ClonePlateObjectsUseCase,
+    private val separatePlateInstances: SeparatePlateInstancesUseCase,
+    private val fillBedWithInstances: FillBedWithInstancesUseCase,
+    private val setArrangeSettings: SetArrangeSettingsUseCase,
+    private val copyToClipboard: CopyToClipboardUseCase,
+    private val pasteFromClipboard: PasteFromClipboardUseCase,
+    private val undoRedoPlate: UndoRedoPlateUseCase,
     private val deletePlateObject: DeletePlateObjectUseCase,
     private val describeFlatteningPlanes: DescribeFlatteningPlanesUseCase,
     private val selectPlateObject: SelectPlateObjectUseCase,
@@ -67,24 +120,78 @@ class PrepareViewModel(
     private val slicePlate: SlicePlateUseCase,
     private val cancelPlateSlicing: CancelPlateSlicingUseCase,
     private val dismissPlateProblem: DismissPlateProblemUseCase,
+    private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
+    private val setExtruder: SetExtruderUseCase,
+    private val setFlushOption: SetFlushOptionUseCase,
+    private val copyProcessSettings: CopyProcessSettingsUseCase,
+    private val pasteProcessSettings: PasteProcessSettingsUseCase,
+    private val exportObjectMesh: ExportObjectMeshUseCase,
+    private val replaceObjectVolume: ReplaceObjectVolumeUseCase,
+    private val openSimplify: OpenSimplifyUseCase,
+    private val previewSimplify: PreviewSimplifyUseCase,
+    private val applySimplifyUseCase: ApplySimplifyUseCase,
+    private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
 
     /** A stroke is being painted; the next one waits for the engine to answer. */
     private var painting = false
+
+    /** A stroke began with a touch that was dropped: the next touch sent starts it. */
+    private var strokeStarts = false
     private val view = MutableStateFlow(PrepareViewState())
+
+    /**
+     * GLGizmoSimplify::m_configuration and the slider's static reduction,
+     * which the gizmo keeps from one opening to the next; "Show wireframe" too.
+     */
+    private var simplifyConfig = SimplifyConfig()
+    private var simplifyReduction = DEFAULT_REDUCTION
+    private var simplifyWireframe = false
+
+    /** What the gizmo asks the engine to work out; a newer request drops the older one (GLGizmoSimplify::process()). */
+    private val simplifyRequests = MutableStateFlow<Pair<ObjectPartId, SimplifyConfig>?>(null)
 
     val state: StateFlow<PrepareUiState> = combine(plate, view, PlateState::toPrepareUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), plate.value.toPrepareUiState(PrepareViewState()))
 
     init {
-        // Plater::priv::load_files() selects the objects it added to the plate.
+        // "Simplify Model" opens the gizmo from the canvas and from the object
+        // list; it closes once the plate no longer has the volume.
+        viewModelScope.launch {
+            plate.map { state -> state.simplifyTarget?.takeIf { target -> state.objects.any { it.mesh == target.mesh } } to state.simplifyTarget }
+                .distinctUntilChanged()
+                .collect { (target, requested) ->
+                    when {
+                        requested != null && target == null -> openSimplify.close()
+                        target == null -> endSimplify()
+                        view.value.simplify?.volume != target -> startSimplify(target)
+                    }
+                }
+        }
+        viewModelScope.launch {
+            simplifyRequests.collectLatest { request ->
+                val (volume, config) = request ?: return@collectLatest
+                view.update { it.copy(simplify = it.simplify?.copy(running = true)) }
+                val preview = previewSimplify(volume, config)
+                val mode = view.value.simplify
+                if (preview == null || mode == null || mode.volume != volume) {
+                    preview?.let(previewSimplify::discard)
+                    view.update { it.copy(simplify = it.simplify?.copy(running = false)) }
+                    return@collectLatest
+                }
+                mode.preview?.let(previewSimplify::discard)
+                view.update { it.copy(simplify = mode.shown(preview)) }
+            }
+        }
+        // The objects a load or an edit added come selected; the rotation
+        // window then starts from the one the tools work on.
         viewModelScope.launch {
             var known: Set<ScenePath>? = null
             plate.collect { state ->
-                val added = known?.let { before -> state.objects.lastOrNull { it.mesh !in before } }
+                val added = known?.let { before -> state.objects.any { it.mesh !in before } } ?: false
                 known = state.objects.mapTo(HashSet(), PlateObject::mesh)
-                if (added != null) select(PlateInstanceId(added.mesh), added.instances.first().inspection)
+                if (added) view.update { it.copy(rotationStart = state.selectedCopy?.inspection?.placement) }
             }
         }
         // GLGizmoFlatten::is_plane_update_necessary(): the faces follow the object and its scale.
@@ -122,10 +229,6 @@ class PrepareViewModel(
 
     fun addModel(reference: String) = addModelToPlate(ExternalDocumentReference(reference))
 
-    fun answerImport(yes: Boolean) = addModelToPlate.answer(yes)
-
-    fun dismissImportNotice() = addModelToPlate.dismissNotice()
-
     fun addCalibrationCube() = addCalibrationCubeToPlate()
 
     /** Clearing the selection closes the gizmo, as GLGizmosManager does when it is no longer activable. */
@@ -158,8 +261,83 @@ class PrepareViewModel(
             return
         }
         val mesh = state.value.sceneCopies.getOrNull(state.value.selectedObject ?: -1)?.plateObject?.mesh ?: return
+        // GLGizmosManager opens one gizmo at a time.
+        openSimplify.close()
         view.update { it.copy(painting = PaintingMode(mesh), gizmo = null) }
-        viewModelScope.launch { paintObject.begin(mesh) }
+        viewModelScope.launch { paintObject.begin(mesh).also(::showStrokes) }
+    }
+
+    /** The object menu's "Simplify Model" over the copy at [index] (ObjectList::simplify). */
+    fun simplifyAt(index: Int) = copyAt(index)?.let { openSimplify.ofObject(it, wholeObject = false) }
+
+    /** check_gizmos_closed_except(): the gizmo opens once no other tool of the canvas is. */
+    private fun startSimplify(volume: ObjectPartId) {
+        val current = view.value
+        if (current.painting != null || current.gizmo != null) {
+            openSimplify.refuse()
+            return
+        }
+        current.simplify?.preview?.let(previewSimplify::discard)
+        // A volume selected anew: half the triangles taken away, and the detail level kept.
+        val config = simplifyConfig.copy(decimateRatio = DEFAULT_DECIMATE_RATIO, wantedCount = -1)
+        view.update { it.copy(simplify = SimplifyMode(volume, config, simplifyReduction, simplifyWireframe), arrangeOptionsOpen = false) }
+        simplifyRequests.value = volume to config
+    }
+
+    private fun endSimplify() {
+        val mode = view.value.simplify ?: return
+        simplifyConfig = mode.config
+        simplifyReduction = mode.reduction
+        simplifyWireframe = mode.wireframe
+        simplifyRequests.value = null
+        mode.preview?.let(previewSimplify::discard)
+        view.update { it.copy(simplify = null) }
+    }
+
+    /** The radio buttons: the detail level, or the decimate ratio. */
+    fun setSimplifyUseCount(useCount: Boolean) = updateSimplify { it.copy(config = it.config.copy(useCount = useCount)) }
+
+    /** The detail level's step slider: the largest error a collapsed edge may have. */
+    fun setSimplifyReduction(reduction: Int) = updateSimplify { mode ->
+        val level = reduction.coerceIn(0, MAX_ERRORS.lastIndex)
+        mode.copy(reduction = level, config = mode.config.copy(maxError = MAX_ERRORS[level]))
+    }
+
+    /** The decimate ratio's slider and field: the share of the triangles taken away. */
+    fun setSimplifyDecimateRatio(ratio: Float) = updateSimplify { mode ->
+        val clamped = when {
+            ratio < 0f -> 0.01f
+            ratio > 100f -> 100f
+            else -> ratio
+        }
+        val original = mode.preview?.original ?: return@updateSimplify mode.copy(config = mode.config.copy(decimateRatio = clamped, wantedCount = -1))
+        mode.copy(config = mode.config.copy(decimateRatio = clamped).withCountByRatio(original))
+    }
+
+    fun setSimplifyWireframe(wireframe: Boolean) {
+        view.update { it.copy(simplify = it.simplify?.copy(wireframe = wireframe)) }
+    }
+
+    /** Apply: the volume takes the mesh the gizmo shows. */
+    fun applySimplify() {
+        val mode = view.value.simplify?.takeIf { it.canApply } ?: return
+        applySimplifyUseCase(mode.volume, mode.config)
+    }
+
+    /** Cancel (GLGizmoSimplify::close()). */
+    fun closeSimplify() = openSimplify.close()
+
+    override fun onCleared() {
+        // The gizmo's mesh file goes with the screen that showed it.
+        view.value.simplify?.preview?.let(previewSimplify::discard)
+    }
+
+    /** A change of the configuration: the engine works the mesh out again. */
+    private fun updateSimplify(change: (SimplifyMode) -> SimplifyMode) {
+        val mode = view.value.simplify ?: return
+        val changed = change(mode)
+        view.update { it.copy(simplify = changed) }
+        if (changed.config.request() != mode.config.request()) simplifyRequests.value = changed.volume to changed.config
     }
 
     fun closePainting() {
@@ -180,10 +358,19 @@ class PrepareViewModel(
         view.update { state -> state.painting?.let { state.copy(painting = it.copy(tool = tool)) } ?: state }
     }
 
-    fun paint(origin: Vector3, direction: Vector3) {
+    /**
+     * A touch of the finger; [starts] marks the first of a stroke. A touch that
+     * arrives while the last one is still painted is dropped, but the start of
+     * a stroke is carried to the next touch sent, so the tool keeps what its
+     * Undo returns to.
+     */
+    fun paint(origin: Vector3, direction: Vector3, starts: Boolean = false) {
         val mode = view.value.painting ?: return
+        if (starts) strokeStarts = true
         if (painting) return
         painting = true
+        val first = strokeStarts
+        strokeStarts = false
         viewModelScope.launch {
             try {
                 paintObject.stroke(
@@ -193,12 +380,19 @@ class PrepareViewModel(
                         filament = mode.filament,
                         radius = mode.radius,
                         tool = mode.tool,
+                        startsStroke = first,
                     ),
-                )
+                ).also(::showStrokes)
             } finally {
                 painting = false
             }
         }
+    }
+
+    /** What the painting tool can undo and redo after [outcome]. */
+    private fun showStrokes(outcome: PaintingOutcome) {
+        val surface = (outcome as? PaintingOutcome.Success)?.surface ?: return
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(canUndo = surface.canUndo, canRedo = surface.canRedo)) } ?: state }
     }
 
     private fun select(id: PlateInstanceId?, selected: ModelInspection?) {
@@ -216,6 +410,7 @@ class PrepareViewModel(
     fun toggleGizmo(type: PlateGizmo) {
         val state = state.value
         if (!state.canManipulate) return
+        openSimplify.close()
         view.update { view ->
             view.copy(
                 gizmo = if (state.gizmo == type) null else type,
@@ -232,17 +427,13 @@ class PrepareViewModel(
         view.update { it.copy(arrangeOptionsOpen = !it.arrangeOptionsOpen, gizmo = null) }
     }
 
-    fun setArrangeSettings(settings: ArrangeSettings) {
-        view.update { it.copy(arrangeSettings = settings.copy(distance = settings.distance.coerceIn(0.0, MAX_ARRANGE_DISTANCE))) }
-    }
+    fun changeArrangeSettings(settings: ArrangeSettings) = setArrangeSettings(settings)
 
     /** _render_arrange_menu()'s Reset: OrcaSlicer's default arrange settings. */
-    fun resetArrangeSettings() {
-        view.update { it.copy(arrangeSettings = ArrangeSettings()) }
-    }
+    fun resetArrangeSettings() = setArrangeSettings(ArrangeSettings())
 
     /** _render_arrange_menu()'s Arrange: ArrangeJob for every object on the plate. */
-    fun arrange() = placePlateObjects(PlateManipulation.Arrange(view.value.arrangeSettings))
+    fun arrange() = placePlateObjects(PlateManipulation.Arrange(state.value.arrangeSettings))
 
     /** The toolbar's OrientJob: the selected object, or every object when none is selected. */
     fun autoOrient() = placePlateObjects(PlateManipulation.AutoOrient(setOfNotNull(state.value.selectedPlateObject?.mesh)))
@@ -250,14 +441,135 @@ class PrepareViewModel(
     /** The toolbar's "Add instance": another copy of the selected one (Plater::increase_instances). */
     fun addInstance() {
         if (!state.value.canCopy) return
-        selectedId()?.let(addPlateInstance::invoke)
+        selectedId()?.let { addPlateInstance(it.mesh) }
     }
 
-    /** The toolbar's "Remove instance" (Plater::decrease_instances). */
+    /** The toolbar's "Remove instance" (Plater::decrease_instances): the object's last copy goes. */
     fun removeInstance() {
         if (!state.value.canRemoveCopy) return
-        selectedId()?.let(removePlateInstance::invoke)
+        selectedId()?.let { removeLastPlateInstances(it.mesh) }
     }
+
+    /** The object menu of the copy at [index] of the 3D view (MenuFactory::object_menu). */
+    fun addInstanceOf(index: Int) = copyAt(index)?.let { addPlateInstance(it.mesh) }
+
+    fun removeInstanceOf(index: Int) = copyAt(index)?.let { removeLastPlateInstances(it.mesh) }
+
+    fun setInstancesOf(index: Int, number: Int) = copyAt(index)?.let { setNumberOfInstances(it.mesh, number) }
+
+    /** Center, Drop and Mirror of the copy where it stands. */
+    fun manipulate(index: Int, manipulation: Manipulation) = copyAt(index)?.let { placePlateObject(it, manipulation) }
+
+    fun addPartTo(index: Int, shape: String, type: VolumeType, name: String) = copyAt(index)?.let { addObjectPart(it.mesh, shape, type, name) }
+
+    /** ObjectList::layers_editing(): the new range is selected with its settings. */
+    fun addHeightRangeTo(index: Int) {
+        val id = copyAt(index) ?: return
+        val added = addLayerRange(id.mesh, null) ?: return
+        selectLayerRange(added)
+        setSettingsScope(SettingsScope.OBJECT)
+    }
+
+    /** The object menu's commands that change the meshes of the object of the copy at [index]. */
+    fun editObjectAt(index: Int, edit: ObjectEdit) = copyAt(index)?.let { editPlateObject(it.mesh, edit) }
+
+    /** "Fill bed with instances" over a copy, which the new copies are modelled on. */
+    fun fillBedWith(index: Int) = copyAt(index)?.let { fillBedWithInstances(it.mesh, it.instance) }
+
+    /** "Set as an individual object" over a copy: the canvas selects that copy alone. */
+    fun setAsIndividualObject(index: Int) = copyAt(index)?.let { separatePlateInstances(it.mesh, setOf(it.instance)) }
+
+    /** Cut, Copy and Paste over a copy, which the canvas selects alone. */
+    fun cutObjectAt(index: Int) = copyAt(index)?.let { copyToClipboard.objects(setOf(it), cut = true) }
+
+    fun copyObjectAt(index: Int) = copyAt(index)?.let { copyToClipboard.objects(setOf(it)) }
+
+    fun pasteInto(index: Int) = copyAt(index)?.let { pasteFromClipboard(it) }
+
+    /** The canvas menu's "Add Primitive" and "Add Handy models". */
+    fun addPrimitiveShape(shape: String, name: String) = addPrimitive(shape, name)
+
+    fun addHandyModel(model: HandyModel) = addModelToPlate.handy(model)
+
+    /** Paste over empty space: the objects the clipboard holds. */
+    fun paste() = pasteFromClipboard(null)
+
+    /**
+     * The top bar's Undo and Redo (Plater::undo, Plater::redo); while the
+     * painting tool is open they undo and redo its strokes, as the desktop
+     * app switches to the gizmo's stack.
+     */
+    fun undo() {
+        if (view.value.painting == null) return undoRedoPlate.undo()
+        viewModelScope.launch { paintObject.undo().also(::showStrokes) }
+    }
+
+    fun redo() {
+        if (view.value.painting == null) return undoRedoPlate.redo()
+        viewModelScope.launch { paintObject.redo().also(::showStrokes) }
+    }
+
+    /** The clone dialog's OK over a copy, which the canvas selects alone. */
+    fun clone(index: Int, count: Int, arrange: Boolean) = copyAt(index)?.let { clonePlateObjects(setOf(it), count, arrange) }
+
+    /** The object menu's Printable: the copy the menu was opened over. */
+    fun setPrintableAt(index: Int, printable: Boolean) = copyAt(index)?.let { setPlateObjectPrintable(it, printable) }
+
+    /** "Change Filament" of the object. */
+    fun setFilamentAt(index: Int, filament: Int) = copyAt(index)?.let { setExtruder(it.mesh, filament) }
+
+    fun toggleFlushOptionAt(index: Int, option: FlushOption) = copyAt(index)?.let { setFlushOption(it.mesh, option) }
+
+    /**
+     * ObjectList::switch_to_object_process(): the copy is selected and the
+     * settings show the object's own; the sidebar that holds them opens.
+     */
+    fun editProcessSettingsAt(index: Int) {
+        val id = copyAt(index) ?: return
+        selectPlateObject(id)
+        setSettingsScope(SettingsScope.OBJECT)
+    }
+
+    fun copyProcessSettingsAt(index: Int) = copyAt(index)?.let { copyProcessSettings(SettingsItem.Object(it.mesh)) }
+
+    fun pasteProcessSettingsAt(index: Int) = copyAt(index)?.let { pasteProcessSettings(SettingsItem.Object(it.mesh)) }
+
+    /** The copy the object menu was opened over, which the document pickers act on once they answer. */
+    fun copyOf(index: Int): PlateInstanceId? = copyAt(index)
+
+    /** "Export as one STL/DRC" of the object into the document the user picked. */
+    fun exportMesh(mesh: ScenePath, format: MeshFormat, document: String) {
+        viewModelScope.launch { exportObjectMesh(mesh, format, ExternalDocumentReference(document)) }
+    }
+
+    /** "Replace all with 3D files" from the folder the user picked. */
+    fun replaceAllVolumes(copy: PlateInstanceId, folder: String) = replaceAllVolumesUseCase(copy, ExternalDocumentReference(folder))
+
+    /** "Replace 3D file": the object's own mesh takes the one of the document the user picked. */
+    fun replaceMesh(copy: PlateInstanceId, document: String) = replaceObjectVolume(copy, 0, ExternalDocumentReference(document))
+
+    private fun copyAt(index: Int): PlateInstanceId? = state.value.sceneCopies.getOrNull(index)?.id
+
+    /**
+     * The mesh the gizmo shows: without the count to keep, the count and
+     * ratio the window then shows are those of the mesh
+     * (GLGizmoSimplify::on_render_input_window()); a count still to be worked
+     * out from the ratio is now known.
+     */
+    private fun SimplifyMode.shown(preview: SimplifyPreview): SimplifyMode {
+        val shownConfig = when {
+            !config.useCount -> config.copy(
+                wantedCount = preview.triangles.toInt(),
+                decimateRatio = (1f - preview.triangles.toFloat() / preview.original.coerceAtLeast(1)) * 100f,
+            )
+            config.wantedCount < 0 -> config.withCountByRatio(preview.original)
+            else -> config
+        }
+        return copy(config = shownConfig, preview = preview, running = false)
+    }
+
+    /** What the engine decimates by: the count kept or the largest error, whichever the window picked. */
+    private fun SimplifyConfig.request(): Any = if (useCount) Triple(true, wantedCount, decimateRatio) else Pair(false, maxError)
 
     /**
      * GizmoObjectManipulation::change_rotation_value(): the selected object turns
@@ -367,8 +679,12 @@ class PrepareViewModel(
     }
 
     /** The object menu's "Delete": Plater::remove_selected() for the object [index]. */
+    /**
+     * Selection::erase() over the copy at [index]: that copy of an object that
+     * has several, or the object with its only one.
+     */
     fun deleteObject(index: Int) {
-        state.value.sceneCopies.getOrNull(index)?.let { deletePlateObject(it.id.mesh) }
+        copyAt(index)?.let(removePlateInstance::invoke)
     }
 
     fun slice() = slicePlate()
@@ -378,14 +694,20 @@ class PrepareViewModel(
     fun dismissProblem() = dismissPlateProblem()
 
     private companion object {
+        /** GLGizmoSimplify's "static int reduction = 2": Medium. */
+        const val DEFAULT_REDUCTION = 2
+
+        /** Configuration::decimate_ratio when a volume is selected. */
+        const val DEFAULT_DECIMATE_RATIO = 50f
+
+        /** The detail levels' max_error, from Extra high to Extra low. */
+        val MAX_ERRORS = listOf(1e-3f, 1e-2f, 0.1f, 0.5f, 1f)
+
         // Keeps the upstream flow through configuration changes.
         const val STOP_TIMEOUT_MILLIS = 5_000L
 
         // GizmoObjectManipulation.cpp: MAX_NUM, and the change it ignores (EPSILON).
         const val MAX_NUM = 9999.99
         const val POSITION_EPSILON = 1e-4
-
-        // The spacing slider of the arrange options runs to 100 mm.
-        const val MAX_ARRANGE_DISTANCE = 100.0
     }
 }

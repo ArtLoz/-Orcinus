@@ -1,5 +1,13 @@
 package app.orcinus.shadow.feature.prepare
 
+import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.ui.plate.objectMenuState
+import app.orcinus.shadow.core.ui.plate.PartShapeSheet
+import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
+import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
+import app.orcinus.shadow.core.ui.plate.CloneDialog
+import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
+import app.orcinus.shadow.core.model.VolumeType
 import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -67,6 +76,9 @@ import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
+import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
+import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
@@ -89,6 +101,11 @@ import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.ui.plate.MenuFilament
+import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceStage
@@ -97,8 +114,6 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.sizeText
-import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
-import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateView
@@ -111,10 +126,34 @@ import kotlin.math.sqrt
 internal fun PrepareRoute(
     viewModel: PrepareViewModel,
     onSliceRequested: () -> Unit,
+    onOpenSidebar: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.addModel(it.toString()) }
+    }
+    // "Export as one STL/DRC" and "Replace 3D file": the object waits for the
+    // document the user picks, as the desktop app waits for its file dialog.
+    var exportTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var exportFormat by rememberSaveable { mutableStateOf(MeshFormat.STL) }
+    val meshExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(MESH_MIME_TYPE)) { uri ->
+        val mesh = exportTarget
+        exportTarget = null
+        if (uri != null && mesh != null) viewModel.exportMesh(ScenePath(mesh), exportFormat, uri.toString())
+    }
+    var replaceAllTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var replaceAllInstance by rememberSaveable { mutableStateOf(0) }
+    val replacementFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val mesh = replaceAllTarget
+        replaceAllTarget = null
+        if (uri != null && mesh != null) viewModel.replaceAllVolumes(PlateInstanceId(ScenePath(mesh), replaceAllInstance), uri.toString())
+    }
+    var replaceTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var replaceInstance by rememberSaveable { mutableStateOf(0) }
+    val replacement = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val mesh = replaceTarget
+        replaceTarget = null
+        if (uri != null && mesh != null) viewModel.replaceMesh(PlateInstanceId(ScenePath(mesh), replaceInstance), uri.toString())
     }
     PrepareScreen(
         state = state,
@@ -134,6 +173,57 @@ internal fun PrepareRoute(
         onPlaceObject = viewModel::placeObject,
         onSetAutoDrop = viewModel::setAutoDrop,
         onDeleteObject = viewModel::deleteObject,
+        objectMenuActions = PrepareObjectMenuActions(
+            addInstance = viewModel::addInstanceOf,
+            removeInstance = viewModel::removeInstanceOf,
+            setNumberOfInstances = viewModel::setInstancesOf,
+            manipulate = viewModel::manipulate,
+            addPart = viewModel::addPartTo,
+            addHeightRange = viewModel::addHeightRangeTo,
+            edit = viewModel::editObjectAt,
+            fillBed = viewModel::fillBedWith,
+            setAsIndividual = viewModel::setAsIndividualObject,
+            clone = viewModel::clone,
+            cut = viewModel::cutObjectAt,
+            copy = viewModel::copyObjectAt,
+            paste = viewModel::pasteInto,
+            setPrintable = viewModel::setPrintableAt,
+            setFilament = viewModel::setFilamentAt,
+            toggleFlushOption = viewModel::toggleFlushOptionAt,
+            editProcessSettings = { index ->
+                viewModel.editProcessSettingsAt(index)
+                onOpenSidebar()
+            },
+            copyProcessSettings = viewModel::copyProcessSettingsAt,
+            pasteProcessSettings = viewModel::pasteProcessSettingsAt,
+            simplify = viewModel::simplifyAt,
+            replace = { index ->
+                viewModel.copyOf(index)?.let { copy ->
+                    replaceTarget = copy.mesh.value
+                    replaceInstance = copy.instance
+                    replacement.launch(arrayOf("*/*"))
+                }
+            },
+            replaceAll = { index ->
+                viewModel.copyOf(index)?.let { copy ->
+                    replaceAllTarget = copy.mesh.value
+                    replaceAllInstance = copy.instance
+                    replacementFolder.launch(null)
+                }
+            },
+            export = { index, format, name ->
+                viewModel.copyOf(index)?.let { copy ->
+                    exportTarget = copy.mesh.value
+                    exportFormat = format
+                    meshExport.launch(exportFileName(name, format))
+                }
+            },
+        ),
+        onPaste = viewModel::paste,
+        plateMenuActions = PlateMenuActions(
+            addPrimitive = viewModel::addPrimitiveShape,
+            addHandyModel = viewModel::addHandyModel,
+        ),
         onToggleGizmo = viewModel::toggleGizmo,
         onCloseGizmo = viewModel::closeGizmo,
         onSetPosition = viewModel::setPosition,
@@ -142,7 +232,7 @@ internal fun PrepareRoute(
         onRemoveInstance = viewModel::removeInstance,
         arrangeActions = ArrangeActions(
             toggle = viewModel::toggleArrangeOptions,
-            change = viewModel::setArrangeSettings,
+            change = viewModel::changeArrangeSettings,
             reset = viewModel::resetArrangeSettings,
             arrange = viewModel::arrange,
         ),
@@ -163,29 +253,31 @@ internal fun PrepareRoute(
             viewModel.slice()
         },
         onCancelSlicing = viewModel::cancelSlicing,
+        onUndo = viewModel::undo,
+        onRedo = viewModel::redo,
         onDismissProblem = viewModel::dismissProblem,
+        simplifyActions = SimplifyActions(
+            setUseCount = viewModel::setSimplifyUseCount,
+            setReduction = viewModel::setSimplifyReduction,
+            setDecimateRatio = viewModel::setSimplifyDecimateRatio,
+            setWireframe = viewModel::setSimplifyWireframe,
+            apply = viewModel::applySimplify,
+            cancel = viewModel::closeSimplify,
+        ),
     )
-    // Plater::priv::load_files(): its message boxes in the order it showed
-    // them, then the question it waits on.
-    val notice = state.importNotice
-    val question = state.importQuestion
-    when {
-        notice != null -> SettingsNoticeDialog(notice, onDismiss = viewModel::dismissImportNotice)
-        question != null -> SettingsQuestionDialog(question, onAnswer = viewModel::answerImport)
-    }
 }
 
 /** What the colour painting tool does while it is open (GLGizmoMmuSegmentation). */
 internal class PaintingActions(
-    /** A stroke of the finger, as a ray in world coordinates. */
-    val paint: (origin: Vector3, direction: Vector3) -> Unit,
+    /** A touch of the finger, as a ray in world coordinates; [starts] for the first of a stroke. */
+    val paint: (origin: Vector3, direction: Vector3, starts: Boolean) -> Unit,
     val setFilament: (Int) -> Unit,
     val setRadius: (Double) -> Unit,
     val setTool: (PaintTool) -> Unit,
     val close: () -> Unit,
 ) {
     companion object {
-        val NONE = PaintingActions({ _, _ -> }, {}, {}, {}, {})
+        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {})
     }
 }
 
@@ -206,6 +298,8 @@ internal fun PrepareScreen(
     onPlaceObject: (Int, Transform3, Manipulation) -> Unit,
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
     onDeleteObject: (index: Int) -> Unit,
+    objectMenuActions: PrepareObjectMenuActions,
+    onPaste: () -> Unit,
     onToggleGizmo: (PlateGizmo) -> Unit,
     onCloseGizmo: () -> Unit,
     onSetPosition: (axis: Int, value: Double) -> Unit,
@@ -218,9 +312,17 @@ internal fun PrepareScreen(
     onSlice: () -> Unit,
     onCancelSlicing: () -> Unit,
     onDismissProblem: () -> Unit,
+    onUndo: () -> Unit = {},
+    onRedo: () -> Unit = {},
+    plateMenuActions: PlateMenuActions = PlateMenuActions.NONE,
+    simplifyActions: SimplifyActions = SimplifyActions.NONE,
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         var objectMenu by remember { mutableStateOf<ObjectMenu?>(null) }
+        var plateMenu by remember { mutableStateOf<Offset?>(null) }
+        var askingCopies by remember { mutableStateOf<Int?>(null) }
+        var cloning by remember { mutableStateOf<Int?>(null) }
+        var addingPart by remember { mutableStateOf<Pair<Int, VolumeType>?>(null) }
         // Previews have no OpenGL; they show the canvas colour.
         if (!LocalInspectionMode.current) {
             PlateView(
@@ -236,15 +338,72 @@ internal fun PrepareScreen(
                 selectedObjects = state.selectedObjects,
                 gizmo = state.gizmo,
                 flatteningPlanes = state.flatteningPlanes,
+                wireframes = state.wireframes,
                 editable = state.canEditPlate,
                 onSelectObject = onSelectObject,
                 onPlaceObject = onPlaceObject,
                 onOpenObjectMenu = { index, position -> objectMenu = ObjectMenu(index, position) },
+                onOpenPlateMenu = { position -> plateMenu = position },
                 contentDescription = stringResource(R.string.plate_view),
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        objectMenu?.let { menu -> ObjectContextMenu(state, menu, onDismiss = { objectMenu = null }, onSetAutoDrop, onDeleteObject) }
+        plateMenu?.let { position ->
+            PlateContextMenu(state, position, onDismiss = { plateMenu = null }, onAddModel = onAddModel, onPaste = onPaste, actions = plateMenuActions)
+        }
+        objectMenu?.let { menu ->
+            ObjectContextMenu(
+                state,
+                menu,
+                onDismiss = { objectMenu = null },
+                onSetAutoDrop,
+                onDeleteObject,
+                objectMenuActions,
+                onChooseShape = { type -> addingPart = menu.index to type },
+                onAskNumberOfInstances = { askingCopies = menu.index },
+                onAskClone = { cloning = menu.index },
+            )
+        }
+        cloning?.let { index ->
+            CloneDialog(
+                autoArrange = true,
+                onDismiss = { cloning = null },
+                onFill = {
+                    cloning = null
+                    objectMenuActions.fillBed(index)
+                },
+                onClone = { count, arrange ->
+                    cloning = null
+                    objectMenuActions.clone(index, count, arrange)
+                },
+            )
+        }
+        // Plater::set_number_of_copies() asks first; the shapes of a part are a sheet.
+        askingCopies?.let { index ->
+            val copies = state.sceneCopies.getOrNull(index)?.plateObject?.instances?.size
+            if (copies == null) {
+                askingCopies = null
+            } else {
+                NumberOfInstancesDialog(
+                    current = copies,
+                    onDismiss = { askingCopies = null },
+                    onConfirm = { number ->
+                        askingCopies = null
+                        objectMenuActions.setNumberOfInstances(index, number)
+                    },
+                )
+            }
+        }
+        addingPart?.let { (index, type) ->
+            PartShapeSheet(
+                type = type,
+                onDismiss = { addingPart = null },
+                onChoose = { shape, name ->
+                    addingPart = null
+                    objectMenuActions.addPart(index, shape, type, name)
+                },
+            )
+        }
         // The canvas runs under the system bars; its controls stay clear of them.
         Box(
             Modifier
@@ -268,6 +427,7 @@ internal fun PrepareScreen(
                         onAutoOrient,
                         onAddInstance,
                         onRemoveInstance,
+                        onSplit = { edit -> state.selectedObject?.let { objectMenuActions.edit(it, edit) } },
                         arrangeActions.toggle,
                         onToggleGizmo,
                     )
@@ -277,6 +437,11 @@ internal fun PrepareScreen(
                 val scale = state.selectedScale
                 val size = state.selectedSize
                 when {
+                    state.simplify != null -> SimplifyPanel(
+                        state.sceneCopies.firstOrNull { it.id.mesh == state.simplify.volume.mesh }?.plateObject,
+                        state.simplify,
+                        simplifyActions,
+                    )
                     state.painting != null -> PaintingPanel(state, state.painting, paintingActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null -> ScaleGizmoPanel(state, scale, size, scaleActions, onCloseGizmo)
@@ -315,17 +480,148 @@ internal fun PrepareScreen(
                     OrcaButton(stringResource(R.string.slice_plate), onClick = onSlice, enabled = state.canSlice)
                 }
             }
+            // BBLTopbar's Undo and Redo, which a phone keeps under the thumb over the plate.
+            OrcaCanvasToolbar(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp),
+            ) {
+                OrcaCanvasTool(DesignR.drawable.orca_topbar_undo, orcaString("Undo"), onUndo, enabled = state.canUndo)
+                OrcaCanvasTool(DesignR.drawable.orca_topbar_redo, orcaString("Redo"), onRedo, enabled = state.canRedo)
+            }
         }
     }
 }
 
+/**
+ * The type of the documents "Export as one STL/DRC" writes: any file, so the
+ * document provider keeps the extension the suggested name has.
+ */
+private const val MESH_MIME_TYPE = "application/octet-stream"
+
 /** The context menu asked for over the object [index], at [position] in the plate view. */
 private data class ObjectMenu(val index: Int, val position: Offset)
 
+/** What the object menu of the 3D view does to the copy at an index of the scene. */
+internal class PrepareObjectMenuActions(
+    val addInstance: (index: Int) -> Unit,
+    val removeInstance: (index: Int) -> Unit,
+    val setNumberOfInstances: (index: Int, number: Int) -> Unit,
+    val manipulate: (index: Int, Manipulation) -> Unit,
+    val addPart: (index: Int, shape: String, type: VolumeType, name: String) -> Unit,
+    val addHeightRange: (index: Int) -> Unit,
+    val edit: (index: Int, ObjectEdit) -> Unit,
+    val fillBed: (index: Int) -> Unit,
+    val setAsIndividual: (index: Int) -> Unit,
+    val clone: (index: Int, count: Int, arrange: Boolean) -> Unit,
+    val cut: (index: Int) -> Unit,
+    val copy: (index: Int) -> Unit,
+    val paste: (index: Int) -> Unit,
+    /** "Simplify Model": the gizmo opens on the object. */
+    val simplify: (index: Int) -> Unit,
+    val setPrintable: (index: Int, Boolean) -> Unit,
+    val setFilament: (index: Int, filament: Int) -> Unit,
+    val toggleFlushOption: (index: Int, FlushOption) -> Unit,
+    val editProcessSettings: (index: Int) -> Unit,
+    val copyProcessSettings: (index: Int) -> Unit,
+    val pasteProcessSettings: (index: Int) -> Unit,
+    /** Opens the document picker for the object's new mesh. */
+    val replace: (index: Int) -> Unit,
+    /** Opens the folder picker whose files replace the object's volumes. */
+    val replaceAll: (index: Int) -> Unit,
+    /** Opens where the object is written, suggesting a file named after it. */
+    val export: (index: Int, MeshFormat, name: String) -> Unit,
+) {
+    companion object {
+        val NONE = PrepareObjectMenuActions(
+            {}, {}, { _, _ -> }, { _, _ -> }, { _, _, _, _ -> }, {}, { _, _ -> }, {}, {}, { _, _, _ -> }, {}, {}, {}, {},
+            { _, _ -> }, { _, _ -> }, { _, _ -> }, {}, {}, {}, {}, {}, { _, _, _ -> },
+        )
+    }
+}
+
+/** What the canvas menu over empty space adds (MenuFactory::create_default_menu). */
+internal class PlateMenuActions(
+    /** ObjectList::load_shape_object(): a shape of create_mesh() with its translated name. */
+    val addPrimitive: (shape: String, name: String) -> Unit,
+    val addHandyModel: (HandyModel) -> Unit,
+) {
+    companion object {
+        val NONE = PlateMenuActions({ _, _ -> }, {})
+    }
+}
+
+/** The shapes of "Add Primitive" (MenuFactory::append_submenu_add_generic), in its order. */
+private val PRIMITIVES = listOf("Cube", "Cylinder", "Sphere", "Cone", "Disc", "Torus")
+
 /**
- * MenuFactory::create_extra_object_menu() for an object on the plate, with the
- * items the app supports so far, in its order.
+ * MenuFactory::default_menu(), which the canvas opens over empty space, with
+ * the items the app has: Add Primitive, Add Handy models and Add Models. Paste
+ * stands first, as a phone offers it where a finger is held, for the Edit
+ * menu's Paste.
  */
+@Composable
+private fun PlateContextMenu(
+    state: PrepareUiState,
+    position: Offset,
+    onDismiss: () -> Unit,
+    onAddModel: () -> Unit,
+    onPaste: () -> Unit,
+    actions: PlateMenuActions,
+) {
+    OrcaContextMenu(
+        expanded = true,
+        position = IntOffset(position.x.roundToInt(), position.y.roundToInt()),
+        onDismissRequest = onDismiss,
+    ) {
+        OrcaMenuItem(
+            text = orcaString("Paste"),
+            enabled = state.canPasteOnPlate,
+            onClick = {
+                onDismiss()
+                onPaste()
+            },
+        )
+        OrcaMenuSeparator()
+        OrcaSubmenu(text = orcaString("Add Primitive"), enabled = state.canEditPlate) {
+            PRIMITIVES.forEach { shape ->
+                val name = orcaString(shape)
+                OrcaMenuItem(
+                    text = name,
+                    enabled = state.canEditPlate,
+                    onClick = {
+                        onDismiss()
+                        actions.addPrimitive(shape, name)
+                    },
+                )
+            }
+        }
+        // Text and SVG shapes come with the text and SVG tools.
+        OrcaSubmenu(text = orcaString("Add Handy models"), enabled = state.canEditPlate) {
+            HandyModel.entries.forEach { model ->
+                OrcaMenuItem(
+                    text = orcaString(model.label),
+                    // OrcaSliced Combo loads a 3MF file, which the app cannot load yet.
+                    enabled = state.canEditPlate && model.available,
+                    onClick = {
+                        onDismiss()
+                        actions.addHandyModel(model)
+                    },
+                )
+            }
+        }
+        OrcaMenuItem(
+            text = orcaString("Add Models"),
+            enabled = state.canEditPlate,
+            onClick = {
+                onDismiss()
+                onAddModel()
+            },
+        )
+    }
+}
+
+/** The object menu the canvas opens over a copy (Plater::priv::on_right_click, MenuFactory::object_menu). */
 @Composable
 private fun ObjectContextMenu(
     state: PrepareUiState,
@@ -333,33 +629,64 @@ private fun ObjectContextMenu(
     onDismiss: () -> Unit,
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
     onDeleteObject: (index: Int) -> Unit,
+    actions: PrepareObjectMenuActions,
+    onChooseShape: (VolumeType) -> Unit,
+    onAskNumberOfInstances: () -> Unit,
+    onAskClone: () -> Unit,
 ) {
-    val target = state.sceneCopies.getOrNull(menu.index)?.instance
+    val copy = state.sceneCopies.getOrNull(menu.index)
     OrcaContextMenu(
-        expanded = target != null,
+        expanded = copy != null,
         position = IntOffset(menu.position.x.roundToInt(), menu.position.y.roundToInt()),
         onDismissRequest = onDismiss,
     ) {
-        if (target == null) return@OrcaContextMenu
-        // append_menu_item_delete()
-        OrcaMenuItem(
-            text = stringResource(UiR.string.object_menu_delete),
-            enabled = state.canEditPlate,
-            onClick = {
-                onDismiss()
-                onDeleteObject(menu.index)
-            },
-        )
-        OrcaMenuSeparator()
-        // append_menu_item_auto_drop(): checked while the object drops onto the plate.
-        OrcaMenuCheckItem(
-            text = stringResource(UiR.string.object_menu_auto_drop),
-            checked = target.autoDrop,
-            enabled = state.canEditPlate,
-            onClick = {
-                onDismiss()
-                onSetAutoDrop(menu.index, !target.autoDrop)
-            },
+        if (copy == null) return@OrcaContextMenu
+        val index = menu.index
+        val name = copy.plateObject.displayName()
+        ObjectMenuItems(
+            state = objectMenuState(
+                copy.plateObject,
+                copy.instance,
+                state.plate,
+                state.canEditPlate,
+                clipboard = state.clipboard,
+                simplifying = state.simplify != null,
+                filaments = state.filamentNames.zip(state.filamentColors) { filament, color ->
+                    MenuFilament(filament, Color(color.red, color.green, color.blue, color.alpha))
+                },
+                flushing = state.flushing,
+                settingsClipboard = state.settingsClipboard,
+            ),
+            actions = ObjectMenuActions(
+                cut = { actions.cut(index) },
+                copy = { actions.copy(index) },
+                paste = { actions.paste(index) },
+                addInstance = { actions.addInstance(index) },
+                removeInstance = { actions.removeInstance(index) },
+                setNumberOfInstances = onAskNumberOfInstances,
+                fillBedWithInstances = { actions.fillBed(index) },
+                setAsIndividual = { actions.setAsIndividual(index) },
+                clone = onAskClone,
+                center = { actions.manipulate(index, Manipulation.Center) },
+                drop = { actions.manipulate(index, Manipulation.Drop) },
+                mirror = { actions.manipulate(index, Manipulation.Mirror(it)) },
+                delete = { onDeleteObject(index) },
+                addPart = onChooseShape,
+                addHeightRange = { actions.addHeightRange(index) },
+                setAutoDrop = { onSetAutoDrop(index, it) },
+                edit = { actions.edit(index, it) },
+                simplify = { actions.simplify(index) },
+                setPrintable = { actions.setPrintable(index, it) },
+                setFilament = { actions.setFilament(index, it) },
+                toggleFlushOption = { actions.toggleFlushOption(index, it) },
+                editProcessSettings = { actions.editProcessSettings(index) },
+                copyProcessSettings = { actions.copyProcessSettings(index) },
+                pasteProcessSettings = { actions.pasteProcessSettings(index) },
+                replace = { actions.replace(index) },
+                replaceAll = { actions.replaceAll(index) },
+                export = { format -> actions.export(index, format, name) },
+            ),
+            dismiss = onDismiss,
         )
     }
 }
@@ -438,6 +765,7 @@ private fun CanvasToolbar(
     onAutoOrient: () -> Unit,
     onAddInstance: () -> Unit,
     onRemoveInstance: () -> Unit,
+    onSplit: (ObjectEdit) -> Unit,
     onToggleArrange: () -> Unit,
     onToggleGizmo: (PlateGizmo) -> Unit,
 ) {
@@ -478,8 +806,19 @@ private fun CanvasToolbar(
             onClick = onRemoveInstance,
             enabled = state.canRemoveCopy,
         )
-        unavailable(DesignR.drawable.orca_split_objects, R.string.toolbar_split_objects)
-        unavailable(DesignR.drawable.orca_split_parts, R.string.toolbar_split_parts)
+        // Plater::split_object() and split_volume() of the selected object.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_split_objects,
+            contentDescription = stringResource(R.string.toolbar_split_objects),
+            onClick = { onSplit(ObjectEdit.SPLIT_TO_OBJECTS) },
+            enabled = state.canSplitToObjects,
+        )
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_split_parts,
+            contentDescription = stringResource(R.string.toolbar_split_parts),
+            onClick = { onSplit(ObjectEdit.SPLIT_TO_PARTS) },
+            enabled = state.canSplitToParts,
+        )
         unavailable(DesignR.drawable.orca_toolbar_variable_layer_height, R.string.toolbar_variable_layer_height)
         OrcaCanvasToolbarSeparator()
         gizmo(DesignR.drawable.orca_toolbar_move, R.string.gizmo_move, PlateGizmo.MOVE)
@@ -914,7 +1253,7 @@ private fun ColumnScope.GizmoPanelFooter(onDone: () -> Unit) {
  * the input is done or loses focus. Text that is not a number is dropped.
  */
 @Composable
-private fun PositionField(
+internal fun PositionField(
     value: Double,
     onValue: (Double) -> Unit,
     modifier: Modifier = Modifier,
@@ -949,7 +1288,7 @@ private val CanvasMargin = 12.dp
 // A gizmo window fits a phone: label, three fields, unit, and reset button in 360 dp.
 private val PositionLabelWidth = 64.dp
 private val RotationLabelWidth = 76.dp
-private val PositionFieldWidth = 60.dp
+internal val PositionFieldWidth = 60.dp
 private val UnitWidth = 24.dp
 private val ResetButtonSize = 28.dp
 
@@ -997,7 +1336,7 @@ private val PreviewState = PrepareUiState(
 @Composable
 private fun PrepareCompactPreview() = OrcinusTheme {
     PrepareScreen(
-        PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }
@@ -1014,7 +1353,7 @@ private fun PrepareWidePreview() = OrcinusTheme {
             canEditPlate = true,
             canSlice = true,
         ),
-        OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }

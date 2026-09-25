@@ -139,6 +139,13 @@ struct ObjectPart {
     // The facets painted with the filaments of the plate, as begin_painting()
     // and end_painting() hand them over; empty for a part painted with nothing.
     std::string painted;
+    // ModelVolume::source: the units the mesh was converted from, which the
+    // object menu can restore.
+    bool from_inches{false};
+    bool from_meters{false};
+    // ModelVolume::source.input_file: the file the volume was read from, which
+    // "Replace all with 3D files" looks for by name; empty for a generated shape.
+    std::string input_file;
 };
 
 // A height range of an object (one entry of ModelObject::layer_config_ranges):
@@ -157,6 +164,10 @@ struct LayerRange {
 // before it.
 struct PlateObject {
     std::string model_path;
+    // ModelObject::name and the name of its own mesh (its first ModelVolume);
+    // empty keeps the names the model file gives them.
+    std::string name;
+    std::string volume_name;
     // The transformation of the object's own mesh in the object (the matrix of
     // its first ModelVolume), column-major 4 x 4, for an object a model file
     // brought: its parts stand in the same frame, which import_model() gave it.
@@ -175,6 +186,10 @@ struct PlateObject {
     // The settings of the object's own mesh (the config of its first
     // ModelVolume), which the object list edits once the object has parts.
     ModelSettings volume_settings;
+    // ModelVolume::source of its own mesh, as ObjectPart::from_inches and input_file.
+    bool volume_from_inches{false};
+    bool volume_from_meters{false};
+    std::string volume_input_file;
 };
 
 // Slices the objects of the plate and writes G-code to output_path only after
@@ -277,6 +292,9 @@ struct ModelInspection {
     SceneStatus status{SceneStatus::model_read_failed};
     std::string message;
     std::int64_t facet_count{0};
+    // ModelObject::get_object_stl_stats().open_edges: the edges of the
+    // object's meshes that bound one triangle only.
+    std::int64_t open_edges{0};
     // Size of the placed object's bounding box, in millimetres.
     double size_x{0.0};
     double size_y{0.0};
@@ -314,6 +332,16 @@ enum class Manipulation : std::int64_t {
     lay_on_face = 4,
     // ObjectList::toggle_auto_drop() turning auto drop on: ModelObject::ensure_on_bed().
     ensure_on_bed = 5,
+    // GLCanvas3D::mirror_selection(): the copy mirrored along an axis about the
+    // centre of its bounding box, then do_mirror(), which rests it on the plate as do_rotate().
+    mirror_x = 6,
+    mirror_y = 7,
+    mirror_z = 8,
+    // Selection::center(): the copy moved over the centre of the plate, then do_move().
+    center = 9,
+    // Selection::drop(): the copy moved down or up until it touches the plate,
+    // whether it drops by itself or not.
+    drop = 10,
 };
 
 // How the desktop app's jobs place several objects of the plate at once.
@@ -327,6 +355,13 @@ enum class PlateManipulation : std::int64_t {
     // Plater::on_config_change() for another printer: the objects stay where
     // they are, and whether they fit is judged against its build volume.
     update_print_volume_state = 2,
+    // ArrangeJob from a menu (prepare_partplate): the copies on the plate or
+    // over its edge arranged with the arrange settings; the ones off it stay.
+    arrange_plate = 3,
+    // FillBedJob with instances ("Fill bed with instances"): copies of the
+    // selected object added while the free area of the plate holds more,
+    // then the plate arranged as arrange_plate arranges it.
+    fill_bed = 4,
 };
 
 // GLCanvas3D::ArrangeSettings for FFF printers, as the arrange options window sets them.
@@ -413,13 +448,17 @@ ModelInspection add_object_part(
 );
 
 // Commits a manipulation of the objects of plate as the desktop app's job does.
-// selected marks the objects auto orient turns, one flag per object.
+// selected marks the objects auto orient turns, one flag per object, and the
+// object fill_bed adds copies of; selected_instance is its selected copy, or -1
+// when the whole object is selected. An object has as many copies afterwards
+// as the result describes.
 PlateInspection place_objects(
     const std::vector<PlateObject>& plate,
     const std::vector<bool>& selected,
     const ProfileSelection& profiles,
     PlateManipulation manipulation,
-    const ArrangeSettings& arrange_settings
+    const ArrangeSettings& arrange_settings,
+    int selected_instance = -1
 );
 
 // The wipe tower of the plate, which the desktop app draws as a volume of its
@@ -448,6 +487,15 @@ struct WipeTowerState {
     // The filaments printed on the plate (PartPlate::get_extruders), 1-based
     // and in order: the desktop app stripes the tower with their colours.
     std::vector<int> filaments;
+    // What the object menu's Flush Options take from the edited process preset
+    // (MenuFactory::append_menu_items_flush_options): enable_prime_tower, and
+    // flush_into_infill, flush_into_objects and flush_into_support, which an
+    // object follows unless it sets them itself. Described whether or not the
+    // tower is shown.
+    bool prime_tower{false};
+    bool flush_into_infill{false};
+    bool flush_into_objects{false};
+    bool flush_into_support{false};
 };
 
 // Describes the wipe tower of the plate. Without wipe_tower_x and wipe_tower_y
@@ -533,6 +581,9 @@ FlushVolumesUpdate update_flush_volumes(
 // Applies painted facets to a volume of a loaded model, as a project does.
 bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& facets);
 
+// The painted facets of a volume as the app keeps them; empty for none.
+std::string painted_facets_of(const Slic3r::ModelVolume& volume);
+
 // Painting a model with the filaments of the plate (GLGizmoMmuSegmentation):
 // which tool the finger paints with.
 enum class PaintTool : std::int64_t {
@@ -556,6 +607,10 @@ struct PaintStroke {
     PaintTool tool{PaintTool::brush};
     // The angle the fills keep to (m_smart_fill_angle), in degrees.
     double angle{30.0};
+    // The first touch of a stroke: the tool keeps the painting as it was, which
+    // Undo returns to, once the stroke meets the model (the gizmo takes its
+    // snapshot as the mouse button goes down on the object).
+    bool starts{false};
 };
 
 // What a painting session answers with: the triangles painted with each
@@ -571,6 +626,10 @@ struct PaintingState {
     std::vector<std::string> meshes;
     // The painted facets of the volume, as the app keeps them.
     std::string facets;
+    // Whether a stroke can be undone or redone inside the tool, which keeps a
+    // stack of its own while it is open (the gizmo's UndoRedo::Stack).
+    bool can_undo{false};
+    bool can_redo{false};
 };
 
 // Opens a painting session for the object, or for one of its parts, with the
@@ -587,6 +646,11 @@ PaintingState begin_painting(
 );
 
 PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix);
+
+// The painting before the last stroke, or after the stroke undone last, as the
+// gizmo's Undo and Redo bring it back.
+PaintingState undo_painting(const std::string& mesh_prefix);
+PaintingState redo_painting(const std::string& mesh_prefix);
 
 // Closes the session and reports the painted facets.
 PaintingState end_painting();
@@ -1042,6 +1106,14 @@ struct ImportedPart {
     // The settings the file gave the volume (ModelVolume::config), such as its
     // extruder.
     ModelSettings settings;
+    // Its painted facets, as ObjectPart::painted.
+    std::string painted;
+    // ModelVolume::is_splittable(): the mesh has more than one shell.
+    bool splittable{false};
+    bool from_inches{false};
+    bool from_meters{false};
+    // ModelVolume::source.input_file
+    std::string input_file;
 };
 
 // An object a model file brought, placed on the plate.
@@ -1060,12 +1132,24 @@ struct ImportedObject {
     // ModelVolume::name and ModelVolume::config of its own mesh.
     std::string volume_name;
     ModelSettings volume_settings;
+    // The painted facets of its own mesh, whether it can be split, and the
+    // units it was converted from.
+    std::string painted;
+    bool volume_splittable{false};
+    bool volume_from_inches{false};
+    bool volume_from_meters{false};
+    std::string volume_input_file;
+    // ModelObject::layer_config_ranges
+    std::vector<LayerRange> layer_ranges;
     // The object's own mesh in object coordinates for the 3D view, as
     // inspect_model() writes it.
     std::string mesh_path;
     // Every instance as it stands, as inspect_model() describes one: a single
     // one for an object the file did not place, and the file's for one it did.
     std::vector<ModelInspection> instances;
+    // ModelInstance::auto_drop and printable of every instance.
+    std::vector<bool> auto_drops;
+    std::vector<bool> printables;
 };
 
 struct ImportedModels {
@@ -1078,7 +1162,204 @@ struct ImportedModels {
     bool has_question{false};
     SettingsDialog question;
     std::vector<ImportedObject> objects;
+    // edit_object(): the edited object left the plate and the objects join the
+    // end of its list (load_model_objects), instead of taking its place.
+    bool appended{false};
+    // paste_volumes(): the first pasted volume of the object, which the object
+    // list selects; -1 for none.
+    int selected_volume{-1};
 };
+
+// What the object menu changes the mesh of an object with.
+enum class ObjectEdit : std::int64_t {
+    // Plater::priv::split_object(): every shell, or every part, an object of its own.
+    split_to_objects = 0,
+    // ObjectList::split(): every shell of a volume a part of its own.
+    split_to_parts = 1,
+    // ObjectList::fix_through_cgal(): the meshes repaired by CGAL.
+    fix = 2,
+    // Plater::convert_unit()
+    convert_from_inches = 3,
+    restore_to_inches = 4,
+    convert_from_meters = 5,
+    restore_to_meters = 6,
+    // ObjectList::smooth_mesh() ("Subdivision mesh"): four triangles for every
+    // one of the meshes.
+    smooth_mesh = 7,
+    // ObjectList::boolean() ("Mesh boolean"): the meshes of the object and of
+    // its copies as one, its negative volumes taken out, a new object in its place.
+    mesh_boolean = 8,
+};
+
+// The object menu's commands that change the meshes of the object at index
+// object of plate, or of its volume at index volume (-1 for the whole object):
+// its objects afterwards, written as import_model() writes them. With no
+// objects the command changed nothing, and its notices say why.
+ImportedModels edit_object(
+    const std::vector<PlateObject>& plate,
+    std::size_t object,
+    ObjectEdit edit,
+    int volume,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix,
+    const DialogAnswers& answers
+);
+
+// ObjectList::set_volume_type() of one volume: the volume at volume_index of
+// the object at object_index of plate takes type, and the object's volumes are
+// sorted by type (ModelObject::sort_volumes); selected_volume is where the
+// volume went. The last solid part of an object keeps its type, and the
+// notices say so; a volume of that type already changes nothing.
+ImportedModels set_volume_type(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    VolumeType type,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// GLGizmoSimplify::Configuration: how far a mesh is decimated, to a number of
+// triangles (use_count) or as far as a collapsed edge keeps within max_error.
+// A negative wanted_count takes decimate_ratio percent of the triangles away
+// (Configuration::fix_count_by_ratio()), as the gizmo does when it opens.
+struct SimplifyConfig {
+    bool use_count{false};
+    std::int64_t wanted_count{-1};
+    float decimate_ratio{50.f};
+    float max_error{1.0f};
+};
+
+struct SimplifiedVolume {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // The triangles of the decimated mesh, and of the volume's own.
+    std::int64_t triangle_count{0};
+    std::int64_t original_count{0};
+};
+
+// GLGizmoSimplify::process(): the mesh of the volume at volume_index of the
+// object at object_index of plate decimated by its_quadric_edge_collapse(),
+// written to path for the 3D view as the volume is drawn: the object's own
+// mesh in the object's coordinates, a part's in its own.
+SimplifiedVolume simplify_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const SimplifyConfig& config,
+    const ProfileSelection& profiles,
+    const std::string& path
+);
+
+// GLGizmoSimplify::apply_simplify(): the volume takes its decimated mesh, its
+// painting kept or cleared as the preference "Keep painted feature after mesh
+// change" says, and the object rests on the plate; it is written as
+// import_model() writes objects.
+ImportedModels apply_simplify(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const SimplifyConfig& config,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// Where copy_objects() puts the copies it makes.
+enum class CopyPlacement : std::int64_t {
+    // Selection::copy_to_clipboard() and ObjectList::instances_to_separated_object():
+    // every copy stands where its source stands.
+    keep = 0,
+    // Selection::paste_objects_from_clipboard(), count times as the clone
+    // dialog pastes: each copy goes into the empty cell of the plate nearest to
+    // its source, several sources keep their layout, and a copy above the
+    // plate drops onto it (Plater::changed_objects).
+    paste = 1,
+};
+
+// New objects copied from sources, which are objects as the plate describes
+// them with only the copies taken, onto the plate that holds plate; written as
+// import_model() writes objects, count rounds of them in order.
+ImportedModels copy_objects(
+    const std::vector<PlateObject>& plate,
+    const std::vector<PlateObject>& sources,
+    int count,
+    CopyPlacement placement,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// The file formats "Export as one STL" and "Export as one DRC" write.
+enum class MeshFormat : std::int64_t {
+    stl = 0,
+    drc = 1,
+};
+
+struct MeshExport {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    // The notification OrcaSlicer shows when the negative volumes could not
+    // be taken out of the mesh, which then holds its positive parts alone.
+    std::string warning;
+};
+
+// Plater::export_stl(false, true) for the object at object_index of plate,
+// which the selection holds whole: its positive volumes less its negative
+// ones, every copy of it where it stands (a lone copy at its origin), written
+// to path as binary STL or as Draco with the app configuration's drc_bits.
+MeshExport export_object_mesh(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    MeshFormat format,
+    const ProfileSelection& profiles,
+    const std::string& path
+);
+
+// Plater::priv::replace_volume_with_stl(): the volume at volume_index of the
+// object at object_index of plate takes the mesh of the file at source_path,
+// with the old volume's transformation, settings, type, units and painting;
+// the object rests on the plate unless it was sunk, and takes the volume's
+// name when it has no other. The object is written as import_model() writes
+// objects; a file of more than one volume changes nothing, and the notices say so.
+ImportedModels replace_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const std::string& source_path,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// ObjectList::load_shape_object() and load_mesh_object(): a shape of
+// create_mesh() ("Cube", "Cylinder", "Sphere", "Cone", "Disc" or "Torus"), a
+// tenth of the largest side of the bed, joins the plate as an object named
+// name, printing with filament 1, in the empty cell nearest to the centre of
+// the plate. It is written as import_model() writes objects.
+ImportedModels add_primitive(
+    const std::vector<PlateObject>& plate,
+    const std::string& shape,
+    const std::string& name,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// Selection::paste_volumes_from_clipboard(): the volumes at the indices
+// volumes of source, the object the clipboard copied them from, join the
+// object at object_index of plate. Over its copy instance they keep their place
+// when both came from the same file and turn alike (same_input_file tells the
+// first), and otherwise stand together beside its right front corner. The
+// object's volumes are sorted by type as the object list sorts them, and it
+// rests on the plate (Plater::changed_object). The object is written as
+// import_model() writes objects.
+ImportedModels paste_volumes(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t instance,
+    const PlateObject& source,
+    const std::vector<int>& volumes,
+    bool same_input_file,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
 
 // Plater::priv::load_files() for a model file: STL, OBJ, AMF, STEP, SVG, DRC or
 // OLTP, read with libslic3r's reader of its type. As the desktop app does, the
@@ -1126,6 +1407,22 @@ PresetSettings describe_settings(PresetKind kind, const std::string& page, const
 // On the settings of an object the value becomes an override of it.
 PresetSettings change_setting(PresetKind kind, const std::string& page, const std::string& id, const std::string& text, const DialogAnswers& answers,
                               const ModelSettingsRequest& model = {});
+
+// ObjectList::paste_settings_into_list() for one item of the object list: the
+// settings of an object, a part or a height range (target) once the settings
+// copied from an item of the same kind are pasted into them. The clipboard
+// holds what ObjectList::copy_settings_to_clipboard() takes: the settings of
+// the item's object with the item's own over them. A part or a range (part)
+// sits on its object (object): it keeps only what differs from the object and
+// the edited process preset, and takes none of the object's own options. Every
+// item keeps the filament it prints with.
+struct PastedSettings {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    ModelSettings settings;
+};
+
+PastedSettings paste_model_settings(const ModelSettings& clipboard, const ModelSettings& target, bool part, const ModelSettings& object);
 
 // The undo buttons: the settings, or every modified setting when ids is
 // empty, back to the saved preset (OptionsGroup::back_to_initial_value,

@@ -10,16 +10,7 @@
     <string name="section_objects">Объекты</string>
     <!-- ObjectDataViewModel: the copies of an object, which OrcaSlicer leaves untranslated ("Instance %d"). -->
     <string name="object_instance_name">Экземпляр %1$d</string>
-    <!-- MenuFactory::append_menu_item_instance(): copies of an object, named as the toolbar names them. -->
-    <string name="object_menu_add_instance">Добавить экземпляр</string>
-    <string name="object_menu_remove_instance">Удалить экземпляр</string>
-    <!-- MenuFactory::append_menu_items_add_volume(): the shapes added to an object. -->
-    <string name="object_menu_add_part">Добавить деталь</string>
-    <string name="object_menu_add_negative">Добавить вычитание</string>
-    <string name="object_menu_add_modifier">Добавить модификатор</string>
-    <string name="object_menu_add_support_blocker">Добавить блокатор поддержек</string>
     <!-- MenuFactory::append_menu_item_layers_editing() and the menu of a range's row. -->
-    <string name="object_menu_height_range">Диапазон высот</string>
     <string name="object_menu_add_range_after">Добавить диапазон после</string>
     <string name="object_menu_edit_range">Изменить высоты</string>
     <!-- ObjectDataViewModel: "Range 0.00-2.00 (mm)". -->
@@ -34,16 +25,6 @@
     <string name="config_imported">Импортировано профилей: %1$d</string>
     <string name="config_exported">Экспортировано файлов: %1$d</string>
     <string name="config_import_hint">Только пользовательские профили, совместимые с установленными принтерами. Профиль с тем же именем будет заменён.</string>
-    <string name="object_menu_add_support_enforcer">Добавить усилитель поддержек</string>
-    <!-- create_mesh() of GUI_ObjectList.cpp: the shapes a part can have. -->
-    <string name="object_shape_title">Форма детали</string>
-    <string name="object_shape_cube">Куб</string>
-    <string name="object_shape_cylinder">Цилиндр</string>
-    <string name="object_shape_sphere">Сфера</string>
-    <string name="object_shape_slab">Плита</string>
-    <string name="object_shape_cone">Конус</string>
-    <string name="object_shape_disc">Диск</string>
-    <string name="object_shape_torus">Тор</string>
     <!-- ObjectDataViewModel: what a part of an object is called in the list. -->
     <string name="object_part_name">Деталь (%1$s)</string>
     <string name="object_part_negative">Вычитание (%1$s)</string>

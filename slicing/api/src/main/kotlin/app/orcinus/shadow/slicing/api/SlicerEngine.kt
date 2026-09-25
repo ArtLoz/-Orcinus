@@ -4,6 +4,9 @@ import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
+import app.orcinus.shadow.core.model.CopyPlacement
+import app.orcinus.shadow.core.model.MeshExportOutcome
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
@@ -27,6 +30,7 @@ import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
@@ -44,9 +48,12 @@ import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
+import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SimplifyOutcome
+import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SettingsTabOutcome
@@ -131,6 +138,134 @@ interface PlateInspector {
     ): ModelLoadOutcome
 
     /**
+     * Plater::export_stl(false, true): the object at [index] of [plate], whole,
+     * written to [path] as [format].
+     */
+    suspend fun exportMesh(
+        plate: List<PlacedModel>,
+        index: Int,
+        format: MeshFormat,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): MeshExportOutcome
+
+    /**
+     * GLGizmoSimplify::process(): the mesh of the volume at [volume] of the
+     * object at [index] decimated as [config] says, written to [path] as the
+     * 3D view draws that volume.
+     */
+    suspend fun simplifyVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        config: SimplifyConfig,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): SimplifyOutcome
+
+    /**
+     * ObjectList::set_volume_type(): the volume at [volume] of the object at
+     * [index] takes [type], and the volumes are sorted by type; the engine
+     * writes the object anew, with the volume's new place.
+     */
+    suspend fun setVolumeType(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        type: VolumeType,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /** GLGizmoSimplify::apply_simplify(): the volume takes its decimated mesh; the engine writes the object anew. */
+    suspend fun applySimplify(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        config: SimplifyConfig,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /**
+     * Plater::priv::replace_volume_with_stl(): the volume at [volume]
+     * (ModelObject::volumes) of the object at [index] takes the mesh of
+     * [source]; the engine writes the object anew, named after [prefix].
+     */
+    suspend fun replaceVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        source: ModelPath,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /**
+     * ObjectList::load_shape_object(): a [shape] of create_mesh() joins [plate]
+     * as an object named [name], in the empty cell nearest to the centre of
+     * the plate. The engine writes its meshes named after [prefix].
+     */
+    suspend fun addPrimitive(
+        plate: List<PlacedModel>,
+        shape: String,
+        name: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /** One of OrcaSlicer's handy models, the [file] under resources/handy_models; null when it is not there. */
+    suspend fun handyModel(file: String): ModelPath?
+
+    /**
+     * Selection::paste_volumes_from_clipboard(): the [volumes] (ModelObject::volumes)
+     * of [source], the object the clipboard copied them from, join the object at
+     * [index] of [plate] over its copy [instance]; they keep their place when
+     * [sameInputFile] and the copies turn alike. The engine writes the object
+     * anew, named after [prefix].
+     */
+    suspend fun pasteVolumes(
+        plate: List<PlacedModel>,
+        index: Int,
+        instance: Int,
+        source: PlacedModel,
+        volumes: List<Int>,
+        sameInputFile: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /**
+     * New objects copied from [sources], objects with only the copies taken,
+     * onto [plate]: [count] rounds of them placed as [placement] says. The
+     * engine writes their meshes named after [prefix].
+     */
+    suspend fun copy(
+        plate: List<PlacedModel>,
+        sources: List<PlacedModel>,
+        count: Int,
+        placement: CopyPlacement,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /**
+     * The object menu's commands that change meshes: [edit] of the object at
+     * [index] of [plate], or of its volume at [volume] (ModelObject::volumes;
+     * null for the whole object). Questions are answered as for [load], and the
+     * engine writes the meshes of the objects that come of it named after [prefix].
+     */
+    suspend fun edit(
+        plate: List<PlacedModel>,
+        index: Int,
+        edit: ObjectEdit,
+        volume: Int?,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        answers: Map<String, Boolean> = emptyMap(),
+    ): ModelLoadOutcome
+
+    /**
      * Commits [manipulation] of [plateObject], with its parts, from [previous]
      * to the instance transformation [placement], as OrcaSlicer does; with
      * [autoDrop] off the object is never moved onto the plate. Reports the
@@ -201,6 +336,11 @@ interface PlateInspector {
 
     /** One touch of a finger on the model being painted. */
     suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome
+
+    /** The painting tool's own Undo and Redo: the painting before the last stroke, or after the one undone. */
+    suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome
+
+    suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome
 
     /** Closes the tool and reports the painted facets to keep with the object. */
     suspend fun endPainting(): PaintingOutcome
@@ -358,6 +498,14 @@ interface PresetSettingsEditor {
         answers: Map<String, Boolean> = emptyMap(),
         model: ModelSettingsRequest = ModelSettingsRequest(),
     ): PresetSettingsOutcome
+
+    /**
+     * ObjectList::paste_settings_into_list(): the settings of an item of the
+     * object list once [clipboard], copied from an item of the same kind, is
+     * pasted into its own [target]. A part or a height range sits on the
+     * settings of its object, [parent]; an object has none.
+     */
+    suspend fun pasteModelSettings(clipboard: ModelSettings, target: ModelSettings, parent: ModelSettings?): ModelSettingsOutcome
 
     /**
      * The check box of a filament override: switched on, the setting takes the

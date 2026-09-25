@@ -1,5 +1,24 @@
 package app.orcinus.shadow.feature.sidebar
 
+import app.orcinus.shadow.core.ui.plate.conversionsOf
+import app.orcinus.shadow.core.ui.plate.conversionName
+import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
+import app.orcinus.shadow.core.ui.plate.shapeName
+import app.orcinus.shadow.core.ui.plate.objectMenuState
+import app.orcinus.shadow.core.ui.plate.ClipboardItems
+import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
+import app.orcinus.shadow.core.ui.plate.SetAsIndividualItem
+import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
+import app.orcinus.shadow.core.ui.plate.ChangeFilamentItem
+import app.orcinus.shadow.core.ui.plate.MenuFilament
+import app.orcinus.shadow.core.ui.plate.ProcessSettingsItems
+import app.orcinus.shadow.core.ui.plate.SmoothMeshItem
+import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.core.model.SettingsItemKind
+import app.orcinus.shadow.core.model.Manipulation
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,6 +61,7 @@ import app.orcinus.shadow.core.model.LayerRangeId
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PlateInstance
+import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.ScenePath
@@ -70,11 +90,31 @@ internal class ObjectListActions(
     val setPrintable: (PlateInstanceId, Boolean) -> Unit,
     /** ObjectList::toggle_auto_drop(). */
     val setAutoDrop: (PlateInstanceId, Boolean) -> Unit,
-    /** Plater::increase_instances() and decrease_instances(). */
-    val copy: (PlateInstanceId) -> Unit,
+    /** Plater::increase_instances(), decrease_instances() and set_number_of_copies(). */
+    val addInstance: (ScenePath) -> Unit,
+    val removeInstance: (ScenePath) -> Unit,
+    val setNumberOfInstances: (ScenePath, Int) -> Unit,
+    /** Selection::erase() of one copy of an object. */
     val removeCopy: (PlateInstanceId) -> Unit,
+    /** Plater::fill_bed_with_instances() of an object. */
+    val fillBed: (ScenePath) -> Unit,
+    /** ObjectList::split_instances() of those copies of an object. */
+    val setAsIndividual: (ScenePath, Set<Int>) -> Unit,
+    /** The clone dialog's OK for the whole object. */
+    val clone: (ScenePath, count: Int, arrange: Boolean) -> Unit,
+    /** Cut and Copy of copies of objects, or of volumes of an object over a copy; Paste over a copy. */
+    val copyObjects: (Set<PlateInstanceId>, cut: Boolean) -> Unit,
+    val copyVolumes: (PlateInstanceId, Set<Int>, cut: Boolean) -> Unit,
+    val paste: (PlateInstanceId) -> Unit,
+    /** The object menu's Center, Drop and Mirror of a copy. */
+    val manipulate: (PlateInstanceId, Manipulation) -> Unit,
+    /** ObjectList::rename_item() of an object and of a volume. */
+    val rename: (ScenePath, String) -> Unit,
+    val renamePart: (ObjectPartId, String) -> Unit,
+    /** The commands that change the meshes of an object, or of its volume at an index. */
+    val editObject: (ScenePath, ObjectEdit, Int?) -> Unit,
     /** ObjectList::load_generic_subobject(): a shape joins the object. */
-    val addPart: (ScenePath, shape: String, type: VolumeType) -> Unit,
+    val addPart: (ScenePath, shape: String, type: VolumeType, name: String) -> Unit,
     /** ObjectList::del_subobject_item(): the part leaves the object. */
     val removePart: (ObjectPartId) -> Unit,
     /** ObjectList::part_selection_changed(): the parameter panel edits the part. */
@@ -93,7 +133,35 @@ internal class ObjectListActions(
     val setRangeExtruder: (LayerRangeId, Int) -> Unit,
     /** Plater::remove_selected(). */
     val delete: (ScenePath) -> Unit,
+    /** ObjectList::toggle_printable_state() of an object's row: every copy of it, as one step. */
+    val setObjectPrintable: (ScenePath, Boolean) -> Unit = { _, _ -> },
+    /** The object menu's Flush Options. */
+    val toggleFlushOption: (ScenePath, FlushOption) -> Unit = { _, _ -> },
+    /** switch_to_object_process(), copy_settings_to_clipboard() and paste_settings_into_list() of an item. */
+    val editProcessSettings: (SettingsItem) -> Unit = {},
+    val copyProcessSettings: (SettingsItem) -> Unit = {},
+    val pasteProcessSettings: (SettingsItem) -> Unit = {},
+    /** Opens the document picker for the new mesh of a volume of an object (Plater::replace_with_stl). */
+    val replaceVolume: (PlateInstanceId, volume: Int) -> Unit = { _, _ -> },
+    /** Opens the folder picker whose files replace the volumes of an object (Plater::replace_all_with_stl). */
+    val replaceAllVolumes: (PlateInstanceId) -> Unit = {},
+    /** Opens where an object is exported to (Plater::export_stl), suggesting a file named after it. */
+    val exportObject: (ScenePath, MeshFormat, name: String) -> Unit = { _, _, _ -> },
+    /** ObjectList::simplify() of the whole object, or of one of its volumes. */
+    val simplifyObject: (ScenePath) -> Unit = {},
+    val simplifyVolume: (ObjectPartId) -> Unit = {},
+    /** ObjectList::set_volume_type(): the volume takes another type. */
+    val changeVolumeType: (ObjectPartId, VolumeType) -> Unit = { _, _ -> },
 )
+
+/** An item the user renames: an object or one of its volumes, with the name it has. */
+internal sealed interface RenameRequest {
+    val name: String
+
+    data class Object(val mesh: ScenePath, override val name: String) : RenameRequest
+
+    data class Volume(val id: ObjectPartId, override val name: String) : RenameRequest
+}
 
 /**
  * OrcaSlicer's object list (GUI_ObjectList, ObjectDataViewModel) in the
@@ -114,11 +182,19 @@ internal fun LazyListScope.objectListItems(
     picking: Boolean,
     /** The colour of every filament of the plate, which the filament column shows. */
     filaments: List<Color>,
+    /** Every filament of the plate with its preset, which "Change Filament" lists. */
+    menuFilaments: List<MenuFilament>,
     actions: ObjectListActions,
     /** A part of that kind is being added to the object: the sidebar asks which shape. */
     onChooseShape: (ScenePath, VolumeType) -> Unit,
     /** The heights of that range are being edited: the sidebar asks for them. */
     onEditRange: (LayerRangeId) -> Unit,
+    /** The object's number of copies is being set: the sidebar asks for it. */
+    onAskNumberOfInstances: (ScenePath) -> Unit,
+    /** The object is being cloned: the sidebar asks how. */
+    onAskClone: (ScenePath) -> Unit,
+    /** An item is being renamed: the sidebar asks for the name. */
+    onAskRename: (RenameRequest) -> Unit,
 ) {
     val onPlate = state.objects.filter { object_ -> object_.instances.any { it.inspection.fit != BuildVolumeFit.OUTSIDE } }
     val outside = state.objects.filter { object_ -> object_.instances.all { it.inspection.fit == BuildVolumeFit.OUTSIDE } }
@@ -138,7 +214,7 @@ internal fun LazyListScope.objectListItems(
     }
     settingsRow(key = "plate", settings = state.plateOverrides, definitions = plateDefinitions) { actions.selectSettings(null) }
 
-    objectRows(onPlate, state, enabled, picking, filaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange)
+    objectRows(onPlate, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
     if (outside.isNotEmpty()) {
         item(key = "objects:outside") {
             ObjectListRow(
@@ -149,7 +225,7 @@ internal fun LazyListScope.objectListItems(
                 onClick = {},
             )
         }
-        objectRows(outside, state, enabled, picking, filaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange)
+        objectRows(outside, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
     }
 }
 
@@ -159,12 +235,16 @@ private fun LazyListScope.objectRows(
     enabled: Boolean,
     picking: Boolean,
     filaments: List<Color>,
+    menuFilaments: List<MenuFilament>,
     definitions: Map<String, SettingDefinition>,
     partDefinitions: Map<String, SettingDefinition>,
     rangeDefinitions: Map<String, SettingDefinition>,
     actions: ObjectListActions,
     onChooseShape: (ScenePath, VolumeType) -> Unit,
     onEditRange: (LayerRangeId) -> Unit,
+    onAskNumberOfInstances: (ScenePath) -> Unit,
+    onAskClone: (ScenePath) -> Unit,
+    onAskRename: (RenameRequest) -> Unit,
 ) {
     objects.forEach { plateObject ->
         val mesh = plateObject.mesh
@@ -190,10 +270,40 @@ private fun LazyListScope.objectRows(
                     }
                 },
                 onClick = { actions.select(ids.first(), picking) },
-                onPrintable = { printable -> ids.forEach { actions.setPrintable(it, printable) } },
+                onPrintable = { printable -> actions.setObjectPrintable(mesh, printable) },
                 onLongClick = { actions.selectAlone(ids.first()) },
                 menu = { dismiss ->
-                    ObjectMenu(plateObject, plateObject.instances.first(), ids.first(), enabled, dismiss, actions, onChooseShape)
+                    val name = plateObject.displayName()
+                    // ObjectList's in-place rename, which a phone offers from the row's menu.
+                    RenameItem(enabled) {
+                        dismiss()
+                        onAskRename(RenameRequest.Object(mesh, name))
+                    }
+                    // The row selects the whole object (Selection::add_object).
+                    ObjectMenuItems(
+                        objectMenuState(
+                            plateObject,
+                            plateObject.instances.first(),
+                            state.plate,
+                            enabled,
+                            wholeObject = true,
+                            clipboard = state.clipboard,
+                            simplifying = state.simplifying,
+                            filaments = menuFilaments,
+                            flushing = state.flushing,
+                            settingsClipboard = state.settingsClipboard,
+                        ),
+                        actions.menuOf(
+                            id = ids.first(),
+                            name = name,
+                            copies = plateObject.instances.indices.toSet(),
+                            delete = { actions.delete(mesh) },
+                            onChooseShape = onChooseShape,
+                            onAskNumberOfInstances = onAskNumberOfInstances,
+                            onAskClone = onAskClone,
+                        ),
+                        dismiss,
+                    )
                 },
             )
         }
@@ -225,6 +335,25 @@ private fun LazyListScope.objectRows(
                         },
                     onClick = { actions.selectPart(partId) },
                     menu = { dismiss ->
+                        val volumeName = when {
+                            at == 0 -> part.name.ifEmpty { plateObject.displayName() }
+                            else -> part.name.ifEmpty { stringResource(partName(part.type), stringResource(shapeName(part.shape))) }
+                        }
+                        RenameItem(enabled) {
+                            dismiss()
+                            onAskRename(RenameRequest.Volume(partId, volumeName))
+                        }
+                        // The Edit menu for the volume, which the list picks over the first
+                        // copy; the object's own mesh cannot be cut out of it yet.
+                        val first = PlateInstanceId(mesh, 0)
+                        ClipboardItems(
+                            enabled = enabled,
+                            canPaste = enabled && state.clipboard is PlateClipboard.Volumes,
+                            cut = if (at > 0) ({ dismiss(); actions.copyVolumes(first, setOf(at), true) }) else null,
+                            copy = { dismiss(); actions.copyVolumes(first, setOf(at), false) },
+                            paste = { dismiss(); actions.paste(first) },
+                        )
+                        OrcaMenuSeparator()
                         // ObjectList::del_subobject_item(). The object's own
                         // mesh cannot go yet: the object would be its parts alone.
                         OrcaMenuItem(
@@ -235,6 +364,96 @@ private fun LazyListScope.objectRows(
                                 actions.removePart(partId)
                             },
                         )
+                        // MenuFactory::create_bbl_part_menu(), with the items the app has.
+                        OrcaMenuItem(
+                            text = orcaString("Fix model"),
+                            enabled = enabled,
+                            onClick = {
+                                dismiss()
+                                actions.editObject(mesh, ObjectEdit.FIX, at)
+                            },
+                        )
+                        OrcaMenuItem(
+                            text = orcaString("Simplify Model"),
+                            enabled = enabled && !state.simplifying,
+                            onClick = {
+                                dismiss()
+                                actions.simplifyVolume(partId)
+                            },
+                        )
+                        // Plater::can_smooth_mesh() goes by the object's meshes.
+                        SmoothMeshItem(enabled = enabled && plateObject.instances.first().inspection.openEdges == 0L) {
+                            dismiss()
+                            actions.editObject(mesh, ObjectEdit.SMOOTH_MESH, at)
+                        }
+                        OrcaSubmenu(text = orcaString("Split"), enabled = enabled && part.splittable) {
+                            // ObjectList::is_splittable(true) refuses a volume.
+                            OrcaMenuItem(text = orcaString("To objects"), enabled = false, onClick = {})
+                            OrcaMenuItem(
+                                text = orcaString("To parts"),
+                                enabled = enabled && part.splittable,
+                                onClick = {
+                                    dismiss()
+                                    actions.editObject(mesh, ObjectEdit.SPLIT_TO_PARTS, at)
+                                },
+                            )
+                        }
+                        // MenuFactory::part_menu() appends the conversions of the volume.
+                        OrcaMenuSeparator()
+                        val item = SettingsItem.Volume(partId)
+                        ProcessSettingsItems(
+                            enabled = enabled,
+                            canPaste = enabled && state.settingsClipboard?.kind == SettingsItemKind.VOLUME,
+                            edit = { dismiss(); actions.editProcessSettings(item) },
+                            copy = { dismiss(); actions.copyProcessSettings(item) },
+                            paste = { dismiss(); actions.pasteProcessSettings(item) },
+                        )
+                        // append_menu_item_change_type(): the kinds of volume, the volume's checked.
+                        OrcaSubmenu(text = orcaString("Change type"), enabled = enabled) {
+                            VOLUME_TYPES.forEach { (type, label) ->
+                                OrcaMenuCheckItem(
+                                    text = orcaString(label),
+                                    checked = part.type == type,
+                                    enabled = enabled,
+                                    onClick = {
+                                        dismiss()
+                                        actions.changeVolumeType(partId, type)
+                                    },
+                                )
+                            }
+                        }
+                        // Plater::can_replace_with_stl(): the list selects the volume alone.
+                        OrcaMenuItem(
+                            text = orcaString("Replace 3D file") + "...",
+                            enabled = enabled,
+                            onClick = {
+                                dismiss()
+                                actions.replaceVolume(first, at)
+                            },
+                        )
+                        conversionsOf(listOf(part)).forEach { conversion ->
+                            OrcaMenuItem(
+                                text = orcaString(conversionName(conversion)),
+                                enabled = enabled,
+                                onClick = {
+                                    dismiss()
+                                    actions.editObject(mesh, conversion, at)
+                                },
+                            )
+                        }
+                        // MenuFactory::part_menu(): a part of the model or a modifier takes a
+                        // filament; a modifier may follow its object's ("Default").
+                        if (part.type == VolumeType.PART || part.type == VolumeType.MODIFIER) {
+                            ChangeFilamentItem(
+                                menuFilaments,
+                                withDefault = part.type == VolumeType.MODIFIER,
+                                enabled = enabled,
+                                onPick = { filament ->
+                                    dismiss()
+                                    actions.setPartExtruder(partId, filament)
+                                },
+                            )
+                        }
                     },
                 )
             }
@@ -300,6 +519,18 @@ private fun LazyListScope.objectRows(
                                     actions.removeRange(rangeId)
                                 },
                             )
+                            // The desktop list copies a range's settings with the keyboard
+                            // (ObjectList::copy_to_clipboard of its settings row), which a
+                            // phone offers from the row's menu.
+                            OrcaMenuSeparator()
+                            val item = SettingsItem.Layer(rangeId)
+                            ProcessSettingsItems(
+                                enabled = enabled,
+                                canPaste = enabled && state.settingsClipboard?.kind == SettingsItemKind.LAYER,
+                                edit = { dismiss(); actions.editProcessSettings(item) },
+                                copy = { dismiss(); actions.copyProcessSettings(item) },
+                                paste = { dismiss(); actions.pasteProcessSettings(item) },
+                            )
                         },
                     )
                 }
@@ -327,7 +558,23 @@ private fun LazyListScope.objectRows(
                         onClick = { actions.select(id, picking) },
                         onPrintable = { actions.setPrintable(id, it) },
                         onLongClick = { actions.selectAlone(id) },
-                        menu = { dismiss -> ObjectMenu(plateObject, instance, id, enabled, dismiss, actions, onChooseShape) },
+                        // MenuFactory::instance_menu(): "Set as an individual object" alone;
+                        // Delete stands in for the Delete key, which erases the copy (Selection::erase).
+                        menu = { dismiss ->
+                            SetAsIndividualItem(wholeObject = false, enabled = enabled) {
+                                dismiss()
+                                actions.setAsIndividual(mesh, setOf(index))
+                            }
+                            OrcaMenuSeparator()
+                            OrcaMenuItem(
+                                text = stringResource(UiR.string.object_menu_delete),
+                                enabled = enabled,
+                                onClick = {
+                                    dismiss()
+                                    actions.removeCopy(id)
+                                },
+                            )
+                        },
                     )
                 }
             }
@@ -411,28 +658,14 @@ private fun FilamentColumn(column: ExtruderColumn, enabled: Boolean) {
     }
 }
 
-/** The shapes OrcaSlicer generates (create_mesh of GUI_ObjectList.cpp), in its order. */
-internal val PART_SHAPES = listOf("Cube", "Cylinder", "Sphere", "Slab", "Cone", "Disc", "Torus")
-
-/** What the menu calls adding a part of that kind (MenuFactory). */
-internal fun addPartName(type: VolumeType): Int = when (type) {
-    VolumeType.PART -> R.string.object_menu_add_part
-    VolumeType.NEGATIVE -> R.string.object_menu_add_negative
-    VolumeType.MODIFIER -> R.string.object_menu_add_modifier
-    VolumeType.SUPPORT_BLOCKER -> R.string.object_menu_add_support_blocker
-    VolumeType.SUPPORT_ENFORCER -> R.string.object_menu_add_support_enforcer
-}
-
-/** What the sheet of shapes calls one of them. */
-internal fun shapeName(shape: String): Int = when (shape) {
-    "Cube" -> R.string.object_shape_cube
-    "Cylinder" -> R.string.object_shape_cylinder
-    "Sphere" -> R.string.object_shape_sphere
-    "Slab" -> R.string.object_shape_slab
-    "Cone" -> R.string.object_shape_cone
-    "Disc" -> R.string.object_shape_disc
-    else -> R.string.object_shape_torus
-}
+/** The types "Change type" offers, with their texts (MenuFactory::append_menu_item_change_type). */
+private val VOLUME_TYPES = listOf(
+    VolumeType.PART to "Part",
+    VolumeType.NEGATIVE to "Negative Part",
+    VolumeType.MODIFIER to "Modifier",
+    VolumeType.SUPPORT_BLOCKER to "Support Blocker",
+    VolumeType.SUPPORT_ENFORCER to "Support Enforcer",
+)
 
 /** What a row of the list calls a part of an object (ObjectDataViewModel). */
 private fun partName(type: VolumeType): Int = when (type) {
@@ -443,76 +676,50 @@ private fun partName(type: VolumeType): Int = when (type) {
     VolumeType.SUPPORT_ENFORCER -> R.string.object_part_support_enforcer
 }
 
-/** MenuFactory::create_object_menu(), with the items the app has. */
-@Composable
-private fun ObjectMenu(
-    plateObject: PlateObject,
-    instance: PlateInstance,
+/** What the object menu does for the object of the copy [id], selected with its [copies], in the list. */
+private fun ObjectListActions.menuOf(
     id: PlateInstanceId,
-    enabled: Boolean,
-    dismiss: () -> Unit,
-    actions: ObjectListActions,
+    name: String,
+    copies: Set<Int>,
+    delete: () -> Unit,
     onChooseShape: (ScenePath, VolumeType) -> Unit,
-) {
-    OrcaMenuItem(
-        text = stringResource(UiR.string.object_menu_delete),
-        enabled = enabled,
-        onClick = {
-            dismiss()
-            actions.delete(id.mesh)
-        },
-    )
+    onAskNumberOfInstances: (ScenePath) -> Unit,
+    onAskClone: (ScenePath) -> Unit,
+) = ObjectMenuActions(
+    cut = { copyObjects(copies.mapTo(LinkedHashSet()) { PlateInstanceId(id.mesh, it) }, true) },
+    copy = { copyObjects(copies.mapTo(LinkedHashSet()) { PlateInstanceId(id.mesh, it) }, false) },
+    paste = { paste(id) },
+    addInstance = { addInstance(id.mesh) },
+    removeInstance = { removeInstance(id.mesh) },
+    setNumberOfInstances = { onAskNumberOfInstances(id.mesh) },
+    fillBedWithInstances = { fillBed(id.mesh) },
+    setAsIndividual = { setAsIndividual(id.mesh, copies) },
+    clone = { onAskClone(id.mesh) },
+    center = { manipulate(id, Manipulation.Center) },
+    drop = { manipulate(id, Manipulation.Drop) },
+    mirror = { manipulate(id, Manipulation.Mirror(it)) },
+    delete = delete,
+    addPart = { onChooseShape(id.mesh, it) },
+    addHeightRange = { addRange(id.mesh, null) },
+    setAutoDrop = { setAutoDrop(id, it) },
+    edit = { editObject(id.mesh, it, null) },
+    simplify = { simplifyObject(id.mesh) },
+    setPrintable = { setObjectPrintable(id.mesh, it) },
+    setFilament = { setObjectExtruder(id.mesh, it) },
+    toggleFlushOption = { toggleFlushOption(id.mesh, it) },
+    editProcessSettings = { editProcessSettings(SettingsItem.Object(id.mesh)) },
+    copyProcessSettings = { copyProcessSettings(SettingsItem.Object(id.mesh)) },
+    pasteProcessSettings = { pasteProcessSettings(SettingsItem.Object(id.mesh)) },
+    replace = { replaceVolume(id, 0) },
+    replaceAll = { replaceAllVolumes(id) },
+    export = { exportObject(id.mesh, it, name) },
+)
+
+/** ObjectList::rename_item(), first in the menu of a row. */
+@Composable
+private fun RenameItem(enabled: Boolean, onClick: () -> Unit) {
+    OrcaMenuItem(text = orcaString("Rename"), enabled = enabled, onClick = onClick)
     OrcaMenuSeparator()
-    // append_menu_item_instance(): another copy of the object, and one fewer.
-    OrcaMenuItem(
-        text = stringResource(R.string.object_menu_add_instance),
-        enabled = enabled,
-        onClick = {
-            dismiss()
-            actions.copy(id)
-        },
-    )
-    OrcaMenuItem(
-        text = stringResource(R.string.object_menu_remove_instance),
-        enabled = enabled && plateObject.instances.size > 1,
-        onClick = {
-            dismiss()
-            actions.removeCopy(id)
-        },
-    )
-    OrcaMenuSeparator()
-    // append_menu_item_layers_editing()
-    OrcaMenuItem(
-        text = stringResource(R.string.object_menu_height_range),
-        enabled = enabled,
-        onClick = {
-            dismiss()
-            actions.addRange(id.mesh, null)
-        },
-    )
-    OrcaMenuSeparator()
-    // append_menu_items_add_volume(): every kind of part the desktop app adds,
-    // whose submenu of shapes a phone shows as a sheet once the kind is picked.
-    VolumeType.entries.forEach { type ->
-        OrcaMenuItem(
-            text = stringResource(addPartName(type)),
-            enabled = enabled,
-            onClick = {
-                dismiss()
-                onChooseShape(id.mesh, type)
-            },
-        )
-    }
-    OrcaMenuSeparator()
-    OrcaMenuCheckItem(
-        text = stringResource(UiR.string.object_menu_auto_drop),
-        checked = instance.autoDrop,
-        enabled = enabled,
-        onClick = {
-            dismiss()
-            actions.setAutoDrop(id, !instance.autoDrop)
-        },
-    )
 }
 
 /** The settings row of an item, which the desktop app names after their pages. */

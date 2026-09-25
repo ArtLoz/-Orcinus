@@ -32,6 +32,13 @@
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Format/STL.hpp"
 #include "libslic3r/Format/STEP.hpp"
+#include "libslic3r/Format/DRC.hpp"
+#include "libslic3r/CSGMesh/ModelToCSGMesh.hpp"
+#include "libslic3r/CSGMesh/PerformCSGMeshBooleans.hpp"
+#include "libslic3r/MeshBoolean.hpp"
+#include "libslic3r/TriangleMeshDeal.hpp"
+#include "libslic3r/QuadricEdgeCollapse.hpp"
+#include "libslic3r/MeshBoolean.hpp"
 #include "libslic3r/Geometry/ConvexHull.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/GCode/Thumbnails.hpp"
@@ -431,21 +438,22 @@ bool plate_empty(const Slic3r::Model& model, const Slic3r::ModelObject* joining,
     return true;
 }
 
-// GLCanvas3D::get_nearest_empty_cell() with its default 10 mm step: the cell of
-// the plate nearest to start_point that no instance's convex hull covers, or a
-// point beside start_point when every cell is covered. The cells are those of
-// GLCanvas3D::get_empty_cells() as Bambu Studio has it, and OrcaSlicer had it
-// until commit 8f777555: that commit keeps every cell some instance leaves
-// free, which puts an object added to a plate onto the one in its centre.
+// GLCanvas3D::get_nearest_empty_cell(), by default with its 10 mm step: the
+// cell of the plate nearest to start_point that no instance's convex hull
+// covers, or a point beside start_point when every cell is covered. The cells
+// are those of GLCanvas3D::get_empty_cells() as Bambu Studio has it, and
+// OrcaSlicer had it until commit 8f777555: that commit keeps every cell some
+// instance leaves free, which puts an object added to a plate onto the one in
+// its centre.
 Slic3r::Vec2f nearest_empty_cell(
     const Slic3r::Model& model,
     const Slic3r::BoundingBoxf3& plate_box,
     const Slic3r::BoundingBoxf& bed,
-    const Slic3r::Vec2f& start_point
+    const Slic3r::Vec2f& start_point,
+    const Slic3r::Vec2f& step = Slic3r::Vec2f(10.0f, 10.0f)
 )
 {
     using namespace Slic3r;
-    const Vec2f step(10.0f, 10.0f);
     std::vector<Vec2f> cells;
     const float min_x = start_point.x() - step(0) * int((start_point.x() - plate_box.min.x()) / step(0));
     const float min_y = start_point.y() - step(1) * int((start_point.y() - plate_box.min.y()) / step(1));
@@ -576,9 +584,22 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
     // The settings of the object (ModelObject::config), which Print::apply
     // lays over the process preset for it.
     loaded->config.assign_config(detail::model_config(object.settings));
-    // The settings of its own mesh (the first ModelVolume's config).
+    // The settings of its own mesh (the first ModelVolume's config), and the
+    // units the mesh was converted from.
+    if (!object.name.empty()) {
+        loaded->name = object.name;
+    }
     if (!loaded->volumes.empty()) {
-        loaded->volumes.front()->config.assign_config(detail::model_config(object.volume_settings));
+        Slic3r::ModelVolume& own = *loaded->volumes.front();
+        if (!object.volume_name.empty()) {
+            own.name = object.volume_name;
+        }
+        own.config.assign_config(detail::model_config(object.volume_settings));
+        own.source.is_converted_from_inches = object.volume_from_inches;
+        own.source.is_converted_from_meters = object.volume_from_meters;
+        if (!object.volume_input_file.empty()) {
+            own.source.input_file = object.volume_input_file;
+        }
     }
     // The colours the object is painted with (GLGizmoMmuSegmentation),
     // which MultiMaterialSegmentation prints.
@@ -616,6 +637,9 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
             volume->set_transformation(Slic3r::Geometry::Transformation(transformation));
         }
         volume->config.assign_config(detail::model_config(part.settings));
+        volume->source.is_converted_from_inches = part.from_inches;
+        volume->source.is_converted_from_meters = part.from_meters;
+        volume->source.input_file = part.input_file;
         if (!apply_painted_facets(*volume, part.painted)) {
             message = "The painted facets of a part could not be read";
             return nullptr;
@@ -1656,10 +1680,9 @@ void add_exclude_areas(Slic3r::arrangement::ArrangePolygons& unselected, const S
     }
 }
 
-// ArrangeJob with the given settings, on the only plate: init_arrange_params(),
-// prepare_all(), check_unprintable(), process(), and finalize(). Wipe towers
-// do not apply to single-filament plates.
-void arrange_on_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const ArrangeSettings& settings)
+// init_arrange_params() with the arrange settings, and the extruder parameters
+// and speed table ArrangeJob::prepare() sets for the arrangement.
+Slic3r::arrangement::ArrangeParams init_arrange_params(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const ArrangeSettings& settings)
 {
     using namespace Slic3r;
     Print print;
@@ -1692,12 +1715,29 @@ void arrange_on_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& co
 
     Model::setExtruderParams(config, int(config.option<ConfigOptionStrings>("filament_colour")->values.size()));
     Model::setPrintSpeedTable(config, print_config);
+    return params;
+}
+
+// ArrangeJob with the given settings, on the only plate: init_arrange_params(),
+// prepare_all(), or prepare_partplate() when it is only_on_plate, as the menus
+// start it, check_unprintable(), process(), and finalize(). Wipe towers do not
+// apply to single-filament plates.
+void arrange_on_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const ArrangeSettings& settings, bool only_on_plate = false)
+{
+    using namespace Slic3r;
+    arrangement::ArrangeParams params = init_arrange_params(model, config, settings);
+    const BoundingBoxf3 plate_box = plate_box_of(config);
 
     arrangement::ArrangePolygons selected;
     arrangement::ArrangePolygons unselected;
     for (ModelObject* object : model.objects) {
-        for (ModelInstance* instance : object->instances) {
+        for (std::size_t index = 0; index < object->instances.size(); ++index) {
+            ModelInstance* instance = object->instances[index];
             if (!instance->printable)
+                continue;
+            // prepare_partplate(): a copy off the plate is locked where it is
+            // (PartPlate::intersect_instance).
+            if (only_on_plate && !plate_box.intersects(object->instance_convex_hull_bounding_box(index)))
                 continue;
             arrangement::ArrangePolygon polygon = get_instance_arrange_poly(instance, config);
             polygon.itemid = int(selected.size());
@@ -1749,6 +1789,177 @@ void arrange_on_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& co
     }
 }
 
+// Plater::get_empty_cells(): the centres of the cells of step the plate is
+// divided into, from its front left corner, without the cells that meet an
+// excluded area of the bed. Objects on the plate do not count.
+std::vector<Slic3r::Vec2f> plate_cells(const Slic3r::DynamicPrintConfig& config, const Slic3r::Vec2f& step)
+{
+    using namespace Slic3r;
+    const BoundingBoxf3 build_volume = plate_box_of(config);
+    const BoundingBoxf bbox(Vec2d(build_volume.min.x(), build_volume.min.y()), Vec2d(build_volume.max.x(), build_volume.max.y()));
+    // PartPlate::get_exclude_areas(): a box per four points of the excluded area.
+    std::vector<BoundingBoxf> exclude_boxs;
+    const Pointfs& excluded = config.option<ConfigOptionPoints>("bed_exclude_area")->values;
+    for (size_t start = 0; start + 4 <= excluded.size(); start += 4) {
+        BoundingBoxf box;
+        for (size_t point = start; point < start + 4; ++point) {
+            box.merge(excluded[point]);
+        }
+        exclude_boxs.push_back(box);
+    }
+    std::vector<Vec2f> cells;
+    const float min_x = step(0) / 2;
+    const float min_y = step(1) / 2;
+    for (float x = min_x + bbox.min.x(); x < bbox.max.x() - step(0) / 2; x += step(0)) {
+        for (float y = min_y + bbox.min.y(); y < bbox.max.y() - step(1) / 2; y += step(1)) {
+            const BoundingBoxf cell(Vec2d(x - step(0) / 2, y - step(1) / 2), Vec2d(x + step(0) / 2, y + step(1) / 2));
+            if (std::any_of(exclude_boxs.begin(), exclude_boxs.end(), [&cell](const BoundingBoxf& box) { return box.overlap(cell); })) {
+                continue;
+            }
+            cells.emplace_back(x, y);
+        }
+    }
+    return cells;
+}
+
+// FillBedJob(true) on the only plate: prepare(), process() and finalize(), then
+// ArrangeJob from the menu as finalize() starts it. Copies of the object at
+// object_index are added while the free area of the plate holds more, as many
+// as the arrangement packs onto the plate.
+void fill_bed_with_instances(
+    Slic3r::Model& model,
+    const Slic3r::DynamicPrintConfig& config,
+    const ArrangeSettings& settings,
+    std::size_t object_index,
+    int selected_instance
+)
+{
+    using namespace Slic3r;
+    using arrangement::ArrangePolygon;
+    if (object_index >= model.objects.size()) {
+        return;
+    }
+    arrangement::ArrangeParams params = init_arrange_params(model, config, settings);
+    // The selected copy, or the first when the whole object is selected.
+    const int sel_id = std::max(selected_instance, 0);
+    ModelObject* model_object = model.objects[object_index];
+    if (model_object->instances.empty() || sel_id >= int(model_object->instances.size())) {
+        return;
+    }
+    // PartPlate::get_bounding_box_crd()
+    const BoundingBox plate_bb = Polygon::new_scale(config.option<ConfigOptionPoints>("printable_area")->values).bounding_box();
+
+    // prepare(): the printable copies of the object are the items to pack;
+    // the other copies within the plate stay fixed, and the ones off it are locked.
+    arrangement::ArrangePolygons selected;
+    arrangement::ArrangePolygons unselected;
+    for (size_t oidx = 0; oidx < model.objects.size(); ++oidx) {
+        ModelObject* mo = model.objects[oidx];
+        for (size_t inst_idx = 0; inst_idx < mo->instances.size(); ++inst_idx) {
+            ArrangePolygon ap = get_instance_arrange_poly(mo->instances[inst_idx], config);
+            const BoundingBox ap_bb = ap.transformed_poly().contour.bounding_box();
+            ap.name = mo->name;
+            if (oidx == object_index && mo->instances[inst_idx]->printable) {
+                ++ap.priority;
+                ap.itemid = int(selected.size());
+                selected.emplace_back(ap);
+            } else if (plate_bb.contains(ap_bb)) {
+                // On the first plate row, column and stride are 0.
+                ap.bed_idx = 0;
+                ap.itemid = int(unselected.size());
+                unselected.emplace_back(ap);
+            }
+        }
+    }
+    if (selected.empty()) {
+        return;
+    }
+    add_exclude_areas(params.excluded_regions, config, 1, scale_(1));
+    // PartPlateList::preprocess_exclude_areas() with its default 16 plates.
+    add_exclude_areas(unselected, config, 16, 0.0f);
+    const Points bedpts = get_bed_shape(config);
+
+    const double sc = scaled<double>(1.) * scaled(1.);
+    const ExPolygons polys = offset_ex(selected.front().poly, params.min_obj_distance / 2);
+    const ExPolygon poly = polys.empty() ? selected.front().poly : polys.front();
+    const double poly_area = poly.area() / sc;
+    const double unsel_area = std::accumulate(unselected.begin(), unselected.end(), 0., [](double s, const ArrangePolygon& ap) {
+        return s + (ap.bed_idx == 0) * ap.poly.area();
+    }) / sc;
+    const double fixed_area = unsel_area + selected.size() * poly_area;
+    const double bed_area = Polygon{bedpts}.area() / sc;
+    // This is the maximum number of items, the real number will always be close but less.
+    const int needed_items = (bed_area - fixed_area) / poly_area;
+
+    ModelInstance* mi = model_object->instances[sel_id];
+    const ArrangePolygon template_ap = get_instance_arrange_poly(mi, config);
+    // GLCanvas3D::get_size_proportional_to_max_bed_size(0.05)
+    const BoundingBoxf bed = build_volume_of(config).bounding_volume2d();
+    const double offset_base = 0.05 * std::max(bed.size().x(), bed.size().y());
+    double offset = offset_base;
+    for (int i = 0; i < needed_items; ++i, offset += offset_base) {
+        ArrangePolygon ap = template_ap;
+        ap.poly = selected.front().poly;
+        // PartPlateList::MAX_PLATES_COUNT
+        ap.bed_idx = 36;
+        ap.itemid = -1;
+        ap.setter = [&model, object_index, offset](const ArrangePolygon& p) {
+            ModelObject* mo = model.objects[object_index];
+            ModelInstance* model_instance = mo->instances.back();
+            const Vec3d offset_vec = model_instance->get_offset() + Vec3d(offset, offset, 0.0);
+            mo->add_instance(offset_vec, model_instance->get_scaling_factor(), model_instance->get_rotation(), model_instance->get_mirror());
+            for (ModelInstance* new_instance : mo->instances) {
+                new_instance->apply_arrange_result(p.translation.cast<double>(), p.rotation);
+            }
+        };
+        selected.emplace_back(ap);
+    }
+
+    // process()
+    update_arrange_params(params, &config, selected);
+    const Points shrunk_bed = get_shrink_bedpts(&config, params);
+    update_selected_items_inflation(selected, &config, params);
+    update_unselected_items_inflation(unselected, &config, params);
+    bool do_stop = false;
+    params.stopcondition = [&do_stop] { return do_stop; };
+    params.on_packed = [&do_stop](const ArrangePolygon& ap) { do_stop = ap.bed_idx > 0 && ap.priority == 0; };
+    params.do_final_align = !engine().bundle->is_bbl_vendor();
+    if (selected.size() > 100) {
+        // Too many items: the grid's cells take them.
+        const Vec2f step = unscaled<float>(get_extents(selected.front().poly).size()) +
+                           Vec2f(selected.front().brim_width, selected.front().brim_width);
+        const std::vector<Vec2f> empty_cells = plate_cells(config, step);
+        const size_t n = std::min(selected.size(), empty_cells.size());
+        for (size_t i = 0; i < n; i++) {
+            selected[i].translation = scaled<coord_t>(empty_cells[i]);
+            selected[i].bed_idx = 0;
+        }
+        for (size_t i = n; i < selected.size(); i++) {
+            selected[i].bed_idx = -1;
+        }
+    } else {
+        arrangement::arrange(selected, unselected, shrunk_bed, params);
+    }
+
+    // finalize(): the items packed onto the plate apply, which adds the new copies.
+    const int added_cnt = std::accumulate(selected.begin(), selected.end(), 0, [](int s, const ArrangePolygon& ap) {
+        return s + int(ap.priority == 0 && ap.bed_idx == 0);
+    });
+    if (added_cnt <= 0) {
+        return;
+    }
+    for (ArrangePolygon& ap : selected) {
+        if (ap.bed_idx != 0) {
+            continue;
+        }
+        ap.apply();
+    }
+    for (ModelObject* object : model.objects) {
+        object->invalidate_bounding_box();
+    }
+    arrange_on_plate(model, config, settings, true);
+}
+
 // The instance's lowest point with the transformation, as instance_bounding_box().min.z().
 double instance_min_z(Slic3r::ModelObject& object, const std::vector<double>& placement)
 {
@@ -1774,6 +1985,18 @@ void rest_on_plate(Slic3r::ModelObject& object, double min_z_before)
     if ((min_z_before >= Slic3r::SINKING_Z_THRESHOLD || shift_z > Slic3r::SINKING_Z_THRESHOLD) && shift_z != 0.0) {
         object.translate_instance(0, Slic3r::Vec3d(0.0, 0.0, -shift_z));
     }
+}
+
+// Selection::get_bounding_box() of a selected copy: every volume of it, its
+// parts and modifiers included, as the canvas draws them.
+Slic3r::BoundingBoxf3 selection_box(const Slic3r::ModelObject& object, std::size_t instance)
+{
+    Slic3r::BoundingBoxf3 box;
+    const Slic3r::Transform3d instance_matrix = object.instances[instance]->get_matrix();
+    for (const Slic3r::ModelVolume* volume : object.volumes) {
+        box.merge(volume->mesh().transformed_bounding_box(instance_matrix * volume->get_matrix()));
+    }
+    return box;
 }
 
 // GLGizmoFlatten::update_planes()
@@ -2099,6 +2322,44 @@ ModelInspection place_model(
         case Manipulation::ensure_on_bed:
             object.ensure_on_bed();
             break;
+        case Manipulation::mirror_x:
+        case Manipulation::mirror_y:
+        case Manipulation::mirror_z: {
+            // Selection::mirror() with a relative world transformation
+            // (transform_instance_relative) about Selection's dragging centre.
+            const Slic3r::Vec3d mirror(manipulation == Manipulation::mirror_x ? -1.0 : 1.0,
+                                       manipulation == Manipulation::mirror_y ? -1.0 : 1.0,
+                                       manipulation == Manipulation::mirror_z ? -1.0 : 1.0);
+            const Slic3r::Vec3d pivot = selection_box(object, 0).center();
+            const Slic3r::Transform3d transform = Slic3r::Geometry::translation_transform(pivot) *
+                                                  Slic3r::Geometry::scale_transform(mirror) *
+                                                  Slic3r::Geometry::translation_transform(-pivot);
+            Slic3r::ModelInstance& instance = *object.instances.front();
+            instance.set_transformation(Slic3r::Geometry::Transformation(transform * instance.get_matrix()));
+            object.invalidate_bounding_box();
+            // do_mirror() snaps the copy to the plate by the rule of do_rotate().
+            rest_on_plate(object, min_z_before);
+            break;
+        }
+        case Manipulation::center: {
+            // PartPlate::get_center_origin() of the plate.
+            const Slic3r::Vec2d plate_center = build_volume_of(config).bounding_volume2d().center();
+            const Slic3r::Vec3d box_center = selection_box(object, 0).center();
+            object.translate_instance(0, Slic3r::Vec3d(plate_center.x() - box_center.x(), plate_center.y() - box_center.y(), 0.0));
+            // do_move("Move Object")
+            const double shift_z = object.get_instance_min_z(0);
+            if (auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
+                object.translate_instance(0, Slic3r::Vec3d(0.0, 0.0, -shift_z));
+            }
+            break;
+        }
+        case Manipulation::drop: {
+            const double min_z = selection_box(object, 0).min.z();
+            if (std::abs(min_z) >= -Slic3r::SINKING_Z_THRESHOLD) {
+                object.translate_instance(0, Slic3r::Vec3d(0.0, 0.0, -min_z));
+            }
+            break;
+        }
         case Manipulation::lay_on_face: {
             // Selection::flattening_rotate(): the face normal, taken to world coordinates, turns to point down.
             const Slic3r::Geometry::Transformation old_transformation = object.instances.front()->get_transformation();
@@ -2121,6 +2382,7 @@ ModelInspection place_model(
         describe_placed(object, 0, result);
         result.status = SceneStatus::success;
         result.facet_count = static_cast<std::int64_t>(object.facets_count());
+        result.open_edges = static_cast<std::int64_t>(object.get_object_stl_stats().open_edges);
         return result;
     } catch (const std::exception& error) {
         result.message = error.what();
@@ -2211,7 +2473,8 @@ PlateInspection place_objects(
     const std::vector<bool>& selected,
     const ProfileSelection& profiles,
     PlateManipulation manipulation,
-    const ArrangeSettings& arrange_settings
+    const ArrangeSettings& arrange_settings,
+    int selected_instance
 )
 {
     PlateInspection result;
@@ -2252,6 +2515,18 @@ PlateInspection place_objects(
             break;
         case PlateManipulation::update_print_volume_state:
             break;
+        case PlateManipulation::arrange_plate:
+            arrange_on_plate(model, config, arrange_settings, true);
+            break;
+        case PlateManipulation::fill_bed: {
+            const auto object = std::find(selected.begin(), selected.end(), true);
+            if (object == selected.end()) {
+                result.message = "No object is selected";
+                return result;
+            }
+            fill_bed_with_instances(model, config, arrange_settings, std::size_t(object - selected.begin()), selected_instance);
+            break;
+        }
         default:
             result.message = "Unknown manipulation";
             return result;
@@ -2265,6 +2540,7 @@ PlateInspection place_objects(
                 describe_placed(*object, index, instance);
                 instance.status = SceneStatus::success;
                 instance.facet_count = static_cast<std::int64_t>(object->facets_count());
+                instance.open_edges = static_cast<std::int64_t>(object->get_object_stl_stats().open_edges);
             }
         }
         result.status = SceneStatus::success;
@@ -2351,6 +2627,218 @@ Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& 
     // is_xxx means "in inches" for an AMF file.
     imperial = is_any_amf(path) && is_xxx;
     return model;
+}
+
+// load_model_objects(): an object more than ten times the plate is scaled
+// down to it when the user agrees, and one more than 10000 times whatever the
+// answer. index tells the objects of one load apart in the questions.
+void offer_to_scale_down(Slic3r::ModelObject& object, const Slic3r::Vec3d& bed_size, detail::SettingsDialogs& dialogs, std::size_t index)
+{
+    const std::vector<UiText> too_large = {detail::ui_text(
+        "Your object appears to be too large, do you want to scale it down to fit the print bed automatically?")};
+    for (std::size_t instance = 0; instance < object.instances.size(); ++instance) {
+        const Slic3r::Vec3d ratio = object.instance_bounding_box(instance).size().cwiseQuotient(bed_size);
+        const double max_ratio = std::max(ratio.x(), ratio.y());
+        if (max_ratio > 10000) {
+            dialogs.inform("object_too_large", too_large, {detail::ui_text("Object too large")}, DialogIcon::question);
+            object.scale_mesh_after_creation(1. / max_ratio);
+            object.origin_translation = Slic3r::Vec3d::Zero();
+            object.center_around_origin();
+            break;
+        }
+        if (max_ratio > 10 &&
+            dialogs.ask("object_too_large:" + std::to_string(index) + ":" + std::to_string(instance), too_large,
+                        {detail::ui_text("Object too large")})) {
+            Slic3r::ModelInstance& placed = *object.instances[instance];
+            placed.set_scaling_factor(placed.get_scaling_factor() / max_ratio);
+        }
+    }
+}
+
+// The objects as the app keeps them: every volume's mesh written into files
+// named after output_prefix, with the transformations, settings, paint and
+// placement the engine loads them with again (load_object).
+bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::string& output_prefix, ImportedModels& result)
+{
+    for (std::size_t index = 0; index < objects.size(); ++index) {
+        Slic3r::ModelObject& object = *objects[index];
+        const std::string base = output_prefix + "-" + std::to_string(index);
+        ImportedObject& out = result.objects.emplace_back();
+        out.name = object.name;
+        out.settings = settings_of(object.config);
+
+        // The object's own mesh, and its transformation in the object.
+        const Slic3r::ModelVolume& own = *object.volumes.front();
+        out.volume_name = own.name;
+        out.volume_settings = settings_of(own.config);
+        out.painted = painted_facets_of(own);
+        out.volume_splittable = own.is_splittable();
+        out.volume_from_inches = own.source.is_converted_from_inches;
+        out.volume_from_meters = own.source.is_converted_from_meters;
+        out.volume_input_file = own.source.input_file;
+        out.model_path = base + "-source.mesh";
+        out.matrix = matrix_of(own.get_matrix());
+        fs::create_directories(fs::path(out.model_path).parent_path());
+        if (!write_mesh(own.mesh().its, out.model_path)) {
+            result.status = SceneStatus::write_failed;
+            result.message = "Unable to write " + out.model_path;
+            return false;
+        }
+        // Its other volumes, which the 3D view draws on their own.
+        for (std::size_t volume = 1; volume < object.volumes.size(); ++volume) {
+            const Slic3r::ModelVolume& source = *object.volumes[volume];
+            ImportedPart& part = out.parts.emplace_back();
+            part.name = source.name;
+            part.type = volume_type_from(source.type());
+            part.model_path = base + "-part-" + std::to_string(volume) + ".mesh";
+            part.matrix = matrix_of(source.get_matrix());
+            part.settings = settings_of(source.config);
+            part.painted = painted_facets_of(source);
+            part.splittable = source.is_splittable();
+            part.from_inches = source.source.is_converted_from_inches;
+            part.from_meters = source.source.is_converted_from_meters;
+            part.input_file = source.source.input_file;
+            if (!write_mesh(source.mesh().its, part.model_path)) {
+                result.status = SceneStatus::write_failed;
+                result.message = "Unable to write " + part.model_path;
+                return false;
+            }
+        }
+        for (const auto& [range, config] : object.layer_config_ranges) {
+            LayerRange& layers = out.layer_ranges.emplace_back();
+            layers.bottom = range.first;
+            layers.top = range.second;
+            layers.settings = settings_of(config);
+        }
+        // The own mesh in object coordinates for the 3D view.
+        Slic3r::TriangleMesh shown = own.mesh();
+        shown.transform(own.get_matrix(), true);
+        out.mesh_path = base + ".mesh";
+        if (!write_mesh(shown.its, out.mesh_path)) {
+            result.status = SceneStatus::write_failed;
+            result.message = "Unable to write " + out.mesh_path;
+            return false;
+        }
+        for (std::size_t instance = 0; instance < object.instances.size(); ++instance) {
+            ModelInspection& described = out.instances.emplace_back();
+            describe_placed(object, instance, described);
+            described.status = SceneStatus::success;
+            described.facet_count = static_cast<std::int64_t>(object.facets_count());
+            described.open_edges = static_cast<std::int64_t>(object.get_object_stl_stats().open_edges);
+            out.auto_drops.push_back(object.instances[instance]->auto_drop);
+            out.printables.push_back(object.instances[instance]->printable);
+        }
+    }
+    return true;
+}
+
+// The mesh of a volume that is not a solid (FixModelByCgal.cpp).
+bool is_not_3dimensional_part(const Slic3r::TriangleMesh& mesh)
+{
+    using namespace Slic3r;
+    if (mesh.its.indices.empty())
+        return true;
+
+    indexed_triangle_set tmp = mesh.its;
+    its_remove_degenerate_faces(tmp, true);
+    if (tmp.indices.empty())
+        return true;
+
+    const BoundingBoxf3 bbox = mesh.bounding_box();
+    const Vec3d size = bbox.size();
+    const double min_dim = std::min(size.x(), std::min(size.y(), size.z()));
+    const double max_dim = std::max(size.x(), std::max(size.y(), size.z()));
+    if (min_dim <= EPSILON)
+        return true;
+
+    const double volume = std::abs(its_volume(mesh.its));
+    const double bbox_volume = size.x() * size.y() * size.z();
+    if (volume <= EPSILON)
+        return true;
+
+    const double min_relative_thickness = 1e-6;
+    const double min_volume_ratio = 1e-6;
+    if (min_dim / max_dim <= min_relative_thickness)
+        return true;
+    if (bbox_volume > 0.0 && volume / bbox_volume <= min_volume_ratio)
+        return true;
+
+    return false;
+}
+
+// fix_model_with_cgal_gui() of FixModelByCgal.cpp without its progress
+// dialog: the volume at volume_idx, or every volume for -1, split into its
+// shells, the shells that are not solids dropped, and every open mesh
+// repaired by CGAL. Throws with the reason when a repair fails.
+void fix_model_with_cgal(Slic3r::ModelObject& model_object, int volume_idx, bool keep_painting)
+{
+    using namespace Slic3r;
+    size_t ivolume = 0;
+    size_t start_volume = volume_idx == -1 ? 0 : size_t(volume_idx);
+    size_t end_volume = volume_idx == -1 ? std::numeric_limits<size_t>::max() : size_t(volume_idx);
+
+    for (ivolume = start_volume; ivolume < model_object.volumes.size(); ++ivolume) {
+        if (volume_idx != -1 && ivolume > end_volume)
+            break;
+
+        ModelVolume* volume = model_object.volumes[ivolume];
+
+        size_t parts_count = 1;
+        if (volume->is_splittable())
+            parts_count = volume->split(1, keep_painting);
+
+        size_t part_end = std::min(ivolume + parts_count - 1, model_object.volumes.size() - 1);
+        if (volume_idx != -1)
+            end_volume = part_end;
+
+        size_t removed_parts = 0;
+        for (size_t idx = part_end + 1; idx > ivolume; --idx) {
+            const size_t part_idx = idx - 1;
+            const ModelVolume* part_volume = model_object.volumes[part_idx];
+            if (!is_not_3dimensional_part(part_volume->mesh()))
+                continue;
+
+            model_object.delete_volume(part_idx);
+            ++removed_parts;
+            if (part_end > 0)
+                --part_end;
+            else
+                part_end = 0;
+            if (volume_idx != -1)
+                end_volume = part_end;
+        }
+
+        if (removed_parts >= parts_count) {
+            ivolume = part_end;
+            continue;
+        }
+
+        for (size_t part_idx = ivolume; part_idx <= part_end && part_idx < model_object.volumes.size(); ++part_idx) {
+            ModelVolume* part_volume = model_object.volumes[part_idx];
+            TriangleMesh mesh = part_volume->mesh();
+            if (its_num_open_edges(mesh.its) != 0) {
+                // Save painting for later remap
+                const std::optional<TriangleSelector::SavedPainting> saved_painting =
+                    keep_painting ? part_volume->save_painting() : std::optional<TriangleSelector::SavedPainting>{};
+
+                std::string error;
+                if (!MeshBoolean::cgal::repair(mesh, nullptr, &error))
+                    throw Slic3r::RuntimeError(error.empty() ? "Repair failed" : error);
+
+                part_volume->set_mesh(std::move(mesh));
+                part_volume->calculate_convex_hull();
+                part_volume->invalidate_convex_hull_2d();
+                part_volume->set_new_unique_id();
+
+                // Remap paint back
+                part_volume->restore_painting(saved_painting);
+            }
+        }
+
+        ivolume = part_end;
+    }
+
+    model_object.invalidate_bounding_box();
 }
 
 }  // namespace
@@ -2456,27 +2944,7 @@ ImportedModels import_model(
                 object->center_around_origin();
                 new_instances.push_back(object->add_instance());
             }
-            // An object more than ten times the plate is scaled down to it when
-            // the user agrees, and one more than 10000 times whatever the answer.
-            const std::vector<UiText> too_large = {detail::ui_text(
-                "Your object appears to be too large, do you want to scale it down to fit the print bed automatically?")};
-            for (std::size_t index = 0; index < object->instances.size(); ++index) {
-                const Slic3r::Vec3d ratio = object->instance_bounding_box(index).size().cwiseQuotient(bed_size);
-                const double max_ratio = std::max(ratio.x(), ratio.y());
-                if (max_ratio > 10000) {
-                    dialogs.inform("object_too_large", too_large, {detail::ui_text("Object too large")}, DialogIcon::question);
-                    object->scale_mesh_after_creation(1. / max_ratio);
-                    object->origin_translation = Slic3r::Vec3d::Zero();
-                    object->center_around_origin();
-                    break;
-                }
-                if (max_ratio > 10 &&
-                    dialogs.ask("object_too_large:" + std::to_string(placed.size()) + ":" + std::to_string(index), too_large,
-                                {detail::ui_text("Object too large")})) {
-                    Slic3r::ModelInstance& instance = *object->instances[index];
-                    instance.set_scaling_factor(instance.get_scaling_factor() / max_ratio);
-                }
-            }
+            offer_to_scale_down(*object, bed_size, dialogs, placed.size());
             object->ensure_on_bed(false);
             placed.push_back(object);
         }
@@ -2494,55 +2962,8 @@ ImportedModels import_model(
         }
         model.update_print_volume_state(build_volume_of(config));
 
-        for (std::size_t index = 0; index < placed.size(); ++index) {
-            Slic3r::ModelObject& object = *placed[index];
-            const std::string base = output_prefix + "-" + std::to_string(index);
-            ImportedObject& out = result.objects.emplace_back();
-            out.name = object.name;
-            out.settings = settings_of(object.config);
-
-            // The object's own mesh, and its transformation in the object.
-            const Slic3r::ModelVolume& own = *object.volumes.front();
-            out.volume_name = own.name;
-            out.volume_settings = settings_of(own.config);
-            out.model_path = base + "-source.mesh";
-            out.matrix = matrix_of(own.get_matrix());
-            fs::create_directories(fs::path(out.model_path).parent_path());
-            if (!write_mesh(own.mesh().its, out.model_path)) {
-                result.status = SceneStatus::write_failed;
-                result.message = "Unable to write " + out.model_path;
-                return result;
-            }
-            // Its other volumes, which the 3D view draws on their own.
-            for (std::size_t volume = 1; volume < object.volumes.size(); ++volume) {
-                const Slic3r::ModelVolume& source = *object.volumes[volume];
-                ImportedPart& part = out.parts.emplace_back();
-                part.name = source.name;
-                part.type = volume_type_from(source.type());
-                part.model_path = base + "-part-" + std::to_string(volume) + ".mesh";
-                part.matrix = matrix_of(source.get_matrix());
-                part.settings = settings_of(source.config);
-                if (!write_mesh(source.mesh().its, part.model_path)) {
-                    result.status = SceneStatus::write_failed;
-                    result.message = "Unable to write " + part.model_path;
-                    return result;
-                }
-            }
-            // The own mesh in object coordinates for the 3D view.
-            Slic3r::TriangleMesh shown = own.mesh();
-            shown.transform(own.get_matrix(), true);
-            out.mesh_path = base + ".mesh";
-            if (!write_mesh(shown.its, out.mesh_path)) {
-                result.status = SceneStatus::write_failed;
-                result.message = "Unable to write " + out.mesh_path;
-                return result;
-            }
-            for (std::size_t instance = 0; instance < object.instances.size(); ++instance) {
-                ModelInspection& described = out.instances.emplace_back();
-                describe_placed(object, instance, described);
-                described.status = SceneStatus::success;
-                described.facet_count = static_cast<std::int64_t>(object.facets_count());
-            }
+        if (!write_objects(placed, output_prefix, result)) {
+            return result;
         }
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;
@@ -2556,6 +2977,1137 @@ ImportedModels import_model(
     } catch (const std::exception& error) {
         result.message = error.what();
         result.notices = dialogs.take_notices();
+        return result;
+    }
+}
+
+namespace {
+
+// Plater::clear_before_change_mesh(): a mesh about to change loses its custom
+// supports, seams and painting, which would make no sense on it, and the
+// notification says so.
+void clear_before_change_mesh(Slic3r::ModelObject& mo, detail::SettingsDialogs& dialogs)
+{
+    // If there are custom supports/seams/mmu/fuzzy skin segmentation, remove them. Fixed mesh
+    // may be different and they would make no sense.
+    bool paint_removed = false;
+    for (Slic3r::ModelVolume* mv : mo.volumes) {
+        paint_removed |= ! mv->supported_facets.empty() || ! mv->seam_facets.empty() || ! mv->mmu_segmentation_facets.empty() || !mv->fuzzy_skin_facets.empty();
+        mv->supported_facets.reset();
+        mv->seam_facets.reset();
+        mv->mmu_segmentation_facets.reset();
+        mv->fuzzy_skin_facets.reset();
+    }
+    if (paint_removed) {
+        // NotificationType::CustomSupportsAndSeamRemovedAfterRepair
+        dialogs.inform("paint_removed", {detail::ui_text("Custom supports and color painting were removed before repairing.")}, {},
+                       DialogIcon::info);
+    }
+}
+
+// The decimation of GLGizmoSimplify::process() for config.
+indexed_triangle_set simplified(const indexed_triangle_set& mesh, const SimplifyConfig& config)
+{
+    indexed_triangle_set its = mesh;
+    uint32_t triangle_count = 0;
+    float    max_error = std::numeric_limits<float>::max();
+    if (config.use_count && config.wanted_count >= 0)
+        triangle_count = static_cast<uint32_t>(config.wanted_count);
+    else if (config.use_count) {
+        // Configuration::fix_count_by_ratio()
+        const std::size_t count = mesh.indices.size();
+        if (config.decimate_ratio <= 0.f)
+            triangle_count = static_cast<uint32_t>(count);
+        else if (config.decimate_ratio >= 100.f)
+            triangle_count = 0;
+        else
+            triangle_count = static_cast<uint32_t>(std::round(count * (100.f - config.decimate_ratio) / 100.f));
+    }
+    if (! config.use_count)
+        max_error = config.max_error;
+    Slic3r::its_quadric_edge_collapse(its, triangle_count, &max_error, nullptr, nullptr);
+    return its;
+}
+
+// Plater::combine_mesh_fff(): the positive volumes of the object less its
+// negative ones, as mcut works them out, in the coordinates of the copy at
+// instance_id, or of every copy for -1. When the boolean fails, the positive
+// volumes alone, and the plater's error notification says why.
+Slic3r::TriangleMesh combine_mesh_fff(const Slic3r::ModelObject& mo, int instance_id, detail::SettingsDialogs& dialogs)
+{
+    using namespace Slic3r;
+    TriangleMesh mesh;
+
+    std::vector<csg::CSGPart> csgmesh;
+    csgmesh.reserve(2 * mo.volumes.size());
+    csg::model_to_csgmesh(mo, Transform3d::Identity(), std::back_inserter(csgmesh),
+        csg::mpartsPositive | csg::mpartsNegative);
+
+    std::vector<UiText> fail_msg = {detail::ui_text("Unable to perform boolean operation on model meshes. "
+        "Only positive parts will be kept. You may fix the meshes and try again.")};
+    if (auto fail_reason_name = csg::check_csgmesh_booleans(Range{ std::begin(csgmesh), std::end(csgmesh) }); std::get<0>(fail_reason_name) != csg::BooleanFailReason::OK) {
+        std::string name = std::get<1>(fail_reason_name);
+        std::map<csg::BooleanFailReason, UiText> fail_reasons = {
+            {csg::BooleanFailReason::OK, detail::ui_text("%s", {"OK"})},
+            {csg::BooleanFailReason::MeshEmpty, detail::ui_text("Reason: part \"%1%\" is empty.", {name})},
+            {csg::BooleanFailReason::NotBoundAVolume, detail::ui_text("Reason: part \"%1%\" does not bound a volume.", {name})},
+            {csg::BooleanFailReason::SelfIntersect, detail::ui_text("Reason: part \"%1%\" has self intersection.", {name})},
+            {csg::BooleanFailReason::NoIntersection, detail::ui_text("Reason: \"%1%\" and another part have no intersection.", {name})} };
+        fail_msg.push_back(detail::ui_text("%s", {" "}));
+        fail_msg.push_back(fail_reasons[std::get<0>(fail_reason_name)]);
+    }
+    else {
+        try {
+            MeshBoolean::mcut::McutMeshPtr meshPtr = csg::perform_csgmesh_booleans_mcut(Range{ std::begin(csgmesh), std::end(csgmesh) });
+            mesh = MeshBoolean::mcut::mcut_to_triangle_mesh(*meshPtr);
+        }
+        catch (...) {}
+    }
+
+    if (mesh.empty()) {
+        // push_plater_error_notification()
+        dialogs.inform("mesh_boolean_failed", fail_msg);
+
+        for (const ModelVolume* v : mo.volumes)
+            if (v->is_model_part()) {
+                TriangleMesh vol_mesh(v->mesh());
+                vol_mesh.transform(v->get_matrix(), true);
+                mesh.merge(vol_mesh);
+            }
+    }
+
+    if (instance_id == -1) {
+        TriangleMesh vols_mesh(std::move(mesh));
+        mesh = TriangleMesh();
+        for (const ModelInstance* i : mo.instances) {
+            TriangleMesh m = vols_mesh;
+            m.transform(i->get_matrix(), true);
+            mesh.merge(m);
+        }
+    }
+    else if (0 <= instance_id && instance_id < int(mo.instances.size()))
+        mesh.transform(mo.instances[instance_id]->get_matrix(), true);
+
+    return mesh;
+}
+
+}  // namespace
+
+ImportedModels edit_object(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    ObjectEdit edit,
+    int volume_index,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix,
+    const DialogAnswers& answers
+)
+{
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    detail::SettingsDialogs dialogs(answers);
+    try {
+        Slic3r::DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Slic3r::Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size()) {
+            result.message = "The object is not on the plate";
+            return result;
+        }
+        Slic3r::ModelObject* object = model.objects[object_index];
+        if (volume_index >= int(object->volumes.size())) {
+            result.message = "The object has no such volume";
+            return result;
+        }
+        // The preference "Keep painted feature after mesh change", off by default.
+        const bool keep_painting = engine().config->get_bool("keep_painting");
+        const Slic3r::BoundingBoxf bed = build_volume_of(config).bounding_volume2d();
+        const Slic3r::Vec3d bed_size = Slic3r::to_3d(bed.size(), 1.0) - 2.0 * Slic3r::Vec3d::Ones();
+        std::vector<Slic3r::ModelObject*> edited;
+
+        switch (edit) {
+        case ObjectEdit::split_to_objects: {
+            Slic3r::ModelObjectPtrs new_objects;
+            object->split(&new_objects, keep_painting);
+            if (new_objects.size() <= 1) {
+                // warning_catcher()
+                dialogs.inform("split_failed", {detail::ui_text("The selected object couldn't be split.")});
+                break;
+            }
+            const bool floating = std::any_of(new_objects.begin(), new_objects.end(), [](const Slic3r::ModelObject* split) {
+                return split->get_instance_min_z(0) >= Slic3r::SINKING_MIN_Z_THRESHOLD;
+            });
+            bool split_auto_drop = true;
+            if (object->instances[0]->auto_drop && floating &&
+                dialogs.ask("split_auto_drop", {detail::ui_text("Disable Auto-Drop to preserve Z positioning?\n")},
+                            {detail::ui_text("Object with floating parts was detected")})) {
+                split_auto_drop = false;
+            }
+            // remove(obj_idx), then load_model_objects(new_objects, false, true,
+            // split_auto_drop): the new objects keep the copies of the object.
+            model.delete_object(object);
+            for (Slic3r::ModelObject* split : new_objects) {
+                offer_to_scale_down(*split, bed_size, dialogs, edited.size());
+                if (!split_auto_drop) {
+                    for (Slic3r::ModelInstance* instance : split->instances) {
+                        instance->auto_drop = false;
+                    }
+                    split->translate_instances(Slic3r::Vec3d(0.0, 0.0, -std::min(split->min_z(), 0.0)));
+                } else {
+                    split->ensure_on_bed(false);
+                }
+                edited.push_back(split);
+            }
+            result.appended = true;
+            break;
+        }
+        case ObjectEdit::split_to_parts: {
+            // ObjectList::get_volume_by_item(): the object's only volume when the object is picked.
+            if (volume_index < 0 && object->volumes.size() > 1) {
+                result.message = "Pick the part to split";
+                return result;
+            }
+            Slic3r::ModelVolume* volume = object->volumes[std::max(volume_index, 0)];
+            if (!volume->is_splittable()) {
+                dialogs.inform("split_single_part", {detail::ui_text("The target object contains only one part and can not be split.")},
+                               {}, DialogIcon::info);
+                break;
+            }
+            volume->split(unsigned(std::max<std::size_t>(profiles.filaments.size(), 1)), keep_painting);
+            object->input_file.clear();
+            edited.push_back(object);
+            break;
+        }
+        case ObjectEdit::fix: {
+            // The message of fix_through_cgal(): the one model it repaired, or why it could not.
+            const std::string name = volume_index < 0 ? object->name : object->volumes[volume_index]->name;
+            std::vector<UiText> summary;
+            if (!keep_painting) {
+                clear_before_change_mesh(*object, dialogs);
+            }
+            try {
+                fix_model_with_cgal(*object, volume_index, keep_painting);
+                object->ensure_on_bed();
+                UiText repaired = detail::ui_text("Following model object has been repaired");
+                repaired.msgid_plural = "Following model objects have been repaired";
+                repaired.count = 1;
+                summary = {repaired, detail::ui_text(":\n   - %s", {name})};
+                edited.push_back(object);
+            } catch (const std::exception& error) {
+                UiText failed = detail::ui_text("Failed to repair following model object");
+                failed.msgid_plural = "Failed to repair following model objects";
+                failed.count = 1;
+                summary = {failed, detail::ui_text(":\n\n   - %s: %s", {name, error.what()})};
+            }
+            // The CgalFinished notification.
+            dialogs.inform("fix_finished", summary, {}, DialogIcon::info);
+            break;
+        }
+        case ObjectEdit::convert_from_inches:
+        case ObjectEdit::restore_to_inches:
+        case ObjectEdit::convert_from_meters:
+        case ObjectEdit::restore_to_meters: {
+            const Slic3r::ConversionType type = edit == ObjectEdit::convert_from_inches ? Slic3r::ConversionType::CONV_FROM_INCH :
+                                                edit == ObjectEdit::restore_to_inches   ? Slic3r::ConversionType::CONV_TO_INCH :
+                                                edit == ObjectEdit::convert_from_meters ? Slic3r::ConversionType::CONV_FROM_METER :
+                                                                                          Slic3r::ConversionType::CONV_TO_METER;
+            Slic3r::ModelObjectPtrs converted;
+            object->convert_units(converted, type, volume_index < 0 ? std::vector<int>() : std::vector<int>{volume_index});
+            model.delete_object(object);
+            // load_model_objects(objects): the converted object keeps its copies.
+            // The desktop app copies the converted objects into its model and
+            // leaves them behind; here a model of their own frees them.
+            Slic3r::Model discarded;
+            discarded.objects = converted;
+            for (const Slic3r::ModelObject* added : converted) {
+                Slic3r::ModelObject* joined = model.add_object(*added);
+                offer_to_scale_down(*joined, bed_size, dialogs, edited.size());
+                joined->ensure_on_bed(false);
+                edited.push_back(joined);
+            }
+            result.appended = true;
+            break;
+        }
+        case ObjectEdit::smooth_mesh: {
+            // The WarningDialog of a subdivision past a million faces: No leaves the meshes.
+            const auto show_warning_dlg = [&dialogs](int cur_face_count, const std::string& name, bool is_part) {
+                const int limit_face_count = 1000000;
+                if (cur_face_count > limit_face_count) {
+                    return !dialogs.ask(
+                        "smooth_mesh_faces",
+                        {detail::ui_text(is_part ? "Part" : "Object"), detail::ui_text("%s", {" "}),
+                         detail::ui_text("\"%s\" will exceed 1 million faces after this subdivision, which may increase slicing time. Do you want to continue?",
+                                         {name})});
+                }
+                return false;
+            };
+            bool has_show_smooth_mesh_error_dlg = false;
+            const auto smooth = [&](Slic3r::ModelVolume* mv) {
+                bool ok;
+                auto result_mesh = Slic3r::TriangleMeshDeal::smooth_triangle_mesh(mv->mesh(), ok);
+                if (ok) {
+                    const std::optional<Slic3r::TriangleSelector::SavedPainting> saved_painting =
+                        keep_painting ? mv->save_painting() : std::optional<Slic3r::TriangleSelector::SavedPainting>{};
+                    mv->set_mesh(result_mesh);
+                    mv->restore_painting(saved_painting);
+                    mv->calculate_convex_hull();
+                    mv->invalidate_convex_hull_2d();
+                    mv->set_new_unique_id();
+                } else if (!has_show_smooth_mesh_error_dlg) {
+                    dialogs.inform("smooth_mesh_error", {detail::ui_text("\"%s\" part's mesh contains errors. Please repair it first.", {mv->name})});
+                    has_show_smooth_mesh_error_dlg = true;
+                }
+            };
+            if (volume_index < 0) {
+                auto future_face_count = static_cast<int>(object->facets_count()) * 4;
+                if (show_warning_dlg(future_face_count, object->name, false)) {
+                    break;
+                }
+                for (Slic3r::ModelVolume* mv : object->volumes) {
+                    smooth(mv);
+                }
+            } else {
+                Slic3r::ModelVolume* mv = object->volumes[volume_index];
+                auto future_face_count = static_cast<int>(mv->mesh().facets_count()) * 4;
+                if (show_warning_dlg(future_face_count, mv->name, true)) {
+                    break;
+                }
+                smooth(mv);
+            }
+            object->invalidate_bounding_box();
+            object->ensure_on_bed();
+            edited.push_back(object);
+            break;
+        }
+        case ObjectEdit::mesh_boolean: {
+            std::vector<std::optional<Slic3r::TriangleSelector::SavedPainting>> saved_paintings;
+            if (keep_painting) {
+                // Save painting of all the positive parts
+                saved_paintings.reserve(object->volumes.size());
+                for (const Slic3r::ModelVolume* vol : object->volumes) {
+                    if (vol && vol->mesh_ptr() && vol->is_model_part() && vol->is_any_painted()) {
+                        saved_paintings.emplace_back(vol->save_painting());
+                        if (saved_paintings.back()) {
+                            saved_paintings.back()->mesh.transform(vol->get_matrix(), true);
+                        }
+                    }
+                }
+            }
+
+            Slic3r::TriangleMesh mesh = combine_mesh_fff(*object, -1, dialogs);
+
+            // add mesh to model as a new object, keep the original object's name and config
+            Slic3r::ModelObject* new_object = model.add_object();
+            new_object->name = object->name;
+            new_object->input_file = object->input_file;
+            new_object->config.assign_config(object->config);
+            if (new_object->instances.empty())
+                new_object->add_instance();
+            Slic3r::ModelVolume* new_volume = new_object->add_volume(mesh);
+
+            // Remap paint
+            if (keep_painting) {
+                for (auto& saved_painting : saved_paintings) {
+                    if (saved_painting) {
+                        // For each original painted volume, we need to apply to each instance
+                        // because we merged all instances into one in `combine_mesh_fff`
+
+                        // First we save the non-instance-translated mesh
+                        Slic3r::TriangleMesh vols_mesh(std::move(saved_painting->mesh));
+
+                        for (const Slic3r::ModelInstance* i : object->instances) {
+                            // Then for each instance, we apply the paint at the given instance place
+                            saved_painting->mesh = vols_mesh;
+                            saved_painting->mesh.transform(i->get_matrix());
+
+                            // Then paint it
+                            new_volume->restore_painting(saved_painting, true);
+                        }
+                    }
+                }
+            }
+
+            // BBS: ensure on bed but no need to ensure locate in the center around origin
+            new_object->ensure_on_bed();
+            new_object->center_around_origin();
+            new_object->translate_instances(-new_object->origin_translation);
+            new_object->origin_translation = Slic3r::Vec3d::Zero();
+
+            // remove selected objects
+            model.delete_object(object);
+            edited.push_back(new_object);
+            result.appended = true;
+            break;
+        }
+        default:
+            result.message = "Unknown edit";
+            return result;
+        }
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects(edited, output_prefix, result)) {
+            return result;
+        }
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const detail::QuestionPending& pending) {
+        result.has_question = true;
+        result.question = pending.dialog;
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.notices = dialogs.take_notices();
+        result.objects.clear();
+        return result;
+    }
+}
+
+namespace {
+
+// PartPlate::intersects(): the box meets the plate, whatever its height.
+bool plate_intersects(const Slic3r::DynamicPrintConfig& config, const Slic3r::BoundingBoxf3& box)
+{
+    using namespace Slic3r;
+    const BoundingBoxf area(config.option<ConfigOptionPoints>("printable_area")->values);
+    BoundingBoxf3 print_volume(Vec3d(area.min.x(), area.min.y(), 0.0), Vec3d(area.max.x(), area.max.y(), 1e3));
+    print_volume.min(2) = -1e10;
+    print_volume.min(0) -= BuildVolume::BedEpsilon;
+    print_volume.min(1) -= BuildVolume::BedEpsilon;
+    print_volume.max(0) += BuildVolume::BedEpsilon;
+    print_volume.max(1) += BuildVolume::BedEpsilon;
+    return print_volume.intersects(box);
+}
+
+// Selection::paste_objects_from_clipboard() once: a copy of every object of
+// the clipboard joins model, in the empty cell nearest to its source, and the
+// copies of several objects keep their layout; then Plater::changed_objects()
+// drops a copy that is above the plate onto it.
+void paste_objects(
+    Slic3r::Model& model,
+    const Slic3r::ModelObjectPtrs& src_objects,
+    const Slic3r::DynamicPrintConfig& config,
+    std::vector<Slic3r::ModelObject*>& pasted
+)
+{
+    using namespace Slic3r;
+    const BoundingBoxf bed = build_volume_of(config).bounding_volume2d();
+    const BoundingBoxf3 plate_box = plate_box_of(config);
+    // If multiple objects are selected, move them as a whole after copy.
+    Vec2d shift_all = {0, 0};
+    Vec2f empty_cell_all = {0, 0};
+    if (src_objects.size() > 1) {
+        BoundingBoxf3 bbox_all;
+        for (const ModelObject* src_object : src_objects) {
+            bbox_all.merge(src_object->instance_convex_hull_bounding_box(size_t(0)));
+        }
+        const Vec3d bsize = bbox_all.size();
+        if (bsize.x() < bsize.y())
+            shift_all = {bbox_all.size().x(), 0};
+        else
+            shift_all = {0, bbox_all.size().y()};
+    }
+    const std::size_t first = pasted.size();
+    for (size_t i = 0; i < src_objects.size(); i++) {
+        const ModelObject* src_object = src_objects[i];
+        ModelObject* dst_object = model.add_object(*src_object);
+
+        // Find an empty cell to put the copied object.
+        const BoundingBoxf3 bbox = src_object->instance_convex_hull_bounding_box(size_t(0));
+        Vec3d displacement;
+        const bool in_current = plate_intersects(config, bbox);
+        const Vec3d start_point = in_current ? bbox.center() : plate_box.center();
+        const Vec3d start_offset = in_current ? src_object->instances.front()->get_offset() : plate_box.center();
+        const Vec2f step(float(bbox.size()(0) + 1), float(bbox.size()(1) + 1));
+        if (shift_all(0) != 0 || shift_all(1) != 0) {
+            if (i == 0)
+                empty_cell_all = nearest_empty_cell(model, plate_box, bed, {float(start_point(0)), float(start_point(1))}, step);
+            const Vec3d instance_shift = src_object->instances.front()->get_offset() - src_objects[0]->instances.front()->get_offset();
+            displacement = {shift_all.x() + empty_cell_all.x() + instance_shift.x(), shift_all.y() + empty_cell_all.y() + instance_shift.y(), start_offset(2)};
+        } else {
+            const Vec3d point_offset = start_offset - start_point;
+            const Vec2f empty_cell = nearest_empty_cell(model, plate_box, bed, {float(start_point(0)), float(start_point(1))}, step);
+            displacement = {empty_cell.x() + point_offset.x(), empty_cell.y() + point_offset.y(), start_offset(2)};
+        }
+        for (ModelInstance* inst : dst_object->instances) {
+            inst->set_offset(displacement);
+        }
+        pasted.push_back(dst_object);
+    }
+    for (std::size_t index = first; index < pasted.size(); ++index) {
+        if (pasted[index]->min_z() >= SINKING_Z_THRESHOLD) {
+            pasted[index]->ensure_on_bed();
+        }
+    }
+}
+
+}  // namespace
+
+ImportedModels copy_objects(
+    const std::vector<PlateObject>& plate,
+    const std::vector<PlateObject>& sources,
+    int count,
+    CopyPlacement placement,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    const auto placed = [](const PlateObject& object) {
+        return !object.instances.empty()
+               && std::all_of(object.instances.begin(), object.instances.end(),
+                              [](const ObjectPlacement& instance) { return instance.matrix.size() == 16; });
+    };
+    if (sources.empty() || !std::all_of(sources.begin(), sources.end(), placed)) {
+        result.message = "Every copied object needs a placed copy";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        // The clipboard holds the sources as the objects of a model of its own.
+        Slic3r::Model clipboard;
+        if (!load_plate(sources, config, clipboard, result.message)) {
+            return result;
+        }
+        Slic3r::Model model;
+        std::vector<Slic3r::ModelObject*> copies;
+        switch (placement) {
+        case CopyPlacement::keep:
+            copies.assign(clipboard.objects.begin(), clipboard.objects.end());
+            break;
+        case CopyPlacement::paste:
+            if (!load_plate(plate, config, model, result.message)) {
+                return result;
+            }
+            // CloneDialog: the clipboard pasted count times, each paste beside the ones before.
+            for (int round = 0; round < count; ++round) {
+                paste_objects(model, clipboard.objects, config, copies);
+            }
+            break;
+        default:
+            result.message = "Unknown placement";
+            return result;
+        }
+        model.update_print_volume_state(build_volume_of(config));
+        clipboard.update_print_volume_state(build_volume_of(config));
+        if (!write_objects(copies, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.objects.clear();
+        return result;
+    }
+}
+
+MeshExport export_object_mesh(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    MeshFormat format,
+    const ProfileSelection& profiles,
+    const std::string& path
+)
+{
+    using namespace Slic3r;
+    MeshExport result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size()) {
+            result.message = "The object is not on the plate";
+            return result;
+        }
+        const ModelObject& mo = *model.objects[object_index];
+
+        // mesh_to_export_fff_no_boolean(): a combined mesh with normals pointing outwards.
+        const auto mesh_to_export = [&result](const ModelObject& object, int instance_id) {
+            TriangleMesh mesh;
+            // Prusa export negative parts
+            std::vector<csg::CSGPart> csgmesh;
+            csgmesh.reserve(2 * object.volumes.size());
+            csg::model_to_csgmesh(object, Transform3d::Identity(), std::back_inserter(csgmesh),
+                                  csg::mpartsPositive | csg::mpartsNegative | csg::mpartsDoSplits);
+            auto csgrange = range(csgmesh);
+            if (csg::is_all_positive(csgrange)) {
+                mesh = TriangleMesh{csg::csgmesh_merge_positive_parts(csgrange)};
+            } else if (std::get<2>(csg::check_csgmesh_booleans(csgrange)) == csgrange.end()) {
+                try {
+                    auto cgalm = csg::perform_csgmesh_booleans(csgrange);
+                    mesh = MeshBoolean::cgal::cgal_to_triangle_mesh(*cgalm);
+                } catch (...) {}
+            }
+            if (mesh.empty()) {
+                result.warning = "Unable to perform boolean operation on model meshes. Only positive parts will be exported.";
+                for (const ModelVolume* v : object.volumes)
+                    if (v->is_model_part()) {
+                        TriangleMesh vol_mesh(v->mesh());
+                        vol_mesh.transform(v->get_matrix(), true);
+                        mesh.merge(vol_mesh);
+                    }
+            }
+            if (instance_id == -1) {
+                TriangleMesh vols_mesh(mesh);
+                mesh = TriangleMesh();
+                for (const ModelInstance* i : object.instances) {
+                    TriangleMesh m = vols_mesh;
+                    m.transform(i->get_matrix(), true);
+                    mesh.merge(m);
+                }
+            } else if (0 <= instance_id && instance_id < int(object.instances.size()))
+                mesh.transform(object.instances[instance_id]->get_matrix(), true);
+            return mesh;
+        };
+
+        // selection.is_single_full_object() in Selection::Instance mode.
+        TriangleMesh mesh = mesh_to_export(mo, mo.instances.size() > 1 ? -1 : 0);
+        if (mo.instances.size() == 1) mesh.translate(-mo.origin_translation.cast<float>());
+
+        fs::create_directories(fs::path(path).parent_path());
+        bool stored = false;
+        switch (format) {
+        case MeshFormat::stl: stored = store_stl(path.c_str(), &mesh, true); break;
+        case MeshFormat::drc: {
+            const std::string bits = engine().config->get("drc_bits");
+            const int quality = bits.empty() ? DRC_BITS_DEFAULT : std::stoi(bits);
+            stored = store_drc(path.c_str(), &mesh, quality);
+            break;
+        }
+        default:
+            result.message = "Unknown format";
+            return result;
+        }
+        if (!stored) {
+            result.status = SceneStatus::write_failed;
+            result.message = "Unable to write " + path;
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        return result;
+    }
+}
+
+ImportedModels replace_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const std::string& source_path,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    detail::SettingsDialogs dialogs({});
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size() || volume_index >= model.objects[object_index]->volumes.size()) {
+            result.message = "The plate has no such volume";
+            return result;
+        }
+
+        Model new_model;
+        try {
+            bool imperial = false;
+            new_model = read_model_file(source_path, dialogs, imperial);
+            for (ModelObject* model_object : new_model.objects) {
+                if (model_object->instances.empty()) model_object->add_instance();
+                model_object->center_around_origin();
+                model_object->ensure_on_bed();
+            }
+        } catch (const std::exception&) {
+            // error while loading
+            result.message = "The file could not be read";
+            result.notices = dialogs.take_notices();
+            return result;
+        }
+        if (new_model.objects.empty()) {
+            result.message = "The file has no model";
+            return result;
+        }
+        if (new_model.objects.size() > 1 || new_model.objects.front()->volumes.size() > 1) {
+            dialogs.inform("replace_more_than_one", {detail::ui_text("Unable to replace with more than one volume")},
+                           {detail::ui_text("Error during replace")}, DialogIcon::warning);
+            result.notices = dialogs.take_notices();
+            result.status = SceneStatus::success;
+            return result;
+        }
+
+        ModelObject* old_model_object = model.objects[object_index];
+        ModelVolume* old_volume = old_model_object->volumes[volume_index];
+        bool sinking = old_model_object->min_z() < SINKING_Z_THRESHOLD;
+
+        ModelObject* new_model_object = new_model.objects.front();
+        old_model_object->add_volume(*new_model_object->volumes.front());
+        ModelVolume* new_volume = old_model_object->volumes.back();
+        new_volume->set_new_unique_id();
+        new_volume->config.apply(old_volume->config);
+        new_volume->set_type(old_volume->type());
+        new_volume->set_material_id(old_volume->material_id());
+        new_volume->set_transformation(old_volume->get_transformation());
+        new_volume->translate(new_volume->get_transformation().get_matrix_no_offset() * (new_volume->source.mesh_offset - old_volume->source.mesh_offset));
+        if (old_volume->source.is_converted_from_inches)
+            new_volume->convert_from_imperial_units();
+        else if (old_volume->source.is_converted_from_meters)
+            new_volume->convert_from_meters();
+        if (engine().config->get_bool("keep_painting")) {
+            // Proper paint remapping
+            auto saved_painting = old_volume->save_painting();
+            if (saved_painting) {
+                saved_painting->mesh.transform(Geometry::translation_transform(new_volume->mesh().get_init_shift()));
+                new_volume->restore_painting(saved_painting);
+            }
+        } else {
+            // Won't work well if mesh changed, but kept for old behavior
+            new_volume->supported_facets.assign(old_volume->supported_facets);
+            new_volume->seam_facets.assign(old_volume->seam_facets);
+            new_volume->mmu_segmentation_facets.assign(old_volume->mmu_segmentation_facets);
+            new_volume->fuzzy_skin_facets.assign(old_volume->fuzzy_skin_facets);
+        }
+        std::swap(old_model_object->volumes[volume_index], old_model_object->volumes.back());
+        old_model_object->delete_volume(old_model_object->volumes.size() - 1);
+        if (!sinking)
+            old_model_object->ensure_on_bed();
+        old_model_object->sort_volumes(true);
+
+        // if object has just one volume, rename object too
+        if (old_model_object->volumes.size() == 1)
+            old_model_object->name = old_model_object->volumes.front()->name;
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects({old_model_object}, output_prefix, result)) {
+            return result;
+        }
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.notices = dialogs.take_notices();
+        result.objects.clear();
+        return result;
+    }
+}
+
+ImportedModels set_volume_type(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    VolumeType type,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    detail::SettingsDialogs dialogs({});
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size() || volume_index >= model.objects[object_index]->volumes.size()) {
+            result.message = "The plate has no such volume";
+            return result;
+        }
+        ModelObject* object = model.objects[object_index];
+        ModelVolume* volume = object->volumes[volume_index];
+        const ModelVolumeType new_type = volume_type_of(type);
+        if (volume->type() == new_type) {
+            result.status = SceneStatus::success;
+            return result;
+        }
+        if (new_type != ModelVolumeType::MODEL_PART && volume->type() == ModelVolumeType::MODEL_PART) {
+            const auto parts = std::count_if(object->volumes.begin(), object->volumes.end(),
+                                             [](const ModelVolume* vol) { return vol->type() == ModelVolumeType::MODEL_PART; });
+            if (parts == 1) {
+                // show_error()
+                dialogs.inform("last_solid_part", {detail::ui_text("The type of the last solid object part is not to be changed.")}, {},
+                               DialogIcon::error);
+                result.notices = dialogs.take_notices();
+                result.status = SceneStatus::success;
+                return result;
+            }
+        }
+
+        volume->set_type(new_type);
+        // reorder_volumes_and_get_selection()
+        object->sort_volumes(true);
+        const auto placed = std::find(object->volumes.begin(), object->volumes.end(), volume);
+        result.selected_volume = placed == object->volumes.end() ? -1 : int(placed - object->volumes.begin());
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects({object}, output_prefix, result)) {
+            return result;
+        }
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.notices = dialogs.take_notices();
+        result.objects.clear();
+        return result;
+    }
+}
+
+SimplifiedVolume simplify_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const SimplifyConfig& config,
+    const ProfileSelection& profiles,
+    const std::string& path
+)
+{
+    SimplifiedVolume result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig print_config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, print_config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Slic3r::Model model;
+        if (!load_plate(plate, print_config, model, result.message)) {
+            result.status = SceneStatus::model_read_failed;
+            return result;
+        }
+        if (object_index >= model.objects.size() || volume_index >= model.objects[object_index]->volumes.size()) {
+            result.status = SceneStatus::model_read_failed;
+            result.message = "The plate has no such volume";
+            return result;
+        }
+        const Slic3r::ModelVolume& volume = *model.objects[object_index]->volumes[volume_index];
+        if (volume.mesh().its.indices.empty()) {
+            result.status = SceneStatus::model_read_failed;
+            result.message = "The volume has no triangles";
+            return result;
+        }
+        Slic3r::TriangleMesh shown(simplified(volume.mesh().its, config));
+        result.triangle_count = static_cast<std::int64_t>(shown.its.indices.size());
+        result.original_count = static_cast<std::int64_t>(volume.mesh().its.indices.size());
+        // The 3D view draws the object's own mesh in the object's coordinates
+        // (write_objects()), a part in its own with its transformation.
+        if (volume_index == 0) {
+            shown.transform(volume.get_matrix(), true);
+        }
+        fs::create_directories(fs::path(path).parent_path());
+        if (!write_mesh(shown.its, path)) {
+            result.status = SceneStatus::write_failed;
+            result.message = "Unable to write " + path;
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
+ImportedModels apply_simplify(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const SimplifyConfig& config,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    detail::SettingsDialogs dialogs({});
+    try {
+        DynamicPrintConfig print_config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, print_config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, print_config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size() || volume_index >= model.objects[object_index]->volumes.size()) {
+            result.message = "The plate has no such volume";
+            return result;
+        }
+        ModelObject* object = model.objects[object_index];
+        const bool keep_painting = engine().config->get_bool("keep_painting");
+        if (!keep_painting) {
+            clear_before_change_mesh(*object, dialogs);
+        }
+
+        ModelVolume* mv = object->volumes[volume_index];
+        // Save paint
+        std::optional<TriangleSelector::SavedPainting> saved_painting = keep_painting ? mv->save_painting() :
+                                                                                        std::optional<TriangleSelector::SavedPainting>{};
+        mv->set_mesh(TriangleMesh(simplified(mv->mesh().its, config)));
+        // Remap paint
+        mv->restore_painting(saved_painting);
+        mv->calculate_convex_hull();
+        mv->invalidate_convex_hull_2d();
+        mv->set_new_unique_id();
+        mv->get_object()->invalidate_bounding_box();
+        mv->get_object()->ensure_on_bed();
+
+        model.update_print_volume_state(build_volume_of(print_config));
+        if (!write_objects({object}, output_prefix, result)) {
+            return result;
+        }
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.notices = dialogs.take_notices();
+        result.objects.clear();
+        return result;
+    }
+}
+
+ImportedModels add_primitive(
+    const std::vector<PlateObject>& plate,
+    const std::string& shape,
+    const std::string& name,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        const BoundingBoxf bed = build_volume_of(config).bounding_volume2d();
+        // GLCanvas3D::get_size_proportional_to_max_bed_size(0.1)
+        const double side = 0.1 * std::max(bed.size().x(), bed.size().y());
+        const TriangleMesh mesh = create_mesh(shape, BoundingBoxf3(), side);
+        if (mesh.empty()) {
+            result.message = "Unknown shape " + shape;
+            return result;
+        }
+
+        // load_mesh_object(mesh, _(type_name))
+        const BoundingBoxf3 bb = mesh.bounding_box();
+        ModelObject* new_object = model.add_object();
+        new_object->name = name;
+        new_object->add_instance(); // each object should have at least one instance
+        ModelVolume* new_volume = new_object->add_volume(mesh);
+        new_object->sort_volumes(true);
+        new_volume->name = name;
+        // set a default extruder value, since user can't add it manually
+        new_object->config.set_key_value("extruder", new ConfigOptionInt(1));
+        new_object->invalidate_bounding_box();
+        new_object->translate(-bb.center());
+        // Find an empty cell to put the object.
+        const Vec2d start_point = bed.center();
+        const Vec2f empty_cell = nearest_empty_cell(model, plate_box_of(config), bed, start_point.cast<float>());
+        new_object->instances[0]->set_offset(to_3d(Vec2d(empty_cell(0), empty_cell(1)), -new_object->origin_translation.z()));
+        new_object->ensure_on_bed();
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects({new_object}, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.objects.clear();
+        return result;
+    }
+}
+
+ImportedModels paste_volumes(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t instance,
+    const PlateObject& source,
+    const std::vector<int>& volumes,
+    bool same_input_file,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        Model clipboard;
+        if (!load_plate({source}, config, clipboard, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size() || instance >= model.objects[object_index]->instances.size()) {
+            result.message = "The object is not on the plate";
+            return result;
+        }
+        ModelObject* src_object = clipboard.objects.front();
+        // copy_to_clipboard() keeps the volumes in their order in the object.
+        std::vector<int> taken = volumes;
+        std::sort(taken.begin(), taken.end());
+        taken.erase(std::unique(taken.begin(), taken.end()), taken.end());
+        if (taken.empty() || taken.front() < 0 || taken.back() >= int(src_object->volumes.size()) || src_object->instances.empty()) {
+            result.message = "The clipboard has no such volume";
+            return result;
+        }
+
+        ModelObject* dst_object = model.objects[object_index];
+        ModelInstance* dst_instance = dst_object->instances[instance];
+        const BoundingBoxf3 dst_instance_bb = dst_object->instance_bounding_box(instance);
+        const Transform3d src_matrix = src_object->instances[0]->get_transformation().get_matrix_no_offset();
+        const Transform3d dst_matrix = dst_instance->get_transformation().get_matrix_no_offset();
+        const bool from_same_object = same_input_file && src_matrix.isApprox(dst_matrix);
+
+        // Used to keep relative position of multivolume selections when pasting from another object.
+        BoundingBoxf3 total_bb;
+        ModelVolumePtrs pasted;
+        for (const int index : taken) {
+            const ModelVolume* src_volume = src_object->volumes[index];
+            ModelVolume* dst_volume = dst_object->add_volume(*src_volume);
+            dst_volume->set_new_unique_id();
+            if (!from_same_object) {
+                // As done when adding modifiers (ObjectList::load_generic_subobject).
+                total_bb.merge(dst_volume->mesh().bounding_box().transformed(src_volume->get_matrix()));
+            }
+            pasted.push_back(dst_volume);
+        }
+        // Keeps relative position of multivolume selections.
+        if (!from_same_object) {
+            for (ModelVolume* v : pasted) {
+                v->set_offset((v->get_offset() - total_bb.center()) +
+                              dst_matrix.inverse() * (Vec3d(dst_instance_bb.max(0), dst_instance_bb.min(1), dst_instance_bb.min(2)) +
+                                                      0.5 * total_bb.size() - dst_instance->get_transformation().get_offset()));
+            }
+        }
+        // ObjectList::paste_volumes_into_list(): reorder_volumes_and_get_selection().
+        dst_object->sort_volumes(true);
+        dst_object->invalidate_bounding_box();
+        dst_object->ensure_on_bed(true);
+        const auto first = std::find_first_of(dst_object->volumes.begin(), dst_object->volumes.end(), pasted.begin(), pasted.end());
+        result.selected_volume = first == dst_object->volumes.end() ? -1 : int(first - dst_object->volumes.begin());
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects({dst_object}, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.objects.clear();
         return result;
     }
 }

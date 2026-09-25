@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.EngineAvailability
@@ -14,7 +15,14 @@ import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
-import app.orcinus.shadow.core.model.SettingsDialog
+import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.PaintedFacets
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.withInstance
+import app.orcinus.shadow.core.model.withPainted
+import app.orcinus.shadow.core.model.withPartAt
+import app.orcinus.shadow.domain.plate.SimplifyPreview
+import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.WipeTower
@@ -61,8 +69,23 @@ data class PrepareUiState(
     val builtWipeTower: ScenePath? = null,
     /** The colour of every filament of the plate, which the tower takes its own from. */
     val filamentColors: List<ColorRgba> = emptyList(),
+    /** What the sidebar calls every filament of the plate: its preset, as its combo box shows it. */
+    val filamentNames: List<String> = emptyList(),
+    /** The tower as the engine last described it, which the object menu's Flush Options go by. */
+    val flushing: WipeTower = WipeTower(),
+    /** What "Copy Process Settings" took. */
+    val settingsClipboard: SettingsClipboard? = null,
+    /** The Simplify gizmo, while it is open on a volume. */
+    val simplify: SimplifyMode? = null,
+    /** The meshes the 3D view draws with their triangle edges over them (the gizmo's "Show wireframe"). */
+    val wireframes: Set<ScenePath> = emptySet(),
     val arrangeOptionsOpen: Boolean,
     val arrangeSettings: ArrangeSettings,
+    /** What Copy and Cut took, which Paste puts on the plate. */
+    val clipboard: PlateClipboard? = null,
+    /** Plater::can_undo() and can_redo(). */
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
     /** Position of the selected object. */
     val selectedPosition: ObjectPosition?,
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
@@ -81,10 +104,6 @@ data class PrepareUiState(
     val problem: PlateProblem?,
     val canEditPlate: Boolean,
     val canSlice: Boolean,
-    /** The message box the load of a model file showed first, until it is dismissed. */
-    val importNotice: SettingsDialog? = null,
-    /** The question the load of a model file waits on, once its message boxes before it are dismissed. */
-    val importQuestion: SettingsDialog? = null,
 ) {
     /** GLGizmoBase::on_is_activable() for the manipulation gizmos: an object is selected. */
     val canManipulate: Boolean get() = selectedObject != null && canEditPlate
@@ -98,11 +117,26 @@ data class PrepareUiState(
      */
     val canArrange: Boolean get() = sceneObjects.isNotEmpty() && canEditPlate && sceneObjects.none(PlateObject::placing)
 
+    /**
+     * Plater::can_paste_from_clipboard() with nothing held: objects the
+     * clipboard holds, which go on the plate; volumes need an object to join.
+     */
+    val canPasteOnPlate: Boolean get() = canEditPlate && clipboard is PlateClipboard.Objects
+
     /** Whether another copy can be made of the selected one (Plater::can_increase_instances). */
-    val canCopy: Boolean get() = selectedCopy != null && canEditPlate
+    val canCopy: Boolean get() = selectedCopy != null && canEditPlate && selectedCopy?.plateObject?.instances.orEmpty().all { it.printable }
 
     /** ... and whether the selected copy can go (Plater::can_decrease_instances). */
     val canRemoveCopy: Boolean get() = (selectedCopy?.plateObject?.instances?.size ?: 0) > 1 && canEditPlate
+
+    /**
+     * Plater::can_split_to_objects() of the toolbar: ObjectList::is_splittable(true)
+     * of the selected object, which has parts or a mesh of several shells.
+     */
+    val canSplitToObjects: Boolean get() = canEditPlate && selectedPlateObject?.let { it.parts.isNotEmpty() || it.volume.splittable } == true
+
+    /** Plater::can_split_to_volumes(): the selected object is one mesh of several shells. */
+    val canSplitToParts: Boolean get() = canEditPlate && selectedPlateObject?.let { it.parts.isEmpty() && it.volume.splittable } == true
 
     /** The object the info notification describes: Plater::show_object_info() for a single selected object. */
     val selectedPlateObject: PlateObject? get() = selectedObject?.let(sceneCopies::getOrNull)?.plateObject
@@ -126,6 +160,9 @@ data class PaintingMode(
     val filament: Int = 1,
     val radius: Double = 2.0,
     val tool: PaintTool = PaintTool.BRUSH,
+    /** Whether the tool can undo or redo a stroke, which the Undo and Redo buttons do while it is open. */
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
 )
 
 internal data class PrepareViewState(
@@ -142,8 +179,30 @@ internal data class PrepareViewState(
     val painting: PaintingMode? = null,
     /** The arrange options window is open, as the pressed Arrange toolbar item shows it. */
     val arrangeOptionsOpen: Boolean = false,
-    val arrangeSettings: ArrangeSettings = ArrangeSettings(),
+    /** The Simplify gizmo, while it is open. */
+    val simplify: SimplifyMode? = null,
 )
+
+/**
+ * GLGizmoSimplify while it is open on a [volume]: its configuration, the
+ * detail level its slider shows, and the decimated mesh it draws in the
+ * volume's place once the engine made it.
+ */
+data class SimplifyMode(
+    val volume: ObjectPartId,
+    val config: SimplifyConfig,
+    /** The detail level of the slider: Extra high, High, Medium, Low, Extra low. */
+    val reduction: Int,
+    /** "Show wireframe" */
+    val wireframe: Boolean,
+    /** The mesh the gizmo shows, with the triangles of the volume; null until the engine made one. */
+    val preview: SimplifyPreview? = null,
+    /** The engine is decimating the mesh (the worker thread is running). */
+    val running: Boolean = false,
+) {
+    /** The Apply button: a mesh is shown and nothing is being worked out. */
+    val canApply: Boolean get() = preview != null && !running
+}
 
 internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState {
     val gizmo = view.gizmo
@@ -163,7 +222,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     return PrepareUiState(
         plate = plate,
         importing = importing,
-        sceneObjects = objects,
+        // GLGizmoSimplify::init_model(): the decimated mesh is drawn in the volume's place.
+        sceneObjects = view.simplify?.let { mode -> objects.withSimplified(mode, selectedInstance) } ?: objects,
         sceneCopies = copies,
         selectedObject = selectedObject,
         selectedObjects = selectedIndexes,
@@ -173,8 +233,19 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,
         filamentColors = presets?.filamentColors.orEmpty().mapNotNull(::parseFilamentColor),
+        filamentNames = profiles?.allFilaments.orEmpty().map { id ->
+            presets?.filaments?.firstOrNull { it.name == id.value }?.label ?: id.value
+        },
+        flushing = flushing,
+        settingsClipboard = settingsClipboard,
+        simplify = view.simplify?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } },
+        wireframes = view.simplify?.takeIf { it.wireframe }?.preview?.let { setOf(it.mesh) }.orEmpty(),
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
-        arrangeSettings = view.arrangeSettings,
+        arrangeSettings = arrangeSettings,
+        clipboard = clipboard,
+        // While the painting tool is open, Undo and Redo work on its strokes (the gizmo's stack).
+        canUndo = view.painting?.canUndo ?: canUndo,
+        canRedo = view.painting?.canRedo ?: canRedo,
         selectedPosition = selected?.placement?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
         selectedRotation = selected?.rotationDegrees,
         canResetRotation = selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart),
@@ -194,12 +265,29 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         objectClashed = copies.any { it.instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE },
         slicing = slicing,
         problem = problem,
-        importNotice = importNotices.firstOrNull(),
-        importQuestion = importQuestion?.question,
         // Objects are loaded and placed by the engine.
         canEditPlate = canEditPlate,
         canSlice = canSlice,
     )
+}
+
+/**
+ * The objects with the gizmo's decimated mesh in place of its volume: the
+ * object's own mesh of the copy it works on, or the part in every copy, and
+ * without the painting drawn over the old mesh.
+ */
+private fun List<PlateObject>.withSimplified(mode: SimplifyMode, selected: PlateInstanceId?): List<PlateObject> {
+    val preview = mode.preview?.mesh ?: return this
+    return map { plateObject ->
+        if (plateObject.mesh != mode.volume.mesh) return@map plateObject
+        val shown = if (mode.volume.index == 0) {
+            val copy = selected?.takeIf { it.mesh == plateObject.mesh }?.instance ?: 0
+            plateObject.withInstance(copy, plateObject.instances[copy].let { it.copy(inspection = it.inspection.copy(mesh = preview)) })
+        } else {
+            plateObject.withPartAt(mode.volume.index - 1, plateObject.parts[mode.volume.index - 1].copy(mesh = preview))
+        }
+        shown.withPainted(PaintedFacets(), emptyList())
+    }
 }
 
 /** Whether the rotation and scale match [other]'s, within rounding. */

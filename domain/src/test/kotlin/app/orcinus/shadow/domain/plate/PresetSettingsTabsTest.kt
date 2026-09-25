@@ -32,6 +32,7 @@ import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
@@ -539,6 +540,9 @@ class PresetSettingsTabsTest {
             answers: Map<String, Boolean>,
             model: ModelSettingsRequest,
         ) = run(kind, page, SettingsRequest.Reset(ids), answers, model)
+
+        override suspend fun pasteModelSettings(clipboard: ModelSettings, target: ModelSettings, parent: ModelSettings?) =
+            ModelSettingsOutcome.Failure("not used")
 
         override suspend fun setSettingOverride(kind: PresetKind, page: String, id: String, enabled: Boolean, answers: Map<String, Boolean>) =
             run(kind, page, SettingsRequest.SetOverride(id, enabled), answers)

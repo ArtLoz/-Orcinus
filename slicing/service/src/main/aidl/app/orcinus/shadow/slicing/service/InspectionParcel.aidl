@@ -4,6 +4,7 @@ package app.orcinus.shadow.slicing.service;
 parcelable InspectionParcel {
     @nullable String error;
     long facetCount;
+    long openEdges;
     double widthMillimeters;
     double depthMillimeters;
     double heightMillimeters;

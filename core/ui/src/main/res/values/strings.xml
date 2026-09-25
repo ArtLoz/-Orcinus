@@ -39,6 +39,7 @@
     <string name="problem_slice_cancelled">Нарезка отменена</string>
     <string name="problem_placement_failed">Не удалось переместить модель</string>
     <string name="problem_presets_failed">Не удалось выбрать профиль</string>
+    <string name="problem_export_failed">Не удалось экспортировать модель</string>
 
     <!-- The object menu of the 3D view and of the object list (MenuFactory). -->
     <string name="object_menu_delete">Удалить</string>
@@ -76,4 +77,22 @@
     <string name="printer_host_printer">Принтер: %s</string>
     <string name="printer_host_self_test">Калибровка перед печатью</string>
     <string name="printer_host_filament_mapping">Раскладка материалов по слотам:</string>
+    <!-- MenuFactory: the object menu of the canvas and of the object list; copies named as the toolbar names them. -->
+    <string name="object_menu_add_instance">Добавить экземпляр</string>
+    <string name="object_menu_remove_instance">Удалить экземпляр</string>
+    <string name="object_menu_add_part">Добавить деталь</string>
+    <string name="object_menu_add_negative">Добавить вычитание</string>
+    <string name="object_menu_add_modifier">Добавить модификатор</string>
+    <string name="object_menu_add_support_blocker">Добавить блокатор поддержек</string>
+    <string name="object_menu_add_support_enforcer">Добавить усилитель поддержек</string>
+    <string name="object_menu_height_range">Диапазон высот</string>
+    <!-- create_mesh() of GUI_ObjectList.cpp: the shapes a part can have. -->
+    <string name="object_shape_title">Форма детали</string>
+    <string name="object_shape_cube">Куб</string>
+    <string name="object_shape_cylinder">Цилиндр</string>
+    <string name="object_shape_sphere">Сфера</string>
+    <string name="object_shape_slab">Плита</string>
+    <string name="object_shape_cone">Конус</string>
+    <string name="object_shape_disc">Диск</string>
+    <string name="object_shape_torus">Тор</string>
 </resources>

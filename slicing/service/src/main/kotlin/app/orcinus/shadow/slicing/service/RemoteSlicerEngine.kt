@@ -11,6 +11,9 @@ import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
+import app.orcinus.shadow.core.model.CopyPlacement
+import app.orcinus.shadow.core.model.MeshExportOutcome
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
@@ -27,8 +30,12 @@ import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.SimplifyOutcome
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.OrcaText
@@ -175,6 +182,158 @@ class RemoteSlicerEngine(
         ).toModelLoadOutcome()
     }
 
+    override suspend fun edit(
+        plate: List<PlacedModel>,
+        index: Int,
+        edit: ObjectEdit,
+        volume: Int?,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        answers: Map<String, Boolean>,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        edit(
+            plate.toParcels(),
+            index,
+            edit.name,
+            volume ?: -1,
+            profiles.toParcel(),
+            prefix.value,
+            answers.keys.toTypedArray(),
+            answers.values.toBooleanArray(),
+        ).toModelLoadOutcome()
+    }
+
+    override suspend fun exportMesh(
+        plate: List<PlacedModel>,
+        index: Int,
+        format: MeshFormat,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): MeshExportOutcome = withContext(Dispatchers.IO) {
+        try {
+            val parcel = service().exportMesh(plate.toParcels(), index, format.name, profiles.toParcel(), path.value)
+            parcel.error?.let(MeshExportOutcome::Failure) ?: MeshExportOutcome.Success(parcel.warning)
+        } catch (_: RemoteException) {
+            MeshExportOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun simplifyVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        config: SimplifyConfig,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): SimplifyOutcome = remote(SimplifyOutcome::Failure) {
+        val parcel = simplifyVolume(
+            plate.toParcels(),
+            index,
+            volume,
+            config.useCount,
+            config.wantedCount,
+            config.decimateRatio,
+            config.maxError,
+            profiles.toParcel(),
+            path.value,
+        )
+        parcel.error?.let(SimplifyOutcome::Failure) ?: SimplifyOutcome.Success(parcel.triangles, parcel.original)
+    }
+
+    override suspend fun setVolumeType(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        type: VolumeType,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        setVolumeType(plate.toParcels(), index, volume, type.name, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
+    override suspend fun applySimplify(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        config: SimplifyConfig,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        applySimplify(
+            plate.toParcels(),
+            index,
+            volume,
+            config.useCount,
+            config.wantedCount,
+            config.decimateRatio,
+            config.maxError,
+            profiles.toParcel(),
+            prefix.value,
+        ).toModelLoadOutcome()
+    }
+
+    override suspend fun replaceVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        source: ModelPath,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        replaceVolume(plate.toParcels(), index, volume, source.value, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
+    override suspend fun addPrimitive(
+        plate: List<PlacedModel>,
+        shape: String,
+        name: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        addPrimitive(plate.toParcels(), shape, name, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
+    override suspend fun handyModel(file: String): ModelPath? = withContext(Dispatchers.IO) {
+        try {
+            service().handyModel(file)?.let(::ModelPath)
+        } catch (_: RemoteException) {
+            null
+        }
+    }
+
+    override suspend fun pasteVolumes(
+        plate: List<PlacedModel>,
+        index: Int,
+        instance: Int,
+        source: PlacedModel,
+        volumes: List<Int>,
+        sameInputFile: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        pasteVolumes(
+            plate.toParcels(),
+            index,
+            instance,
+            listOf(source).toParcels().single(),
+            volumes.toIntArray(),
+            sameInputFile,
+            profiles.toParcel(),
+            prefix.value,
+        ).toModelLoadOutcome()
+    }
+
+    override suspend fun copy(
+        plate: List<PlacedModel>,
+        sources: List<PlacedModel>,
+        count: Int,
+        placement: CopyPlacement,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        copy(plate.toParcels(), sources.toParcels(), count, placement.name, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
     override suspend fun place(
         plateObject: PlacedModel,
         profiles: SlicingProfileSelection,
@@ -210,6 +369,7 @@ class RemoteSlicerEngine(
                 manipulation.parcelName(),
                 manipulation.parcelSelected(),
                 manipulation.parcelArrangeSettings(),
+                manipulation.parcelInstance(),
             ).toPlateInspectionOutcome()
         } catch (_: RemoteException) {
             PlateInspectionOutcome.Failure(PROCESS_DIED)
@@ -271,8 +431,25 @@ class RemoteSlicerEngine(
                 stroke.radius,
                 stroke.tool.name,
                 stroke.angle,
+                stroke.startsStroke,
                 meshPrefix.value,
             ).toOutcome()
+        } catch (_: RemoteException) {
+            PaintingOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().undoPainting(meshPrefix.value).toOutcome()
+        } catch (_: RemoteException) {
+            PaintingOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().redoPainting(meshPrefix.value).toOutcome()
         } catch (_: RemoteException) {
             PaintingOutcome.Failure(PROCESS_DIED)
         }
@@ -376,6 +553,15 @@ class RemoteSlicerEngine(
             model.plate.toParcel(),
             model.parent.toParcel(),
         ).toPresetSettingsOutcome()
+    }
+
+    override suspend fun pasteModelSettings(
+        clipboard: ModelSettings,
+        target: ModelSettings,
+        parent: ModelSettings?,
+    ): ModelSettingsOutcome = remote(ModelSettingsOutcome::Failure) {
+        val parcel = pasteModelSettings(clipboard.toParcel(), target.toParcel(), parent?.toParcel())
+        parcel.error?.let(ModelSettingsOutcome::Failure) ?: ModelSettingsOutcome.Success(parcel.settings.toModelSettings())
     }
 
     override suspend fun resetSettings(

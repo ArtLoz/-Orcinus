@@ -24,6 +24,25 @@ internal class MeshData(
     val bounds: Box3,
 )
 
+/** The three edges of every triangle of [mesh] as GL_LINES segments: x, y, z per end. */
+internal fun triangleEdges(mesh: MeshData): FloatArray {
+    val vertices = mesh.vertices
+    val triangles = mesh.cornerCount / 3
+    val edges = FloatArray(triangles * 18)
+    var out = 0
+    for (triangle in 0 until triangles) {
+        for (edge in 0 until 3) {
+            for (end in 0 until 2) {
+                val corner = (triangle * 3 + (edge + end) % 3) * MeshFiles.FLOATS_PER_CORNER
+                edges[out++] = vertices.get(corner)
+                edges[out++] = vertices.get(corner + 1)
+                edges[out++] = vertices.get(corner + 2)
+            }
+        }
+    }
+    return edges
+}
+
 internal object MeshFiles {
     private val MAGIC = byteArrayOf('O'.code.toByte(), 'M'.code.toByte(), 'S'.code.toByte(), 'H'.code.toByte())
     private const val VERSION = 1

@@ -1,5 +1,9 @@
 package app.orcinus.shadow.ui
 
+import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
+import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
+import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
+import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.togetherWith
@@ -74,6 +78,8 @@ class AppShellViewModel(
     observePlate: ObservePlateUseCase,
     startEngine: StartEngineUseCase,
     private val slicePlate: SlicePlateUseCase,
+    private val answerPlateQuestion: AnswerPlateQuestionUseCase,
+    private val dismissPlateNotice: DismissPlateNoticeUseCase,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -82,6 +88,11 @@ class AppShellViewModel(
     }
 
     fun slice() = slicePlate()
+
+    /** OrcaSlicer's message boxes while it changes the plate: a load or the object menu. */
+    fun answer(yes: Boolean) = answerPlateQuestion(yes)
+
+    fun dismissNotice() = dismissPlateNotice()
 }
 
 /** The workspace: OrcaSlicer's tabs and sidebar. Pages such as About open over it. */
@@ -98,7 +109,9 @@ fun OrcinusApp(
     onSliceRequested: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shell = viewModel { AppShellViewModel(container.observePlate, container.startEngine, container.slicePlate) }
+    val shell = viewModel {
+        AppShellViewModel(container.observePlate, container.startEngine, container.slicePlate, container.answerPlateQuestion, container.dismissPlateNotice)
+    }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
     val plate by shell.plate.collectAsStateWithLifecycle()
     // GUI_App::config_wizard_startup(): the Setup Wizard opens while no printer is set up.
@@ -180,6 +193,14 @@ private fun Workspace(
 ) {
     val plate by shell.plate.collectAsStateWithLifecycle()
     val backStack = rememberNavBackStack(PrepareNavKey)
+    // The message boxes OrcaSlicer showed while it changed the plate, in their
+    // order, then the question it waits on, over whichever tab is open.
+    val notice = plate.plateNotices.firstOrNull()
+    val question = plate.plateQuestion?.question
+    when {
+        notice != null -> SettingsNoticeDialog(notice, onDismiss = shell::dismissNotice)
+        question != null -> SettingsQuestionDialog(question, onAnswer = shell::answer)
+    }
     val layout = currentOrcaWindowLayout()
     var sidebarVisible by rememberSaveable(layout) { mutableStateOf(layout == OrcaWindowLayout.Wide) }
 
@@ -240,6 +261,9 @@ private fun Workspace(
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
                     onOpenAbout()
                 },
+                onShowCanvas = {
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                },
             )
         },
     ) {
@@ -254,7 +278,11 @@ private fun Workspace(
             transitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
             popTransitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
             entryProvider = entryProvider {
-                prepareEntry(createViewModel = container::prepareViewModel, onSliceRequested = onSliceRequested)
+                prepareEntry(
+                    createViewModel = container::prepareViewModel,
+                    onSliceRequested = onSliceRequested,
+                    onOpenSidebar = { sidebarVisible = true },
+                )
                 previewEntry(createViewModel = container::previewViewModel, onSliceRequested = onSliceRequested)
             },
         )

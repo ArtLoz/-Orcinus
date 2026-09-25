@@ -13,6 +13,9 @@ import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
+import app.orcinus.shadow.core.model.MeshExportOutcome
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
@@ -35,7 +38,10 @@ import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.LoadedObject
+import app.orcinus.shadow.core.model.LayerRange
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
+import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
@@ -71,6 +77,8 @@ import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SimplifyOutcome
+import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.FlushVolumesChange
@@ -95,6 +103,8 @@ import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.ModelSettingsOutcome
+import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
@@ -108,6 +118,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /** OrcaSlicer engine running in this process through the JNI bridge. */
 class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor {
@@ -247,6 +258,257 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         ).toOutcome()
     }
 
+    override suspend fun edit(
+        plate: List<PlacedModel>,
+        index: Int,
+        edit: ObjectEdit,
+        volume: Int?,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        answers: Map<String, Boolean>,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.editObject(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            edit = edit.ordinal.toLong(),
+            volume = volume ?: -1,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+            answerIds = answers.keys.toTypedArray(),
+            answers = answers.values.toBooleanArray(),
+        ).toOutcome()
+    }
+
+    override suspend fun exportMesh(
+        plate: List<PlacedModel>,
+        index: Int,
+        format: MeshFormat,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): MeshExportOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext MeshExportOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        val (exportStatus, message, warning) = NativeBindings.exportObjectMesh(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            format = format.ordinal.toLong(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            path = path.value,
+        )
+        if (exportStatus.toLong() != NativeSceneStatus.SUCCESS) {
+            MeshExportOutcome.Failure(message.ifBlank { "OrcaSlicer could not export the object" })
+        } else {
+            MeshExportOutcome.Success(warning.ifBlank { null })
+        }
+    }
+
+    override suspend fun simplifyVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        config: SimplifyConfig,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): SimplifyOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext SimplifyOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        val (simplifyStatus, message, triangles, original) = NativeBindings.simplifyVolume(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volume = volume,
+            useCount = config.useCount,
+            wantedCount = config.wantedCount,
+            decimateRatio = config.decimateRatio,
+            maxError = config.maxError,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            path = path.value,
+        )
+        if (simplifyStatus.toLong() != NativeSceneStatus.SUCCESS) {
+            SimplifyOutcome.Failure(message.ifBlank { "OrcaSlicer could not simplify the model" })
+        } else {
+            SimplifyOutcome.Success(triangles.toLong(), original.toLong())
+        }
+    }
+
+    override suspend fun setVolumeType(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        type: VolumeType,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.setVolumeType(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volume = volume,
+            type = type.ordinal.toLong(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
+    override suspend fun applySimplify(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        config: SimplifyConfig,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.applySimplify(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volume = volume,
+            useCount = config.useCount,
+            wantedCount = config.wantedCount,
+            decimateRatio = config.decimateRatio,
+            maxError = config.maxError,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
+    override suspend fun replaceVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        source: ModelPath,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.replaceVolume(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volume = volume,
+            sourcePath = source.value,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
+    override suspend fun addPrimitive(
+        plate: List<PlacedModel>,
+        shape: String,
+        name: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.addPrimitive(
+            plate = nativePlate(plate),
+            shape = shape,
+            name = name,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
+    override suspend fun handyModel(file: String): ModelPath? = withContext(Dispatchers.IO) {
+        // resources/handy_models, which the app packs with the profiles.
+        File(OrcaAssets.materialize(applicationContext).resources, "$HANDY_MODELS/$file")
+            .takeIf { it.isFile && it.parentFile?.name == HANDY_MODELS }
+            ?.let { ModelPath(it.absolutePath) }
+    }
+
+    override suspend fun pasteVolumes(
+        plate: List<PlacedModel>,
+        index: Int,
+        instance: Int,
+        source: PlacedModel,
+        volumes: List<Int>,
+        sameInputFile: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.pasteVolumes(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            instance = instance,
+            source = nativePlate(listOf(source)),
+            volumes = volumes.toIntArray(),
+            sameInputFile = sameInputFile,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
+    override suspend fun copy(
+        plate: List<PlacedModel>,
+        sources: List<PlacedModel>,
+        count: Int,
+        placement: CopyPlacement,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.copyObjects(
+            plate = nativePlate(plate),
+            sources = nativePlate(sources),
+            count = count,
+            placement = placement.ordinal.toLong(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
     override suspend fun place(
         plateObject: PlacedModel,
         profiles: SlicingProfileSelection,
@@ -274,6 +536,9 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 Manipulation.ResetRotation -> 3L
                 is Manipulation.LayOnFace -> 4L
                 Manipulation.EnsureOnBed -> 5L
+                is Manipulation.Mirror -> 6L + manipulation.axis.ordinal
+                Manipulation.Center -> 9L
+                Manipulation.Drop -> 10L
             },
             faceNormal = (manipulation as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) },
         ).toOutcome(plateObject.mesh)
@@ -311,6 +576,12 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 rotation = tower.rotation,
                 brimWidth = tower.brimWidth,
                 filaments = tower.filaments.map { it.toInt() },
+                primeTower = tower.primeTower,
+                flushInto = buildSet {
+                    if (tower.flushIntoInfill) add(FlushOption.INFILL)
+                    if (tower.flushIntoObjects) add(FlushOption.OBJECTS)
+                    if (tower.flushIntoSupport) add(FlushOption.SUPPORT)
+                },
             ),
         )
     }
@@ -412,9 +683,18 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 radius = stroke.radius,
                 tool = stroke.tool.ordinal.toLong(),
                 angle = stroke.angle,
+                starts = stroke.startsStroke,
                 meshPrefix = meshPrefix.value,
             ),
         )
+    }
+
+    override suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        painting(NativeBindings.undoPainting(meshPrefix.value))
+    }
+
+    override suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        painting(NativeBindings.redoPainting(meshPrefix.value))
     }
 
     override suspend fun endPainting(): PaintingOutcome = withContext(Dispatchers.IO) {
@@ -430,6 +710,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 filaments = state.filaments.map { it.toInt() },
                 meshes = state.meshes.map(::ScenePath),
                 facets = PaintedFacets(state.facets),
+                canUndo = state.canUndo,
+                canRedo = state.canRedo,
             ),
         )
     }
@@ -443,8 +725,17 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         if (!engineStatus.ready) {
             return@withContext PlateInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val selected = (manipulation as? PlateManipulation.AutoOrient)?.selected.orEmpty()
-        val arrange = (manipulation as? PlateManipulation.Arrange)?.settings ?: ArrangeSettings()
+        val selected = when (manipulation) {
+            is PlateManipulation.AutoOrient -> manipulation.selected
+            is PlateManipulation.FillBed -> setOf(manipulation.mesh)
+            else -> emptySet()
+        }
+        val arrange = when (manipulation) {
+            is PlateManipulation.Arrange -> manipulation.settings
+            is PlateManipulation.ArrangePlate -> manipulation.settings
+            is PlateManipulation.FillBed -> manipulation.settings
+            else -> ArrangeSettings()
+        }
         val result = NativeBindings.placeObjects(
             plate = nativePlate(plate),
             selected = BooleanArray(plate.size) { plate[it].mesh in selected },
@@ -455,11 +746,14 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 is PlateManipulation.AutoOrient -> 0L
                 is PlateManipulation.Arrange -> 1L
                 PlateManipulation.UpdatePrintVolume -> 2L
+                is PlateManipulation.ArrangePlate -> 3L
+                is PlateManipulation.FillBed -> 4L
             },
             arrangeDistance = arrange.distance,
             arrangeEnableRotation = arrange.enableRotation,
             arrangeAllowMultiMaterials = arrange.allowMultiMaterialsOnSamePlate,
             arrangeAlignToYAxis = arrange.alignToYAxis,
+            selectedInstance = (manipulation as? PlateManipulation.FillBed)?.instance ?: -1,
         )
         if (result.status != NativeSceneStatus.SUCCESS || result.objects.size != plate.size) {
             return@withContext PlateInspectionOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not place the objects" })
@@ -657,6 +951,27 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             model.parent.keys(),
             model.parent.values(),
         ).toOutcome()
+    }
+
+    override suspend fun pasteModelSettings(
+        clipboard: ModelSettings,
+        target: ModelSettings,
+        parent: ModelSettings?,
+    ): ModelSettingsOutcome = whenReady(ModelSettingsOutcome::Failure) {
+        val answer = NativeBindings.pasteModelSettings(
+            clipboard.keys(),
+            clipboard.values(),
+            target.keys(),
+            target.values(),
+            parent != null,
+            (parent ?: ModelSettings()).keys(),
+            (parent ?: ModelSettings()).values(),
+        )
+        if (answer[0].toLong() != NativeSceneStatus.SUCCESS) {
+            ModelSettingsOutcome.Failure(answer[1].ifBlank { "OrcaSlicer could not paste the settings" })
+        } else {
+            ModelSettingsOutcome.Success(ModelSettings(answer.drop(2).chunked(2).associate { (key, value) -> key to value }))
+        }
     }
 
     override suspend fun setSettingOverride(
@@ -1079,6 +1394,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
 
     private fun NativeModelInspection.toInspection(mesh: ScenePath) = ModelInspection(
         facetCount = facetCount,
+        openEdges = openEdges,
         dimensions = ModelDimensions(sizeX, sizeY, sizeZ),
         boxCenter = boxCenter.toVector(),
         mesh = mesh,
@@ -1100,7 +1416,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             status != NativeSceneStatus.SUCCESS ->
                 ModelLoadOutcome.Failure(message.ifBlank { "OrcaSlicer could not load the file" }, shown)
             hasQuestion -> ModelLoadOutcome.Question(question.toDialog(), shown)
-            else -> ModelLoadOutcome.Success(objects.map { it.toLoadedObject() }, shown)
+            else -> ModelLoadOutcome.Success(objects.map { it.toLoadedObject() }, shown, appended, selectedVolume.takeIf { it >= 0 })
         }
     }
 
@@ -1119,11 +1435,33 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     settings = ModelSettings(partSettingKeys[part].zip(partSettingValues[part]).toMap()),
                     source = ModelPath(partPaths[part]),
                     name = partNames[part],
+                    painted = PaintedFacets(partPainted[part]),
+                    splittable = partSplittable[part],
+                    convertedFromInches = partFromInches[part],
+                    convertedFromMeters = partFromMeters[part],
+                    inputFile = partInputFiles[part],
                 )
             },
             settings = ModelSettings(settingKeys.zip(settingValues).toMap()),
-            volume = ObjectVolume(volumeName, ModelSettings(volumeSettingKeys.zip(volumeSettingValues).toMap())),
-            instances = instances.map { it.toInspection(mesh) },
+            volume = ObjectVolume(
+                name = volumeName,
+                settings = ModelSettings(volumeSettingKeys.zip(volumeSettingValues).toMap()),
+                splittable = volumeSplittable,
+                convertedFromInches = volumeFromInches,
+                convertedFromMeters = volumeFromMeters,
+                inputFile = volumeInputFile,
+            ),
+            instances = instances.mapIndexed { index, instance ->
+                PlateInstance(instance.toInspection(mesh), autoDrop = autoDrops[index], printable = printables[index])
+            },
+            painted = PaintedFacets(painted),
+            layerRanges = rangeSettingKeys.indices.map { range ->
+                LayerRange(
+                    bottom = rangeHeights[2 * range],
+                    top = rangeHeights[2 * range + 1],
+                    settings = ModelSettings(rangeSettingKeys[range].zip(rangeSettingValues[range]).toMap()),
+                )
+            },
         )
     }
 
@@ -1205,6 +1543,9 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         /** Print::export_gcode reports 80 % when G-code generation starts. */
         private const val GCODE_EXPORT_PERCENT = 80
 
+        /** Orca's resources/handy_models. */
+        private const val HANDY_MODELS = "handy_models"
+
         /**
          * decode_color() in OrcaSlicer's libslic3r/Color.cpp: "#RRGGBB" or
          * "#RRGGBBAA"; anything else is the default filament colour, #F2754E.
@@ -1257,8 +1598,16 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
         objectMatrices = objects.flatMap { it.frame?.columns ?: List(16) { 0.0 } }.toDoubleArray(),
         partSources = Array(parts.size) { parts[it].source?.value.orEmpty() },
         partNames = Array(parts.size) { parts[it].name },
-        volumeSettingKeys = Array(objects.size) { objects[it].volumeSettings.keys() },
-        volumeSettingValues = Array(objects.size) { objects[it].volumeSettings.values() },
+        volumeSettingKeys = Array(objects.size) { objects[it].volume.settings.keys() },
+        volumeSettingValues = Array(objects.size) { objects[it].volume.settings.values() },
+        volumeFromInches = BooleanArray(objects.size) { objects[it].volume.convertedFromInches },
+        volumeFromMeters = BooleanArray(objects.size) { objects[it].volume.convertedFromMeters },
+        partFromInches = BooleanArray(parts.size) { parts[it].convertedFromInches },
+        partFromMeters = BooleanArray(parts.size) { parts[it].convertedFromMeters },
+        names = Array(objects.size) { objects[it].name },
+        volumeNames = Array(objects.size) { objects[it].volume.name },
+        volumeInputFiles = Array(objects.size) { objects[it].volume.inputFile },
+        partInputFiles = Array(parts.size) { parts[it].inputFile },
     )
 }
 

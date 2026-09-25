@@ -5,6 +5,9 @@ import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.SettingState
+import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.domain.placed
@@ -27,17 +30,29 @@ class WipeTowerUpdates(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
-    /** What the tower is described from; the engine is asked again when it changes. */
+    /**
+     * What the tower is described from; the engine is asked again when it
+     * changes. The values of the edited presets count too, since the desktop
+     * app reloads the scene after every change of a preset's value.
+     */
     private data class Input(
         val objects: List<PlacedModel>,
         val profiles: SlicingProfileSelection?,
         val plateSettings: ModelSettings,
+        val presetValues: List<List<String>?>,
     )
 
     fun start() {
         applicationScope.launch {
             repository.state
-                .map { state -> Input(state.objects.map(PlateObject::placed), state.profiles, state.plateSettings) }
+                .map { state ->
+                    Input(
+                        state.objects.map(PlateObject::placed),
+                        state.profiles,
+                        state.plateSettings,
+                        PRESET_TABS.map { kind -> state.settingsTabs[kind]?.settings?.settings?.map(SettingState::value) },
+                    )
+                }
                 .distinctUntilChanged()
                 .collect { input -> describe(input) }
         }
@@ -46,7 +61,9 @@ class WipeTowerUpdates(
     private suspend fun describe(input: Input) {
         val profiles = input.profiles
         if (profiles == null || input.objects.isEmpty()) {
-            repository.update { state -> if (state.wipeTower == null) state else state.copy(wipeTower = null) }
+            repository.update { state ->
+                if (state.wipeTower == null && state.flushing == WipeTower()) state else state.copy(wipeTower = null, flushing = WipeTower())
+            }
             return
         }
         val outcome = try {
@@ -56,9 +73,11 @@ class WipeTowerUpdates(
         }
         // A tower that cannot be described is simply not drawn; the plate is
         // still sliced, and the engine places the tower itself.
-        val tower = (outcome as? WipeTowerOutcome.Success)?.tower?.takeIf { it.shown }
+        val described = (outcome as? WipeTowerOutcome.Success)?.tower
+        val tower = described?.takeIf { it.shown }
         repository.update { state ->
-            val shown = if (state.wipeTower == tower) state else state.copy(wipeTower = tower)
+            val shown = (if (state.wipeTower == tower) state else state.copy(wipeTower = tower))
+                .let { if (described == null || it.flushing == described) it else it.copy(flushing = described) }
             // PartPlateList::set_default_wipe_tower_pos_for_plate(): the desktop
             // app writes the position a new tower takes into the project, so the
             // slicer builds it where the plate shows it; without it the slicer
@@ -82,7 +101,8 @@ class MoveWipeTowerUseCase(private val repository: PlateRepository) {
     operator fun invoke(x: Double, y: Double) = repository.update { state ->
         val tower = state.wipeTower
         if (state.busy || tower == null) return@update state
-        state.copy(
+        // GLCanvas3D::do_move() takes "Move Object" for the tower too.
+        state.recorded().copy(
             plateSettings = state.plateSettings.withTowerAt(x, y),
             // The tower is drawn where it was dropped until the engine answers.
             wipeTower = tower.copy(x = x, y = y),
@@ -91,6 +111,9 @@ class MoveWipeTowerUseCase(private val repository: PlateRepository) {
     }
 
 }
+
+/** The tabs of the presets the tower is described with. */
+private val PRESET_TABS = listOf(PresetKind.PRINT, PresetKind.FILAMENT, PresetKind.PRINTER)
 
 private const val WIPE_TOWER_X = "wipe_tower_x"
 private const val WIPE_TOWER_Y = "wipe_tower_y"
@@ -177,3 +200,12 @@ private fun flushValue(value: Double): String = String.format(Locale.ROOT, "%.2f
 
 private const val FLUSH_MATRIX_KEY = "flush_volumes_matrix"
 private const val FLUSH_MULTIPLIER_KEY = "flush_multiplier"
+
+/**
+ * The settings with the flushing volumes of [current]: they are the project's
+ * (PresetBundle::project_config), which no snapshot of the plate holds.
+ */
+internal fun ModelSettings.withFlushVolumesOf(current: ModelSettings): ModelSettings = ModelSettings(
+    values - FLUSH_MATRIX_KEY - FLUSH_MULTIPLIER_KEY +
+        listOf(FLUSH_MATRIX_KEY, FLUSH_MULTIPLIER_KEY).mapNotNull { key -> current.values[key]?.let { key to it } },
+)

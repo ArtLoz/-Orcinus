@@ -4,6 +4,7 @@ import app.orcinus.shadow.slicing.service.ModelSettingsParcel;
 import app.orcinus.shadow.slicing.service.LayerRangeParcel;
 import app.orcinus.shadow.slicing.service.ModelSourceParcel;
 import app.orcinus.shadow.slicing.service.ObjectPartParcel;
+import app.orcinus.shadow.slicing.service.ObjectVolumeParcel;
 import app.orcinus.shadow.slicing.service.PlacedInstanceParcel;
 
 /** PlacedModel. */
@@ -22,6 +23,8 @@ parcelable PlacedModelParcel {
     @nullable String painted;
     /** Where the model's own mesh stands in the object, column-major 4 x 4; null centres it. */
     @nullable double[] frame;
-    /** The settings of the model's own mesh; null when it overrides none. */
-    @nullable ModelSettingsParcel volumeSettings;
+    /** The model's own mesh as a volume. */
+    @nullable ObjectVolumeParcel volume;
+    /** ModelObject::name; empty keeps the engine's. */
+    String name = "";
 }

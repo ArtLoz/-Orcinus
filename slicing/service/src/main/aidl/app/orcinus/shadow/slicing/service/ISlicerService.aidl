@@ -20,12 +20,15 @@ import app.orcinus.shadow.slicing.service.OrcaTextParcel;
 import app.orcinus.shadow.slicing.service.PlacedModelParcel;
 import app.orcinus.shadow.slicing.service.PlateDescriptionParcel;
 import app.orcinus.shadow.slicing.service.PlateInspectionParcel;
+import app.orcinus.shadow.slicing.service.MeshExportParcel;
 import app.orcinus.shadow.slicing.service.FlushVolumesParcel;
 import app.orcinus.shadow.slicing.service.PaintingParcel;
 import app.orcinus.shadow.slicing.service.WipeTowerParcel;
 import app.orcinus.shadow.slicing.service.PresetNameParcel;
 import app.orcinus.shadow.slicing.service.PresetNamesParcel;
 import app.orcinus.shadow.slicing.service.PresetSettingsParcel;
+import app.orcinus.shadow.slicing.service.SimplifyParcel;
+import app.orcinus.shadow.slicing.service.ModelSettingsOutcomeParcel;
 import app.orcinus.shadow.slicing.service.PhysicalPrinterParcel;
 import app.orcinus.shadow.slicing.service.PhysicalPrintersParcel;
 import app.orcinus.shadow.slicing.service.PresetComparisonParcel;
@@ -55,6 +58,95 @@ interface ISlicerService {
         in String[] answerIds,
         in boolean[] answers
     );
+    /** edit_object(): edit is the ObjectEdit's name; volume -1 edits the whole object. */
+    ModelLoadParcel edit(
+        in PlacedModelParcel[] plate,
+        int index,
+        String edit,
+        int volume,
+        in ProfilesParcel profiles,
+        String prefix,
+        in String[] answerIds,
+        in boolean[] answers
+    );
+    /** export_object_mesh(): format is the MeshFormat's name. */
+    MeshExportParcel exportMesh(
+        in PlacedModelParcel[] plate,
+        int index,
+        String format,
+        in ProfilesParcel profiles,
+        String path
+    );
+    /** replace_volume(): the volume takes the mesh of the file at source. */
+    /** simplify_volume(): the triangles of the decimated mesh and of the volume. */
+    SimplifyParcel simplifyVolume(
+        in PlacedModelParcel[] plate,
+        int index,
+        int volume,
+        boolean useCount,
+        int wantedCount,
+        float decimateRatio,
+        float maxError,
+        in ProfilesParcel profiles,
+        String path
+    );
+    ModelLoadParcel setVolumeType(
+        in PlacedModelParcel[] plate,
+        int index,
+        int volume,
+        String type,
+        in ProfilesParcel profiles,
+        String prefix
+    );
+    ModelLoadParcel applySimplify(
+        in PlacedModelParcel[] plate,
+        int index,
+        int volume,
+        boolean useCount,
+        int wantedCount,
+        float decimateRatio,
+        float maxError,
+        in ProfilesParcel profiles,
+        String prefix
+    );
+    ModelLoadParcel replaceVolume(
+        in PlacedModelParcel[] plate,
+        int index,
+        int volume,
+        String source,
+        in ProfilesParcel profiles,
+        String prefix
+    );
+    /** add_primitive(): a shape of create_mesh() as an object of its own. */
+    ModelLoadParcel addPrimitive(
+        in PlacedModelParcel[] plate,
+        String shape,
+        String name,
+        in ProfilesParcel profiles,
+        String prefix
+    );
+    /** The path of a handy model under resources/handy_models; null when it is not there. */
+    @nullable String handyModel(String file);
+    /** paste_volumes(): source is the one object the clipboard copied the volumes from. */
+    ModelLoadParcel pasteVolumes(
+        in PlacedModelParcel[] plate,
+        int index,
+        int instance,
+        in PlacedModelParcel source,
+        in int[] volumes,
+        boolean sameInputFile,
+        in ProfilesParcel profiles,
+        String prefix
+    );
+    /** copy_objects(): placement is the CopyPlacement's name. */
+    ModelLoadParcel copy(
+        in PlacedModelParcel[] plate,
+        in PlacedModelParcel[] sources,
+        int count,
+        String placement,
+        in ProfilesParcel profiles,
+        String prefix
+    );
     /**
      * Placements: instance transformations, column-major 4 x 4; manipulation:
      * the Manipulation's simple name, with faceNormal for LayOnFace.
@@ -70,14 +162,16 @@ interface ISlicerService {
     );
     /**
      * manipulation: the PlateManipulation's simple name, with the selected
-     * mesh paths for AutoOrient and arrangeSettings for Arrange.
+     * mesh paths for AutoOrient and FillBed, arrangeSettings for Arrange,
+     * ArrangePlate and FillBed, and FillBed's instance, -1 for none.
      */
     PlateInspectionParcel placeObjects(
         in PlacedModelParcel[] plate,
         in ProfilesParcel profiles,
         String manipulation,
         in String[] selected,
-        in @nullable ArrangeSettingsParcel arrangeSettings
+        in @nullable ArrangeSettingsParcel arrangeSettings,
+        int instance
     );
     /** The wipe tower of the plate (GLCanvas3D's wipe tower volume). */
     WipeTowerParcel describeWipeTower(
@@ -114,8 +208,11 @@ interface ISlicerService {
         double radius,
         String tool,
         double angle,
+        boolean starts,
         String meshPrefix
     );
+    PaintingParcel undoPainting(String meshPrefix);
+    PaintingParcel redoPainting(String meshPrefix);
     PaintingParcel endPainting();
     FlatteningPlanesParcel flatteningPlanes(in PlacedModelParcel plateObject, in ProfilesParcel profiles, in double[] placement);
     /** ObjectList::load_generic_subobject(); type is the VolumeType's name. */
@@ -178,6 +275,11 @@ interface ISlicerService {
         in boolean[] answers,
         in @nullable ModelSettingsParcel[] models,
         in @nullable ModelSettingsParcel plate,
+        in @nullable ModelSettingsParcel parent
+    );
+    ModelSettingsOutcomeParcel pasteModelSettings(
+        in ModelSettingsParcel clipboard,
+        in ModelSettingsParcel target,
         in @nullable ModelSettingsParcel parent
     );
     PresetSettingsParcel setSettingOverride(String kind, String page, String id, boolean enabled, in String[] answerIds, in boolean[] answers);
