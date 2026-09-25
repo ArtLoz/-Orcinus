@@ -17,18 +17,22 @@ import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.EngineState
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.LayerRange
+import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.LayerRangeId
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PendingImport
 import app.orcinus.shadow.core.model.PendingPresetChange
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
@@ -57,6 +61,7 @@ import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsScope
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
 import app.orcinus.shadow.core.model.SetupPrintersOutcome
@@ -75,7 +80,9 @@ import app.orcinus.shadow.core.model.withInstances
 import app.orcinus.shadow.core.model.withLayerRangeAt
 import app.orcinus.shadow.core.model.withLayerRanges
 import app.orcinus.shadow.core.model.withPart
-import app.orcinus.shadow.core.model.withPartAt
+import app.orcinus.shadow.core.model.volumeAt
+import app.orcinus.shadow.core.model.withVolume
+import app.orcinus.shadow.core.model.withVolumeAt
 import app.orcinus.shadow.core.model.withParts
 import app.orcinus.shadow.core.model.withSettings
 import app.orcinus.shadow.domain.CancelSliceUseCase
@@ -520,23 +527,103 @@ class ApplySetupUseCase(
     }
 }
 
-/** Imports a document and adds it to the plate, as OrcaSlicer loads a model and places it beside the objects there. */
+/**
+ * Plater::priv::load_files() for a document the user picked: the file is
+ * copied into app storage, and OrcaSlicer loads its objects, of any type the
+ * desktop app imports, and places them beside the objects on the plate. The
+ * plate is busy until the objects join the end of its list, and G-code sliced
+ * before no longer applies. A question of the load waits on the plate for
+ * [answer], as the desktop app's message box waits; the message boxes it only
+ * informs with wait there until they are dismissed. A failure leaves the plate
+ * as it was and reports the problem.
+ */
 class AddModelToPlateUseCase(
     private val importModel: ImportModelUseCase,
-    inspectModel: InspectModelUseCase,
-    sceneFiles: SceneFiles,
-    repository: PlateRepository,
-    applicationScope: CoroutineScope,
+    private val inspector: PlateInspector,
+    private val sceneFiles: SceneFiles,
+    private val repository: PlateRepository,
+    private val applicationScope: CoroutineScope,
 ) {
-    private val loader = PlateObjectLoader(inspectModel, sceneFiles, repository, applicationScope)
-
-    operator fun invoke(reference: ExternalDocumentReference) = loader.load { inspect ->
-        when (val imported = importModel(reference)) {
-            is ModelImportOutcome.Failure -> Result.failure(IllegalArgumentException(imported.message))
-            is ModelImportOutcome.Success -> inspect(ModelSource.LocalFile(imported.model.path))
-                .map { PlateObject.ImportedModel(imported.model, listOf(PlateInstance(it))) }
+    operator fun invoke(reference: ExternalDocumentReference) {
+        var started = false
+        repository.update { state ->
+            started = !state.busy && state.profiles != null
+            if (started) state.copy(importing = true, problem = null) else state
+        }
+        if (!started) return
+        applicationScope.launch {
+            when (val imported = importModel(reference)) {
+                is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
+                is ModelImportOutcome.Success -> load(imported.model.path, emptyMap(), emptyList())
+            }
         }
     }
+
+    /** The answer to the question the load asked: the file loads again with every answer so far. */
+    fun answer(yes: Boolean) {
+        var pending: PendingImport? = null
+        repository.update { state ->
+            pending = state.importQuestion
+            if (pending == null) state else state.copy(importQuestion = null)
+        }
+        val question = pending ?: return
+        applicationScope.launch { load(question.source, question.answers + (question.question.id to yes), question.shown) }
+    }
+
+    /** The first message box of the load was dismissed. */
+    fun dismissNotice() = repository.update { state ->
+        if (state.importNotices.isEmpty()) state else state.copy(importNotices = state.importNotices.drop(1))
+    }
+
+    private suspend fun load(source: ModelPath, answers: Map<String, Boolean>, shown: List<SettingsDialog>) {
+        val state = repository.state.value
+        val profiles = state.profiles ?: return finish(ModelLoadOutcome.Failure("No printer is set up"))
+        val prefix = sceneFiles.newImportPrefix()
+        val outcome = try {
+            inspector.load(source, profiles, state.objects.map { it.placed() }, prefix, answers)
+        } catch (cancellation: CancellationException) {
+            sceneFiles.deleteImport(prefix)
+            throw cancellation
+        } catch (error: Exception) {
+            ModelLoadOutcome.Failure(error.message.orEmpty())
+        }
+        if (outcome !is ModelLoadOutcome.Success) sceneFiles.deleteImport(prefix)
+        finish(outcome, source, answers, shown)
+    }
+
+    /** The load asks again what it asked before, and shows its message boxes again: each shows once. */
+    private fun finish(
+        outcome: ModelLoadOutcome,
+        source: ModelPath? = null,
+        answers: Map<String, Boolean> = emptyMap(),
+        shown: List<SettingsDialog> = emptyList(),
+    ) = repository.update { state ->
+        val notices = outcome.notices.filterNot { it in shown }
+        val informed = state.copy(importNotices = state.importNotices + notices)
+        when (outcome) {
+            is ModelLoadOutcome.Success -> informed.copy(
+                importing = false,
+                objects = state.objects + outcome.objects.map { it.toPlateObject() },
+                result = null,
+            )
+            is ModelLoadOutcome.Question -> informed.copy(
+                importQuestion = PendingImport(checkNotNull(source), outcome.question, answers, shown + notices),
+            )
+            is ModelLoadOutcome.Failure -> informed.copy(
+                importing = false,
+                problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, outcome.message),
+            )
+        }
+    }
+
+    private fun LoadedObject.toPlateObject() = PlateObject.ImportedModel(
+        file = ImportedModelFile(source, name),
+        instances = instances.map { PlateInstance(it) },
+        settings = settings,
+        parts = parts,
+        frame = frame,
+        volume = volume,
+    )
 }
 
 /** Adds OrcaSlicer's 20 mm calibration cube to the plate. */
@@ -644,7 +731,7 @@ class PlacePlateObjectUseCase(
         val autoDrop = target.instances[id.instance].autoDrop
         applicationScope.launch {
             val outcome = try {
-                placeModel(target.source(), profiles, id.mesh, previous, placement, autoDrop, manipulation)
+                placeModel(target.placed(), profiles, previous, placement, autoDrop, manipulation)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -834,10 +921,11 @@ class SelectPlateObjectUseCase(private val repository: PlateRepository) {
  * word: the parts under it lose theirs. G-code sliced before no longer applies.
  */
 class SetExtruderUseCase(private val repository: PlateRepository) {
-    /** The object itself, which its parts then follow. */
+    /** The object itself, which its volumes of the model then follow, its own mesh included. */
     operator fun invoke(mesh: ScenePath, extruder: Int) = write(mesh, extruder) { target ->
         // "default" on an object is filament 1, as the desktop app writes it.
         target.withSettings(target.settings.withExtruder(if (extruder == 0) 1 else extruder))
+            .withVolume(target.volume.copy(settings = target.volume.settings.withExtruder(0)))
             .withParts(
                 target.parts.map { part ->
                     if (part.type == VolumeType.PART) part.copy(settings = part.settings.withExtruder(0)) else part
@@ -845,14 +933,14 @@ class SetExtruderUseCase(private val repository: PlateRepository) {
             )
     }
 
-    /** One part of an object (an itVolume row). */
+    /** One volume of an object (an itVolume row): its own mesh or one of its parts. */
     operator fun invoke(id: ObjectPartId, extruder: Int) = write(id.mesh, extruder) { target ->
-        val part = target.parts.getOrNull(id.index) ?: return@write null
+        val part = target.volumeAt(id.index) ?: return@write null
         if (part.type != VolumeType.PART && part.type != VolumeType.MODIFIER) return@write null
         // "default" on a part of the model is the filament of its object; a
         // modifier keeps the default it was given.
         val number = if (extruder == 0 && part.type == VolumeType.PART) target.extruderNumber else extruder
-        target.withPartAt(id.index, part.copy(settings = part.settings.withExtruder(number)))
+        target.withVolumeAt(id.index, part.copy(settings = part.settings.withExtruder(number)))
     }
 
     /** One height range of an object (an itLayer row). */
@@ -884,7 +972,7 @@ class SetExtruderUseCase(private val repository: PlateRepository) {
  */
 class SelectObjectPartUseCase(private val repository: PlateRepository) {
     operator fun invoke(id: ObjectPartId?) = repository.update { state ->
-        val target = id?.takeIf { state.objects.withMesh(it.mesh)?.parts?.size ?: 0 > it.index }
+        val target = id?.takeIf { state.objects.withMesh(it.mesh)?.volumeAt(it.index) != null }
         if (target == null) {
             if (state.selectedPart == null) state else state.copy(selectedPart = null)
         } else {
@@ -963,29 +1051,36 @@ class AddObjectPartUseCase(
 
 /**
  * ObjectList::del_subobject_item(): the part leaves the object, and G-code
- * sliced with it no longer applies. Its mesh file goes with it.
+ * sliced with it no longer applies. Its mesh file goes with it. Once the object
+ * is its own mesh alone, the settings of that mesh become the object's
+ * (ObjectList::del_subobject_from_object).
  */
 class RemoveObjectPartUseCase(
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
 ) {
-    operator fun invoke(mesh: ScenePath, index: Int) {
+    operator fun invoke(id: ObjectPartId) {
         var removed: ScenePath? = null
         repository.update { state ->
             removed = null
-            val target = state.objects.withMesh(mesh)
-            val part = target?.parts?.getOrNull(index)
+            val target = state.objects.withMesh(id.mesh)
+            // The object's own mesh stays: deleting it would leave the object
+            // made of its parts, which the app cannot load yet.
+            val part = target?.parts?.getOrNull(id.index - 1)
             if (target == null || part == null || state.busy) return@update state
             removed = part.mesh
-            val kept = target.parts.filterIndexed { at, _ -> at != index }
+            val kept = target.parts.filterIndexed { at, _ -> at != id.index - 1 }
+            val updated = if (kept.isEmpty()) {
+                target.withParts(kept)
+                    .withSettings(ModelSettings(target.settings.values + target.volume.settings.values))
+                    .withVolume(target.volume.copy(settings = ModelSettings()))
+            } else {
+                target.withParts(kept)
+            }
             state.copy(
-                selectedPart = state.selectedPart?.takeUnless { it.mesh == mesh && it.index >= index },
-                objects = state.objects.replaced(
-                    when (target) {
-                        is PlateObject.ImportedModel -> target.copy(parts = kept)
-                        is PlateObject.CalibrationCube -> target.copy(parts = kept)
-                    },
-                ),
+                // The volumes after it move up, and none is listed once the object is its own mesh alone.
+                selectedPart = state.selectedPart?.takeUnless { it.mesh == id.mesh && (it.index >= id.index || kept.isEmpty()) },
+                objects = state.objects.replaced(updated),
                 result = null,
             )
         }
@@ -1367,11 +1462,11 @@ class DeletePlateObjectUseCase(
     private val repository: PlateRepository,
 ) {
     operator fun invoke(mesh: ScenePath) {
-        var deleted = false
+        var deleted: PlateObject? = null
         repository.update { state ->
-            deleted = false
-            if (state.busy || state.objects.withMesh(mesh) == null) return@update state
-            deleted = true
+            deleted = null
+            if (state.busy) return@update state
+            deleted = state.objects.withMesh(mesh) ?: return@update state
             state.copy(
                 objects = state.objects.filterNot { it.mesh == mesh },
                 // The settings follow the selection, which the deleted object leaves.
@@ -1381,7 +1476,11 @@ class DeletePlateObjectUseCase(
                 result = null,
             )
         }
-        if (deleted) sceneFiles.deleteObjectMesh(mesh)
+        val removed = deleted ?: return
+        // The meshes the object and its parts are drawn and loaded from go with it.
+        sceneFiles.deleteObjectMesh(mesh)
+        removed.parts.forEach { sceneFiles.deleteObjectMesh(it.mesh) }
+        if (removed is PlateObject.ImportedModel) sceneFiles.deleteObjectMesh(ScenePath(removed.file.path.value))
     }
 }
 

@@ -26,4 +26,6 @@ internal fun PlateObject.placed() = PlacedModel(
     parts = parts,
     layerRanges = layerRanges,
     painted = painted,
+    frame = (this as? PlateObject.ImportedModel)?.frame,
+    volumeSettings = volume.settings,
 )

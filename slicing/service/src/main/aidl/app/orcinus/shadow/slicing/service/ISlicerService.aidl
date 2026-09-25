@@ -13,6 +13,7 @@ import app.orcinus.shadow.slicing.service.EngineStatusParcel;
 import app.orcinus.shadow.slicing.service.FlatteningPlanesParcel;
 import app.orcinus.shadow.slicing.service.InspectionParcel;
 import app.orcinus.shadow.slicing.service.ISliceCallback;
+import app.orcinus.shadow.slicing.service.ModelLoadParcel;
 import app.orcinus.shadow.slicing.service.ModelSettingsParcel;
 import app.orcinus.shadow.slicing.service.ModelSourceParcel;
 import app.orcinus.shadow.slicing.service.OrcaTextParcel;
@@ -45,14 +46,22 @@ interface ISlicerService {
 
     PlateDescriptionParcel describePlate(in ProfilesParcel profiles, String directory);
     InspectionParcel inspect(in ModelSourceParcel model, in ProfilesParcel profiles, String meshPath, in PlacedModelParcel[] plate);
+    /** Plater::priv::load_files() for a model file; answers are by dialog id. */
+    ModelLoadParcel load(
+        String source,
+        in ProfilesParcel profiles,
+        in PlacedModelParcel[] plate,
+        String prefix,
+        in String[] answerIds,
+        in boolean[] answers
+    );
     /**
      * Placements: instance transformations, column-major 4 x 4; manipulation:
      * the Manipulation's simple name, with faceNormal for LayOnFace.
      */
     InspectionParcel place(
-        in ModelSourceParcel model,
+        in PlacedModelParcel plateObject,
         in ProfilesParcel profiles,
-        String meshPath,
         in double[] previous,
         in double[] placement,
         boolean autoDrop,
@@ -108,7 +117,7 @@ interface ISlicerService {
         String meshPrefix
     );
     PaintingParcel endPainting();
-    FlatteningPlanesParcel flatteningPlanes(in ModelSourceParcel model, in ProfilesParcel profiles, String meshPath, in double[] placement);
+    FlatteningPlanesParcel flatteningPlanes(in PlacedModelParcel plateObject, in ProfilesParcel profiles, in double[] placement);
     /** ObjectList::load_generic_subobject(); type is the VolumeType's name. */
     InspectionParcel addObjectPart(in PlacedModelParcel object, String shape, String type, in ProfilesParcel profiles, String meshPath);
 

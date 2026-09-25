@@ -29,6 +29,17 @@ class AppSceneFiles(context: Context) : SceneFiles {
         return ScenePath(File(objects, "painted-${UUID.randomUUID()}").absolutePath)
     }
 
+    override fun newImportPrefix(): ScenePath {
+        objects.mkdirs()
+        return ScenePath(File(objects, "import-${UUID.randomUUID()}").absolutePath)
+    }
+
+    override fun deleteImport(prefix: ScenePath) {
+        val start = File(prefix.value)
+        if (start.parentFile != objects) return
+        objects.listFiles()?.filter { it.name.startsWith(start.name + "-") }?.forEach(File::delete)
+    }
+
     override fun deleteObjectMesh(mesh: ScenePath) {
         val file = File(mesh.value)
         if (file.parentFile == objects) file.delete()

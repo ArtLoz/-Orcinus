@@ -18,7 +18,10 @@ import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectPart
@@ -132,18 +135,10 @@ internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(siz
             }
         }
         parcel.settings = placed.settings.toParcel()
-        parcel.parts = Array(placed.parts.size) { at ->
-            val part = placed.parts[at]
-            ObjectPartParcel().also {
-                it.shape = part.shape
-                it.type = part.type.name
-                it.meshPath = part.mesh.value
-                it.placement = part.placement.columns.toDoubleArray()
-                it.settings = part.settings.toParcel()
-                it.painted = part.painted.value.takeUnless(String::isEmpty)
-            }
-        }
+        parcel.parts = Array(placed.parts.size) { placed.parts[it].toParcel() }
         parcel.painted = placed.painted.value.takeUnless(String::isEmpty)
+        parcel.frame = placed.frame?.columns?.toDoubleArray()
+        parcel.volumeSettings = placed.volumeSettings.toParcel()
         parcel.layerRanges = Array(placed.layerRanges.size) { at ->
             val range = placed.layerRanges[at]
             LayerRangeParcel().also {
@@ -163,20 +158,75 @@ internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map 
             PlacedInstance(placement = Transform3(it.placement.toList()), autoDrop = it.autoDrop, printable = it.printable)
         },
         settings = parcel.settings.toModelSettings(),
-        parts = parcel.parts.orEmpty().map {
-            ObjectPart(
-                shape = it.shape,
-                type = VolumeType.valueOf(it.type),
-                mesh = ScenePath(it.meshPath),
-                placement = Transform3(it.placement.toList()),
-                settings = it.settings.toModelSettings(),
-                painted = PaintedFacets(it.painted.orEmpty()),
-            )
-        },
+        parts = parcel.parts.orEmpty().map { it.toObjectPart() },
         layerRanges = parcel.layerRanges.orEmpty().map {
             LayerRange(bottom = it.bottom, top = it.top, settings = it.settings.toModelSettings())
         },
         painted = PaintedFacets(parcel.painted.orEmpty()),
+        frame = parcel.frame?.let { Transform3(it.toList()) },
+        volumeSettings = parcel.volumeSettings.toModelSettings(),
+    )
+}
+
+private fun ObjectPart.toParcel() = ObjectPartParcel().also {
+    it.shape = shape
+    it.type = type.name
+    it.meshPath = mesh.value
+    it.placement = placement.columns.toDoubleArray()
+    it.settings = settings.toParcel()
+    it.painted = painted.value.takeUnless(String::isEmpty)
+    it.source = source?.value
+    it.name = name
+}
+
+private fun ObjectPartParcel.toObjectPart() = ObjectPart(
+    shape = shape,
+    type = VolumeType.valueOf(type),
+    mesh = ScenePath(meshPath),
+    placement = Transform3(placement.toList()),
+    settings = settings.toModelSettings(),
+    painted = PaintedFacets(painted.orEmpty()),
+    source = source?.let(::ModelPath),
+    name = name.orEmpty(),
+)
+
+internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
+    it.notices = notices.map { dialog -> dialog.toParcel() }.toTypedArray()
+    when (this) {
+        is ModelLoadOutcome.Failure -> it.error = message
+        is ModelLoadOutcome.Question -> it.question = question.toParcel()
+        is ModelLoadOutcome.Success -> it.objects = objects.map { loaded ->
+            LoadedObjectParcel().also { parcel ->
+                parcel.name = loaded.name
+                parcel.source = loaded.source.value
+                parcel.frame = loaded.frame.columns.toDoubleArray()
+                parcel.parts = loaded.parts.map { part -> part.toParcel() }.toTypedArray()
+                parcel.settings = loaded.settings.toParcel()
+                parcel.volumeName = loaded.volume.name
+                parcel.volumeSettings = loaded.volume.settings.toParcel()
+                parcel.instances = loaded.instances.map { instance -> ModelInspectionOutcome.Success(instance).toParcel() }.toTypedArray()
+            }
+        }.toTypedArray()
+    }
+}
+
+internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
+    val shown = notices.orEmpty().map { it.toDialog() }
+    error?.let { return ModelLoadOutcome.Failure(it, shown) }
+    question?.let { return ModelLoadOutcome.Question(it.toDialog(), shown) }
+    return ModelLoadOutcome.Success(
+        objects.orEmpty().map { parcel ->
+            LoadedObject(
+                name = parcel.name,
+                source = ModelPath(parcel.source),
+                frame = Transform3(parcel.frame.toList()),
+                parts = parcel.parts.orEmpty().map { it.toObjectPart() },
+                settings = parcel.settings.toModelSettings(),
+                volume = ObjectVolume(parcel.volumeName.orEmpty(), parcel.volumeSettings.toModelSettings()),
+                instances = parcel.instances.orEmpty().map { it.toInspection() },
+            )
+        },
+        shown,
     )
 }
 

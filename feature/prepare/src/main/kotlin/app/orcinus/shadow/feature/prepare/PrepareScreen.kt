@@ -97,6 +97,8 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.sizeText
+import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
+import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateView
@@ -163,6 +165,14 @@ internal fun PrepareRoute(
         onCancelSlicing = viewModel::cancelSlicing,
         onDismissProblem = viewModel::dismissProblem,
     )
+    // Plater::priv::load_files(): its message boxes in the order it showed
+    // them, then the question it waits on.
+    val notice = state.importNotice
+    val question = state.importQuestion
+    when {
+        notice != null -> SettingsNoticeDialog(notice, onDismiss = viewModel::dismissImportNotice)
+        question != null -> SettingsQuestionDialog(question, onAnswer = viewModel::answerImport)
+    }
 }
 
 /** What the colour painting tool does while it is open (GLGizmoMmuSegmentation). */

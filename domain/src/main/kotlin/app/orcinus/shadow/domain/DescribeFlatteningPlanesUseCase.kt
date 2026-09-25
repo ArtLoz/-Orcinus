@@ -3,7 +3,6 @@ package app.orcinus.shadow.domain
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
-import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.slicing.api.PlateInspector
 
@@ -16,5 +15,5 @@ class DescribeFlatteningPlanesUseCase(
         instance: PlateInstance,
         profiles: SlicingProfileSelection,
     ): FlatteningPlanesOutcome =
-        inspector.flatteningPlanes(plateObject.source(), profiles, plateObject.mesh, instance.inspection.placement)
+        inspector.flatteningPlanes(plateObject.placed(), profiles, instance.inspection.placement)
 }

@@ -2,9 +2,9 @@ package app.orcinus.shadow.slicing.service;
 
 import app.orcinus.shadow.slicing.service.ModelSettingsParcel;
 
-/** ObjectPart: a part added to an object (ModelVolume). */
+/** ObjectPart: a part of an object (ModelVolume). */
 parcelable ObjectPartParcel {
-    /** One of OrcaSlicer's shapes: "Cube", "Cylinder", ... */
+    /** One of OrcaSlicer's shapes: "Cube", "Cylinder", ...; empty for a volume of a model file. */
     String shape;
     /** The VolumeType's name. */
     String type;
@@ -14,4 +14,7 @@ parcelable ObjectPartParcel {
     @nullable ModelSettingsParcel settings;
     /** The facets painted with the filaments of the plate; null when none are. */
     @nullable String painted;
+    /** The mesh a volume of a model file is loaded from; null for a generated shape. */
+    @nullable String source;
+    String name = "";
 }

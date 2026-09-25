@@ -11,7 +11,7 @@ import app.orcinus.shadow.core.model.PresetComparisonOutcome
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.withLayerRangeAt
-import app.orcinus.shadow.core.model.withPartAt
+import app.orcinus.shadow.core.model.withVolumeAt
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PendingSettingsQuestion
@@ -296,7 +296,7 @@ class PresetSettingsTabs(
             if (id == null || part == null || answered == null) this
             else copy(
                 objects = objects.map { plateObject ->
-                    if (plateObject.mesh == id.mesh) plateObject.withPartAt(id.index, part.copy(settings = answered)) else plateObject
+                    if (plateObject.mesh == id.mesh) plateObject.withVolumeAt(id.index, part.copy(settings = answered)) else plateObject
                 },
             )
         }

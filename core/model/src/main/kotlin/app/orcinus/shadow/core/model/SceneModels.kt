@@ -114,6 +114,10 @@ data class Transform3(val columns: List<Double>) {
     init {
         require(columns.size == 16) { "A transformation has 16 elements" }
     }
+
+    companion object {
+        val IDENTITY = Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 })
+    }
 }
 
 /**

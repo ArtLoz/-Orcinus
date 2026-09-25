@@ -37,10 +37,15 @@ import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.DialogIcon
+import app.orcinus.shadow.core.model.LoadedObject
+import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectPart
+import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
@@ -605,7 +610,7 @@ class PlateUseCasesTest {
     fun `an imported document joins the objects on the plate, placed among them by OrcaSlicer`() {
         val result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/old.gcode"), STATISTICS)
         val repository = FakeRepository(readyState(CUBE).copy(result = result))
-        val file = ImportedModelFile(ModelPath("/imports/a.stl"), "a.stl")
+        val file = ImportedModelFile(ModelPath("/imports/a.step"), "a.step")
         val inspector = FakeInspector()
         val files = FakeSceneFiles()
 
@@ -616,8 +621,14 @@ class PlateUseCasesTest {
         assertEquals(2, state.objects.size)
         assertEquals(CUBE, state.objects.first())
         val placed = state.objects.last() as PlateObject.ImportedModel
-        assertEquals(file, placed.file)
-        assertEquals(ModelSource.LocalFile(file.path), inspector.inspected.single())
+        // The object is loaded from the mesh the engine wrote, not from the document.
+        assertEquals(ImportedModelFile(LOADED.source, LOADED.name), placed.file)
+        assertEquals(LOADED.frame, placed.frame)
+        assertEquals(LOADED.parts, placed.parts)
+        assertEquals(LOADED.volume, placed.volume)
+        assertEquals(LOADED.instances, placed.instances.map(PlateInstance::inspection))
+        assertEquals(file.path, inspector.loads.single().source)
+        assertEquals(files.importPrefixes.single(), inspector.loads.single().prefix)
         assertEquals(PROFILES, inspector.profiles)
         assertEquals(
             listOf(
@@ -629,9 +640,46 @@ class PlateUseCasesTest {
             ),
             inspector.plate,
         )
-        assertEquals(files.created.single(), placed.inspection.mesh)
-        assertTrue(files.deleted.isEmpty())
+        assertTrue(files.deletedImports.isEmpty())
         assertNull(state.result)
+    }
+
+    @Test
+    fun `a question of the load waits on the plate, and the load goes on with the answer`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val file = ImportedModelFile(ModelPath("/imports/stacked.amf"), "stacked.amf")
+        val inspector = FakeInspector()
+        inspector.load = { answers ->
+            if ("multipart_object" in answers) {
+                ModelLoadOutcome.Success(listOf(LOADED), listOf(NOTICE))
+            } else {
+                ModelLoadOutcome.Question(QUESTION, listOf(NOTICE))
+            }
+        }
+        val files = FakeSceneFiles()
+        val addModel = addModel(repository, ModelImportOutcome.Success(file), inspector, files)
+
+        addModel(REFERENCE)
+
+        val asked = repository.state.value
+        assertTrue(asked.importing)
+        assertEquals(QUESTION, asked.importQuestion?.question)
+        assertEquals(listOf(NOTICE), asked.importNotices)
+        assertEquals(listOf(CUBE), asked.objects)
+        // Nothing the load wrote before it asked stays.
+        assertEquals(files.importPrefixes, files.deletedImports)
+
+        addModel.dismissNotice()
+        addModel.answer(true)
+
+        val loaded = repository.state.value
+        assertEquals(mapOf("multipart_object" to true), inspector.loads.last().answers)
+        assertEquals(file.path, inspector.loads.last().source)
+        assertFalse(loaded.importing)
+        assertNull(loaded.importQuestion)
+        assertEquals(2, loaded.objects.size)
+        // The message box the first load showed does not show again.
+        assertTrue(loaded.importNotices.isEmpty())
     }
 
     @Test
@@ -658,7 +706,7 @@ class PlateUseCasesTest {
         assertEquals(listOf(CUBE), state.objects)
         assertEquals(PlateProblemKind.IMPORT_FAILED, state.problem?.kind)
         assertEquals("empty", state.problem?.detail)
-        assertTrue(files.deleted.isEmpty())
+        assertTrue(files.importPrefixes.isEmpty())
     }
 
     @Test
@@ -666,13 +714,16 @@ class PlateUseCasesTest {
         val repository = FakeRepository(readyState(CUBE))
         val file = ImportedModelFile(ModelPath("/imports/broken.stl"), "broken.stl")
         val files = FakeSceneFiles()
+        val inspector = FakeInspector()
+        inspector.load = { ModelLoadOutcome.Failure("no facets") }
 
-        addModel(repository, ModelImportOutcome.Success(file), FakeInspector(ModelInspectionOutcome.Failure("no facets")), files)(REFERENCE)
+        addModel(repository, ModelImportOutcome.Success(file), inspector, files)(REFERENCE)
 
         val state = repository.state.value
+        assertFalse(state.importing)
         assertEquals(listOf(CUBE), state.objects)
         assertEquals("no facets", state.problem?.detail)
-        assertEquals(files.created, files.deleted)
+        assertEquals(files.importPrefixes, files.deletedImports)
     }
 
     @Test
@@ -1001,7 +1052,7 @@ class PlateUseCasesTest {
         val cube = CUBE.copy(settings = ModelSettings(mapOf("extruder" to "2")), parts = listOf(PART))
         val repository = FakeRepository(twoFilaments(cube))
         val set = SetExtruderUseCase(repository)
-        val part = ObjectPartId(cube.mesh, 0)
+        val part = ObjectPartId(cube.mesh, 1)
 
         set(part, 1)
 
@@ -1011,6 +1062,68 @@ class PlateUseCasesTest {
         set(part, 0)
 
         assertEquals(2, repository.state.value.objects.single().parts.single().settings.extruderNumber)
+    }
+
+    @Test
+    fun `the object's own mesh has a row of its own once the object has parts`() {
+        val cube = CUBE.copy(settings = ModelSettings(mapOf("extruder" to "2")), parts = listOf(PART))
+        val repository = FakeRepository(twoFilaments(cube))
+        val own = ObjectPartId(cube.mesh, 0)
+
+        SelectObjectPartUseCase(repository)(own)
+
+        assertEquals(own, repository.state.value.selectedPart)
+        assertEquals(cube.mesh, repository.state.value.selectedObjectPart?.mesh)
+
+        SetExtruderUseCase(repository)(own, 1)
+
+        assertEquals(1, repository.state.value.objects.single().volume.settings.extruderNumber)
+
+        // set_extruder_for_selected_items(): the object's filament takes the
+        // one of its own mesh away, as it does the parts'.
+        SetExtruderUseCase(repository)(cube.mesh, 2)
+
+        assertEquals(0, repository.state.value.objects.single().volume.settings.extruderNumber)
+    }
+
+    @Test
+    fun `an object that is its own mesh alone lists no volume`() {
+        val repository = FakeRepository(twoFilaments(CUBE))
+
+        SelectObjectPartUseCase(repository)(ObjectPartId(CUBE.mesh, 0))
+
+        assertNull(repository.state.value.selectedPart)
+    }
+
+    @Test
+    fun `once its last part goes, the settings of the object's own mesh become the object's`() {
+        val cube = CUBE.copy(
+            parts = listOf(PART),
+            volume = ObjectVolume(settings = ModelSettings(mapOf("extruder" to "2", "wall_loops" to "5"))),
+        )
+        val repository = FakeRepository(twoFilaments(cube).copy(selectedPart = ObjectPartId(cube.mesh, 0)))
+        val files = FakeSceneFiles()
+
+        RemoveObjectPartUseCase(files, repository)(ObjectPartId(cube.mesh, 1))
+
+        val removed = repository.state.value.objects.single()
+        assertTrue(removed.parts.isEmpty())
+        // ObjectList::del_subobject_from_object()
+        assertEquals(mapOf("extruder" to "2", "wall_loops" to "5"), removed.settings.values)
+        assertTrue(removed.volume.settings.values.isEmpty())
+        // The row it had is gone with the parts.
+        assertNull(repository.state.value.selectedPart)
+        assertEquals(listOf(PART.mesh), files.deleted)
+    }
+
+    @Test
+    fun `the object's own mesh stays in the object`() {
+        val cube = CUBE.copy(parts = listOf(PART))
+        val repository = FakeRepository(twoFilaments(cube))
+
+        RemoveObjectPartUseCase(FakeSceneFiles(), repository)(ObjectPartId(cube.mesh, 0))
+
+        assertEquals(listOf(PART), repository.state.value.objects.single().parts)
     }
 
     @Test
@@ -1030,7 +1143,7 @@ class PlateUseCasesTest {
         assertEquals(0, repository.state.value.objects.single().layerRanges.single().settings.extruderNumber)
 
         // Only a part of the model and a modifier print with a filament of their own.
-        set(ObjectPartId(cube.mesh, 0), 2)
+        set(ObjectPartId(cube.mesh, 1), 2)
 
         assertEquals(0, repository.state.value.objects.single().parts.single().settings.extruderNumber)
     }
@@ -1302,7 +1415,7 @@ class PlateUseCasesTest {
             importModel = ImportModelUseCase(object : ModelFileImporter {
                 override suspend fun importModel(reference: ExternalDocumentReference) = imported
             }),
-            inspectModel = InspectModelUseCase(inspector),
+            inspector = inspector,
             sceneFiles = files,
             repository = repository,
             applicationScope = scope,
@@ -1486,22 +1599,42 @@ class PlateUseCasesTest {
             return outcome ?: ModelInspectionOutcome.Success(INSPECTION.copy(mesh = mesh))
         }
 
-        override suspend fun place(
-            model: ModelSource,
+        /** A request to load a model file. */
+        data class Load(val source: ModelPath, val prefix: ScenePath, val answers: Map<String, Boolean>)
+
+        val loads = mutableListOf<Load>()
+
+        /** What the load of a model file answers, for the answers it was given; by default one object. */
+        var load: (Map<String, Boolean>) -> ModelLoadOutcome = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
+
+        override suspend fun load(
+            source: ModelPath,
             profiles: SlicingProfileSelection,
-            mesh: ScenePath,
+            plate: List<PlacedModel>,
+            prefix: ScenePath,
+            answers: Map<String, Boolean>,
+        ): ModelLoadOutcome {
+            loads += Load(source, prefix, answers)
+            this.profiles = profiles
+            this.plate = plate
+            return load(answers)
+        }
+
+        override suspend fun place(
+            plateObject: PlacedModel,
+            profiles: SlicingProfileSelection,
             previous: Transform3,
             placement: Transform3,
             autoDrop: Boolean,
             manipulation: Manipulation,
         ): ModelInspectionOutcome {
-            inspected += model
+            inspected += plateObject.model
             placements += placement
             this.previous = previous
             this.autoDrop = autoDrop
             this.manipulation = manipulation
             val place = placed ?: return suspendCancellableCoroutine { }
-            return ModelInspectionOutcome.Success(place(placement).copy(mesh = mesh))
+            return ModelInspectionOutcome.Success(place(placement).copy(mesh = plateObject.mesh))
         }
 
         override suspend fun placeObjects(
@@ -1525,14 +1658,22 @@ class PlateUseCasesTest {
         ) = ModelInspectionOutcome.Failure("not used")
 
         override suspend fun flatteningPlanes(
-            model: ModelSource,
+            plateObject: PlacedModel,
             profiles: SlicingProfileSelection,
-            mesh: ScenePath,
             placement: Transform3,
         ) = FlatteningPlanesOutcome.Failure("not used")
     }
 
     private class FakeSceneFiles : SceneFiles {
+        val importPrefixes = mutableListOf<ScenePath>()
+        val deletedImports = mutableListOf<ScenePath>()
+
+        override fun newImportPrefix() = ScenePath("/scene/objects/import-${importPrefixes.size}").also(importPrefixes::add)
+
+        override fun deleteImport(prefix: ScenePath) {
+            deletedImports += prefix
+        }
+
         override fun newPaintedMeshes(): ScenePath = ScenePath("/scene/objects/painted")
         val created = mutableListOf<ScenePath>()
         val deleted = mutableListOf<ScenePath>()
@@ -1871,6 +2012,26 @@ class PlateUseCasesTest {
             filamentColor = ColorRgba(0.95f, 0.46f, 0.31f),
         )
         val REFERENCE = ExternalDocumentReference("content://model")
+        val LOADED = LoadedObject(
+            name = "a",
+            source = ModelPath("/scene/objects/import-0-0-source.mesh"),
+            frame = Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 }),
+            parts = listOf(
+                ObjectPart(
+                    shape = "",
+                    type = VolumeType.PART,
+                    mesh = ScenePath("/scene/objects/import-0-0-part-1.mesh"),
+                    placement = Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 }),
+                    source = ModelPath("/scene/objects/import-0-0-part-1.mesh"),
+                    name = "b",
+                ),
+            ),
+            settings = ModelSettings(),
+            volume = ObjectVolume("a body", ModelSettings(mapOf("extruder" to "2"))),
+            instances = listOf(INSPECTION.copy(mesh = ScenePath("/scene/objects/import-0-0.mesh"))),
+        )
+        val NOTICE = SettingsDialog("zero_volume", DialogIcon.INFO, emptyList(), listOf(OrcaText("Objects with zero volume removed")), false, null, null)
+        val QUESTION = SettingsDialog("multipart_object", DialogIcon.WARNING, emptyList(), listOf(OrcaText("several objects")), true, null, null)
     }
 }
 

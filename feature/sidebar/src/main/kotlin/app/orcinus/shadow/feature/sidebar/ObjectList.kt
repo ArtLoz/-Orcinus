@@ -49,6 +49,7 @@ import app.orcinus.shadow.core.model.SettingDefinition
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.extruderNumber
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.orca.orcaString
@@ -75,7 +76,7 @@ internal class ObjectListActions(
     /** ObjectList::load_generic_subobject(): a shape joins the object. */
     val addPart: (ScenePath, shape: String, type: VolumeType) -> Unit,
     /** ObjectList::del_subobject_item(): the part leaves the object. */
-    val removePart: (ScenePath, index: Int) -> Unit,
+    val removePart: (ObjectPartId) -> Unit,
     /** ObjectList::part_selection_changed(): the parameter panel edits the part. */
     val selectPart: (ObjectPartId?) -> Unit,
     val selectPartSettings: (ObjectPartId) -> Unit,
@@ -104,7 +105,7 @@ internal class ObjectListActions(
  * The desktop tree has a column per property; a row on a phone has room for
  * the name, the check box of ModelInstance::printable, and the mark of an item
  * with its own settings, and its menu is the object menu of the 3D view
- * (MenuFactory). Parts, instances and height ranges are not ported yet.
+ * (MenuFactory).
  */
 internal fun LazyListScope.objectListItems(
     state: SidebarUiState,
@@ -196,11 +197,19 @@ private fun LazyListScope.objectRows(
                 },
             )
         }
-        plateObject.parts.forEachIndexed { at, part ->
+        // ObjectList::add_volumes_to_object_in_list(): once the object has
+        // parts, every volume has a row, its own mesh first.
+        (0..plateObject.parts.size).forEach { at ->
+            val part = plateObject.volumeAt(at) ?: return@forEach
             val partId = ObjectPartId(mesh, at)
             item(key = "objects:${mesh.value}:part:$at") {
                 ObjectListRow(
-                    name = stringResource(partName(part.type), stringResource(shapeName(part.shape))),
+                    // ObjectDataViewModel names a volume by its own name; the
+                    // object's own mesh is named after the object unless the file named it.
+                    name = when {
+                        at == 0 -> part.name.ifEmpty { plateObject.displayName() }
+                        else -> part.name.ifEmpty { stringResource(partName(part.type), stringResource(shapeName(part.shape))) }
+                    },
                     icon = DesignR.drawable.orca_split_parts,
                     selected = partId == state.selectedPart,
                     hasSettings = part.settings.categories(partDefinitions).isNotEmpty(),
@@ -216,13 +225,14 @@ private fun LazyListScope.objectRows(
                         },
                     onClick = { actions.selectPart(partId) },
                     menu = { dismiss ->
-                        // ObjectList::del_subobject_item()
+                        // ObjectList::del_subobject_item(). The object's own
+                        // mesh cannot go yet: the object would be its parts alone.
                         OrcaMenuItem(
                             text = stringResource(UiR.string.object_menu_delete),
-                            enabled = enabled,
+                            enabled = enabled && at > 0,
                             onClick = {
                                 dismiss()
-                                actions.removePart(mesh, at)
+                                actions.removePart(partId)
                             },
                         )
                     },

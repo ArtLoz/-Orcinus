@@ -30,12 +30,12 @@ enum class VolumeType {
 }
 
 /**
- * A part added to an object (ModelVolume): one of the shapes OrcaSlicer
- * generates, standing in the object's coordinates, with the settings it
- * overrides. Every copy of the object has it.
+ * A part of an object (ModelVolume): one of the shapes OrcaSlicer generates, or
+ * a volume the model file brought, standing in the object's coordinates, with
+ * the settings it overrides. Every copy of the object has it.
  */
 data class ObjectPart(
-    /** "Cube", "Cylinder", "Sphere", "Slab", "Cone", "Disc" or "Torus". */
+    /** "Cube", "Cylinder", "Sphere", "Slab", "Cone", "Disc" or "Torus"; empty for a volume of the file. */
     val shape: String,
     val type: VolumeType,
     /** The mesh file the 3D view draws it from. */
@@ -45,6 +45,22 @@ data class ObjectPart(
     val settings: ModelSettings = ModelSettings(),
     /** The facets painted with the filaments of the plate (ModelVolume::mmu_segmentation_facets). */
     val painted: PaintedFacets = PaintedFacets(),
+    /** The mesh a volume of the file is loaded from; null for a generated shape. */
+    val source: ModelPath? = null,
+    /** ModelVolume::name the file gave it; empty for a generated shape. */
+    val name: String = "",
+)
+
+/**
+ * An object's own mesh (its first ModelVolume), which OrcaSlicer's object list
+ * shows as a part of its own once the object has others
+ * (ObjectList::add_volumes_to_object_in_list).
+ */
+data class ObjectVolume(
+    /** ModelVolume::name; empty for a volume named after its object. */
+    val name: String = "",
+    /** ModelVolume::config: the settings its own row changes, such as its filament. */
+    val settings: ModelSettings = ModelSettings(),
 )
 
 /**
@@ -74,6 +90,9 @@ sealed interface PlateObject {
     /** The process settings the object overrides (ModelObject::config). */
     val settings: ModelSettings
 
+    /** The object's own mesh as a volume of it. */
+    val volume: ObjectVolume
+
     /** The parts added to the object, after its own geometry. */
     val parts: List<ObjectPart>
 
@@ -86,7 +105,11 @@ sealed interface PlateObject {
     /** The painted triangles as meshes, which the 3D view draws in the filament colours. */
     val paintedMeshes: List<PaintedMesh>
 
-    /** An STL imported into app storage. */
+    /**
+     * An object of a model file: [file] names its own mesh (its first volume)
+     * and the object, and [frame] places that mesh in the object as the file
+     * loaded it; without one the mesh is centred around the origin.
+     */
     data class ImportedModel(
         val file: ImportedModelFile,
         override val instances: List<PlateInstance>,
@@ -95,6 +118,8 @@ sealed interface PlateObject {
         override val layerRanges: List<LayerRange> = emptyList(),
         override val painted: PaintedFacets = PaintedFacets(),
         override val paintedMeshes: List<PaintedMesh> = emptyList(),
+        val frame: Transform3? = null,
+        override val volume: ObjectVolume = ObjectVolume(),
     ) : PlateObject
 
     /** The engine's built-in 20 mm calibration cube. */
@@ -105,7 +130,37 @@ sealed interface PlateObject {
         override val layerRanges: List<LayerRange> = emptyList(),
         override val painted: PaintedFacets = PaintedFacets(),
         override val paintedMeshes: List<PaintedMesh> = emptyList(),
+        override val volume: ObjectVolume = ObjectVolume(),
     ) : PlateObject
+}
+
+/**
+ * The object's volumes as the object list shows them (ModelObject::volumes):
+ * its own mesh at 0, then its parts, or none while the object is its own mesh
+ * alone, which the list shows no volume of.
+ */
+fun PlateObject.volumeAt(index: Int): ObjectPart? = when {
+    parts.isEmpty() -> null
+    index == 0 -> ObjectPart(
+        shape = "",
+        type = VolumeType.PART,
+        mesh = mesh,
+        placement = (this as? PlateObject.ImportedModel)?.frame ?: Transform3.IDENTITY,
+        settings = volume.settings,
+        painted = painted,
+        name = volume.name,
+    )
+    else -> parts.getOrNull(index - 1)
+}
+
+/** The volume at [index] of [volumeAt] with the settings of [volume]; its own mesh keeps its geometry. */
+fun PlateObject.withVolumeAt(index: Int, volume: ObjectPart): PlateObject =
+    if (index == 0) withVolume(this.volume.copy(settings = volume.settings)) else withPartAt(index - 1, volume)
+
+/** The object's own mesh as a volume replaced. */
+fun PlateObject.withVolume(volume: ObjectVolume): PlateObject = when (this) {
+    is PlateObject.ImportedModel -> copy(volume = volume)
+    is PlateObject.CalibrationCube -> copy(volume = volume)
 }
 
 /** The object with [part] added to it, as ObjectList::load_generic_subobject() adds one. */
@@ -174,7 +229,11 @@ fun PlateObject.withInstance(index: Int, instance: PlateInstance): PlateObject =
 /** A copy of an object, as the object list and the selection name it. */
 data class PlateInstanceId(val mesh: ScenePath, val instance: Int = 0)
 
-/** A part of an object, as the object list names it (ObjectList's itVolume). */
+/**
+ * A volume of an object, as the object list names it (ObjectList's itVolume):
+ * [index] is its place in ModelObject::volumes, 0 for the object's own mesh
+ * and 1 for its first part (PlateObject.volumeAt).
+ */
 data class ObjectPartId(val mesh: ScenePath, val index: Int)
 
 /** A height range of an object, as the object list names it (itLayer). */
@@ -228,6 +287,19 @@ data class PlateProblem(
     val detail: String? = null,
 )
 
+/**
+ * A model file whose load waits for the answer to [question], as the desktop
+ * app's load waits for its message box. The load starts again from [source]
+ * with [answers] and the new answer; the notices it [shown] already are not
+ * shown twice.
+ */
+data class PendingImport(
+    val source: ModelPath,
+    val question: SettingsDialog,
+    val answers: Map<String, Boolean>,
+    val shown: List<SettingsDialog>,
+)
+
 /** Everything the app knows about the plate being prepared and sliced. */
 data class PlateState(
     val engine: EngineState = EngineState(),
@@ -244,6 +316,10 @@ data class PlateState(
     /** The plate of the selected printer; null until the engine described it. */
     val plate: PlateDescription? = null,
     val importing: Boolean = false,
+    /** A question the model file being loaded asks; the load goes on once it is answered. */
+    val importQuestion: PendingImport? = null,
+    /** Message boxes the load of a model file showed, which the user dismisses in turn. */
+    val importNotices: List<SettingsDialog> = emptyList(),
     /** The objects on the plate, in the order they were added, as OrcaSlicer's object list shows them. */
     val objects: List<PlateObject> = emptyList(),
     /** The copies the user picked (GLCanvas3D's Selection); empty when none is. */
@@ -283,7 +359,7 @@ data class PlateState(
     /** The object the selected part belongs to, and the part itself. */
     val selectedPartOwner: PlateObject? get() = selectedPart?.let { id -> objects.firstOrNull { it.mesh == id.mesh } }
 
-    val selectedObjectPart: ObjectPart? get() = selectedPart?.let { id -> selectedPartOwner?.parts?.getOrNull(id.index) }
+    val selectedObjectPart: ObjectPart? get() = selectedPart?.let { id -> selectedPartOwner?.volumeAt(id.index) }
 
     /** The object the selected height range belongs to, and the range itself. */
     val selectedRangeOwner: PlateObject? get() = selectedRange?.let { id -> objects.firstOrNull { it.mesh == id.mesh } }

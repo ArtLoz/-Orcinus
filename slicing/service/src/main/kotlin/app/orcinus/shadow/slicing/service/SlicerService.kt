@@ -103,10 +103,20 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         override fun inspect(model: ModelSourceParcel, profiles: ProfilesParcel, meshPath: String, plate: Array<PlacedModelParcel>): InspectionParcel =
             runBlocking { engine.inspect(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath), plate.toPlacedModels()) }.toParcel()
 
-        override fun place(
-            model: ModelSourceParcel,
+        override fun load(
+            source: String,
             profiles: ProfilesParcel,
-            meshPath: String,
+            plate: Array<PlacedModelParcel>,
+            prefix: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): ModelLoadParcel = runBlocking {
+            engine.load(ModelPath(source), profiles.toProfiles(), plate.toPlacedModels(), ScenePath(prefix), answerIds.zip(answers.toList()).toMap())
+        }.toParcel()
+
+        override fun place(
+            plateObject: PlacedModelParcel,
+            profiles: ProfilesParcel,
             previous: DoubleArray,
             placement: DoubleArray,
             autoDrop: Boolean,
@@ -114,9 +124,8 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             faceNormal: DoubleArray?,
         ): InspectionParcel = runBlocking {
             engine.place(
-                model.toModelSource(),
+                arrayOf(plateObject).toPlacedModels().first(),
                 profiles.toProfiles(),
-                ScenePath(meshPath),
                 Transform3(previous.toList()),
                 Transform3(placement.toList()),
                 autoDrop,
@@ -206,9 +215,9 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             engine.describeWipeTower(plate.toPlacedModels(), profiles.toProfiles(), plateSettings.toModelSettings())
         }.toParcel()
 
-        override fun flatteningPlanes(model: ModelSourceParcel, profiles: ProfilesParcel, meshPath: String, placement: DoubleArray): FlatteningPlanesParcel =
+        override fun flatteningPlanes(plateObject: PlacedModelParcel, profiles: ProfilesParcel, placement: DoubleArray): FlatteningPlanesParcel =
             runBlocking {
-                engine.flatteningPlanes(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath), Transform3(placement.toList()))
+                engine.flatteningPlanes(arrayOf(plateObject).toPlacedModels().first(), profiles.toProfiles(), Transform3(placement.toList()))
             }.toParcel()
 
         override fun addObjectPart(

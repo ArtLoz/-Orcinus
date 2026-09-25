@@ -22,6 +22,7 @@ import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsRequest
@@ -114,15 +115,30 @@ interface PlateInspector {
     ): ModelInspectionOutcome
 
     /**
-     * Commits [manipulation] of [model], whose mesh is in [mesh], from
-     * [previous] to the instance transformation [placement], as OrcaSlicer
-     * does; with [autoDrop] off the object is never moved onto the plate.
-     * Reports the placed object.
+     * Plater::priv::load_files() for the model file [source] of any type the
+     * desktop app imports: its objects are loaded, with the questions and
+     * message boxes of the desktop app, and placed on the plate that holds
+     * [plate]. A question is answered by loading again with [answers], by
+     * dialog id. The engine writes every object's meshes into files whose
+     * names start with [prefix].
+     */
+    suspend fun load(
+        source: ModelPath,
+        profiles: SlicingProfileSelection,
+        plate: List<PlacedModel>,
+        prefix: ScenePath,
+        answers: Map<String, Boolean> = emptyMap(),
+    ): ModelLoadOutcome
+
+    /**
+     * Commits [manipulation] of [plateObject], with its parts, from [previous]
+     * to the instance transformation [placement], as OrcaSlicer does; with
+     * [autoDrop] off the object is never moved onto the plate. Reports the
+     * placed object.
      */
     suspend fun place(
-        model: ModelSource,
+        plateObject: PlacedModel,
         profiles: SlicingProfileSelection,
-        mesh: ScenePath,
         previous: Transform3,
         placement: Transform3,
         autoDrop: Boolean,
@@ -210,11 +226,10 @@ interface PlateInspector {
         mesh: ScenePath,
     ): ModelInspectionOutcome
 
-    /** The faces [model], whose mesh is in [mesh], can lie on with the instance transformation [placement]. */
+    /** The faces [plateObject], with its parts, can lie on with the instance transformation [placement]. */
     suspend fun flatteningPlanes(
-        model: ModelSource,
+        plateObject: PlacedModel,
         profiles: SlicingProfileSelection,
-        mesh: ScenePath,
         placement: Transform3,
     ): FlatteningPlanesOutcome
 }

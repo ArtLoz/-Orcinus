@@ -189,7 +189,7 @@ internal fun NativePresetCreation.toOutcome(): PresetCreationOutcome = when {
     else -> PresetCreationOutcome.Success(name)
 }
 
-private fun NativeSettingsDialog.toDialog() = SettingsDialog(
+internal fun NativeSettingsDialog.toDialog() = SettingsDialog(
     id = id,
     icon = DialogIcon.entries.getOrElse(icon.toInt()) { DialogIcon.WARNING },
     title = title.map { it.toText() },

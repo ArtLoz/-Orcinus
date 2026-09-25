@@ -143,7 +143,42 @@ data class PlacedModel(
     val layerRanges: List<LayerRange> = emptyList(),
     /** The facets of the object's own mesh painted with the filaments of the plate. */
     val painted: PaintedFacets = PaintedFacets(),
+    /** Where the model's own mesh stands in the object; null centres it around the origin. */
+    val frame: Transform3? = null,
+    /** The settings of the model's own mesh (its first ModelVolume). */
+    val volumeSettings: ModelSettings = ModelSettings(),
 )
+
+/**
+ * An object of a model file, as Plater::priv::load_files() loaded it and
+ * placed it on the plate: its own mesh (its first volume), with the
+ * transformation it has in the object, its other volumes, and every copy.
+ */
+data class LoadedObject(
+    /** ModelObject::name: the name the file gave it, or the file's name. */
+    val name: String,
+    /** The mesh file of its own mesh in its own coordinates, which it is loaded from. */
+    val source: ModelPath,
+    val frame: Transform3,
+    val parts: List<ObjectPart>,
+    val settings: ModelSettings,
+    /** The name and settings the file gave its own mesh. */
+    val volume: ObjectVolume,
+    /** Every copy as it stands; the mesh is the object's own mesh for the 3D view. */
+    val instances: List<ModelInspection>,
+)
+
+sealed interface ModelLoadOutcome {
+    /** The message boxes the load showed; they informed only. */
+    val notices: List<SettingsDialog>
+
+    data class Success(val objects: List<LoadedObject>, override val notices: List<SettingsDialog>) : ModelLoadOutcome
+
+    /** The load asks [question] before it adds anything; it is requested again with the answer. */
+    data class Question(val question: SettingsDialog, override val notices: List<SettingsDialog>) : ModelLoadOutcome
+
+    data class Failure(val message: String, override val notices: List<SettingsDialog> = emptyList()) : ModelLoadOutcome
+}
 
 @JvmInline
 value class OutputPath(val value: String)

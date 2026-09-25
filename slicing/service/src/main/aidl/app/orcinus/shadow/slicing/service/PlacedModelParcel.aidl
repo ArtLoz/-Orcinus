@@ -20,4 +20,8 @@ parcelable PlacedModelParcel {
     @nullable LayerRangeParcel[] layerRanges;
     /** The facets painted with the filaments of the plate; null when none are. */
     @nullable String painted;
+    /** Where the model's own mesh stands in the object, column-major 4 x 4; null centres it. */
+    @nullable double[] frame;
+    /** The settings of the model's own mesh; null when it overrides none. */
+    @nullable ModelSettingsParcel volumeSettings;
 }

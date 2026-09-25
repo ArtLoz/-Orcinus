@@ -516,6 +516,79 @@ std::vector<orcinus::orca::PlateObject> to_plate(
     return plate;
 }
 
+// The objects of a plate as NativePlate carries them (NativeBindings.kt): the
+// parallel arrays above, then the frame of every object and the mesh file and
+// name of every part.
+std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_plate)
+{
+    const jclass plate_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePlate");
+    const auto field = [env, native_plate, plate_class](const char* name, const char* signature) {
+        return env->GetObjectField(native_plate, env->GetFieldID(plate_class, name, signature));
+    };
+    constexpr const char* strings = "[Ljava/lang/String;";
+    constexpr const char* string_tables = "[[Ljava/lang/String;";
+    std::vector<orcinus::orca::PlateObject> plate = to_plate(
+        env,
+        static_cast<jobjectArray>(field("modelPaths", strings)),
+        static_cast<jintArray>(field("instanceCounts", "[I")),
+        static_cast<jdoubleArray>(field("placements", "[D")),
+        static_cast<jbooleanArray>(field("autoDrops", "[Z")),
+        static_cast<jbooleanArray>(field("printable", "[Z")),
+        static_cast<jobjectArray>(field("settingKeys", string_tables)),
+        static_cast<jobjectArray>(field("settingValues", string_tables)),
+        static_cast<jintArray>(field("partCounts", "[I")),
+        static_cast<jobjectArray>(field("partShapes", strings)),
+        static_cast<jlongArray>(field("partTypes", "[J")),
+        static_cast<jdoubleArray>(field("partMatrices", "[D")),
+        static_cast<jobjectArray>(field("partSettingKeys", string_tables)),
+        static_cast<jobjectArray>(field("partSettingValues", string_tables)),
+        static_cast<jobjectArray>(field("painted", strings)),
+        static_cast<jobjectArray>(field("partPainted", strings)),
+        static_cast<jintArray>(field("rangeCounts", "[I")),
+        static_cast<jdoubleArray>(field("rangeHeights", "[D")),
+        static_cast<jobjectArray>(field("rangeSettingKeys", string_tables)),
+        static_cast<jobjectArray>(field("rangeSettingValues", string_tables))
+    );
+    // The frame of every object: 16 elements each, all zero for an object
+    // centred around the origin (no transformation has a zero last row).
+    const std::vector<double> frames = to_doubles(env, static_cast<jdoubleArray>(field("objectMatrices", "[D")));
+    for (std::size_t index = 0; index < plate.size() && 16 * (index + 1) <= frames.size(); ++index) {
+        const auto first = frames.begin() + static_cast<std::ptrdiff_t>(16 * index);
+        if (std::any_of(first, first + 16, [](const double value) { return value != 0.0; })) {
+            plate[index].matrix.assign(first, first + 16);
+        }
+    }
+    // The settings of every object's own mesh (its first ModelVolume).
+    const auto volume_keys = static_cast<jobjectArray>(field("volumeSettingKeys", string_tables));
+    const auto volume_values = static_cast<jobjectArray>(field("volumeSettingValues", string_tables));
+    for (std::size_t index = 0; index < plate.size() && static_cast<std::size_t>(env->GetArrayLength(volume_keys)) > index
+                                && static_cast<std::size_t>(env->GetArrayLength(volume_values)) > index;
+         ++index) {
+        const auto keys = static_cast<jobjectArray>(env->GetObjectArrayElement(volume_keys, static_cast<jsize>(index)));
+        const auto values = static_cast<jobjectArray>(env->GetObjectArrayElement(volume_values, static_cast<jsize>(index)));
+        plate[index].volume_settings = to_model_settings(env, keys, values);
+        env->DeleteLocalRef(keys);
+        env->DeleteLocalRef(values);
+    }
+    // The mesh file and the name of every part, in the plate's order.
+    const std::vector<std::string> sources = to_strings(env, static_cast<jobjectArray>(field("partSources", strings)));
+    const std::vector<std::string> names = to_strings(env, static_cast<jobjectArray>(field("partNames", strings)));
+    std::size_t part = 0;
+    for (orcinus::orca::PlateObject& object : plate) {
+        for (orcinus::orca::ObjectPart& added : object.parts) {
+            if (part < sources.size()) {
+                added.model_path = sources[part];
+            }
+            if (part < names.size()) {
+                added.name = names[part];
+            }
+            ++part;
+        }
+    }
+    env->DeleteLocalRef(plate_class);
+    return plate;
+}
+
 // NativeModelInspection
 jobject to_java(JNIEnv* env, const orcinus::orca::ModelInspection& inspection)
 {
@@ -804,25 +877,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     JNIEnv* env,
     jobject /* this */,
     jstring job_id,
-    jobjectArray model_paths,
-    jintArray instance_counts,
-    jdoubleArray placements,
-    jbooleanArray auto_drops,
-    jbooleanArray instance_printable,
-    jobjectArray object_setting_keys,
-    jobjectArray object_setting_values,
-    jintArray part_counts,
-    jobjectArray part_shapes,
-    jlongArray part_types,
-    jdoubleArray part_matrices,
-    jobjectArray part_setting_keys,
-    jobjectArray part_setting_values,
-    jintArray range_counts,
-    jdoubleArray range_heights,
-    jobjectArray range_setting_keys,
-    jobjectArray range_setting_values,
-    jobjectArray painted,
-    jobjectArray part_painted,
+    jobject plate,
     jobjectArray plate_setting_keys,
     jobjectArray plate_setting_values,
     jstring output_path,
@@ -851,28 +906,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     const ProgressForwarder forward_progress(env, progress_listener);
     const orcinus::orca::SliceResult result = orcinus::orca::slice(
         to_utf8(env, job_id),
-        to_plate(
-            env,
-            model_paths,
-            instance_counts,
-            placements,
-            auto_drops,
-            instance_printable,
-            object_setting_keys,
-            object_setting_values,
-            part_counts,
-            part_shapes,
-            part_types,
-            part_matrices,
-            part_setting_keys,
-            part_setting_values,
-            painted,
-            part_painted,
-            range_counts,
-            range_heights,
-            range_setting_keys,
-            range_setting_values
-        ),
+        to_plate(env, plate),
         to_utf8(env, output_path),
         toolpaths_path != nullptr ? to_utf8(env, toolpaths_path) : std::string(),
         profiles,
@@ -901,23 +935,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeWipeTower(
     JNIEnv* env,
     jobject /* this */,
-    jobjectArray model_paths,
-    jintArray instance_counts,
-    jdoubleArray placements,
-    jbooleanArray auto_drops,
-    jbooleanArray instance_printable,
-    jobjectArray object_setting_keys,
-    jobjectArray object_setting_values,
-    jintArray part_counts,
-    jobjectArray part_shapes,
-    jlongArray part_types,
-    jdoubleArray part_matrices,
-    jobjectArray part_setting_keys,
-    jobjectArray part_setting_values,
-    jintArray range_counts,
-    jdoubleArray range_heights,
-    jobjectArray range_setting_keys,
-    jobjectArray range_setting_values,
+    jobject plate,
     jobjectArray plate_setting_keys,
     jobjectArray plate_setting_values,
     jstring printer_profile,
@@ -927,28 +945,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeWipeTower(
 )
 {
     const orcinus::orca::WipeTowerState tower = orcinus::orca::describe_wipe_tower(
-        to_plate(
-            env,
-            model_paths,
-            instance_counts,
-            placements,
-            auto_drops,
-            instance_printable,
-            object_setting_keys,
-            object_setting_values,
-            part_counts,
-            part_shapes,
-            part_types,
-            part_matrices,
-            part_setting_keys,
-            part_setting_values,
-            nullptr,
-            nullptr,
-            range_counts,
-            range_heights,
-            range_setting_keys,
-            range_setting_values
-        ),
+        to_plate(env, plate),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_model_settings(env, plate_setting_keys, plate_setting_values)
     );
@@ -1001,23 +998,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFlushVolumes(
     JNIEnv* env,
     jobject /* this */,
-    jobjectArray model_paths,
-    jintArray instance_counts,
-    jdoubleArray placements,
-    jbooleanArray auto_drops,
-    jbooleanArray instance_printable,
-    jobjectArray object_setting_keys,
-    jobjectArray object_setting_values,
-    jintArray part_counts,
-    jobjectArray part_shapes,
-    jlongArray part_types,
-    jdoubleArray part_matrices,
-    jobjectArray part_setting_keys,
-    jobjectArray part_setting_values,
-    jintArray range_counts,
-    jdoubleArray range_heights,
-    jobjectArray range_setting_keys,
-    jobjectArray range_setting_values,
+    jobject plate,
     jobjectArray plate_setting_keys,
     jobjectArray plate_setting_values,
     jstring printer_profile,
@@ -1027,28 +1008,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFlushVolumes
 )
 {
     const orcinus::orca::FlushVolumes volumes = orcinus::orca::describe_flush_volumes(
-        to_plate(
-            env,
-            model_paths,
-            instance_counts,
-            placements,
-            auto_drops,
-            instance_printable,
-            object_setting_keys,
-            object_setting_values,
-            part_counts,
-            part_shapes,
-            part_types,
-            part_matrices,
-            part_setting_keys,
-            part_setting_values,
-            nullptr,
-            nullptr,
-            range_counts,
-            range_heights,
-            range_setting_keys,
-            range_setting_values
-        ),
+        to_plate(env, plate),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_model_settings(env, plate_setting_keys, plate_setting_values)
     );
@@ -1059,23 +1019,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_updateFlushVolumes(
     JNIEnv* env,
     jobject /* this */,
-    jobjectArray model_paths,
-    jintArray instance_counts,
-    jdoubleArray placements,
-    jbooleanArray auto_drops,
-    jbooleanArray instance_printable,
-    jobjectArray object_setting_keys,
-    jobjectArray object_setting_values,
-    jintArray part_counts,
-    jobjectArray part_shapes,
-    jlongArray part_types,
-    jdoubleArray part_matrices,
-    jobjectArray part_setting_keys,
-    jobjectArray part_setting_values,
-    jintArray range_counts,
-    jdoubleArray range_heights,
-    jobjectArray range_setting_keys,
-    jobjectArray range_setting_values,
+    jobject plate,
     jobjectArray plate_setting_keys,
     jobjectArray plate_setting_values,
     jstring printer_profile,
@@ -1087,28 +1031,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_updateFlushVolumes(
 )
 {
     const orcinus::orca::FlushVolumesUpdate update = orcinus::orca::update_flush_volumes(
-        to_plate(
-            env,
-            model_paths,
-            instance_counts,
-            placements,
-            auto_drops,
-            instance_printable,
-            object_setting_keys,
-            object_setting_values,
-            part_counts,
-            part_shapes,
-            part_types,
-            part_matrices,
-            part_setting_keys,
-            part_setting_values,
-            nullptr,
-            nullptr,
-            range_counts,
-            range_heights,
-            range_setting_keys,
-            range_setting_values
-        ),
+        to_plate(env, plate),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_model_settings(env, plate_setting_keys, plate_setting_values),
         static_cast<orcinus::orca::FlushVolumesChange>(change),
@@ -1148,14 +1071,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     JNIEnv* env,
     jobject /* this */,
-    jstring model_path,
-    jintArray instance_counts,
-    jdoubleArray placements,
-    jbooleanArray auto_drops,
-    jintArray part_counts,
-    jobjectArray part_shapes,
-    jlongArray part_types,
-    jdoubleArray part_matrices,
+    jobject object,
     jint part,
     jstring printer_profile,
     jstring filament_profile,
@@ -1165,23 +1081,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     jstring mesh_prefix
 )
 {
-    const jclass string_class = env->FindClass("java/lang/String");
-    const jobjectArray paths = env->NewObjectArray(1, string_class, to_java(env, to_utf8(env, model_path)));
-    const std::vector<orcinus::orca::PlateObject> plate = to_plate(
-        env,
-        paths,
-        instance_counts,
-        placements,
-        auto_drops,
-        nullptr,
-        nullptr,
-        nullptr,
-        part_counts,
-        part_shapes,
-        part_types,
-        part_matrices
-    );
-    env->DeleteLocalRef(paths);
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
     const orcinus::orca::PaintingState state = orcinus::orca::begin_painting(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
         static_cast<int>(part),
@@ -1277,17 +1177,14 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_inspectModel(
     jstring filament_profile,
     jstring process_profile,
     jstring mesh_path,
-    jobjectArray plate_model_paths,
-    jintArray plate_instance_counts,
-    jdoubleArray plate_placements,
-    jbooleanArray plate_auto_drops
+    jobject plate
 )
 {
     const orcinus::orca::ModelInspection inspection = orcinus::orca::inspect_model(
         to_utf8(env, model_path),
         to_profiles(env, printer_profile, filament_profile, process_profile),
         to_utf8(env, mesh_path),
-        to_plate(env, plate_model_paths, plate_instance_counts, plate_placements, plate_auto_drops, nullptr)
+        to_plate(env, plate)
     );
     return to_java(env, inspection);
 }
@@ -1296,7 +1193,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
     JNIEnv* env,
     jobject /* this */,
-    jstring model_path,
+    jobject object,
     jstring printer_profile,
     jstring filament_profile,
     jstring process_profile,
@@ -1311,8 +1208,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
     if (face_normal != nullptr && env->GetArrayLength(face_normal) == 3) {
         env->GetDoubleArrayRegion(face_normal, 0, 3, normal.data());
     }
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
     const orcinus::orca::ModelInspection inspection = orcinus::orca::place_model(
-        to_utf8(env, model_path),
+        plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
         to_profiles(env, printer_profile, filament_profile, process_profile),
         to_doubles(env, previous_placement),
         to_doubles(env, placement),
@@ -1327,10 +1225,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
     JNIEnv* env,
     jobject /* this */,
-    jobjectArray model_paths,
-    jintArray instance_counts,
-    jdoubleArray placements,
-    jbooleanArray auto_drops,
+    jobject plate,
     jbooleanArray selected,
     jstring printer_profile,
     jstring filament_profile,
@@ -1348,7 +1243,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
     arrange.allow_multi_materials_on_same_plate = arrange_allow_multi_materials == JNI_TRUE;
     arrange.align_to_y_axis = arrange_align_to_y_axis == JNI_TRUE;
     const orcinus::orca::PlateInspection inspection = orcinus::orca::place_objects(
-        to_plate(env, model_paths, instance_counts, placements, auto_drops, nullptr),
+        to_plate(env, plate),
         to_bools(env, selected),
         to_profiles(env, printer_profile, filament_profile, process_profile),
         static_cast<orcinus::orca::PlateManipulation>(manipulation),
@@ -1386,10 +1281,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_addObjectPart(
     JNIEnv* env,
     jobject /* this */,
-    jstring model_path,
-    jintArray instance_counts,
-    jdoubleArray placements,
-    jbooleanArray auto_drops,
+    jobject object,
     jstring shape,
     jlong type,
     jstring printer_profile,
@@ -1398,11 +1290,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_addObjectPart(
     jstring mesh_path
 )
 {
-    const jclass string_class = env->FindClass("java/lang/String");
-    const jobjectArray paths = env->NewObjectArray(1, string_class, to_java(env, to_utf8(env, model_path)));
-    const std::vector<orcinus::orca::PlateObject> plate =
-        to_plate(env, paths, instance_counts, placements, auto_drops, nullptr);
-    env->DeleteLocalRef(paths);
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
     const orcinus::orca::ModelInspection inspection = orcinus::orca::add_object_part(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
         to_utf8(env, shape),
@@ -1417,15 +1305,16 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFlatteningPlanes(
     JNIEnv* env,
     jobject /* this */,
-    jstring model_path,
+    jobject object,
     jstring printer_profile,
     jstring filament_profile,
     jstring process_profile,
     jdoubleArray placement
 )
 {
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
     const orcinus::orca::FlatteningPlanes result = orcinus::orca::describe_flattening_planes(
-        to_utf8(env, model_path),
+        plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
         to_profiles(env, printer_profile, filament_profile, process_profile),
         to_doubles(env, placement)
     );
@@ -2558,4 +2447,113 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_deletePreset(
 )
 {
     return to_java(env, orcinus::orca::delete_preset(static_cast<orcinus::orca::PresetKind>(kind), to_answers(env, answer_ids, answers)));
+}
+
+// NativeImportedObject
+static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject& object)
+{
+    std::vector<std::string> part_names;
+    std::vector<std::string> part_paths;
+    std::vector<jlong> part_types;
+    std::vector<double> part_matrices;
+    std::vector<orcinus::orca::ModelSettings> part_settings;
+    for (const orcinus::orca::ImportedPart& part : object.parts) {
+        part_names.push_back(part.name);
+        part_paths.push_back(part.model_path);
+        part_types.push_back(static_cast<jlong>(part.type));
+        part_matrices.insert(part_matrices.end(), part.matrix.begin(), part.matrix.end());
+        part_settings.push_back(part.settings);
+    }
+    const jobjectArray instances = to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativeModelInspection",
+        object.instances,
+        [](JNIEnv* instance_env, const orcinus::orca::ModelInspection& instance) { return to_java(instance_env, instance); }
+    );
+    const jlongArray types = env->NewLongArray(static_cast<jsize>(part_types.size()));
+    env->SetLongArrayRegion(types, 0, static_cast<jsize>(part_types.size()), part_types.data());
+    const jclass object_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeImportedObject");
+    const jmethodID constructor = env->GetMethodID(
+        object_class,
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;[DLjava/lang/String;"
+        "[Lapp/orcinus/shadow/slicing/nativebridge/NativeModelInspection;"
+        "Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
+        "[Ljava/lang/String;[J[Ljava/lang/String;[D"
+        "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;)V"
+    );
+    return env->NewObject(
+        object_class,
+        constructor,
+        to_java(env, object.name),
+        to_java(env, object.model_path),
+        to_java(env, object.matrix.data(), object.matrix.size()),
+        to_java(env, object.mesh_path),
+        instances,
+        to_java(env, object.volume_name),
+        to_java(env, object.volume_settings.keys),
+        to_java(env, object.volume_settings.values),
+        to_java(env, part_names),
+        types,
+        to_java(env, part_paths),
+        to_java(env, part_matrices.data(), part_matrices.size()),
+        to_java(env, object.settings.keys),
+        to_java(env, object.settings.values),
+        to_java(env, part_settings, true),
+        to_java(env, part_settings, false)
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring source_path,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jobject plate,
+    jstring output_prefix,
+    jobjectArray answer_ids,
+    jbooleanArray answers
+)
+{
+    const orcinus::orca::ImportedModels imported = orcinus::orca::import_model(
+        to_utf8(env, source_path),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+        to_plate(env, plate),
+        to_utf8(env, output_prefix),
+        to_answers(env, answer_ids, answers)
+    );
+    const jobjectArray objects = to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativeImportedObject",
+        imported.objects,
+        [](JNIEnv* object_env, const orcinus::orca::ImportedObject& object) { return to_java_imported(object_env, object); }
+    );
+    const char* dialog_class = "app/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog";
+    const jobjectArray notices = to_java_objects(env, dialog_class, imported.notices, [](JNIEnv* dialog_env, const orcinus::orca::SettingsDialog& dialog) {
+        return to_java(dialog_env, dialog);
+    });
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeImportedModels");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(JLjava/lang/String;"
+        "[Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
+        "Z"
+        "Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
+        "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;)V"
+    );
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(imported.status),
+        to_java(env, imported.message),
+        notices,
+        imported.has_question ? JNI_TRUE : JNI_FALSE,
+        to_java(env, imported.question),
+        objects
+    );
 }

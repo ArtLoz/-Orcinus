@@ -33,6 +33,10 @@ import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.LoadedObject
+import app.orcinus.shadow.core.model.ObjectPart
+import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsRequest
@@ -128,32 +132,14 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 recoverable = false,
             )
         }
-        val plate = NativePlate(request.objects)
+        val plate = nativePlate(request.objects)
 
         progressListener.onProgress(SliceProgress(request.jobId, 0f, SliceStage.PREPARING))
         val result = coroutineScope {
             val nativeJob = async(Dispatchers.Default) {
                 NativeBindings.slice(
                     jobId = request.jobId.value,
-                    modelPaths = plate.modelPaths,
-                    instanceCounts = plate.instanceCounts,
-                    placements = plate.placements,
-                    autoDrops = plate.autoDrops,
-                    instancePrintable = plate.printable,
-                    objectSettingKeys = plate.settingKeys,
-                    objectSettingValues = plate.settingValues,
-                    partCounts = plate.partCounts,
-                    partShapes = plate.partShapes,
-                    partTypes = plate.partTypes,
-                    partMatrices = plate.partMatrices,
-                    partSettingKeys = plate.partSettingKeys,
-                    partSettingValues = plate.partSettingValues,
-                    rangeCounts = plate.rangeCounts,
-                    rangeHeights = plate.rangeHeights,
-                    rangeSettingKeys = plate.rangeSettingKeys,
-                    rangeSettingValues = plate.rangeSettingValues,
-                    painted = plate.painted,
-                    partPainted = plate.partPainted,
+                    plate = plate,
                     plateSettingKeys = request.plateSettings.keys(),
                     plateSettingValues = request.plateSettings.values(),
                     outputPath = request.output.value,
@@ -227,24 +213,43 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         if (!engineStatus.ready) {
             return@withContext ModelInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val objects = NativePlate(plate)
         NativeBindings.inspectModel(
             modelPath = model.nativePath(),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             processProfile = profiles.process.value,
             meshPath = mesh.value,
-            plateModelPaths = objects.modelPaths,
-            plateInstanceCounts = objects.instanceCounts,
-            platePlacements = objects.placements,
-            plateAutoDrops = objects.autoDrops,
+            plate = nativePlate(plate),
         ).toOutcome(mesh)
     }
 
-    override suspend fun place(
-        model: ModelSource,
+    override suspend fun load(
+        source: ModelPath,
         profiles: SlicingProfileSelection,
-        mesh: ScenePath,
+        plate: List<PlacedModel>,
+        prefix: ScenePath,
+        answers: Map<String, Boolean>,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.importModel(
+            sourcePath = source.value,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            plate = nativePlate(plate),
+            outputPrefix = prefix.value,
+            answerIds = answers.keys.toTypedArray(),
+            answers = answers.values.toBooleanArray(),
+        ).toOutcome()
+    }
+
+    override suspend fun place(
+        plateObject: PlacedModel,
+        profiles: SlicingProfileSelection,
         previous: Transform3,
         placement: Transform3,
         autoDrop: Boolean,
@@ -255,7 +260,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             return@withContext ModelInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
         NativeBindings.placeModel(
-            modelPath = model.nativePath(),
+            plateObject = nativePlate(listOf(plateObject)),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             processProfile = profiles.process.value,
@@ -271,7 +276,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 Manipulation.EnsureOnBed -> 5L
             },
             faceNormal = (manipulation as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) },
-        ).toOutcome(mesh)
+        ).toOutcome(plateObject.mesh)
     }
 
     override suspend fun describeWipeTower(
@@ -283,25 +288,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         if (!engineStatus.ready) {
             return@withContext WipeTowerOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val objects = NativePlate(plate)
         val tower = NativeBindings.describeWipeTower(
-            modelPaths = objects.modelPaths,
-            instanceCounts = objects.instanceCounts,
-            placements = objects.placements,
-            autoDrops = objects.autoDrops,
-            instancePrintable = objects.printable,
-            objectSettingKeys = objects.settingKeys,
-            objectSettingValues = objects.settingValues,
-            partCounts = objects.partCounts,
-            partShapes = objects.partShapes,
-            partTypes = objects.partTypes,
-            partMatrices = objects.partMatrices,
-            partSettingKeys = objects.partSettingKeys,
-            partSettingValues = objects.partSettingValues,
-            rangeCounts = objects.rangeCounts,
-            rangeHeights = objects.rangeHeights,
-            rangeSettingKeys = objects.rangeSettingKeys,
-            rangeSettingValues = objects.rangeSettingValues,
+            plate = nativePlate(plate),
             plateSettingKeys = plateSettings.keys(),
             plateSettingValues = plateSettings.values(),
             printerProfile = profiles.printer.value,
@@ -336,25 +324,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         if (!engineStatus.ready) {
             return@withContext FlushVolumesOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val objects = NativePlate(plate)
         val volumes = NativeBindings.describeFlushVolumes(
-            modelPaths = objects.modelPaths,
-            instanceCounts = objects.instanceCounts,
-            placements = objects.placements,
-            autoDrops = objects.autoDrops,
-            instancePrintable = objects.printable,
-            objectSettingKeys = objects.settingKeys,
-            objectSettingValues = objects.settingValues,
-            partCounts = objects.partCounts,
-            partShapes = objects.partShapes,
-            partTypes = objects.partTypes,
-            partMatrices = objects.partMatrices,
-            partSettingKeys = objects.partSettingKeys,
-            partSettingValues = objects.partSettingValues,
-            rangeCounts = objects.rangeCounts,
-            rangeHeights = objects.rangeHeights,
-            rangeSettingKeys = objects.rangeSettingKeys,
-            rangeSettingValues = objects.rangeSettingValues,
+            plate = nativePlate(plate),
             plateSettingKeys = plateSettings.keys(),
             plateSettingValues = plateSettings.values(),
             printerProfile = profiles.printer.value,
@@ -376,25 +347,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         if (!engineStatus.ready) {
             return@withContext FlushVolumesOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val objects = NativePlate(plate)
         NativeBindings.updateFlushVolumes(
-            modelPaths = objects.modelPaths,
-            instanceCounts = objects.instanceCounts,
-            placements = objects.placements,
-            autoDrops = objects.autoDrops,
-            instancePrintable = objects.printable,
-            objectSettingKeys = objects.settingKeys,
-            objectSettingValues = objects.settingValues,
-            partCounts = objects.partCounts,
-            partShapes = objects.partShapes,
-            partTypes = objects.partTypes,
-            partMatrices = objects.partMatrices,
-            partSettingKeys = objects.partSettingKeys,
-            partSettingValues = objects.partSettingValues,
-            rangeCounts = objects.rangeCounts,
-            rangeHeights = objects.rangeHeights,
-            rangeSettingKeys = objects.rangeSettingKeys,
-            rangeSettingValues = objects.rangeSettingValues,
+            plate = nativePlate(plate),
             plateSettingKeys = plateSettings.keys(),
             plateSettingValues = plateSettings.values(),
             printerProfile = profiles.printer.value,
@@ -435,17 +389,9 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         if (!engineStatus.ready) {
             return@withContext PaintingOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val objects = NativePlate(listOf(plateObject))
         painting(
             NativeBindings.beginPainting(
-                modelPath = objects.modelPaths.first(),
-                instanceCounts = objects.instanceCounts,
-                placements = objects.placements,
-                autoDrops = objects.autoDrops,
-                partCounts = objects.partCounts,
-                partShapes = objects.partShapes,
-                partTypes = objects.partTypes,
-                partMatrices = objects.partMatrices,
+                plateObject = nativePlate(listOf(plateObject)),
                 part = part ?: -1,
                 printerProfile = profiles.printer.value,
                 filamentProfile = profiles.filament.value,
@@ -497,14 +443,10 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         if (!engineStatus.ready) {
             return@withContext PlateInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val objects = NativePlate(plate)
         val selected = (manipulation as? PlateManipulation.AutoOrient)?.selected.orEmpty()
         val arrange = (manipulation as? PlateManipulation.Arrange)?.settings ?: ArrangeSettings()
         val result = NativeBindings.placeObjects(
-            modelPaths = objects.modelPaths,
-            instanceCounts = objects.instanceCounts,
-            placements = objects.placements,
-            autoDrops = objects.autoDrops,
+            plate = nativePlate(plate),
             selected = BooleanArray(plate.size) { plate[it].mesh in selected },
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
@@ -538,12 +480,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         if (!engineStatus.ready) {
             return@withContext ModelInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        val objects = NativePlate(listOf(plateObject))
         NativeBindings.addObjectPart(
-            modelPath = plateObject.model.nativePath(),
-            instanceCounts = objects.instanceCounts,
-            placements = objects.placements,
-            autoDrops = objects.autoDrops,
+            plateObject = nativePlate(listOf(plateObject)),
             shape = shape,
             type = type.ordinal.toLong(),
             printerProfile = profiles.printer.value,
@@ -554,9 +492,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
     }
 
     override suspend fun flatteningPlanes(
-        model: ModelSource,
+        plateObject: PlacedModel,
         profiles: SlicingProfileSelection,
-        mesh: ScenePath,
         placement: Transform3,
     ): FlatteningPlanesOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
@@ -564,7 +501,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             return@withContext FlatteningPlanesOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
         val result = NativeBindings.describeFlatteningPlanes(
-            modelPath = model.nativePath(),
+            plateObject = nativePlate(listOf(plateObject)),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             processProfile = profiles.process.value,
@@ -1156,31 +1093,38 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         unscaledDimensions = ModelDimensions(unscaledSize[0], unscaledSize[1], unscaledSize[2]),
     )
 
-    /** The objects of a plate as the bridge takes them: parallel arrays with an entry per object. */
-    private class NativePlate(objects: List<PlacedModel>) {
-        val modelPaths = Array(objects.size) { objects[it].model.nativePath() }
-        val instanceCounts = IntArray(objects.size) { objects[it].instances.size }
-        private val instances = objects.flatMap(PlacedModel::instances)
-        val placements = instances.flatMap { it.placement.columns }.toDoubleArray()
-        val autoDrops = BooleanArray(instances.size) { instances[it].autoDrop }
-        val printable = BooleanArray(instances.size) { instances[it].printable }
-        val settingKeys = Array(objects.size) { objects[it].settings.keys() }
-        val settingValues = Array(objects.size) { objects[it].settings.values() }
-        val partCounts = IntArray(objects.size) { objects[it].parts.size }
-        private val parts = objects.flatMap(PlacedModel::parts)
-        val partShapes = Array(parts.size) { parts[it].shape }
-        val partTypes = LongArray(parts.size) { parts[it].type.ordinal.toLong() }
-        val partMatrices = parts.flatMap { it.placement.columns }.toDoubleArray()
-        val partSettingKeys = Array(parts.size) { parts[it].settings.keys() }
-        val partSettingValues = Array(parts.size) { parts[it].settings.values() }
-        val rangeCounts = IntArray(objects.size) { objects[it].layerRanges.size }
-        private val ranges = objects.flatMap(PlacedModel::layerRanges)
-        val rangeHeights = ranges.flatMap { listOf(it.bottom, it.top) }.toDoubleArray()
-        val rangeSettingKeys = Array(ranges.size) { ranges[it].settings.keys() }
-        val rangeSettingValues = Array(ranges.size) { ranges[it].settings.values() }
-        /** The facets painted with the filaments of the plate, per object and per part. */
-        val painted = Array(objects.size) { objects[it].painted.value }
-        val partPainted = Array(parts.size) { parts[it].painted.value }
+    /** ImportedModels in orca_engine_adapter.hpp. */
+    private fun NativeImportedModels.toOutcome(): ModelLoadOutcome {
+        val shown = notices.map { it.toDialog() }
+        return when {
+            status != NativeSceneStatus.SUCCESS ->
+                ModelLoadOutcome.Failure(message.ifBlank { "OrcaSlicer could not load the file" }, shown)
+            hasQuestion -> ModelLoadOutcome.Question(question.toDialog(), shown)
+            else -> ModelLoadOutcome.Success(objects.map { it.toLoadedObject() }, shown)
+        }
+    }
+
+    private fun NativeImportedObject.toLoadedObject(): LoadedObject {
+        val mesh = ScenePath(meshPath)
+        return LoadedObject(
+            name = name,
+            source = ModelPath(modelPath),
+            frame = Transform3(matrix.toList()),
+            parts = partPaths.indices.map { part ->
+                ObjectPart(
+                    shape = "",
+                    type = VolumeType.entries[partTypes[part].toInt()],
+                    mesh = ScenePath(partPaths[part]),
+                    placement = Transform3(partMatrices.slice(16 * part until 16 * (part + 1))),
+                    settings = ModelSettings(partSettingKeys[part].zip(partSettingValues[part]).toMap()),
+                    source = ModelPath(partPaths[part]),
+                    name = partNames[part],
+                )
+            },
+            settings = ModelSettings(settingKeys.zip(settingValues).toMap()),
+            volume = ObjectVolume(volumeName, ModelSettings(volumeSettingKeys.zip(volumeSettingValues).toMap())),
+            instances = instances.map { it.toInspection(mesh) },
+        )
     }
 
     private fun start(): EngineStatus {
@@ -1282,6 +1226,40 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
 private fun ModelSource.nativePath(): String = when (this) {
     is ModelSource.LocalFile -> path.value
     is ModelSource.BuiltIn -> ""
+}
+
+/** The objects of a plate as the bridge takes them. */
+private fun nativePlate(objects: List<PlacedModel>): NativePlate {
+    val instances = objects.flatMap(PlacedModel::instances)
+    val parts = objects.flatMap(PlacedModel::parts)
+    val ranges = objects.flatMap(PlacedModel::layerRanges)
+    return NativePlate(
+        modelPaths = Array(objects.size) { objects[it].model.nativePath() },
+        instanceCounts = IntArray(objects.size) { objects[it].instances.size },
+        placements = instances.flatMap { it.placement.columns }.toDoubleArray(),
+        autoDrops = BooleanArray(instances.size) { instances[it].autoDrop },
+        printable = BooleanArray(instances.size) { instances[it].printable },
+        settingKeys = Array(objects.size) { objects[it].settings.keys() },
+        settingValues = Array(objects.size) { objects[it].settings.values() },
+        partCounts = IntArray(objects.size) { objects[it].parts.size },
+        partShapes = Array(parts.size) { parts[it].shape },
+        partTypes = LongArray(parts.size) { parts[it].type.ordinal.toLong() },
+        partMatrices = parts.flatMap { it.placement.columns }.toDoubleArray(),
+        partSettingKeys = Array(parts.size) { parts[it].settings.keys() },
+        partSettingValues = Array(parts.size) { parts[it].settings.values() },
+        painted = Array(objects.size) { objects[it].painted.value },
+        partPainted = Array(parts.size) { parts[it].painted.value },
+        rangeCounts = IntArray(objects.size) { objects[it].layerRanges.size },
+        rangeHeights = ranges.flatMap { listOf(it.bottom, it.top) }.toDoubleArray(),
+        rangeSettingKeys = Array(ranges.size) { ranges[it].settings.keys() },
+        rangeSettingValues = Array(ranges.size) { ranges[it].settings.values() },
+        // No transformation has a zero last row, so zeros stand for none.
+        objectMatrices = objects.flatMap { it.frame?.columns ?: List(16) { 0.0 } }.toDoubleArray(),
+        partSources = Array(parts.size) { parts[it].source?.value.orEmpty() },
+        partNames = Array(parts.size) { parts[it].name },
+        volumeSettingKeys = Array(objects.size) { objects[it].volumeSettings.keys() },
+        volumeSettingValues = Array(objects.size) { objects[it].volumeSettings.values() },
+    )
 }
 
 /** The overrides of an object or of the plate, as parallel arrays for the bridge. */

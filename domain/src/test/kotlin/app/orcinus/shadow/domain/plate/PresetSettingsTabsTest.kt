@@ -312,7 +312,7 @@ class PresetSettingsTabsTest {
             READY.copy(
                 objects = listOf(owner),
                 selectedInstances = setOf(PlateInstanceId(owner.mesh)),
-                selectedPart = ObjectPartId(owner.mesh, 0),
+                selectedPart = ObjectPartId(owner.mesh, 1),
             ),
         )
         val answered = ModelSettings(mapOf("wall_loops" to "9"))

@@ -2,8 +2,7 @@ package app.orcinus.shadow.domain
 
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
-import app.orcinus.shadow.core.model.ModelSource
-import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.slicing.api.PlateInspector
@@ -13,9 +12,8 @@ class PlaceModelUseCase(
     private val inspector: PlateInspector,
 ) {
     suspend operator fun invoke(
-        model: ModelSource,
+        plateObject: PlacedModel,
         profiles: SlicingProfileSelection,
-        mesh: ScenePath,
         previous: Transform3,
         placement: Transform3,
         autoDrop: Boolean,
@@ -24,6 +22,6 @@ class PlaceModelUseCase(
         if ((previous.columns + placement.columns).any { !it.isFinite() }) {
             return ModelInspectionOutcome.Failure("The placement is not a finite transformation")
         }
-        return inspector.place(model, profiles, mesh, previous, placement, autoDrop, manipulation)
+        return inspector.place(plateObject, profiles, previous, placement, autoDrop, manipulation)
     }
 }

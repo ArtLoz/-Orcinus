@@ -26,6 +26,7 @@ import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsRequest
@@ -157,10 +158,26 @@ class RemoteSlicerEngine(
         }
     }
 
-    override suspend fun place(
-        model: ModelSource,
+    override suspend fun load(
+        source: ModelPath,
         profiles: SlicingProfileSelection,
-        mesh: ScenePath,
+        plate: List<PlacedModel>,
+        prefix: ScenePath,
+        answers: Map<String, Boolean>,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        load(
+            source.value,
+            profiles.toParcel(),
+            plate.toParcels(),
+            prefix.value,
+            answers.keys.toTypedArray(),
+            answers.values.toBooleanArray(),
+        ).toModelLoadOutcome()
+    }
+
+    override suspend fun place(
+        plateObject: PlacedModel,
+        profiles: SlicingProfileSelection,
         previous: Transform3,
         placement: Transform3,
         autoDrop: Boolean,
@@ -168,9 +185,8 @@ class RemoteSlicerEngine(
     ): ModelInspectionOutcome = withContext(Dispatchers.IO) {
         try {
             service().place(
-                model.toParcel(),
+                listOf(plateObject).toParcels().first(),
                 profiles.toParcel(),
-                mesh.value,
                 previous.columns.toDoubleArray(),
                 placement.columns.toDoubleArray(),
                 autoDrop,
@@ -283,13 +299,12 @@ class RemoteSlicerEngine(
     }
 
     override suspend fun flatteningPlanes(
-        model: ModelSource,
+        plateObject: PlacedModel,
         profiles: SlicingProfileSelection,
-        mesh: ScenePath,
         placement: Transform3,
     ): FlatteningPlanesOutcome = withContext(Dispatchers.IO) {
         try {
-            service().flatteningPlanes(model.toParcel(), profiles.toParcel(), mesh.value, placement.columns.toDoubleArray()).toOutcome()
+            service().flatteningPlanes(listOf(plateObject).toParcels().first(), profiles.toParcel(), placement.columns.toDoubleArray()).toOutcome()
         } catch (_: RemoteException) {
             FlatteningPlanesOutcome.Failure(PROCESS_DIED)
         }

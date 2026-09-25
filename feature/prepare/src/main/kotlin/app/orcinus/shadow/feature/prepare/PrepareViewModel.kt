@@ -122,6 +122,10 @@ class PrepareViewModel(
 
     fun addModel(reference: String) = addModelToPlate(ExternalDocumentReference(reference))
 
+    fun answerImport(yes: Boolean) = addModelToPlate.answer(yes)
+
+    fun dismissImportNotice() = addModelToPlate.dismissNotice()
+
     fun addCalibrationCube() = addCalibrationCubeToPlate()
 
     /** Clearing the selection closes the gizmo, as GLGizmosManager does when it is no longer activable. */

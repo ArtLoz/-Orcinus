@@ -157,7 +157,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     )
     private val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
-        inspectModel = inspectModel,
+        inspector = engine,
         sceneFiles = sceneFiles,
         repository = plateRepository,
         applicationScope = applicationScope,

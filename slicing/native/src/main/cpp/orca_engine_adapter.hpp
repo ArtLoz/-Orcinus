@@ -117,13 +117,20 @@ enum class VolumeType : std::int64_t {
     support_enforcer = 4,
 };
 
-// A part added to an object (ModelVolume): one of the shapes the desktop app
-// generates (ObjectList::load_generic_subobject), with its transformation in
-// the object's coordinates and the settings it overrides.
+// A part of an object (ModelVolume): one of the shapes the desktop app
+// generates (ObjectList::load_generic_subobject), or a volume a model file
+// brought (Plater::priv::load_files), with its transformation in the object's
+// coordinates and the settings it overrides.
 struct ObjectPart {
     // "Cube", "Cylinder", "Sphere", "Slab", "Cone", "Disc" or "Torus", as
-    // create_mesh() of GUI_ObjectList.cpp names them.
+    // create_mesh() of GUI_ObjectList.cpp names them; empty for a part read
+    // from model_path.
     std::string shape;
+    // The mesh of a part a model file brought, in its own coordinates, as
+    // import_model() wrote it; empty for a generated shape.
+    std::string model_path;
+    // ModelVolume::name, which the object list shows.
+    std::string name;
     VolumeType type{VolumeType::part};
     // Column-major 4 x 4, in the object's coordinates.
     std::vector<double> matrix;
@@ -143,13 +150,18 @@ struct LayerRange {
     ModelSettings settings;
 };
 
-// An object on the plate: the STL file it is loaded from, empty for the
-// built-in 20 mm calibration cube, the parts added to it, and where its copies
-// stand (ModelObject::instances). Without an instance the object is placed as
-// the desktop app places an object added to the plate that holds the objects
+// An object on the plate: the file its own mesh is loaded from, empty for the
+// built-in 20 mm calibration cube, the parts it has, and where its copies stand
+// (ModelObject::instances). Without an instance the object is placed as the
+// desktop app places an object added to the plate that holds the objects
 // before it.
 struct PlateObject {
     std::string model_path;
+    // The transformation of the object's own mesh in the object (the matrix of
+    // its first ModelVolume), column-major 4 x 4, for an object a model file
+    // brought: its parts stand in the same frame, which import_model() gave it.
+    // Empty centres the mesh around the origin, as for an STL file or the cube.
+    std::vector<double> matrix;
     std::vector<ObjectPart> parts;
     std::vector<ObjectPlacement> instances;
     // The settings of the object (ModelObject::config), which the process
@@ -160,6 +172,9 @@ struct PlateObject {
     // The facets of the object's own mesh painted with the filaments of the
     // plate (ModelVolume::mmu_segmentation_facets).
     std::string painted;
+    // The settings of the object's own mesh (the config of its first
+    // ModelVolume), which the object list edits once the object has parts.
+    ModelSettings volume_settings;
 };
 
 // Slices the objects of the plate and writes G-code to output_path only after
@@ -339,8 +354,10 @@ struct FlatteningPlanes {
     std::vector<FlatteningPlane> planes;
 };
 
-// The faces the object of model_path can lie on with the instance transformation placement.
-FlatteningPlanes describe_flattening_planes(const std::string& model_path, const ProfileSelection& profiles, const std::vector<double>& placement);
+// The faces the object can lie on with the instance transformation placement;
+// its instances are not used. Every part printed with it counts, as
+// GLGizmoFlatten::update_planes() takes the convex hull of the object's parts.
+FlatteningPlanes describe_flattening_planes(const PlateObject& object, const ProfileSelection& profiles, const std::vector<double>& placement);
 
 // Loads an STL file, or the built-in 20 mm calibration cube when model_path is
 // empty, places it as the desktop app places an object added to the plate that
@@ -354,13 +371,14 @@ ModelInspection inspect_model(
     const std::vector<PlateObject>& plate
 );
 
-// Commits a manipulation of the object of model_path, which stood at
-// previous_placement, to the instance transformation placement (both
-// column-major 4 x 4), as the desktop app does. With auto_drop off
-// (ModelInstance::auto_drop) the object is never moved onto the plate. Reports
-// the placed object without writing its mesh.
+// Commits a manipulation of the object, which stood at previous_placement, to
+// the instance transformation placement (both column-major 4 x 4), as the
+// desktop app does; the object's instances are not used. With auto_drop off
+// (ModelInstance::auto_drop) the object is never moved onto the plate. Its
+// parts count, as the desktop app drops and rests a ModelObject with all of
+// its volumes. Reports the placed object without writing its mesh.
 ModelInspection place_model(
-    const std::string& model_path,
+    const PlateObject& object,
     const ProfileSelection& profiles,
     const std::vector<double>& previous_placement,
     const std::vector<double>& placement,
@@ -1010,6 +1028,75 @@ struct PresetSettings {
 
 // Answers to the questions a change asked, by dialog id: true for Yes.
 using DialogAnswers = std::vector<std::pair<std::string, bool>>;
+
+// A volume of an object a model file brought, other than its own mesh.
+struct ImportedPart {
+    // ModelVolume::name.
+    std::string name;
+    VolumeType type{VolumeType::part};
+    // Its mesh in its own coordinates, written by import_model(); the 3D view
+    // draws it with matrix, and slicing reads it as ObjectPart::model_path.
+    std::string model_path;
+    // Its transformation in the object, column-major 4 x 4.
+    std::vector<double> matrix;
+    // The settings the file gave the volume (ModelVolume::config), such as its
+    // extruder.
+    ModelSettings settings;
+};
+
+// An object a model file brought, placed on the plate.
+struct ImportedObject {
+    // ModelObject::name: the name the file gave it, or the file's name.
+    std::string name;
+    // Its own mesh (its first volume) in its own coordinates, which the object
+    // is loaded from (PlateObject::model_path).
+    std::string model_path;
+    // PlateObject::matrix: that mesh's transformation in the object.
+    std::vector<double> matrix;
+    // Its other volumes, which print with it or change it.
+    std::vector<ImportedPart> parts;
+    // The settings the file gave the object (ModelObject::config).
+    ModelSettings settings;
+    // ModelVolume::name and ModelVolume::config of its own mesh.
+    std::string volume_name;
+    ModelSettings volume_settings;
+    // The object's own mesh in object coordinates for the 3D view, as
+    // inspect_model() writes it.
+    std::string mesh_path;
+    // Every instance as it stands, as inspect_model() describes one: a single
+    // one for an object the file did not place, and the file's for one it did.
+    std::vector<ModelInspection> instances;
+};
+
+struct ImportedModels {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    // Message boxes the load showed; they informed only.
+    std::vector<SettingsDialog> notices;
+    // A question the load asks before anything is added: the import is
+    // requested again with the answer.
+    bool has_question{false};
+    SettingsDialog question;
+    std::vector<ImportedObject> objects;
+};
+
+// Plater::priv::load_files() for a model file: STL, OBJ, AMF, STEP, SVG, DRC or
+// OLTP, read with libslic3r's reader of its type. As the desktop app does, the
+// load renames nameless objects after the file, turns them by the printer's
+// preferred orientation, drops objects without volume, offers to scale a model
+// that looks like metres or inches, and to load objects stacked at several
+// heights as one object with parts; then every object is placed as an object
+// added to the plate that holds plate and the objects before it
+// (load_model_objects). Every object's own mesh, the mesh of each of its other
+// volumes and its mesh for the 3D view are written as mesh files whose names
+// start with output_prefix.
+ImportedModels import_model(
+    const std::string& source_path,
+    const ProfileSelection& profiles,
+    const std::vector<PlateObject>& plate,
+    const std::string& output_prefix,
+    const DialogAnswers& answers
+);
 
 // What a request of the settings of an object or of the plate carries, since
 // the engine keeps no plate of its own: the overrides of the object or plate

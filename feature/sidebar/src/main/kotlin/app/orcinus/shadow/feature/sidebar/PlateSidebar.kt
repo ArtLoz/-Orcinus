@@ -396,7 +396,7 @@ class SidebarViewModel(
 
     fun addPart(mesh: ScenePath, shape: String, type: VolumeType) = addObjectPart(mesh, shape, type)
 
-    fun removePart(mesh: ScenePath, index: Int) = removeObjectPart(mesh, index)
+    fun removePart(id: ObjectPartId) = removeObjectPart(id)
 
     fun deleteObject(mesh: ScenePath) = deletePlateObject(mesh)
 
@@ -1069,7 +1069,9 @@ internal fun PlateSidebarContent(
                     modifier = Modifier.padding(top = if (index == 0) 0.dp else 6.dp),
                 ) {
                     OrcaComboField(
-                        text = presets?.filaments?.selectedLabel(slot.value).orEmpty(),
+                        // PlaterPresetComboBox of the slot shows the preset of that slot; the list
+                        // marks the first slot's, which the filament tab edits.
+                        text = presets?.filaments?.let { list -> if (index == 0) list.selectedLabel(slot.value) else list.labelOf(slot.value) }.orEmpty(),
                         enabled = enabled,
                         onClick = { openList = PresetList.FILAMENTS; editingSlot = index },
                         modifier = Modifier.weight(1f),
@@ -1338,7 +1340,10 @@ internal fun PlateSidebarContent(
             )
             PresetList.FILAMENTS -> PresetListSheet(
                 title = stringResource(R.string.section_filament),
-                items = presets.filaments,
+                // The list of a slot marks the preset of that slot.
+                items = presets.selection.allFilaments.getOrNull(editingSlot)?.takeIf { editingSlot > 0 }?.let { slot ->
+                    presets.filaments.map { it.copy(selected = it.name == slot.value) }
+                } ?: presets.filaments,
                 onDismiss = { openList = null },
                 onChoose = { item ->
                     openList = null
@@ -1375,6 +1380,8 @@ internal fun PlateSidebarContent(
 /** The label the combo box shows for its selected entry. */
 private fun List<PresetListItem>.selectedLabel(fallback: String): String = firstOrNull(PresetListItem::selected)?.label ?: fallback
 
+private fun List<PresetListItem>.labelOf(name: String): String = firstOrNull { it.name == name }?.label ?: name
+
 @Preview(name = "Light", widthDp = 320, heightDp = 480)
 @Preview(name = "Dark", widthDp = 320, heightDp = 480, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -1409,7 +1416,7 @@ private fun PlateSidebarPreview() = OrcinusTheme {
             copy = {},
             removeCopy = {},
             addPart = { _, _, _ -> },
-            removePart = { _, _ -> },
+            removePart = {},
             selectPart = {},
             selectPartSettings = {},
             addRange = { _, _ -> },

@@ -14,6 +14,7 @@ import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.WipeTower
@@ -80,6 +81,10 @@ data class PrepareUiState(
     val problem: PlateProblem?,
     val canEditPlate: Boolean,
     val canSlice: Boolean,
+    /** The message box the load of a model file showed first, until it is dismissed. */
+    val importNotice: SettingsDialog? = null,
+    /** The question the load of a model file waits on, once its message boxes before it are dismissed. */
+    val importQuestion: SettingsDialog? = null,
 ) {
     /** GLGizmoBase::on_is_activable() for the manipulation gizmos: an object is selected. */
     val canManipulate: Boolean get() = selectedObject != null && canEditPlate
@@ -153,7 +158,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     // The tower is drawn selected while it is the picked volume.
     if (wipeTower != null && view.wipeTowerSelected) selectedIndexes += WIPE_TOWER_INDEX
     val selected = selectedObject?.let(copies::get)?.instance?.inspection
-    val canEditPlate = !busy && engine.availability == EngineAvailability.READY
+    // The plate changes once OrcaSlicer has the presets it places objects with.
+    val canEditPlate = !busy && engine.availability == EngineAvailability.READY && profiles != null
     return PrepareUiState(
         plate = plate,
         importing = importing,
@@ -188,6 +194,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         objectClashed = copies.any { it.instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE },
         slicing = slicing,
         problem = problem,
+        importNotice = importNotices.firstOrNull(),
+        importQuestion = importQuestion?.question,
         // Objects are loaded and placed by the engine.
         canEditPlate = canEditPlate,
         canSlice = canSlice,

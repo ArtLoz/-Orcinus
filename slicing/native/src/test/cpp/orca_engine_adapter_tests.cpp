@@ -17,6 +17,7 @@
 #include <functional>
 #include <chrono>
 #include <cstdint>
+#include <cctype>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -30,6 +31,10 @@
 #include <boost/filesystem.hpp>
 
 #include <miniz/miniz.h>
+
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <STEPControl_Writer.hxx>
+#include <gp_Pnt.hxx>
 
 #include "orca_engine_adapter.hpp"
 #include "toolpaths_file.hpp"
@@ -1702,6 +1707,37 @@ TEST_CASE("A part and a height range print with the filament they are given", "[
     CHECK(changes_tool);
 }
 
+TEST_CASE("The settings of an object's own mesh reach the print", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("volume.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    // The first ModelVolume prints with the second filament, as the object
+    // list sets it on the row of the object's own mesh.
+    plate.front().volume_settings.keys = {"extruder"};
+    plate.front().volume_settings.values = {"2"};
+
+    orca::ProfileSelection profiles = k2_plus_profiles();
+    profiles.filaments = {k2_plus_profiles().filament, k2_plus_profiles().filament};
+    const std::string output = output_path("volume-extruder.gcode");
+    const orca::SliceResult sliced = orca::slice("volume-extruder", plate, output, {}, profiles, {}, {});
+    INFO(sliced.message);
+    REQUIRE(sliced.status == orca::SliceStatus::success);
+
+    std::ifstream gcode(output);
+    REQUIRE(gcode.is_open());
+    // The first tool the print selects is the second filament's.
+    std::string line;
+    std::string first_tool;
+    while (first_tool.empty() && std::getline(gcode, line)) {
+        if (line.size() >= 2 && line[0] == 'T' && std::isdigit(static_cast<unsigned char>(line[1]))) {
+            first_tool = line;
+        }
+    }
+    CHECK(first_tool == "T1");
+}
+
 TEST_CASE("The wipe tower stands on a plate that prints with two filaments", "[Adapter][Scene]")
 {
     require_engine();
@@ -3005,6 +3041,301 @@ TEST_CASE("The filament tab offers the extruder variants of a printer that has s
     // Back to the printer the other tests work with.
     REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
     REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+}
+
+namespace {
+
+void write_text(const std::string& path, const std::string& text)
+{
+    fs::create_directories(fs::path(path).parent_path());
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << text;
+}
+
+// A cube as an OBJ file, from its_make_cube(), with its corner at the origin.
+std::string cube_obj(const double size)
+{
+    std::ostringstream obj;
+    const double s = size;
+    const double vertices[8][3] = {{s, s, 0}, {s, 0, 0}, {0, 0, 0}, {0, s, 0}, {s, s, s}, {0, s, s}, {0, 0, s}, {s, 0, s}};
+    const int faces[12][3] = {{0, 1, 2}, {0, 2, 3}, {4, 5, 6}, {4, 6, 7}, {0, 4, 7}, {0, 7, 1},
+                              {1, 7, 6}, {1, 6, 2}, {2, 6, 5}, {2, 5, 3}, {4, 0, 3}, {4, 3, 5}};
+    for (const auto& vertex : vertices) {
+        obj << "v " << vertex[0] << ' ' << vertex[1] << ' ' << vertex[2] << '\n';
+    }
+    for (const auto& face : faces) {
+        obj << "f " << face[0] + 1 << ' ' << face[1] + 1 << ' ' << face[2] + 1 << '\n';
+    }
+    return obj.str();
+}
+
+// Two 10 mm cubes as AMF objects, the second one lifted 20 mm by the
+// constellation, as a file that stacks objects at several heights holds them.
+std::string stacked_cubes_amf()
+{
+    const double s = 10;
+    const double vertices[8][3] = {{s, s, 0}, {s, 0, 0}, {0, 0, 0}, {0, s, 0}, {s, s, s}, {0, s, s}, {0, 0, s}, {s, 0, s}};
+    const int faces[12][3] = {{0, 1, 2}, {0, 2, 3}, {4, 5, 6}, {4, 6, 7}, {0, 4, 7}, {0, 7, 1},
+                              {1, 7, 6}, {1, 6, 2}, {2, 6, 5}, {2, 5, 3}, {4, 0, 3}, {4, 3, 5}};
+    std::ostringstream amf;
+    amf << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<amf unit=\"millimeter\">\n";
+    for (int object = 0; object < 2; ++object) {
+        amf << "<object id=\"" << object << "\"><mesh><vertices>\n";
+        for (const auto& vertex : vertices) {
+            amf << "<vertex><coordinates><x>" << vertex[0] << "</x><y>" << vertex[1] << "</y><z>" << vertex[2]
+                << "</z></coordinates></vertex>\n";
+        }
+        amf << "</vertices><volume>\n";
+        for (const auto& face : faces) {
+            amf << "<triangle><v1>" << face[0] << "</v1><v2>" << face[1] << "</v2><v3>" << face[2] << "</v3></triangle>\n";
+        }
+        amf << "</volume></mesh></object>\n";
+    }
+    amf << "<constellation id=\"1\">\n"
+        << "<instance objectid=\"0\"><deltax>0</deltax><deltay>0</deltay><deltaz>0</deltaz></instance>\n"
+        << "<instance objectid=\"1\"><deltax>0</deltax><deltay>0</deltay><deltaz>20</deltaz></instance>\n"
+        << "</constellation>\n</amf>\n";
+    return amf.str();
+}
+
+// A STEP file with two bodies, each a shape of its own: a 20 mm box, and a
+// 10 mm box beside it that reaches 5 mm lower.
+void write_two_box_step(const std::string& path)
+{
+    fs::create_directories(fs::path(path).parent_path());
+    STEPControl_Writer writer;
+    writer.Transfer(BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 20, 20, 20).Shape(), STEPControl_AsIs);
+    writer.Transfer(BRepPrimAPI_MakeBox(gp_Pnt(30, 0, -5), 10, 10, 10).Shape(), STEPControl_AsIs);
+    REQUIRE(writer.Write(path.c_str()) == IFSelect_RetDone);
+}
+
+// An imported object as the app keeps it on the plate.
+orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
+{
+    orca::PlateObject object;
+    object.model_path = imported.model_path;
+    object.matrix = imported.matrix;
+    object.settings = imported.settings;
+    for (const orca::ImportedPart& part : imported.parts) {
+        orca::ObjectPart& added = object.parts.emplace_back();
+        added.model_path = part.model_path;
+        added.name = part.name;
+        added.type = part.type;
+        added.matrix = part.matrix;
+        added.settings = part.settings;
+    }
+    for (const orca::ModelInspection& instance : imported.instances) {
+        object.instances.emplace_back().matrix.assign(instance.instance_matrix.begin(), instance.instance_matrix.end());
+    }
+    return object;
+}
+
+std::string import_prefix(const std::string& name)
+{
+    const fs::path directory = fs::path(device_dir) / "tmp" / "import";
+    fs::create_directories(directory);
+    return (directory / name).string();
+}
+
+}  // namespace
+
+TEST_CASE("A model file of another type than STL is imported as the desktop app loads it", "[Adapter][Import]")
+{
+    require_engine();
+
+    SECTION("an OBJ file")
+    {
+        const orca::ImportedModels imported =
+            orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("obj"), {});
+        INFO(imported.message);
+        REQUIRE(imported.status == orca::SceneStatus::success);
+        REQUIRE_FALSE(imported.has_question);
+        REQUIRE(imported.objects.size() == 1);
+        const orca::ImportedObject& object = imported.objects.front();
+        // An object without a name of its own takes the file's.
+        CHECK(object.name == "20mm_cube.obj");
+        CHECK(object.parts.empty());
+        CHECK(object.instances.front().size_x == Catch::Approx(20.0));
+        CHECK(object.instances.front().size_z == Catch::Approx(20.0));
+        // load_model_objects(): an object alone on the plate stands at its centre.
+        CHECK(object.instances.front().instance_matrix[12] == Catch::Approx(175.0));
+        CHECK(object.instances.front().instance_matrix[13] == Catch::Approx(175.0));
+        CHECK(fs::exists(object.model_path));
+        CHECK(fs::exists(object.mesh_path));
+
+        // The object slices from the mesh the import wrote.
+        const orca::SliceResult sliced = orca::slice("import-obj", {plate_object_of(object)}, output_path("import-obj.gcode"), {},
+                                                     k2_plus_profiles(), {}, {});
+        INFO(sliced.message);
+        REQUIRE(sliced.status == orca::SliceStatus::success);
+        CHECK(sliced.layer_count == 100);
+
+        // The same file again goes to the empty cell nearest to the centre.
+        const orca::ImportedModels again = orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(),
+                                                              {plate_object_of(object)}, import_prefix("obj-again"), {});
+        INFO(again.message);
+        REQUIRE(again.objects.size() == 1);
+        const auto& beside = again.objects.front().instances.front().instance_matrix;
+        CHECK(std::hypot(beside[12] - 175.0, beside[13] - 175.0) >= 10.0);
+    }
+
+    SECTION("a Draco file, which the desktop app's handy models are")
+    {
+        const orca::ImportedModels imported = orca::import_model(device_dir + "/orca/resources/handy_models/OrcaCube_v2.drc",
+                                                                 k2_plus_profiles(), {}, import_prefix("drc"), {});
+        INFO(imported.message);
+        REQUIRE(imported.status == orca::SceneStatus::success);
+        REQUIRE(imported.objects.size() == 1);
+        CHECK(imported.objects.front().instances.front().size_z > 0.0);
+    }
+
+    SECTION("an SVG file, extruded as the desktop app loads one")
+    {
+        const std::string svg = device_dir + "/tmp/import/square.svg";
+        write_text(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20mm\" height=\"20mm\" viewBox=\"0 0 20 20\">"
+                        "<path d=\"M0 0 L20 0 L20 20 L0 20 Z\" fill=\"#000000\"/></svg>");
+        const orca::ImportedModels imported = orca::import_model(svg, k2_plus_profiles(), {}, import_prefix("svg"), {});
+        INFO(imported.message);
+        REQUIRE(imported.status == orca::SceneStatus::success);
+        REQUIRE(imported.objects.size() == 1);
+        CHECK(imported.objects.front().instances.front().size_x > 0.0);
+    }
+
+    SECTION("a file that does not exist")
+    {
+        const orca::ImportedModels imported =
+            orca::import_model(device_dir + "/data/missing.obj", k2_plus_profiles(), {}, import_prefix("missing"), {});
+        CHECK(imported.status != orca::SceneStatus::success);
+        CHECK(imported.objects.empty());
+    }
+}
+
+TEST_CASE("A STEP file with several bodies becomes one object with a part for each further body", "[Adapter][Import]")
+{
+    require_engine();
+    const std::string step = device_dir + "/tmp/import/two-boxes.step";
+    write_two_box_step(step);
+
+    const orca::ImportedModels imported = orca::import_model(step, k2_plus_profiles(), {}, import_prefix("step"), {});
+    INFO(imported.message);
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    REQUIRE(imported.objects.size() == 1);
+    const orca::ImportedObject& object = imported.objects.front();
+    // Step::mesh(): one object, a volume per body.
+    REQUIRE(object.parts.size() == 1);
+    CHECK(object.parts.front().type == orca::VolumeType::part);
+    // ModelObject::facets_count(), which the object's info shows: both boxes.
+    CHECK(object.instances.front().facet_count == 24);
+    CHECK(fs::exists(object.parts.front().model_path));
+    // Both bodies count: 40 mm wide, 25 mm high with the lower box.
+    CHECK(object.instances.front().size_x == Catch::Approx(40.0));
+    CHECK(object.instances.front().size_z == Catch::Approx(25.0));
+
+    const orca::PlateObject on_plate = plate_object_of(object);
+    const orca::SliceResult sliced =
+        orca::slice("import-step", {on_plate}, output_path("import-step.gcode"), {}, k2_plus_profiles(), {}, {});
+    INFO(sliced.message);
+    REQUIRE(sliced.status == orca::SliceStatus::success);
+    CHECK(sliced.layer_count == 125);
+
+    // A lifted object drops until its lowest body, the part, touches the plate.
+    const std::vector<double> placed(object.instances.front().instance_matrix.begin(), object.instances.front().instance_matrix.end());
+    std::vector<double> lifted = placed;
+    lifted[14] += 30.0;
+    const orca::ModelInspection dropped =
+        orca::place_model(on_plate, k2_plus_profiles(), placed, lifted, true, orca::Manipulation::move, {});
+    INFO(dropped.message);
+    REQUIRE(dropped.status == orca::SceneStatus::success);
+    CHECK(dropped.instance_matrix[14] == Catch::Approx(placed[14]));
+
+    // The faces it can lie on come from both bodies.
+    const orca::FlatteningPlanes faces = orca::describe_flattening_planes(on_plate, k2_plus_profiles(), placed);
+    INFO(faces.message);
+    REQUIRE(faces.status == orca::SceneStatus::success);
+    CHECK_FALSE(faces.planes.empty());
+}
+
+TEST_CASE("Objects a file stacks at several heights can be loaded as one object with parts", "[Adapter][Import]")
+{
+    require_engine();
+    const std::string amf = device_dir + "/tmp/import/stacked.amf";
+    write_text(amf, stacked_cubes_amf());
+
+    // Plater::priv::load_files() asks before it loads anything.
+    const orca::ImportedModels asked = orca::import_model(amf, k2_plus_profiles(), {}, import_prefix("amf"), {});
+    INFO(asked.message);
+    REQUIRE(asked.status == orca::SceneStatus::success);
+    REQUIRE(asked.has_question);
+    CHECK(asked.question.id == "multipart_object");
+    CHECK(asked.objects.empty());
+
+    SECTION("yes: one object with a part")
+    {
+        const orca::ImportedModels merged =
+            orca::import_model(amf, k2_plus_profiles(), {}, import_prefix("amf-yes"), {{"multipart_object", true}});
+        INFO(merged.message);
+        REQUIRE(merged.status == orca::SceneStatus::success);
+        REQUIRE_FALSE(merged.has_question);
+        REQUIRE(merged.objects.size() == 1);
+        const orca::ImportedObject& object = merged.objects.front();
+        // Model::convert_multipart_object() names the object after the file.
+        CHECK(object.name == "stacked");
+        // convert_multipart_object() names every volume after the object it was.
+        CHECK(object.volume_name == "stacked.amf");
+        CHECK(object.parts.front().name == "stacked.amf");
+        CHECK(object.parts.size() == 1);
+        // The two cubes keep their heights: 30 mm from the lower to the upper one.
+        CHECK(object.instances.front().size_z == Catch::Approx(30.0));
+        // The object has no place from the file, so it stands in the centre.
+        CHECK(object.instances.size() == 1);
+        CHECK(object.instances.front().instance_matrix[12] == Catch::Approx(175.0));
+        CHECK(object.instances.front().instance_matrix[13] == Catch::Approx(175.0));
+    }
+
+    SECTION("no: two objects where the file puts them")
+    {
+        const orca::ImportedModels apart =
+            orca::import_model(amf, k2_plus_profiles(), {}, import_prefix("amf-no"), {{"multipart_object", false}});
+        INFO(apart.message);
+        REQUIRE(apart.status == orca::SceneStatus::success);
+        REQUIRE(apart.objects.size() == 2);
+        // load_model_objects() keeps the instances of the file's constellation,
+        // and the upper cube drops onto the plate. ModelObject::rotate() by the
+        // preferred orientation centred each mesh around its instance, which
+        // then stands half a cube high.
+        for (const orca::ImportedObject& object : apart.objects) {
+            CHECK(object.parts.empty());
+            REQUIRE(object.instances.size() == 1);
+            CHECK(object.instances.front().instance_matrix[12] == Catch::Approx(0.0));
+            CHECK(object.instances.front().instance_matrix[13] == Catch::Approx(0.0));
+            CHECK(object.instances.front().instance_matrix[14] == Catch::Approx(5.0));
+            CHECK(object.instances.front().size_z == Catch::Approx(10.0));
+        }
+    }
+}
+
+TEST_CASE("A model that looks like metres offers to be scaled to millimetres", "[Adapter][Import]")
+{
+    require_engine();
+    const std::string obj = device_dir + "/tmp/import/tiny.obj";
+    write_text(obj, cube_obj(0.02));
+
+    const orca::ImportedModels asked = orca::import_model(obj, k2_plus_profiles(), {}, import_prefix("tiny"), {});
+    INFO(asked.message);
+    REQUIRE(asked.has_question);
+    CHECK(asked.question.id == "model_in_meters");
+
+    const orca::ImportedModels scaled =
+        orca::import_model(obj, k2_plus_profiles(), {}, import_prefix("tiny-yes"), {{"model_in_meters", true}});
+    INFO(scaled.message);
+    REQUIRE(scaled.status == orca::SceneStatus::success);
+    REQUIRE(scaled.objects.size() == 1);
+    CHECK(scaled.objects.front().instances.front().size_x == Catch::Approx(20.0));
+
+    const orca::ImportedModels kept =
+        orca::import_model(obj, k2_plus_profiles(), {}, import_prefix("tiny-no"), {{"model_in_meters", false}});
+    REQUIRE(kept.objects.size() == 1);
+    CHECK(kept.objects.front().instances.front().size_x == Catch::Approx(0.02));
 }
 
 TEST_CASE("An object added to the plate goes to its centre, or to the empty cell nearest to it", "[Adapter][Scene]")

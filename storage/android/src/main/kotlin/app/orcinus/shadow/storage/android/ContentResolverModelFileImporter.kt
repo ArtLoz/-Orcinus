@@ -34,7 +34,7 @@ class ContentResolverModelFileImporter(
         if (metadata.size != null && metadata.size > MAX_MODEL_BYTES) {
             return@withContext ModelImportOutcome.Failure(
                 ModelImportFailureCode.FILE_TOO_LARGE,
-                "STL file is larger than 512 MB",
+                "The model file is larger than 512 MB",
             )
         }
 
@@ -59,7 +59,7 @@ class ContentResolverModelFileImporter(
                 temporary.delete()
                 return@withContext ModelImportOutcome.Failure(
                     ModelImportFailureCode.EMPTY_FILE,
-                    "The selected STL file is empty",
+                    "The selected model file is empty",
                 )
             }
             Files.move(temporary.toPath(), destination.toPath(), REPLACE_EXISTING, ATOMIC_MOVE)
@@ -76,11 +76,11 @@ class ContentResolverModelFileImporter(
             temporary.delete()
             ModelImportOutcome.Failure(
                 ModelImportFailureCode.FILE_TOO_LARGE,
-                "STL file is larger than 512 MB",
+                "The model file is larger than 512 MB",
             )
         } catch (error: IOException) {
             temporary.delete()
-            readFailure(error.message ?: "Unable to import the selected STL file")
+            readFailure(error.message ?: "Unable to import the selected model file")
         } catch (error: SecurityException) {
             temporary.delete()
             readFailure(error.message ?: "Access to the selected document was denied")

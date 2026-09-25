@@ -17,6 +17,15 @@ interface SceneFiles {
     /** A new prefix for the meshes of a painted object, "<prefix>-<filament>.mesh". */
     fun newPaintedMeshes(): ScenePath
 
+    /**
+     * A new prefix for the meshes the engine writes for the objects of a model
+     * file, "<prefix>-<object>..." beside the other object meshes.
+     */
+    fun newImportPrefix(): ScenePath
+
+    /** Deletes every mesh written for [prefix], when its objects did not join the plate. */
+    fun deleteImport(prefix: ScenePath)
+
     /** Deletes an object mesh that nothing shows any more. */
     fun deleteObjectMesh(mesh: ScenePath)
 

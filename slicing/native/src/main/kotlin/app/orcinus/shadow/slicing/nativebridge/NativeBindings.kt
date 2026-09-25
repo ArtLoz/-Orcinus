@@ -535,6 +535,78 @@ internal class NativePresetNameValidation(
     @JvmField val info: Array<NativeUiText>,
 )
 
+/**
+ * The objects of a plate as the bridge reads them (to_plate() in
+ * native_bridge.cpp), by field name: parallel arrays with an entry per object,
+ * per copy, per part or per height range, in the plate's order.
+ */
+internal class NativePlate(
+    /** The model file of every object; empty for the built-in 20 mm calibration cube. */
+    @JvmField val modelPaths: Array<String>,
+    /** How many copies every object has, whose placements follow in turn, column-major 4 x 4. */
+    @JvmField val instanceCounts: IntArray,
+    @JvmField val placements: DoubleArray,
+    @JvmField val autoDrops: BooleanArray,
+    @JvmField val printable: BooleanArray,
+    @JvmField val settingKeys: Array<Array<String>>,
+    @JvmField val settingValues: Array<Array<String>>,
+    /** How many parts every object has, then their shapes, types and transformations. */
+    @JvmField val partCounts: IntArray,
+    @JvmField val partShapes: Array<String>,
+    @JvmField val partTypes: LongArray,
+    @JvmField val partMatrices: DoubleArray,
+    @JvmField val partSettingKeys: Array<Array<String>>,
+    @JvmField val partSettingValues: Array<Array<String>>,
+    /** The facets painted with the filaments of the plate, per object and per part. */
+    @JvmField val painted: Array<String>,
+    @JvmField val partPainted: Array<String>,
+    @JvmField val rangeCounts: IntArray,
+    @JvmField val rangeHeights: DoubleArray,
+    @JvmField val rangeSettingKeys: Array<Array<String>>,
+    @JvmField val rangeSettingValues: Array<Array<String>>,
+    /** Where every object's own mesh stands in it, 16 each; all zero centres it around the origin. */
+    @JvmField val objectMatrices: DoubleArray,
+    /** The mesh file of every part; empty for a generated shape. */
+    @JvmField val partSources: Array<String>,
+    @JvmField val partNames: Array<String>,
+    /** The settings of every object's own mesh (its first ModelVolume). */
+    @JvmField val volumeSettingKeys: Array<Array<String>>,
+    @JvmField val volumeSettingValues: Array<Array<String>>,
+)
+
+/** Constructed by the native bridge; see ImportedObject in orca_engine_adapter.hpp. */
+internal class NativeImportedObject(
+    @JvmField val name: String,
+    @JvmField val modelPath: String,
+    @JvmField val matrix: DoubleArray,
+    @JvmField val meshPath: String,
+    /** Every copy as it stands. */
+    @JvmField val instances: Array<NativeModelInspection>,
+    /** ModelVolume::name and config of its own mesh. */
+    @JvmField val volumeName: String,
+    @JvmField val volumeSettingKeys: Array<String>,
+    @JvmField val volumeSettingValues: Array<String>,
+    @JvmField val partNames: Array<String>,
+    /** VolumeType. */
+    @JvmField val partTypes: LongArray,
+    @JvmField val partPaths: Array<String>,
+    @JvmField val partMatrices: DoubleArray,
+    @JvmField val settingKeys: Array<String>,
+    @JvmField val settingValues: Array<String>,
+    @JvmField val partSettingKeys: Array<Array<String>>,
+    @JvmField val partSettingValues: Array<Array<String>>,
+)
+
+/** Constructed by the native bridge; see ImportedModels in orca_engine_adapter.hpp. */
+internal class NativeImportedModels(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val notices: Array<NativeSettingsDialog>,
+    @JvmField val hasQuestion: Boolean,
+    @JvmField val question: NativeSettingsDialog,
+    @JvmField val objects: Array<NativeImportedObject>,
+)
+
 /** SceneStatus in orca_engine_adapter.hpp. */
 internal object NativeSceneStatus {
     const val SUCCESS = 0L
@@ -578,37 +650,10 @@ internal object NativeBindings {
     /** Returns null when the engine is ready, otherwise the reason it is not. */
     external fun initialize(dataDir: String, resourcesDir: String, temporaryDir: String): String?
 
-    /**
-     * Slices the objects of the plate, given per object: [modelPaths] (empty for
-     * the built-in 20 mm calibration cube), 16 [placements] elements of its
-     * instance transformation, column-major 4 x 4, and [autoDrops].
-     */
+    /** Slices the objects of the [plate]. */
     external fun slice(
         jobId: String,
-        modelPaths: Array<String>,
-        /** The number of copies of every object, whose placements follow in turn. */
-        instanceCounts: IntArray,
-        placements: DoubleArray,
-        autoDrops: BooleanArray,
-        /** ModelInstance::printable of every copy. */
-        instancePrintable: BooleanArray,
-        /** The settings of every object, and of the plate, in the plate's order. */
-        objectSettingKeys: Array<Array<String>>,
-        objectSettingValues: Array<Array<String>>,
-        /** The parts of every object: how many each has, then their shapes, types and transformations. */
-        partCounts: IntArray,
-        partShapes: Array<String>,
-        partTypes: LongArray,
-        partMatrices: DoubleArray,
-        partSettingKeys: Array<Array<String>>,
-        partSettingValues: Array<Array<String>>,
-        rangeCounts: IntArray,
-        rangeHeights: DoubleArray,
-        rangeSettingKeys: Array<Array<String>>,
-        rangeSettingValues: Array<Array<String>>,
-        /** The facets painted with the filaments of the plate, per object and per part. */
-        painted: Array<String>,
-        partPainted: Array<String>,
+        plate: NativePlate,
         plateSettingKeys: Array<String>,
         plateSettingValues: Array<String>,
         outputPath: String,
@@ -637,23 +682,7 @@ internal object NativeBindings {
 
     /** The wipe tower of the plate, as the desktop canvas draws it. */
     external fun describeWipeTower(
-        modelPaths: Array<String>,
-        instanceCounts: IntArray,
-        placements: DoubleArray,
-        autoDrops: BooleanArray,
-        instancePrintable: BooleanArray,
-        objectSettingKeys: Array<Array<String>>,
-        objectSettingValues: Array<Array<String>>,
-        partCounts: IntArray,
-        partShapes: Array<String>,
-        partTypes: LongArray,
-        partMatrices: DoubleArray,
-        partSettingKeys: Array<Array<String>>,
-        partSettingValues: Array<Array<String>>,
-        rangeCounts: IntArray,
-        rangeHeights: DoubleArray,
-        rangeSettingKeys: Array<Array<String>>,
-        rangeSettingValues: Array<Array<String>>,
+        plate: NativePlate,
         plateSettingKeys: Array<String>,
         plateSettingValues: Array<String>,
         printerProfile: String,
@@ -664,23 +693,7 @@ internal object NativeBindings {
 
     /** The project's flushing volumes after a change of the filaments; [change] is FlushVolumesChange. */
     external fun updateFlushVolumes(
-        modelPaths: Array<String>,
-        instanceCounts: IntArray,
-        placements: DoubleArray,
-        autoDrops: BooleanArray,
-        instancePrintable: BooleanArray,
-        objectSettingKeys: Array<Array<String>>,
-        objectSettingValues: Array<Array<String>>,
-        partCounts: IntArray,
-        partShapes: Array<String>,
-        partTypes: LongArray,
-        partMatrices: DoubleArray,
-        partSettingKeys: Array<Array<String>>,
-        partSettingValues: Array<Array<String>>,
-        rangeCounts: IntArray,
-        rangeHeights: DoubleArray,
-        rangeSettingKeys: Array<Array<String>>,
-        rangeSettingValues: Array<Array<String>>,
+        plate: NativePlate,
         plateSettingKeys: Array<String>,
         plateSettingValues: Array<String>,
         printerProfile: String,
@@ -693,23 +706,7 @@ internal object NativeBindings {
 
     /** The flushing volumes of the plate (WipingDialog). */
     external fun describeFlushVolumes(
-        modelPaths: Array<String>,
-        instanceCounts: IntArray,
-        placements: DoubleArray,
-        autoDrops: BooleanArray,
-        instancePrintable: BooleanArray,
-        objectSettingKeys: Array<Array<String>>,
-        objectSettingValues: Array<Array<String>>,
-        partCounts: IntArray,
-        partShapes: Array<String>,
-        partTypes: LongArray,
-        partMatrices: DoubleArray,
-        partSettingKeys: Array<Array<String>>,
-        partSettingValues: Array<Array<String>>,
-        rangeCounts: IntArray,
-        rangeHeights: DoubleArray,
-        rangeSettingKeys: Array<Array<String>>,
-        rangeSettingValues: Array<Array<String>>,
+        plate: NativePlate,
         plateSettingKeys: Array<String>,
         plateSettingValues: Array<String>,
         printerProfile: String,
@@ -720,14 +717,8 @@ internal object NativeBindings {
 
     /** GLGizmoMmuSegmentation: opens the painting tool on an object or one of its parts. */
     external fun beginPainting(
-        modelPath: String,
-        instanceCounts: IntArray,
-        placements: DoubleArray,
-        autoDrops: BooleanArray,
-        partCounts: IntArray,
-        partShapes: Array<String>,
-        partTypes: LongArray,
-        partMatrices: DoubleArray,
+        /** The object alone, as a plate of one. */
+        plateObject: NativePlate,
         /** The part to paint; -1 paints the object's own mesh. */
         part: Int,
         printerProfile: String,
@@ -760,28 +751,39 @@ internal object NativeBindings {
         outputDirectory: String,
     ): NativePlateDescription
 
-    /**
-     * An empty [modelPath] inspects the built-in 20 mm calibration cube. The
-     * objects already on the plate are given as for [slice].
-     */
+    /** An empty [modelPath] inspects the built-in 20 mm calibration cube, placed beside the objects of [plate]. */
     external fun inspectModel(
         modelPath: String,
         printerProfile: String,
         filamentProfile: String,
         processProfile: String,
         meshPath: String,
-        plateModelPaths: Array<String>,
-        plateInstanceCounts: IntArray,
-        platePlacements: DoubleArray,
-        plateAutoDrops: BooleanArray,
+        plate: NativePlate,
     ): NativeModelInspection
 
     /**
-     * Commits [manipulation] (Manipulation in orca_engine_adapter.hpp) of the object of [modelPath]
-     * (empty for the cube) from [previousPlacement] to [placement], column-major 4 x 4.
+     * import_model(): the objects of the model file [sourcePath], placed beside
+     * the objects of [plate], with their meshes written into files named after
+     * [outputPrefix]; [answerIds] and [answers] answer the questions it asked.
+     */
+    external fun importModel(
+        sourcePath: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        plate: NativePlate,
+        outputPrefix: String,
+        answerIds: Array<String>,
+        answers: BooleanArray,
+    ): NativeImportedModels
+
+    /**
+     * Commits [manipulation] (Manipulation in orca_engine_adapter.hpp) of the
+     * object, a plate of one, from [previousPlacement] to [placement], column-major 4 x 4.
      */
     external fun placeModel(
-        modelPath: String,
+        plateObject: NativePlate,
         printerProfile: String,
         filamentProfile: String,
         processProfile: String,
@@ -799,10 +801,7 @@ internal object NativeBindings {
      * object for auto orient.
      */
     external fun placeObjects(
-        modelPaths: Array<String>,
-        instanceCounts: IntArray,
-        placements: DoubleArray,
-        autoDrops: BooleanArray,
+        plate: NativePlate,
         selected: BooleanArray,
         printerProfile: String,
         filamentProfile: String,
@@ -817,10 +816,7 @@ internal object NativeBindings {
 
     /** ObjectList::load_generic_subobject(): a shape added to the object as a part. */
     external fun addObjectPart(
-        modelPath: String,
-        instanceCounts: IntArray,
-        placements: DoubleArray,
-        autoDrops: BooleanArray,
+        plateObject: NativePlate,
         shape: String,
         type: Long,
         printerProfile: String,
@@ -830,7 +826,7 @@ internal object NativeBindings {
     ): NativeModelInspection
 
     external fun describeFlatteningPlanes(
-        modelPath: String,
+        plateObject: NativePlate,
         printerProfile: String,
         filamentProfile: String,
         processProfile: String,

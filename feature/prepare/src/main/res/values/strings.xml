@@ -6,7 +6,7 @@
 
     <string name="add_model">Добавить модель</string>
     <string name="add_calibration_cube">Добавить тестовый куб 20 мм</string>
-    <string name="empty_plate">Добавьте модель STL на стол</string>
+    <string name="empty_plate">Добавьте модель на стол</string>
     <string name="plate_view">3D-вид стола. Один палец вращает, два пальца сдвигают и масштабируют, двойное касание возвращает вид на стол.</string>
     <string name="importing_model">Импорт модели…</string>
 

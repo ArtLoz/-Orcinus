@@ -280,7 +280,7 @@ private fun SettingStateParcel.toState() = SettingState(
     listValues = listValues.orEmpty().toList(),
 )
 
-private fun SettingsDialog.toParcel() = SettingsDialogParcel().also {
+internal fun SettingsDialog.toParcel() = SettingsDialogParcel().also {
     it.id = id
     it.icon = icon.name
     it.title = title.toParcels()
@@ -290,7 +290,7 @@ private fun SettingsDialog.toParcel() = SettingsDialogParcel().also {
     it.no = no?.toParcel()
 }
 
-private fun SettingsDialogParcel.toDialog() = SettingsDialog(
+internal fun SettingsDialogParcel.toDialog() = SettingsDialog(
     id = id,
     icon = DialogIcon.valueOf(icon),
     title = title.toTexts(),

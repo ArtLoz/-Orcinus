@@ -13,6 +13,7 @@ import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
@@ -88,7 +89,7 @@ class ModelImportAndInspectionUseCasesTest {
         val placement = Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 })
 
         val actual = runSuspend {
-            PlaceModelUseCase(inspector)(ModelSource.LocalFile(ModelPath("/imports/model.stl")), PROFILES, MESH, placement, placement, true, Manipulation.Rotate)
+            PlaceModelUseCase(inspector)(PLACED, PROFILES, placement, placement, true, Manipulation.Rotate)
         }
 
         assertEquals(VALID_INSPECTION, actual)
@@ -128,7 +129,7 @@ class ModelImportAndInspectionUseCasesTest {
         val placement = Transform3(List(16) { if (it == 12) Double.NaN else 0.0 })
 
         val actual = runSuspend {
-            PlaceModelUseCase(inspector)(ModelSource.LocalFile(ModelPath("/imports/model.stl")), PROFILES, MESH, placement, placement, true, Manipulation.Move)
+            PlaceModelUseCase(inspector)(PLACED, PROFILES, placement, placement, true, Manipulation.Move)
         }
 
         assertIs<ModelInspectionOutcome.Failure>(actual)
@@ -199,17 +200,24 @@ class ModelImportAndInspectionUseCasesTest {
             return outcome
         }
 
-        override suspend fun place(
-            model: ModelSource,
+        override suspend fun load(
+            source: ModelPath,
             profiles: SlicingProfileSelection,
-            mesh: ScenePath,
+            plate: List<PlacedModel>,
+            prefix: ScenePath,
+            answers: Map<String, Boolean>,
+        ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun place(
+            plateObject: PlacedModel,
+            profiles: SlicingProfileSelection,
             previous: Transform3,
             placement: Transform3,
             autoDrop: Boolean,
             manipulation: Manipulation,
         ): ModelInspectionOutcome {
-            this.model = model
-            this.mesh = mesh
+            this.model = plateObject.model
+            this.mesh = plateObject.mesh
             this.placement = placement
             return outcome
         }
@@ -232,9 +240,8 @@ class ModelImportAndInspectionUseCasesTest {
         ) = ModelInspectionOutcome.Failure("not used")
 
         override suspend fun flatteningPlanes(
-            model: ModelSource,
+            plateObject: PlacedModel,
             profiles: SlicingProfileSelection,
-            mesh: ScenePath,
             placement: Transform3,
         ) = FlatteningPlanesOutcome.Failure("not used")
     }
@@ -255,6 +262,7 @@ class ModelImportAndInspectionUseCasesTest {
         val PROFILES = SlicingProfileSelection(ProfileId("printer"), ProfileId("filament"), ProfileId("process"))
         val MESH = ScenePath("/scene/objects/model.mesh")
         val IDENTITY = Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 })
+        val PLACED = PlacedModel(ModelSource.LocalFile(ModelPath("/imports/model.stl")), MESH, IDENTITY)
         val VALID_INSPECTION = ModelInspectionOutcome.Success(
             ModelInspection(
                 facetCount = 12,
