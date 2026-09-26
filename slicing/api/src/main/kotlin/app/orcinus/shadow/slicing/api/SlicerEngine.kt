@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.api
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -261,6 +262,18 @@ interface PlateInspector {
      */
     suspend fun prepareCalibration(
         params: CalibrationParams,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /**
+     * Plater::calib_flowrate() once the new project for it stands: the objects
+     * of the flow ratio [test] set up on the empty plate, each with the flow
+     * ratio its name tells, and the values of the selected presets changed.
+     * The engine writes its meshes named after [prefix].
+     */
+    suspend fun prepareFlowRateCalibration(
+        test: FlowRateCalibration,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
     ): ModelLoadOutcome

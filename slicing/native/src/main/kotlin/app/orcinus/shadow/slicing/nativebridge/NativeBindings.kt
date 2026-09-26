@@ -810,6 +810,18 @@ internal object NativeBindings {
         outputPrefix: String,
     ): NativeImportedModels
 
+    /** prepare_flow_rate_calibration(): the flow ratio test set up on the empty plate, and the presets changed. */
+    external fun prepareFlowRateCalibration(
+        linear: Boolean,
+        pass: Int,
+        topSurfacePattern: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
     /** The thumbnails the G-code of the printer holds: width and height of each. */
     external fun thumbnailSizes(
         printerProfile: String,

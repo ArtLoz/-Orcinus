@@ -145,6 +145,9 @@ interface ISlicerService {
     @nullable String handyModel(String file);
     /** prepare_calibration(): the calibration's model on the empty plate. */
     ModelLoadParcel prepareCalibration(in CalibrationParcel params, in ProfilesParcel profiles, String prefix);
+
+    /** prepare_flow_rate_calibration(): the flow ratio test on the empty plate. */
+    ModelLoadParcel prepareFlowRateCalibration(boolean linear, int pass, String topSurfacePattern, in ProfilesParcel profiles, String prefix);
     /** paste_volumes(): source is the one object the clipboard copied the volumes from. */
     ModelLoadParcel pasteVolumes(
         in PlacedModelParcel[] plate,

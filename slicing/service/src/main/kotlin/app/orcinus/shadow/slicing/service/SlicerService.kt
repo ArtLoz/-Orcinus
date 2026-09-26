@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import android.app.Service
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
@@ -277,6 +278,16 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun prepareCalibration(params: CalibrationParcel, profiles: ProfilesParcel, prefix: String): ModelLoadParcel = runBlocking {
             engine.prepareCalibration(params.toCalibrationParams(), profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun prepareFlowRateCalibration(
+            linear: Boolean,
+            pass: Int,
+            topSurfacePattern: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.prepareFlowRateCalibration(FlowRateCalibration(linear, pass, topSurfacePattern), profiles.toProfiles(), ScenePath(prefix))
         }.toParcel()
 
         override fun pasteVolumes(

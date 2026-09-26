@@ -386,6 +386,18 @@ data class CalibrationParams(
     val extruderId: Int = 0,
 )
 
+/**
+ * What FlowRateCalibrationDialog asks Plater::calib_flowrate() for: the YOLO
+ * tests when [linear] (pass 1 the recommended one, pass 2 the perfectionist
+ * one), the coarse first or fine second pass otherwise, and the top surface
+ * pattern, an InfillPattern of the configuration.
+ */
+data class FlowRateCalibration(
+    val linear: Boolean,
+    val pass: Int,
+    val topSurfacePattern: String,
+)
+
 /** CustomGCode::Type: what a code on a layer does. */
 enum class LayerGcodeType {
     COLOR_CHANGE,

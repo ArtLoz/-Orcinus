@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import android.content.ComponentName
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.ProjectPlate
 import kotlinx.coroutines.sync.Mutex
@@ -340,6 +341,14 @@ class RemoteSlicerEngine(
         prefix: ScenePath,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         prepareCalibration(params.toParcel(), profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
+    override suspend fun prepareFlowRateCalibration(
+        test: FlowRateCalibration,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        prepareFlowRateCalibration(test.linear, test.pass, test.topSurfacePattern, profiles.toParcel(), prefix.value).toModelLoadOutcome()
     }
 
     override suspend fun handyModel(file: String): ModelPath? = withContext(Dispatchers.IO) {

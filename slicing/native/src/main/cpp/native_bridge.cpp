@@ -3189,6 +3189,32 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_prepareCalibration(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_prepareFlowRateCalibration(
+    JNIEnv* env,
+    jobject /* this */,
+    jboolean linear,
+    jint pass,
+    jstring top_surface_pattern,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::prepare_flow_rate_calibration(
+            linear == JNI_TRUE,
+            static_cast<int>(pass),
+            to_utf8(env, top_surface_pattern),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_pasteVolumes(
     JNIEnv* env,
     jobject /* this */,

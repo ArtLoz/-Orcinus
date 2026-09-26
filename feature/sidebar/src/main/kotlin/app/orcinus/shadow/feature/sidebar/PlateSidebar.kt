@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.sidebar
 
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
 import app.orcinus.shadow.core.model.partPlates
@@ -407,6 +408,9 @@ class SidebarViewModel(
 
     /** A test of the Calibration menu: its own project, its model and the presets it prints with. */
     fun calibrate(params: CalibrationParams) = calibrateUseCase(params)
+
+    /** The flow ratio test of the Calibration menu (Plater::calib_flowrate). */
+    fun calibrateFlowRate(test: FlowRateCalibration) = calibrateUseCase(test)
 
     /** Open Project: the document the user picked opens as a project. */
     fun openProject(document: ExternalDocumentReference) = addModelToPlate.openProject(document)
@@ -979,6 +983,8 @@ internal class ProjectActions(
     val open: () -> Unit,
     /** A test of the Calibration menu, which starts a project of its own. */
     val calibrate: (CalibrationParams) -> Unit = {},
+    /** The flow ratio test of the Calibration menu, which starts a project of its own. */
+    val calibrateFlowRate: (FlowRateCalibration) -> Unit = {},
 ) {
     companion object {
         val NONE = ProjectActions(save = {}, saveAs = {}, new = {}, open = {})
@@ -998,6 +1004,8 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
     var rangeTest by remember { mutableStateOf<RangeTest?>(null) }
     var pressureAdvance by remember { mutableStateOf(false) }
     var pressureAdvanceChoice by remember { mutableStateOf(PressureAdvanceChoice()) }
+    var flowRate by remember { mutableStateOf(false) }
+    var flowRateChoice by remember { mutableStateOf(FlowRateChoice()) }
     // Plater::priv::update_title_dirty_status()
     val title = (if (dirty) "*" else "") + (name ?: orcaString("Untitled"))
     OrcaSidebarTitle(title, DesignR.drawable.orca_open_project) {
@@ -1020,6 +1028,7 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
                     onTemperature = { temperature = true },
                     onRange = { rangeTest = it },
                     onPressureAdvance = { pressureAdvance = true },
+                    onFlowRate = { flowRate = true },
                 )
             }
         }
@@ -1075,6 +1084,17 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
             onStart = { params ->
                 pressureAdvance = false
                 actions.calibrate(params)
+            },
+        )
+    }
+    if (flowRate) {
+        FlowRateSheet(
+            choice = flowRateChoice,
+            onChoice = { flowRateChoice = it },
+            onDismiss = { flowRate = false },
+            onStart = { test ->
+                flowRate = false
+                actions.calibrateFlowRate(test)
             },
         )
     }
@@ -1329,6 +1349,10 @@ fun PlateSidebar(
             open = { openPicker.launch(arrayOf("*/*")) },
             calibrate = { params ->
                 viewModel.calibrate(params)
+                onShowPrepare()
+            },
+            calibrateFlowRate = { test ->
+                viewModel.calibrateFlowRate(test)
                 onShowPrepare()
             },
         ),

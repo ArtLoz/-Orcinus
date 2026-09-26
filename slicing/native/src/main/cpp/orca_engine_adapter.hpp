@@ -1361,6 +1361,21 @@ struct ProjectSave {
 // written as import_model() writes them, and the presets are changed.
 ImportedModels prepare_calibration(const CalibrationParams& params, const ProfileSelection& profiles, const std::string& output_prefix);
 
+// Plater::calib_flowrate() once the new project for it stands: the objects of
+// the test's 3MF file (the YOLO tests when linear, the first or the finer
+// second pass by pass) scaled to ten layers and set up with the top surface
+// pattern (an InfillPattern of the configuration, "archimedeanchords" or
+// "monotonic") and each with the flow ratio its name tells, and the values of
+// the selected presets changed as the desktop app changes them. No
+// calibration is told the plate's print.
+ImportedModels prepare_flow_rate_calibration(
+    bool linear,
+    int pass,
+    const std::string& top_surface_pattern,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
 // Plater::export_3mf() for "Save project" (SplitModel | ShareMesh): the
 // objects of every plate with their parts, settings, paint and copies, the
 // codes on the layers of each plate (Model::plates_custom_gcodes), the

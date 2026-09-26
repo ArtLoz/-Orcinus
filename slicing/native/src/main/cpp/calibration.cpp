@@ -1,9 +1,11 @@
 #include <cmath>
+#include <functional>
 #include <mutex>
 
 #include <boost/filesystem.hpp>
 
 #include "engine_context.hpp"
+#include "project_3mf.hpp"
 #include "settings_dialogs.hpp"
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/CutUtils.hpp"
@@ -65,6 +67,190 @@ Slic3r::ModelObject* add_calibration_model(Slic3r::Model& model, const std::stri
     instance->set_offset({center.x(), center.y(), 0.0});
     object->ensure_on_bed(false);
     return object;
+}
+
+// Plater::add_model() of a calibration's 3MF file on the plate the new
+// project left empty (Plater::priv::load_files() of a file loaded as
+// geometry): its objects as the file placed them, standing on the plate and
+// gathered around its centre as they stood to each other.
+std::vector<Slic3r::ModelObject*> add_calibration_3mf(
+    Slic3r::Model& model,
+    const std::string& file,
+    const Slic3r::DynamicPrintConfig& config,
+    detail::SettingsDialogs& dialogs,
+    detail::Archive3mf& archive
+)
+{
+    const std::string path = Slic3r::resources_dir() + "/calib/" + file;
+    Slic3r::Model read = detail::read_3mf(path, false, config, dialogs, archive);
+    if (read.objects.empty()) {
+        throw Slic3r::RuntimeError("The calibration model " + path + " is empty");
+    }
+    for (Slic3r::ModelObject* object : read.objects) {
+        if (!object->instances.empty()) {
+            object->ensure_on_bed(false);
+        }
+    }
+    read.center_instances_around_point(detail::bed_center(config));
+    std::vector<Slic3r::ModelObject*> objects;
+    for (const Slic3r::ModelObject* object : read.objects) {
+        Slic3r::ModelObject* added = model.add_object(*object);
+        added->sort_volumes(true);
+        if (added->instances.empty()) {
+            added->center_around_origin();
+            const Slic3r::Vec2d center = detail::bed_center(config);
+            added->add_instance()->set_offset({center.x(), center.y(), 0.0});
+        }
+        added->ensure_on_bed(false);
+        objects.push_back(added);
+    }
+    return objects;
+}
+
+// Selection::scale() of the objects load_files() selected, relative to the
+// world: around the centre of their bounding box (Selection::setup_cache()),
+// their places spreading with them; then GLCanvas3D::do_scale(), which drops
+// every copy onto the bed.
+void scale_selection(const std::vector<Slic3r::ModelObject*>& objects, const Slic3r::Vec3d& scale)
+{
+    // Selection::get_bounding_box(): the convex hulls of the selected volumes.
+    Slic3r::BoundingBoxf3 box;
+    for (const Slic3r::ModelObject* object : objects) {
+        for (std::size_t instance = 0; instance < object->instances.size(); ++instance) {
+            box.merge(object->instance_convex_hull_bounding_box(instance));
+        }
+    }
+    // Selection::transform_instance_relative() about m_cache.dragging_center.
+    const Slic3r::Vec3d pivot = box.center();
+    const Slic3r::Transform3d transform = Slic3r::Geometry::translation_transform(pivot) * Slic3r::Geometry::scale_transform(scale) *
+                                          Slic3r::Geometry::translation_transform(-pivot);
+    for (Slic3r::ModelObject* object : objects) {
+        for (Slic3r::ModelInstance* instance : object->instances) {
+            instance->set_transformation(Slic3r::Geometry::Transformation(transform * instance->get_matrix()));
+        }
+        object->invalidate_bounding_box();
+    }
+    // Fixes sinking/flying instances (snaps object to buildplate)
+    for (Slic3r::ModelObject* object : objects) {
+        for (std::size_t instance = 0; instance < object->instances.size(); ++instance) {
+            const double shift_z = object->get_instance_min_z(instance);
+            if (shift_z != 0.0) {
+                object->translate_instance(instance, Slic3r::Vec3d(0.0, 0.0, -shift_z));
+            }
+        }
+    }
+}
+
+// adjust_settings_for_flowrate_calib() of Plater.cpp: the objects scaled to
+// ten layers (and to the nozzle when it is much larger than 0.6 mm), their
+// infill speeds kept within the filament's volumetric speed, each object's
+// flow ratio from its name (flowrate_xxx), and the process at the layer the
+// test prints with. For the linear (YOLO) test, pass 1 is the normal version
+// and pass 2 the one for perfectionists.
+void adjust_settings_for_flowrate_calib(
+    std::vector<Slic3r::ModelObject*>& objects,
+    bool linear,
+    int pass,
+    Slic3r::InfillPattern pattern,
+    Slic3r::PresetBundle& bundle
+)
+{
+    using namespace Slic3r;
+    auto print_config = &bundle.prints.get_edited_preset().config;
+    auto printerConfig = &bundle.printers.get_edited_preset().config;
+    auto filament_config = &bundle.filaments.get_edited_preset().config;
+
+    /// --- scale ---
+    // model is created for a 0.4 nozzle, scale z with nozzle size.
+    const ConfigOptionFloats* nozzle_diameter_config = printerConfig->option<ConfigOptionFloats>("nozzle_diameter");
+    assert(nozzle_diameter_config->values.size() > 0);
+    float nozzle_diameter = nozzle_diameter_config->values[0];
+    float xyScale = nozzle_diameter / 0.6;
+    //scale z to have 10 layers
+    // 2 bottom, 5 top, 3 sparse infill
+    double first_layer_height = print_config->option<ConfigOptionFloat>("initial_layer_print_height")->value;
+    double layer_height = nozzle_diameter / 2.0; // prefer 0.2 layer height for 0.4 nozzle
+    first_layer_height = std::max(first_layer_height, layer_height);
+
+    float zscale = (first_layer_height + 9 * layer_height) / 2;
+    // only enlarge
+    if (xyScale > 1.2) {
+        scale_selection(objects, {xyScale, xyScale, zscale});
+    } else {
+        scale_selection(objects, {1, 1, zscale});
+    }
+
+    auto cur_flowrate = filament_config->option<ConfigOptionFloats>("filament_flow_ratio")->get_at(0);
+    Flow infill_flow = Flow(nozzle_diameter * 1.2f, layer_height, nozzle_diameter);
+    double filament_max_volumetric_speed = filament_config->option<ConfigOptionFloats>("filament_max_volumetric_speed")->get_at(0);
+    double max_infill_speed;
+    if (linear)
+        max_infill_speed = filament_max_volumetric_speed /
+                           (infill_flow.mm3_per_mm() * (cur_flowrate + (pass == 2 ? 0.035 : 0.05)) / cur_flowrate);
+    else
+        max_infill_speed = filament_max_volumetric_speed / (infill_flow.mm3_per_mm() * (pass == 1 ? 1.2 : 1));
+    double internal_solid_speed = std::floor(std::min(print_config->opt_float("internal_solid_infill_speed"), max_infill_speed));
+    double top_surface_speed = std::floor(std::min(print_config->opt_float("top_surface_speed"), max_infill_speed));
+
+    // adjust parameters
+    for (auto _obj : objects) {
+        _obj->ensure_on_bed();
+        _obj->config.set_key_value("wall_loops", new ConfigOptionInt(1));
+        _obj->config.set_key_value("only_one_wall_top", new ConfigOptionBool(true));
+        _obj->config.set_key_value("thick_internal_bridges", new ConfigOptionBool(false));
+        _obj->config.set_key_value("enable_extra_bridge_layer", new ConfigOptionEnum<EnableExtraBridgeLayer>(eblDisabled));
+        _obj->config.set_key_value("internal_bridge_density", new ConfigOptionPercent(100));
+        _obj->config.set_key_value("sparse_infill_density", new ConfigOptionPercent(35));
+        _obj->config.set_key_value("min_width_top_surface", new ConfigOptionFloatOrPercent(100,true));
+        _obj->config.set_key_value("bottom_shell_layers", new ConfigOptionInt(2));
+        _obj->config.set_key_value("top_shell_layers", new ConfigOptionInt(5));
+        _obj->config.set_key_value("top_shell_thickness", new ConfigOptionFloat(0));
+        _obj->config.set_key_value("bottom_shell_thickness", new ConfigOptionFloat(0));
+        _obj->config.set_key_value("detect_thin_wall", new ConfigOptionBool(true));
+        _obj->config.set_key_value("filter_out_gap_fill", new ConfigOptionFloat(0));
+        _obj->config.set_key_value("sparse_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipRectilinear));
+        _obj->config.set_key_value("top_surface_line_width", new ConfigOptionFloatOrPercent(nozzle_diameter * 1.2f, false));
+        _obj->config.set_key_value("internal_solid_infill_line_width", new ConfigOptionFloatOrPercent(nozzle_diameter * 1.2f, false));
+        // ORCA: use the pattern parameter
+        _obj->config.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(pattern));
+        _obj->config.set_key_value("top_solid_infill_flow_ratio", new ConfigOptionFloat(1.0f));
+        _obj->config.set_key_value("infill_direction", new ConfigOptionFloat(45));
+        _obj->config.set_key_value("solid_infill_direction", new ConfigOptionFloat(135));
+        _obj->config.set_key_value("align_infill_direction_to_model", new ConfigOptionBool(true));
+        _obj->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
+        _obj->config.set_key_value("internal_solid_infill_speed", new ConfigOptionFloat(internal_solid_speed));
+        _obj->config.set_key_value("top_surface_speed", new ConfigOptionFloat(top_surface_speed));
+        _obj->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+        _obj->config.set_key_value("gap_fill_target", new ConfigOptionEnum<GapFillTarget>(GapFillTarget::gftNowhere));
+        print_config->set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+        _obj->config.set_key_value("calib_flowrate_topinfill_special_order", new ConfigOptionBool(true));
+
+        // extract flowrate from name, filename format: flowrate_xxx
+        std::string obj_name = _obj->name;
+        assert(obj_name.length() > 9);
+        obj_name = obj_name.substr(9);
+        if (obj_name[0] == 'm')
+            obj_name[0] = '-';
+        // Orca: force set locale to C to avoid parsing error; the engine keeps
+        // the C locale throughout.
+        auto              modifier  = 1.0f;
+        try {
+            modifier = stof(obj_name);
+        } catch (...) {
+        }
+
+        if(linear)
+            _obj->config.set_key_value("print_flow_ratio", new ConfigOptionFloat((cur_flowrate + modifier)/cur_flowrate));
+        else
+            _obj->config.set_key_value("print_flow_ratio", new ConfigOptionFloat(1.0f + modifier/100.f));
+
+    }
+
+    print_config->set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+    print_config->set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+    print_config->set_key_value("initial_layer_print_height", new ConfigOptionFloat(first_layer_height));
+    print_config->set_key_value("reduce_crossing_wall", new ConfigOptionBool(true));
+    print_config->set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
 }
 
 // Plater::cut_horizontal() at height z of the object's copy: the part the
@@ -568,9 +754,25 @@ std::vector<Slic3r::ModelObject*> calib_pa_pattern(
     return objects;
 }
 
-}  // namespace
+// The objects a calibration set up on the empty plate, with the plates they
+// stand on.
+struct CalibrationSetup {
+    std::vector<Slic3r::ModelObject*> objects;
+    int plate_count{1};
+};
 
-ImportedModels prepare_calibration(const CalibrationParams& params, const ProfileSelection& profiles, const std::string& output_prefix)
+// What every calibration of the menu does once its new project stands: the
+// selected presets, the objects setup() adds to the empty plate with the
+// changes to the edited presets, written as import_model() writes them.
+// Tab::reload_config() only shows the values the calibration changed, without
+// Tab::update() and its questions (a spiral vase test leaves the walls of the
+// process preset to the object), as the tabs show the edited presets whenever
+// they are described.
+ImportedModels prepare(
+    const ProfileSelection& profiles,
+    const std::string& output_prefix,
+    const std::function<CalibrationSetup(Slic3r::Model&, const Slic3r::DynamicPrintConfig&, Slic3r::PresetBundle&, detail::SettingsDialogs&, ImportedModels&)>& setup
+)
 {
     ImportedModels result;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
@@ -588,13 +790,36 @@ ImportedModels prepare_calibration(const CalibrationParams& params, const Profil
             return result;
         }
         Slic3r::Model model;
-        Slic3r::ModelObject* object = nullptr;
-        std::vector<Slic3r::ModelObject*> objects;
-        // What the plate's print is told, which a test may turn into other figures.
-        CalibrationParams print_params = params;
         const DialogAnswers no_answers;
         detail::SettingsDialogs dialogs(no_answers);
-        int plate_count = 1;
+        const CalibrationSetup set_up = setup(model, config, bundle, dialogs, result);
+        if (set_up.objects.empty()) {
+            return result;
+        }
+        result.plate_count = set_up.plate_count;
+        result.notices = dialogs.take_notices();
+        result.presets_changed = true;
+        if (!detail::write_objects(set_up.objects, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+    }
+    return result;
+}
+
+}  // namespace
+
+ImportedModels prepare_calibration(const CalibrationParams& params, const ProfileSelection& profiles, const std::string& output_prefix)
+{
+    return prepare(profiles, output_prefix, [&params](Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, Slic3r::PresetBundle& bundle,
+                                                      detail::SettingsDialogs& dialogs, ImportedModels& result) {
+        CalibrationSetup set_up;
+        Slic3r::ModelObject* object = nullptr;
+        // What the plate's print is told, which a test may turn into other figures.
+        CalibrationParams print_params = params;
         switch (params.mode) {
         case CalibrationMode::temp_tower: object = calib_temp(model, params, config, bundle); break;
         case CalibrationMode::vol_speed_tower: object = calib_max_vol_speed(model, print_params, config, bundle); break;
@@ -611,30 +836,51 @@ ImportedModels prepare_calibration(const CalibrationParams& params, const Profil
             break;
         case CalibrationMode::pa_pattern:
             calib_pa_common(bundle);
-            objects = calib_pa_pattern(model, params, config, bundle, dialogs, plate_count);
+            set_up.objects = calib_pa_pattern(model, params, config, bundle, dialogs, set_up.plate_count);
             break;
-        default: result.message = "This calibration is not ported yet"; return result;
+        default: result.message = "This calibration is not ported yet"; return set_up;
         }
         result.calibration = print_params;
-        result.plate_count = plate_count;
-        result.notices = dialogs.take_notices();
         if (object != nullptr) {
-            objects.push_back(object);
+            set_up.objects.push_back(object);
         }
-        // Tab::reload_config() only shows the values the calibration changed,
-        // without Tab::update() and its questions (a spiral vase test leaves
-        // the walls of the process preset to the object), as the tabs show
-        // the edited presets whenever they are described.
-        result.presets_changed = true;
-        if (!detail::write_objects(objects, output_prefix, result)) {
-            return result;
+        return set_up;
+    });
+}
+
+ImportedModels prepare_flow_rate_calibration(
+    const bool linear,
+    const int pass,
+    const std::string& top_surface_pattern,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    return prepare(profiles, output_prefix, [&](Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, Slic3r::PresetBundle& bundle,
+                                                detail::SettingsDialogs& dialogs, ImportedModels& result) {
+        CalibrationSetup set_up;
+        Slic3r::ConfigOptionEnum<Slic3r::InfillPattern> pattern;
+        if ((pass != 1 && pass != 2) || !pattern.deserialize(top_surface_pattern)) {
+            result.message = "Unknown flow rate calibration";
+            return set_up;
         }
-        result.status = SceneStatus::success;
-    } catch (const std::exception& error) {
-        result.status = SceneStatus::model_read_failed;
-        result.message = error.what();
-    }
-    return result;
+        std::string file;
+        if (linear) {
+            file = pass == 1 ? "filament_flow/Orca-LinearFlow.3mf" : "filament_flow/Orca-LinearFlow_fine.3mf";
+        } else {
+            file = pass == 1 ? "filament_flow/flowrate-test-pass1.3mf" : "filament_flow/flowrate-test-pass2.3mf";
+        }
+        detail::Archive3mf archive;
+        set_up.objects = add_calibration_3mf(model, file, config, dialogs, archive);
+        // What the file brings into the presets, as load_files() applies it.
+        detail::apply_3mf(archive, boost::filesystem::path(file).filename().string(), dialogs, result);
+
+        // ORCA: pass the pattern
+        adjust_settings_for_flowrate_calib(set_up.objects, linear, pass, pattern.value, bundle);
+        auto printer_config = &bundle.printers.get_edited_preset().config;
+        printer_config->set_key_value("resonance_avoidance", new Slic3r::ConfigOptionBool{false});
+        return set_up;
+    });
 }
 
 }  // namespace orcinus::orca

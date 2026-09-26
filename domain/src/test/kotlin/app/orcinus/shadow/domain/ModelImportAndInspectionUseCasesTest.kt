@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain
 
 import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
@@ -256,6 +257,9 @@ class ModelImportAndInspectionUseCasesTest {
         override suspend fun handyModel(file: String): ModelPath? = null
 
         override suspend fun prepareCalibration(params: CalibrationParams, profiles: SlicingProfileSelection, prefix: ScenePath) =
+            ModelLoadOutcome.Failure("not used")
+
+        override suspend fun prepareFlowRateCalibration(test: FlowRateCalibration, profiles: SlicingProfileSelection, prefix: ScenePath) =
             ModelLoadOutcome.Failure("not used")
 
         override suspend fun saveProject(

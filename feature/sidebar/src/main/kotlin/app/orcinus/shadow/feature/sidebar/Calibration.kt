@@ -1,6 +1,16 @@
 package app.orcinus.shadow.feature.sidebar
 
 import androidx.compose.foundation.layout.Arrangement
+import app.orcinus.shadow.core.model.FlowRateCalibration
+import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
+import app.orcinus.shadow.core.designsystem.icon.orcaIcon
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,6 +62,7 @@ internal fun CalibrationMenuItems(
     onTemperature: () -> Unit,
     onRange: (RangeTest) -> Unit,
     onPressureAdvance: () -> Unit,
+    onFlowRate: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     @Composable
@@ -66,7 +77,7 @@ internal fun CalibrationMenuItems(
     item("Temperature", onTemperature)
     item("Max flowrate") { onRange(RangeTest.MAX_FLOWRATE) }
     item("Pressure advance", onPressureAdvance)
-    item("Flow ratio", null)
+    item("Flow ratio", onFlowRate)
     item("Retraction") { onRange(RangeTest.RETRACTION) }
     item("Cornering", null)
     OrcaSubmenu(text = orcaString("Input Shaping"), enabled = false) {
@@ -300,6 +311,104 @@ private fun NumberField(label: String, value: String, unit: String?, onChange: (
         )
     }
 }
+
+/** FlowRateCalibrationDialog's choices, which the dialog keeps from one showing to the next. */
+internal data class FlowRateChoice(val type: Int = FLOW_YOLO, val pattern: Int = 0)
+
+/** The test types of FlowRateCalibrationDialog, in its order. */
+private val FLOW_TYPES = listOf("Pass 1 (Coarse)", "Pass 2 (Fine)", "YOLO (Recommended)", "YOLO (Perfectionist)")
+private const val FLOW_YOLO = 2
+
+/** Its top surface patterns: the icon, the label and the InfillPattern. */
+private val FLOW_PATTERNS = listOf(
+    Triple("param_archimedeanchords", "Archimedean Chords", "archimedeanchords"),
+    Triple("param_monotonic", "Monotonic", "monotonic"),
+)
+
+/**
+ * FlowRateCalibrationDialog, as a sheet: the test type (the coarse or fine
+ * pass, or a YOLO test) and the top surface pattern, each a list of choices
+ * as the dialog's radio group and combo box offer them; OK starts the test.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun FlowRateSheet(
+    choice: FlowRateChoice,
+    onChoice: (FlowRateChoice) -> Unit,
+    onDismiss: () -> Unit,
+    onStart: (FlowRateCalibration) -> Unit,
+) {
+    val colors = OrcaTheme.colors
+    val uriHandler = LocalUriHandler.current
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = colors.window,
+        dragHandle = { OrcaSheetHandle() },
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(orcaString("Flow Ratio Calibration"), color = colors.text, style = OrcaTheme.typography.head16)
+            Text(
+                orcaString("Calibration Test Type"),
+                color = colors.textLabel,
+                style = OrcaTheme.typography.body14,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            FLOW_TYPES.forEachIndexed { index, type ->
+                ChoiceRow(orcaString(type), selected = choice.type == index, onSelect = { onChoice(choice.copy(type = index)) })
+            }
+            Text(
+                orcaString("Top Surface Pattern"),
+                color = colors.textLabel,
+                style = OrcaTheme.typography.body14,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            FLOW_PATTERNS.forEachIndexed { index, (icon, label, _) ->
+                ChoiceRow(orcaString(label), selected = choice.pattern == index, icon = orcaIcon(icon), onSelect = { onChoice(choice.copy(pattern = index)) })
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                OrcaButton(orcaString("Wiki Guide"), onClick = { uriHandler.openUri(FLOW_RATE_GUIDE) }, style = OrcaButtonStyle.Regular)
+                OrcaButton(orcaString("OK"), onClick = {
+                    // on_start(): the YOLO tests are linear, and every other type is the second pass.
+                    onStart(FlowRateCalibration(linear = choice.type >= 2, pass = choice.type % 2 + 1, topSurfacePattern = FLOW_PATTERNS[choice.pattern].third))
+                })
+            }
+        }
+    }
+}
+
+/** A choice of a sheet's list, with its icon when it has one: the whole row is the touch target. */
+@Composable
+private fun ChoiceRow(text: String, selected: Boolean, onSelect: () -> Unit, icon: Int? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OrcaRadioButton(selected = selected, onClick = null)
+        if (icon != null) {
+            Icon(painterResource(icon), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(24.dp))
+        }
+        Text(text, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body14)
+    }
+}
+
+private const val FLOW_RATE_GUIDE = "https://www.orcaslicer.com/wiki/flow_ratio_calib"
 
 /** PA_Calibration_Dlg's choices, which the dialog keeps from one showing to the next. */
 internal data class PressureAdvanceChoice(val bowden: Boolean = false, val method: Int = PA_TOWER)

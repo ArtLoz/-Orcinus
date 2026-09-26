@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.CalibrationMode
+import app.orcinus.shadow.core.model.FlowRateCalibration
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.ModelLoadOutcome
@@ -20,8 +22,8 @@ import kotlinx.coroutines.launch
  * Plater::calib_*): a new project named after the test once the user agreed
  * to leave the one before (Plater::new_project), the test's model on the
  * plate with the values of the presets it prints with, and the plate's print
- * told the test (Print::set_calib_params). What the test added is selected,
- * as load_files() selects what it added.
+ * told the test (Print::set_calib_params) when the test tells it. What the
+ * test added is selected, as load_files() selects what it added.
  */
 class CalibrateUseCase(
     private val projectLifecycle: ProjectLifecycleUseCase,
@@ -34,6 +36,20 @@ class CalibrateUseCase(
 ) {
     operator fun invoke(params: CalibrationParams) {
         val test = TESTS[params.mode] ?: return
+        start(test, params) { selection, prefix -> inspector.prepareCalibration(params, selection, prefix) }
+    }
+
+    /** Plater::calib_flowrate(), which tells the plate's print no calibration. */
+    operator fun invoke(flowRate: FlowRateCalibration) {
+        val test = when {
+            flowRate.linear && flowRate.pass == 1 -> Test("Orca YOLO Flow Calibration", "Orca-LinearFlow.3mf")
+            flowRate.linear -> Test("Orca YOLO Flow Calibration - Perfectionist version", "Orca-LinearFlow_fine.3mf")
+            else -> Test("Flowrate Test - Pass${flowRate.pass}", "flowrate-test-pass${flowRate.pass}.3mf")
+        }
+        start(test, params = null) { selection, prefix -> inspector.prepareFlowRateCalibration(flowRate, selection, prefix) }
+    }
+
+    private fun start(test: Test, params: CalibrationParams?, prepare: suspend (SlicingProfileSelection, ScenePath) -> ModelLoadOutcome) {
         applicationScope.launch {
             if (!projectLifecycle.startNewProject(test.projectName)) return@launch
             var profiles: SlicingProfileSelection? = null
@@ -44,7 +60,7 @@ class CalibrateUseCase(
             val selection = profiles ?: return@launch
             val prefix = sceneFiles.newImportPrefix()
             val outcome = try {
-                inspector.prepareCalibration(params, selection, prefix)
+                prepare(selection, prefix)
             } catch (cancellation: CancellationException) {
                 sceneFiles.deleteImport(prefix)
                 repository.update { it.copy(importing = false) }
@@ -72,7 +88,7 @@ class CalibrateUseCase(
                             plates = plates.mapIndexed { index, plate ->
                                 if (index == state.currentPlate) plate.copy(calibration = outcome.calibration ?: params) else plate
                             },
-                            paPattern = params.takeIf { it.mode == CalibrationMode.PA_PATTERN },
+                            paPattern = params?.takeIf { it.mode == CalibrationMode.PA_PATTERN },
                             presets = (presets as? PresetsOutcome.Success)?.presets ?: state.presets,
                             plateNotices = state.plateNotices + outcome.notices,
                             result = null,

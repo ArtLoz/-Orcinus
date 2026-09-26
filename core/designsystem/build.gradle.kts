@@ -88,6 +88,8 @@ val orcaIconNames = listOf(
     "sidebutton_dropdown",
     // The Calibration menu of the top bar (BBLTopbar).
     "calib_sf",
+    // FlowRateCalibrationDialog: the top surface patterns it offers.
+    "param_archimedeanchords", "param_monotonic",
     // The option groups of the settings tabs (Tab.cpp).
     "compare",
     // DiffPresetDialog: the button between the two presets of a kind.

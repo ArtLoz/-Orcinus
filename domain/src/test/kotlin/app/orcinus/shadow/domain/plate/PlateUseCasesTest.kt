@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.CalibrationMode
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.EnginePlate
@@ -263,6 +264,35 @@ class PlateUseCasesTest {
         inspector.load = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
         addModel(repository, ModelImportOutcome.Success(ImportedModelFile(ModelPath("/imports/b.stl"), "b.stl")), inspector, FakeSceneFiles())(REFERENCE)
         assertNull(repository.state.value.plates.single().calibration)
+    }
+
+    @Test
+    fun `the flow ratio test starts a project named after it, and tells the plate's print no calibration`() {
+        val repository = FakeRepository(readyState())
+        val inspector = FakeInspector()
+        val test = FlowRateCalibration(linear = true, pass = 2, topSurfacePattern = "monotonic")
+        var asked: FlowRateCalibration? = null
+        inspector.flowRate = {
+            asked = it
+            ModelLoadOutcome.Success(listOf(LOADED.copy(name = "flowrate_0")), emptyList())
+        }
+        val lifecycle = ProjectLifecycleUseCase(
+            repository,
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            FakePresetManager(),
+            NoSettingsEditor,
+            PresetsApplier { _, _ -> },
+            scope,
+        )
+
+        CalibrateUseCase(lifecycle, inspector, FakePresetManager(), PresetsApplier { _, _ -> }, FakeSceneFiles(), repository, scope)(test)
+
+        val state = repository.state.value
+        assertEquals(test, asked)
+        assertEquals("Orca YOLO Flow Calibration - Perfectionist version", state.project.name)
+        assertEquals("Orca-LinearFlow_fine.3mf", (state.objects.single() as PlateObject.ImportedModel).inputName)
+        assertNull(state.plates.single().calibration)
+        assertNull(state.paPattern)
     }
 
     @Test
@@ -2915,6 +2945,12 @@ class PlateUseCasesTest {
 
         override suspend fun prepareCalibration(params: CalibrationParams, profiles: SlicingProfileSelection, prefix: ScenePath) =
             calibration(params)
+
+        /** What preparing the flow ratio test answers. */
+        var flowRate: (FlowRateCalibration) -> ModelLoadOutcome = { ModelLoadOutcome.Failure("not used") }
+
+        override suspend fun prepareFlowRateCalibration(test: FlowRateCalibration, profiles: SlicingProfileSelection, prefix: ScenePath) =
+            flowRate(test)
 
         val exports = mutableListOf<Triple<Int, MeshFormat, ScenePath>>()
         var export: MeshExportOutcome = MeshExportOutcome.Success(null)

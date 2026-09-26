@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.filamentUsagesOf
@@ -511,6 +512,27 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         }
         NativeBindings.prepareCalibration(
             calibration = params.toNative(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
+    override suspend fun prepareFlowRateCalibration(
+        test: FlowRateCalibration,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.prepareFlowRateCalibration(
+            linear = test.linear,
+            pass = test.pass,
+            topSurfacePattern = test.topSurfacePattern,
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),

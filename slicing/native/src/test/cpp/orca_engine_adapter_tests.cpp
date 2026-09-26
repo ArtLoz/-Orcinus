@@ -4887,6 +4887,69 @@ TEST_CASE("The pressure advance tower steps its PA a millimetre at a time, and t
     REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
 }
 
+TEST_CASE("The flow ratio tests stand their blocks ten layers high, each with the flow ratio its name tells", "[Adapter][Calibration]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    bool linear = true;
+    int pass = 1;
+    std::size_t blocks = 0;
+    SECTION("YOLO: the flow ratio of the filament plus the block's")
+    {
+        blocks = 11;
+    }
+    SECTION("pass 1: a percentage of the filament's")
+    {
+        linear = false;
+        blocks = 9;
+    }
+    const orca::ImportedModels prepared =
+        orca::prepare_flow_rate_calibration(linear, pass, "monotonic", k2_plus_profiles(), import_prefix("flow-rate"));
+    INFO(prepared.message);
+    REQUIRE(prepared.status == orca::SceneStatus::success);
+    REQUIRE(prepared.objects.size() == blocks);
+    CHECK(prepared.presets_changed);
+    CHECK(prepared.calibration.mode == orca::CalibrationMode::none);
+    const auto setting = [](const orca::ImportedObject& object, const std::string& key) {
+        const auto found = std::find(object.settings.keys.begin(), object.settings.keys.end(), key);
+        return found == object.settings.keys.end() ? std::string() : object.settings.values[std::size_t(found - object.settings.keys.begin())];
+    };
+    // The filament's flow ratio, which flowrate_0.05 adds 0.05 to.
+    double flow_ratio = 0.0;
+    for (const orca::ImportedObject& object : prepared.objects) {
+        if (object.name == "flowrate_0.05") {
+            flow_ratio = 0.05 / (std::stod(setting(object, "print_flow_ratio")) - 1.0);
+        }
+    }
+    for (const orca::ImportedObject& object : prepared.objects) {
+        INFO(object.name);
+        REQUIRE(object.name.rfind("flowrate_", 0) == 0);
+        // A first layer and nine more of half the 0.4 mm nozzle.
+        CHECK(object.instances.front().size_z == Catch::Approx(2.0).margin(0.01));
+        CHECK(setting(object, "top_surface_pattern") == "monotonic");
+        std::string modifier = object.name.substr(9);
+        if (modifier[0] == 'm') {
+            modifier[0] = '-';
+        }
+        const double ratio = std::stod(setting(object, "print_flow_ratio"));
+        if (linear) {
+            CHECK(ratio == Catch::Approx((flow_ratio + std::stod(modifier)) / flow_ratio).margin(1e-4));
+        } else {
+            CHECK(ratio == Catch::Approx(1.0 + std::stod(modifier) / 100.0).margin(1e-4));
+        }
+    }
+
+    std::vector<orca::PlateObject> plate;
+    for (const orca::ImportedObject& object : prepared.objects) {
+        plate.push_back(plate_object_of(object));
+    }
+    const orca::SliceResult result = orca::slice("flow-rate", plate, output_path("flow-rate.gcode"), {}, k2_plus_profiles(), {}, {});
+    INFO(result.message);
+    CHECK(result.status == orca::SliceStatus::success);
+
+    REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
+}
+
 TEST_CASE("The PA pattern stands a handle for every speed, whose patterns the slice draws together", "[Adapter][Calibration]")
 {
     require_engine();
