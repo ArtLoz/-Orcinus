@@ -1,6 +1,9 @@
 package app.orcinus.shadow.ui
 
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
+import app.orcinus.shadow.core.model.ModelLoad
+import app.orcinus.shadow.core.ui.plate.ProjectDropSheet
+import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
 import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
@@ -80,6 +83,7 @@ class AppShellViewModel(
     private val slicePlate: SlicePlateUseCase,
     private val answerPlateQuestion: AnswerPlateQuestionUseCase,
     private val dismissPlateNotice: DismissPlateNoticeUseCase,
+    private val addModelToPlate: AddModelToPlateUseCase,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -93,6 +97,9 @@ class AppShellViewModel(
     fun answer(yes: Boolean) = answerPlateQuestion(yes)
 
     fun dismissNotice() = dismissPlateNotice()
+
+    /** ProjectDropDialog's choice for the 3MF file that waits; null cancels. */
+    fun openProjectAs(load: ModelLoad?) = addModelToPlate.openAs(load)
 }
 
 /** The workspace: OrcaSlicer's tabs and sidebar. Pages such as About open over it. */
@@ -110,7 +117,14 @@ fun OrcinusApp(
     modifier: Modifier = Modifier,
 ) {
     val shell = viewModel {
-        AppShellViewModel(container.observePlate, container.startEngine, container.slicePlate, container.answerPlateQuestion, container.dismissPlateNotice)
+        AppShellViewModel(
+            container.observePlate,
+            container.startEngine,
+            container.slicePlate,
+            container.answerPlateQuestion,
+            container.dismissPlateNotice,
+            container.addModelToPlate,
+        )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
     val plate by shell.plate.collectAsStateWithLifecycle()
@@ -197,9 +211,11 @@ private fun Workspace(
     // order, then the question it waits on, over whichever tab is open.
     val notice = plate.plateNotices.firstOrNull()
     val question = plate.plateQuestion?.question
+    val projectDrop = plate.projectDrop
     when {
         notice != null -> SettingsNoticeDialog(notice, onDismiss = shell::dismissNotice)
         question != null -> SettingsQuestionDialog(question, onAnswer = shell::answer)
+        projectDrop != null -> ProjectDropSheet(projectDrop.value.substringAfterLast('/'), onChoose = shell::openProjectAs)
     }
     val layout = currentOrcaWindowLayout()
     var sidebarVisible by rememberSaveable(layout) { mutableStateOf(layout == OrcaWindowLayout.Wide) }

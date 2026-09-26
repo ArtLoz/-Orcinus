@@ -650,6 +650,16 @@ internal class NativeImportedModels(
     @JvmField val appended: Boolean,
     /** The volume of the edited object the object list selects; -1 for none. */
     @JvmField val selectedVolume: Int,
+    /** A 3MF file opened as a project, its first plate's settings and the codes on its layers. */
+    @JvmField val project: Boolean,
+    @JvmField val plateSettingKeys: Array<String>,
+    @JvmField val plateSettingValues: Array<String>,
+    @JvmField val layerGcodeHeights: DoubleArray,
+    @JvmField val layerGcodeTypes: LongArray,
+    @JvmField val layerGcodeExtruders: IntArray,
+    @JvmField val layerGcodeColors: Array<String>,
+    @JvmField val layerGcodeExtras: Array<String>,
+    @JvmField val presetsChanged: Boolean,
 )
 
 /** SceneStatus in orca_engine_adapter.hpp. */
@@ -833,6 +843,9 @@ internal object NativeBindings {
         outputPrefix: String,
         answerIds: Array<String>,
         answers: BooleanArray,
+        /** ModelLoad in orca_engine_adapter.hpp, and whether ProjectDropDialog chose it. */
+        load: Long,
+        chosen: Boolean,
     ): NativeImportedModels
 
     /**

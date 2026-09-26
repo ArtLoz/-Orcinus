@@ -24,6 +24,7 @@
 
 #include "android_log_sink.hpp"
 #include "engine_context.hpp"
+#include "project_3mf.hpp"
 #include "settings_dialogs.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/BuildVolume.hpp"
@@ -191,10 +192,13 @@ SliceStatus select_profiles(
     }
 
     const Slic3r::Preset* printer = bundle.printers.find_preset(profiles.printer, false);
-    if (printer == nullptr || printer->vendor == nullptr) {
+    if (printer == nullptr) {
         message = "Unknown printer profile: " + profiles.printer;
         return SliceStatus::profile_not_found;
     }
+    // A user's printer, or one a project brought, has the vendor of the
+    // system printer it inherits from; one that inherits nothing has none.
+    const Slic3r::Preset* system_printer = printer->vendor != nullptr ? printer : bundle.printers.get_preset_parent(*printer);
     if (bundle.prints.find_preset(profiles.process, false) == nullptr) {
         message = "Unknown process profile: " + profiles.process;
         return SliceStatus::profile_not_found;
@@ -207,12 +211,14 @@ SliceStatus select_profiles(
     }
 
     Slic3r::AppConfig app_config = *engine().config;
-    app_config.set_variant(
-        printer->vendor->id,
-        printer->config.opt_string("printer_model"),
-        printer->config.opt_string("printer_variant"),
-        true
-    );
+    if (system_printer != nullptr && system_printer->vendor != nullptr) {
+        app_config.set_variant(
+            system_printer->vendor->id,
+            system_printer->config.opt_string("printer_model"),
+            system_printer->config.opt_string("printer_variant"),
+            true
+        );
+    }
     for (const std::string& filament : filaments_of(profiles)) {
         app_config.set(Slic3r::AppConfig::SECTION_FILAMENTS, filament, "true");
     }
@@ -221,6 +227,15 @@ SliceStatus select_profiles(
     app_config.set_printer_setting(profiles.printer, PRESET_FILAMENT_NAME, profiles.filament);
     engine().bundle_follows_config = false;
     bundle.load_selections(app_config);
+    // The presets a project brought: load_selections() keeps to the presets it
+    // finds compatible with the printer, and the request names the ones the
+    // engine reported selected.
+    if (bundle.printers.get_selected_preset_name() != profiles.printer) {
+        bundle.printers.select_preset_by_name(profiles.printer, true);
+    }
+    if (bundle.prints.get_selected_preset_name() != profiles.process) {
+        bundle.prints.select_preset_by_name(profiles.process, true);
+    }
 
     // The plate prints with every filament the app listed, so the bundle is
     // given as many slots (PresetBundle::set_num_filaments / set_filament_preset).
@@ -2865,7 +2880,9 @@ ImportedModels import_model(
     const ProfileSelection& profiles,
     const std::vector<PlateObject>& plate,
     const std::string& output_prefix,
-    const DialogAnswers& answers
+    const DialogAnswers& answers,
+    const ModelLoad load,
+    const bool chosen
 )
 {
     ImportedModels result;
@@ -2885,20 +2902,36 @@ ImportedModels import_model(
         }
 
         bool imperial = false;
-        Slic3r::Model imported = read_model_file(source_path, dialogs, imperial);
         const std::string file_name = fs::path(source_path).filename().string();
-        for (Slic3r::ModelObject* object : imported.objects) {
-            if (object->name.empty()) {
-                object->name = file_name;
-            }
-            object->rotate(Slic3r::Geometry::deg2rad(config.opt_float("preferred_orientation")), Slic3r::Axis::Z);
+        const bool type_3mf = boost::algorithm::iends_with(source_path, ".3mf");
+        if (chosen) {
+            // determine_load_type(): the answer to ProjectDropDialog.
+            engine().config->set("import_project_action", load == ModelLoad::project ? "1" : "2");
+            detail::save_config(engine());
         }
+        detail::Archive3mf archive;
+        Slic3r::Model imported;
+        if (type_3mf) {
+            imported = detail::read_3mf(source_path, load == ModelLoad::project, config, dialogs, archive);
+        } else {
+            imported = read_model_file(source_path, dialogs, imperial);
+            for (Slic3r::ModelObject* object : imported.objects) {
+                if (object->name.empty()) {
+                    object->name = file_name;
+                }
+                object->rotate(Slic3r::Geometry::deg2rad(config.opt_float("preferred_orientation")), Slic3r::Axis::Z);
+            }
+        }
+        // A project's objects stand where it placed them, with the settings it
+        // gave them; the questions about a model file are not asked.
+        const bool is_project_file = archive.load_config;
+        const Slic3r::DynamicPrintConfig& placing = detail::placing_config(archive, config);
 
-        if (imported.removed_objects_with_zero_volume() > 0) {
+        if (!is_project_file && imported.removed_objects_with_zero_volume() > 0) {
             dialogs.inform("zero_volume", {detail::ui_text("Objects with zero volume removed")},
                            {detail::ui_text("The volume of the object is zero")}, DialogIcon::info);
         }
-        if (imported.objects.empty()) {
+        if (imported.objects.empty() && !is_project_file) {
             result.message = "The supplied file couldn't be read because it's empty";
             result.notices = dialogs.take_notices();
             return result;
@@ -2907,7 +2940,8 @@ ImportedModels import_model(
         // when the user agrees; an AMF file in inches is scaled whatever its size.
         const std::vector<UiText> too_small = {detail::ui_text(
             "The object from file %s is too small, and maybe in meters or inches.\n Do you want to scale to millimeters?", {file_name})};
-        if (imperial) {
+        if (is_project_file) {
+        } else if (imperial) {
             imported.convert_from_imperial_units(false);
         } else if (imported.looks_like_saved_in_meters()) {
             if (dialogs.ask("model_in_meters", too_small, {detail::ui_text("Object too small")})) {
@@ -2918,7 +2952,7 @@ ImportedModels import_model(
                 imported.convert_from_imperial_units(true);
             }
         }
-        if (imported.looks_like_multipart_object()) {
+        if (!is_project_file && imported.looks_like_multipart_object()) {
             if (dialogs.ask("multipart_object",
                             {detail::ui_text("This file contains several objects positioned at multiple heights.\n"
                                              "Instead of considering them as multiple objects, should \n"
@@ -2928,15 +2962,21 @@ ImportedModels import_model(
             }
         }
 
-        // An object of a file other than AMF is centred around the origin without
-        // its modifiers, and an object the file placed rests on the plate.
+        // An object of a file other than 3MF or AMF is centred around the
+        // origin without its modifiers, and an object the file placed rests on
+        // the plate, or keeps a project's height below it.
         for (Slic3r::ModelObject* object : imported.objects) {
-            if (!is_any_amf(source_path)) {
+            if (!type_3mf && !is_any_amf(source_path)) {
                 object->center_around_origin(false);
             }
             if (!object->instances.empty()) {
-                object->ensure_on_bed(false);
+                object->ensure_on_bed(is_project_file);
             }
+        }
+        // The objects of a 3MF file loaded without its settings gather around
+        // the plate's centre, as they stood to each other.
+        if (type_3mf && !is_project_file) {
+            imported.center_instances_around_point(build_volume_of(config).bed_center());
         }
 
         // load_model_objects(): an object the file placed keeps its instances,
@@ -2946,8 +2986,8 @@ ImportedModels import_model(
             result.notices = dialogs.take_notices();
             return result;
         }
-        const Slic3r::BoundingBoxf bed = build_volume_of(config).bounding_volume2d();
-        const Slic3r::BoundingBoxf3 plate_box = plate_box_of(config);
+        const Slic3r::BoundingBoxf bed = build_volume_of(placing).bounding_volume2d();
+        const Slic3r::BoundingBoxf3 plate_box = plate_box_of(placing);
         // PartPlate::empty() does not see the file's objects until they are
         // all placed.
         const bool plate_was_empty = plate_empty(model, nullptr, plate_box);
@@ -2962,7 +3002,7 @@ ImportedModels import_model(
                 new_instances.push_back(object->add_instance());
             }
             offer_to_scale_down(*object, bed_size, dialogs, placed.size());
-            object->ensure_on_bed(false);
+            object->ensure_on_bed(is_project_file);
             placed.push_back(object);
         }
         // The objects the file did not place: on the plate's centre when the
@@ -2977,10 +3017,14 @@ ImportedModels import_model(
                 instance->set_offset({cell.x(), cell.y(), z});
             }
         }
-        model.update_print_volume_state(build_volume_of(config));
+        model.update_print_volume_state(build_volume_of(placing));
 
         if (!write_objects(placed, output_prefix, result)) {
             return result;
+        }
+        // Every question is answered: what the file brings into the presets.
+        if (type_3mf) {
+            detail::apply_3mf(archive, file_name, dialogs, result);
         }
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;

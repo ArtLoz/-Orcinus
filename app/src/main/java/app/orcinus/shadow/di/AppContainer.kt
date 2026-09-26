@@ -184,12 +184,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         plateRepository,
         applicationScope,
     )
-    private val addModelToPlate = AddModelToPlateUseCase(
+    val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
         inspector = engine,
         sceneFiles = sceneFiles,
         repository = plateRepository,
         placePlateObjects = placePlateObjects,
+        presetManager = engine,
+        platePresets = platePresets,
         applicationScope = applicationScope,
     )
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)

@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import android.app.Service
+import app.orcinus.shadow.core.model.ModelLoad
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -117,8 +118,18 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             prefix: String,
             answerIds: Array<String>,
             answers: BooleanArray,
+            load: String,
+            chosen: Boolean,
         ): ModelLoadParcel = runBlocking {
-            engine.load(ModelPath(source), profiles.toProfiles(), plate.toPlacedModels(), ScenePath(prefix), answerIds.zip(answers.toList()).toMap())
+            engine.load(
+                ModelPath(source),
+                profiles.toProfiles(),
+                plate.toPlacedModels(),
+                ScenePath(prefix),
+                answerIds.zip(answers.toList()).toMap(),
+                ModelLoad.valueOf(load),
+                chosen,
+            )
         }.toParcel()
 
         override fun edit(

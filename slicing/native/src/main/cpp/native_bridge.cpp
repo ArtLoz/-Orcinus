@@ -2653,8 +2653,25 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
         "Z"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
-        "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI)V"
+        "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
+        "Z[Ljava/lang/String;[Ljava/lang/String;[D[J[I[Ljava/lang/String;[Ljava/lang/String;Z)V"
     );
+    std::vector<double> heights;
+    std::vector<jlong> types;
+    std::vector<jint> extruders;
+    std::vector<std::string> colors;
+    std::vector<std::string> extras;
+    for (const orcinus::orca::LayerGcode& code : imported.layer_gcodes) {
+        heights.push_back(code.print_z);
+        types.push_back(static_cast<jlong>(code.type));
+        extruders.push_back(code.extruder);
+        colors.push_back(code.color);
+        extras.push_back(code.extra);
+    }
+    const jlongArray type_array = env->NewLongArray(static_cast<jsize>(types.size()));
+    env->SetLongArrayRegion(type_array, 0, static_cast<jsize>(types.size()), types.data());
+    const jintArray extruder_array = env->NewIntArray(static_cast<jsize>(extruders.size()));
+    env->SetIntArrayRegion(extruder_array, 0, static_cast<jsize>(extruders.size()), extruders.data());
     return env->NewObject(
         result_class,
         constructor,
@@ -2665,7 +2682,16 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         to_java(env, imported.question),
         objects,
         imported.appended ? JNI_TRUE : JNI_FALSE,
-        static_cast<jint>(imported.selected_volume)
+        static_cast<jint>(imported.selected_volume),
+        imported.project ? JNI_TRUE : JNI_FALSE,
+        to_java(env, imported.plate_settings.keys),
+        to_java(env, imported.plate_settings.values),
+        to_java(env, heights.data(), heights.size()),
+        type_array,
+        extruder_array,
+        to_java(env, colors),
+        to_java(env, extras),
+        imported.presets_changed ? JNI_TRUE : JNI_FALSE
     );
 }
 
@@ -2927,7 +2953,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
     jobject plate,
     jstring output_prefix,
     jobjectArray answer_ids,
-    jbooleanArray answers
+    jbooleanArray answers,
+    jlong load,
+    jboolean chosen
 )
 {
     return to_java(
@@ -2937,7 +2965,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
             to_plate(env, plate),
             to_utf8(env, output_prefix),
-            to_answers(env, answer_ids, answers)
+            to_answers(env, answer_ids, answers),
+            static_cast<orcinus::orca::ModelLoad>(load),
+            chosen == JNI_TRUE
         )
     );
 }

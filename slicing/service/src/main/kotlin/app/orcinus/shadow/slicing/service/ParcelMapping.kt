@@ -20,6 +20,7 @@ import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.LoadedObject
+import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.PlateInstance
@@ -102,6 +103,25 @@ internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
     it.layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray()
 }
 
+/** The layer codes of a parcel's parallel arrays; none without heights. */
+private fun layerGcodesOf(
+    heights: DoubleArray?,
+    types: Array<String>?,
+    extruders: IntArray?,
+    colors: Array<String>?,
+    extras: Array<String>?,
+): List<LayerGcode> = heights?.let {
+    heights.indices.map { index ->
+        LayerGcode(
+            printZ = heights[index],
+            type = LayerGcodeType.valueOf(checkNotNull(types)[index]),
+            extruder = checkNotNull(extruders)[index],
+            color = checkNotNull(colors)[index],
+            extra = checkNotNull(extras)[index],
+        )
+    }
+}.orEmpty()
+
 internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
     jobId = SliceJobId(jobId),
     objects = objects.toPlacedModels(),
@@ -117,17 +137,7 @@ internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
         val sizes = thumbnailSizes ?: return@mapIndexedNotNull null
         if (2 * index + 1 >= sizes.size) null else ThumbnailImage(ThumbnailSize(sizes[2 * index], sizes[2 * index + 1]), ScenePath(path))
     },
-    layerGcodes = layerGcodeHeights?.let { heights ->
-        heights.indices.map { index ->
-            LayerGcode(
-                printZ = heights[index],
-                type = LayerGcodeType.valueOf(checkNotNull(layerGcodeTypes)[index]),
-                extruder = checkNotNull(layerGcodeExtruders)[index],
-                color = checkNotNull(layerGcodeColors)[index],
-                extra = checkNotNull(layerGcodeExtras)[index],
-            )
-        }
-    }.orEmpty(),
+    layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
 )
 
 internal fun ThumbnailSizesOutcome.toParcel() = ThumbnailSizesParcel().also {
@@ -249,6 +259,15 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.notices = notices.map { dialog -> dialog.toParcel() }.toTypedArray()
     it.appended = this is ModelLoadOutcome.Success && appended
     it.selectedVolume = (this as? ModelLoadOutcome.Success)?.selectedVolume ?: -1
+    it.presetsChanged = this is ModelLoadOutcome.Success && presetsChanged
+    (this as? ModelLoadOutcome.Success)?.project?.let { project ->
+        it.plateSettings = project.plateSettings.toParcel()
+        it.layerGcodeHeights = project.layerGcodes.map(LayerGcode::printZ).toDoubleArray()
+        it.layerGcodeTypes = project.layerGcodes.map { code -> code.type.name }.toTypedArray()
+        it.layerGcodeExtruders = project.layerGcodes.map(LayerGcode::extruder).toIntArray()
+        it.layerGcodeColors = project.layerGcodes.map(LayerGcode::color).toTypedArray()
+        it.layerGcodeExtras = project.layerGcodes.map(LayerGcode::extra).toTypedArray()
+    }
     when (this) {
         is ModelLoadOutcome.Failure -> it.error = message
         is ModelLoadOutcome.Question -> it.question = question.toParcel()
@@ -297,6 +316,13 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
         shown,
         appended,
         selectedVolume.takeIf { it >= 0 },
+        project = plateSettings?.let { settings ->
+            LoadedProject(
+                plateSettings = settings.toModelSettings(),
+                layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
+            )
+        },
+        presetsChanged = presetsChanged,
     )
 }
 

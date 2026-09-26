@@ -439,6 +439,9 @@ data class ImportBatch(
     val loaded: Set<PlateInstanceId> = emptySet(),
     val arrange: Boolean = false,
     val suggestTopSurface: Boolean = false,
+    /** How a 3MF file of the batch loads, and whether the user chose it in ProjectDropDialog. */
+    val load: ModelLoad = ModelLoad.GEOMETRY,
+    val chosen: Boolean = false,
 )
 
 /**
@@ -464,8 +467,6 @@ enum class HandyModel(
     ORCA_STRING_HELL("Orca String Hell", listOf("Orca_stringhell.drc"), suggestsTopSurface = true),
     ;
 
-    /** A model with a 3MF file waits for the app to load 3MF files. */
-    val available: Boolean get() = files.none { it.endsWith(".3mf") }
 }
 
 /** The object menu's commands that change the meshes of an object (ObjectEdit in orca_engine_adapter.hpp). */
@@ -512,6 +513,11 @@ data class PlateState(
     val editing: Boolean = false,
     /** A question OrcaSlicer asked while it changed the plate; the change goes on once it is answered. */
     val plateQuestion: PendingPlateQuestion? = null,
+    /**
+     * ProjectDropDialog: the 3MF file the user picked for a plate that has
+     * objects, which waits to be opened as a project or for its geometry only.
+     */
+    val projectDrop: ModelPath? = null,
     /** Message boxes OrcaSlicer showed while it changed the plate, which the user dismisses in turn. */
     val plateNotices: List<SettingsDialog> = emptyList(),
     /** The objects on the plate, in the order they were added, as OrcaSlicer's object list shows them. */

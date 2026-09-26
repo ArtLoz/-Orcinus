@@ -601,8 +601,7 @@ private fun PlateContextMenu(
             HandyModel.entries.forEach { model ->
                 OrcaMenuItem(
                     text = orcaString(model.label),
-                    // OrcaSliced Combo loads a 3MF file, which the app cannot load yet.
-                    enabled = state.canEditPlate && model.available,
+                    enabled = state.canEditPlate,
                     onClick = {
                         onDismiss()
                         actions.addHandyModel(model)

@@ -49,14 +49,19 @@ interface ISlicerService {
 
     PlateDescriptionParcel describePlate(in ProfilesParcel profiles, String directory);
     InspectionParcel inspect(in ModelSourceParcel model, in ProfilesParcel profiles, String meshPath, in PlacedModelParcel[] plate);
-    /** Plater::priv::load_files() for a model file; answers are by dialog id. */
+    /**
+     * Plater::priv::load_files() for a model file; answers are by dialog id.
+     * load is the ModelLoad's name, and chosen whether ProjectDropDialog chose it.
+     */
     ModelLoadParcel load(
         String source,
         in ProfilesParcel profiles,
         in PlacedModelParcel[] plate,
         String prefix,
         in String[] answerIds,
-        in boolean[] answers
+        in boolean[] answers,
+        String load,
+        boolean chosen
     );
     /** edit_object(): edit is the ObjectEdit's name; volume -1 edits the whole object. */
     ModelLoadParcel edit(

@@ -1197,6 +1197,26 @@ struct ImportedModels {
     // paste_volumes(): the first pasted volume of the object, which the object
     // list selects; -1 for none.
     int selected_volume{-1};
+    // import_model() of a 3MF file opened as a project with its settings
+    // (Plater::load_project): the settings of its first plate
+    // (PartPlate::config) with the project's values the app keeps with the
+    // plate (that plate's wipe_tower_x and wipe_tower_y, flush_volumes_matrix
+    // and flush_multiplier), and the codes on that plate's layers
+    // (Model::plates_custom_gcodes). The presets of the project are selected.
+    bool project{false};
+    ModelSettings plate_settings;
+    std::vector<LayerGcode> layer_gcodes;
+    // The load changed the presets: a project's were selected, or filaments
+    // joined the plate for the extruders of a 3MF file's objects.
+    bool presets_changed{false};
+};
+
+// How a 3MF file loads (LoadType of Plater.cpp): its objects alone ("Import
+// geometry only"), or as a project with its settings and presets ("Open as
+// project"). Files of other types load their objects alone.
+enum class ModelLoad : std::int64_t {
+    geometry = 0,
+    project = 1,
 };
 
 // What the object menu changes the mesh of an object with.
@@ -1390,8 +1410,9 @@ ImportedModels paste_volumes(
     const std::string& output_prefix
 );
 
-// Plater::priv::load_files() for a model file: STL, OBJ, AMF, STEP, SVG, DRC or
-// OLTP, read with libslic3r's reader of its type. As the desktop app does, the
+// Plater::priv::load_files() for a model file: STL, OBJ, AMF, 3MF, STEP, SVG,
+// DRC or OLTP, read with libslic3r's reader of its type; a 3MF file loads as
+// load asks, a project onto an empty plate. As the desktop app does, the
 // load renames nameless objects after the file, turns them by the printer's
 // preferred orientation, drops objects without volume, offers to scale a model
 // that looks like metres or inches, and to load objects stacked at several
@@ -1405,7 +1426,11 @@ ImportedModels import_model(
     const ProfileSelection& profiles,
     const std::vector<PlateObject>& plate,
     const std::string& output_prefix,
-    const DialogAnswers& answers
+    const DialogAnswers& answers,
+    ModelLoad load = ModelLoad::geometry,
+    // load is the user's answer to ProjectDropDialog, which the app
+    // configuration remembers (import_project_action).
+    bool chosen = false
 );
 
 // What a request of the settings of an object or of the plate carries, since

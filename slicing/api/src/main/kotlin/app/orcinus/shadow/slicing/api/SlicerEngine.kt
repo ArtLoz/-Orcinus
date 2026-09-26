@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.api
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
@@ -127,7 +128,9 @@ interface PlateInspector {
      * message boxes of the desktop app, and placed on the plate that holds
      * [plate]. A question is answered by loading again with [answers], by
      * dialog id. The engine writes every object's meshes into files whose
-     * names start with [prefix].
+     * names start with [prefix]. A 3MF file loads as [load] asks, which the
+     * user [chosen] in ProjectDropDialog when set; a project loads onto an
+     * empty plate and selects its presets.
      */
     suspend fun load(
         source: ModelPath,
@@ -135,6 +138,8 @@ interface PlateInspector {
         plate: List<PlacedModel>,
         prefix: ScenePath,
         answers: Map<String, Boolean> = emptyMap(),
+        load: ModelLoad = ModelLoad.GEOMETRY,
+        chosen: Boolean = false,
     ): ModelLoadOutcome
 
     /**

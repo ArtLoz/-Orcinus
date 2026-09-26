@@ -47,11 +47,12 @@ Invoke-Adb @('push', $testData, "$deviceDir/")
 if ($Suite -contains 'orca_engine_adapter_tests') {
     # Same layout the app materializes: every vendor profile and the runtime
     # tables in resources; the engine installs vendor bundles into data/system.
-    # The 12 000 profile files go over adb as one archive.
+    # The 12 000 profile files go over adb as one archive. calib holds the
+    # projects OrcaSlicer ships, which the 3MF tests open.
     $orcaResources = Join-Path $repo 'upstream/OrcaSlicer/resources'
     New-Item -ItemType Directory -Force -Path $deviceBinaries | Out-Null
     $archive = Join-Path $deviceBinaries 'resources.tar'
-    & "$env:SystemRoot\System32\tar.exe" -cf $archive -C $orcaResources profiles info flush printers handy_models
+    & "$env:SystemRoot\System32\tar.exe" -cf $archive -C $orcaResources profiles info flush printers handy_models calib
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to archive the Orca resources'
     }

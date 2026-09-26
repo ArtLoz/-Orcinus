@@ -121,8 +121,8 @@ val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
         // DevPrinterConfigUtil's printer types, which ConfigManipulation asks.
         orcaResourcesDirectory.dir("printers").asFileTree.matching { include("*.json") },
         orcaResourcesDirectory.dir("profiles").asFileTree.matching { include("**/*.json", "**/*.png", "**/*.stl", "**/*.svg") },
-        // MenuFactory::append_submenu_add_handy_model(); OrcaSliced.3mf waits for 3MF loading.
-        orcaResourcesDirectory.dir("handy_models").asFileTree.matching { include("*.drc") },
+        // MenuFactory::append_submenu_add_handy_model()
+        orcaResourcesDirectory.dir("handy_models").asFileTree.matching { include("*.drc", "*.3mf") },
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaAssets"))
 }

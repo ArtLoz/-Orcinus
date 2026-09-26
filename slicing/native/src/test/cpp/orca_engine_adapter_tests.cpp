@@ -4466,3 +4466,50 @@ TEST_CASE("The desktop app's jobs place the objects of the plate", "[Adapter][Sc
               != orca::SceneStatus::success);
     }
 }
+
+TEST_CASE("A 3MF file opens as a project with its settings or loads its geometry alone", "[Adapter][Project]")
+{
+    require_engine();
+    // A BambuStudio project OrcaSlicer ships: an A1 mini's settings, a plate
+    // and the codes the pressure advance pattern puts on its layers.
+    const std::string project = device_dir + "/orca/resources/calib/pressure_advance/pa_pattern.3mf";
+
+    SECTION("its geometry alone gathers around the plate's centre, and the presets stay")
+    {
+        const orca::ImportedModels imported = orca::import_model(project, k2_plus_profiles(), {}, import_prefix("3mf-geometry"), {});
+        INFO(imported.message);
+        REQUIRE(imported.status == orca::SceneStatus::success);
+        REQUIRE_FALSE(imported.objects.empty());
+        CHECK_FALSE(imported.project);
+        CHECK_FALSE(imported.presets_changed);
+        CHECK(imported.layer_gcodes.empty());
+        const auto& placed = imported.objects.front().instances.front().instance_matrix;
+        CHECK(std::hypot(placed[12] - 175.0, placed[13] - 175.0) < 100.0);
+    }
+
+    SECTION("as a project, its presets are selected and its plate keeps its codes")
+    {
+        const orca::ImportedModels imported =
+            orca::import_model(project, k2_plus_profiles(), {}, import_prefix("3mf-project"), {}, orca::ModelLoad::project);
+        INFO(imported.message);
+        REQUIRE(imported.status == orca::SceneStatus::success);
+        REQUIRE_FALSE(imported.objects.empty());
+        CHECK(imported.project);
+        CHECK(imported.presets_changed);
+        CHECK_FALSE(imported.layer_gcodes.empty());
+        const orca::PresetState presets = orca::describe_presets();
+        INFO(presets.selection.printer);
+        CHECK(presets.selection.printer != k2_plus_profiles().printer);
+        // A request made with the presets before the project, then one with
+        // the project's printer, which no vendor installed.
+        CHECK(orca::thumbnail_sizes(k2_plus_profiles()).status == orca::SceneStatus::success);
+        const orca::ThumbnailSizes project_sizes = orca::thumbnail_sizes(presets.selection);
+        INFO(project_sizes.message);
+        CHECK(project_sizes.status == orca::SceneStatus::success);
+
+        // The next tests start from the K2 Plus.
+        const orca::PresetState restored =
+            orca::select_preset(orca::PresetChoice::printer, k2_plus_profiles().printer, orca::PresetChangeAction::discard);
+        REQUIRE(restored.status == orca::SceneStatus::success);
+    }
+}

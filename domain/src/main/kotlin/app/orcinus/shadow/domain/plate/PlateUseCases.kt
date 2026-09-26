@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.ModelLoad
+import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
@@ -544,6 +546,12 @@ class ApplySetupUseCase(
  * [answer], as the desktop app's message box waits; the message boxes it only
  * informs with wait there until they are dismissed. A failure leaves the plate
  * as it was and reports the problem.
+ *
+ * A 3MF file opens as the desktop app's Plater::open_3mf_file() opens it with
+ * its default "Load behaviour" (ask when relevant): onto an empty plate as a
+ * project, and otherwise as the user chooses in ProjectDropDialog ([openAs]).
+ * A project takes the plate's place with its objects, settings and presets,
+ * and Undo starts afresh from it.
  */
 class AddModelToPlateUseCase(
     private val importModel: ImportModelUseCase,
@@ -551,6 +559,8 @@ class AddModelToPlateUseCase(
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
     private val placePlateObjects: PlacePlateObjectsUseCase,
+    private val presetManager: PresetManager,
+    private val platePresets: PresetsApplier,
     private val applicationScope: CoroutineScope,
 ) {
     operator fun invoke(reference: ExternalDocumentReference) {
@@ -558,9 +568,33 @@ class AddModelToPlateUseCase(
         applicationScope.launch {
             when (val imported = importModel(reference)) {
                 is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
-                is ModelImportOutcome.Success -> load(imported.model.path, ImportBatch(), emptyMap(), emptyList())
+                is ModelImportOutcome.Success -> {
+                    val path = imported.model.path
+                    when {
+                        !path.value.endsWith(".3mf", ignoreCase = true) -> load(path, ImportBatch(), emptyMap(), emptyList())
+                        // determine_load_type(): a plate without objects opens the project.
+                        repository.state.value.objects.isEmpty() -> load(path, ImportBatch(load = ModelLoad.PROJECT), emptyMap(), emptyList())
+                        else -> repository.update { it.copy(projectDrop = path) }
+                    }
+                }
             }
         }
+    }
+
+    /** ProjectDropDialog's choice for the 3MF file that waits; null cancels the load. */
+    fun openAs(load: ModelLoad?) {
+        var source: ModelPath? = null
+        repository.update { state ->
+            source = state.projectDrop
+            when {
+                source == null -> state
+                load == null -> state.copy(projectDrop = null, importing = false)
+                else -> state.copy(projectDrop = null)
+            }
+        }
+        val path = source ?: return
+        if (load == null) return
+        applicationScope.launch { load(path, ImportBatch(load = load, chosen = true), emptyMap(), emptyList()) }
     }
 
     /**
@@ -570,7 +604,7 @@ class AddModelToPlateUseCase(
      * and Orca String Hell ends with OrcaSlicer's suggestion.
      */
     fun handy(model: HandyModel) {
-        if (!model.available || !start()) return
+        if (!start()) return
         applicationScope.launch {
             val files = model.files.map { inspector.handyModel(it) }
             val first = files.firstOrNull()
@@ -612,8 +646,10 @@ class AddModelToPlateUseCase(
         val state = repository.state.value
         val profiles = state.profiles ?: return finish(ModelLoadOutcome.Failure("No printer is set up"))
         val prefix = sceneFiles.newImportPrefix()
+        // Plater::load_project() resets the plate before the project loads.
+        val plate = if (batch.load == ModelLoad.PROJECT) emptyList() else state.objects.map { it.placed() }
         val outcome = try {
-            inspector.load(source, profiles, state.objects.map { it.placed() }, prefix, answers)
+            inspector.load(source, profiles, plate, prefix, answers, batch.load, batch.chosen)
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation
@@ -621,7 +657,11 @@ class AddModelToPlateUseCase(
             ModelLoadOutcome.Failure(error.message.orEmpty())
         }
         if (outcome !is ModelLoadOutcome.Success) sceneFiles.deleteImport(prefix)
-        finish(outcome, source, batch, answers, shown)
+        // The presets the load selected (a project's, or more filaments for a
+        // 3MF file's objects) reach the plate together with its objects, so no
+        // request asks the engine for the presets before.
+        val presets = if (outcome is ModelLoadOutcome.Success && outcome.presetsChanged) presetManager.presets() else null
+        finish(outcome, source, batch, answers, shown, presets)
     }
 
     /**
@@ -635,14 +675,20 @@ class AddModelToPlateUseCase(
         batch: ImportBatch = ImportBatch(),
         answers: Map<String, Boolean> = emptyMap(),
         shown: List<SettingsDialog> = emptyList(),
+        presets: PresetsOutcome? = null,
     ) {
         var next: ImportBatch? = null
         var done = false
+        var before: SlicingProfileSelection? = null
         repository.update { state ->
             next = null
             done = false
+            before = state.profiles
             val notices = outcome.notices.filterNot { it in shown }
-            val informed = state.copy(plateNotices = state.plateNotices + notices)
+            val informed = state.copy(
+                plateNotices = state.plateNotices + notices,
+                presets = (presets as? PresetsOutcome.Success)?.presets ?: state.presets,
+            )
             when (outcome) {
                 is ModelLoadOutcome.Success -> {
                     // ModelObject::input_file: the document the objects came from.
@@ -650,15 +696,33 @@ class AddModelToPlateUseCase(
                     // load_files() selects every object it added.
                     val loaded = batch.loaded + added.allCopies()
                     if (batch.rest.isNotEmpty()) next = batch.copy(rest = batch.rest.drop(1), loaded = loaded) else done = true
-                    // load_files(): "Import Object", once for all its files.
-                    (if (added.isEmpty() || batch.loaded.isNotEmpty()) informed else informed.recorded()).copy(
-                        importing = batch.rest.isNotEmpty(),
-                        objects = state.objects + added,
-                        selectedInstances = loaded,
-                        selectedPart = null,
-                        selectedRange = null,
-                        result = if (added.isEmpty()) state.result else null,
-                    )
+                    val project = outcome.project
+                    if (project != null) {
+                        // Plater::load_project(): the project takes the plate's place, and
+                        // its "Load Project" snapshot (a ProjectSeparator) clears Undo.
+                        informed.copy(
+                            importing = false,
+                            objects = added,
+                            selectedInstances = loaded,
+                            selectedPart = null,
+                            selectedRange = null,
+                            simplifyTarget = null,
+                            plateSettings = project.plateSettings,
+                            layerGcodes = project.layerGcodes,
+                            history = PlateHistory(),
+                            result = null,
+                        )
+                    } else {
+                        // load_files(): "Import Object", once for all its files.
+                        (if (added.isEmpty() || batch.loaded.isNotEmpty()) informed else informed.recorded()).copy(
+                            importing = batch.rest.isNotEmpty(),
+                            objects = state.objects + added,
+                            selectedInstances = loaded,
+                            selectedPart = null,
+                            selectedRange = null,
+                            result = if (added.isEmpty()) state.result else null,
+                        )
+                    }
                 }
                 is ModelLoadOutcome.Question -> informed.copy(
                     plateQuestion = PendingPlateQuestion(
@@ -673,6 +737,10 @@ class AddModelToPlateUseCase(
                     problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, outcome.message),
                 )
             }
+        }
+        // The plate follows the presets as any change of them: its description, the fit of its objects, the tabs.
+        if (presets != null) {
+            applicationScope.launch { platePresets.apply(before, presets) }
         }
         val following = next
         if (following != null) {

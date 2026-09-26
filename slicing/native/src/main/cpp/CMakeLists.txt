@@ -15,6 +15,7 @@ add_library(orca_engine_adapter STATIC
     painting.cpp
     preset_export.cpp
     presets.cpp
+    project_3mf.cpp
     settings_dialogs.cpp
     settings_fields.cpp
     settings_tab.cpp

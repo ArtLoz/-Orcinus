@@ -1,6 +1,9 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.ModelLoad
+import app.orcinus.shadow.core.model.LoadedProject
+import app.orcinus.shadow.core.model.LayerGcodeType
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
@@ -246,6 +249,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         plate: List<PlacedModel>,
         prefix: ScenePath,
         answers: Map<String, Boolean>,
+        load: ModelLoad,
+        chosen: Boolean,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -261,6 +266,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             outputPrefix = prefix.value,
             answerIds = answers.keys.toTypedArray(),
             answers = answers.values.toBooleanArray(),
+            load = load.ordinal.toLong(),
+            chosen = chosen,
         ).toOutcome()
     }
 
@@ -1422,7 +1429,29 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             status != NativeSceneStatus.SUCCESS ->
                 ModelLoadOutcome.Failure(message.ifBlank { "OrcaSlicer could not load the file" }, shown)
             hasQuestion -> ModelLoadOutcome.Question(question.toDialog(), shown)
-            else -> ModelLoadOutcome.Success(objects.map { it.toLoadedObject() }, shown, appended, selectedVolume.takeIf { it >= 0 })
+            else -> ModelLoadOutcome.Success(
+                objects = objects.map { it.toLoadedObject() },
+                notices = shown,
+                appended = appended,
+                selectedVolume = selectedVolume.takeIf { it >= 0 },
+                project = if (!project) {
+                    null
+                } else {
+                    LoadedProject(
+                        plateSettings = ModelSettings(plateSettingKeys.zip(plateSettingValues).toMap()),
+                        layerGcodes = layerGcodeHeights.indices.map { index ->
+                            LayerGcode(
+                                printZ = layerGcodeHeights[index],
+                                type = LayerGcodeType.entries[layerGcodeTypes[index].toInt()],
+                                extruder = layerGcodeExtruders[index],
+                                color = layerGcodeColors[index],
+                                extra = layerGcodeExtras[index],
+                            )
+                        },
+                    )
+                },
+                presetsChanged = presetsChanged,
+            )
         }
     }
 

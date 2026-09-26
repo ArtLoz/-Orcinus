@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.PlateRequest
+import app.orcinus.shadow.core.model.LoadedProject
+import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.PresetSettings
 import app.orcinus.shadow.core.model.SettingState
@@ -675,6 +677,52 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a 3MF file asks how it opens on a plate with objects, and a project takes the plate's place`() {
+        val repository = FakeRepository(readyState(CUBE).let { it.copy(history = PlateHistory(undo = listOf(it.snapshot()))) })
+        val file = ImportedModelFile(ModelPath("/imports/p.3mf"), "p.3mf")
+        val inspector = FakeInspector()
+        val project = LoadedProject(ModelSettings(mapOf("curr_bed_type" to "Textured PEI Plate")), listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT)))
+        inspector.load = { ModelLoadOutcome.Success(listOf(LOADED), emptyList(), project = project, presetsChanged = true) }
+        val addModel = addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles())
+
+        addModel(REFERENCE)
+        // ProjectDropDialog waits, and the file is not loaded yet.
+        assertEquals(file.path, repository.state.value.projectDrop)
+        assertTrue(inspector.loads.isEmpty())
+
+        addModel.openAs(ModelLoad.PROJECT)
+
+        val load = inspector.loads.single()
+        assertEquals(ModelLoad.PROJECT, load.load)
+        assertTrue(load.chosen)
+        // Plater::load_project() resets the plate first.
+        assertTrue(inspector.plate.isEmpty())
+        val state = repository.state.value
+        assertNull(state.projectDrop)
+        assertFalse(state.importing)
+        assertEquals(1, state.objects.size)
+        assertEquals(project.plateSettings, state.plateSettings)
+        assertEquals(project.layerGcodes, state.layerGcodes)
+        assertTrue(state.history.undo.isEmpty())
+
+        // On an empty plate the project opens without the question; Cancel loads nothing.
+        val empty = FakeRepository(readyState())
+        val emptyInspector = FakeInspector()
+        addModel(empty, ModelImportOutcome.Success(file), emptyInspector, FakeSceneFiles())(REFERENCE)
+        assertEquals(ModelLoad.PROJECT, emptyInspector.loads.single().load)
+        assertFalse(emptyInspector.loads.single().chosen)
+
+        val cancelled = FakeRepository(readyState(CUBE))
+        val cancelledInspector = FakeInspector()
+        val cancelling = addModel(cancelled, ModelImportOutcome.Success(file), cancelledInspector, FakeSceneFiles())
+        cancelling(REFERENCE)
+        cancelling.openAs(null)
+        assertTrue(cancelledInspector.loads.isEmpty())
+        assertFalse(cancelled.state.value.importing)
+        assertEquals(listOf(CUBE), cancelled.state.value.objects)
+    }
+
+    @Test
     fun `a question of the load waits on the plate, and the load goes on with the answer`() {
         val repository = FakeRepository(readyState(CUBE))
         val file = ImportedModelFile(ModelPath("/imports/stacked.amf"), "stacked.amf")
@@ -1167,13 +1215,15 @@ class PlateUseCasesTest {
     }
 
     @Test
-    fun `a handy model with a 3MF file waits for 3MF loading`() {
+    fun `a handy model's 3MF file loads its geometry alone, as load_files() with LoadModel does`() {
         val repository = FakeRepository(readyState())
         val inspector = FakeInspector()
 
         addModel(repository, ModelImportOutcome.Failure(ModelImportFailureCode.EMPTY_FILE, ""), inspector, FakeSceneFiles()).handy(HandyModel.ORCASLICED_COMBO)
 
-        assertTrue(inspector.loads.isEmpty())
+        assertEquals(ModelPath("/resources/handy_models/OrcaSliced.3mf"), inspector.loads.first().source)
+        assertTrue(inspector.loads.all { it.load == ModelLoad.GEOMETRY && !it.chosen })
+        assertEquals(3, inspector.loads.size)
         assertFalse(repository.state.value.importing)
     }
 
@@ -2060,6 +2110,8 @@ class PlateUseCasesTest {
             sceneFiles = files,
             repository = repository,
             placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(inspector), repository, scope),
+            presetManager = FakePresetManager(),
+            platePresets = PresetsApplier { _, _ -> },
             applicationScope = scope,
         )
 
@@ -2566,7 +2618,13 @@ class PlateUseCasesTest {
         }
 
         /** A request to load a model file. */
-        data class Load(val source: ModelPath, val prefix: ScenePath, val answers: Map<String, Boolean>)
+        data class Load(
+            val source: ModelPath,
+            val prefix: ScenePath,
+            val answers: Map<String, Boolean>,
+            val load: ModelLoad = ModelLoad.GEOMETRY,
+            val chosen: Boolean = false,
+        )
 
         val loads = mutableListOf<Load>()
 
@@ -2579,8 +2637,10 @@ class PlateUseCasesTest {
             plate: List<PlacedModel>,
             prefix: ScenePath,
             answers: Map<String, Boolean>,
+            load: ModelLoad,
+            chosen: Boolean,
         ): ModelLoadOutcome {
-            loads += Load(source, prefix, answers)
+            loads += Load(source, prefix, answers, load, chosen)
             this.profiles = profiles
             this.plate = plate
             return load(answers)

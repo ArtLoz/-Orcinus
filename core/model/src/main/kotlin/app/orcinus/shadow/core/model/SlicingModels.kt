@@ -234,6 +234,10 @@ sealed interface ModelLoadOutcome {
         val appended: Boolean = false,
         /** The volume of the edited object the object list selects afterwards (ModelObject::volumes). */
         val selectedVolume: Int? = null,
+        /** What a 3MF file opened as a project brought besides its objects; null for any other load. */
+        val project: LoadedProject? = null,
+        /** The engine selected other presets: a project's, or more filaments for a 3MF file's objects. */
+        val presetsChanged: Boolean = false,
     ) : ModelLoadOutcome
 
     /** The load asks [question] before it adds anything; it is requested again with the answer. */
@@ -241,6 +245,23 @@ sealed interface ModelLoadOutcome {
 
     data class Failure(val message: String, override val notices: List<SettingsDialog> = emptyList()) : ModelLoadOutcome
 }
+
+/**
+ * How a 3MF file loads (LoadType of the desktop app's Plater): its objects
+ * alone ("Import geometry only"), or as a project with its settings and
+ * presets ("Open as project"). Files of other types load their objects alone.
+ */
+enum class ModelLoad { GEOMETRY, PROJECT }
+
+/**
+ * A 3MF project's first plate: its own settings (PartPlate::config) with the
+ * project's values the app keeps with the plate (the wipe tower's position and
+ * the flushing volumes), and the codes on its layers (Model::plates_custom_gcodes).
+ */
+data class LoadedProject(
+    val plateSettings: ModelSettings = ModelSettings(),
+    val layerGcodes: List<LayerGcode> = emptyList(),
+)
 
 @JvmInline
 value class OutputPath(val value: String)

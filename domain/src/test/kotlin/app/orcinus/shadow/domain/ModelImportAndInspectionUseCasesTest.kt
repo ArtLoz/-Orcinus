@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain
 
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ExternalDocumentReference
@@ -216,6 +217,8 @@ class ModelImportAndInspectionUseCasesTest {
             plate: List<PlacedModel>,
             prefix: ScenePath,
             answers: Map<String, Boolean>,
+            load: ModelLoad,
+            chosen: Boolean,
         ) = ModelLoadOutcome.Failure("not used")
 
         override suspend fun edit(

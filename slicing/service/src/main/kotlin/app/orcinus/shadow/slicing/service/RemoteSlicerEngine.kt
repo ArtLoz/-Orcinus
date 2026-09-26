@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import android.content.ComponentName
+import app.orcinus.shadow.core.model.ModelLoad
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
@@ -171,6 +172,8 @@ class RemoteSlicerEngine(
         plate: List<PlacedModel>,
         prefix: ScenePath,
         answers: Map<String, Boolean>,
+        load: ModelLoad,
+        chosen: Boolean,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         load(
             source.value,
@@ -179,6 +182,8 @@ class RemoteSlicerEngine(
             prefix.value,
             answers.keys.toTypedArray(),
             answers.values.toBooleanArray(),
+            load.name,
+            chosen,
         ).toModelLoadOutcome()
     }
 
