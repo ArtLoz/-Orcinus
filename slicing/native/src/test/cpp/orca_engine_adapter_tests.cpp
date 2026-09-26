@@ -4792,3 +4792,56 @@ TEST_CASE("The temperature tower stands with a block for every 5 degrees, and it
     // The next tests start from presets without the calibration's changes.
     REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
 }
+
+TEST_CASE("The tests with a start, an end and a step stand cut to their range, and slice", "[Adapter][Calibration]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    orca::CalibrationParams params;
+    double height = 0.0;
+    SECTION("max flowrate: a millimetre for every step, the speeds the volumes take told to the print")
+    {
+        params.mode = orca::CalibrationMode::vol_speed_tower;
+        params.start = 5;
+        params.end = 20;
+        params.step = 0.5;
+        height = (20 - 5 + 1) / 0.5;
+    }
+    SECTION("retraction: 1.4 mm and a millimetre for every step")
+    {
+        params.mode = orca::CalibrationMode::retraction_tower;
+        params.start = 0;
+        params.end = 2;
+        params.step = 0.1;
+        height = 1.0 + 0.4 + 2 / 0.1;
+    }
+    SECTION("VFA: 5 mm for every speed")
+    {
+        params.mode = orca::CalibrationMode::vfa_tower;
+        params.start = 40;
+        params.end = 200;
+        params.step = 10;
+        height = 5 * ((200 - 40) / 10 + 1);
+    }
+    const orca::ImportedModels prepared = orca::prepare_calibration(params, k2_plus_profiles(), import_prefix("range-test"));
+    INFO(prepared.message);
+    REQUIRE(prepared.status == orca::SceneStatus::success);
+    REQUIRE(prepared.objects.size() == 1);
+    CHECK(prepared.objects.front().instances.front().size_z == Catch::Approx(height).margin(0.1));
+    CHECK(prepared.calibration.mode == params.mode);
+    if (params.mode == orca::CalibrationMode::vol_speed_tower) {
+        // Flow::mm3_per_mm() of a line 1.75 nozzles wide on a layer of 0.8 nozzles: speeds above the volumes, in their ratio.
+        CHECK(prepared.calibration.start > params.start);
+        CHECK(prepared.calibration.end / prepared.calibration.start == Catch::Approx(params.end / params.start));
+    } else {
+        CHECK(prepared.calibration.start == params.start);
+    }
+
+    const std::string output = output_path("range-test.gcode");
+    const orca::SliceResult result = orca::slice(
+        "range-test", {plate_object_of(prepared.objects.front())}, output, {}, k2_plus_profiles(), {}, {}, {}, {}, {}, prepared.calibration);
+    INFO(result.message);
+    CHECK(result.status == orca::SliceStatus::success);
+
+    REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
+}

@@ -995,6 +995,7 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
     var fileMenu by remember { mutableStateOf(false) }
     var calibrationMenu by remember { mutableStateOf(false) }
     var temperature by remember { mutableStateOf(false) }
+    var rangeTest by remember { mutableStateOf<RangeTest?>(null) }
     // Plater::priv::update_title_dirty_status()
     val title = (if (dirty) "*" else "") + (name ?: orcaString("Untitled"))
     OrcaSidebarTitle(title, DesignR.drawable.orca_open_project) {
@@ -1011,7 +1012,12 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
                 onClick = { calibrationMenu = true },
             )
             OrcaContextMenu(expanded = calibrationMenu, position = IntOffset.Zero, onDismissRequest = { calibrationMenu = false }) {
-                CalibrationMenuItems(enabled = canSave, dismiss = { calibrationMenu = false }, onTemperature = { temperature = true })
+                CalibrationMenuItems(
+                    enabled = canSave,
+                    dismiss = { calibrationMenu = false },
+                    onTemperature = { temperature = true },
+                    onRange = { rangeTest = it },
+                )
             }
         }
         Box {
@@ -1054,6 +1060,16 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
             onDismiss = { temperature = false },
             onStart = { params ->
                 temperature = false
+                actions.calibrate(params)
+            },
+        )
+    }
+    rangeTest?.let { test ->
+        RangeCalibrationSheet(
+            test = test,
+            onDismiss = { rangeTest = null },
+            onStart = { params ->
+                rangeTest = null
                 actions.calibrate(params)
             },
         )

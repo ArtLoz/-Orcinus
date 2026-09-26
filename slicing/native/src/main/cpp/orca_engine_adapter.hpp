@@ -1334,6 +1334,10 @@ struct ImportedModels {
     // The load changed the presets: a project's were selected, or filaments
     // joined the plate for the extruders of a 3MF file's objects.
     bool presets_changed{false};
+    // prepare_calibration(): the calibration the plate's print is told, as the
+    // test set it (calib_max_vol_speed() turns volumes into speeds); none for
+    // any other load.
+    CalibrationParams calibration;
 };
 
 // What saving a project came to.

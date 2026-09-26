@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.CalibrationParcel;
 import app.orcinus.shadow.slicing.service.LoadedObjectParcel;
 import app.orcinus.shadow.slicing.service.ProjectPlateParcel;
 import app.orcinus.shadow.slicing.service.SettingsDialogParcel;
@@ -19,4 +20,6 @@ parcelable ModelLoadParcel {
     boolean presetsChanged;
     /** LoadedProject.info */
     @nullable String projectInfo;
+    /** A calibration's load: what the plate's print is told. */
+    @nullable CalibrationParcel calibration;
 }

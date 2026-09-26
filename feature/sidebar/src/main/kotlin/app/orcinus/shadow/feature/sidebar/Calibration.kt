@@ -45,7 +45,7 @@ import app.orcinus.shadow.core.ui.orca.orcaString
  * has not ported yet stand disabled.
  */
 @Composable
-internal fun CalibrationMenuItems(enabled: Boolean, dismiss: () -> Unit, onTemperature: () -> Unit) {
+internal fun CalibrationMenuItems(enabled: Boolean, dismiss: () -> Unit, onTemperature: () -> Unit, onRange: (RangeTest) -> Unit) {
     val uriHandler = LocalUriHandler.current
     @Composable
     fun item(text: String, onClick: (() -> Unit)?) = OrcaMenuItem(
@@ -57,16 +57,16 @@ internal fun CalibrationMenuItems(enabled: Boolean, dismiss: () -> Unit, onTempe
         },
     )
     item("Temperature", onTemperature)
-    item("Max flowrate", null)
+    item("Max flowrate") { onRange(RangeTest.MAX_FLOWRATE) }
     item("Pressure advance", null)
     item("Flow ratio", null)
-    item("Retraction", null)
+    item("Retraction") { onRange(RangeTest.RETRACTION) }
     item("Cornering", null)
     OrcaSubmenu(text = orcaString("Input Shaping"), enabled = false) {
         item("Input Shaping Frequency", null)
         item("Input Shaping Damping/zeta factor", null)
     }
-    item("VFA", null)
+    item("VFA") { onRange(RangeTest.VFA) }
     OrcaMenuItem(
         text = orcaString("Calibration Guide"),
         onClick = {
@@ -174,6 +174,122 @@ internal fun TemperatureCalibrationSheet(onDismiss: () -> Unit, onStart: (Calibr
             containerColor = colors.window,
             textContentColor = colors.text,
             shape = OrcaTheme.shapes.window,
+        )
+    }
+}
+
+/**
+ * A test whose dialog asks for a start, an end and a step
+ * (MaxVolumetricSpeed_Test_Dlg, VFA_Test_Dlg and Retraction_Test_Dlg): its
+ * texts, the figures the dialog starts with, and what its OK accepts.
+ */
+internal enum class RangeTest(
+    val mode: CalibrationMode,
+    val title: String,
+    val startLabel: String,
+    val endLabel: String,
+    val unit: String,
+    val start: String,
+    val end: String,
+    val step: String,
+    val guide: String,
+    val invalidMessage: String,
+    val accepts: (start: Double, end: Double, step: Double) -> Boolean,
+) {
+    MAX_FLOWRATE(
+        CalibrationMode.VOL_SPEED_TOWER, "Max volumetric speed test", "Start volumetric speed: ", "End volumetric speed: ", "mm³/s",
+        "5", "20", "0.5", "https://www.orcaslicer.com/wiki/volumetric_speed_calib",
+        "Please input valid values:\nstart > 0\nstep >= 0\nend > start + step",
+        { start, end, step -> start > 0 && step > 0 && end >= start + step },
+    ),
+    VFA(
+        CalibrationMode.VFA_TOWER, "VFA test", "Start speed: ", "End speed: ", "mm/s",
+        "40", "200", "10", "https://www.orcaslicer.com/wiki/vfa_calib",
+        "Please input valid values:\nstart > 10\nstep >= 0\nend > start + step",
+        { start, end, step -> start > 10 && step > 0 && end >= start + step },
+    ),
+    RETRACTION(
+        CalibrationMode.RETRACTION_TOWER, "Retraction", "Start retraction length: ", "End retraction length: ", "mm",
+        "0", "2", "0.1", "https://www.orcaslicer.com/wiki/retraction_calib",
+        "Please input valid values:\nstart > 0\nstep >= 0\nend > start + step",
+        { start, end, step -> start >= 0 && step > 0 && end >= start + step },
+    ),
+}
+
+/** The dialog of a [RangeTest], as a sheet: its start, end and step, and OK once they are valid. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun RangeCalibrationSheet(test: RangeTest, onDismiss: () -> Unit, onStart: (CalibrationParams) -> Unit) {
+    val colors = OrcaTheme.colors
+    val uriHandler = LocalUriHandler.current
+    var start by remember { mutableStateOf(test.start) }
+    var end by remember { mutableStateOf(test.end) }
+    var step by remember { mutableStateOf(test.step) }
+    var invalid by remember { mutableStateOf(false) }
+    val unit = orcaString(test.unit)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = colors.window,
+        dragHandle = { OrcaSheetHandle() },
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(orcaString(test.title), color = colors.text, style = OrcaTheme.typography.head16)
+            Text(orcaString("Settings"), color = colors.textLabel, style = OrcaTheme.typography.body14)
+            NumberField(orcaString(test.startLabel), start, unit) { start = it }
+            NumberField(orcaString(test.endLabel), end, unit) { end = it }
+            NumberField(orcaString("Step") + ": ", step, unit) { step = it }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                OrcaButton(orcaString("Wiki Guide"), onClick = { uriHandler.openUri(test.guide) }, style = OrcaButtonStyle.Regular)
+                OrcaButton(orcaString("OK"), onClick = {
+                    val first = start.toDoubleOrNull()
+                    val last = end.toDoubleOrNull()
+                    val by = step.toDoubleOrNull()
+                    if (first == null || last == null || by == null || !test.accepts(first, last, by)) {
+                        invalid = true
+                    } else {
+                        onStart(CalibrationParams(test.mode, start = first, end = last, step = by))
+                    }
+                })
+            }
+        }
+    }
+    if (invalid) {
+        AlertDialog(
+            onDismissRequest = { invalid = false },
+            confirmButton = { OrcaButton(orcaString("OK"), onClick = { invalid = false }) },
+            text = { Text(orcaString(test.invalidMessage), style = OrcaTheme.typography.body14) },
+            containerColor = colors.window,
+            textContentColor = colors.text,
+            shape = OrcaTheme.shapes.window,
+        )
+    }
+}
+
+/** A figure of a test's dialog with its label beside it; a decimal comma counts as the point the dialog reads. */
+@Composable
+private fun NumberField(label: String, value: String, unit: String, onChange: (String) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
+        OrcaTextField(
+            value = value,
+            onValueChange = { text -> onChange(text.replace(',', '.').filter { it.isDigit() || it == '.' || it == '-' }.take(8)) },
+            unit = unit,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.width(140.dp),
         )
     }
 }

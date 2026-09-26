@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.filamentUsagesOf
 import app.orcinus.shadow.core.model.ProjectPlate
@@ -1553,9 +1554,27 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     )
                 },
                 presetsChanged = presetsChanged,
+                calibration = calibration?.toParams(),
             )
         }
     }
+
+    private fun NativeCalibration.toParams() = CalibrationParams(
+        mode = CalibrationMode.entries[mode.toInt()],
+        start = start,
+        end = end,
+        step = step,
+        printNumbers = printNumbers,
+        freqStartX = freqStartX,
+        freqEndX = freqEndX,
+        freqStartY = freqStartY,
+        freqEndY = freqEndY,
+        testModel = testModel,
+        shaperType = shaperType,
+        accelerations = accelerations.toList(),
+        speeds = speeds.toList(),
+        extruderId = extruderId,
+    )
 
     /** ProjectPlate in orca_engine_adapter.hpp. */
     private fun ProjectPlate.toNative() = NativeProjectPlate(

@@ -327,6 +327,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.appended = this is ModelLoadOutcome.Success && appended
     it.selectedVolume = (this as? ModelLoadOutcome.Success)?.selectedVolume ?: -1
     it.presetsChanged = this is ModelLoadOutcome.Success && presetsChanged
+    it.calibration = (this as? ModelLoadOutcome.Success)?.calibration?.toParcel()
     (this as? ModelLoadOutcome.Success)?.project?.let { project ->
         it.plates = project.plates.map { plate -> plate.toParcel() }.toTypedArray()
         it.projectInfo = project.info?.value
@@ -386,6 +387,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
             )
         },
         presetsChanged = presetsChanged,
+        calibration = calibration?.toCalibrationParams(),
     )
 }
 

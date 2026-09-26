@@ -249,6 +249,8 @@ sealed interface ModelLoadOutcome {
         val project: LoadedProject? = null,
         /** The engine selected other presets: a project's, or more filaments for a 3MF file's objects. */
         val presetsChanged: Boolean = false,
+        /** A calibration's load: what the plate's print is told, as the test set it; null for any other load. */
+        val calibration: CalibrationParams? = null,
     ) : ModelLoadOutcome
 
     /** The load asks [question] before it adds anything; it is requested again with the answer. */

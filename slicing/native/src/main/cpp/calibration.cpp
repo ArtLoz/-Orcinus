@@ -4,8 +4,8 @@
 #include <boost/filesystem.hpp>
 
 #include "engine_context.hpp"
-#include "settings_tab.hpp"
 #include "libslic3r/CutUtils.hpp"
+#include "libslic3r/Flow.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -153,6 +153,162 @@ Slic3r::ModelObject* calib_temp(Slic3r::Model& model, const CalibrationParams& p
     return object;
 }
 
+// The printer's max_layer_height of the first extruder raised to a test's layer height.
+void allow_layer_height(Slic3r::DynamicPrintConfig& printer_config, double layer_height)
+{
+    auto max_lh = printer_config.option<Slic3r::ConfigOptionFloats>("max_layer_height");
+    if (max_lh->values[0] < layer_height)
+        max_lh->values[0] = {layer_height};
+}
+
+// Plater::calib_max_vol_speed(): the speed test structure, narrowed to the
+// bed, printed in spiral vase mode with one wall a line of 1.75 nozzles wide
+// and layers of 0.8 nozzles, cut to the heights of the volumetric speeds; the
+// print is told the speeds these volumes take.
+Slic3r::ModelObject* calib_max_vol_speed(Slic3r::Model& model, CalibrationParams& params, const Slic3r::DynamicPrintConfig& config, Slic3r::PresetBundle& bundle)
+{
+    Slic3r::ModelObject* obj = add_calibration_model(model, "volumetric_speed/SpeedTestStructure.drc", config);
+
+    auto print_config = &bundle.prints.get_edited_preset().config;
+    auto filament_config = &bundle.filaments.get_edited_preset().config;
+    auto printer_config = &bundle.printers.get_edited_preset().config;
+    auto& obj_cfg = obj->config;
+
+    auto bed_shape = printer_config->option<Slic3r::ConfigOptionPoints>("printable_area")->values;
+    Slic3r::BoundingBoxf bed_ext = Slic3r::get_extents(bed_shape);
+    auto scale_obj = (bed_ext.size().x() - 10) / obj->bounding_box_exact().size().x();
+    if (scale_obj < 1.0)
+        obj->scale(scale_obj, 1, 1);
+
+    const Slic3r::ConfigOptionFloats* nozzle_diameter_config = printer_config->option<Slic3r::ConfigOptionFloats>("nozzle_diameter");
+    double nozzle_diameter = nozzle_diameter_config->values[0];
+    double line_width = nozzle_diameter * 1.75;
+    double layer_height = nozzle_diameter * 0.8;
+
+    allow_layer_height(*printer_config, layer_height);
+
+    filament_config->set_key_value("filament_max_volumetric_speed", new Slic3r::ConfigOptionFloats{200});
+    filament_config->set_key_value("slow_down_layer_time", new Slic3r::ConfigOptionFloats{0.0});
+    printer_config->set_key_value("resonance_avoidance", new Slic3r::ConfigOptionBool{false});
+    obj_cfg.set_key_value("enable_overhang_speed", new Slic3r::ConfigOptionBool{false});
+    obj_cfg.set_key_value("wall_loops", new Slic3r::ConfigOptionInt(1));
+    obj_cfg.set_key_value("alternate_extra_wall", new Slic3r::ConfigOptionBool(false));
+    obj_cfg.set_key_value("top_shell_layers", new Slic3r::ConfigOptionInt(0));
+    obj_cfg.set_key_value("bottom_shell_layers", new Slic3r::ConfigOptionInt(0));
+    obj_cfg.set_key_value("sparse_infill_density", new Slic3r::ConfigOptionPercent(0));
+    obj_cfg.set_key_value("outer_wall_line_width", new Slic3r::ConfigOptionFloatOrPercent(line_width, false));
+    obj_cfg.set_key_value("layer_height", new Slic3r::ConfigOptionFloat(layer_height));
+    obj_cfg.set_key_value("brim_type", new Slic3r::ConfigOptionEnum<Slic3r::BrimType>(Slic3r::btOuterAndInner));
+    obj_cfg.set_key_value("brim_width", new Slic3r::ConfigOptionFloat(5.0));
+    obj_cfg.set_key_value("brim_object_gap", new Slic3r::ConfigOptionFloat(0.0));
+    obj_cfg.set_key_value("precise_z_height", new Slic3r::ConfigOptionBool(false));
+    print_config->set_key_value("timelapse_type", new Slic3r::ConfigOptionEnum<Slic3r::TimelapseType>(Slic3r::tlTraditional));
+    print_config->set_key_value("spiral_mode", new Slic3r::ConfigOptionBool(true));
+    print_config->set_key_value("max_volumetric_extrusion_rate_slope", new Slic3r::ConfigOptionFloat(0));
+    print_config->set_key_value("enable_wrapping_detection", new Slic3r::ConfigOptionBool(false));
+
+    //  cut upper
+    auto obj_bb = obj->bounding_box_exact();
+    auto height = (params.end - params.start + 1) / params.step;
+    if (height < obj_bb.size().z()) {
+        obj = cut_horizontal(model, obj, height, Slic3r::ModelObjectCutAttribute::KeepLower);
+    }
+
+    // filament_flow_ratio is nullable, as the desktop app reads it.
+    double flow_ratio = 1.0;
+    if (const auto* ratio = filament_config->option<Slic3r::ConfigOptionFloatsNullable>("filament_flow_ratio"); ratio != nullptr) {
+        flow_ratio = ratio->get_at(0);
+    } else if (const auto* plain = filament_config->option<Slic3r::ConfigOptionFloats>("filament_flow_ratio"); plain != nullptr) {
+        flow_ratio = plain->get_at(0);
+    }
+    auto mm3_per_mm = Slic3r::Flow(float(line_width), float(layer_height), float(nozzle_diameter)).mm3_per_mm() * flow_ratio;
+    params.end = params.end / mm3_per_mm;
+    params.start = params.start / mm3_per_mm;
+    params.step = params.step / mm3_per_mm;
+    return obj;
+}
+
+// Plater::calib_retraction(): the retraction tower, with layers of 0.2 mm
+// (less for a fine nozzle), two walls and three bottom layers, aligned seams
+// and the firmware's retraction off, cut to the heights of the lengths.
+Slic3r::ModelObject* calib_retraction(Slic3r::Model& model, const CalibrationParams& params, const Slic3r::DynamicPrintConfig& config, Slic3r::PresetBundle& bundle)
+{
+    Slic3r::ModelObject* obj = add_calibration_model(model, "retraction/retraction_tower.drc", config);
+
+    auto print_config = &bundle.prints.get_edited_preset().config;
+    auto printer_config = &bundle.printers.get_edited_preset().config;
+
+    print_config->set_key_value("enable_wrapping_detection", new Slic3r::ConfigOptionBool(false));
+
+    float nozzle_diameter = printer_config->option<Slic3r::ConfigOptionFloats>("nozzle_diameter")->get_at(0);
+    float layer_height;
+    if (nozzle_diameter <= 0.1f) {
+        layer_height = 0.05f;
+    } else if (nozzle_diameter <= 0.2f) {
+        layer_height = 0.1f;
+    } else {
+        layer_height = 0.2f;
+    }
+
+    allow_layer_height(*printer_config, layer_height);
+
+    printer_config->set_key_value("resonance_avoidance", new Slic3r::ConfigOptionBool{false});
+    printer_config->set_key_value("use_firmware_retraction", new Slic3r::ConfigOptionBool(false));
+    obj->config.set_key_value("wall_loops", new Slic3r::ConfigOptionInt(2));
+    obj->config.set_key_value("top_shell_layers", new Slic3r::ConfigOptionInt(0));
+    obj->config.set_key_value("bottom_shell_layers", new Slic3r::ConfigOptionInt(3));
+    obj->config.set_key_value("sparse_infill_density", new Slic3r::ConfigOptionPercent(0));
+    print_config->set_key_value("initial_layer_print_height", new Slic3r::ConfigOptionFloat(layer_height));
+    obj->config.set_key_value("layer_height", new Slic3r::ConfigOptionFloat(layer_height));
+    obj->config.set_key_value("alternate_extra_wall", new Slic3r::ConfigOptionBool(false));
+    obj->config.set_key_value("seam_position", new Slic3r::ConfigOptionEnum<Slic3r::SeamPosition>(Slic3r::spAligned));
+    obj->config.set_key_value("wall_sequence", new Slic3r::ConfigOptionEnum<Slic3r::WallSequence>(Slic3r::WallSequence::InnerOuter));
+    obj->config.set_key_value("overhang_reverse", new Slic3r::ConfigOptionBool(false));
+    obj->config.set_key_value("precise_z_height", new Slic3r::ConfigOptionBool(false));
+
+    //  cut upper
+    auto obj_bb = obj->bounding_box_exact();
+    auto height = 1.0 + 0.4 + ((params.end - params.start)) / params.step - EPSILON;
+    if (height < obj_bb.size().z()) {
+        obj = cut_horizontal(model, obj, height, Slic3r::ModelObjectCutAttribute::KeepLower);
+    }
+    return obj;
+}
+
+// Plater::calib_VFA(): the VFA tower in spiral vase mode with one wall and an
+// outer brim, cut to 5 mm for every speed.
+Slic3r::ModelObject* calib_vfa(Slic3r::Model& model, const CalibrationParams& params, const Slic3r::DynamicPrintConfig& config, Slic3r::PresetBundle& bundle)
+{
+    Slic3r::ModelObject* obj = add_calibration_model(model, "vfa/vfa.drc", config);
+    auto print_config = &bundle.prints.get_edited_preset().config;
+    auto filament_config = &bundle.filaments.get_edited_preset().config;
+    auto printer_config = &bundle.printers.get_edited_preset().config;
+    printer_config->set_key_value("resonance_avoidance", new Slic3r::ConfigOptionBool{false});
+    filament_config->set_key_value("slow_down_layer_time", new Slic3r::ConfigOptionFloats{0.0});
+    print_config->set_key_value("enable_overhang_speed", new Slic3r::ConfigOptionBool{false});
+    print_config->set_key_value("timelapse_type", new Slic3r::ConfigOptionEnum<Slic3r::TimelapseType>(Slic3r::tlTraditional));
+    print_config->set_key_value("wall_loops", new Slic3r::ConfigOptionInt(1));
+    print_config->set_key_value("alternate_extra_wall", new Slic3r::ConfigOptionBool(false));
+    print_config->set_key_value("top_shell_layers", new Slic3r::ConfigOptionInt(0));
+    print_config->set_key_value("bottom_shell_layers", new Slic3r::ConfigOptionInt(1));
+    print_config->set_key_value("sparse_infill_density", new Slic3r::ConfigOptionPercent(0));
+    print_config->set_key_value("detect_thin_wall", new Slic3r::ConfigOptionBool(false));
+    print_config->set_key_value("spiral_mode", new Slic3r::ConfigOptionBool(true));
+    print_config->set_key_value("enable_wrapping_detection", new Slic3r::ConfigOptionBool(false));
+    print_config->set_key_value("precise_z_height", new Slic3r::ConfigOptionBool(false));
+    obj->config.set_key_value("brim_type", new Slic3r::ConfigOptionEnum<Slic3r::BrimType>(Slic3r::btOuterOnly));
+    obj->config.set_key_value("brim_width", new Slic3r::ConfigOptionFloat(3.0));
+    obj->config.set_key_value("brim_object_gap", new Slic3r::ConfigOptionFloat(0.0));
+
+    // cut upper
+    auto obj_bb = obj->bounding_box_exact();
+    auto height = 5 * ((params.end - params.start) / params.step + 1);
+    if (height < obj_bb.size().z()) {
+        obj = cut_horizontal(model, obj, height, Slic3r::ModelObjectCutAttribute::KeepLower);
+    }
+    return obj;
+}
+
 }  // namespace
 
 ImportedModels prepare_calibration(const CalibrationParams& params, const ProfileSelection& profiles, const std::string& output_prefix)
@@ -174,14 +330,20 @@ ImportedModels prepare_calibration(const CalibrationParams& params, const Profil
         }
         Slic3r::Model model;
         Slic3r::ModelObject* object = nullptr;
+        // What the plate's print is told, which a test may turn into other figures.
+        CalibrationParams print_params = params;
         switch (params.mode) {
         case CalibrationMode::temp_tower: object = calib_temp(model, params, config, bundle); break;
+        case CalibrationMode::vol_speed_tower: object = calib_max_vol_speed(model, print_params, config, bundle); break;
+        case CalibrationMode::retraction_tower: object = calib_retraction(model, params, config, bundle); break;
+        case CalibrationMode::vfa_tower: object = calib_vfa(model, params, config, bundle); break;
         default: result.message = "This calibration is not ported yet"; return result;
         }
-        // Tab::reload_config() of the tabs the calibration changed.
-        for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {
-            detail::reload_tab(kind);
-        }
+        result.calibration = print_params;
+        // Tab::reload_config() only shows the values the calibration changed,
+        // without Tab::update() and its questions (a spiral vase test leaves
+        // the walls of the process preset to the object), as the tabs show
+        // the edited presets whenever they are described.
         result.presets_changed = true;
         if (!detail::write_objects({object}, output_prefix, result)) {
             return result;

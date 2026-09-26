@@ -64,7 +64,9 @@ class CalibrateUseCase(
                             selectedInstances = added.allCopies(),
                             selectedPart = null,
                             selectedRange = null,
-                            plates = state.plates.mapIndexed { index, plate -> if (index == state.currentPlate) plate.copy(calibration = params) else plate },
+                            plates = state.plates.mapIndexed { index, plate ->
+                                if (index == state.currentPlate) plate.copy(calibration = outcome.calibration ?: params) else plate
+                            },
                             presets = (presets as? PresetsOutcome.Success)?.presets ?: state.presets,
                             plateNotices = state.plateNotices + outcome.notices,
                             result = null,
@@ -89,6 +91,10 @@ class CalibrateUseCase(
         val TESTS = mapOf(
             // Plater::calib_temp()
             CalibrationMode.TEMP_TOWER to Test("Nozzle temperature test", "temperature_tower.drc"),
+            // calib_max_vol_speed(), calib_retraction() and calib_VFA()
+            CalibrationMode.VOL_SPEED_TOWER to Test("Max volumetric speed test", "SpeedTestStructure.drc"),
+            CalibrationMode.RETRACTION_TOWER to Test("Retraction", "retraction_tower.drc"),
+            CalibrationMode.VFA_TOWER to Test("VFA test", "vfa.drc"),
         )
     }
 }

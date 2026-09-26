@@ -2878,6 +2878,34 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ProjectPlate& plate)
     );
 }
 
+// NativeCalibration; null for none.
+static jobject to_java(JNIEnv* env, const orcinus::orca::CalibrationParams& params)
+{
+    if (params.mode == orcinus::orca::CalibrationMode::none) {
+        return nullptr;
+    }
+    const jclass calibration_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeCalibration");
+    const jmethodID constructor = env->GetMethodID(calibration_class, "<init>", "(JIDDDZDDDDILjava/lang/String;[D[D)V");
+    return env->NewObject(
+        calibration_class,
+        constructor,
+        static_cast<jlong>(params.mode),
+        static_cast<jint>(params.extruder_id),
+        params.start,
+        params.end,
+        params.step,
+        params.print_numbers ? JNI_TRUE : JNI_FALSE,
+        params.freq_start_x,
+        params.freq_end_x,
+        params.freq_start_y,
+        params.freq_end_y,
+        static_cast<jint>(params.test_model),
+        to_java(env, params.shaper_type),
+        to_java(env, params.accelerations.data(), params.accelerations.size()),
+        to_java(env, params.speeds.data(), params.speeds.size())
+    );
+}
+
 // NativeImportedModels
 static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& imported)
 {
@@ -2900,7 +2928,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "Z"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
-        "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;)V"
+        "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;"
+        "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;)V"
     );
     const jobjectArray plates = to_java_objects(
         env,
@@ -2922,7 +2951,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         imported.project ? JNI_TRUE : JNI_FALSE,
         plates,
         imported.presets_changed ? JNI_TRUE : JNI_FALSE,
-        to_java(env, imported.project_info)
+        to_java(env, imported.project_info),
+        to_java(env, imported.calibration)
     );
 }
 

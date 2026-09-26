@@ -680,6 +680,8 @@ internal class NativeImportedModels(
     @JvmField val presetsChanged: Boolean,
     /** Where the load kept the project's information and auxiliary files; empty for none. */
     @JvmField val projectInfo: String,
+    /** A calibration's load: what the plate's print is told; null for any other load. */
+    @JvmField val calibration: NativeCalibration?,
 )
 
 /**
@@ -702,7 +704,7 @@ internal class NativeProjectPlate(
     @JvmField val thumbnailPath: String,
 )
 
-/** Read by the native bridge; see CalibrationParams in orca_engine_adapter.hpp. */
+/** Read and constructed by the native bridge; see CalibrationParams in orca_engine_adapter.hpp. */
 internal class NativeCalibration(
     /** CalibrationMode's order. */
     @JvmField val mode: Long,
