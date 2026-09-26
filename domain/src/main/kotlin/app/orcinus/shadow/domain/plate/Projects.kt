@@ -211,6 +211,7 @@ class ProjectLifecycleUseCase(
                 currentPlate = 0,
                 plateSettings = kept,
                 layerGcodes = emptyList(),
+                paPattern = null,
                 // "New Project" is a ProjectSeparator, which clears Undo.
                 history = PlateHistory(),
                 result = null,

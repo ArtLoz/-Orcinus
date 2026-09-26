@@ -69,6 +69,14 @@ bool load_plate(
 // The centre of the current plate's bed, where a new object stands on an empty plate.
 Slic3r::Vec2d bed_center(const Slic3r::DynamicPrintConfig& config);
 
+// PartPlateList::compute_origin() of the plate at index among count plates.
+Slic3r::Vec2d plate_origin(const Slic3r::DynamicPrintConfig& config, int index, int count);
+
+// ObjectList::load_shape_object(): a shape of create_mesh() as an object of
+// its own named name, in the empty cell nearest to the plate's centre; null
+// for an unknown shape.
+Slic3r::ModelObject* add_shape_object(Slic3r::Model& model, const std::string& shape, const std::string& name, const Slic3r::DynamicPrintConfig& config);
+
 // The objects written as import_model() writes them into result.
 bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::string& output_prefix, ImportedModels& result);
 

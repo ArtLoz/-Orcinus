@@ -22,4 +22,6 @@ parcelable ModelLoadParcel {
     @nullable String projectInfo;
     /** A calibration's load: what the plate's print is told. */
     @nullable CalibrationParcel calibration;
+    /** A calibration's load: the plates its objects stand on. */
+    int plateCount;
 }

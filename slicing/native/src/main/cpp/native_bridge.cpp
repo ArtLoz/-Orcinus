@@ -1054,7 +1054,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     jintArray layer_gcode_extruders,
     jobjectArray layer_gcode_colors,
     jobjectArray layer_gcode_extras,
-    jobject calibration
+    jobject calibration,
+    jobject pa_pattern
 )
 {
     const std::vector<orcinus::orca::LayerGcode> layer_gcodes =
@@ -1082,7 +1083,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         wipe_tower_path != nullptr ? to_utf8(env, wipe_tower_path) : std::string(),
         thumbnails,
         layer_gcodes,
-        to_calibration(env, calibration)
+        to_calibration(env, calibration),
+        to_calibration(env, pa_pattern)
     );
 
     // The filaments the plate prints with, and eight amounts for each: metres
@@ -2929,7 +2931,7 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
         "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;"
-        "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;)V"
+        "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;I)V"
     );
     const jobjectArray plates = to_java_objects(
         env,
@@ -2952,7 +2954,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         plates,
         imported.presets_changed ? JNI_TRUE : JNI_FALSE,
         to_java(env, imported.project_info),
-        to_java(env, imported.calibration)
+        to_java(env, imported.calibration),
+        static_cast<jint>(imported.plate_count)
     );
 }
 

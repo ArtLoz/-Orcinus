@@ -300,7 +300,11 @@ SliceResult slice(
     // The codes on the layers (Model::plates_custom_gcodes); none leaves the plate without.
     const std::vector<LayerGcode>& layer_gcodes = {},
     // The calibration the plate prints (Print::set_calib_params); none by default.
-    const CalibrationParams& calibration = {}
+    const CalibrationParams& calibration = {},
+    // Model::calib_pa_pattern: the PA pattern whose G-code the plate's handles
+    // print (Plater::_calib_pa_pattern_gen_gcode), which takes the place of
+    // the layer codes; none by default.
+    const CalibrationParams& pa_pattern = {}
 );
 
 // Returns true only when job_id is the active job and cancellation was requested.
@@ -1338,6 +1342,9 @@ struct ImportedModels {
     // test set it (calib_max_vol_speed() turns volumes into speeds); none for
     // any other load.
     CalibrationParams calibration;
+    // prepare_calibration(): the plates its objects stand on, which the PA
+    // pattern's handles may fill beyond the first; 0 for any other load.
+    int plate_count{0};
 };
 
 // What saving a project came to.

@@ -183,6 +183,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     layerGcodeColors = request.layerGcodes.map(LayerGcode::color).toTypedArray(),
                     layerGcodeExtras = request.layerGcodes.map(LayerGcode::extra).toTypedArray(),
                     calibration = request.calibration?.toNative(),
+                    paPattern = request.paPattern?.toNative(),
                 )
             }
             try {
@@ -1555,6 +1556,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 },
                 presetsChanged = presetsChanged,
                 calibration = calibration?.toParams(),
+                plateCount = plateCount,
             )
         }
     }

@@ -379,9 +379,8 @@ internal fun PressureAdvanceSheet(
                 onSelect = { choose(choice.copy(bowden = it == 1)) },
             )
             Text(orcaString("Method"), color = colors.textLabel, style = OrcaTheme.typography.body14)
-            // The pattern comes with its handles and their G-code, which are not ported yet.
             OrcaChoiceChips(
-                items = PA_METHODS.take(PA_PATTERN).map { orcaString(it) },
+                items = PA_METHODS.map { orcaString(it) },
                 selected = choice.method,
                 onSelect = { choose(choice.copy(method = it)) },
             )
@@ -416,7 +415,11 @@ internal fun PressureAdvanceSheet(
                         accels.isNotEmpty() && speedList.isNotEmpty() && accels.min() <= speedList.max() -> message = swappedMessage
                         else -> onStart(
                             CalibrationParams(
-                                mode = if (choice.method == PA_LINE) CalibrationMode.PA_LINE else CalibrationMode.PA_TOWER,
+                                mode = when (choice.method) {
+                                    PA_LINE -> CalibrationMode.PA_LINE
+                                    PA_PATTERN -> CalibrationMode.PA_PATTERN
+                                    else -> CalibrationMode.PA_TOWER
+                                },
                                 start = first,
                                 end = last,
                                 step = by,

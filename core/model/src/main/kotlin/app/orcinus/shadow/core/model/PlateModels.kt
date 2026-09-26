@@ -656,6 +656,13 @@ data class PlateState(
     val simplifyTarget: ObjectPartId? = null,
     /** The codes the preview's layer slider put on the layers of the current plate (Model::plates_custom_gcodes), by height. */
     val layerGcodes: List<LayerGcode> = emptyList(),
+    /**
+     * Model::calib_pa_pattern: the PA pattern the Calibration menu set up,
+     * whose G-code the slice of every plate generates for the handles on it
+     * (Plater::_calib_pa_pattern_gen_gcode); null without one. A new or
+     * opened project leaves it.
+     */
+    val paPattern: CalibrationParams? = null,
     /** The states of the plate Undo and Redo return to (Plater's UndoRedo::Stack). */
     val history: PlateHistory = PlateHistory(),
     /** Which settings the app shows: the presets, or the ones of an object (ParamsPanel's Global and Objects). */

@@ -266,6 +266,42 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `the PA pattern fills the plates its handles need, and every plate slices its pattern until a new project`() {
+        val repository = FakeRepository(readyState())
+        val inspector = FakeInspector()
+        val params = CalibrationParams(CalibrationMode.PA_PATTERN, start = 0.0, end = 0.08, step = 0.005, speeds = listOf(100.0, 200.0))
+        inspector.calibration = { ModelLoadOutcome.Success(listOf(LOADED.copy(name = "pa_pattern_100_5000")), emptyList(), plateCount = 2) }
+        val lifecycle = ProjectLifecycleUseCase(
+            repository,
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            FakePresetManager(),
+            NoSettingsEditor,
+            PresetsApplier { _, _ -> },
+            scope,
+        )
+
+        CalibrateUseCase(lifecycle, inspector, FakePresetManager(), PresetsApplier { _, _ -> }, FakeSceneFiles(), repository, scope)(params)
+
+        val state = repository.state.value
+        assertEquals("Pressure Advance Test", state.project.name)
+        // PartPlateList::create_plate(); the print of the current plate alone is told the test.
+        assertEquals(listOf(params, null), state.plates.map { it.calibration })
+        assertEquals(params, state.paPattern)
+        // An object of no file names its G-code after itself.
+        assertEquals("pa_pattern_100_5000", (state.objects.single() as PlateObject.ImportedModel).inputName)
+        // The engine learns of the second plate (EnginePlateSync).
+        repository.update { it.copy(enginePlate = EnginePlate(it.currentPlate, it.plates.size)) }
+        val engine = FakeEngine()
+        slicePlate(engine, repository)()
+        assertEquals(params, engine.request?.paPattern)
+
+        // Plater::new_project() resets Model::calib_pa_pattern.
+        lifecycle.newProject()
+        lifecycle.answerSaveChanges(false)
+        assertNull(repository.state.value.paPattern)
+    }
+
+    @Test
     fun `the G-code carries the thumbnails the printer asks for, rendered from the plate`() {
         val repository = FakeRepository(readyState(CUBE).copy(plate = PLATE))
         val sizes = listOf(ThumbnailSize(300, 300), ThumbnailSize(96, 96))

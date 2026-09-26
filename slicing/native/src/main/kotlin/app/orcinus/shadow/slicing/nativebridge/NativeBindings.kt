@@ -682,6 +682,8 @@ internal class NativeImportedModels(
     @JvmField val projectInfo: String,
     /** A calibration's load: what the plate's print is told; null for any other load. */
     @JvmField val calibration: NativeCalibration?,
+    /** A calibration's load: the plates its objects stand on; 0 for any other load. */
+    @JvmField val plateCount: Int,
 )
 
 /**
@@ -794,6 +796,8 @@ internal object NativeBindings {
         layerGcodeExtras: Array<String>,
         /** The calibration the plate prints; null for none. */
         calibration: NativeCalibration?,
+        /** The PA pattern the plate's handles print; null for none. */
+        paPattern: NativeCalibration?,
     ): NativeSliceResult
 
     /** prepare_calibration(): the calibration's model set up on the empty plate, and the presets changed. */

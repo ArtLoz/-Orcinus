@@ -753,6 +753,8 @@ class AddModelToPlateUseCase(
                             currentPlate = 0,
                             plateSettings = plates.first().settings,
                             layerGcodes = plates.first().layerGcodes,
+                            // Plater::load_project()
+                            paPattern = null,
                             history = PlateHistory(),
                             result = null,
                         ).let { loaded ->
@@ -1952,6 +1954,7 @@ class SlicePlateUseCase(
         // name, or with several plates, its number.
         val plateName = plate.plates.getOrNull(plate.currentPlate)?.name.orEmpty()
         val calibration = plate.plates.getOrNull(plate.currentPlate)?.calibration
+        val paPattern = plate.paPattern
         val plateSuffix = when {
             plateName.isNotEmpty() -> "_$plateName"
             plate.plates.size > 1 -> "_plate_${plate.currentPlate + 1}"
@@ -1975,6 +1978,7 @@ class SlicePlateUseCase(
                 thumbnails = thumbnails,
                 layerGcodes = layerGcodes,
                 calibration = calibration,
+                paPattern = paPattern,
             )
             val outcome = try {
                 sliceModel(request, SliceProgressObserver { progress ->

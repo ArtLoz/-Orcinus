@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.CalibrationMode
+import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.PlateProblem
@@ -57,16 +58,21 @@ class CalibrateUseCase(
             repository.update { state ->
                 when (outcome) {
                     is ModelLoadOutcome.Success -> {
-                        val added = outcome.objects.map { it.toPlateObject(test.modelFile) }
+                        // An object of no file names its G-code after itself, as a primitive does.
+                        val added = outcome.objects.map { loaded -> loaded.toPlateObject(test.modelFile.ifEmpty { loaded.name }) }
+                        // PartPlateList::create_plate(): the plates the PA pattern's
+                        // handles fill beyond the ones there are.
+                        val plates = state.plates + List((outcome.plateCount - state.plates.size).coerceAtLeast(0)) { PartPlate() }
                         state.copy(
                             importing = false,
                             objects = state.objects + added,
                             selectedInstances = added.allCopies(),
                             selectedPart = null,
                             selectedRange = null,
-                            plates = state.plates.mapIndexed { index, plate ->
+                            plates = plates.mapIndexed { index, plate ->
                                 if (index == state.currentPlate) plate.copy(calibration = outcome.calibration ?: params) else plate
                             },
+                            paPattern = params.takeIf { it.mode == CalibrationMode.PA_PATTERN },
                             presets = (presets as? PresetsOutcome.Success)?.presets ?: state.presets,
                             plateNotices = state.plateNotices + outcome.notices,
                             result = null,
@@ -98,6 +104,8 @@ class CalibrateUseCase(
             // Plater::calib_pa()
             CalibrationMode.PA_TOWER to Test("Pressure Advance Test", "tower_with_seam.drc"),
             CalibrationMode.PA_LINE to Test("Pressure Advance Test", "pressure_advance_test.drc"),
+            // The handles are cubes of create_mesh(), which name no file.
+            CalibrationMode.PA_PATTERN to Test("Pressure Advance Test", ""),
         )
     }
 }

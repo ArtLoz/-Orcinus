@@ -4,6 +4,8 @@
 #include <boost/filesystem.hpp>
 
 #include "engine_context.hpp"
+#include "settings_dialogs.hpp"
+#include "libslic3r/Arrange.hpp"
 #include "libslic3r/CutUtils.hpp"
 #include "libslic3r/Flow.hpp"
 #include "libslic3r/Geometry.hpp"
@@ -366,6 +368,206 @@ Slic3r::ModelObject* calib_pa_tower(Slic3r::Model& model, const CalibrationParam
     return obj;
 }
 
+// Plater::has_junction_deviation(): Marlin 2 with a junction deviation.
+bool has_junction_deviation(const Slic3r::DynamicPrintConfig* printer_config)
+{
+    if (!printer_config) {
+        return false;
+    }
+    const auto gcode_flavor = printer_config->option<Slic3r::ConfigOptionEnum<Slic3r::GCodeFlavor>>("gcode_flavor");
+    const auto junction_dev = printer_config->option<Slic3r::ConfigOptionFloats>("machine_max_junction_deviation");
+    return gcode_flavor &&
+           gcode_flavor->value == Slic3r::GCodeFlavor::gcfMarlinFirmware &&
+           junction_dev &&
+           !junction_dev->values.empty() &&
+           junction_dev->values.front() > 0.0;
+}
+
+// Plater::_calib_pa_pattern(): the presets set up for the pattern, and a
+// handle cube for every speed and acceleration, arranged as the patterns
+// they stand for would be (the plates after the first take what the first
+// does not hold), named after its speed and acceleration, with its own when
+// the test has several. The G-code of the patterns is generated as each
+// plate is sliced (pa_pattern_gcodes of the adapter). The notifications
+// OrcaSlicer pushes for the figures it chose show as notices.
+std::vector<Slic3r::ModelObject*> calib_pa_pattern(
+    Slic3r::Model& model,
+    const CalibrationParams& calibration,
+    const Slic3r::DynamicPrintConfig& config,
+    Slic3r::PresetBundle& bundle,
+    detail::SettingsDialogs& dialogs,
+    int& plate_count
+)
+{
+    using namespace Slic3r;
+    // The pattern keeps a reference to its figures (CalibPressureAdvancePattern::m_params).
+    const Calib_Params params = detail::calib_params(calibration);
+    std::vector<double> speeds{params.speeds};
+    std::vector<double> accels{params.accelerations};
+    /* Set common parameters */
+    auto printer_config = &bundle.printers.get_edited_preset().config;
+    DynamicPrintConfig& print_config = bundle.prints.get_edited_preset().config;
+    auto filament_config = &bundle.filaments.get_edited_preset().config;
+    double nozzle_diameter = printer_config->option<ConfigOptionFloats>("nozzle_diameter")->get_at(0);
+    filament_config->set_key_value("filament_retract_when_changing_layer", new ConfigOptionBoolsNullable{false});
+    filament_config->set_key_value("filament_wipe", new ConfigOptionBoolsNullable{false});
+    printer_config->set_key_value("wipe", new ConfigOptionBools{false});
+    printer_config->set_key_value("retract_when_changing_layer", new ConfigOptionBools{false});
+    printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+
+    //Orca: find acceleration to use in the test
+    auto accel = print_config.option<ConfigOptionFloat>("outer_wall_acceleration")->value; // get the outer wall acceleration
+    if (accel == 0) // if outer wall accel isnt defined, fall back to inner wall accel
+        accel = print_config.option<ConfigOptionFloat>("inner_wall_acceleration")->value;
+    if (accel == 0) // if inner wall accel is not defined fall back to default accel
+        accel = print_config.option<ConfigOptionFloat>("default_acceleration")->value;
+    // Orca: Set all accelerations except first layer, as the first layer accel doesnt affect the PA test since accel
+    // is set to the travel accel before printing the pattern.
+    if (accels.empty()) {
+        accels.assign({accel});
+        dialogs.inform("pa_pattern_accelerations",
+                       {detail::ui_text("INFO:"), detail::ui_text("%s", {"\n"}),
+                        detail::ui_text("No accelerations provided for calibration. Use default acceleration value "),
+                        detail::ui_text("%s", {std::to_string(long(accel))}), detail::ui_text("mm/s²")},
+                       {}, DialogIcon::info);
+    } else {
+        // set max acceleration in case of batch mode to get correct test pattern size
+        accel = *std::max_element(accels.begin(), accels.end());
+    }
+    print_config.set_key_value("outer_wall_acceleration", new ConfigOptionFloat(accel));
+    print_config.set_key_value("print_sequence", new ConfigOptionEnum(PrintSequence::ByLayer));
+
+    //Orca: find jerk value to use in the test
+    if (!has_junction_deviation(printer_config) && print_config.option<ConfigOptionFloat>("default_jerk")->value > 0) { // we have set a jerk value
+        auto jerk = print_config.option<ConfigOptionFloat>("outer_wall_jerk")->value; // get outer wall jerk
+        if (jerk == 0) // if outer wall jerk is not defined, get inner wall jerk
+            jerk = print_config.option<ConfigOptionFloat>("inner_wall_jerk")->value;
+        if (jerk == 0) // if inner wall jerk is not defined, get the default jerk
+            jerk = print_config.option<ConfigOptionFloat>("default_jerk")->value;
+
+        //Orca: Set jerk values. Again first layer jerk should not matter as it is reset to the travel jerk before the
+        // first PA pattern is printed.
+        print_config.set_key_value("default_jerk", new ConfigOptionFloat(jerk));
+        print_config.set_key_value("outer_wall_jerk", new ConfigOptionFloat(jerk));
+        print_config.set_key_value("inner_wall_jerk", new ConfigOptionFloat(jerk));
+        print_config.set_key_value("top_surface_jerk", new ConfigOptionFloat(jerk));
+        print_config.set_key_value("infill_jerk", new ConfigOptionFloat(jerk));
+        print_config.set_key_value("travel_jerk", new ConfigOptionFloat(jerk));
+    }
+
+    if (has_junction_deviation(printer_config)) {
+        print_config.set_key_value("default_junction_deviation", new ConfigOptionFloat(0));
+    }
+
+    for (const auto& opt : SuggestedConfigCalibPAPattern().float_pairs) {
+        print_config.set_key_value(opt.first, new ConfigOptionFloat(opt.second));
+    }
+
+    for (const auto& opt : SuggestedConfigCalibPAPattern().nozzle_ratio_pairs) {
+        print_config.set_key_value(opt.first, new ConfigOptionFloatOrPercent(nozzle_diameter * opt.second / 100, false));
+    }
+
+    for (const auto& opt : SuggestedConfigCalibPAPattern().int_pairs) {
+        print_config.set_key_value(opt.first, new ConfigOptionInt(opt.second));
+    }
+
+    print_config.set_key_value(SuggestedConfigCalibPAPattern().brim_pair.first,
+                               new ConfigOptionEnum<BrimType>(SuggestedConfigCalibPAPattern().brim_pair.second));
+
+    print_config.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+
+    // Orca: Set the outer wall speed to the optimal speed for the test, cap it with max volumetric speed
+    if (speeds.empty()) {
+        double speed = CalibPressureAdvance::find_optimal_PA_speed(bundle.full_config(), print_config.get_abs_value("line_width", nozzle_diameter),
+                                                                   print_config.get_abs_value("layer_height"), 0, 0);
+        print_config.set_key_value("outer_wall_speed", new ConfigOptionFloat(speed));
+
+        speeds.assign({speed});
+        dialogs.inform("pa_pattern_speeds",
+                       {detail::ui_text("INFO:"), detail::ui_text("%s", {"\n"}),
+                        detail::ui_text("No speeds provided for calibration. Use default optimal speed "),
+                        detail::ui_text("%s", {std::to_string(long(speed))}), detail::ui_text("mm/s")},
+                       {}, DialogIcon::info);
+    } else if (speeds.size() == 1) {
+        // If we have single value provided, set speed using global configuration.
+        // per-object config is not set in this case
+        print_config.set_key_value("outer_wall_speed", new ConfigOptionFloat(speeds.front()));
+    }
+
+    const DynamicPrintConfig full_config = bundle.full_config();
+    const bool is_bbl_machine = bundle.is_bbl_vendor();
+
+    // add "handle" cube
+    ModelObject* cube = detail::add_shape_object(model, "Cube", "Cube", config);
+
+    CalibPressureAdvancePattern pa_pattern(params, full_config, is_bbl_machine, *cube, to_3d(detail::plate_origin(config, 0, 1), 0.));
+
+    /* Having PA pattern configured, we could make a set of polygons resembling N test patterns.
+     * We'll arrange this set of polygons, so we would know position of each test pattern and
+     * could position test cubes later on
+     *
+     * We'll take advantage of already existing cube: scale it up to test pattern size to use
+     * as a reference for objects arrangement. Polygon is slightly oversized to add spaces between patterns.
+     * That arrangement will be used to place 'handle cubes' for each test. */
+    auto cube_bb = cube->raw_bounding_box();
+    cube->scale((pa_pattern.print_size_x() + 4) / cube_bb.size().x(),
+                (pa_pattern.print_size_y() + 4) / cube_bb.size().y(),
+                pa_pattern.max_layer_z() / cube_bb.size().z());
+
+    arrangement::ArrangePolygons arranged_items;
+    {
+        arrangement::ArrangeParams ap;
+        Points bedpts = arrangement::get_shrink_bedpts(&full_config, ap);
+
+        for (size_t i = 0; i < speeds.size() * accels.size(); i++) {
+            arrangement::ArrangePolygon p;
+            cube->instances[0]->get_arrange_polygon(&p);
+            p.bed_idx = 0;
+            arranged_items.emplace_back(p);
+        }
+
+        arrangement::arrange(arranged_items, bedpts, ap);
+    }
+
+    /* scale cube back to the size of test pattern 'handle' */
+    cube_bb = cube->raw_bounding_box();
+    cube->scale(pa_pattern.handle_xy_size() / cube_bb.size().x(),
+                pa_pattern.handle_xy_size() / cube_bb.size().y(),
+                pa_pattern.max_layer_z() / cube_bb.size().z());
+
+    // PartPlateList::create_plate() for a test the plates so far do not hold.
+    plate_count = 1;
+    for (const auto& ai : arranged_items) {
+        plate_count = std::max(plate_count, ai.bed_idx + 1);
+    }
+
+    /* Set speed and acceleration on per-object basis and arrange anchor object on the plates.
+     * Test gcode will be genecated during plate slicing */
+    std::vector<ModelObject*> objects;
+    for (size_t test_idx = 0; test_idx < arranged_items.size(); test_idx++) {
+        const auto& ai = arranged_items[test_idx];
+        int plate_idx = std::max(ai.bed_idx, 0);
+        auto tspd = speeds[test_idx % speeds.size()];
+        auto tacc = accels[test_idx / speeds.size()];
+
+        /* make an own copy of anchor cube for each test */
+        auto obj = test_idx == 0 ? cube : model.add_object(*cube);
+        obj->name.assign(std::string("pa_pattern_") + std::to_string(int(tspd)) + std::string("_") + std::to_string(int(tacc)));
+
+        auto& obj_config = obj->config;
+        if (speeds.size() > 1)
+            obj_config.set_key_value("outer_wall_speed", new ConfigOptionFloat(tspd));
+        if (accels.size() > 1)
+            obj_config.set_key_value("outer_wall_acceleration", new ConfigOptionFloat(tacc));
+
+        const Vec3d obj_offset{unscale<double>(ai.translation(X)), unscale<double>(ai.translation(Y)), 0};
+        obj->instances[0]->set_offset(to_3d(detail::plate_origin(config, plate_idx, plate_count), 0.) + obj_offset + pa_pattern.handle_pos_offset());
+        obj->ensure_on_bed();
+        objects.push_back(obj);
+    }
+    return objects;
+}
+
 }  // namespace
 
 ImportedModels prepare_calibration(const CalibrationParams& params, const ProfileSelection& profiles, const std::string& output_prefix)
@@ -387,8 +589,12 @@ ImportedModels prepare_calibration(const CalibrationParams& params, const Profil
         }
         Slic3r::Model model;
         Slic3r::ModelObject* object = nullptr;
+        std::vector<Slic3r::ModelObject*> objects;
         // What the plate's print is told, which a test may turn into other figures.
         CalibrationParams print_params = params;
+        const DialogAnswers no_answers;
+        detail::SettingsDialogs dialogs(no_answers);
+        int plate_count = 1;
         switch (params.mode) {
         case CalibrationMode::temp_tower: object = calib_temp(model, params, config, bundle); break;
         case CalibrationMode::vol_speed_tower: object = calib_max_vol_speed(model, print_params, config, bundle); break;
@@ -403,15 +609,24 @@ ImportedModels prepare_calibration(const CalibrationParams& params, const Profil
             calib_pa_common(bundle);
             object = add_calibration_model(model, "pressure_advance/pressure_advance_test.drc", config);
             break;
+        case CalibrationMode::pa_pattern:
+            calib_pa_common(bundle);
+            objects = calib_pa_pattern(model, params, config, bundle, dialogs, plate_count);
+            break;
         default: result.message = "This calibration is not ported yet"; return result;
         }
         result.calibration = print_params;
+        result.plate_count = plate_count;
+        result.notices = dialogs.take_notices();
+        if (object != nullptr) {
+            objects.push_back(object);
+        }
         // Tab::reload_config() only shows the values the calibration changed,
         // without Tab::update() and its questions (a spiral vase test leaves
         // the walls of the process preset to the object), as the tabs show
         // the edited presets whenever they are described.
         result.presets_changed = true;
-        if (!detail::write_objects({object}, output_prefix, result)) {
+        if (!detail::write_objects(objects, output_prefix, result)) {
             return result;
         }
         result.status = SceneStatus::success;

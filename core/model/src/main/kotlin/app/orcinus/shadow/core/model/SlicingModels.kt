@@ -251,6 +251,11 @@ sealed interface ModelLoadOutcome {
         val presetsChanged: Boolean = false,
         /** A calibration's load: what the plate's print is told, as the test set it; null for any other load. */
         val calibration: CalibrationParams? = null,
+        /**
+         * A calibration's load: the plates its objects stand on, which the PA
+         * pattern's handles may fill beyond the first; 0 for any other load.
+         */
+        val plateCount: Int = 0,
     ) : ModelLoadOutcome
 
     /** The load asks [question] before it adds anything; it is requested again with the answer. */
@@ -335,6 +340,11 @@ data class SliceRequest(
     val layerGcodes: List<LayerGcode> = emptyList(),
     /** The calibration the plate prints (Print::set_calib_params); null for none. */
     val calibration: CalibrationParams? = null,
+    /**
+     * Model::calib_pa_pattern: the PA pattern whose G-code the plate's handles
+     * print in place of the layer codes; null for none.
+     */
+    val paPattern: CalibrationParams? = null,
 )
 
 /** CalibMode of calib.hpp: the calibration a plate prints, in its order. */

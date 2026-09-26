@@ -31,4 +31,6 @@ parcelable SliceRequestParcel {
     @nullable String[] layerGcodeExtras;
     /** The calibration the plate prints; null for none. */
     @nullable CalibrationParcel calibration;
+    /** The PA pattern the plate's handles print; null for none. */
+    @nullable CalibrationParcel paPattern;
 }

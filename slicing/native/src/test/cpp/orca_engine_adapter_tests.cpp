@@ -4886,3 +4886,62 @@ TEST_CASE("The pressure advance tower steps its PA a millimetre at a time, and t
 
     REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
 }
+
+TEST_CASE("The PA pattern stands a handle for every speed, whose patterns the slice draws together", "[Adapter][Calibration]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    orca::CalibrationParams params;
+    params.mode = orca::CalibrationMode::pa_pattern;
+    params.start = 0.0;
+    params.end = 0.08;
+    params.step = 0.005;
+    params.speeds = {100, 200};
+    const orca::ImportedModels prepared = orca::prepare_calibration(params, k2_plus_profiles(), import_prefix("pa-pattern"));
+    INFO(prepared.message);
+    REQUIRE(prepared.status == orca::SceneStatus::success);
+    REQUIRE(prepared.objects.size() == 2);
+    CHECK(prepared.plate_count == 1);
+    // Without accelerations the test takes the outer wall's and says so.
+    REQUIRE(prepared.notices.size() == 1);
+    CHECK(prepared.notices.front().id == "pa_pattern_accelerations");
+    CHECK(prepared.objects[0].name.rfind("pa_pattern_100_", 0) == 0);
+    CHECK(prepared.objects[1].name.rfind("pa_pattern_200_", 0) == 0);
+    // Each handle prints at its own speed.
+    const orca::ModelSettings& settings = prepared.objects[1].settings;
+    const auto speed = std::find(settings.keys.begin(), settings.keys.end(), "outer_wall_speed");
+    REQUIRE(speed != settings.keys.end());
+    CHECK(settings.values[std::size_t(speed - settings.keys.begin())] == "200");
+
+    const std::string output = output_path("pa-pattern.gcode");
+    const orca::SliceResult result = orca::slice(
+        "pa-pattern", {plate_object_of(prepared.objects[0]), plate_object_of(prepared.objects[1])}, output, {}, k2_plus_profiles(), {}, {},
+        {}, {}, {}, prepared.calibration, prepared.calibration);
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    const std::string gcode = read_file(output);
+    // Both patterns on every layer, from the start's PA to the end's, the
+    // second drawn with as many lines as the first.
+    std::vector<std::string> patterns;
+    const std::string start = "; start pressure advance pattern for layer";
+    const std::string end = "; end pressure advance pattern for layer";
+    for (std::size_t at = gcode.find(start); at != std::string::npos; at = gcode.find(start, at + 1)) {
+        patterns.push_back(gcode.substr(at, gcode.find(end, at) - at));
+    }
+    REQUIRE(patterns.size() >= 2);
+    CHECK(patterns.size() % 2 == 0);
+    const auto lines = [](const std::string& pattern) {
+        std::size_t count = 0;
+        std::istringstream stream(pattern);
+        for (std::string line; std::getline(stream, line);) {
+            count += line.rfind("G1 X", 0) == 0 && line.find(" E") != std::string::npos;
+        }
+        return count;
+    };
+    // The frame, the tab of the numbers and 17 patterns of PA from 0 to 0.08.
+    CHECK(lines(patterns[0]) > 17 * 2);
+    CHECK(lines(patterns[1]) == lines(patterns[0]));
+    CHECK(gcode.find("SET_PRESSURE_ADVANCE ADVANCE=0.08") != std::string::npos);
+
+    REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
+}

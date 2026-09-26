@@ -111,6 +111,7 @@ internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
     it.layerGcodeColors = layerGcodes.map(LayerGcode::color).toTypedArray()
     it.layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray()
     it.calibration = calibration?.toParcel()
+    it.paPattern = paPattern?.toParcel()
 }
 
 internal fun CalibrationParams.toParcel() = CalibrationParcel().also {
@@ -183,6 +184,7 @@ internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
     },
     layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
     calibration = calibration?.toCalibrationParams(),
+    paPattern = paPattern?.toCalibrationParams(),
 )
 
 internal fun ThumbnailSizesOutcome.toParcel() = ThumbnailSizesParcel().also {
@@ -328,6 +330,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.selectedVolume = (this as? ModelLoadOutcome.Success)?.selectedVolume ?: -1
     it.presetsChanged = this is ModelLoadOutcome.Success && presetsChanged
     it.calibration = (this as? ModelLoadOutcome.Success)?.calibration?.toParcel()
+    it.plateCount = (this as? ModelLoadOutcome.Success)?.plateCount ?: 0
     (this as? ModelLoadOutcome.Success)?.project?.let { project ->
         it.plates = project.plates.map { plate -> plate.toParcel() }.toTypedArray()
         it.projectInfo = project.info?.value
@@ -388,6 +391,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
         },
         presetsChanged = presetsChanged,
         calibration = calibration?.toCalibrationParams(),
+        plateCount = plateCount,
     )
 }
 
