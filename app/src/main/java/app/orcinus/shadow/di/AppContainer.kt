@@ -1,5 +1,6 @@
 package app.orcinus.shadow.di
 
+import app.orcinus.shadow.domain.plate.CalibrateUseCase
 import app.orcinus.shadow.domain.plate.SliceAllPlatesUseCase
 import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
@@ -463,6 +464,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         replaceAllVolumesUseCase = replaceAllVolumes,
         saveProject = saveProject,
         projectLifecycle = projectLifecycle,
+        calibrateUseCase = CalibrateUseCase(projectLifecycle, engine, engine, platePresets, sceneFiles, plateRepository, applicationScope),
         addModelToPlate = addModelToPlate,
         selectPlate = selectPlate,
         plateObjects = PlateObjectsUseCase(plateRepository),

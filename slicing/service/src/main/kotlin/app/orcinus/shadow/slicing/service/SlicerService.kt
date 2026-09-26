@@ -275,6 +275,10 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun handyModel(file: String): String? = runBlocking { engine.handyModel(file) }?.value
 
+        override fun prepareCalibration(params: CalibrationParcel, profiles: ProfilesParcel, prefix: String): ModelLoadParcel = runBlocking {
+            engine.prepareCalibration(params.toCalibrationParams(), profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
         override fun pasteVolumes(
             plate: Array<PlacedModelParcel>,
             index: Int,

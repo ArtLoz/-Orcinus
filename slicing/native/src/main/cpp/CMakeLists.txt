@@ -4,6 +4,7 @@
 
 add_library(orca_engine_adapter STATIC
     android_log_sink.cpp
+    calibration.cpp
     color_space.cpp
     config_manipulation.cpp
     create_presets.cpp

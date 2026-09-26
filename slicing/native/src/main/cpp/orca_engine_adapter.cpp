@@ -1474,7 +1474,8 @@ SliceResult slice(
     const ProgressCallback& on_progress,
     const std::string& wipe_tower_mesh_path,
     const std::vector<ThumbnailImage>& thumbnails,
-    const std::vector<LayerGcode>& layer_gcodes
+    const std::vector<LayerGcode>& layer_gcodes,
+    const CalibrationParams& calibration
 )
 {
     if (!acquire_job(job_id)) {
@@ -1531,6 +1532,8 @@ SliceResult slice(
         // wipe tower position.
         print.set_plate_origin(Slic3r::to_3d(plate_origin_of(config), 0.));
         print.set_plate_index(engine().plate_index);
+        // The calibration the Calibration menu set on the plate's print.
+        print.set_calib_params(detail::calib_params(calibration));
         print.set_status_callback([&on_progress](const Slic3r::PrintBase::SlicingStatus& status) {
             if (on_progress && status.percent >= 0) {
                 on_progress(status.percent, status.text);
@@ -4614,6 +4617,16 @@ bool write_mesh(const indexed_triangle_set& its, const std::string& path)
 int plate_of(const Slic3r::ModelObject& object, const std::size_t instance, const Slic3r::DynamicPrintConfig& config, const int count)
 {
     return orcinus::orca::plate_of(object, instance, config, count);
+}
+
+Slic3r::Vec2d bed_center(const Slic3r::DynamicPrintConfig& config)
+{
+    return build_volume_of(config).bed_center();
+}
+
+bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::string& output_prefix, ImportedModels& result)
+{
+    return orcinus::orca::write_objects(objects, output_prefix, result);
 }
 
 void keep_current_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config)

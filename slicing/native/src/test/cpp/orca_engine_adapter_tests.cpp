@@ -4760,3 +4760,35 @@ TEST_CASE("Arranging every plate leaves a locked plate alone and adds plates for
     }
     orca::select_plate(0, 1);
 }
+
+TEST_CASE("The temperature tower stands with a block for every 5 degrees, and its G-code steps the temperature down", "[Adapter][Calibration]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    orca::CalibrationParams params;
+    params.mode = orca::CalibrationMode::temp_tower;
+    params.start = 230;
+    params.end = 190;
+    const orca::ImportedModels prepared = orca::prepare_calibration(params, k2_plus_profiles(), import_prefix("temp-tower"));
+    INFO(prepared.message);
+    REQUIRE(prepared.status == orca::SceneStatus::success);
+    REQUIRE(prepared.objects.size() == 1);
+    CHECK(prepared.presets_changed);
+    // Nine blocks of 10 mm, from 230 down to 190 degrees, on the plate's centre.
+    const orca::ModelInspection& tower = prepared.objects.front().instances.front();
+    CHECK(tower.size_z == Catch::Approx(90.0).margin(0.1));
+    CHECK(tower.instance_matrix[12] == Catch::Approx(175.0).margin(1.0));
+    CHECK(tower.instance_matrix[13] == Catch::Approx(175.0).margin(1.0));
+
+    const std::string output = output_path("temp-tower.gcode");
+    const orca::SliceResult result =
+        orca::slice("temp-tower", {plate_object_of(prepared.objects.front())}, output, {}, k2_plus_profiles(), {}, {}, {}, {}, {}, params);
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    const std::string gcode = read_file(output);
+    CHECK(gcode.find("M104 S225") != std::string::npos);
+    CHECK(gcode.find("M104 S190") != std::string::npos);
+
+    // The next tests start from presets without the calibration's changes.
+    REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
+}

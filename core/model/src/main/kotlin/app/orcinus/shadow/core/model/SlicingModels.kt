@@ -331,6 +331,47 @@ data class SliceRequest(
     val thumbnails: List<ThumbnailImage> = emptyList(),
     /** The codes the layer slider put on the layers (Model::plates_custom_gcodes). */
     val layerGcodes: List<LayerGcode> = emptyList(),
+    /** The calibration the plate prints (Print::set_calib_params); null for none. */
+    val calibration: CalibrationParams? = null,
+)
+
+/** CalibMode of calib.hpp: the calibration a plate prints, in its order. */
+enum class CalibrationMode {
+    NONE,
+    PA_LINE,
+    PA_PATTERN,
+    PA_TOWER,
+    AUTO_PA_LINE,
+    FLOW_RATE,
+    TEMP_TOWER,
+    VOL_SPEED_TOWER,
+    VFA_TOWER,
+    RETRACTION_TOWER,
+    INPUT_SHAPING_FREQ,
+    INPUT_SHAPING_DAMP,
+    CORNERING,
+}
+
+/**
+ * Calib_Params of calib.hpp: the calibration and its figures, which the
+ * dialogs of the Calibration menu set and G-code generation reads from the
+ * print of the plate.
+ */
+data class CalibrationParams(
+    val mode: CalibrationMode,
+    val start: Double = 0.0,
+    val end: Double = 0.0,
+    val step: Double = 0.0,
+    val printNumbers: Boolean = false,
+    val freqStartX: Double = 0.0,
+    val freqEndX: Double = 0.0,
+    val freqStartY: Double = 0.0,
+    val freqEndY: Double = 0.0,
+    val testModel: Int = 0,
+    val shaperType: String = "",
+    val accelerations: List<Double> = emptyList(),
+    val speeds: List<Double> = emptyList(),
+    val extruderId: Int = 0,
 )
 
 /** CustomGCode::Type: what a code on a layer does. */

@@ -1,6 +1,8 @@
 package app.orcinus.shadow.slicing.service
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.FilamentUsage
 import app.orcinus.shadow.core.model.filamentUsagesOf
 import app.orcinus.shadow.core.model.amounts
@@ -108,7 +110,42 @@ internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
     it.layerGcodeExtruders = layerGcodes.map(LayerGcode::extruder).toIntArray()
     it.layerGcodeColors = layerGcodes.map(LayerGcode::color).toTypedArray()
     it.layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray()
+    it.calibration = calibration?.toParcel()
 }
+
+internal fun CalibrationParams.toParcel() = CalibrationParcel().also {
+    it.mode = mode.name
+    it.extruderId = extruderId
+    it.start = start
+    it.end = end
+    it.step = step
+    it.printNumbers = printNumbers
+    it.freqStartX = freqStartX
+    it.freqEndX = freqEndX
+    it.freqStartY = freqStartY
+    it.freqEndY = freqEndY
+    it.testModel = testModel
+    it.shaperType = shaperType
+    it.accelerations = accelerations.toDoubleArray()
+    it.speeds = speeds.toDoubleArray()
+}
+
+internal fun CalibrationParcel.toCalibrationParams() = CalibrationParams(
+    mode = CalibrationMode.valueOf(mode),
+    start = start,
+    end = end,
+    step = step,
+    printNumbers = printNumbers,
+    freqStartX = freqStartX,
+    freqEndX = freqEndX,
+    freqStartY = freqStartY,
+    freqEndY = freqEndY,
+    testModel = testModel,
+    shaperType = shaperType.orEmpty(),
+    accelerations = accelerations?.toList().orEmpty(),
+    speeds = speeds?.toList().orEmpty(),
+    extruderId = extruderId,
+)
 
 /** The layer codes of a parcel's parallel arrays; none without heights. */
 internal fun layerGcodesOf(
@@ -145,6 +182,7 @@ internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
         if (2 * index + 1 >= sizes.size) null else ThumbnailImage(ThumbnailSize(sizes[2 * index], sizes[2 * index + 1]), ScenePath(path))
     },
     layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
+    calibration = calibration?.toCalibrationParams(),
 )
 
 internal fun ThumbnailSizesOutcome.toParcel() = ThumbnailSizesParcel().also {

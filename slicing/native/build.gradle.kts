@@ -123,6 +123,8 @@ val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
         orcaResourcesDirectory.dir("profiles").asFileTree.matching { include("**/*.json", "**/*.png", "**/*.stl", "**/*.svg") },
         // MenuFactory::append_submenu_add_handy_model()
         orcaResourcesDirectory.dir("handy_models").asFileTree.matching { include("*.drc", "*.3mf") },
+        // The models of the Calibration menu (Plater::calib_*).
+        orcaResourcesDirectory.dir("calib").asFileTree.matching { include("**/*.drc", "**/*.3mf") },
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaAssets"))
 }

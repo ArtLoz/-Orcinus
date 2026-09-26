@@ -999,6 +999,38 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_saveProject(
     return to_java(env, std::vector<std::string>{std::to_string(static_cast<int>(saved.status)), saved.message});
 }
 
+// The calibration as NativeCalibration carries it (NativeBindings.kt); none for null.
+static orcinus::orca::CalibrationParams to_calibration(JNIEnv* env, jobject native)
+{
+    orcinus::orca::CalibrationParams params;
+    if (native == nullptr) {
+        return params;
+    }
+    const jclass calibration_class = env->GetObjectClass(native);
+    const auto double_field = [env, native, calibration_class](const char* name) {
+        return env->GetDoubleField(native, env->GetFieldID(calibration_class, name, "D"));
+    };
+    const auto int_field = [env, native, calibration_class](const char* name) {
+        return env->GetIntField(native, env->GetFieldID(calibration_class, name, "I"));
+    };
+    params.mode = static_cast<orcinus::orca::CalibrationMode>(env->GetLongField(native, env->GetFieldID(calibration_class, "mode", "J")));
+    params.extruder_id = int_field("extruderId");
+    params.start = double_field("start");
+    params.end = double_field("end");
+    params.step = double_field("step");
+    params.print_numbers = env->GetBooleanField(native, env->GetFieldID(calibration_class, "printNumbers", "Z")) == JNI_TRUE;
+    params.freq_start_x = double_field("freqStartX");
+    params.freq_end_x = double_field("freqEndX");
+    params.freq_start_y = double_field("freqStartY");
+    params.freq_end_y = double_field("freqEndY");
+    params.test_model = int_field("testModel");
+    params.shaper_type = to_utf8(env, static_cast<jstring>(env->GetObjectField(native, env->GetFieldID(calibration_class, "shaperType", "Ljava/lang/String;"))));
+    params.accelerations = to_doubles(env, static_cast<jdoubleArray>(env->GetObjectField(native, env->GetFieldID(calibration_class, "accelerations", "[D"))));
+    params.speeds = to_doubles(env, static_cast<jdoubleArray>(env->GetObjectField(native, env->GetFieldID(calibration_class, "speeds", "[D"))));
+    env->DeleteLocalRef(calibration_class);
+    return params;
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     JNIEnv* env,
@@ -1021,7 +1053,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     jlongArray layer_gcode_types,
     jintArray layer_gcode_extruders,
     jobjectArray layer_gcode_colors,
-    jobjectArray layer_gcode_extras
+    jobjectArray layer_gcode_extras,
+    jobject calibration
 )
 {
     const std::vector<orcinus::orca::LayerGcode> layer_gcodes =
@@ -1048,7 +1081,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         [&forward_progress](const int percent, const std::string& message) { forward_progress(percent, message); },
         wipe_tower_path != nullptr ? to_utf8(env, wipe_tower_path) : std::string(),
         thumbnails,
-        layer_gcodes
+        layer_gcodes,
+        to_calibration(env, calibration)
     );
 
     // The filaments the plate prints with, and eight amounts for each: metres
@@ -3093,6 +3127,28 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_addPrimitive(
             to_plate(env, plate),
             to_utf8(env, shape),
             to_utf8(env, name),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_prepareCalibration(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject calibration,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::prepare_calibration(
+            to_calibration(env, calibration),
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
             to_utf8(env, output_prefix)
         )

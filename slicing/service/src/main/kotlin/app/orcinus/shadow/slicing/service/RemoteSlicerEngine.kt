@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import android.content.ComponentName
+import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.ProjectPlate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -331,6 +332,14 @@ class RemoteSlicerEngine(
         prefix: ScenePath,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         addPrimitive(plate.toParcels(), shape, name, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
+    override suspend fun prepareCalibration(
+        params: CalibrationParams,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        prepareCalibration(params.toParcel(), profiles.toParcel(), prefix.value).toModelLoadOutcome()
     }
 
     override suspend fun handyModel(file: String): ModelPath? = withContext(Dispatchers.IO) {

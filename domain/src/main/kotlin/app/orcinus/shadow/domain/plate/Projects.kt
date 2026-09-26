@@ -181,42 +181,50 @@ class ProjectLifecycleUseCase(
      * brought gone; the presets themselves stay selected.
      */
     fun newProject() {
+        applicationScope.launch { startNewProject() }
+    }
+
+    /**
+     * Plater::new_project() with the project's [name], or "Untitled" for none;
+     * true once the new project stands, false when the user stayed.
+     */
+    suspend fun startNewProject(name: String? = null): Boolean {
         val state = repository.state.value
-        if (state.busy || state.projectPrompt != null || state.profiles == null) return
-        applicationScope.launch {
-            if (!confirm(newProject = true)) return@launch
-            val before = repository.state.value.profiles
-            val presets = presetManager.resetProjectPresets()
-            repository.update { current ->
-                // PartPlateList::reinit(): the plate loses its own settings; the
-                // flushing volumes are the project config's, which stays.
-                val kept = ModelSettings(current.plateSettings.values.filterKeys { it in PROJECT_CONFIG_KEYS })
-                val selected = (presets as? PresetsOutcome.Success)?.presets ?: current.presets
-                current.copy(
-                    presets = selected,
-                    objects = emptyList(),
-                    selectedInstances = emptySet(),
-                    selectedPart = null,
-                    selectedRange = null,
-                    simplifyTarget = null,
-                    // PartPlateList::reinit(): one plate again.
-                    plates = listOf(PartPlate(settings = kept)),
-                    currentPlate = 0,
-                    plateSettings = kept,
-                    layerGcodes = emptyList(),
-                    // "New Project" is a ProjectSeparator, which clears Undo.
-                    history = PlateHistory(),
-                    result = null,
-                    problem = null,
-                    project = PlateProject(
-                        baseline = ProjectContent(plates = listOf(PartPlate(settings = kept))),
-                        presets = selected?.takeUnless { it.setupRequired }?.selection,
-                        filamentColors = selected?.filamentColors.orEmpty(),
-                    ),
-                )
-            }
-            platePresets.apply(before, presets)
+        if (state.busy || state.projectPrompt != null || state.profiles == null) return false
+        if (!confirm(newProject = true)) return false
+        val before = repository.state.value.profiles
+        val presets = presetManager.resetProjectPresets()
+        repository.update { current ->
+            // PartPlateList::reinit(): the plate loses its own settings; the
+            // flushing volumes are the project config's, which stays.
+            val kept = ModelSettings(current.plateSettings.values.filterKeys { it in PROJECT_CONFIG_KEYS })
+            val selected = (presets as? PresetsOutcome.Success)?.presets ?: current.presets
+            current.copy(
+                presets = selected,
+                objects = emptyList(),
+                selectedInstances = emptySet(),
+                selectedPart = null,
+                selectedRange = null,
+                simplifyTarget = null,
+                // PartPlateList::reinit(): one plate again.
+                plates = listOf(PartPlate(settings = kept)),
+                currentPlate = 0,
+                plateSettings = kept,
+                layerGcodes = emptyList(),
+                // "New Project" is a ProjectSeparator, which clears Undo.
+                history = PlateHistory(),
+                result = null,
+                problem = null,
+                project = PlateProject(
+                    name = name,
+                    baseline = ProjectContent(plates = listOf(PartPlate(settings = kept))),
+                    presets = selected?.takeUnless { it.setupRequired }?.selection,
+                    filamentColors = selected?.filamentColors.orEmpty(),
+                ),
+            )
         }
+        platePresets.apply(before, presets)
+        return true
     }
 
     override suspend fun confirm(newProject: Boolean): Boolean {

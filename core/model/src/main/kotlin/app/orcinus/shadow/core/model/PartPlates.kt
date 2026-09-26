@@ -20,6 +20,12 @@ data class PartPlate(
     val result: PlateSliceResult? = null,
     /** What [result] was sliced from, which Print::apply() finds unchanged when the plate is selected again. */
     val basis: SliceBasis? = null,
+    /**
+     * The calibration the plate's print carries (Print::set_calib_params):
+     * the Calibration menu sets it, and a file loaded onto the plate clears it
+     * (Plater::priv::load_files).
+     */
+    val calibration: CalibrationParams? = null,
 )
 
 /**

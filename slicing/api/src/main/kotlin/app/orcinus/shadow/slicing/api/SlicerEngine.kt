@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.api
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
@@ -251,6 +252,18 @@ interface PlateInspector {
 
     /** One of OrcaSlicer's handy models, the [file] under resources/handy_models; null when it is not there. */
     suspend fun handyModel(file: String): ModelPath?
+
+    /**
+     * Plater::calib_temp() and the other calibrations once the new project for
+     * them stands: the calibration's model set up on the empty plate as the
+     * calibration sets it, and the values of the selected presets it prints
+     * with changed. The engine writes its meshes named after [prefix].
+     */
+    suspend fun prepareCalibration(
+        params: CalibrationParams,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
 
     /**
      * Selection::paste_volumes_from_clipboard(): the [volumes] (ModelObject::volumes)

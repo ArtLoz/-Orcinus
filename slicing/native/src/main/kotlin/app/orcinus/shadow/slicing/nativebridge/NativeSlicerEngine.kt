@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.filamentUsagesOf
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.BedTypeChoice
@@ -180,6 +181,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     layerGcodeExtruders = request.layerGcodes.map(LayerGcode::extruder).toIntArray(),
                     layerGcodeColors = request.layerGcodes.map(LayerGcode::color).toTypedArray(),
                     layerGcodeExtras = request.layerGcodes.map(LayerGcode::extra).toTypedArray(),
+                    calibration = request.calibration?.toNative(),
                 )
             }
             try {
@@ -495,6 +497,43 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             outputPrefix = prefix.value,
         ).toOutcome()
     }
+
+    override suspend fun prepareCalibration(
+        params: CalibrationParams,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.prepareCalibration(
+            calibration = params.toNative(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
+    /** CalibrationParams in orca_engine_adapter.hpp. */
+    private fun CalibrationParams.toNative() = NativeCalibration(
+        mode = mode.ordinal.toLong(),
+        extruderId = extruderId,
+        start = start,
+        end = end,
+        step = step,
+        printNumbers = printNumbers,
+        freqStartX = freqStartX,
+        freqEndX = freqEndX,
+        freqStartY = freqStartY,
+        freqEndY = freqEndY,
+        testModel = testModel,
+        shaperType = shaperType,
+        accelerations = accelerations.toDoubleArray(),
+        speeds = speeds.toDoubleArray(),
+    )
 
     override suspend fun handyModel(file: String): ModelPath? = withContext(Dispatchers.IO) {
         // resources/handy_models, which the app packs with the profiles.

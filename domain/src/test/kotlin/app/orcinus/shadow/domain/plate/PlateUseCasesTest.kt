@@ -1,5 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.CalibrationMode
+import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.partPlates
@@ -229,6 +231,38 @@ class PlateUseCasesTest {
         assertFalse(state.slicingAll)
         assertEquals(2, state.currentPlate)
         assertEquals(listOf(true, false, true), state.partPlates().map { it.result != null })
+    }
+
+    @Test
+    fun `a calibration starts a project of its own, and the plate slices with the test until a file is loaded`() {
+        val repository = FakeRepository(readyState())
+        val inspector = FakeInspector()
+        val params = CalibrationParams(CalibrationMode.TEMP_TOWER, start = 230.0, end = 190.0)
+        inspector.calibration = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
+        val lifecycle = ProjectLifecycleUseCase(
+            repository,
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            FakePresetManager(),
+            NoSettingsEditor,
+            PresetsApplier { _, _ -> },
+            scope,
+        )
+
+        CalibrateUseCase(lifecycle, inspector, FakePresetManager(), PresetsApplier { _, _ -> }, FakeSceneFiles(), repository, scope)(params)
+
+        val state = repository.state.value
+        assertEquals("Nozzle temperature test", state.project.name)
+        assertEquals(1, state.objects.size)
+        assertEquals(params, state.plates.single().calibration)
+        // Print::set_calib_params(): the slice of the plate carries the test.
+        val engine = FakeEngine()
+        slicePlate(engine, repository)()
+        assertEquals(params, engine.request?.calibration)
+
+        // Plater::priv::load_files() leaves the calibration behind.
+        inspector.load = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
+        addModel(repository, ModelImportOutcome.Success(ImportedModelFile(ModelPath("/imports/b.stl"), "b.stl")), inspector, FakeSceneFiles())(REFERENCE)
+        assertNull(repository.state.value.plates.single().calibration)
     }
 
     @Test
@@ -2839,6 +2873,12 @@ class PlateUseCasesTest {
         }
 
         override suspend fun handyModel(file: String): ModelPath = ModelPath("/resources/handy_models/$file")
+
+        /** What preparing a calibration answers. */
+        var calibration: (CalibrationParams) -> ModelLoadOutcome = { ModelLoadOutcome.Failure("not used") }
+
+        override suspend fun prepareCalibration(params: CalibrationParams, profiles: SlicingProfileSelection, prefix: ScenePath) =
+            calibration(params)
 
         val exports = mutableListOf<Triple<Int, MeshFormat, ScenePath>>()
         var export: MeshExportOutcome = MeshExportOutcome.Success(null)

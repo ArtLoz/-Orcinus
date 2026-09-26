@@ -243,6 +243,43 @@ struct PlateObject {
 // entirely off the plate are not printed. Unless toolpaths_path is empty, the
 // G-code's toolpaths are written there for libvgcode as well
 // (toolpaths_file.hpp in :render:gcode).
+// CalibMode of calib.hpp: the calibration a plate prints, in its order.
+enum class CalibrationMode : std::int64_t {
+    none = 0,
+    pa_line,
+    pa_pattern,
+    pa_tower,
+    auto_pa_line,
+    flow_rate,
+    temp_tower,
+    vol_speed_tower,
+    vfa_tower,
+    retraction_tower,
+    input_shaping_freq,
+    input_shaping_damp,
+    cornering,
+};
+
+// Calib_Params of calib.hpp: the calibration and its figures, which the
+// dialogs of the Calibration menu set and G-code generation reads from the
+// print of the plate (Print::set_calib_params).
+struct CalibrationParams {
+    CalibrationMode mode{CalibrationMode::none};
+    int extruder_id{0};
+    double start{0.0};
+    double end{0.0};
+    double step{0.0};
+    bool print_numbers{false};
+    double freq_start_x{0.0};
+    double freq_end_x{0.0};
+    double freq_start_y{0.0};
+    double freq_end_y{0.0};
+    int test_model{0};
+    std::string shaper_type;
+    std::vector<double> accelerations;
+    std::vector<double> speeds;
+};
+
 SliceResult slice(
     const std::string& job_id,
     const std::vector<PlateObject>& objects,
@@ -261,7 +298,9 @@ SliceResult slice(
     // of BackgroundSlicingProcess); a size the app rendered none of is left out.
     const std::vector<ThumbnailImage>& thumbnails = {},
     // The codes on the layers (Model::plates_custom_gcodes); none leaves the plate without.
-    const std::vector<LayerGcode>& layer_gcodes = {}
+    const std::vector<LayerGcode>& layer_gcodes = {},
+    // The calibration the plate prints (Print::set_calib_params); none by default.
+    const CalibrationParams& calibration = {}
 );
 
 // Returns true only when job_id is the active job and cancellation was requested.
@@ -1302,6 +1341,14 @@ struct ProjectSave {
     SceneStatus status{SceneStatus::engine_not_ready};
     std::string message;
 };
+
+// Plater::calib_temp() and the other calibrations of the Calibration menu once
+// the new project for them stands: the calibration's model from OrcaSlicer's
+// resources, cut, scaled and set up as the calibration sets it, placed on the
+// empty plate, and the values of the selected presets the calibration prints
+// with, which stay modified as the desktop app leaves them. The objects are
+// written as import_model() writes them, and the presets are changed.
+ImportedModels prepare_calibration(const CalibrationParams& params, const ProfileSelection& profiles, const std::string& output_prefix);
 
 // Plater::export_3mf() for "Save project" (SplitModel | ShareMesh): the
 // objects of every plate with their parts, settings, paint and copies, the

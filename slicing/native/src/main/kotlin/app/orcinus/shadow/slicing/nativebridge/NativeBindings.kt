@@ -702,6 +702,25 @@ internal class NativeProjectPlate(
     @JvmField val thumbnailPath: String,
 )
 
+/** Read by the native bridge; see CalibrationParams in orca_engine_adapter.hpp. */
+internal class NativeCalibration(
+    /** CalibrationMode's order. */
+    @JvmField val mode: Long,
+    @JvmField val extruderId: Int,
+    @JvmField val start: Double,
+    @JvmField val end: Double,
+    @JvmField val step: Double,
+    @JvmField val printNumbers: Boolean,
+    @JvmField val freqStartX: Double,
+    @JvmField val freqEndX: Double,
+    @JvmField val freqStartY: Double,
+    @JvmField val freqEndY: Double,
+    @JvmField val testModel: Int,
+    @JvmField val shaperType: String,
+    @JvmField val accelerations: DoubleArray,
+    @JvmField val speeds: DoubleArray,
+)
+
 /** SceneStatus in orca_engine_adapter.hpp. */
 internal object NativeSceneStatus {
     const val SUCCESS = 0L
@@ -771,7 +790,19 @@ internal object NativeBindings {
         layerGcodeExtruders: IntArray,
         layerGcodeColors: Array<String>,
         layerGcodeExtras: Array<String>,
+        /** The calibration the plate prints; null for none. */
+        calibration: NativeCalibration?,
     ): NativeSliceResult
+
+    /** prepare_calibration(): the calibration's model set up on the empty plate, and the presets changed. */
+    external fun prepareCalibration(
+        calibration: NativeCalibration,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
 
     /** The thumbnails the G-code of the printer holds: width and height of each. */
     external fun thumbnailSizes(

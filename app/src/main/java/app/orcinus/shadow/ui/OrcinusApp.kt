@@ -339,6 +339,10 @@ private fun Workspace(
                 onShowCanvas = {
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
                 },
+                onShowPrepare = {
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    backStack.showTab(PrepareNavKey)
+                },
             )
         },
     ) {

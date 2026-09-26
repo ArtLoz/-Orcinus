@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.CalibrationParcel;
 import app.orcinus.shadow.slicing.service.ModelSettingsParcel;
 import app.orcinus.shadow.slicing.service.PlacedModelParcel;
 
@@ -28,4 +29,6 @@ parcelable SliceRequestParcel {
     @nullable int[] layerGcodeExtruders;
     @nullable String[] layerGcodeColors;
     @nullable String[] layerGcodeExtras;
+    /** The calibration the plate prints; null for none. */
+    @nullable CalibrationParcel calibration;
 }

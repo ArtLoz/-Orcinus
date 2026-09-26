@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.sidebar
 
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.domain.plate.CalibrateUseCase
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.plateOf
@@ -351,6 +353,7 @@ class SidebarViewModel(
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
     private val saveProject: SaveProjectUseCase,
     private val projectLifecycle: ProjectLifecycleUseCase,
+    private val calibrateUseCase: CalibrateUseCase,
     private val addModelToPlate: AddModelToPlateUseCase,
     private val selectPlate: SelectPlateUseCase,
     private val plateObjects: PlateObjectsUseCase,
@@ -401,6 +404,9 @@ class SidebarViewModel(
 
     /** Plater::new_project() */
     fun newProject() = projectLifecycle.newProject()
+
+    /** A test of the Calibration menu: its own project, its model and the presets it prints with. */
+    fun calibrate(params: CalibrationParams) = calibrateUseCase(params)
 
     /** Open Project: the document the user picked opens as a project. */
     fun openProject(document: ExternalDocumentReference) = addModelToPlate.openProject(document)
@@ -971,6 +977,8 @@ internal class ProjectActions(
     val saveAs: () -> Unit,
     val new: () -> Unit,
     val open: () -> Unit,
+    /** A test of the Calibration menu, which starts a project of its own. */
+    val calibrate: (CalibrationParams) -> Unit = {},
 ) {
     companion object {
         val NONE = ProjectActions(save = {}, saveAs = {}, new = {}, open = {})
@@ -980,11 +988,13 @@ internal class ProjectActions(
 /**
  * The project the plate is, named as the desktop app's title bar names it
  * ("Untitled" until it has a name), with the Save button of its quick-access
- * bar and its File menu under the arrow.
+ * bar, the Calibration menu of its top bar, and its File menu under the arrow.
  */
 @Composable
 private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, actions: ProjectActions) {
     var fileMenu by remember { mutableStateOf(false) }
+    var calibrationMenu by remember { mutableStateOf(false) }
+    var temperature by remember { mutableStateOf(false) }
     // Plater::priv::update_title_dirty_status()
     val title = (if (dirty) "*" else "") + (name ?: orcaString("Untitled"))
     OrcaSidebarTitle(title, DesignR.drawable.orca_open_project) {
@@ -994,6 +1004,16 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
             onClick = actions.save,
             enabled = canSave,
         )
+        Box {
+            OrcaIconButton(
+                icon = DesignR.drawable.orca_calib_sf,
+                contentDescription = orcaString("Calibration"),
+                onClick = { calibrationMenu = true },
+            )
+            OrcaContextMenu(expanded = calibrationMenu, position = IntOffset.Zero, onDismissRequest = { calibrationMenu = false }) {
+                CalibrationMenuItems(enabled = canSave, dismiss = { calibrationMenu = false }, onTemperature = { temperature = true })
+            }
+        }
         Box {
             OrcaIconButton(
                 icon = DesignR.drawable.orca_drop_down,
@@ -1028,6 +1048,15 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
                 )
             }
         }
+    }
+    if (temperature) {
+        TemperatureCalibrationSheet(
+            onDismiss = { temperature = false },
+            onStart = { params ->
+                temperature = false
+                actions.calibrate(params)
+            },
+        )
     }
 }
 
@@ -1092,6 +1121,8 @@ fun PlateSidebar(
     onOpenAbout: () -> Unit,
     /** A tool of the canvas opened from the sidebar: a drawer over the canvas gets out of its way. */
     onShowCanvas: () -> Unit = {},
+    /** A calibration starts its project: the 3D view shows it (Plater::new_project selects tp3DEditor). */
+    onShowPrepare: () -> Unit = {},
 ) {
     val viewModel = viewModel { createViewModel() }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -1266,6 +1297,10 @@ fun PlateSidebar(
             saveAs = saveProjectAs,
             new = viewModel::newProject,
             open = { openPicker.launch(arrayOf("*/*")) },
+            calibrate = { params ->
+                viewModel.calibrate(params)
+                onShowPrepare()
+            },
         ),
         filaments = FilamentActions(
             add = viewModel::addFilament,

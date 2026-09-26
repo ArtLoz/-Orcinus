@@ -86,6 +86,8 @@ val orcaIconNames = listOf(
     "open_project",
     // MainFrame's slice button: the arrow of its drop-down.
     "sidebutton_dropdown",
+    // The Calibration menu of the top bar (BBLTopbar).
+    "calib_sf",
     // The option groups of the settings tabs (Tab.cpp).
     "compare",
     // DiffPresetDialog: the button between the two presets of a kind.

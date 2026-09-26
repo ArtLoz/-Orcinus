@@ -11,7 +11,9 @@
 namespace Slic3r {
 class AppConfig;
 class Model;
+class ModelObject;
 class PresetBundle;
+struct Calib_Params;
 }
 
 namespace orcinus::orca::detail {
@@ -63,6 +65,15 @@ bool load_plate(
     Slic3r::Model& model,
     std::string& message
 );
+
+// The centre of the current plate's bed, where a new object stands on an empty plate.
+Slic3r::Vec2d bed_center(const Slic3r::DynamicPrintConfig& config);
+
+// The objects written as import_model() writes them into result.
+bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::string& output_prefix, ImportedModels& result);
+
+// Calib_Params of the calibration.
+Slic3r::Calib_Params calib_params(const CalibrationParams& params);
 
 // PartPlateList::find_instance(): the first of count plates the copy at
 // instance of object crosses; -1 for a copy on none.

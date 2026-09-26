@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.CalibrationParcel;
 import app.orcinus.shadow.slicing.service.DirtyPresetsParcel;
 import app.orcinus.shadow.slicing.service.ArrangeSettingsParcel;
 import app.orcinus.shadow.slicing.service.BedShapeParcel;
@@ -142,6 +143,8 @@ interface ISlicerService {
     );
     /** The path of a handy model under resources/handy_models; null when it is not there. */
     @nullable String handyModel(String file);
+    /** prepare_calibration(): the calibration's model on the empty plate. */
+    ModelLoadParcel prepareCalibration(in CalibrationParcel params, in ProfilesParcel profiles, String prefix);
     /** paste_volumes(): source is the one object the clipboard copied the volumes from. */
     ModelLoadParcel pasteVolumes(
         in PlacedModelParcel[] plate,

@@ -773,9 +773,11 @@ class AddModelToPlateUseCase(
                         } else {
                             informed
                         }
-                        // load_files(): "Import Object", once for all its files.
+                        // load_files(): "Import Object", once for all its files; the
+                        // plate's print leaves the calibration it carried.
                         (if (added.isEmpty() || batch.loaded.isNotEmpty()) named else named.recorded()).copy(
                             importing = batch.rest.isNotEmpty(),
+                            plates = state.plates.mapIndexed { index, plate -> if (index == state.currentPlate) plate.copy(calibration = null) else plate },
                             objects = state.objects + added,
                             selectedInstances = loaded,
                             selectedPart = null,
@@ -1949,6 +1951,7 @@ class SlicePlateUseCase(
         // Plater::priv::get_export_gcode_filename(): the plate's name follows the
         // name, or with several plates, its number.
         val plateName = plate.plates.getOrNull(plate.currentPlate)?.name.orEmpty()
+        val calibration = plate.plates.getOrNull(plate.currentPlate)?.calibration
         val plateSuffix = when {
             plateName.isNotEmpty() -> "_$plateName"
             plate.plates.size > 1 -> "_plate_${plate.currentPlate + 1}"
@@ -1971,6 +1974,7 @@ class SlicePlateUseCase(
                 plateSettings = plateSettings,
                 thumbnails = thumbnails,
                 layerGcodes = layerGcodes,
+                calibration = calibration,
             )
             val outcome = try {
                 sliceModel(request, SliceProgressObserver { progress ->
