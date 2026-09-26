@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.preview
 
 import android.Manifest
+import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import android.content.pm.PackageManager
@@ -102,6 +104,7 @@ internal fun PreviewRoute(
             onSliceRequested()
             viewModel.slice()
         },
+        onSliceModeChange = viewModel::chooseSliceMode,
         printers = PrinterActions(
             load = viewModel::printers,
             save = viewModel::savePrinter,
@@ -167,6 +170,7 @@ internal fun PreviewScreen(
     onExportGcode: suspend (ExternalDocumentReference) -> Boolean = { false },
     layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
     onSelectPlate: (Int) -> Unit = {},
+    onSliceModeChange: (SliceMode) -> Unit = {},
 ) {
     val result = state.result
     val untitled = orcaString("Untitled")
@@ -227,10 +231,12 @@ internal fun PreviewScreen(
                 if (state.outdated) {
                     // MainFrame::update_slice_print_status(): the slice button is back, printing waits for it.
                     val progress = state.slicingProgress
-                    OrcaButton(
-                        text = if (progress != null) stringResource(R.string.slicing_progress, (progress * 100).roundToInt()) else stringResource(R.string.slice_plate),
-                        onClick = onSlice,
-                        enabled = state.canSlice,
+                    SliceButton(
+                        mode = state.sliceMode,
+                        enabled = state.sliceEnabled,
+                        onSlice = onSlice,
+                        onModeChange = onSliceModeChange,
+                        text = progress?.let { stringResource(R.string.slicing_progress, (it * 100).roundToInt()) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -315,8 +321,8 @@ internal fun PreviewScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(stringResource(R.string.preview_empty), color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body14)
-                    if (state.canSlice) {
-                        OrcaButton(stringResource(R.string.slice_plate), onClick = onSlice)
+                    if (state.sliceEnabled) {
+                        SliceButton(mode = state.sliceMode, enabled = true, onSlice = onSlice, onModeChange = onSliceModeChange)
                     }
                 }
 

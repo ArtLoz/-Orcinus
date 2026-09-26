@@ -30,6 +30,18 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
+import app.orcinus.shadow.core.designsystem.R
 import app.orcinus.shadow.core.designsystem.theme.OrcaColors
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 
@@ -112,6 +124,72 @@ fun OrcaButton(
     ) {
         icon?.let { Icon(painterResource(it), contentDescription = null, tint = colors.content, modifier = Modifier.size(16.dp)) }
         Text(text, color = colors.content, style = size.textStyle(), maxLines = 1)
+    }
+}
+
+/**
+ * OrcaSlicer's button with the drop-down beside it (MainFrame's slice button
+ * and its option button): the button does what its [text] says, and the
+ * arrow, which stays enabled, opens the [menu] that chooses what it does.
+ */
+@Composable
+fun OrcaSplitButton(
+    text: String,
+    onClick: () -> Unit,
+    menuDescription: String,
+    menu: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val arrowInteraction = remember { MutableInteractionSource() }
+    val arrowPressed by arrowInteraction.collectIsPressedAsState()
+    val colors = OrcaTheme.colors.buttonColors(OrcaButtonStyle.Confirm, enabled, pressed)
+    val arrowColors = OrcaTheme.colors.buttonColors(OrcaButtonStyle.Confirm, enabled = true, pressed = arrowPressed)
+    val metrics = OrcaButtonSize.Window.metrics()
+    var open by remember { mutableStateOf(false) }
+    var height by remember { mutableIntStateOf(0) }
+    Row(
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .height(IntrinsicSize.Min)
+            .defaultMinSize(minHeight = metrics.minHeight)
+            .clip(RoundedCornerShape(metrics.cornerRadius))
+            .onSizeChanged { height = it.height },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxHeight()
+                .defaultMinSize(minWidth = metrics.minWidth)
+                .background(colors.background)
+                .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+                .padding(start = 16.dp, end = 12.dp),
+        ) {
+            Text(text, color = colors.content, style = OrcaButtonSize.Window.textStyle(), maxLines = 1)
+        }
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .width(1.dp)
+                .background(arrowColors.content.copy(alpha = 0.4f)),
+        )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxHeight()
+                .background(arrowColors.background)
+                .clickable(interactionSource = arrowInteraction, indication = null, role = Role.DropdownList, onClickLabel = menuDescription) { open = true }
+                .semantics { contentDescription = menuDescription }
+                .padding(start = 8.dp, end = 12.dp),
+        ) {
+            Icon(painterResource(R.drawable.orca_sidebutton_dropdown), contentDescription = null, tint = arrowColors.content, modifier = Modifier.size(14.dp))
+            OrcaContextMenu(expanded = open, position = IntOffset(0, height), onDismissRequest = { open = false }) {
+                menu { open = false }
+            }
+        }
     }
 }
 

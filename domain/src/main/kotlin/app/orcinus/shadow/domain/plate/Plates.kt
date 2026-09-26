@@ -182,18 +182,23 @@ class PlateJobsUseCase(
         if (index !in state.plates.indices || !state.canWorkOnPlate(index)) return
         selectPlate(index)
         applicationScope.launch {
-            val ready = withTimeoutOrNull(PLATE_WAIT_MILLIS) {
-                repository.state.first { it.currentPlate == index && !it.busy && it.objects.none(PlateObject::placing) }
-            } ?: return@launch
+            val ready = repository.settledOn(index) ?: return@launch
             job(ready)
         }
     }
-
-    private companion object {
-        /** How long the job waits for the engine to know the plate. */
-        const val PLATE_WAIT_MILLIS = 10_000L
-    }
 }
+
+/**
+ * The state once the plate at [index] is current, the engine knows it and its
+ * objects are judged against its build volume; null when it does not come
+ * within PLATE_WAIT_MILLIS.
+ */
+internal suspend fun PlateRepository.settledOn(index: Int): PlateState? = withTimeoutOrNull(PLATE_WAIT_MILLIS) {
+    state.first { it.currentPlate == index && !it.busy && it.objects.none(PlateObject::placing) }
+}
+
+/** How long a job waits for the engine to know the plate. */
+private const val PLATE_WAIT_MILLIS = 10_000L
 
 /** Whether the plate's orient and arrange work: it is not locked and has objects on it (PartPlate::empty()). */
 fun PlateState.canWorkOnPlate(index: Int): Boolean =
@@ -229,14 +234,7 @@ class EnginePlateSync(
         } catch (_: Exception) {
             // A new engine process is told the plate by the adapter before any request reaches it.
         }
-        var judge = false
-        repository.update { state ->
-            judge = false
-            if (EnginePlate(state.currentPlate, state.plates.size) != plate || state.enginePlate == plate) return@update state
-            judge = state.objects.isNotEmpty()
-            state.copy(enginePlate = plate)
-        }
-        if (judge) placePlateObjects(PlateManipulation.UpdatePrintVolume)
+        placePlateObjects.judgeOn(plate)
     }
 }
 
@@ -299,7 +297,7 @@ val PlateState.canAddPlate: Boolean get() = canChangePlates && plates.size < Pla
 val PlateState.canDeletePlate: Boolean get() = canChangePlates && plates.size > 1 && plateGrid != null
 
 internal val PlateState.canChangePlates: Boolean
-    get() = !busy && objects.none(PlateObject::placing) && history.beforeTool == null && simplifyTarget == null
+    get() = !busy && !slicingAll && objects.none(PlateObject::placing) && history.beforeTool == null && simplifyTarget == null
 
 /** The plates as they are now, the current one with what its G-code was sliced from, as another becomes current. */
 internal fun PlateState.platesLeft(): List<PartPlate> = partPlates().mapIndexed { index, plate ->

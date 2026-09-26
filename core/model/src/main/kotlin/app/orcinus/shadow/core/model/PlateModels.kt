@@ -359,6 +359,15 @@ data class EngineState(
     val version: EngineVersion? = null,
 )
 
+/** MainFrame's SliceSelectType: the slice button slices the current plate, or all of them. */
+enum class SliceMode {
+    /** eSlicePlate, "Slice plate". */
+    PLATE,
+
+    /** eSliceAll, "Slice all". */
+    ALL,
+}
+
 /** A slicing job in progress. [progress] is null until the engine reports. */
 data class PlateSlicing(
     val jobId: SliceJobId,
@@ -652,6 +661,13 @@ data class PlateState(
     /** Which settings the app shows: the presets, or the ones of an object (ParamsPanel's Global and Objects). */
     val settingsScope: SettingsScope = SettingsScope.GLOBAL,
     val slicing: PlateSlicing? = null,
+    /** What the slice button slices, as its drop-down chose (MainFrame::m_slice_select). */
+    val sliceMode: SliceMode = SliceMode.PLATE,
+    /**
+     * "Slice all" goes through the plates (Plater::priv::m_slice_all): it
+     * alone selects and slices them until it is done.
+     */
+    val slicingAll: Boolean = false,
     /** The G-code of the current plate. */
     val result: PlateSliceResult? = null,
     val problem: PlateProblem? = null,
@@ -704,13 +720,32 @@ data class PlateState(
     /**
      * GLCanvas3D::reload_scene() enables slicing when an object is inside the
      * build volume and none lies across its boundary; objects entirely off the
-     * plate are not printed. Every placement must be settled.
+     * plate are not printed. Every placement must be settled, and "Slice all"
+     * slices the plates itself while it runs.
      */
-    val canSlice: Boolean
+    val canSlice: Boolean get() = !slicingAll && plateSliceable
+
+    /** The current plate can be sliced ([canSlice]), whoever slices it. */
+    val plateSliceable: Boolean
         get() = engine.availability == EngineAvailability.READY && profiles != null && !busy &&
             // ModelInstance::is_printable(): inside the build volume and printed.
             copies().any { it.inspection.fit == BuildVolumeFit.INSIDE && it.printable } &&
             copies().none { it.placing || it.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE }
+
+    /** MainFrame::get_enable_slice_status() of "Slice all": always, while nothing is being sliced. */
+    val canSliceAll: Boolean
+        get() = engine.availability == EngineAvailability.READY && profiles != null && !busy && !slicingAll &&
+            objects.none(PlateObject::placing)
+
+    /**
+     * MainFrame::get_enable_slice_status(): the slice button slices the plate
+     * when it can and its G-code no longer applies, or all plates.
+     */
+    val sliceEnabled: Boolean
+        get() = when (sliceMode) {
+            SliceMode.PLATE -> canSlice && result == null
+            SliceMode.ALL -> canSliceAll
+        }
 
     /** Every copy on the plate, in the plate's order. */
     fun copies(): List<PlateInstance> = objects.flatMap(PlateObject::instances)

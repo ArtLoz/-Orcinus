@@ -1,5 +1,9 @@
 package app.orcinus.shadow.di
 
+import app.orcinus.shadow.domain.plate.SliceAllPlatesUseCase
+import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
 import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.SetPlateSettingsUseCase
@@ -202,6 +206,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         plateRepository,
         applicationScope,
     )
+    private val sliceAllPlates = SliceAllPlatesUseCase(slicePlate, plateRepository, applicationScope)
+    val sliceAction = SliceActionUseCase(slicePlate, sliceAllPlates, plateRepository)
+    val setSliceMode = SetSliceModeUseCase(plateRepository)
     private val saveProject = SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope)
     val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope)
 
@@ -363,7 +370,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             selectPlateObject = selectPlateObject,
             moveTower = moveWipeTower,
             paintObject = PaintObjectUseCase(engine, sceneFiles, plateRepository),
-            slicePlate = slicePlate,
+            sliceAction = sliceAction,
+            setSliceMode = setSliceMode,
             cancelPlateSlicing = cancelPlateSlicing,
             dismissPlateProblem = dismissPlateProblem,
             setPlateObjectPrintable = setPlateObjectPrintable,
@@ -390,7 +398,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     fun previewViewModel() = PreviewViewModel(
         observePlate = observePlate,
-        slicePlate = slicePlate,
+        sliceAction = sliceAction,
+        setSliceMode = setSliceMode,
+        selectSlicedPlate = SelectSlicedPlateUseCase(selectPlate, slicePlate, plateRepository, applicationScope),
         physicalPrinters = physicalPrinters,
         savePhysicalPrinter = savePhysicalPrinter,
         deletePhysicalPrinter = deletePhysicalPrinter,
@@ -398,7 +408,6 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sendGcode = sendGcode,
         exportGcode = exportGcode,
         editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
-        selectPlate = selectPlate,
     )
 
     fun sidebarViewModel() = SidebarViewModel(

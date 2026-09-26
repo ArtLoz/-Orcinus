@@ -84,6 +84,8 @@ val orcaIconNames = listOf(
     "im_hidden", "im_visible", "instance_add", "instance_remove", "monitor_item_cost", "monitor_item_prediction", "note",
     // The project row of the sidebar (the desktop app's File menu).
     "open_project",
+    // MainFrame's slice button: the arrow of its drop-down.
+    "sidebutton_dropdown",
     // The option groups of the settings tabs (Tab.cpp).
     "compare",
     // DiffPresetDialog: the button between the two presets of a kind.

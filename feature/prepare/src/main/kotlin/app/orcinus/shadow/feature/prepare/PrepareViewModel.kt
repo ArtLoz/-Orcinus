@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.domain.plate.SetPlateSettingsUseCase
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
@@ -82,7 +85,6 @@ import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.RemovePlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
-import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.render.scene.ObjectTransforms
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
@@ -126,7 +128,8 @@ class PrepareViewModel(
     private val selectPlateObject: SelectPlateObjectUseCase,
     private val moveTower: MoveWipeTowerUseCase,
     private val paintObject: PaintObjectUseCase,
-    private val slicePlate: SlicePlateUseCase,
+    private val sliceAction: SliceActionUseCase,
+    private val setSliceMode: SetSliceModeUseCase,
     private val cancelPlateSlicing: CancelPlateSlicingUseCase,
     private val dismissPlateProblem: DismissPlateProblemUseCase,
     private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
@@ -730,7 +733,10 @@ class PrepareViewModel(
         copyAt(index)?.let(removePlateInstance::invoke)
     }
 
-    fun slice() = slicePlate()
+    /** The slice button: the plate or all plates, as its drop-down chose. */
+    fun slice() = sliceAction()
+
+    fun chooseSliceMode(mode: SliceMode) = setSliceMode(mode)
 
     fun cancelSlicing() = cancelPlateSlicing()
 

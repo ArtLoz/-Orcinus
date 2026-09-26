@@ -1,6 +1,10 @@
 package app.orcinus.shadow.ui
 
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
+import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetChangesAnswer
@@ -63,7 +67,6 @@ import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.di.AppContainer
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
-import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.feature.about.navigation.AboutNavKey
@@ -90,7 +93,8 @@ import kotlinx.serialization.Serializable
 class AppShellViewModel(
     observePlate: ObservePlateUseCase,
     startEngine: StartEngineUseCase,
-    private val slicePlate: SlicePlateUseCase,
+    private val sliceAction: SliceActionUseCase,
+    private val setSliceMode: SetSliceModeUseCase,
     private val answerPlateQuestion: AnswerPlateQuestionUseCase,
     private val dismissPlateNotice: DismissPlateNoticeUseCase,
     private val addModelToPlate: AddModelToPlateUseCase,
@@ -103,7 +107,10 @@ class AppShellViewModel(
         viewModelScope.launch { startEngine() }
     }
 
-    fun slice() = slicePlate()
+    /** The slice button: the plate or all plates, as its drop-down chose. */
+    fun slice() = sliceAction()
+
+    fun chooseSliceMode(mode: SliceMode) = setSliceMode(mode)
 
     /** OrcaSlicer's message boxes while it changes the plate: a load or the object menu. */
     fun answer(yes: Boolean) = answerPlateQuestion(yes)
@@ -141,7 +148,8 @@ fun OrcinusApp(
         AppShellViewModel(
             container.observePlate,
             container.startEngine,
-            container.slicePlate,
+            container.sliceAction,
+            container.setSliceMode,
             container.answerPlateQuestion,
             container.dismissPlateNotice,
             container.addModelToPlate,
@@ -267,6 +275,18 @@ private fun Workspace(
         }
     }
 
+    // "Slice all" moves on to the next plate as soon as one is sliced, so its
+    // G-code shows once it is done with every plate.
+    var slicingAll by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(plate.slicingAll) {
+        if (plate.slicingAll) {
+            slicingAll = true
+        } else if (slicingAll) {
+            slicingAll = false
+            backStack.showTab(PreviewNavKey)
+        }
+    }
+
     val destinations = listOf(PrepareNavKey, PreviewNavKey)
     val tabs = listOf(
         OrcaTab(stringResource(PrepareR.string.prepare_title), DesignR.drawable.orca_tab_3d_active),
@@ -285,13 +305,14 @@ private fun Workspace(
                 onSelect = { backStack.showTab(destinations[it]) },
                 fillWidth = layout == OrcaWindowLayout.Compact,
             ) {
-                OrcaButton(
-                    text = stringResource(PrepareR.string.slice_plate),
-                    onClick = {
+                SliceButton(
+                    mode = plate.sliceMode,
+                    enabled = plate.sliceEnabled,
+                    onSlice = {
                         onSliceRequested()
                         shell.slice()
                     },
-                    enabled = plate.canSlice,
+                    onModeChange = shell::chooseSliceMode,
                 )
             }
         },

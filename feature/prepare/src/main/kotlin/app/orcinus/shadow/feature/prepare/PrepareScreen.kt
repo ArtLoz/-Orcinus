@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
 import app.orcinus.shadow.core.model.PlateSettingsChoice
@@ -269,6 +271,7 @@ internal fun PrepareRoute(
             onSliceRequested()
             viewModel.slice()
         },
+        onSliceModeChange = viewModel::chooseSliceMode,
         onCancelSlicing = viewModel::cancelSlicing,
         onUndo = viewModel::undo,
         onRedo = viewModel::redo,
@@ -329,6 +332,7 @@ internal fun PrepareScreen(
     onSlice: () -> Unit,
     onCancelSlicing: () -> Unit,
     onDismissProblem: () -> Unit,
+    onSliceModeChange: (SliceMode) -> Unit = {},
     onUndo: () -> Unit = {},
     onRedo: () -> Unit = {},
     plateMenuActions: PlateMenuActions = PlateMenuActions.NONE,
@@ -533,7 +537,7 @@ internal fun PrepareScreen(
                 Notifications(state, onCancelSlicing, onDismissProblem)
                 // In a wide window the slice button sits in the tab bar, as on desktop.
                 if (layout == OrcaWindowLayout.Compact) {
-                    OrcaButton(stringResource(R.string.slice_plate), onClick = onSlice, enabled = state.canSlice)
+                    SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
                 }
             }
             Column(

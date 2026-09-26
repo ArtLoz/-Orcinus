@@ -1,10 +1,13 @@
 package app.orcinus.shadow.feature.preview
 
 import androidx.lifecycle.ViewModel
+import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
+import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.plateOrigins
-import app.orcinus.shadow.domain.plate.SelectPlateUseCase
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -28,7 +31,6 @@ import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.SavePhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.SendGcodeUseCase
-import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -39,6 +41,9 @@ data class PreviewUiState(
     val plate: PlateDescription?,
     val result: PlateSliceResult?,
     val canSlice: Boolean,
+    /** What the slice button slices, and whether it can now (MainFrame::get_enable_slice_status). */
+    val sliceMode: SliceMode = SliceMode.PLATE,
+    val sliceEnabled: Boolean = canSlice,
     /** The codes the layer slider put on the layers. */
     val layerGcodes: List<LayerGcode> = emptyList(),
     /** The colour of every filament of the plate, "#RRGGBB". */
@@ -59,7 +64,9 @@ data class PreviewUiState(
 
 class PreviewViewModel(
     observePlate: ObservePlateUseCase,
-    private val slicePlate: SlicePlateUseCase,
+    private val sliceAction: SliceActionUseCase,
+    private val setSliceMode: SetSliceModeUseCase,
+    private val selectSlicedPlate: SelectSlicedPlateUseCase,
     private val physicalPrinters: ObservePhysicalPrintersUseCase,
     private val savePhysicalPrinter: SavePhysicalPrinterUseCase,
     private val deletePhysicalPrinter: DeletePhysicalPrinterUseCase,
@@ -67,17 +74,19 @@ class PreviewViewModel(
     private val sendGcode: SendGcodeUseCase,
     private val exportGcode: ExportGcodeUseCase,
     private val editLayerGcodes: EditLayerGcodesUseCase,
-    private val selectPlate: SelectPlateUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
     val state: StateFlow<PreviewUiState> = observePlate()
         .map(PlateState::toPreviewUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toPreviewUiState())
 
-    fun slice() = slicePlate()
+    /** The slice button: the plate or all plates, as its drop-down chose. */
+    fun slice() = sliceAction()
+
+    fun chooseSliceMode(mode: SliceMode) = setSliceMode(mode)
 
     /** The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar): another plate's G-code. */
-    fun selectPlate(index: Int) = selectPlate.invoke(index)
+    fun selectPlate(index: Int) = selectSlicedPlate(index)
 
     /** The layer slider's menu (IMSlider::add_code_as_tick, add_custom_gcode, delete_tick). */
     fun addPause(printZ: Double) = editLayerGcodes.add(printZ, LayerGcodeType.PAUSE_PRINT)
@@ -138,11 +147,13 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     plate = plate,
     result = result,
     canSlice = canSlice,
+    sliceMode = sliceMode,
+    sliceEnabled = sliceEnabled,
     layerGcodes = layerGcodes,
     filamentColors = presets?.filamentColors.orEmpty(),
     slicingProgress = slicing?.let { it.progress?.fraction ?: 0f },
     plateOrigins = plateOrigins(),
     currentPlate = currentPlate,
-    canSelectPlate = !busy,
+    canSelectPlate = !busy && !slicingAll,
     plateNames = plates.map(PartPlate::name),
 )

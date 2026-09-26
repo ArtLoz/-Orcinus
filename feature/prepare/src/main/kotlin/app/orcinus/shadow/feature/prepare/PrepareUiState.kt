@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.PresetKind
@@ -138,6 +139,9 @@ data class PrepareUiState(
     val problem: PlateProblem?,
     val canEditPlate: Boolean,
     val canSlice: Boolean,
+    /** What the slice button slices, and whether it can now (MainFrame::get_enable_slice_status). */
+    val sliceMode: SliceMode = SliceMode.PLATE,
+    val sliceEnabled: Boolean = false,
 ) {
     /** GLGizmoBase::on_is_activable() for the manipulation gizmos: an object is selected. */
     val canManipulate: Boolean get() = selectedObject != null && canEditPlate
@@ -252,7 +256,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     if (wipeTower != null && view.wipeTowerSelected) selectedIndexes += WIPE_TOWER_INDEX
     val selected = selectedObject?.let(copies::get)?.instance?.inspection
     // The plate changes once OrcaSlicer has the presets it places objects with.
-    val canEditPlate = !busy && engine.availability == EngineAvailability.READY && profiles != null
+    val canEditPlate = !busy && !slicingAll && engine.availability == EngineAvailability.READY && profiles != null
     return PrepareUiState(
         plate = plate,
         importing = importing,
@@ -314,6 +318,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         // Objects are loaded and placed by the engine.
         canEditPlate = canEditPlate,
         canSlice = canSlice,
+        sliceMode = sliceMode,
+        sliceEnabled = sliceEnabled,
     )
 }
 

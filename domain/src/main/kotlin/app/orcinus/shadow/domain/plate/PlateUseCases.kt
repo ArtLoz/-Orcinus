@@ -9,6 +9,7 @@ import app.orcinus.shadow.core.model.PlateProject
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
@@ -1079,11 +1080,24 @@ class PlacePlateObjectsUseCase(
      * [skipLockedPlates] off when the job works on the current plate alone
      * (OrientJob's prepare_partplate()), which leaves no plate out.
      */
-    operator fun invoke(asked: PlateManipulation, skipLockedPlates: Boolean = true) {
+    operator fun invoke(asked: PlateManipulation, skipLockedPlates: Boolean = true) = start(asked, skipLockedPlates) { it }
+
+    /**
+     * EnginePlateSync: the engine knows [plate], which the state takes, and in
+     * the same step the objects start being judged against the build volume of
+     * the current plate, so the plate never looks settled before they are.
+     */
+    fun judgeOn(plate: EnginePlate) = start(PlateManipulation.UpdatePrintVolume, skipLockedPlates = true) { state ->
+        state.takeIf { EnginePlate(it.currentPlate, it.plates.size) == plate && it.enginePlate != plate }?.copy(enginePlate = plate)
+    }
+
+    /** Starts the job on the state [settle] makes of the plate's; nothing changes when it makes none. */
+    private fun start(asked: PlateManipulation, skipLockedPlates: Boolean, settle: (PlateState) -> PlateState?) {
         var request: Triple<List<PlateObject>, Set<ScenePath>, SlicingProfileSelection>? = null
         var manipulation = asked
-        repository.update { state ->
+        repository.update { current ->
             request = null
+            val state = settle(current) ?: return@update current
             val locked = if (skipLockedPlates) state.lockedPlates() else emptySet()
             manipulation = when (asked) {
                 is PlateManipulation.AutoOrient -> asked.copy(lockedPlates = locked)
@@ -1910,17 +1924,26 @@ class SlicePlateUseCase(
     private val applicationScope: CoroutineScope,
 ) {
     operator fun invoke() {
+        val job = start { it.canSlice } ?: return
+        applicationScope.launch { job() }
+    }
+
+    /** "Slice all"'s turn at the current plate: its outcome once it ends; null when it could not start. */
+    internal suspend fun sliceForAll(): SliceOutcome? = start { it.plateSliceable }?.invoke()
+
+    /** The slice of the current plate when it is [ready] for one, which the returned job runs to its outcome. */
+    private fun start(ready: (PlateState) -> Boolean): (suspend () -> SliceOutcome)? {
         val jobId = SliceJobId(UUID.randomUUID().toString())
         var started: PlateState? = null
         repository.update { state ->
             started = null
-            if (!state.canSlice || state.profiles == null) return@update state
+            if (!ready(state) || state.profiles == null) return@update state
             started = state
             state.copy(slicing = PlateSlicing(jobId), problem = null)
         }
-        val plate = started ?: return
+        val plate = started ?: return null
         val objects = plate.objects
-        val profiles = plate.profiles ?: return
+        val profiles = plate.profiles ?: return null
         val plateSettings = plate.plateSettings
         val layerGcodes = plate.layerGcodes
         // Plater::priv::get_export_gcode_filename(): the plate's name follows the
@@ -1932,7 +1955,7 @@ class SlicePlateUseCase(
             else -> ""
         }
 
-        applicationScope.launch {
+        return {
             val toolpaths = sceneFiles.newToolpaths()
             val thumbnails = renderThumbnails(objects, plate.plate, plate.plateOrigin, plate.presets?.filamentColors.orEmpty(), profiles, toolpaths)
             val request = SliceRequest(
@@ -1962,6 +1985,7 @@ class SlicePlateUseCase(
             repository.update { it.withOutcome(objects, layerGcodes, outcome) }
             // Only the toolpaths of the plates' results stay; a failed or replaced job leaves none.
             sceneFiles.deleteToolpathsExcept(repository.state.value.partPlates().mapNotNull { it.result?.toolpaths })
+            outcome
         }
     }
 

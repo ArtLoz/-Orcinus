@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.PlateRequest
+import app.orcinus.shadow.core.model.EnginePlate
+import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectPrompt
@@ -203,6 +205,30 @@ class PlateUseCasesTest {
         assertNull(state.slicing)
         assertEquals(listOf(CUBE), state.result?.objects)
         assertEquals(STATISTICS, state.result?.statistics)
+    }
+
+    @Test
+    fun `slice all slices the plates with something to print in turn, passing over an empty one`() {
+        val third = PlateObject.CalibrationCube(listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/third.mesh")))))
+        val onPlate = mapOf(CUBE.mesh to 0, third.mesh to 2)
+        val repository = FakeRepository(
+            readyState(CUBE, third).copy(plates = List(3) { PartPlate() }, enginePlate = EnginePlate(0, 3)).judgedOn(0, onPlate),
+        )
+        // The engine learns every plate that becomes current and judges the copies against it (EnginePlateSync).
+        val engineSync = scope.launch {
+            repository.state.collect { state ->
+                val plate = EnginePlate(state.currentPlate, state.plates.size)
+                if (state.enginePlate != plate) repository.update { it.copy(enginePlate = plate).judgedOn(plate.index, onPlate) }
+            }
+        }
+
+        SliceAllPlatesUseCase(slicePlate(FakeEngine(), repository), repository, scope)()
+        engineSync.cancel()
+
+        val state = repository.state.value
+        assertFalse(state.slicingAll)
+        assertEquals(2, state.currentPlate)
+        assertEquals(listOf(true, false, true), state.partPlates().map { it.result != null })
     }
 
     @Test
@@ -2232,6 +2258,14 @@ class PlateUseCasesTest {
         presets = PRESETS,
         engine = EngineState(EngineAvailability.READY, EngineVersion("orca")),
         objects = objects.toList(),
+    )
+
+    /** The copies judged against the plate at [index]: inside it when [onPlate] puts their object there. */
+    private fun PlateState.judgedOn(index: Int, onPlate: Map<ScenePath, Int>) = copy(
+        objects = objects.map { plateObject ->
+            val fit = if (onPlate[plateObject.mesh] == index) BuildVolumeFit.INSIDE else BuildVolumeFit.OUTSIDE
+            plateObject.withInstances(plateObject.instances.map { it.copy(inspection = it.inspection.copy(fit = fit)) })
+        },
     )
 
     /** A plate whose printer prints with two filaments. */
