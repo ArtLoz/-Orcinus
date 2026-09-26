@@ -210,6 +210,26 @@ class PlatesTest {
         assertFalse(repository.state.value.projectDirty)
     }
 
+    @Test
+    fun `the all plates item counts the sliced plates, and shows their statistics once all of them are`() {
+        val first = cubeAt(175.0, 175.0)
+        val second = cubeAt(595.0, 175.0, "second")
+        fun sliced(id: String) = PlateSliceResult(SliceJobId(id), emptyList(), OutputPath("/gcode/$id.gcode"), SliceStatistics(10, 60, 100.0))
+        val half = state(listOf(first, second), plates = 2, current = 0).copy(result = sliced("first"))
+        assertEquals(AllPlatesSliceState.SLICING, half.allPlatesStats()?.state)
+        assertEquals(1, half.allPlatesStats()?.sliced)
+
+        val all = half.copy(plates = listOf(PartPlate(), PartPlate(result = sliced("second"))))
+        assertEquals(AllPlatesSliceState.SLICED, all.allPlatesStats()?.state)
+        assertEquals(2, all.allPlatesStats()?.statistics?.size)
+
+        // A cube over the second plate's edge keeps it from being sliced.
+        val over = state(listOf(first, cubeAt(420.0 + 345.0, 175.0, "over")), plates = 2, current = 0)
+        assertEquals(AllPlatesSliceState.FAILED, over.allPlatesStats()?.state)
+        // With objects on one plate alone there is no item.
+        assertNull(state(listOf(first), plates = 2, current = 0).allPlatesStats())
+    }
+
     private class FakeRepository(initial: PlateState) : PlateRepository {
         private val flow = MutableStateFlow(initial)
         override val state: StateFlow<PlateState> = flow

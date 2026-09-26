@@ -410,6 +410,10 @@ data class SliceStatistics(
     val layerCount: Int,
     val estimatedPrintTimeSeconds: Long,
     val filamentMillimeters: Double,
+    /** PrintStatistics::total_cost. */
+    val cost: Double = 0.0,
+    /** The filaments the plate prints with (PartPlate::get_extruders) and what the print used of each. */
+    val filaments: List<FilamentUsage> = emptyList(),
 ) {
     init {
         require(layerCount >= 0) { "Layer count must not be negative" }
@@ -417,6 +421,39 @@ data class SliceStatistics(
         require(filamentMillimeters >= 0.0) { "Filament length must not be negative" }
     }
 }
+
+/** A length of filament in metres and its weight in grams. */
+data class FilamentAmount(val meters: Double, val grams: Double) {
+    operator fun plus(other: FilamentAmount) = FilamentAmount(meters + other.meters, grams + other.grams)
+
+    companion object {
+        val NONE = FilamentAmount(0.0, 0.0)
+    }
+}
+
+/**
+ * What a print used of one filament ([filament], from 1), as
+ * GCodeViewer::render_all_plates_stats() turns the volumes per extruder into
+ * filament: for the objects, their support, the flushing and the wipe tower.
+ */
+data class FilamentUsage(
+    val filament: Int,
+    val model: FilamentAmount = FilamentAmount.NONE,
+    val support: FilamentAmount = FilamentAmount.NONE,
+    val flushed: FilamentAmount = FilamentAmount.NONE,
+    val wipeTower: FilamentAmount = FilamentAmount.NONE,
+)
+
+/** The filament usages of flattened [amounts]: eight for each of [filaments], metres then grams of the model, support, flushing and wipe tower. */
+fun filamentUsagesOf(filaments: IntArray, amounts: DoubleArray): List<FilamentUsage> = filaments.mapIndexed { index, filament ->
+    fun amount(part: Int) = FilamentAmount(amounts.getOrElse(index * 8 + part * 2) { 0.0 }, amounts.getOrElse(index * 8 + part * 2 + 1) { 0.0 })
+    FilamentUsage(filament, amount(0), amount(1), amount(2), amount(3))
+}
+
+/** The flattened amounts [filamentUsagesOf] reads. */
+fun List<FilamentUsage>.amounts(): DoubleArray = flatMap { usage ->
+    listOf(usage.model, usage.support, usage.flushed, usage.wipeTower).flatMap { listOf(it.meters, it.grams) }
+}.toDoubleArray()
 
 enum class SliceFailureCode {
     INVALID_REQUEST,

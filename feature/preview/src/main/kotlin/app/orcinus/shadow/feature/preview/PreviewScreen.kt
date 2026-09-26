@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.preview
 
 import android.Manifest
+import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.ui.plate.PlateStrip
@@ -105,6 +106,7 @@ internal fun PreviewRoute(
             viewModel.slice()
         },
         onSliceModeChange = viewModel::chooseSliceMode,
+        onShowAllPlates = viewModel::showAllPlates,
         printers = PrinterActions(
             load = viewModel::printers,
             save = viewModel::savePrinter,
@@ -171,6 +173,7 @@ internal fun PreviewScreen(
     layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
     onSelectPlate: (Int) -> Unit = {},
     onSliceModeChange: (SliceMode) -> Unit = {},
+    onShowAllPlates: () -> Unit = {},
 ) {
     val result = state.result
     val untitled = orcaString("Untitled")
@@ -211,7 +214,11 @@ internal fun PreviewScreen(
     val shown = layer
     val view = shown?.view?.collectAsStateWithLifecycle()?.value
     val navigationBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val peek = if (shown != null && view != null) SheetPeekHeight + navigationBar else 0.dp
+    // GLCanvas3D::_render_imgui_select_plate_toolbar(): the statistics of all
+    // plates show instead of the plate once they are all sliced.
+    val allPlates = state.allPlates
+    val allPlatesShown = allPlates != null && allPlates.selected && allPlates.state == AllPlatesSliceState.SLICED
+    val peek = if (shown != null && view != null && !allPlatesShown) SheetPeekHeight + navigationBar else 0.dp
 
     BottomSheetScaffold(
         sheetContent = {
@@ -298,21 +305,34 @@ internal fun PreviewScreen(
                     plateNames = state.plateNames.map { it.ifEmpty { untitled } },
                 )
             }
+            if (allPlatesShown) {
+                AllPlatesStatsPanel(
+                    statistics = allPlates.statistics,
+                    filamentColors = state.filamentColors.map { value -> parseFilamentColor(value)?.let { Color(it.red, it.green, it.blue, it.alpha) } ?: OrcaTheme.colors.accent },
+                    modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+                )
+            }
             // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), once there are several.
             if (state.plateOrigins.size > 1) {
                 PlateStrip(
                     count = state.plateOrigins.size,
-                    current = state.currentPlate,
+                    // No plate is picked while the statistics of all of them are.
+                    current = if (allPlates?.selected == true) -1 else state.currentPlate,
                     onSelect = onSelectPlate,
                     enabled = state.canSelectPlate,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                         .padding(start = OrcaSidebarToggleSpace, top = 12.dp),
+                    leading = allPlates?.let { stats ->
+                        { AllPlatesItem(stats, enabled = state.canSliceAll, onClick = onShowAllPlates) }
+                    },
                 )
             }
             val controls = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
             when {
+                allPlatesShown -> Unit
+
                 result == null -> Column(
                     modifier = Modifier
                         .align(Alignment.Center)

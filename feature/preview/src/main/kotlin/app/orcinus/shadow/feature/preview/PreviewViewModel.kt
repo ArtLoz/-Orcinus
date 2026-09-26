@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.preview
 
 import androidx.lifecycle.ViewModel
+import app.orcinus.shadow.domain.plate.AllPlatesStats
+import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
+import app.orcinus.shadow.domain.plate.allPlatesStats
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
@@ -57,6 +60,10 @@ data class PreviewUiState(
     val canSelectPlate: Boolean = false,
     /** The plates' names, empty for one the user did not name. */
     val plateNames: List<String> = listOf(""),
+    /** The all plates stats item of the plate bar; null while there is none. */
+    val allPlates: AllPlatesStats? = null,
+    /** "Slice all" can start, which the all plates stats item does. */
+    val canSliceAll: Boolean = false,
 ) {
     /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
     val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
@@ -67,6 +74,7 @@ class PreviewViewModel(
     private val sliceAction: SliceActionUseCase,
     private val setSliceMode: SetSliceModeUseCase,
     private val selectSlicedPlate: SelectSlicedPlateUseCase,
+    private val showAllPlatesStats: ShowAllPlatesStatsUseCase,
     private val physicalPrinters: ObservePhysicalPrintersUseCase,
     private val savePhysicalPrinter: SavePhysicalPrinterUseCase,
     private val deletePhysicalPrinter: DeletePhysicalPrinterUseCase,
@@ -87,6 +95,9 @@ class PreviewViewModel(
 
     /** The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar): another plate's G-code. */
     fun selectPlate(index: Int) = selectSlicedPlate(index)
+
+    /** The plate bar's all plates stats item: every plate is sliced, then their statistics show. */
+    fun showAllPlates() = showAllPlatesStats()
 
     /** The layer slider's menu (IMSlider::add_code_as_tick, add_custom_gcode, delete_tick). */
     fun addPause(printZ: Double) = editLayerGcodes.add(printZ, LayerGcodeType.PAUSE_PRINT)
@@ -156,4 +167,6 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     currentPlate = currentPlate,
     canSelectPlate = !busy && !slicingAll,
     plateNames = plates.map(PartPlate::name),
+    allPlates = allPlatesStats(),
+    canSliceAll = canSliceAll,
 )

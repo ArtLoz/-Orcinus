@@ -1,6 +1,7 @@
 package app.orcinus.shadow.di
 
 import app.orcinus.shadow.domain.plate.SliceAllPlatesUseCase
+import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
@@ -401,6 +402,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sliceAction = sliceAction,
         setSliceMode = setSliceMode,
         selectSlicedPlate = SelectSlicedPlateUseCase(selectPlate, slicePlate, plateRepository, applicationScope),
+        showAllPlatesStats = ShowAllPlatesStatsUseCase(sliceAllPlates, plateRepository),
         physicalPrinters = physicalPrinters,
         savePhysicalPrinter = savePhysicalPrinter,
         deletePhysicalPrinter = deletePhysicalPrinter,

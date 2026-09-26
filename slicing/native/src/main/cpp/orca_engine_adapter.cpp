@@ -841,6 +841,167 @@ bool commit_file(const std::string& temporary_path, const std::string& path)
     return true;
 }
 
+// PartPlate::get_extruders(true) of the current plate: the filaments, from 1,
+// of the objects whose first copy stands on the plate whole
+// (contain_instance_totally) — their parts and height ranges, their support
+// and its interface when they have support or a raft, and their walls,
+// sparse and internal solid infill and top and bottom surfaces, each the
+// object's own or the process preset's — and of the tool changes on the
+// plate's layers.
+std::vector<int> plate_filaments(const Slic3r::Model& model, const Slic3r::DynamicPrintConfig& glb_config, const std::vector<LayerGcode>& layer_gcodes)
+{
+    std::vector<int> plate_extruders;
+    int glb_support_intf_extr = glb_config.opt_int("support_interface_filament");
+    int glb_support_extr = glb_config.opt_int("support_filament");
+    int glb_outer_wall_extr = glb_config.opt_int("outer_wall_filament_id");
+    int glb_inner_wall_extr = glb_config.opt_int("inner_wall_filament_id");
+    if (glb_outer_wall_extr == 0) glb_outer_wall_extr = glb_inner_wall_extr;
+    if (glb_inner_wall_extr == 0) glb_inner_wall_extr = glb_outer_wall_extr;
+    int glb_sparse_infill_extr = glb_config.opt_int("sparse_infill_filament_id");
+    int glb_internal_solid_extr = glb_config.opt_int("internal_solid_filament_id");
+    int glb_top_surface_extr = glb_config.opt_int("top_surface_filament_id");
+    int glb_bottom_surface_extr = glb_config.opt_int("bottom_surface_filament_id");
+    if (glb_top_surface_extr == 0) glb_top_surface_extr = glb_internal_solid_extr;
+    if (glb_bottom_surface_extr == 0) glb_bottom_surface_extr = glb_internal_solid_extr;
+    bool glb_support = glb_config.opt_bool("enable_support");
+    glb_support |= glb_config.opt_int("raft_layers") > 0;
+
+    // The option of the object, or 0 for none.
+    const auto object_int = [](const Slic3r::ModelObject& mo, const char* key) {
+        const Slic3r::ConfigOption* option = mo.config.option(key);
+        return option != nullptr ? option->getInt() : 0;
+    };
+    for (const Slic3r::ModelObject* mo : model.objects) {
+        if (mo->instances.empty() || mo->instances.front()->print_volume_state != Slic3r::ModelInstancePVS_Inside) {
+            continue;
+        }
+        for (const Slic3r::ModelVolume* mv : mo->volumes) {
+            std::vector<int> volume_extruders = mv->get_extruders();
+            plate_extruders.insert(plate_extruders.end(), volume_extruders.begin(), volume_extruders.end());
+        }
+
+        // layer range
+        for (const auto& layer_range : mo->layer_config_ranges) {
+            if (layer_range.second.has("extruder")) {
+                if (auto id = layer_range.second.option("extruder")->getInt(); id > 0)
+                    plate_extruders.push_back(id);
+            }
+        }
+
+        bool obj_support = false;
+        const Slic3r::ConfigOption* obj_support_opt = mo->config.option("enable_support");
+        const Slic3r::ConfigOption* obj_raft_opt = mo->config.option("raft_layers");
+        if (obj_support_opt != nullptr || obj_raft_opt != nullptr) {
+            if (obj_support_opt != nullptr)
+                obj_support = obj_support_opt->getBool();
+            if (obj_raft_opt != nullptr)
+                obj_support |= obj_raft_opt->getInt() > 0;
+        } else
+            obj_support = glb_support;
+
+        if (obj_support) {
+            const int obj_support_intf_extr = object_int(*mo, "support_interface_filament");
+            if (obj_support_intf_extr != 0)
+                plate_extruders.push_back(obj_support_intf_extr);
+            else if (glb_support_intf_extr != 0)
+                plate_extruders.push_back(glb_support_intf_extr);
+
+            const int obj_support_extr = object_int(*mo, "support_filament");
+            if (obj_support_extr != 0)
+                plate_extruders.push_back(obj_support_extr);
+            else if (glb_support_extr != 0)
+                plate_extruders.push_back(glb_support_extr);
+        }
+
+        int obj_outer_wall_extr = object_int(*mo, "outer_wall_filament_id");
+        if (obj_outer_wall_extr == 0)
+            obj_outer_wall_extr = object_int(*mo, "inner_wall_filament_id");
+        if (obj_outer_wall_extr != 0)
+            plate_extruders.push_back(obj_outer_wall_extr);
+        else if (glb_outer_wall_extr != 0)
+            plate_extruders.push_back(glb_outer_wall_extr);
+
+        int obj_inner_wall_extr = object_int(*mo, "inner_wall_filament_id");
+        if (obj_inner_wall_extr == 0)
+            obj_inner_wall_extr = object_int(*mo, "outer_wall_filament_id");
+        if (obj_inner_wall_extr != 0)
+            plate_extruders.push_back(obj_inner_wall_extr);
+        else if (glb_inner_wall_extr != 0)
+            plate_extruders.push_back(glb_inner_wall_extr);
+
+        const int obj_sparse_infill_extr = object_int(*mo, "sparse_infill_filament_id");
+        if (obj_sparse_infill_extr != 0)
+            plate_extruders.push_back(obj_sparse_infill_extr);
+        else if (glb_sparse_infill_extr != 0)
+            plate_extruders.push_back(glb_sparse_infill_extr);
+
+        const int obj_internal_solid_extr = object_int(*mo, "internal_solid_filament_id");
+        if (obj_internal_solid_extr != 0)
+            plate_extruders.push_back(obj_internal_solid_extr);
+        else if (glb_internal_solid_extr != 0)
+            plate_extruders.push_back(glb_internal_solid_extr);
+
+        int obj_top_surface_extr = object_int(*mo, "top_surface_filament_id");
+        if (obj_top_surface_extr == 0)
+            obj_top_surface_extr = obj_internal_solid_extr;
+        if (obj_top_surface_extr != 0)
+            plate_extruders.push_back(obj_top_surface_extr);
+        else if (glb_top_surface_extr != 0)
+            plate_extruders.push_back(glb_top_surface_extr);
+
+        int obj_bottom_surface_extr = object_int(*mo, "bottom_surface_filament_id");
+        if (obj_bottom_surface_extr == 0)
+            obj_bottom_surface_extr = obj_internal_solid_extr;
+        if (obj_bottom_surface_extr != 0)
+            plate_extruders.push_back(obj_bottom_surface_extr);
+        else if (glb_bottom_surface_extr != 0)
+            plate_extruders.push_back(glb_bottom_surface_extr);
+    }
+
+    // conside_custom_gcode
+    const int nums_extruders = int(glb_config.option<Slic3r::ConfigOptionStrings>("filament_colour")->values.size());
+    for (const LayerGcode& item : layer_gcodes) {
+        if (item.type == LayerGcodeType::tool_change && item.extruder <= nums_extruders)
+            plate_extruders.push_back(item.extruder);
+    }
+
+    std::sort(plate_extruders.begin(), plate_extruders.end());
+    plate_extruders.erase(std::unique(plate_extruders.begin(), plate_extruders.end()), plate_extruders.end());
+    return plate_extruders;
+}
+
+// render_all_plates_stats(): what the print used of each of the plate's
+// filaments, get_used_filament_from_volume() of its volumes per extruder, and
+// nothing of a filament the plate has no colour for.
+std::vector<FilamentUsage> filament_usage(const Slic3r::GCodeProcessorResult& gcode_result, const std::vector<int>& filaments, const std::size_t colors)
+{
+    const Slic3r::PrintEstimatedStatistics& estimated = gcode_result.print_statistics;
+    std::vector<FilamentUsage> usage;
+    for (const int filament : filaments) {
+        const std::size_t extruder_id = std::size_t(filament - 1);
+        if (filament < 1 || extruder_id >= colors) {
+            continue;
+        }
+        const auto used = [&gcode_result, extruder_id](const std::map<std::size_t, double>& volumes) -> std::array<double, 2> {
+            const auto found = volumes.find(extruder_id);
+            if (found == volumes.end() || extruder_id >= gcode_result.filament_diameters.size() ||
+                extruder_id >= gcode_result.filament_densities.size()) {
+                return {0.0, 0.0};
+            }
+            const double volume = found->second;
+            const double radius = 0.5 * gcode_result.filament_diameters[extruder_id];
+            return {0.001 * volume / (PI * radius * radius), volume * gcode_result.filament_densities[extruder_id] * 0.001};
+        };
+        FilamentUsage& item = usage.emplace_back();
+        item.filament = filament;
+        item.model = used(estimated.model_volumes_per_extruder);
+        item.support = used(estimated.support_volumes_per_extruder);
+        item.flushed = used(estimated.flush_per_filament);
+        item.wipe_tower = used(estimated.wipe_tower_volumes_per_extruder);
+    }
+    return usage;
+}
+
 // The legend's figures besides the moves: GCodeViewer::load_as_gcode() and
 // render_legend() read them from the processor's result and the print.
 orcinus::toolpaths::Statistics toolpaths_statistics(const Slic3r::GCodeProcessorResult& gcode_result, const Slic3r::PrintStatistics& print_statistics)
@@ -1346,6 +1507,7 @@ SliceResult slice(
         if (std::string outside; !check_print_volume(model, config, outside)) {
             return failure(SliceStatus::invalid_print, outside);
         }
+        const std::vector<int> filaments = plate_filaments(model, config, layer_gcodes);
         // The codes the layer slider put on the plate (Plater's
         // EVT_CUSTOMEVT_TICKSCHANGED), with the mode of the slider
         // (IMSlider::GetTicksValues(), Preview::update_layers_slider_mode()).
@@ -1415,6 +1577,8 @@ SliceResult slice(
         result.layer_count = printed_layer_count(print);
         result.estimated_print_time_seconds = std::llround(print_time);
         result.filament_micrometers = std::llround(print.print_statistics().total_used_filament * 1'000.0);
+        result.total_cost = print.print_statistics().total_cost;
+        result.filaments = filament_usage(gcode_result, filaments, config.option<Slic3r::ConfigOptionStrings>("filament_colour")->values.size());
         result.toolpaths_written = !toolpaths_path.empty() && write_toolpaths(gcode_result, print, config, toolpaths_path);
         // GLCanvas3D::reload_scene(): once the wipe tower is built, the plate
         // shows it as the slice made it — its ribs and its brim, in the tower's

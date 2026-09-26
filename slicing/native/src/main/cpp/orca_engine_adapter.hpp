@@ -62,12 +62,30 @@ enum class SliceStatus : std::int64_t {
     invalid_print = 8,
 };
 
+// What a print used of one of the plate's filaments, as
+// GCodeViewer::render_all_plates_stats() turns the volumes per extruder of
+// PrintEstimatedStatistics into filament: metres and grams for the objects,
+// their support, the flushing and the wipe tower.
+struct FilamentUsage {
+    // From 1.
+    int filament{1};
+    std::array<double, 2> model{0.0, 0.0};
+    std::array<double, 2> support{0.0, 0.0};
+    std::array<double, 2> flushed{0.0, 0.0};
+    std::array<double, 2> wipe_tower{0.0, 0.0};
+};
+
 struct SliceResult {
     SliceStatus status{SliceStatus::slicing_failed};
     std::string message;
     std::int64_t layer_count{0};
     std::int64_t estimated_print_time_seconds{0};
     std::int64_t filament_micrometers{0};
+    // PrintStatistics::total_cost.
+    double total_cost{0.0};
+    // The filaments the plate prints with (PartPlate::get_extruders(true)) and
+    // what the print used of each.
+    std::vector<FilamentUsage> filaments;
     // The toolpaths file was written for the G-code viewer.
     bool toolpaths_written{false};
     // The mesh of the wipe tower the slice built was written for the 3D view.

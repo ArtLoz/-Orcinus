@@ -16,6 +16,10 @@ parcelable SliceOutcomeParcel {
     int layerCount;
     long estimatedPrintTimeSeconds;
     double filamentMillimeters;
+    double cost;
+    /** SliceStatistics.filaments: the filaments, and eight amounts of each (filamentUsagesOf). */
+    @nullable int[] filaments;
+    @nullable double[] filamentAmounts;
     /** SliceFailureCode name. */
     @nullable String failureCode;
     @nullable String message;

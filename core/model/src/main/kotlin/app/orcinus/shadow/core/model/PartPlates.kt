@@ -140,6 +140,9 @@ fun PlateState.partPlates(): List<PartPlate> = plates.mapIndexed { index, plate 
     if (index == currentPlate) plate.copy(settings = plateSettings, layerGcodes = layerGcodes, result = result) else plate
 }
 
+/** PartPlateList::get_nonempty_plate_list(): the plates a copy stands on, by index. */
+fun PlateState.nonemptyPlates(): List<Int> = plates.indices.filter { index -> copies().any { plateOf(it) == index } }
+
 /**
  * PartPlateList::find_instance_belongs() and notify_instance_update(): the
  * plate a copy stands on, the first it crosses; null for one on none.

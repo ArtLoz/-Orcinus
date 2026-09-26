@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.filamentUsagesOf
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.DirtyPreset
@@ -1630,6 +1631,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     layerCount = result.layerCount.toInt(),
                     estimatedPrintTimeSeconds = result.estimatedPrintTimeSeconds,
                     filamentMillimeters = result.filamentMicrometers / 1_000.0,
+                    cost = result.totalCost,
+                    filaments = filamentUsagesOf(result.filaments, result.filamentAmounts),
                 ),
                 toolpaths = request.toolpaths?.takeIf { result.toolpathsWritten },
                 wipeTower = request.wipeTower?.takeIf { result.wipeTowerWritten },

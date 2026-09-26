@@ -18,6 +18,10 @@ internal class NativeSliceResult(
     @JvmField val sequential: Boolean,
     @JvmField val canChangeFilament: Boolean,
     @JvmField val hasTemplate: Boolean,
+    @JvmField val totalCost: Double,
+    /** The plate's filaments, from 1, with eight amounts each in [filamentAmounts]: metres and grams for the model, support, flushing and wipe tower. */
+    @JvmField val filaments: IntArray,
+    @JvmField val filamentAmounts: DoubleArray,
 ) {
     companion object {
         const val SUCCESS = 0L

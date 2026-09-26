@@ -1051,8 +1051,20 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         layer_gcodes
     );
 
+    // The filaments the plate prints with, and eight amounts for each: metres
+    // and grams for the model, support, flushing and wipe tower.
+    std::vector<jint> filaments;
+    std::vector<double> amounts;
+    for (const orcinus::orca::FilamentUsage& usage : result.filaments) {
+        filaments.push_back(usage.filament);
+        for (const std::array<double, 2>& used : {usage.model, usage.support, usage.flushed, usage.wipe_tower}) {
+            amounts.insert(amounts.end(), used.begin(), used.end());
+        }
+    }
+    const jintArray filament_array = env->NewIntArray(static_cast<jsize>(filaments.size()));
+    env->SetIntArrayRegion(filament_array, 0, static_cast<jsize>(filaments.size()), filaments.data());
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZZZZ)V");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZZZZD[I[D)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1065,7 +1077,10 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         result.wipe_tower_written ? JNI_TRUE : JNI_FALSE,
         result.sequential ? JNI_TRUE : JNI_FALSE,
         result.can_change_filament ? JNI_TRUE : JNI_FALSE,
-        result.has_template ? JNI_TRUE : JNI_FALSE
+        result.has_template ? JNI_TRUE : JNI_FALSE,
+        static_cast<jdouble>(result.total_cost),
+        filament_array,
+        to_java(env, amounts.data(), amounts.size())
     );
 }
 

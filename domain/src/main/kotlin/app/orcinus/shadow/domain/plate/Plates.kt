@@ -47,8 +47,11 @@ import kotlinx.coroutines.launch
  */
 class SelectPlateUseCase(private val repository: PlateRepository) {
     operator fun invoke(index: Int) = repository.update { state ->
-        if (!state.canChangePlates || index == state.currentPlate || index !in state.plates.indices) return@update state
-        state.withPlates(state.platesLeft(), index).copy(selectedInstances = emptySet(), selectedPart = null, selectedRange = null)
+        if (!state.canChangePlates || index !in state.plates.indices) return@update state
+        // A plate picked leaves the statistics of all plates.
+        if (index == state.currentPlate) return@update state.copy(allPlatesStats = false)
+        state.withPlates(state.platesLeft(), index)
+            .copy(selectedInstances = emptySet(), selectedPart = null, selectedRange = null, allPlatesStats = false)
     }
 }
 

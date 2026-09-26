@@ -4676,6 +4676,12 @@ TEST_CASE("The current plate places, judges and slices objects from its own orig
     const orca::SliceResult result = orca::slice("plate-2", plate_of({}, placement), output, {}, k2_plus_profiles(), {}, {});
     INFO(result.message);
     REQUIRE(result.status == orca::SliceStatus::success);
+    // render_all_plates_stats(): the plate prints with the first filament, all of it for the model.
+    REQUIRE(result.filaments.size() == 1);
+    CHECK(result.filaments.front().filament == 1);
+    CHECK(result.filaments.front().model[0] == Catch::Approx(result.filament_micrometers / 1e6).margin(0.01));
+    CHECK(result.filaments.front().model[1] > 0.0);
+    CHECK(result.filaments.front().wipe_tower[0] == 0.0);
     const Bounds bounds = extrusion_bounds(output);
     REQUIRE(bounds.min_x < bounds.max_x);
     CHECK((bounds.min_x + bounds.max_x) / 2.0 == Catch::Approx(100.0).margin(1.0));

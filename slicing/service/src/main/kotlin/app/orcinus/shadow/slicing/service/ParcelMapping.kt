@@ -1,6 +1,9 @@
 package app.orcinus.shadow.slicing.service
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.FilamentUsage
+import app.orcinus.shadow.core.model.filamentUsagesOf
+import app.orcinus.shadow.core.model.amounts
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.DirtyPreset
@@ -359,6 +362,9 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.layerCount = statistics.layerCount
             it.estimatedPrintTimeSeconds = statistics.estimatedPrintTimeSeconds
             it.filamentMillimeters = statistics.filamentMillimeters
+            it.cost = statistics.cost
+            it.filaments = statistics.filaments.map(FilamentUsage::filament).toIntArray()
+            it.filamentAmounts = statistics.filaments.amounts()
             it.sequential = layerGcodeRules.sequential
             it.canChangeFilament = layerGcodeRules.canChangeFilament
             it.hasTemplate = layerGcodeRules.hasTemplate
@@ -381,7 +387,13 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
         SliceOutcomeParcel.SUCCESS -> SliceOutcome.Success(
             jobId = id,
             gcodePath = OutputPath(checkNotNull(gcodePath)),
-            statistics = SliceStatistics(layerCount, estimatedPrintTimeSeconds, filamentMillimeters),
+            statistics = SliceStatistics(
+                layerCount,
+                estimatedPrintTimeSeconds,
+                filamentMillimeters,
+                cost,
+                filamentUsagesOf(filaments ?: IntArray(0), filamentAmounts ?: DoubleArray(0)),
+            ),
             toolpaths = toolpathsPath?.let(::ScenePath),
             wipeTower = wipeTowerPath?.let(::ScenePath),
             layerGcodeRules = LayerGcodeRules(sequential, canChangeFilament, hasTemplate),

@@ -668,6 +668,11 @@ data class PlateState(
      * alone selects and slices them until it is done.
      */
     val slicingAll: Boolean = false,
+    /**
+     * The preview's plate bar shows the statistics of all plates instead of
+     * the current plate (GLCanvas3D's all plates stats item is selected).
+     */
+    val allPlatesStats: Boolean = false,
     /** The G-code of the current plate. */
     val result: PlateSliceResult? = null,
     val problem: PlateProblem? = null,

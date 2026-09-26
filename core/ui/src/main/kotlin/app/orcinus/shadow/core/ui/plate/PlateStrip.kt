@@ -63,6 +63,8 @@ fun PlateStrip(
     modifier: Modifier = Modifier,
     /** The locked plates, by index (PartPlate::is_locked). */
     locked: Set<Int> = emptySet(),
+    /** An item before the plates, such as the preview's all plates stats item. */
+    leading: (@Composable () -> Unit)? = null,
     /** The actions of the plate at an index; [dismiss] closes them. */
     actions: (@Composable ColumnScope.(index: Int, dismiss: () -> Unit) -> Unit)? = null,
 ) {
@@ -70,6 +72,7 @@ fun PlateStrip(
     var menu by remember { mutableStateOf<Int?>(null) }
     val lockedState = stringResource(R.string.plate_locked)
     OrcaCanvasToolbar(modifier) {
+        leading?.invoke()
         repeat(count) { index ->
             val selected = index == current
             Box(
