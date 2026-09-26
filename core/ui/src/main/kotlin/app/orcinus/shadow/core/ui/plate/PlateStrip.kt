@@ -122,6 +122,7 @@ class PlateIconActions(
     val orient: () -> Unit,
     val arrange: () -> Unit,
     val lock: () -> Unit,
+    val settings: () -> Unit,
     val moveToFront: () -> Unit,
     val rename: () -> Unit,
 )
@@ -142,6 +143,8 @@ fun PlateMenuItems(
     workable: Boolean,
     deletable: Boolean,
     first: Boolean,
+    /** The plate has settings of its own, which its settings icon shows. */
+    customized: Boolean,
 ) {
     @Composable
     fun item(icon: Int, text: String, isEnabled: Boolean, action: () -> Unit) = OrcaMenuItem(
@@ -161,6 +164,7 @@ fun PlateMenuItems(
     } else {
         item(DesignR.drawable.orca_plate_unlocked, "Lock current plate", true, actions.lock)
     }
+    item(if (customized) DesignR.drawable.orca_plate_settings_changed else DesignR.drawable.orca_plate_settings, "Customize current plate", true, actions.settings)
     item(DesignR.drawable.orca_plate_move_front, "Move plate to the front", !first, actions.moveToFront)
     item(DesignR.drawable.orca_plate_name_edit, "Edit current plate name", true, actions.rename)
 }

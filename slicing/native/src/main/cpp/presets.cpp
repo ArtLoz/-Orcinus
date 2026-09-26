@@ -316,6 +316,29 @@ PresetState preset_state(Slic3r::PresetBundle& bundle)
     }
     state.nozzle_diameters = std::move(diameters);
     state.nozzle_diameter = nozzle;
+
+    // PlateSettingsDialog: the bed types of curr_bed_type the printer model
+    // (Plater::get_curr_printer_model) supports, for a Bambu Lab printer.
+    if (bundle.is_bbl_vendor()) {
+        const Slic3r::Preset& printer = bundle.printers.get_selected_preset();
+        const Slic3r::VendorProfile::PrinterModel* model = Slic3r::PresetUtils::system_printer_model(printer);
+        if (model == nullptr) {
+            if (const Slic3r::Preset* parent = bundle.printers.get_selected_preset_parent(); parent != nullptr) {
+                model = Slic3r::PresetUtils::system_printer_model(*parent);
+            }
+        }
+        if (model != nullptr) {
+            const Slic3r::ConfigOptionDef* bed_type_def = Slic3r::print_config_def.get("curr_bed_type");
+            for (std::size_t index = 0; index < bed_type_def->enum_labels.size() && index < bed_type_def->enum_values.size(); ++index) {
+                const std::string& label = bed_type_def->enum_labels[index];
+                const auto& unsupported = model->not_support_bed_types;
+                if (std::find(unsupported.begin(), unsupported.end(), label) == unsupported.end()) {
+                    state.bed_type_values.push_back(bed_type_def->enum_values[index]);
+                    state.bed_type_labels.push_back(label);
+                }
+            }
+        }
+    }
     return state;
 }
 

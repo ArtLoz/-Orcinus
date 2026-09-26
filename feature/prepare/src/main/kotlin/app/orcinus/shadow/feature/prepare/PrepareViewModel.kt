@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.SetPlateSettingsUseCase
+import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
@@ -145,6 +147,7 @@ class PrepareViewModel(
     private val renamePlate: RenamePlateUseCase,
     private val movePlateToFront: MovePlateToFrontUseCase,
     private val plateJobs: PlateJobsUseCase,
+    private val setPlateSettings: SetPlateSettingsUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -284,6 +287,9 @@ class PrepareViewModel(
     fun orientPlate(index: Int) = plateJobs.orient(index)
 
     fun arrangePlate(index: Int) = plateJobs.arrange(index)
+
+    /** PlateSettingsDialog's OK for the current plate. */
+    fun setPlateSettings(choice: PlateSettingsChoice, vaseSettingsAgreed: Boolean) = setPlateSettings.invoke(choice, vaseSettingsAgreed)
 
     /**
      * GLGizmoMmuSegmentation: the colour painting tool opens on the selected

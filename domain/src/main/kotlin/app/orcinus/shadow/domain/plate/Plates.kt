@@ -1,6 +1,10 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.EnginePlate
+import app.orcinus.shadow.core.model.PlateSettingsChoice
+import app.orcinus.shadow.core.model.plateSettingsChoice
+import app.orcinus.shadow.core.model.withPlateSettingsChoice
+import app.orcinus.shadow.core.model.withSettings
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PlateInstance
@@ -365,3 +369,65 @@ private fun ModelSettings.withWipeTowerOf(other: ModelSettings): ModelSettings =
     ModelSettings(values - WIPE_TOWER_KEYS + other.values.filterKeys { it in WIPE_TOWER_KEYS })
 
 private val WIPE_TOWER_KEYS = setOf("wipe_tower_x", "wipe_tower_y")
+
+/**
+ * PlateSettingsDialog's OK for the current plate (Plater::open_platesettings_dialog):
+ * the plate takes the bed type, print sequence, filament sequences and spiral
+ * vase mode chosen. Enabling spiral vase mode on a plate that does not print
+ * in it yet (PartPlate::set_spiral_vase_mode) needs the user's agreement to
+ * the settings it asks for ([vaseSettingsAgreed]), which the objects on the
+ * plate then take (set_vase_mode_related_object_config); without it the mode
+ * stays as it was. G-code sliced before no longer applies once the plate
+ * prints differently.
+ */
+class SetPlateSettingsUseCase(private val repository: PlateRepository) {
+    operator fun invoke(choice: PlateSettingsChoice, vaseSettingsAgreed: Boolean) = repository.update { state ->
+        if (!state.canChangePlates) return@update state
+        val before = state.plateSettings.plateSettingsChoice()
+        val enabling = choice.spiralMode == true && !state.spiralVaseMode()
+        val spiral = when {
+            // get_spiral_vase_mode(): a plate that already prints in the mode keeps its settings as they are.
+            choice.spiralMode == true && !enabling -> before.spiralMode
+            enabling && !vaseSettingsAgreed -> before.spiralMode
+            else -> choice.spiralMode
+        }
+        val settings = state.plateSettings.withPlateSettingsChoice(choice.copy(spiralMode = spiral))
+        val objects = if (enabling && vaseSettingsAgreed) state.objectsForSpiralVase() else state.objects
+        if (settings == state.plateSettings && objects == state.objects) return@update state
+        state.copy(plateSettings = settings, objects = objects, result = null)
+    }
+}
+
+/** PartPlate::get_spiral_vase_mode() of the current plate: its own, or the process preset's. */
+fun PlateState.spiralVaseMode(): Boolean =
+    plateSettings.plateSettingsChoice().spiralMode ?: (presetValue(PresetKind.PRINT, "spiral_mode") == "1")
+
+/** A value of the edited preset of [kind], as its tab shows it. */
+fun PlateState.presetValue(kind: PresetKind, key: String): String? =
+    settingsTabs[kind]?.settings?.settings?.firstOrNull { it.key == key }?.value
+
+/**
+ * PartPlate::set_vase_mode_related_object_config(): the objects on the current
+ * plate take the settings spiral vase mode needs where the process preset, or
+ * the object itself, has others.
+ */
+private fun PlateState.objectsForSpiralVase(): List<PlateObject> {
+    val applying = VASE_MODE_SETTINGS.filter { (key, value) -> presetValue(PresetKind.PRINT, key) != value }
+    return objects.map { plateObject ->
+        if (plateObject.instances.none { plateOf(it) == currentPlate }) return@map plateObject
+        val own = VASE_MODE_SETTINGS.filter { (key, value) -> plateObject.settings.values[key]?.let { it != value } == true }
+        plateObject.withSettings(ModelSettings(plateObject.settings.values + applying + own))
+    }
+}
+
+/** The settings of set_vase_mode_related_object_config(), as a project writes them. */
+private val VASE_MODE_SETTINGS = mapOf(
+    "wall_loops" to "1",
+    "top_shell_layers" to "0",
+    "sparse_infill_density" to "0%",
+    "enable_support" to "0",
+    "enforce_support_layers" to "0",
+    "detect_thin_wall" to "0",
+    "timelapse_type" to "0",
+    "overhang_reverse" to "0",
+)

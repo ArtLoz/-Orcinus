@@ -1,6 +1,13 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.PlateSettingsChoice
+import app.orcinus.shadow.core.model.BedTypeChoice
+import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.partPlates
+import app.orcinus.shadow.core.model.plateSettingsChoice
+import app.orcinus.shadow.domain.plate.spiralVaseMode
+import app.orcinus.shadow.domain.plate.presetValue
 import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.domain.plate.canWorkOnPlate
@@ -104,6 +111,15 @@ data class PrepareUiState(
     val lockedPlates: Set<Int> = emptySet(),
     /** The plates their orient and arrange work on: not locked, with objects. */
     val workablePlates: Set<Int> = emptySet(),
+    /** The plates with settings of their own (PartPlate's settings icon). */
+    val customizedPlates: Set<Int> = emptySet(),
+    /** What PlateSettingsDialog shows for the current plate. */
+    val plateSettings: PlateSettingsChoice = PlateSettingsChoice(),
+    val bedTypes: List<BedTypeChoice> = emptyList(),
+    /** The current plate prints in spiral vase mode, its own or the process preset's. */
+    val spiralVaseMode: Boolean = false,
+    /** The printer's structure is I3 (printer_structure). */
+    val printerI3: Boolean = false,
     /** Position of the selected object. */
     val selectedPosition: ObjectPosition?,
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
@@ -271,6 +287,11 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         plateNames = plates.map(PartPlate::name),
         lockedPlates = lockedPlates(),
         workablePlates = plates.indices.filterTo(mutableSetOf(), ::canWorkOnPlate),
+        customizedPlates = partPlates().indices.filterTo(mutableSetOf()) { partPlates()[it].settings.plateSettingsChoice() != PlateSettingsChoice() },
+        plateSettings = plateSettings.plateSettingsChoice(),
+        bedTypes = presets?.bedTypes.orEmpty(),
+        spiralVaseMode = spiralVaseMode(),
+        printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",
         selectedPosition = selected?.placement?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
         selectedRotation = selected?.rotationDegrees,
         canResetRotation = selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart),

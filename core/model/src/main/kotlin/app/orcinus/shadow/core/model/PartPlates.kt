@@ -139,3 +139,77 @@ fun PlateState.plateOf(instance: PlateInstance): Int? {
     val height = plate?.geometry?.printableHeight ?: return 0
     return plateOrigins().indexOfFirst { grid.intersects(instance.inspection, it, height) }.takeIf { it >= 0 }
 }
+
+/**
+ * What PlateSettingsDialog chooses for a plate (PartPlate::config): its bed
+ * type (curr_bed_type), print sequence ("by layer", "by object") and spiral
+ * vase mode, each null for "Same as Global", and the filament sequence of the
+ * first layer and of the layer ranges after it, null for "Auto".
+ */
+data class PlateSettingsChoice(
+    val bedType: String? = null,
+    val printSequence: String? = null,
+    val spiralMode: Boolean? = null,
+    val firstLayerSequence: List<Int>? = null,
+    val otherLayersSequence: List<LayerSequence>? = null,
+)
+
+/**
+ * A range of layers with the order its filaments print in (LayerPrintSequence):
+ * from layer [begin] to [end], both counted from 1, [END_LAYER] for the last one.
+ */
+data class LayerSequence(val begin: Int, val end: Int, val filaments: List<Int>) {
+    companion object {
+        /** PlateSettingsDialog's MIN_LAYER_VALUE: the ranges start from the second layer. */
+        const val FIRST_LAYER = 2
+
+        /** MAX_LAYER_VALUE: "End". */
+        const val END_LAYER = Int.MAX_VALUE - 1
+    }
+}
+
+/** The dialog's choices as the plate's settings hold them (PartPlate's getters). */
+fun ModelSettings.plateSettingsChoice(): PlateSettingsChoice {
+    fun ints(key: String) = values[key]?.split(',')?.mapNotNull { it.trim().toIntOrNull() }
+    val others = ints(OTHER_LAYERS_SEQUENCE)?.let { flat ->
+        // get_other_layers_print_sequence(): the ranges share the flat list evenly.
+        val ranges = values[OTHER_LAYERS_SEQUENCE_NUMS]?.toIntOrNull()?.takeIf { it > 0 } ?: return@let null
+        val size = flat.size / ranges
+        if (size < 2) return@let null
+        flat.chunked(size).take(ranges).map { LayerSequence(it[0], it[1], it.drop(2)) }
+    }
+    return PlateSettingsChoice(
+        bedType = values[BED_TYPE],
+        printSequence = values[PRINT_SEQUENCE],
+        spiralMode = values[SPIRAL_MODE]?.let { it == "1" || it == "true" },
+        firstLayerSequence = ints(FIRST_LAYER_SEQUENCE),
+        otherLayersSequence = others,
+    )
+}
+
+/**
+ * The settings with the dialog's [choice]: set_bed_type(), set_print_seq(),
+ * set_first_layer_print_sequence() and set_other_layers_print_sequence()
+ * write a value or erase the key for "Same as Global" and "Auto".
+ */
+fun ModelSettings.withPlateSettingsChoice(choice: PlateSettingsChoice): ModelSettings {
+    val updated = values.toMutableMap()
+    fun put(key: String, value: String?) {
+        if (value == null) updated.remove(key) else updated[key] = value
+    }
+    put(BED_TYPE, choice.bedType)
+    put(PRINT_SEQUENCE, choice.printSequence)
+    put(SPIRAL_MODE, choice.spiralMode?.let { if (it) "1" else "0" })
+    put(FIRST_LAYER_SEQUENCE, choice.firstLayerSequence?.takeUnless { it.isEmpty() || it == listOf(0) }?.joinToString(","))
+    val others = choice.otherLayersSequence?.takeIf { it.isNotEmpty() }
+    put(OTHER_LAYERS_SEQUENCE, others?.flatMap { listOf(it.begin, it.end) + it.filaments }?.joinToString(","))
+    put(OTHER_LAYERS_SEQUENCE_NUMS, others?.size?.toString())
+    return ModelSettings(updated)
+}
+
+private const val BED_TYPE = "curr_bed_type"
+private const val PRINT_SEQUENCE = "print_sequence"
+private const val SPIRAL_MODE = "spiral_mode"
+private const val FIRST_LAYER_SEQUENCE = "first_layer_print_sequence"
+private const val OTHER_LAYERS_SEQUENCE = "other_layers_print_sequence"
+private const val OTHER_LAYERS_SEQUENCE_NUMS = "other_layers_print_sequence_nums"

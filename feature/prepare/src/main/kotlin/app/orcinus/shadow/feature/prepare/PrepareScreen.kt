@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
+import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.ui.plate.PlateMenuItems
 import app.orcinus.shadow.core.ui.plate.PlateIconActions
 import app.orcinus.shadow.core.ui.plate.PlateNameDialog
@@ -175,6 +177,7 @@ internal fun PrepareRoute(
             moveToFront = viewModel::movePlateToFront,
             orient = viewModel::orientPlate,
             arrange = viewModel::arrangePlate,
+            settings = viewModel::setPlateSettings,
         ),
         onTogglePainting = viewModel::togglePainting,
         paintingActions = PaintingActions(
@@ -339,6 +342,8 @@ internal fun PrepareScreen(
         var cloning by remember { mutableStateOf<Int?>(null) }
         var addingPart by remember { mutableStateOf<Pair<Int, VolumeType>?>(null) }
         var renamingPlate by remember { mutableStateOf<Int?>(null) }
+        // Plater::select_plate_by_hover_id(), action 5: the plate is selected, then its settings open.
+        var customizingPlate by remember { mutableStateOf<Int?>(null) }
         val untitled = orcaString("Untitled")
         // Previews have no OpenGL; they show the canvas colour.
         if (!LocalInspectionMode.current) {
@@ -421,6 +426,25 @@ internal fun PrepareScreen(
                 onDismiss = { renamingPlate = null },
                 onConfirm = { name ->
                     renamingPlate = null
+                    plateActions.rename(index, name)
+                },
+            )
+        }
+        customizingPlate?.takeIf { it == state.currentPlate && state.canEditPlate }?.let { index ->
+            PlateSettingsSheet(
+                name = state.plateNames.getOrNull(index).orEmpty(),
+                choice = state.plateSettings,
+                bedTypes = state.bedTypes,
+                filamentColors = state.filamentColors.map { Color(it.red, it.green, it.blue, it.alpha) },
+                spiralOn = state.spiralVaseMode,
+                i3 = state.printerI3,
+                onDismiss = { name ->
+                    customizingPlate = null
+                    plateActions.rename(index, name)
+                },
+                onConfirm = { name, choice, agreed ->
+                    customizingPlate = null
+                    plateActions.settings(choice, agreed)
                     plateActions.rename(index, name)
                 },
             )
@@ -534,6 +558,10 @@ internal fun PrepareScreen(
                                 orient = { plateActions.orient(index) },
                                 arrange = { plateActions.arrange(index) },
                                 lock = { plateActions.lock(index) },
+                                settings = {
+                                    plateActions.select(index)
+                                    customizingPlate = index
+                                },
                                 moveToFront = { plateActions.moveToFront(index) },
                                 rename = { renamingPlate = index },
                             ),
@@ -543,6 +571,7 @@ internal fun PrepareScreen(
                             workable = index in state.workablePlates,
                             deletable = state.canDeletePlate,
                             first = index == 0,
+                            customized = index in state.customizedPlates,
                         )
                     }
                 }
@@ -613,9 +642,11 @@ internal class PlateActions(
     val moveToFront: (index: Int) -> Unit,
     val orient: (index: Int) -> Unit,
     val arrange: (index: Int) -> Unit,
+    /** PlateSettingsDialog's OK for the current plate, and whether the user agreed to what spiral vase mode needs. */
+    val settings: (PlateSettingsChoice, vaseSettingsAgreed: Boolean) -> Unit,
 ) {
     companion object {
-        val NONE = PlateActions({}, {}, {}, {}, { _, _ -> }, {}, {}, {})
+        val NONE = PlateActions({}, {}, {}, {}, { _, _ -> }, {}, {}, {}, { _, _ -> })
     }
 }
 

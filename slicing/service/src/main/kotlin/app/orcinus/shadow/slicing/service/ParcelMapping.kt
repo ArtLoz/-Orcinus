@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.Axis
@@ -716,6 +717,8 @@ private fun PresetsParcel.fill(presets: Presets) {
     filamentTypes = presets.filamentTypes.toTypedArray()
     nozzleDiameters = presets.nozzleDiameters.toTypedArray()
     nozzleDiameter = presets.nozzleDiameter
+    bedTypeValues = presets.bedTypes.map(BedTypeChoice::value).toTypedArray()
+    bedTypeLabels = presets.bedTypes.map(BedTypeChoice::label).toTypedArray()
 }
 
 internal fun PresetChange.toParcel() = PresetChangeParcel().also {
@@ -780,6 +783,7 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         filamentTypes = filamentTypes.orEmpty().toList(),
         nozzleDiameters = nozzleDiameters.orEmpty().toList(),
         nozzleDiameter = nozzleDiameter.orEmpty(),
+        bedTypes = bedTypeValues.orEmpty().zip(bedTypeLabels.orEmpty(), ::BedTypeChoice),
     )
     if (!asksUnsavedChanges) {
         return PresetsOutcome.Success(presets)

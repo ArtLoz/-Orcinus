@@ -1,6 +1,7 @@
 package app.orcinus.shadow.di
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.SetPlateSettingsUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
@@ -378,6 +379,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             renamePlate = RenamePlateUseCase(plateRepository),
             movePlateToFront = MovePlateToFrontUseCase(plateRepository),
             plateJobs = PlateJobsUseCase(plateRepository, selectPlate, placePlateObjects, applicationScope),
+            setPlateSettings = SetPlateSettingsUseCase(plateRepository),
         )
     }
 

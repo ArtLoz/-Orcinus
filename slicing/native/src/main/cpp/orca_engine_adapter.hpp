@@ -799,6 +799,12 @@ struct PresetState {
     // The name its Save button suggests (SavePresetDialog::Item::Item()).
     std::string save_name;
     bool save_name_copy_suffix{false};
+    // The plate types the selected printer model supports, curr_bed_type's
+    // values with their labels, as the sidebar's plate type combo box and
+    // PlateSettingsDialog list them; none for a printer of another vendor
+    // than Bambu Lab, whose dialog does not choose one.
+    std::vector<std::string> bed_type_values;
+    std::vector<std::string> bed_type_labels;
 };
 
 // The preset combo boxes for the selection the app configuration remembers.

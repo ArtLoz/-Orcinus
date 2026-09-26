@@ -1,6 +1,11 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.BoundingSphere
+import app.orcinus.shadow.core.model.PlateSettingsChoice
+import app.orcinus.shadow.core.model.LayerSequence
+import app.orcinus.shadow.core.model.plateSettingsChoice
+import app.orcinus.shadow.core.model.withPlateSettingsChoice
+import app.orcinus.shadow.core.model.withName
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.EnginePlate
@@ -125,6 +130,37 @@ class PlatesTest {
         assertEquals(ModelSettings(mapOf("curr_bed_type" to "High Temp Plate") + tower.values), state.plateSettings)
         assertEquals(175.0, state.objects.single().instances.single().inspection.placement.columns[12])
         assertEquals(1, state.history.undo.size)
+    }
+
+    @Test
+    fun `the plate settings are written as OrcaSlicer's plate config keeps them, and read back`() {
+        val choice = PlateSettingsChoice(
+            printSequence = "by object",
+            firstLayerSequence = listOf(2, 1),
+            otherLayersSequence = listOf(LayerSequence(2, 10, listOf(2, 1)), LayerSequence(11, LayerSequence.END_LAYER, listOf(1, 2))),
+        )
+        val settings = ModelSettings(mapOf("wipe_tower_x" to "10.000")).withPlateSettingsChoice(choice)
+
+        assertEquals("2,1", settings.values["first_layer_print_sequence"])
+        assertEquals("2,10,2,1,11,2147483646,1,2", settings.values["other_layers_print_sequence"])
+        assertEquals("2", settings.values["other_layers_print_sequence_nums"])
+        assertEquals(choice, settings.plateSettingsChoice())
+        assertEquals(ModelSettings(mapOf("wipe_tower_x" to "10.000")), settings.withPlateSettingsChoice(PlateSettingsChoice()))
+    }
+
+    @Test
+    fun `spiral vase mode needs the user's agreement, which the objects on the plate follow`() {
+        val repository = FakeRepository(state(listOf(cubeAt(175.0, 175.0), cubeAt(595.0, 175.0).withName("Other")), plates = 2, current = 0))
+
+        SetPlateSettingsUseCase(repository)(PlateSettingsChoice(spiralMode = true), vaseSettingsAgreed = false)
+        assertEquals(null, repository.state.value.plateSettings.plateSettingsChoice().spiralMode)
+
+        SetPlateSettingsUseCase(repository)(PlateSettingsChoice(spiralMode = true), vaseSettingsAgreed = true)
+        val state = repository.state.value
+        assertEquals(true, state.plateSettings.plateSettingsChoice().spiralMode)
+        assertEquals("1", state.objects[0].settings.values["wall_loops"])
+        assertEquals("0%", state.objects[0].settings.values["sparse_infill_density"])
+        assertEquals(ModelSettings(), state.objects[1].settings)
     }
 
     private class FakeRepository(initial: PlateState) : PlateRepository {

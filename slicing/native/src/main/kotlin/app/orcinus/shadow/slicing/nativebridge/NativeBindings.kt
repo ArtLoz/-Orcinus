@@ -157,6 +157,8 @@ internal class NativePresetState(
     @JvmField val filamentSlots: Array<String>,
     @JvmField val filamentColors: Array<String>,
     @JvmField val filamentTypes: Array<String>,
+    @JvmField val bedTypeValues: Array<String>,
+    @JvmField val bedTypeLabels: Array<String>,
     @JvmField val printers: Array<NativePresetItem>,
     @JvmField val filaments: Array<NativePresetItem>,
     @JvmField val processes: Array<NativePresetItem>,

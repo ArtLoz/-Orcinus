@@ -18,6 +18,9 @@ parcelable PresetsParcel {
     @nullable String[] filamentTypes;
     @nullable String[] nozzleDiameters;
     @nullable String nozzleDiameter;
+    /** Presets.bedTypes: the values and their labels. */
+    @nullable String[] bedTypeValues;
+    @nullable String[] bedTypeLabels;
     /** Nothing was selected: the preset of changedKind has these unsaved changes. */
     boolean asksUnsavedChanges;
     @nullable String changedKind;

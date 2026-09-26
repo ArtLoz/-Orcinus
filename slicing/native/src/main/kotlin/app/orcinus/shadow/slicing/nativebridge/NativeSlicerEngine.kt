@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
@@ -1462,6 +1463,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         filamentTypes = filamentTypes.toList(),
         nozzleDiameters = nozzleDiameters.toList(),
         nozzleDiameter = nozzleDiameter,
+        bedTypes = bedTypeValues.zip(bedTypeLabels, ::BedTypeChoice),
     )
 
     private fun NativePresetItem.toItem() = PresetListItem(
