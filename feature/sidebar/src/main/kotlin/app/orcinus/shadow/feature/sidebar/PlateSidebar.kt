@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.sidebar
 
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
+import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
+import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import androidx.compose.ui.unit.IntOffset
 import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
@@ -259,6 +262,8 @@ data class SidebarUiState(
     val simplifying: Boolean = false,
     /** The project's name, none while it is "Untitled". */
     val projectName: String? = null,
+    /** The project changed since it was opened, saved or started, which its name's star marks. */
+    val projectDirty: Boolean = false,
     /** The project can be saved: the presets are known and the plate is not changing. */
     val canSaveProject: Boolean = false,
 ) {
@@ -328,7 +333,15 @@ class SidebarViewModel(
     private val changeVolumeType: ChangeVolumeTypeUseCase,
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
     private val saveProject: SaveProjectUseCase,
+    private val projectLifecycle: ProjectLifecycleUseCase,
+    private val addModelToPlate: AddModelToPlateUseCase,
 ) : ViewModel() {
+    /** Plater::new_project() */
+    fun newProject() = projectLifecycle.newProject()
+
+    /** Open Project: the document the user picked opens as a project. */
+    fun openProject(document: ExternalDocumentReference) = addModelToPlate.openProject(document)
+
     /** "Save Project" asks for a document first when the project has none to write again. */
     val projectNeedsDocument: Boolean get() = saveProject.needsDocument
 
@@ -693,6 +706,7 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     settingsClipboard = settingsClipboard,
     simplifying = simplifyTarget != null,
     projectName = project.name,
+    projectDirty = projectDirty,
     canSaveProject = profiles != null && !busy,
 )
 
@@ -864,9 +878,11 @@ private fun SidebarAction(icon: Int, text: String, onClick: () -> Unit) {
 internal class ProjectActions(
     val save: () -> Unit,
     val saveAs: () -> Unit,
+    val new: () -> Unit,
+    val open: () -> Unit,
 ) {
     companion object {
-        val NONE = ProjectActions(save = {}, saveAs = {})
+        val NONE = ProjectActions(save = {}, saveAs = {}, new = {}, open = {})
     }
 }
 
@@ -876,9 +892,11 @@ internal class ProjectActions(
  * bar and its File menu under the arrow.
  */
 @Composable
-private fun ProjectTitle(name: String?, canSave: Boolean, actions: ProjectActions) {
+private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, actions: ProjectActions) {
     var fileMenu by remember { mutableStateOf(false) }
-    OrcaSidebarTitle(name ?: orcaString("Untitled"), DesignR.drawable.orca_open_project) {
+    // Plater::priv::update_title_dirty_status()
+    val title = (if (dirty) "*" else "") + (name ?: orcaString("Untitled"))
+    OrcaSidebarTitle(title, DesignR.drawable.orca_open_project) {
         OrcaIconButton(
             icon = DesignR.drawable.orca_save,
             contentDescription = orcaString("Save Project"),
@@ -892,6 +910,23 @@ private fun ProjectTitle(name: String?, canSave: Boolean, actions: ProjectAction
                 onClick = { fileMenu = true },
             )
             OrcaContextMenu(expanded = fileMenu, position = IntOffset.Zero, onDismissRequest = { fileMenu = false }) {
+                OrcaMenuItem(
+                    text = orcaString("New Project"),
+                    onClick = {
+                        fileMenu = false
+                        actions.new()
+                    },
+                    enabled = canSave,
+                )
+                OrcaMenuItem(
+                    text = orcaString("Open Project") + "…",
+                    onClick = {
+                        fileMenu = false
+                        actions.open()
+                    },
+                    enabled = canSave,
+                )
+                OrcaMenuSeparator()
                 OrcaMenuItem(
                     text = orcaString("Save Project as"),
                     onClick = {
@@ -1000,6 +1035,10 @@ fun PlateSidebar(
     }
     val untitled = orcaString("Untitled")
     val saveProjectAs = { projectPicker.launch((state.projectName ?: untitled) + ".3mf") }
+    // Open Project's file dialog (GUI_App::load_project).
+    val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.openProject(ExternalDocumentReference(uri.toString()))
+    }
     // Import Configs takes a document, Export Preset Bundle a folder.
     // The file dialog of the desktop app takes several files at once.
     val configPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -1106,6 +1145,8 @@ fun PlateSidebar(
         project = ProjectActions(
             save = { if (viewModel.projectNeedsDocument) saveProjectAs() else viewModel.saveProject() },
             saveAs = saveProjectAs,
+            new = viewModel::newProject,
+            open = { openPicker.launch(arrayOf("*/*")) },
         ),
         filaments = FilamentActions(
             add = viewModel::addFilament,
@@ -1250,7 +1291,7 @@ internal fun PlateSidebarContent(
             .background(OrcaTheme.colors.window),
     ) {
         item(key = "project") {
-            ProjectTitle(state.projectName, state.canSaveProject, project)
+            ProjectTitle(state.projectName, state.projectDirty, state.canSaveProject, project)
         }
 
         item(key = "printer") {

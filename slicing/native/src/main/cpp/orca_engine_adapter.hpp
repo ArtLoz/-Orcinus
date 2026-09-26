@@ -824,6 +824,39 @@ enum class PresetChangeAction : std::int64_t {
 // says; saving them is a request of the settings tab.
 PresetState select_preset(PresetChoice choice, const std::string& value, PresetChangeAction action = PresetChangeAction::ask);
 
+// A preset a settings tab edits with unsaved changes
+// (Tab::current_preset_is_dirty), as UnsavedChangesDialog lists it when a
+// project is created or another one is loaded.
+struct DirtyPreset {
+    PresetKind kind{PresetKind::print};
+    // The edited preset's name.
+    std::string name;
+    // Preset::can_overwrite(): its changes are saved into it; a system,
+    // default or external preset is saved under a name SavePresetDialog asks.
+    bool can_overwrite{false};
+    std::string save_name;
+    bool save_name_copy_suffix{false};
+    std::vector<PresetChange> changes;
+};
+
+struct DirtyPresets {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<DirtyPreset> presets;
+};
+
+// GUI_App::has_current_preset_changes(): the presets of the process, filament
+// and printer tabs that have unsaved changes, in that order.
+DirtyPresets dirty_presets();
+
+// reset_modifications() of GUI_App::check_and_keep_current_preset_changes():
+// every tab's preset loses its unsaved changes.
+PresetState discard_preset_changes();
+
+// Plater::priv::reset() for a new project: the presets the project before
+// brought go (PresetBundle::reset_project_embedded_presets).
+PresetState reset_project_presets();
+
 // Sidebar::add_custom_filament(): another filament joins the plate, with the
 // next colour of OrcaSlicer's palette (Plater::get_next_color_for_filament).
 PresetState add_filament();

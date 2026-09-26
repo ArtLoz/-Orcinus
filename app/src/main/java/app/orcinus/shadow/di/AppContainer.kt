@@ -1,6 +1,8 @@
 package app.orcinus.shadow.di
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
+import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
@@ -188,6 +190,12 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         plateRepository,
         applicationScope,
     )
+    private val saveProject = SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope)
+    val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope)
+
+    /** SavePresetDialog's check of a name, which the project's questions ask too. */
+    suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome = engine.checkPresetName(kind, name)
+
     val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
         inspector = engine,
@@ -196,6 +204,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         placePlateObjects = placePlateObjects,
         presetManager = engine,
         platePresets = platePresets,
+        confirmClose = projectLifecycle,
         applicationScope = applicationScope,
     )
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
@@ -284,7 +293,6 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val copyProcessSettings = CopyProcessSettingsUseCase(plateRepository)
     private val pasteProcessSettings = PasteProcessSettingsUseCase(engine, plateRepository, settingsTabs, applicationScope)
     private val exportObjectMesh = ExportObjectMeshUseCase(engine, sceneFiles, AppDocumentExport(applicationContext), plateRepository)
-    private val saveProject = SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope)
     private val replaceObjectVolume = ReplaceObjectVolumeUseCase(
         ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
         engine,
@@ -417,6 +425,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         changeVolumeType = ChangeVolumeTypeUseCase(engine, sceneFiles, plateRepository, applicationScope),
         replaceAllVolumesUseCase = replaceAllVolumes,
         saveProject = saveProject,
+        projectLifecycle = projectLifecycle,
+        addModelToPlate = addModelToPlate,
     )
 
     fun presetSettingsViewModel(kind: PresetKind) = PresetSettingsViewModel(

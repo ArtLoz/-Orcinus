@@ -1785,6 +1785,68 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PhysicalPrinters& printers)
     return env->NewObject(result_class, constructor, static_cast<jlong>(printers.status), to_java(env, printers.message), items);
 }
 
+// NativeDirtyPreset
+static jobject to_java(JNIEnv* env, const orcinus::orca::DirtyPreset& preset)
+{
+    const jclass preset_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeDirtyPreset");
+    const jmethodID constructor = env->GetMethodID(
+        preset_class,
+        "<init>",
+        "(JLjava/lang/String;ZLjava/lang/String;Z[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetChange;)V"
+    );
+    return env->NewObject(
+        preset_class,
+        constructor,
+        static_cast<jlong>(preset.kind),
+        to_java(env, preset.name),
+        preset.can_overwrite ? JNI_TRUE : JNI_FALSE,
+        to_java(env, preset.save_name),
+        preset.save_name_copy_suffix ? JNI_TRUE : JNI_FALSE,
+        to_java_objects(
+            env,
+            "app/orcinus/shadow/slicing/nativebridge/NativePresetChange",
+            preset.changes,
+            [](JNIEnv* change_env, const orcinus::orca::PresetChange& change) { return to_java(change_env, change); }
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_dirtyPresets(JNIEnv* env, jobject /* this */)
+{
+    const orcinus::orca::DirtyPresets dirty = orcinus::orca::dirty_presets();
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeDirtyPresets");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(JLjava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeDirtyPreset;)V"
+    );
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(dirty.status),
+        to_java(env, dirty.message),
+        to_java_objects(
+            env,
+            "app/orcinus/shadow/slicing/nativebridge/NativeDirtyPreset",
+            dirty.presets,
+            [](JNIEnv* preset_env, const orcinus::orca::DirtyPreset& preset) { return to_java(preset_env, preset); }
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_discardPresetChanges(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::discard_preset_changes());
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_resetProjectPresets(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::reset_project_presets());
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_addFilament(JNIEnv* env, jobject /* this */)
 {

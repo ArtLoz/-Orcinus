@@ -142,7 +142,7 @@ fun UnsavedChangesDialog(
 
 /** One changed value: where its setting sits, and the value before and after. */
 @Composable
-private fun PresetChangeRow(change: PresetChange) {
+internal fun PresetChangeRow(change: PresetChange) {
     val colors = OrcaTheme.colors
     Column(
         Modifier

@@ -168,6 +168,22 @@ internal class NativePresetState(
     @JvmField val saveNameCopySuffix: Boolean,
 )
 
+/** Constructed by the native bridge; see DirtyPreset in orca_engine_adapter.hpp. */
+internal class NativeDirtyPreset(
+    @JvmField val kind: Long,
+    @JvmField val name: String,
+    @JvmField val canOverwrite: Boolean,
+    @JvmField val saveName: String,
+    @JvmField val saveNameCopySuffix: Boolean,
+    @JvmField val changes: Array<NativePresetChange>,
+)
+
+internal class NativeDirtyPresets(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val presets: Array<NativeDirtyPreset>,
+)
+
 /** Constructed by the native bridge; see PresetChange in orca_engine_adapter.hpp. */
 internal class NativePresetChange(
     @JvmField val id: String,
@@ -1091,6 +1107,13 @@ internal object NativeBindings {
 
     /** [choice]: NativePresetChoice. */
     external fun selectPreset(choice: Long, value: String, action: Long): NativePresetState
+
+    /** dirty_presets(), discard_preset_changes() and reset_project_presets(). */
+    external fun dirtyPresets(): NativeDirtyPresets
+
+    external fun discardPresetChanges(): NativePresetState
+
+    external fun resetProjectPresets(): NativePresetState
 
     /** Sidebar::add_custom_filament(), delete_filament() and the combo box of a slot. */
     external fun addFilament(): NativePresetState

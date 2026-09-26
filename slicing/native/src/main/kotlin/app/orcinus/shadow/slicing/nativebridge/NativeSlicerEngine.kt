@@ -1,6 +1,8 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.DirtyPreset
+import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ModelLoad
@@ -872,6 +874,34 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
 
     override suspend fun presets(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
         NativeBindings.describePresets().toOutcome()
+    }
+
+    override suspend fun dirtyPresets(): DirtyPresetsOutcome = whenReady(DirtyPresetsOutcome::Failure) {
+        val dirty = NativeBindings.dirtyPresets()
+        if (dirty.status != NativeSceneStatus.SUCCESS) {
+            DirtyPresetsOutcome.Failure(dirty.message.ifBlank { "OrcaSlicer could not list the modified presets" })
+        } else {
+            DirtyPresetsOutcome.Success(
+                dirty.presets.map { preset ->
+                    DirtyPreset(
+                        kind = PresetKind.entries.getOrElse(preset.kind.toInt()) { PresetKind.PRINT },
+                        name = preset.name,
+                        canOverwrite = preset.canOverwrite,
+                        saveName = preset.saveName,
+                        saveNameCopySuffix = preset.saveNameCopySuffix,
+                        changes = preset.changes.map(NativePresetChange::toChange),
+                    )
+                },
+            )
+        }
+    }
+
+    override suspend fun discardPresetChanges(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.discardPresetChanges().toOutcome()
+    }
+
+    override suspend fun resetProjectPresets(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.resetProjectPresets().toOutcome()
     }
 
     /** PresetChangeAction in orca_engine_adapter.hpp. */

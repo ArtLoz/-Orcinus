@@ -562,6 +562,7 @@ class AddModelToPlateUseCase(
     private val placePlateObjects: PlacePlateObjectsUseCase,
     private val presetManager: PresetManager,
     private val platePresets: PresetsApplier,
+    private val confirmClose: ProjectCloseConfirmation,
     private val applicationScope: CoroutineScope,
 ) {
     operator fun invoke(reference: ExternalDocumentReference) {
@@ -575,12 +576,37 @@ class AddModelToPlateUseCase(
                     when {
                         !path.value.endsWith(".3mf", ignoreCase = true) -> load(path, picked, emptyMap(), emptyList())
                         // determine_load_type(): a plate without objects opens the project.
-                        repository.state.value.objects.isEmpty() -> load(path, picked.copy(load = ModelLoad.PROJECT), emptyMap(), emptyList())
+                        repository.state.value.objects.isEmpty() -> openProject(path, picked)
                         else -> repository.update { it.copy(projectDrop = path, projectDropBatch = picked) }
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Open Project (Plater::load_project with the file the user picked): the
+     * document opens as a project once the project before let it
+     * (close_with_confirm), whatever the plate holds.
+     */
+    fun openProject(reference: ExternalDocumentReference) {
+        if (!start()) return
+        applicationScope.launch {
+            when (val imported = importModel(reference)) {
+                is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
+                is ModelImportOutcome.Success ->
+                    openProject(imported.model.path, ImportBatch(document = reference, displayName = imported.model.displayName))
+            }
+        }
+    }
+
+    /** Plater::load_project(): the questions of the project before, then the load. */
+    private suspend fun openProject(path: ModelPath, picked: ImportBatch, chosen: Boolean = false) {
+        if (!confirmClose.confirm(newProject = false)) {
+            repository.update { it.copy(importing = false) }
+            return
+        }
+        load(path, picked.copy(load = ModelLoad.PROJECT, chosen = chosen), emptyMap(), emptyList())
     }
 
     /** ProjectDropDialog's choice for the 3MF file that waits; null cancels the load. */
@@ -598,7 +624,9 @@ class AddModelToPlateUseCase(
         }
         val path = source ?: return
         if (load == null) return
-        applicationScope.launch { load(path, picked.copy(load = load, chosen = true), emptyMap(), emptyList()) }
+        applicationScope.launch {
+            if (load == ModelLoad.PROJECT) openProject(path, picked, chosen = true) else load(path, picked.copy(load = load, chosen = true), emptyMap(), emptyList())
+        }
     }
 
     /**
@@ -704,9 +732,8 @@ class AddModelToPlateUseCase(
                     if (project != null) {
                         // Plater::load_project(): the project takes the plate's place, and
                         // its "Load Project" snapshot (a ProjectSeparator) clears Undo; it
-                        // goes by the file's name and is saved into it again.
+                        // goes by the file's name, is saved into it again and is not dirty.
                         informed.copy(
-                            project = PlateProject(batch.displayName?.let(::projectNameOf), batch.document),
                             importing = false,
                             objects = added,
                             selectedInstances = loaded,
@@ -717,7 +744,14 @@ class AddModelToPlateUseCase(
                             layerGcodes = project.layerGcodes,
                             history = PlateHistory(),
                             result = null,
-                        )
+                        ).let { loaded ->
+                            loaded.copy(
+                                project = loaded.projectBaseline().copy(
+                                    name = batch.displayName?.let(::projectNameOf),
+                                    document = batch.document,
+                                ),
+                            )
+                        }
                     } else {
                         // Plater::add_file(): an untitled plate takes the name of the
                         // first model file it loads, a 3MF file's geometry aside.

@@ -1,6 +1,8 @@
 package app.orcinus.shadow.slicing.service
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.DirtyPreset
+import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
@@ -689,17 +691,7 @@ internal fun PresetsOutcome.toParcel() = PresetsParcel().also { parcel ->
             parcel.canTransfer = canTransfer
             parcel.saveName = saveName
             parcel.saveNameCopySuffix = saveNameCopySuffix
-            parcel.unsavedChanges = Array(changes.size) { index ->
-                val change = changes[index]
-                PresetChangeParcel().also {
-                    it.id = change.id
-                    it.category = change.category.toParcels()
-                    it.group = change.group.toParcels()
-                    it.label = change.label.toParcels()
-                    it.oldValue = change.oldValue.toParcels()
-                    it.newValue = change.newValue.toParcels()
-                }
-            }
+            parcel.unsavedChanges = changes.map { it.toParcel() }.toTypedArray()
         }
     }
 }
@@ -714,6 +706,56 @@ private fun PresetsParcel.fill(presets: Presets) {
     filamentTypes = presets.filamentTypes.toTypedArray()
     nozzleDiameters = presets.nozzleDiameters.toTypedArray()
     nozzleDiameter = presets.nozzleDiameter
+}
+
+internal fun PresetChange.toParcel() = PresetChangeParcel().also {
+    it.id = id
+    it.category = category.toParcels()
+    it.group = group.toParcels()
+    it.label = label.toParcels()
+    it.oldValue = oldValue.toParcels()
+    it.newValue = newValue.toParcels()
+}
+
+internal fun PresetChangeParcel.toPresetChange() = PresetChange(
+    id = id,
+    category = category.toTexts(),
+    group = group.toTexts(),
+    label = label.toTexts(),
+    oldValue = oldValue.toTexts(),
+    newValue = newValue.toTexts(),
+)
+
+internal fun DirtyPresetsOutcome.toParcel() = DirtyPresetsParcel().also { parcel ->
+    when (this) {
+        is DirtyPresetsOutcome.Failure -> parcel.error = message
+        is DirtyPresetsOutcome.Success -> parcel.presets = presets.map { preset ->
+            DirtyPresetParcel().also {
+                it.kind = preset.kind.name
+                it.name = preset.name
+                it.canOverwrite = preset.canOverwrite
+                it.saveName = preset.saveName
+                it.saveNameCopySuffix = preset.saveNameCopySuffix
+                it.changes = preset.changes.map { change -> change.toParcel() }.toTypedArray()
+            }
+        }.toTypedArray()
+    }
+}
+
+internal fun DirtyPresetsParcel.toDirtyPresetsOutcome(): DirtyPresetsOutcome {
+    error?.let { return DirtyPresetsOutcome.Failure(it) }
+    return DirtyPresetsOutcome.Success(
+        presets.orEmpty().map { parcel ->
+            DirtyPreset(
+                kind = PresetKind.valueOf(parcel.kind),
+                name = parcel.name,
+                canOverwrite = parcel.canOverwrite,
+                saveName = parcel.saveName,
+                saveNameCopySuffix = parcel.saveNameCopySuffix,
+                changes = parcel.changes.orEmpty().map { it.toPresetChange() },
+            )
+        },
+    )
 }
 
 internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
@@ -735,16 +777,7 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
     return PresetsOutcome.UnsavedChanges(
         presets = presets,
         kind = PresetKind.valueOf(changedKind.orEmpty()),
-        changes = unsavedChanges.orEmpty().map { change ->
-            PresetChange(
-                id = change.id,
-                category = change.category.toTexts(),
-                group = change.group.toTexts(),
-                label = change.label.toTexts(),
-                oldValue = change.oldValue.toTexts(),
-                newValue = change.newValue.toTexts(),
-            )
-        },
+        changes = unsavedChanges.orEmpty().map { it.toPresetChange() },
         canTransfer = canTransfer,
         saveName = saveName.orEmpty(),
         saveNameCopySuffix = saveNameCopySuffix,

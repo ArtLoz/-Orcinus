@@ -4558,3 +4558,28 @@ TEST_CASE("A saved project opens again with its objects, plate settings and laye
     const orca::PresetState presets = orca::describe_presets();
     CHECK(presets.selection.printer == k2_plus_profiles().printer);
 }
+
+TEST_CASE("The presets with unsaved changes are listed for a project, and their changes go on request", "[Adapter][Project]")
+{
+    require_engine();
+    const std::string printer = k2_plus_profiles().printer;
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, printer, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+    const std::string standard = "0.20mm Standard @Creality K2 Plus 0.4 nozzle";
+    REQUIRE(orca::select_preset(orca::PresetChoice::process, standard, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+    REQUIRE(orca::describe_settings(orca::PresetKind::print, "Quality", {}).status == orca::SceneStatus::success);
+    REQUIRE(orca::dirty_presets().presets.empty());
+
+    REQUIRE(orca::change_setting(orca::PresetKind::print, "Quality", "layer_height", "0.16", {}).dirty);
+    const orca::DirtyPresets dirty = orca::dirty_presets();
+    REQUIRE(dirty.status == orca::SceneStatus::success);
+    REQUIRE(dirty.presets.size() == 1);
+    CHECK(dirty.presets.front().kind == orca::PresetKind::print);
+    CHECK(dirty.presets.front().name == standard);
+    // A system preset is saved under another name.
+    CHECK_FALSE(dirty.presets.front().can_overwrite);
+    CHECK_FALSE(dirty.presets.front().changes.empty());
+
+    REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
+    CHECK(orca::dirty_presets().presets.empty());
+    CHECK(orca::reset_project_presets().selection.process == standard);
+}

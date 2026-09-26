@@ -43,6 +43,28 @@ data class Presets(
     val nozzleDiameter: String,
 )
 
+/**
+ * A preset a settings tab edits with unsaved changes, as OrcaSlicer's
+ * UnsavedChangesDialog lists it when a project is created or another one is
+ * loaded. A preset that [canOverwrite] is saved under its own [name]; any
+ * other is saved under a name the user gives, which the dialog suggests as
+ * [saveName].
+ */
+data class DirtyPreset(
+    val kind: PresetKind,
+    val name: String,
+    val canOverwrite: Boolean,
+    val saveName: String,
+    val saveNameCopySuffix: Boolean,
+    val changes: List<PresetChange>,
+)
+
+sealed interface DirtyPresetsOutcome {
+    data class Success(val presets: List<DirtyPreset>) : DirtyPresetsOutcome
+
+    data class Failure(val message: String) : DirtyPresetsOutcome
+}
+
 sealed interface PresetsOutcome {
     data class Success(val presets: Presets) : PresetsOutcome
 

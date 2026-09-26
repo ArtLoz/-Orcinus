@@ -1,6 +1,16 @@
 package app.orcinus.shadow.ui
 
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
+import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
+import app.orcinus.shadow.core.model.PresetNameOutcome
+import app.orcinus.shadow.core.model.PresetChangesAnswer
+import app.orcinus.shadow.core.model.ProjectPrompt
+import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.ui.plate.ProjectSaveChangesDialog
+import app.orcinus.shadow.core.ui.plate.ProjectPresetChangesDialog
+import app.orcinus.shadow.core.ui.orca.orcaString
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.ui.plate.ProjectDropSheet
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
@@ -84,6 +94,8 @@ class AppShellViewModel(
     private val answerPlateQuestion: AnswerPlateQuestionUseCase,
     private val dismissPlateNotice: DismissPlateNoticeUseCase,
     private val addModelToPlate: AddModelToPlateUseCase,
+    private val projectLifecycle: ProjectLifecycleUseCase,
+    private val presetNames: suspend (PresetKind, String) -> PresetNameOutcome,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -100,6 +112,15 @@ class AppShellViewModel(
 
     /** ProjectDropDialog's choice for the 3MF file that waits; null cancels. */
     fun openProjectAs(load: ModelLoad?) = addModelToPlate.openAs(load)
+
+    /** The questions of New Project and Open Project (Plater::close_with_confirm and the presets' check). */
+    fun answerSaveChanges(save: Boolean?) = projectLifecycle.answerSaveChanges(save)
+
+    fun saveProjectTo(document: ExternalDocumentReference?) = projectLifecycle.saveTo(document)
+
+    fun answerPresetChanges(answer: PresetChangesAnswer?) = projectLifecycle.answerPresetChanges(answer)
+
+    suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome = presetNames(kind, name)
 }
 
 /** The workspace: OrcaSlicer's tabs and sidebar. Pages such as About open over it. */
@@ -124,6 +145,8 @@ fun OrcinusApp(
             container.answerPlateQuestion,
             container.dismissPlateNotice,
             container.addModelToPlate,
+            container.projectLifecycle,
+            container::checkPresetName,
         )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
@@ -212,10 +235,22 @@ private fun Workspace(
     val notice = plate.plateNotices.firstOrNull()
     val question = plate.plateQuestion?.question
     val projectDrop = plate.projectDrop
+    val projectPrompt = plate.projectPrompt
     when {
         notice != null -> SettingsNoticeDialog(notice, onDismiss = shell::dismissNotice)
         question != null -> SettingsQuestionDialog(question, onAnswer = shell::answer)
+        projectPrompt is ProjectPrompt.SaveChanges -> ProjectSaveChangesDialog(onAnswer = shell::answerSaveChanges)
+        projectPrompt is ProjectPrompt.PresetChanges ->
+            ProjectPresetChangesDialog(projectPrompt, checkName = shell::checkPresetName, onAnswer = shell::answerPresetChanges)
         projectDrop != null -> ProjectDropSheet(projectDrop.value.substringAfterLast('/'), onChoose = shell::openProjectAs)
+    }
+    // Save Project's file dialog, when the project to be saved has no document yet.
+    val saveAsPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME_TYPE)) { uri ->
+        shell.saveProjectTo(uri?.let { ExternalDocumentReference(it.toString()) })
+    }
+    val untitled = orcaString("Untitled")
+    LaunchedEffect(projectPrompt) {
+        if (projectPrompt == ProjectPrompt.SaveAs) saveAsPicker.launch((plate.project.name ?: untitled) + ".3mf")
     }
     val layout = currentOrcaWindowLayout()
     var sidebarVisible by rememberSaveable(layout) { mutableStateOf(layout == OrcaWindowLayout.Wide) }
@@ -331,3 +366,6 @@ private fun NavBackStack<NavKey>.showTab(destination: NavKey) {
         }
     }
 }
+
+/** The media type of a 3MF project. */
+private const val PROJECT_MIME_TYPE = "model/3mf"

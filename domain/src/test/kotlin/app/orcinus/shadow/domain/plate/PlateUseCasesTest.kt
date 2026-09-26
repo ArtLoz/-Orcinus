@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.PlateRequest
+import app.orcinus.shadow.core.model.ProjectPrompt
 import app.orcinus.shadow.core.model.ImportBatch
 import app.orcinus.shadow.core.model.PlateProject
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
@@ -736,9 +737,13 @@ class PlateUseCasesTest {
         val document = ExternalDocumentReference("content://documents/box")
 
         assertTrue(save.needsDocument)
+        assertTrue(repository.state.value.projectDirty)
         save(document)
 
-        assertEquals(PlateProject("Box", document), repository.state.value.project)
+        assertEquals("Box", repository.state.value.project.name)
+        assertEquals(document, repository.state.value.project.document)
+        // What was saved is the project now.
+        assertFalse(repository.state.value.projectDirty)
         assertEquals(listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT)), saved)
         assertFalse(save.needsDocument)
         save()
@@ -748,7 +753,59 @@ class PlateUseCasesTest {
         val failing = SaveProjectUseCase(inspector, { _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(succeeds = false), repository, scope)
         failing(ExternalDocumentReference("content://documents/other"))
         assertEquals("save_project_failed", repository.state.value.plateNotices.single().id)
-        assertEquals(PlateProject("Box", document), repository.state.value.project)
+        assertEquals("Box", repository.state.value.project.name)
+        assertEquals(document, repository.state.value.project.document)
+    }
+
+    @Test
+    fun `a new project asks to save a changed plate first, and starts afresh unless cancelled`() {
+        fun lifecycle(repository: FakeRepository, inspector: FakeInspector, documents: FakeDocuments) = ProjectLifecycleUseCase(
+            repository,
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope),
+            FakePresetManager(),
+            NoSettingsEditor,
+            PresetsApplier { _, _ -> },
+            scope,
+        )
+        val changed = readyState(CUBE).let { it.copy(history = PlateHistory(undo = listOf(it.snapshot()))) }
+
+        // Cancel: the plate stays.
+        val cancelled = FakeRepository(changed)
+        val cancelling = lifecycle(cancelled, FakeInspector(), FakeDocuments())
+        assertTrue(cancelled.state.value.projectDirty)
+        cancelling.newProject()
+        assertEquals(ProjectPrompt.SaveChanges, cancelled.state.value.projectPrompt)
+        cancelling.answerSaveChanges(null)
+        assertEquals(listOf(CUBE), cancelled.state.value.objects)
+        assertNull(cancelled.state.value.projectPrompt)
+
+        // No: a new, untitled project.
+        val dropped = FakeRepository(changed)
+        lifecycle(dropped, FakeInspector(), FakeDocuments()).run {
+            newProject()
+            answerSaveChanges(false)
+        }
+        val fresh = dropped.state.value
+        assertTrue(fresh.objects.isEmpty())
+        assertEquals(PlateHistory(), fresh.history)
+        assertNull(fresh.project.name)
+        assertFalse(fresh.projectDirty)
+
+        // Yes: Save Project asks for a document, saves, and the new project follows.
+        val saving = FakeRepository(changed)
+        val inspector = FakeInspector()
+        var saved = false
+        inspector.saveProject = { _, _, _, _, _ -> saved = true; ProjectSaveOutcome.Success }
+        val documents = FakeDocuments(name = "Box.3mf")
+        lifecycle(saving, inspector, documents).run {
+            newProject()
+            answerSaveChanges(true)
+            assertEquals(ProjectPrompt.SaveAs, saving.state.value.projectPrompt)
+            saveTo(ExternalDocumentReference("content://documents/box"))
+        }
+        assertTrue(saved)
+        assertEquals(1, documents.copied.size)
+        assertTrue(saving.state.value.objects.isEmpty())
     }
 
     @Test
@@ -2141,6 +2198,7 @@ class PlateUseCasesTest {
             placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(inspector), repository, scope),
             presetManager = FakePresetManager(),
             platePresets = PresetsApplier { _, _ -> },
+            confirmClose = ProjectCloseConfirmation { true },
             applicationScope = scope,
         )
 

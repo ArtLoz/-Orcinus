@@ -460,7 +460,63 @@ data class ImportBatch(
 data class PlateProject(
     val name: String? = null,
     val document: ExternalDocumentReference? = null,
+    /** What the plate held when the project was last opened, saved or started. */
+    val baseline: ProjectContent = ProjectContent(),
+    /**
+     * The presets and filament colours selected then (ProjectDirtyStateManager's
+     * initial presets); null until the project was first opened, saved or started.
+     */
+    val presets: SlicingProfileSelection? = null,
+    val filamentColors: List<String> = emptyList(),
 )
+
+/**
+ * What a project holds of the plate: the objects as the undo stack keeps them,
+ * the plate's settings and the codes on its layers.
+ */
+data class ProjectContent(
+    val objects: List<PlateObject> = emptyList(),
+    val plateSettings: ModelSettings = ModelSettings(),
+    val layerGcodes: List<LayerGcode> = emptyList(),
+)
+
+/**
+ * A question of New Project or Open Project that waits for the user, in the
+ * order the desktop app asks them: whether the project is saved first
+ * (Plater::close_with_confirm), where to when it has no document yet, and
+ * what happens to the unsaved changes of the presets (UnsavedChangesDialog).
+ */
+sealed interface ProjectPrompt {
+    /** "The current project has unsaved changes, save it before continue?" */
+    data object SaveChanges : ProjectPrompt
+
+    /** Save Project asks for a document, as its file dialog does. */
+    data object SaveAs : ProjectPrompt
+
+    /**
+     * The presets with unsaved changes, under [caption] and [header]. The
+     * changes can move to a new project ([transfer]), be saved ([save]),
+     * discarded, or the project stays as it is.
+     */
+    data class PresetChanges(
+        val caption: OrcaText,
+        val header: List<OrcaText>,
+        val presets: List<DirtyPreset>,
+        val transfer: Boolean,
+        val save: Boolean,
+    ) : ProjectPrompt
+}
+
+/** What the user answered to [ProjectPrompt.PresetChanges]. */
+sealed interface PresetChangesAnswer {
+    /** Keep: the changes stay with the presets of the new project. */
+    data object Transfer : PresetChangesAnswer
+
+    data object Discard : PresetChangesAnswer
+
+    /** Save: the presets that cannot be overwritten under the names given, the others under their own. */
+    data class Save(val names: Map<PresetKind, String>) : PresetChangesAnswer
+}
 
 /**
  * MenuFactory::append_submenu_add_handy_model(): the models OrcaSlicer ships
@@ -540,6 +596,8 @@ data class PlateState(
     val projectDropBatch: ImportBatch = ImportBatch(),
     /** The project the plate is: its name and the document it is saved into. */
     val project: PlateProject = PlateProject(),
+    /** A question of New Project or Open Project that waits for the user. */
+    val projectPrompt: ProjectPrompt? = null,
     /** Message boxes OrcaSlicer showed while it changed the plate, which the user dismisses in turn. */
     val plateNotices: List<SettingsDialog> = emptyList(),
     /** The objects on the plate, in the order they were added, as OrcaSlicer's object list shows them. */
@@ -638,4 +696,25 @@ data class PlateState(
 
     /** Every copy on the plate, in the plate's order. */
     fun copies(): List<PlateInstance> = objects.flatMap(PlateObject::instances)
+
+    /** What the project holds of the plate now, settled as the undo stack keeps it. */
+    fun projectContent(): ProjectContent = ProjectContent(
+        objects = objects.map { plateObject -> plateObject.withInstances(plateObject.instances.map { it.copy(placing = false) }) },
+        plateSettings = plateSettings,
+        layerGcodes = layerGcodes,
+    )
+
+    /**
+     * Plater::up_to_date(): a plate without objects, or one that has not
+     * changed since the project was opened, saved or started, needs no save.
+     */
+    val projectUpToDate: Boolean get() = objects.isEmpty() || projectContent() == project.baseline
+
+    /**
+     * ProjectDirtyStateManager::is_dirty(), the star of the desktop title: the
+     * plate changed, or other presets or filament colours are selected.
+     */
+    val projectDirty: Boolean
+        get() = projectContent() != project.baseline ||
+            (project.presets != null && (profiles != project.presets || presets?.filamentColors.orEmpty() != project.filamentColors))
 }

@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.DirtyPresetsParcel;
 import app.orcinus.shadow.slicing.service.ArrangeSettingsParcel;
 import app.orcinus.shadow.slicing.service.BedShapeParcel;
 import app.orcinus.shadow.slicing.service.ConfigExportOptionsParcel;
@@ -246,6 +247,10 @@ interface ISlicerService {
     /** kind: the PresetChoice's simple name; value: its preset name, printer model, or nozzle diameter. */
     PresetsParcel selectPreset(String kind, String value, String action);
     /** Sidebar::add_custom_filament(), delete_filament() and the combo box of a slot. */
+    /** dirty_presets(), discard_preset_changes() and reset_project_presets(). */
+    DirtyPresetsParcel dirtyPresets();
+    PresetsParcel discardPresetChanges();
+    PresetsParcel resetProjectPresets();
     PresetsParcel addFilament();
     PresetsParcel removeFilament(int index);
     PresetsParcel selectFilament(int index, String name, String action);

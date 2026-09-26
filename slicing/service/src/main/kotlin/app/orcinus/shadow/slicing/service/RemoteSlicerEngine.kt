@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import android.content.ComponentName
+import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.LayerGcode
@@ -535,6 +536,12 @@ class RemoteSlicerEngine(
     }
 
     override suspend fun presets(): PresetsOutcome = remote(PresetsOutcome::Failure) { presets().toPresetsOutcome() }
+
+    override suspend fun dirtyPresets(): DirtyPresetsOutcome = remote(DirtyPresetsOutcome::Failure) { dirtyPresets().toDirtyPresetsOutcome() }
+
+    override suspend fun discardPresetChanges(): PresetsOutcome = remote(PresetsOutcome::Failure) { discardPresetChanges().toPresetsOutcome() }
+
+    override suspend fun resetProjectPresets(): PresetsOutcome = remote(PresetsOutcome::Failure) { resetProjectPresets().toPresetsOutcome() }
 
     override suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction): PresetsOutcome =
         remote(PresetsOutcome::Failure) { selectPreset(choice.parcelKind(), choice.parcelValue(), action.name).toPresetsOutcome() }

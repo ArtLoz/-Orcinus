@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.api
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.LayerGcode
@@ -410,6 +411,18 @@ interface PresetManager {
 
     /** Selects a preset as the sidebar does and remembers the selection. */
     suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction = PresetChangeAction.ASK): PresetsOutcome
+
+    /**
+     * GUI_App::has_current_preset_changes(): the presets of the process,
+     * filament and printer tabs that have unsaved changes.
+     */
+    suspend fun dirtyPresets(): DirtyPresetsOutcome = DirtyPresetsOutcome.Success(emptyList())
+
+    /** Every tab's preset loses its unsaved changes (Tab's discard_current_changes). */
+    suspend fun discardPresetChanges(): PresetsOutcome = presets()
+
+    /** A new project: the presets the project before brought go (reset_project_embedded_presets). */
+    suspend fun resetProjectPresets(): PresetsOutcome = presets()
 
     /**
      * DiffPresetDialog's Transfer (Tab::transfer_options): the values [options]

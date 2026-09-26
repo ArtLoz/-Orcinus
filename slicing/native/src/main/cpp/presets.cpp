@@ -553,6 +553,82 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
     }
 }
 
+DirtyPresets dirty_presets()
+{
+    DirtyPresets result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        Slic3r::PresetBundle& bundle = *engine().bundle;
+        follow_config(engine());
+        for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {
+            Slic3r::PresetCollection& presets = preset_collection(bundle, kind);
+            if (!presets.current_is_dirty()) {
+                continue;
+            }
+            DirtyPreset& dirty = result.presets.emplace_back();
+            dirty.kind = kind;
+            dirty.name = presets.get_edited_preset().name;
+            dirty.can_overwrite = presets.get_edited_preset().can_overwrite();
+            dirty.save_name = detail::save_preset_name(presets.get_selected_preset(), dirty.save_name_copy_suffix);
+            dirty.changes = detail::preset_changes(kind);
+        }
+        result.status = SceneStatus::success;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::profile_not_found;
+        result.message = error.what();
+    }
+    return result;
+}
+
+PresetState discard_preset_changes()
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return preset_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+    }
+    try {
+        Slic3r::PresetBundle& bundle = *engine().bundle;
+        follow_config(engine());
+        for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {
+            Slic3r::PresetCollection& presets = preset_collection(bundle, kind);
+            if (presets.current_is_dirty()) {
+                presets.discard_current_changes();
+                // load_current_presets()
+                detail::reload_tab(kind);
+            }
+        }
+        return preset_state(bundle);
+    } catch (const std::exception& error) {
+        return preset_failure(SceneStatus::profile_not_found, error.what());
+    }
+}
+
+PresetState reset_project_presets()
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return preset_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+    }
+    try {
+        Slic3r::PresetBundle& bundle = *engine().bundle;
+        follow_config(engine());
+        //BBS: reset all project embedded presets
+        bundle.reset_project_embedded_presets();
+        for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {
+            detail::reload_tab(kind);
+        }
+        bundle.export_selections(*engine().config);
+        save_config(engine());
+        return preset_state(bundle);
+    } catch (const std::exception& error) {
+        return preset_failure(SceneStatus::profile_not_found, error.what());
+    }
+}
+
 PresetState transfer_preset_options(const PresetKind kind, const std::string& from, const std::string& to, const std::vector<std::string>& options)
 {
     PresetChoice choice = PresetChoice::process;
