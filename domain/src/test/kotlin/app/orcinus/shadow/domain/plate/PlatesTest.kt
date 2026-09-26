@@ -18,6 +18,9 @@ import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateGeometry
 import app.orcinus.shadow.core.model.PlateGrid
 import app.orcinus.shadow.core.model.PlateInstance
+import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.listPlateOf
+import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
@@ -163,6 +166,24 @@ class PlatesTest {
         assertEquals(ModelSettings(), state.objects[1].settings)
     }
 
+    @Test
+    fun `the plate menu selects the objects standing on the plate whole and deletes every one touching it`() {
+        val inside = cubeAt(175.0, 175.0)
+        val astride = cubeAt(345.0, 175.0, "astride")
+        val other = cubeAt(595.0, 175.0, "other")
+        val repository = FakeRepository(state(listOf(inside, astride, other), plates = 2, current = 0))
+
+        // The list shows the cube over the plate's edge under "Outside".
+        assertEquals(listOf(0, null, 1), repository.state.value.let { state -> state.objects.map(state::listPlateOf) })
+
+        PlateObjectsUseCase(repository).selectCurrentPlate()
+        assertEquals(setOf(PlateInstanceId(inside.mesh, 0)), repository.state.value.selectedInstances)
+
+        PlateObjectsUseCase(repository).deleteCurrentPlate()
+        assertEquals(listOf(other), repository.state.value.objects)
+        assertEquals(emptySet(), repository.state.value.selectedInstances)
+    }
+
     private class FakeRepository(initial: PlateState) : PlateRepository {
         private val flow = MutableStateFlow(initial)
         override val state: StateFlow<PlateState> = flow
@@ -183,14 +204,14 @@ class PlatesTest {
             enginePlate = EnginePlate(current, plates),
         )
 
-        fun cubeAt(x: Double, y: Double) = PlateObject.CalibrationCube(
+        fun cubeAt(x: Double, y: Double, mesh: String = "cube") = PlateObject.CalibrationCube(
             listOf(
                 PlateInstance(
                     ModelInspection(
                         facetCount = 12,
                         dimensions = ModelDimensions(20.0, 20.0, 20.0),
                         boxCenter = Vector3(x, y, 10.0),
-                        mesh = ScenePath("/scene/objects/cube.mesh"),
+                        mesh = ScenePath("/scene/objects/$mesh.mesh"),
                         placement = Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 }.toMutableList().also { it[12] = x; it[13] = y }),
                         fit = BuildVolumeFit.INSIDE,
                         boundingSphere = BoundingSphere(Vector3(x, y, 10.0), 17.32),

@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.EnginePlate
+import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.plateSettingsChoice
 import app.orcinus.shadow.core.model.withPlateSettingsChoice
@@ -431,3 +433,37 @@ private val VASE_MODE_SETTINGS = mapOf(
     "timelapse_type" to "0",
     "overhang_reverse" to "0",
 )
+
+/**
+ * The plate menu of the object list (MenuFactory::create_plate_menu) for the
+ * current plate: "Select All" takes the objects the list shows under it
+ * (Selection::add_curr_plate), "Select All Plates" every object
+ * (Selection::add_all), and "Delete All" the objects whose first copy stands
+ * on it, as one step of Undo (Selection::remove_curr_plate).
+ */
+class PlateObjectsUseCase(private val repository: PlateRepository) {
+    fun selectCurrentPlate() = select { state -> state.objects.filter { state.listPlateOf(it) == state.currentPlate } }
+
+    fun selectAll() = select { state -> state.objects }
+
+    fun deleteCurrentPlate() = repository.update { state ->
+        if (state.busy) return@update state
+        val deleted = state.objects.filter { plateObject -> plateObject.instances.firstOrNull()?.let(state::plateOf) == state.currentPlate }
+        if (deleted.isEmpty()) return@update state
+        val meshes = deleted.mapTo(HashSet(), PlateObject::mesh)
+        state.recorded().copy(
+            objects = state.objects.filterNot { it.mesh in meshes },
+            selectedInstances = emptySet(),
+            selectedPart = null,
+            selectedRange = null,
+            result = null,
+        )
+    }
+
+    private fun select(objects: (PlateState) -> List<PlateObject>) = repository.update { state ->
+        val copies = objects(state).flatMapTo(LinkedHashSet()) { plateObject ->
+            plateObject.instances.indices.map { PlateInstanceId(plateObject.mesh, it) }
+        }
+        state.copy(selectedInstances = copies, selectedPart = null, selectedRange = null)
+    }
+}

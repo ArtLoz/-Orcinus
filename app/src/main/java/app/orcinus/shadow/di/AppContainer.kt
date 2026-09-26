@@ -1,6 +1,7 @@
 package app.orcinus.shadow.di
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.SetPlateSettingsUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.RenamePlateUseCase
@@ -264,6 +265,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val setExtruder = SetExtruderUseCase(plateRepository)
     private val moveWipeTower = MoveWipeTowerUseCase(plateRepository)
     private val selectPlate = SelectPlateUseCase(plateRepository)
+    private val deletePlate = DeletePlateUseCase(plateRepository)
+    private val lockPlate = LockPlateUseCase(plateRepository)
+    private val renamePlate = RenamePlateUseCase(plateRepository)
+    private val plateJobs by lazy { PlateJobsUseCase(plateRepository, selectPlate, placePlateObjects, applicationScope) }
     private val wipeTowerUpdates = WipeTowerUpdates(engine, plateRepository, applicationScope)
     private val setSettingsScope = SetSettingsScopeUseCase(plateRepository)
     // The object list of the sidebar and the object menu of the 3D view share them.
@@ -374,11 +379,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             replaceAllVolumesUseCase = replaceAllVolumes,
             selectPlate = selectPlate,
             addPlate = AddPlateUseCase(plateRepository),
-            deletePlate = DeletePlateUseCase(plateRepository),
-            lockPlate = LockPlateUseCase(plateRepository),
-            renamePlate = RenamePlateUseCase(plateRepository),
+            deletePlate = deletePlate,
+            lockPlate = lockPlate,
+            renamePlate = renamePlate,
             movePlateToFront = MovePlateToFrontUseCase(plateRepository),
-            plateJobs = PlateJobsUseCase(plateRepository, selectPlate, placePlateObjects, applicationScope),
+            plateJobs = plateJobs,
             setPlateSettings = SetPlateSettingsUseCase(plateRepository),
         )
     }
@@ -448,6 +453,13 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         saveProject = saveProject,
         projectLifecycle = projectLifecycle,
         addModelToPlate = addModelToPlate,
+        selectPlate = selectPlate,
+        plateObjects = PlateObjectsUseCase(plateRepository),
+        plateJobs = plateJobs,
+        deletePlate = deletePlate,
+        lockPlate = lockPlate,
+        renamePlate = renamePlate,
+        addPrimitive = addPrimitive,
     )
 
     fun presetSettingsViewModel(kind: PresetKind) = PresetSettingsViewModel(

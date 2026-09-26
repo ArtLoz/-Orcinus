@@ -91,6 +91,16 @@ class PlateGrid(printableArea: List<Point2>) {
             min.z < center.z + half.heightMillimeters / 2 && max.z > center.z - half.heightMillimeters / 2
     }
 
+    /** Whether the copy lies inside the plate at [origin] whole (PartPlate::check_outside of a copy above the plate). */
+    fun contains(inspection: ModelInspection, origin: Point2, height: Double): Boolean {
+        val (min, max) = box(origin, height)
+        val center = inspection.boxCenter
+        val half = inspection.dimensions
+        return center.x - half.widthMillimeters / 2 >= min.x && center.x + half.widthMillimeters / 2 <= max.x &&
+            center.y - half.depthMillimeters / 2 >= min.y && center.y + half.depthMillimeters / 2 <= max.y &&
+            center.z - half.heightMillimeters / 2 >= min.z && center.z + half.heightMillimeters / 2 <= max.z
+    }
+
     companion object {
         /** PartPlateList::MAX_PLATES_COUNT */
         const val MAX_PLATES = 36
@@ -138,6 +148,19 @@ fun PlateState.plateOf(instance: PlateInstance): Int? {
     val grid = plateGrid ?: return 0
     val height = plate?.geometry?.printableHeight ?: return 0
     return plateOrigins().indexOfFirst { grid.intersects(instance.inspection, it, height) }.takeIf { it >= 0 }
+}
+
+/**
+ * PartPlate::contain_instance_totally() of the object's first copy: the plate
+ * the object list shows the object under, the one its first copy stands on
+ * whole; null for "Outside".
+ */
+fun PlateState.listPlateOf(plateObject: PlateObject): Int? {
+    val first = plateObject.instances.firstOrNull() ?: return null
+    val plate = plateOf(first) ?: return null
+    val grid = plateGrid ?: return plate
+    val height = this.plate?.geometry?.printableHeight ?: return plate
+    return plate.takeIf { grid.contains(first.inspection, plateOrigins()[it], height) }
 }
 
 /**

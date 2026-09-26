@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.ui.plate.PlateMenuItems
@@ -82,7 +83,6 @@ import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
-import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
@@ -661,9 +661,6 @@ internal class PlateMenuActions(
     }
 }
 
-/** The shapes of "Add Primitive" (MenuFactory::append_submenu_add_generic), in its order. */
-private val PRIMITIVES = listOf("Cube", "Cylinder", "Sphere", "Cone", "Disc", "Torus")
-
 /**
  * MenuFactory::default_menu(), which the canvas opens over empty space, with
  * the items the app has: Add Primitive, Add Handy models and Add Models. Paste
@@ -693,39 +690,12 @@ private fun PlateContextMenu(
             },
         )
         OrcaMenuSeparator()
-        OrcaSubmenu(text = orcaString("Add Primitive"), enabled = state.canEditPlate) {
-            PRIMITIVES.forEach { shape ->
-                val name = orcaString(shape)
-                OrcaMenuItem(
-                    text = name,
-                    enabled = state.canEditPlate,
-                    onClick = {
-                        onDismiss()
-                        actions.addPrimitive(shape, name)
-                    },
-                )
-            }
-        }
-        // Text and SVG shapes come with the text and SVG tools.
-        OrcaSubmenu(text = orcaString("Add Handy models"), enabled = state.canEditPlate) {
-            HandyModel.entries.forEach { model ->
-                OrcaMenuItem(
-                    text = orcaString(model.label),
-                    enabled = state.canEditPlate,
-                    onClick = {
-                        onDismiss()
-                        actions.addHandyModel(model)
-                    },
-                )
-            }
-        }
-        OrcaMenuItem(
-            text = orcaString("Add Models"),
+        AddObjectItems(
             enabled = state.canEditPlate,
-            onClick = {
-                onDismiss()
-                onAddModel()
-            },
+            dismiss = onDismiss,
+            addPrimitive = actions.addPrimitive,
+            addHandyModel = actions.addHandyModel,
+            addModels = onAddModel,
         )
     }
 }

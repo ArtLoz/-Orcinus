@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.sidebar
 
 import app.orcinus.shadow.core.ui.plate.conversionsOf
+import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.conversionName
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
@@ -56,7 +58,6 @@ import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
-import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.LayerRangeId
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObjectPartId
@@ -152,6 +153,25 @@ internal class ObjectListActions(
     val simplifyVolume: (ObjectPartId) -> Unit = {},
     /** ObjectList::set_volume_type(): the volume takes another type. */
     val changeVolumeType: (ObjectPartId, VolumeType) -> Unit = { _, _ -> },
+    /** A plate item: the plate becomes current and nothing stays selected (ObjectList::selection_changed). */
+    val selectPlate: (Int) -> Unit = {},
+    /** The settings row of a plate: the plate becomes current and the panel edits its settings. */
+    val selectPlateSettings: (Int) -> Unit = {},
+    /** The plate menu (MenuFactory::create_plate_menu), whose items act on the current plate. */
+    val selectPlateObjects: () -> Unit = {},
+    val selectAllPlates: () -> Unit = {},
+    val deletePlateObjects: () -> Unit = {},
+    val arrangePlate: (Int) -> Unit = {},
+    val orientPlate: (Int) -> Unit = {},
+    val deletePlate: (Int) -> Unit = {},
+    val lockPlate: (Int) -> Unit = {},
+    val renamePlate: (Int, String) -> Unit = { _, _ -> },
+    val addPrimitive: (shape: String, name: String) -> Unit = { _, _ -> },
+    val addHandyModel: (HandyModel) -> Unit = {},
+    /** Opens the document picker of Add Models (Plater::add_file). */
+    val addModels: () -> Unit = {},
+    /** Opens the folder picker whose files replace the volumes of the plate's objects (Plater::replace_all_with_stl). */
+    val replaceAllOnPlate: (Int) -> Unit = {},
 )
 
 /** An item the user renames: an object or one of its volumes, with the name it has. */
@@ -161,14 +181,18 @@ internal sealed interface RenameRequest {
     data class Object(val mesh: ScenePath, override val name: String) : RenameRequest
 
     data class Volume(val id: ObjectPartId, override val name: String) : RenameRequest
+
+    /** "Edit Plate Name" of a plate, which PlateNameEditDialog asks for. */
+    data class Plate(val index: Int, override val name: String) : RenameRequest
 }
 
 /**
  * OrcaSlicer's object list (GUI_ObjectList, ObjectDataViewModel) in the
- * sidebar: the plate, the objects on it, and the ones that stand off it under
- * "Outside", as the desktop app moves them to its outside plate. An item that
- * overrides the process preset has a settings row under it, named after the
- * pages its settings sit on (ObjectDataViewModelNode::update_settings_digest).
+ * sidebar: every plate, the objects under it, and "Outside" with the objects
+ * that stand on no plate whole, as the desktop app lists them
+ * (ObjectList::reload_all_plates). An item that overrides the process preset
+ * has a settings row under it, named after the pages its settings sit on
+ * (ObjectDataViewModelNode::update_settings_digest).
  *
  * The desktop tree has a column per property; a row on a phone has room for
  * the name, the check box of ModelInstance::printable, and the mark of an item
@@ -196,37 +220,90 @@ internal fun LazyListScope.objectListItems(
     /** An item is being renamed: the sidebar asks for the name. */
     onAskRename: (RenameRequest) -> Unit,
 ) {
-    val onPlate = state.objects.filter { object_ -> object_.instances.any { it.inspection.fit != BuildVolumeFit.OUTSIDE } }
-    val outside = state.objects.filter { object_ -> object_.instances.all { it.inspection.fit == BuildVolumeFit.OUTSIDE } }
     val plateDefinitions = state.plateSettings.tab?.definitions.orEmpty()
     val objectDefinitions = (state.objectSettings.tab ?: state.processSettings.tab)?.definitions.orEmpty()
     val partDefinitions = (state.partSettings.tab ?: state.processSettings.tab)?.definitions.orEmpty()
     val rangeDefinitions = (state.rangeSettings.tab ?: state.processSettings.tab)?.definitions.orEmpty()
 
-    item(key = "objects:plate") {
-        ObjectListRow(
-            name = "${orcaString("Plate")} 1",
-            icon = DesignR.drawable.orca_plate_settings,
-            selected = state.selectedInstances.isEmpty(),
-            hasSettings = state.plateOverrides.categories(plateDefinitions).isNotEmpty(),
-            onClick = { actions.select(null, false) },
-        )
-    }
-    settingsRow(key = "plate", settings = state.plateOverrides, definitions = plateDefinitions) { actions.selectSettings(null) }
-
-    objectRows(onPlate, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
-    if (outside.isNotEmpty()) {
-        item(key = "objects:outside") {
+    state.plates.forEach { plate ->
+        val index = plate.index
+        item(key = "objects:plate:$index") {
+            // ObjectDataViewModel::AddPlate(): "Plate N", and the plate's name after it.
+            val name = "${orcaString("Plate")} ${index + 1}" + if (plate.name.isEmpty()) "" else " (${plate.name})"
             ObjectListRow(
-                name = orcaString("Outside"),
+                name = name,
                 icon = DesignR.drawable.orca_plate_settings,
-                selected = false,
-                hasSettings = false,
-                onClick = {},
+                selected = index == state.currentPlate && state.selectedInstances.isEmpty(),
+                hasSettings = plate.overrides.categories(plateDefinitions).isNotEmpty(),
+                enabled = enabled,
+                onClick = { actions.selectPlate(index) },
+                // The menu acts on the current plate, which the plate becomes first.
+                onLongClick = { actions.selectPlate(index) },
+                menu = { dismiss -> PlateItemMenu(plate, state, enabled, actions, dismiss, onAskRename) },
             )
         }
-        objectRows(outside, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
+        settingsRow(key = "plate:$index", settings = plate.overrides, definitions = plateDefinitions) { actions.selectPlateSettings(index) }
+        objectRows(plate.objects, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
     }
+    // The outside plate, which the list always has.
+    item(key = "objects:outside") {
+        ObjectListRow(
+            name = orcaString("Outside"),
+            icon = DesignR.drawable.orca_plate_settings,
+            selected = false,
+            hasSettings = false,
+            onClick = {},
+        )
+    }
+    objectRows(state.outsideObjects, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
+}
+
+/**
+ * The menu of a plate item: MenuFactory::create_plate_menu() and the lock and
+ * name items plate_menu() adds. Its items act on the current plate, which the
+ * plate is while the menu is open; the ones that need objects need a copy on
+ * the plate (PartPlate::get_objects). Arranging and orienting a locked plate
+ * only tells the desktop user that it is locked, so here they are not offered.
+ */
+@Composable
+private fun PlateItemMenu(
+    plate: ObjectListPlate,
+    state: SidebarUiState,
+    enabled: Boolean,
+    actions: ObjectListActions,
+    dismiss: () -> Unit,
+    onAskRename: (RenameRequest) -> Unit,
+) {
+    val index = plate.index
+    val current = enabled && index == state.currentPlate
+    @Composable
+    fun item(text: String, isEnabled: Boolean, action: () -> Unit) = OrcaMenuItem(
+        text = text,
+        enabled = isEnabled,
+        onClick = {
+            dismiss()
+            action()
+        },
+    )
+    item(orcaString("Select All"), current && plate.occupied, actions.selectPlateObjects)
+    item(orcaString("Select All Plates"), enabled && state.objects.isNotEmpty(), actions.selectAllPlates)
+    item(orcaString("Delete All"), current && plate.occupied, actions.deletePlateObjects)
+    item(orcaString("Arrange"), current && plate.occupied && !plate.locked) { actions.arrangePlate(index) }
+    // Reload from disk is not in the app yet.
+    item(orcaString("Reload All"), false) {}
+    item(orcaString("Auto Rotate"), current && plate.occupied && !plate.locked) { actions.orientPlate(index) }
+    item(orcaString("Delete Plate"), current && state.canDeletePlate) { actions.deletePlate(index) }
+    OrcaMenuSeparator()
+    AddObjectItems(
+        enabled = enabled,
+        dismiss = dismiss,
+        addPrimitive = actions.addPrimitive,
+        addHandyModel = actions.addHandyModel,
+        addModels = actions.addModels,
+    )
+    item(orcaString("Replace all with 3D files") + "...", current) { actions.replaceAllOnPlate(index) }
+    item(orcaString(if (plate.locked) "Unlock" else "Lock"), current) { actions.lockPlate(index) }
+    item(orcaString("Edit Plate Name"), current) { onAskRename(RenameRequest.Plate(index, plate.name)) }
 }
 
 private fun LazyListScope.objectRows(

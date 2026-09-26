@@ -1,6 +1,18 @@
 package app.orcinus.shadow.feature.sidebar
 
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.core.model.partPlates
+import app.orcinus.shadow.core.model.listPlateOf
+import app.orcinus.shadow.core.model.plateOf
+import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.domain.plate.canDeletePlate
+import app.orcinus.shadow.domain.plate.SelectPlateUseCase
+import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.PlateJobsUseCase
+import app.orcinus.shadow.domain.plate.DeletePlateUseCase
+import app.orcinus.shadow.domain.plate.LockPlateUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateUseCase
+import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
@@ -248,8 +260,6 @@ data class SidebarUiState(
     val objectSettings: SettingsTabState = SettingsTabState(PresetKind.OBJECT),
     val partSettings: SettingsTabState = SettingsTabState(PresetKind.PART),
     val rangeSettings: SettingsTabState = SettingsTabState(PresetKind.LAYER),
-    /** What the plate overrides the process preset with, which its list row marks. */
-    val plateOverrides: ModelSettings = ModelSettings(),
     /** The plate, whose centre the object menu's Center moves an object over. */
     val plate: PlateDescription? = null,
     /** What Copy and Cut took, which the menus' Paste puts back. */
@@ -266,6 +276,13 @@ data class SidebarUiState(
     val projectDirty: Boolean = false,
     /** The project can be saved: the presets are known and the plate is not changing. */
     val canSaveProject: Boolean = false,
+    /** The plates of the object list (ObjectDataViewModel's plate items), each with the objects under it. */
+    val plates: List<ObjectListPlate> = listOf(ObjectListPlate(0)),
+    /** The objects that stand on no plate whole, under "Outside". */
+    val outsideObjects: List<PlateObject> = emptyList(),
+    val currentPlate: Int = 0,
+    /** Plater::can_delete_plate(). */
+    val canDeletePlate: Boolean = false,
 ) {
     /** Which settings the Objects side shows: a selected part's, the objects', or the plate's. */
     val modelKind: PresetKind get() = when {
@@ -335,7 +352,53 @@ class SidebarViewModel(
     private val saveProject: SaveProjectUseCase,
     private val projectLifecycle: ProjectLifecycleUseCase,
     private val addModelToPlate: AddModelToPlateUseCase,
+    private val selectPlate: SelectPlateUseCase,
+    private val plateObjects: PlateObjectsUseCase,
+    private val plateJobs: PlateJobsUseCase,
+    private val deletePlate: DeletePlateUseCase,
+    private val lockPlate: LockPlateUseCase,
+    private val renamePlate: RenamePlateUseCase,
+    private val addPrimitive: AddPrimitiveUseCase,
 ) : ViewModel() {
+    /** A plate item of the object list: nothing stays selected and the plate becomes current (ObjectList::selection_changed). */
+    fun choosePlate(index: Int) {
+        selectPlateObject(null)
+        selectPlate(index)
+    }
+
+    /** The settings row of a plate, whose settings the parameter panel then edits. */
+    fun openPlateSettings(index: Int) {
+        openSettingsOf(null)
+        selectPlate(index)
+    }
+
+    /** The plate menu's "Replace all with 3D files": the objects the list shows under the plate. */
+    fun replaceAllOnPlate(index: Int, folder: ExternalDocumentReference) = replaceAllVolumesUseCase.onPlate(index, folder)
+
+    /** The plate menu of the object list (MenuFactory::create_plate_menu) for the current plate. */
+    fun selectPlateObjects() = plateObjects.selectCurrentPlate()
+
+    fun selectAllPlates() = plateObjects.selectAll()
+
+    fun deletePlateObjects() = plateObjects.deleteCurrentPlate()
+
+    fun arrangePlate(index: Int) = plateJobs.arrange(index)
+
+    fun orientPlate(index: Int) = plateJobs.orient(index)
+
+    fun removePlate(index: Int) = deletePlate(index)
+
+    fun togglePlateLock(index: Int) = lockPlate(index)
+
+    fun setPlateName(index: Int, name: String) = renamePlate(index, name)
+
+    /** The menu's Add Primitive, Add Handy models and Add Models. */
+    fun addShape(shape: String, name: String) = addPrimitive(shape, name)
+
+    fun addHandyModel(model: HandyModel) = addModelToPlate.handy(model)
+
+    fun addModel(document: ExternalDocumentReference) = addModelToPlate(document)
+
     /** Plater::new_project() */
     fun newProject() = projectLifecycle.newProject()
 
@@ -699,7 +762,6 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     objectSettings = settingsTabs[PresetKind.OBJECT] ?: SettingsTabState(PresetKind.OBJECT),
     partSettings = settingsTabs[PresetKind.PART] ?: SettingsTabState(PresetKind.PART),
     rangeSettings = settingsTabs[PresetKind.LAYER] ?: SettingsTabState(PresetKind.LAYER),
-    plateOverrides = plateSettings,
     plate = plate,
     clipboard = clipboard,
     flushing = flushing,
@@ -708,6 +770,35 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     projectName = project.name,
     projectDirty = projectDirty,
     canSaveProject = profiles != null && !busy,
+    plates = objects.groupBy(::listPlateOf).let { groups ->
+        partPlates().mapIndexed { index, plate ->
+            ObjectListPlate(
+                index = index,
+                name = plate.name,
+                locked = plate.locked,
+                overrides = plate.settings,
+                objects = groups[index].orEmpty(),
+                occupied = copies().any { plateOf(it) == index },
+            )
+        }
+    },
+    outsideObjects = objects.filter { listPlateOf(it) == null },
+    currentPlate = currentPlate,
+    canDeletePlate = canDeletePlate,
+)
+
+/**
+ * A plate item of the object list: the plate at [index], named "Plate N" or
+ * "Plate N (name)", with its settings of its own and the objects the list
+ * shows under it; [occupied] while a copy stands on it (PartPlate::get_objects).
+ */
+data class ObjectListPlate(
+    val index: Int,
+    val name: String = "",
+    val locked: Boolean = false,
+    val overrides: ModelSettings = ModelSettings(),
+    val objects: List<PlateObject> = emptyList(),
+    val occupied: Boolean = false,
 )
 
 /**
@@ -1020,6 +1111,13 @@ fun PlateSidebar(
             viewModel.replaceAllVolumes(PlateInstanceId(ScenePath(target.first), target.second), ExternalDocumentReference(uri.toString()))
         }
     }
+    // The plate menu's "Replace all with 3D files" (Plater::priv::replace_all_with_stl of a plate item).
+    var replacingPlate by rememberSaveable { mutableStateOf<Int?>(null) }
+    val plateFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val index = replacingPlate
+        replacingPlate = null
+        if (uri != null && index != null) viewModel.replaceAllOnPlate(index, ExternalDocumentReference(uri.toString()))
+    }
     var replacing by rememberSaveable { mutableStateOf<Triple<String, Int, Int>?>(null) }
     val replacementPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val target = replacing
@@ -1038,6 +1136,10 @@ fun PlateSidebar(
     // Open Project's file dialog (GUI_App::load_project).
     val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.openProject(ExternalDocumentReference(uri.toString()))
+    }
+    // The plate menu's Add Models (Plater::add_file).
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.addModel(ExternalDocumentReference(uri.toString()))
     }
     // Import Configs takes a document, Export Preset Bundle a folder.
     // The file dialog of the desktop app takes several files at once.
@@ -1134,6 +1236,23 @@ fun PlateSidebar(
                 onShowCanvas()
             },
             changeVolumeType = viewModel::setVolumeType,
+            selectPlate = viewModel::choosePlate,
+            selectPlateSettings = viewModel::openPlateSettings,
+            replaceAllOnPlate = { index ->
+                replacingPlate = index
+                plateFolderPicker.launch(null)
+            },
+            selectPlateObjects = viewModel::selectPlateObjects,
+            selectAllPlates = viewModel::selectAllPlates,
+            deletePlateObjects = viewModel::deletePlateObjects,
+            arrangePlate = viewModel::arrangePlate,
+            orientPlate = viewModel::orientPlate,
+            deletePlate = viewModel::removePlate,
+            lockPlate = viewModel::togglePlateLock,
+            renamePlate = viewModel::setPlateName,
+            addPrimitive = viewModel::addShape,
+            addHandyModel = viewModel::addHandyModel,
+            addModels = { modelPicker.launch(arrayOf("*/*")) },
         ),
         onOpenWizard = onOpenWizard,
         onOpenSettings = onOpenSettings,
@@ -1648,6 +1767,7 @@ internal fun PlateSidebarContent(
                 when (request) {
                     is RenameRequest.Object -> objectList.rename(request.mesh, name)
                     is RenameRequest.Volume -> objectList.renamePart(request.id, name)
+                    is RenameRequest.Plate -> objectList.renamePlate(request.index, name)
                 }
             },
         )

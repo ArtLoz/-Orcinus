@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.OrcaText
@@ -141,10 +142,11 @@ class ReplaceObjectVolumeUseCase(
 
 /**
  * "Replace all with 3D files" (Plater::priv::replace_all_with_stl): every
- * volume of the object that was read from a file takes the mesh of the file
- * of the same name in the folder the user picked, one after another, each as
- * a step of Undo ("Replace with 3D file"). OrcaSlicer's "Replaced volumes"
- * says which volumes were replaced and why the others were skipped.
+ * volume of the object — or of every object a plate item of the object list
+ * holds — that was read from a file takes the mesh of the file of the same
+ * name in the folder the user picked, one after another, each as a step of
+ * Undo ("Replace with 3D file"). OrcaSlicer's "Replaced volumes" says which
+ * volumes were replaced and why the others were skipped.
  */
 class ReplaceAllVolumesUseCase(
     private val importModel: ImportModelUseCase,
@@ -154,41 +156,28 @@ class ReplaceAllVolumesUseCase(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
-    operator fun invoke(copy: PlateInstanceId, folder: ExternalDocumentReference) {
+    operator fun invoke(copy: PlateInstanceId, folder: ExternalDocumentReference) = replaceAll(listOf(copy.mesh), folder)
+
+    /** A plate item: the objects whose first copy stands on the plate whole (PartPlate::contain_instance_totally). */
+    fun onPlate(index: Int, folder: ExternalDocumentReference) {
+        val state = repository.state.value
+        replaceAll(state.objects.filter { state.listPlateOf(it) == index }.map(PlateObject::mesh), folder)
+    }
+
+    private fun replaceAll(meshes: List<ScenePath>, folder: ExternalDocumentReference) {
         var profiles: SlicingProfileSelection? = null
         repository.update { state ->
             profiles = null
-            val target = state.objects.withMesh(copy.mesh)
-            if (state.busy || state.profiles == null || target == null || target.placing) return@update state
+            val targets = meshes.mapNotNull(state.objects::withMesh)
+            if (state.busy || state.profiles == null || targets.size != meshes.size || targets.any(PlateObject::placing)) return@update state
             profiles = state.profiles
             state.copy(editing = true, problem = null)
         }
         val selection = profiles ?: return
         applicationScope.launch {
             val status = mutableListOf(OrcaText("Replaced with 3D files from directory:\n"), OrcaText("%s", listOf(folders.displayName(folder) + "\n\n")))
-            var mesh = copy.mesh
-            val volumes = (repository.state.value.objects.withMesh(mesh)?.parts?.size ?: 0) + 1
             try {
-                for (index in 0 until volumes) {
-                    val target = repository.state.value.objects.withMesh(mesh) ?: break
-                    // volumeAt() lists the object's own mesh only once the object has parts.
-                    val part = target.volumeAt(index)
-                    val inputFile = part?.inputFile ?: target.volume.inputFile.takeIf { index == 0 }.orEmpty()
-                    if (inputFile.isEmpty()) continue
-                    val name = (part?.name ?: target.volume.name).ifEmpty { (target as? PlateObject.ImportedModel)?.file?.displayName.orEmpty() }
-                    val document = folders.find(folder, inputFile.substringAfterLast('/'))
-                    if (document == null) {
-                        status += OrcaText("✖ Skipped %1%: file does not exist.\n", listOf(name))
-                        continue
-                    }
-                    val replaced = replace(mesh, index, document, selection)
-                    if (replaced == null) {
-                        status += OrcaText("✖ Skipped %1%: failed to replace.\n", listOf(name))
-                        continue
-                    }
-                    mesh = replaced
-                    status += OrcaText("✔ Replaced %1%.\n", listOf(name))
-                }
+                for (first in meshes) replaceVolumes(first, folder, selection, status)
             } finally {
                 repository.update { state ->
                     state.copy(
@@ -205,6 +194,32 @@ class ReplaceAllVolumesUseCase(
                     )
                 }
             }
+        }
+    }
+
+    /** The volumes of the object, one after another; each replaced one gives the object another mesh file. */
+    private suspend fun replaceVolumes(first: ScenePath, folder: ExternalDocumentReference, selection: SlicingProfileSelection, status: MutableList<OrcaText>) {
+        var mesh = first
+        val volumes = (repository.state.value.objects.withMesh(mesh)?.parts?.size ?: 0) + 1
+        for (index in 0 until volumes) {
+            val target = repository.state.value.objects.withMesh(mesh) ?: break
+            // volumeAt() lists the object's own mesh only once the object has parts.
+            val part = target.volumeAt(index)
+            val inputFile = part?.inputFile ?: target.volume.inputFile.takeIf { index == 0 }.orEmpty()
+            if (inputFile.isEmpty()) continue
+            val name = (part?.name ?: target.volume.name).ifEmpty { (target as? PlateObject.ImportedModel)?.file?.displayName.orEmpty() }
+            val document = folders.find(folder, inputFile.substringAfterLast('/'))
+            if (document == null) {
+                status += OrcaText("✖ Skipped %1%: file does not exist.\n", listOf(name))
+                continue
+            }
+            val replaced = replace(mesh, index, document, selection)
+            if (replaced == null) {
+                status += OrcaText("✖ Skipped %1%: failed to replace.\n", listOf(name))
+                continue
+            }
+            mesh = replaced
+            status += OrcaText("✔ Replaced %1%.\n", listOf(name))
         }
     }
 
