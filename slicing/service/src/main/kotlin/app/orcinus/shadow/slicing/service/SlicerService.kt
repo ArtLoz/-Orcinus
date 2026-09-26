@@ -783,6 +783,8 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun cancel(jobId: String): Boolean = runBlocking { engine.cancel(SliceJobId(jobId)) }
 
+        override fun selectPlate(index: Int, count: Int) = runBlocking { engine.selectPlate(index, count) }
+
         override fun thumbnailSizes(profiles: ProfilesParcel): ThumbnailSizesParcel =
             runBlocking { engine.thumbnailSizes(profiles.toProfiles()) }.toParcel()
     }

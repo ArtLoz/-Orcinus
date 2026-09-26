@@ -1,6 +1,8 @@
 package app.orcinus.shadow.slicing.service
 
 import android.content.ComponentName
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ThumbnailImage
@@ -97,7 +99,7 @@ import kotlinx.coroutines.withContext
  * [SlicerEngine] and [PlateInspector] backed by a [SlicerService] in another
  * process. The first call binds to the service. When the engine process dies,
  * running jobs end with [SliceFailureCode.ENGINE_CRASHED] and a new process
- * starts at once.
+ * starts at once; it is told the plate selected before any call reaches it.
  */
 class RemoteSlicerEngine(
     context: Context,
@@ -108,6 +110,13 @@ class RemoteSlicerEngine(
 
     /** Completes when connected; null while unbound. Guarded by [lock]. */
     private var connected: CompletableDeferred<ISlicerService>? = null
+
+    /** The plate selected last (index and count), and the service that knows it. Guarded by [lock]. */
+    private var plate: Pair<Int, Int>? = null
+    private var plateKnownBy: ISlicerService? = null
+
+    /** Lets a call through once the service it goes to knows [plate]. */
+    private val plateTelling = Mutex()
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -901,6 +910,19 @@ class RemoteSlicerEngine(
         }
     }
 
+    override suspend fun selectPlate(index: Int, count: Int) {
+        synchronized(lock) {
+            plate = index to count
+            plateKnownBy = null
+        }
+        // Reaching the service tells it the plate.
+        try {
+            service()
+        } catch (_: IllegalStateException) {
+            // Not bound: the next call tells the plate.
+        }
+    }
+
     override suspend fun thumbnailSizes(profiles: SlicingProfileSelection): ThumbnailSizesOutcome =
         remote(ThumbnailSizesOutcome::Failure) { thumbnailSizes(profiles.toParcel()).toThumbnailSizesOutcome() }
 
@@ -921,7 +943,20 @@ class RemoteSlicerEngine(
         val deferred = synchronized(lock) {
             connected ?: CompletableDeferred<ISlicerService>().also(::bindLocked)
         }
-        return deferred.await()
+        val service = deferred.await()
+        plateTelling.withLock {
+            val selected = synchronized(lock) { plate?.takeIf { plateKnownBy !== service } } ?: return@withLock
+            val told = withContext(Dispatchers.IO) {
+                try {
+                    service.selectPlate(selected.first, selected.second)
+                    true
+                } catch (_: RemoteException) {
+                    false
+                }
+            }
+            synchronized(lock) { if (told && plate == selected) plateKnownBy = service }
+        }
+        return service
     }
 
     private fun bindLocked(deferred: CompletableDeferred<ISlicerService>) {

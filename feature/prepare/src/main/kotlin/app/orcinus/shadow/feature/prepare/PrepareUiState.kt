@@ -1,6 +1,10 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.plateOrigins
+import app.orcinus.shadow.domain.plate.canAddPlate
+import app.orcinus.shadow.domain.plate.canDeletePlate
 import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
@@ -86,6 +90,12 @@ data class PrepareUiState(
     /** Plater::can_undo() and can_redo(). */
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
+    /** Where every plate stands (PartPlateList), and the one the view works on. */
+    val plateOrigins: List<Point2> = listOf(Point2(0.0, 0.0)),
+    val currentPlate: Int = 0,
+    /** Plater::can_add_plate() and can_delete_plate(). */
+    val canAddPlate: Boolean = false,
+    val canDeletePlate: Boolean = false,
     /** Position of the selected object. */
     val selectedPosition: ObjectPosition?,
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
@@ -246,6 +256,10 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         // While the painting tool is open, Undo and Redo work on its strokes (the gizmo's stack).
         canUndo = view.painting?.canUndo ?: canUndo,
         canRedo = view.painting?.canRedo ?: canRedo,
+        plateOrigins = plateOrigins(),
+        currentPlate = currentPlate,
+        canAddPlate = canAddPlate && canEditPlate,
+        canDeletePlate = canDeletePlate && canEditPlate,
         selectedPosition = selected?.placement?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
         selectedRotation = selected?.rotationDegrees,
         canResetRotation = selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart),

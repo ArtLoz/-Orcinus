@@ -1,6 +1,7 @@
 package app.orcinus.shadow.render.scene
 
 import android.annotation.SuppressLint
+import app.orcinus.shadow.core.model.Point2
 import android.content.Context
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
@@ -110,6 +111,14 @@ fun PlateView(
     layer: PlateLayer? = null,
     /** A finger held on empty space: the canvas's menu there (MenuFactory::default_menu), at that position; null for none. */
     onOpenPlateMenu: ((position: Offset) -> Unit)? = null,
+    /** Where every plate stands, in their order (PartPlateList); the objects stand among them. */
+    plateOrigins: List<Point2> = listOf(Point2(0.0, 0.0)),
+    /** The plate the view works on, which the bed model stands under and the objects are judged by. */
+    currentPlate: Int = 0,
+    /** A tap on another plate, which selects it (Plater::select_plate_by_hover_id); null where plates are not picked. */
+    onSelectPlate: ((Int) -> Unit)? = null,
+    /** Another current plate turns the view to it, as the preview's plate bar does (Plater::select_sliced_plate). */
+    followCurrentPlate: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -144,12 +153,15 @@ fun PlateView(
         }
     }
     LaunchedEffect(bed) { controller.setBed(bed) }
+    LaunchedEffect(plateOrigins, currentPlate) { controller.setPlates(plateOrigins, currentPlate, followCurrentPlate) }
     LaunchedEffect(layer) { controller.setLayer(layer) }
 
     val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
     val meshes = remember { MeshCache() }
-    LaunchedEffect(wipeTower, filamentColors, builtWipeTower) {
-        val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower) } }
+    // The tower stands on the current plate, where wipe_tower_x and wipe_tower_y of the plate put it.
+    val towerOrigin = plateOrigins.getOrElse(currentPlate) { Point2(0.0, 0.0) }
+    LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin) {
+        val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin) } }
         controller.setWipeTower(tower)
     }
     LaunchedEffect(objects, color, filamentColors, wireframes) {
@@ -196,6 +208,7 @@ fun PlateView(
     val haptics = LocalHapticFeedback.current
     SideEffect {
         controller.onSelectObject = onSelectObject
+        controller.onSelectPlate = onSelectPlate
         controller.onPlaceObject = onPlaceObject
         controller.onMoveWipeTower = onMoveWipeTower
         controller.onPaint = { ray, starts ->
@@ -332,6 +345,8 @@ private suspend fun PointerInputScope.detectPlateGestures(
 
         if (!dragging && !multiTouch && !pressedObject && !menuOpened) {
             controller.clearSelection()
+            // A tap on another plate selects it.
+            controller.selectPlateAt(down.position.x, down.position.y)
             val now = down.uptimeMillis
             if (now - lastTapUptime <= doubleTapTimeoutMillis) {
                 controller.resetView()
@@ -375,6 +390,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var dark = false
     private var density = 1f
     private var framedBed: SceneBed? = null
+    private var plates = ScenePlates.SINGLE
 
     var onSelectObject: (Int?) -> Unit = {}
     var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
@@ -382,6 +398,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     var onPlaceObject: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
     var onOpenObjectMenu: (Int, Float, Float) -> Unit = { _, _, _ -> }
     var onOpenPlateMenu: ((Float, Float) -> Unit)? = null
+    /** A tap on another plate, with its index; null where plates are not picked. */
+    var onSelectPlate: ((Int) -> Unit)? = null
 
     /** A press that may become a manipulation of the object [index], which stood at [startWorld]. */
     private sealed class Drag(val index: Int, val startWorld: Affine3) {
@@ -430,8 +448,31 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     fun openPlateMenu(x: Float, y: Float): Boolean {
         val open = onOpenPlateMenu ?: return false
+        // A right click on a plate selects it first.
+        selectPlateAt(x, y)
         open(x, y)
         return true
+    }
+
+    /**
+     * GLCanvas3D::on_mouse() for a click on a plate (m_hover_plate_idxs): the
+     * plate under the point ([x], [y]) becomes the current one.
+     */
+    fun selectPlateAt(x: Float, y: Float) {
+        val select = onSelectPlate ?: return
+        val bed = bed ?: return
+        val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
+        val direction = ray.b - ray.a
+        if (abs(direction.z) < 1e-12) return
+        val t = -ray.a.z / direction.z
+        if (t < 0.0) return
+        val point = ray.a + direction * t
+        val area = bed.buildVolume
+        val index = plates.origins.indexOfFirst { origin ->
+            point.x >= area.min.x + origin.x && point.x <= area.max.x + origin.x &&
+                point.y >= area.min.y + origin.y && point.y <= area.max.y + origin.y
+        }
+        if (index >= 0 && index != plates.current) select(index)
     }
 
     fun setAppearance(canvas: Color, dark: Boolean, density: Float) {
@@ -449,6 +490,29 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     fun setBed(bed: SceneBed?) {
         this.bed = bed
         renderer.setBed(bed)
+        invalidate()
+    }
+
+    /**
+     * The plates at [origins], with the one at [current] current. After a
+     * plate joins them, the view frames them all
+     * (Plater::priv::on_action_add_plate: REQUIRES_ZOOM_TO_ALL_PLATE); when
+     * the view [follows] the current plate, another one turns it to that plate.
+     */
+    fun setPlates(origins: List<Point2>, current: Int, follows: Boolean) {
+        val added = origins.size > plates.origins.size
+        val moved = current != plates.current
+        plates = ScenePlates(origins.map { Vec3(it.x, it.y, 0.0) }, current)
+        renderer.setPlates(plates)
+        val bed = bed
+        if (bed != null && framedBed === bed && camera.viewportWidth > 1) {
+            if (added) {
+                camera.sceneBox = sceneBox()
+                allPlatesBox()?.let { camera.zoomToBox(it, ZOOM_TO_PLATE_MARGIN_FACTOR) }
+            } else if (follows && moved) {
+                currentPlateBox()?.let { camera.selectPlateView(it.center()) }
+            }
+        }
         invalidate()
     }
 
@@ -655,8 +719,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val target = objects.firstOrNull { it.index == drag.index } ?: return
         if (target.index == WIPE_TOWER_INDEX) {
             // apply_wipe_tower(): the tower keeps to the plate, so only its
-            // corner on the plate is written back.
-            val corner = target.world.translation()
+            // corner on the current plate is written back.
+            val corner = target.world.translation() - plates.currentOrigin
             onMoveWipeTower(corner.x, corner.y)
             return
         }
@@ -687,7 +751,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     fun rotate(dx: Float, dy: Float) {
         val factor = Math.PI * TRACKBALL_SIZE / 180.0 / density
         // Rotate around the objects on the plate or the toolpaths, or the plate when it is empty.
-        val rotationTarget = (objectsBox() ?: layerBox)?.center() ?: bed?.plateBox?.center() ?: camera.target
+        val rotationTarget = (objectsBox() ?: layerBox)?.center() ?: currentPlateBox()?.center() ?: camera.target
         camera.rotateOnSphereWithTarget(dx * factor, dy * factor, true, rotationTarget)
         invalidate()
     }
@@ -716,14 +780,27 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
-    /** OrcaSlicer's plate view: from the front and above, framing the plate. */
+    /** OrcaSlicer's plate view: from the front and above, framing the current plate (GLCanvas3D::zoom_to_plate). */
     fun resetView() {
         val bed = bed ?: return
         camera.selectPlateView()
         camera.sceneBox = sceneBox()
-        camera.zoomToBox(bed.plateBox, ZOOM_TO_PLATE_MARGIN_FACTOR)
+        currentPlateBox()?.let { camera.zoomToBox(it, ZOOM_TO_PLATE_MARGIN_FACTOR) }
         framedBed = bed
         invalidate()
+    }
+
+    /** The current plate at z = 0, which the view frames. */
+    private fun currentPlateBox(): Box3? {
+        val box = bed?.plateBox ?: return null
+        val origin = plates.currentOrigin
+        return Box3(box.min + origin, box.max + origin)
+    }
+
+    /** Every plate at z = 0 (PartPlateList::get_bounding_box()). */
+    private fun allPlatesBox(): Box3? {
+        val box = bed?.plateBox ?: return null
+        return plates.origins.map { Box3(box.min + it, box.max + it) }.reduceOrNull(Box3::merge)
     }
 
     /** The grabber of the active gizmo nearest to the point, within [radius] pixels of it on the screen. */
@@ -848,7 +925,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             val extend = Vec3(1.0, 1.0, 1.0) * selection.maxSize()
             Box3(selection.center() - extend, selection.center() + extend)
         }
-        return listOfNotNull(bed?.extendedBox, objectsBox(), layerBox, gizmoBox).reduceOrNull(Box3::merge)
+        val plateBoxes = bed?.extendedBox?.let { box -> plates.origins.map { Box3(box.min + it, box.max + it) } }.orEmpty()
+        return (plateBoxes + listOfNotNull(objectsBox(), layerBox, gizmoBox)).reduceOrNull(Box3::merge)
     }
 
     private companion object {

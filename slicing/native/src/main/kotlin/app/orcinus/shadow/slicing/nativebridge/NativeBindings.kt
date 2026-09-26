@@ -1106,6 +1106,9 @@ internal object NativeBindings {
         placement: DoubleArray,
     ): NativeFlatteningPlanes
 
+    /** select_plate(): the plate the next requests are for, among [count] plates. */
+    external fun selectPlate(index: Int, count: Int)
+
     external fun describePresets(): NativePresetState
 
     /** [choice]: NativePresetChoice. */

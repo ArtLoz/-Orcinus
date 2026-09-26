@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.SelectPlateUseCase
+import app.orcinus.shadow.domain.plate.AddPlateUseCase
+import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
@@ -131,6 +134,9 @@ class PrepareViewModel(
     private val previewSimplify: PreviewSimplifyUseCase,
     private val applySimplifyUseCase: ApplySimplifyUseCase,
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
+    private val selectPlate: SelectPlateUseCase,
+    private val addPlate: AddPlateUseCase,
+    private val deletePlate: DeletePlateUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -247,6 +253,15 @@ class PrepareViewModel(
 
     /** GLCanvas3D::WipeTowerInfo::apply_wipe_tower(): the tower was dragged across the plate. */
     fun moveWipeTower(x: Double, y: Double) = moveTower(x, y)
+
+    /** A tap on a plate or its number: it becomes the current plate. */
+    fun selectPlate(index: Int) = selectPlate.invoke(index)
+
+    /** The toolbar's "Add plate". */
+    fun addPlate() = addPlate.invoke()
+
+    /** The plate's "Remove current plate (if not last one)". */
+    fun deletePlate(index: Int) = deletePlate.invoke(index)
 
     /**
      * GLGizmoMmuSegmentation: the colour painting tool opens on the selected

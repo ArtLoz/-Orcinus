@@ -28,6 +28,10 @@ struct EngineContext {
     // Whether bundle shows the presets config installs and the selection it
     // remembers; a request for other presets may select others (select_profiles).
     bool bundle_follows_config = false;
+    // PartPlateList's current plate and the number of plates, which place it
+    // among them (compute_origin): the requests judge objects by it and slice it.
+    int plate_index = 0;
+    int plate_count = 1;
 };
 
 EngineContext& engine();
@@ -60,9 +64,14 @@ bool load_plate(
     std::string& message
 );
 
-// PartPlate::get_build_volume() of the only plate, as the adapter judges
+// PartPlate::get_build_volume() of the current plate, as the adapter judges
 // which copies stand on it.
 Slic3r::BoundingBoxf3 plate_box(const Slic3r::DynamicPrintConfig& config);
+
+// PartPlate's obj_to_instance_set: the copies of model that stand on the
+// current plate (PartPlate::intersect_instance()) are kept, the others and the
+// objects left without copies removed.
+void keep_current_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config);
 
 // Writes a mesh for the 3D view, in the format :render:scene reads
 // (mesh_file_magic of orca_engine_adapter.hpp).

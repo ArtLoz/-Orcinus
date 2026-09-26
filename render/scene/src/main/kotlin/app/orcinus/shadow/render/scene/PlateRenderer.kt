@@ -33,11 +33,24 @@ internal class SceneFrame(
 )
 
 /**
- * Draws the plate and its objects the way OrcaSlicer's 3D canvas does
- * (GLCanvas3D::render for the 3D view): the bed model, the plate's excluded
- * area, grid, and texture, then the objects, with OrcaSlicer's own shaders and
- * colours. Scene data and frames arrive from the main thread; everything else
- * happens on the GL thread.
+ * Where the plates stand, in their order, and which one is current
+ * (PartPlateList): every plate is the printer's plate moved to its origin.
+ */
+internal class ScenePlates(val origins: List<Vec3>, val current: Int) {
+    val currentOrigin: Vec3 get() = origins.getOrElse(current) { Vec3.ZERO }
+
+    companion object {
+        val SINGLE = ScenePlates(listOf(Vec3.ZERO), 0)
+    }
+}
+
+/**
+ * Draws the plates and their objects the way OrcaSlicer's 3D canvas does
+ * (GLCanvas3D::render for the 3D view): the bed model under the current plate,
+ * every plate's background, excluded area, grid and number, the current one's
+ * texture, then the objects, with OrcaSlicer's own shaders and colours. Scene
+ * data and frames arrive from the main thread; everything else happens on the
+ * GL thread.
  */
 internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.Renderer {
     private val lock = Any()
@@ -52,6 +65,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     @Volatile
     private var frame: SceneFrame? = null
 
+    @Volatile
+    private var plates: ScenePlates = ScenePlates.SINGLE
+
     private var programs: Programs? = null
     private var gpuBed: GpuBed? = null
     private val gpuObjects = LinkedHashMap<String, GlVertexArray>()
@@ -61,6 +77,10 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var selectionBox: Triple<Box3, Boolean, GlVertexArray>? = null
     private var grabberCone: GlVertexArray? = null
     private var grabberCube: GlVertexArray? = null
+    /** The build volume of the current plate while the objects are drawn. */
+    private var printVolume: Box3? = null
+    /** PartPlateList::m_idx_textures, made as the plates need them. */
+    private val labelTextures = HashMap<Int, GlTexture>()
     private val lineWidthRange = FloatArray(2)
 
     fun setBed(bed: SceneBed?) = synchronized(lock) {
@@ -88,6 +108,10 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         this.frame = frame
     }
 
+    fun setPlates(plates: ScenePlates) {
+        this.plates = plates
+    }
+
     override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
         // A new context: names from an earlier one are gone. The layer forgets
         // its own before anything here takes their numbers.
@@ -99,6 +123,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         selectionBox = null
         grabberCone = null
         grabberCube = null
+        labelTextures.clear()
         synchronized(lock) {
             bedChanged = true
             objectsChanged = true
@@ -125,10 +150,15 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
         val bottom = !frame.lookingDownward
+        val plates = plates
         gpuBed?.let { bed ->
             GLES30.glEnable(GLES30.GL_DEPTH_TEST)
-            if (!bottom) renderBedModel(programs.hotbed, bed, frame)
-            renderPlate(programs, bed, frame, bottom)
+            // Bed3D stands under the current plate (Plater::set_bed_position).
+            if (!bottom) renderBedModel(programs.hotbed, bed, frame, plates.currentOrigin)
+            // PartPlateList::render()
+            plates.origins.forEachIndexed { index, origin ->
+                renderPlate(programs, bed, frame, bottom, origin, index, selected = index == plates.current)
+            }
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         }
         // GLCanvas3D::_render() for the preview: the G-code after the bed.
@@ -176,9 +206,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     /** Bed3D::render_model(). */
-    private fun renderBedModel(program: GlProgram, bed: GpuBed, frame: SceneFrame) {
+    private fun renderBedModel(program: GlProgram, bed: GpuBed, frame: SceneFrame, origin: Vec3) {
         val model = bed.model ?: return
-        val world = Affine3().translated(bed.scene.modelOffset)
+        val world = Affine3().translated(bed.scene.modelOffset + origin)
         program.use()
         program.setFloat("emission_factor", 0f)
         program.setMatrix4("volume_world_matrix", world.toFloatArray())
@@ -191,17 +221,30 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         model.draw()
     }
 
-    /** PartPlate::render() for the selected plate: excluded area, grid, texture. */
-    private fun renderPlate(programs: Programs, bed: GpuBed, frame: SceneFrame, bottom: Boolean) {
+    /**
+     * PartPlate::render() for the plate at [index], standing at [origin]: the
+     * background of a plate other than the current one, the excluded area, the
+     * grid, the current plate's texture, and the plate's number.
+     */
+    private fun renderPlate(programs: Programs, bed: GpuBed, frame: SceneFrame, bottom: Boolean, origin: Vec3, index: Int, selected: Boolean) {
+        val view = (frame.view * Affine3().translated(origin)).toFloatArray()
         val flat = programs.flat
         flat.use()
-        flat.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+        flat.setMatrix4("view_model_matrix", view)
         flat.setMatrix4("projection_matrix", frame.projection)
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         if (!bottom) {
             GLES30.glDepthMask(false)
-            flat.setVec4("uniform_color", EXCLUDE_AREA_COLOR[0], EXCLUDE_AREA_COLOR[1], EXCLUDE_AREA_COLOR[2], EXCLUDE_AREA_COLOR[3])
+            // render_background(): the current plate has none.
+            if (!selected) {
+                val background = if (frame.dark) UNSELECT_DARK_COLOR else UNSELECT_COLOR
+                flat.setVec4("uniform_color", background[0], background[1], background[2], background[3])
+                bed.plateTriangles.draw()
+            }
+            // render_exclude_area()
+            val exclude = if (selected) EXCLUDE_AREA_COLOR else EXCLUDE_AREA_UNSELECTED_COLOR
+            flat.setVec4("uniform_color", exclude[0], exclude[1], exclude[2], exclude[3])
             bed.excludeTriangles.draw()
             GLES30.glDepthMask(true)
         }
@@ -209,8 +252,10 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         // render_grid()
         val lineColor = when {
             bottom -> LINE_BOTTOM_COLOR
-            frame.dark -> LINE_TOP_SELECTED_DARK_COLOR
-            else -> LINE_TOP_SELECTED_COLOR
+            selected && frame.dark -> LINE_TOP_SELECTED_DARK_COLOR
+            selected -> LINE_TOP_SELECTED_COLOR
+            frame.dark -> LINE_TOP_DARK_COLOR
+            else -> LINE_TOP_COLOR
         }
         flat.setVec4("uniform_color", lineColor[0], lineColor[1], lineColor[2], lineColor[3])
         GLES30.glLineWidth(lineWidth(1f * frame.pixelScale))
@@ -220,12 +265,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glLineWidth(1f)
         GLES30.glDisable(GLES30.GL_BLEND)
 
-        // render_logo() and render_logo_texture()
+        // render_logo() and render_logo_texture(), for the current plate
         val texture = bed.texture
-        if (!bottom && texture != null) {
+        if (!bottom && selected && texture != null) {
             val printbed = programs.printbed
             printbed.use()
-            printbed.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+            printbed.setMatrix4("view_model_matrix", view)
             printbed.setMatrix4("projection_matrix", frame.projection)
             printbed.setBoolean("transparent_background", false)
             printbed.setBoolean("svg_source", false)
@@ -236,6 +281,27 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture.id)
             bed.plateTriangles.draw()
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+            GLES30.glDisable(GLES30.GL_BLEND)
+            GLES30.glDepthMask(true)
+        }
+
+        // render_only_numbers()
+        if (index < MAX_PLATE_COUNT) {
+            val label = labelTextures.getOrPut(index) { PlateLabels.image(index).let { GlTexture(it.width, it.height, it.rgba) } }
+            val printbed = programs.printbed
+            printbed.use()
+            printbed.setMatrix4("view_model_matrix", view)
+            printbed.setMatrix4("projection_matrix", frame.projection)
+            printbed.setBoolean("transparent_background", bottom)
+            printbed.setBoolean("svg_source", false)
+            printbed.setInt("in_texture", 0)
+            GLES30.glDepthMask(false)
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, label.id)
+            bed.labelQuad.draw()
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
             GLES30.glDisable(GLES30.GL_BLEND)
             GLES30.glDepthMask(true)
@@ -259,20 +325,10 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         program.setBoolean("use_color_clip_plane", false)
         program.setBoolean("is_outline", false)
         program.setBoolean("slope.actived", false)
-        if (bed != null) {
-            // A rectangular build volume, grown by BuildVolume::SceneEpsilon.
-            val volume = bed.buildVolume
-            program.setInt("print_volume.type", 0)
-            program.setVec4(
-                "print_volume.xy_data",
-                (volume.min.x - SCENE_EPSILON).toFloat(),
-                (volume.min.y - SCENE_EPSILON).toFloat(),
-                (volume.max.x + SCENE_EPSILON).toFloat(),
-                (volume.max.y + SCENE_EPSILON).toFloat(),
-            )
-            program.setVec2("print_volume.z_data", 0f, volume.max.z.toFloat())
-        } else {
-            program.setInt("print_volume.type", -1)
+        printVolume = bed?.let { scene ->
+            // The current plate's rectangular build volume, grown by BuildVolume::SceneEpsilon.
+            val origin = plates.currentOrigin
+            Box3(scene.buildVolume.min + origin, scene.buildVolume.max + origin)
         }
         // GLVolumeCollection::render(): the opaque volumes first, then the
         // transparent ones blended over them, with the depth buffer kept.
@@ -331,6 +387,22 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     /** GLVolume::render(): one volume with the shader's uniforms for it. */
     private fun drawVolume(program: GlProgram, frame: SceneFrame, sceneObject: SceneObject) {
         val mesh = gpuObjects[sceneObject.key] ?: return
+        // GLVolumeCollection::render(): a volume across the current plate's
+        // boundary is darkened outside it; the others are drawn as they are.
+        val volume = printVolume?.takeIf { sceneObject.partlyInside }
+        if (volume != null) {
+            program.setInt("print_volume.type", 0)
+            program.setVec4(
+                "print_volume.xy_data",
+                (volume.min.x - SCENE_EPSILON).toFloat(),
+                (volume.min.y - SCENE_EPSILON).toFloat(),
+                (volume.max.x + SCENE_EPSILON).toFloat(),
+                (volume.max.y + SCENE_EPSILON).toFloat(),
+            )
+            program.setVec2("print_volume.z_data", 0f, volume.max.z.toFloat())
+        } else {
+            program.setInt("print_volume.type", -1)
+        }
         val color = VolumeColors.render(
             sceneObject.color,
             selected = sceneObject.index in frame.selectedIndexes,
@@ -454,10 +526,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val excludeTriangles = GlVertexArray(scene.excludeTriangles, listOf(GlProgram.POSITION to 3), GLES30.GL_TRIANGLES)
         val thinGridLines = GlVertexArray(scene.thinGridLines, listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
         val boldGridLines = GlVertexArray(scene.boldGridLines, listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
+        val labelQuad = GlVertexArray(PlateLabels.quad(scene.buildVolume), listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2), GLES30.GL_TRIANGLES)
 
         fun release() {
             model?.release()
             texture?.release()
+            labelQuad.release()
             plateTriangles.release()
             excludeTriangles.release()
             thinGridLines.release()
@@ -469,12 +543,20 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         // Bed3D::DEFAULT_MODEL_COLOR and DEFAULT_MODEL_COLOR_DARK
         val BED_MODEL_COLOR = floatArrayOf(0.3255f, 0.337f, 0.337f, 1f)
         val BED_MODEL_COLOR_DARK = floatArrayOf(0.255f, 0.255f, 0.283f, 1f)
-        // PartPlate::render_exclude_area() for the selected plate
+        // PartPlate::render_exclude_area() for the selected plate and the others
         val EXCLUDE_AREA_COLOR = floatArrayOf(0.9f, 0.86f, 0.82f, 0.7f)
-        // PartPlate::LINE_TOP_SEL_COLOR, LINE_TOP_SEL_DARK_COLOR, LINE_BOTTOM_COLOR
+        val EXCLUDE_AREA_UNSELECTED_COLOR = floatArrayOf(0.6f, 0.6f, 0.6f, 0.3f)
+        // PartPlate::UNSELECT_COLOR and UNSELECT_DARK_COLOR
+        val UNSELECT_COLOR = floatArrayOf(0.82f, 0.82f, 0.82f, 1f)
+        val UNSELECT_DARK_COLOR = floatArrayOf(0.384f, 0.384f, 0.412f, 1f)
+        // PartPlate::LINE_TOP_SEL_COLOR, LINE_TOP_SEL_DARK_COLOR, LINE_TOP_COLOR, LINE_TOP_DARK_COLOR, LINE_BOTTOM_COLOR
         val LINE_TOP_SELECTED_COLOR = floatArrayOf(0.5294f, 0.5451f, 0.5333f, 1f)
         val LINE_TOP_SELECTED_DARK_COLOR = floatArrayOf(0.298f, 0.298f, 0.3333f, 1f)
+        val LINE_TOP_COLOR = floatArrayOf(0.89f, 0.89f, 0.89f, 1f)
+        val LINE_TOP_DARK_COLOR = floatArrayOf(0.431f, 0.431f, 0.463f, 1f)
         val LINE_BOTTOM_COLOR = floatArrayOf(0.8f, 0.8f, 0.8f, 0.4f)
+        // MAX_PLATE_COUNT of PartPlate.hpp: the numbers there are textures for
+        const val MAX_PLATE_COUNT = 36
         // BuildVolume::SceneEpsilon
         const val SCENE_EPSILON = 1e-4
 

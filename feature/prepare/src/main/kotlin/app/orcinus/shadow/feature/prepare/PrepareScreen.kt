@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.plate.PartShapeSheet
 import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
@@ -162,6 +163,7 @@ internal fun PrepareRoute(
         onAddCalibrationCube = viewModel::addCalibrationCube,
         onSelectObject = viewModel::selectObject,
         onMoveWipeTower = viewModel::moveWipeTower,
+        plateActions = PlateActions(select = viewModel::selectPlate, add = viewModel::addPlate, delete = viewModel::deletePlate),
         onTogglePainting = viewModel::togglePainting,
         paintingActions = PaintingActions(
             paint = viewModel::paint,
@@ -316,6 +318,7 @@ internal fun PrepareScreen(
     onRedo: () -> Unit = {},
     plateMenuActions: PlateMenuActions = PlateMenuActions.NONE,
     simplifyActions: SimplifyActions = SimplifyActions.NONE,
+    plateActions: PlateActions = PlateActions.NONE,
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         var objectMenu by remember { mutableStateOf<ObjectMenu?>(null) }
@@ -346,6 +349,9 @@ internal fun PrepareScreen(
                 onOpenPlateMenu = { position -> plateMenu = position },
                 contentDescription = stringResource(R.string.plate_view),
                 modifier = Modifier.fillMaxSize(),
+                plateOrigins = state.plateOrigins,
+                currentPlate = state.currentPlate,
+                onSelectPlate = plateActions.select,
             )
         }
         plateMenu?.let { position ->
@@ -424,6 +430,7 @@ internal fun PrepareScreen(
                         onTogglePainting,
                         onAddModel,
                         onAddCalibrationCube,
+                        plateActions.add,
                         onAutoOrient,
                         onAddInstance,
                         onRemoveInstance,
@@ -480,14 +487,36 @@ internal fun PrepareScreen(
                     OrcaButton(stringResource(R.string.slice_plate), onClick = onSlice, enabled = state.canSlice)
                 }
             }
-            // BBLTopbar's Undo and Redo, which a phone keeps under the thumb over the plate.
-            OrcaCanvasToolbar(
-                Modifier
+            Column(
+                modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OrcaCanvasTool(DesignR.drawable.orca_topbar_undo, orcaString("Undo"), onUndo, enabled = state.canUndo)
-                OrcaCanvasTool(DesignR.drawable.orca_topbar_redo, orcaString("Redo"), onRedo, enabled = state.canRedo)
+                // The plates' numbers and icons, under the thumb once there are several.
+                if (state.plateOrigins.size > 1) {
+                    PlateStrip(
+                        count = state.plateOrigins.size,
+                        current = state.currentPlate,
+                        onSelect = plateActions.select,
+                        enabled = state.canEditPlate,
+                    ) { index, dismiss ->
+                        // PartPlate's delete icon (select_plate_by_hover_id, action 1).
+                        OrcaMenuItem(
+                            text = orcaString("Remove current plate (if not last one)"),
+                            onClick = {
+                                dismiss()
+                                plateActions.delete(index)
+                            },
+                            enabled = state.canDeletePlate,
+                        )
+                    }
+                }
+                // BBLTopbar's Undo and Redo, which a phone keeps under the thumb over the plate.
+                OrcaCanvasToolbar {
+                    OrcaCanvasTool(DesignR.drawable.orca_topbar_undo, orcaString("Undo"), onUndo, enabled = state.canUndo)
+                    OrcaCanvasTool(DesignR.drawable.orca_topbar_redo, orcaString("Redo"), onRedo, enabled = state.canRedo)
+                }
             }
         }
     }
@@ -537,6 +566,17 @@ internal class PrepareObjectMenuActions(
             {}, {}, { _, _ -> }, { _, _ -> }, { _, _, _, _ -> }, {}, { _, _ -> }, {}, {}, { _, _, _ -> }, {}, {}, {}, {},
             { _, _ -> }, { _, _ -> }, { _, _ -> }, {}, {}, {}, {}, {}, { _, _, _ -> },
         )
+    }
+}
+
+/** What the plates of the 3D view do: a plate is selected, added after the last one, or deleted. */
+internal class PlateActions(
+    val select: (index: Int) -> Unit,
+    val add: () -> Unit,
+    val delete: (index: Int) -> Unit,
+) {
+    companion object {
+        val NONE = PlateActions({}, {}, {})
     }
 }
 
@@ -761,6 +801,7 @@ private fun CanvasToolbar(
     onTogglePainting: () -> Unit,
     onAddModel: () -> Unit,
     onAddCalibrationCube: () -> Unit,
+    onAddPlate: () -> Unit,
     onAutoOrient: () -> Unit,
     onAddInstance: () -> Unit,
     onRemoveInstance: () -> Unit,
@@ -783,7 +824,7 @@ private fun CanvasToolbar(
     OrcaCanvasToolbar {
         OrcaCanvasTool(DesignR.drawable.orca_toolbar_open, stringResource(R.string.add_model), onAddModel, enabled = state.canEditPlate)
         OrcaCanvasTool(DesignR.drawable.orca_tab_3d_active, stringResource(R.string.add_calibration_cube), onAddCalibrationCube, enabled = state.canEditPlate)
-        unavailable(DesignR.drawable.orca_toolbar_add_plate, R.string.toolbar_add_plate)
+        OrcaCanvasTool(DesignR.drawable.orca_toolbar_add_plate, stringResource(R.string.toolbar_add_plate), onAddPlate, enabled = state.canAddPlate)
         OrcaCanvasTool(DesignR.drawable.orca_toolbar_orient, stringResource(R.string.toolbar_orient), onAutoOrient, enabled = state.canArrange)
         OrcaCanvasTool(
             icon = DesignR.drawable.orca_toolbar_arrange,

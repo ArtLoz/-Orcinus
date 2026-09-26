@@ -1,0 +1,137 @@
+package app.orcinus.shadow.domain.plate
+
+import app.orcinus.shadow.core.model.BoundingSphere
+import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.EnginePlate
+import app.orcinus.shadow.core.model.ModelDimensions
+import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PartPlate
+import app.orcinus.shadow.core.model.PlateDescription
+import app.orcinus.shadow.core.model.PlateGeometry
+import app.orcinus.shadow.core.model.PlateGrid
+import app.orcinus.shadow.core.model.PlateInstance
+import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlateSliceResult
+import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SliceJobId
+import app.orcinus.shadow.core.model.SliceStatistics
+import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+
+class PlatesTest {
+    @Test
+    fun `the plates stand in rows of the columns OrcaSlicer counts, a fifth of a plate apart`() {
+        val grid = PlateGrid(AREA)
+        assertEquals(listOf(1, 2, 2, 2, 3, 3, 3, 3, 3, 4), (1..10).map(PlateGrid::columns))
+        assertEquals(Point2(420.0, 0.0), grid.originOf(1, 2))
+        assertEquals(Point2(420.0, -420.0), grid.originOf(4, 5))
+        // compute_origin_for_unprintable(): a full square of plates puts it in a new column.
+        assertEquals(Point2(840.0, -420.0), grid.unprintableOrigin(4))
+        assertEquals(Point2(0.0, -420.0), grid.unprintableOrigin(2))
+    }
+
+    @Test
+    fun `a plate that needs another column moves the plates and what stands on them`() {
+        // The fourth plate of four stands in the second row; a fifth one makes three columns.
+        val cube = cubeAt(420.0 + 175.0, -420.0 + 175.0)
+        val repository = FakeRepository(state(listOf(cube), plates = 4, current = 3))
+
+        AddPlateUseCase(repository)()
+
+        val state = repository.state.value
+        assertEquals(5, state.plates.size)
+        assertEquals(4, state.currentPlate)
+        assertEquals(175.0, state.objects.single().instances.single().inspection.placement.columns[12])
+        assertEquals(-245.0, state.objects.single().instances.single().inspection.placement.columns[13])
+        assertEquals(1, state.history.undo.size)
+    }
+
+    @Test
+    fun `deleting a plate sends its objects off the plates and the next plate takes its place`() {
+        val kept = ModelSettings(mapOf("curr_bed_type" to "High Temp Plate"))
+        val cube = cubeAt(175.0, 175.0)
+        val repository = FakeRepository(
+            state(listOf(cube), plates = 2, current = 0).copy(plates = listOf(PartPlate(), PartPlate(settings = kept))),
+        )
+
+        DeletePlateUseCase(repository)(0)
+
+        val state = repository.state.value
+        assertEquals(1, state.plates.size)
+        assertEquals(0, state.currentPlate)
+        assertEquals(kept, state.plateSettings)
+        // compute_origin_for_unprintable() of one plate: beside it.
+        assertEquals(595.0, state.objects.single().instances.single().inspection.placement.columns[12])
+    }
+
+    @Test
+    fun `another plate brings its own settings and G-code, and the one left keeps its own`() {
+        val own = ModelSettings(mapOf("curr_bed_type" to "Textured PEI Plate"))
+        val cube = cubeAt(175.0, 175.0)
+        val sliced = PlateSliceResult(SliceJobId("first"), listOf(cube), OutputPath("/gcode/first.gcode"), SliceStatistics(1, 1, 1.0))
+        val repository = FakeRepository(
+            state(listOf(cube), plates = 2, current = 0).copy(plates = listOf(PartPlate(), PartPlate(settings = own)), result = sliced),
+        )
+
+        SelectPlateUseCase(repository)(1)
+        val second = repository.state.value
+        assertEquals(own, second.plateSettings)
+        assertNull(second.result)
+
+        // Once the engine knows the second plate, the first one can be selected again.
+        repository.update { it.copy(enginePlate = EnginePlate(1, 2)) }
+        SelectPlateUseCase(repository)(0)
+        assertEquals(sliced, repository.state.value.result)
+        assertEquals(ModelSettings(), repository.state.value.plateSettings)
+    }
+
+    private class FakeRepository(initial: PlateState) : PlateRepository {
+        private val flow = MutableStateFlow(initial)
+        override val state: StateFlow<PlateState> = flow
+        override fun update(transform: (PlateState) -> PlateState) = flow.update(transform)
+    }
+
+    private companion object {
+        val AREA = listOf(Point2(0.0, 0.0), Point2(350.0, 0.0), Point2(350.0, 350.0), Point2(0.0, 350.0))
+
+        fun state(objects: List<PlateObject>, plates: Int, current: Int) = PlateState(
+            plate = PlateDescription(
+                PlateGeometry(AREA, 350.0, emptyList(), emptyList(), emptyList(), emptyList(), null, null),
+                ColorRgba(1f, 1f, 1f),
+            ),
+            objects = objects,
+            plates = List(plates) { PartPlate() },
+            currentPlate = current,
+            enginePlate = EnginePlate(current, plates),
+        )
+
+        fun cubeAt(x: Double, y: Double) = PlateObject.CalibrationCube(
+            listOf(
+                PlateInstance(
+                    ModelInspection(
+                        facetCount = 12,
+                        dimensions = ModelDimensions(20.0, 20.0, 20.0),
+                        boxCenter = Vector3(x, y, 10.0),
+                        mesh = ScenePath("/scene/objects/cube.mesh"),
+                        placement = Transform3(List(16) { if (it % 5 == 0) 1.0 else 0.0 }.toMutableList().also { it[12] = x; it[13] = y }),
+                        fit = BuildVolumeFit.INSIDE,
+                        boundingSphere = BoundingSphere(Vector3(x, y, 10.0), 17.32),
+                        rotationDegrees = Vector3(0.0, 0.0, 0.0),
+                        unscaledDimensions = ModelDimensions(20.0, 20.0, 20.0),
+                    ),
+                ),
+            ),
+        )
+    }
+}

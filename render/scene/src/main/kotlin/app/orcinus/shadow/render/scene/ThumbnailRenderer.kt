@@ -1,6 +1,7 @@
 package app.orcinus.shadow.render.scene
 
 import android.content.Context
+import app.orcinus.shadow.core.model.Point2
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
@@ -46,20 +47,23 @@ class ThumbnailRenderer(context: Context) {
     private val dispatcher = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "orca-thumbnails") }.asCoroutineDispatcher()
 
     /**
-     * Renders [objects] standing on [plate] in the colours of their filaments
-     * ([filamentColors], "#RRGGBB" by filament) at every one of [sizes], and
-     * writes each picture to the file [fileFor] names. The G-code's pictures
-     * show the printable copies alone ([printableOnly]), a project's every one.
+     * Renders [objects] standing on [plate], which stands at [origin] among
+     * the plates, in the colours of their filaments ([filamentColors],
+     * "#RRGGBB" by filament) at every one of [sizes], and writes each picture
+     * to the file [fileFor] names. The G-code's pictures show the printable
+     * copies alone ([printableOnly]), a project's every one.
      */
     suspend fun render(
         objects: List<PlateObject>,
         plate: PlateDescription,
+        origin: Point2,
         filamentColors: List<String>,
         sizes: List<ThumbnailSize>,
         printableOnly: Boolean,
         fileFor: (ThumbnailSize) -> ScenePath,
     ): List<ThumbnailImage> = withContext(dispatcher) {
-        val volumes = visibleVolumes(objects, plate, filamentColors, printableOnly)
+        val plateBox = buildVolume(plate, origin)
+        val volumes = visibleVolumes(objects, plate, plateBox, filamentColors, printableOnly)
         OffscreenContext().use {
             val program = GlProgram(assets, THUMBNAIL_SHADER)
             val arrays = volumes.associate { volume ->
@@ -67,7 +71,7 @@ class ThumbnailRenderer(context: Context) {
             }
             try {
                 sizes.mapNotNull { size ->
-                    val pixels = renderFramebuffer(size, program, volumes, arrays, buildVolume(plate)) ?: return@mapNotNull null
+                    val pixels = renderFramebuffer(size, program, volumes, arrays, plateBox) ?: return@mapNotNull null
                     val path = fileFor(size)
                     File(path.value).outputStream().channel.use { channel -> channel.write(pixels) }
                     ThumbnailImage(size, path)
@@ -85,11 +89,17 @@ class ThumbnailRenderer(context: Context) {
      * build volume and above the plate, without modifiers and the wipe tower
      * (ThumbnailsParams parts_only), each in the colour of its filament.
      */
-    private fun visibleVolumes(objects: List<PlateObject>, plate: PlateDescription, filamentColors: List<String>, printableOnly: Boolean): List<SceneObject> {
+    private fun visibleVolumes(
+        objects: List<PlateObject>,
+        plate: PlateDescription,
+        buildVolume: Box3,
+        filamentColors: List<String>,
+        printableOnly: Boolean,
+    ): List<SceneObject> {
         val colors = filamentColors.map { parseFilamentColor(it) }
         val default = plate.filamentColor
         fun colorOf(extruder: Int): ColorRgba = colors.getOrNull(extruder - 1) ?: default
-        val plateBox = buildVolume(plate).let { Box3(it.min.copy(z = -1e10), it.max) }
+        val plateBox = Box3(buildVolume.min.copy(z = -1e10), buildVolume.max)
         val meshes = MeshCache()
         return objects.flatMap { plateObject ->
             plateObject.instances.filter { it.printable || !printableOnly }.flatMap { instance ->
@@ -301,10 +311,13 @@ class ThumbnailRenderer(context: Context) {
         // BuildVolume::SceneEpsilon
         const val SCENE_EPSILON = 1e-4
 
-        /** PartPlate::get_build_volume(), grown by BuildVolume::SceneEpsilon as render_thumbnail_internal() grows it. */
-        fun buildVolume(plate: PlateDescription): Box3 {
+        /**
+         * PartPlate::get_build_volume() of the plate at [origin], grown by
+         * BuildVolume::SceneEpsilon as render_thumbnail_internal() grows it.
+         */
+        fun buildVolume(plate: PlateDescription, origin: Point2): Box3 {
             val geometry = plate.geometry
-            val area = Box3.of(geometry.printableArea.map { Vec3(it.x, it.y, 0.0) })
+            val area = Box3.of(geometry.printableArea.map { Vec3(it.x + origin.x, it.y + origin.y, 0.0) })
             val epsilon = Vec3(SCENE_EPSILON, SCENE_EPSILON, SCENE_EPSILON)
             return Box3(area.min - epsilon, Vec3(area.max.x, area.max.y, geometry.printableHeight) + epsilon)
         }

@@ -4613,3 +4613,44 @@ TEST_CASE("A project keeps its designer, license and auxiliary files through a s
     CHECK(info.find("\"description\":\"A cube\"") != std::string::npos);
     CHECK(read_file((fs::path(opened.project_info) / "Auxiliaries" / "Model Pictures" / "cover.png").string()) == "picture");
 }
+
+TEST_CASE("The current plate places, judges and slices objects from its own origin", "[Adapter][Plates]")
+{
+    require_engine();
+    // The K2 Plus' second plate of two: 350 mm wide, one fifth of it apart
+    // (PartPlateList::compute_origin, LOGICAL_PART_PLATE_GAP).
+    orca::select_plate(1, 2);
+
+    // A new object stands in the middle of the second plate.
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("plate-2.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    CHECK(cube.instance_matrix[12] == Catch::Approx(420.0 + 175.0));
+    CHECK(cube.volume_state == orca::VolumeState::inside);
+
+    // It is sliced from the plate's origin: the G-code puts it where it stands on the printer.
+    std::vector<double> placement = matrix_of(cube);
+    placement[12] = 420.0 + 100.0;
+    placement[13] = 120.0;
+    const std::string output = output_path("plate-2.gcode");
+    const orca::SliceResult result = orca::slice("plate-2", plate_of({}, placement), output, {}, k2_plus_profiles(), {}, {});
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    const Bounds bounds = extrusion_bounds(output);
+    REQUIRE(bounds.min_x < bounds.max_x);
+    CHECK((bounds.min_x + bounds.max_x) / 2.0 == Catch::Approx(100.0).margin(1.0));
+    CHECK((bounds.min_y + bounds.max_y) / 2.0 == Catch::Approx(120.0).margin(1.0));
+
+    // The first plate does not print what stands on the second one.
+    orca::select_plate(0, 2);
+    const orca::ModelInspection elsewhere =
+        orca::place_model({}, k2_plus_profiles(), placement, placement, true, orca::Manipulation::move, {});
+    CHECK(elsewhere.volume_state == orca::VolumeState::outside);
+
+    // The fifth plate of five opens a third column and stands in the second row.
+    orca::select_plate(4, 5);
+    const orca::ModelInspection fifth = orca::inspect_model({}, k2_plus_profiles(), output_path("plate-5.mesh"), {});
+    REQUIRE(fifth.status == orca::SceneStatus::success);
+    CHECK(fifth.instance_matrix[12] == Catch::Approx(420.0 + 175.0));
+    CHECK(fifth.instance_matrix[13] == Catch::Approx(-420.0 + 175.0));
+    orca::select_plate(0, 1);
+}

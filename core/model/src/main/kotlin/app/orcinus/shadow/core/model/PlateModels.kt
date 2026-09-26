@@ -257,15 +257,19 @@ fun PlateObject.withInstance(index: Int, instance: PlateInstance): PlateObject =
 
 /**
  * A state of the plate the undo/redo stack returns to (UndoRedo::Snapshot): its
- * objects with their meshes, what was selected, and the plate's own settings,
- * which hold where the wipe tower stands.
+ * objects with their meshes, what was selected, and the plates with their own
+ * settings, which hold where their wipe towers stand, and the current one
+ * (PartPlateList as the stack keeps it: the codes on the layers are the
+ * model's, which the stack leaves alone).
  */
 data class PlateSnapshot(
     val objects: List<PlateObject>,
     val selectedInstances: Set<PlateInstanceId>,
     val selectedPart: ObjectPartId?,
     val selectedRange: LayerRangeId?,
-    val plateSettings: ModelSettings,
+    /** Every plate with its settings alone. */
+    val plates: List<PartPlate>,
+    val currentPlate: Int,
 )
 
 /**
@@ -474,12 +478,11 @@ data class PlateProject(
 
 /**
  * What a project holds of the plate: the objects as the undo stack keeps them,
- * the plate's settings and the codes on its layers.
+ * and the plates with their settings and the codes on their layers.
  */
 data class ProjectContent(
     val objects: List<PlateObject> = emptyList(),
-    val plateSettings: ModelSettings = ModelSettings(),
-    val layerGcodes: List<LayerGcode> = emptyList(),
+    val plates: List<PartPlate> = listOf(PartPlate()),
 )
 
 /**
@@ -613,7 +616,18 @@ data class PlateState(
     val selectedPart: ObjectPartId? = null,
     /** The height range the list has selected, whose own settings the tab edits. */
     val selectedRange: LayerRangeId? = null,
-    /** The settings of the plate itself (PartPlate::config). */
+    /**
+     * The plates of the project in their order (PartPlateList). The entry of
+     * the current one holds what it held when another was current: its
+     * settings, layer codes and G-code are the fields of the plate below, and
+     * partPlates() gives every plate as it is now.
+     */
+    val plates: List<PartPlate> = listOf(PartPlate()),
+    /** PartPlateList::m_current_plate: the plate the view works on, which is judged, arranged and sliced. */
+    val currentPlate: Int = 0,
+    /** The plate the engine was told of last; the plate is busy until the engine knows the current one. */
+    val enginePlate: EnginePlate = EnginePlate(),
+    /** The settings of the current plate itself (PartPlate::config). */
     val plateSettings: ModelSettings = ModelSettings(),
     /** The wipe tower of the plate; null until the engine described it, and not shown when the plate prints with one filament. */
     val wipeTower: WipeTower? = null,
@@ -631,13 +645,14 @@ data class PlateState(
     val settingsClipboard: SettingsClipboard? = null,
     /** The volume the Simplify gizmo is open on (GLGizmoSimplify::m_volume); null while it is closed. */
     val simplifyTarget: ObjectPartId? = null,
-    /** The codes the preview's layer slider put on the layers (Model::plates_custom_gcodes), by height. */
+    /** The codes the preview's layer slider put on the layers of the current plate (Model::plates_custom_gcodes), by height. */
     val layerGcodes: List<LayerGcode> = emptyList(),
     /** The states of the plate Undo and Redo return to (Plater's UndoRedo::Stack). */
     val history: PlateHistory = PlateHistory(),
     /** Which settings the app shows: the presets, or the ones of an object (ParamsPanel's Global and Objects). */
     val settingsScope: SettingsScope = SettingsScope.GLOBAL,
     val slicing: PlateSlicing? = null,
+    /** The G-code of the current plate. */
     val result: PlateSliceResult? = null,
     val problem: PlateProblem? = null,
 ) {
@@ -674,7 +689,8 @@ data class PlateState(
     val profiles: SlicingProfileSelection?
         get() = presets?.takeUnless(Presets::setupRequired)?.selection
 
-    val busy: Boolean get() = importing || editing || slicing != null || changingPresets
+    val busy: Boolean
+        get() = importing || editing || slicing != null || changingPresets || enginePlate != EnginePlate(currentPlate, plates.size)
 
     /**
      * Plater::can_undo() and can_redo(): a state to go to, no change of the
@@ -702,8 +718,7 @@ data class PlateState(
     /** What the project holds of the plate now, settled as the undo stack keeps it. */
     fun projectContent(): ProjectContent = ProjectContent(
         objects = objects.map { plateObject -> plateObject.withInstances(plateObject.instances.map { it.copy(placing = false) }) },
-        plateSettings = plateSettings,
-        layerGcodes = layerGcodes,
+        plates = partPlates().map { PartPlate(settings = it.settings, layerGcodes = it.layerGcodes) },
     )
 
     /**

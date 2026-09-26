@@ -112,6 +112,14 @@ interface SlicerEngine {
  * Geometry is written into files the caller chooses.
  */
 interface PlateInspector {
+    /**
+     * PartPlateList::select_plate(): the requests that follow are for the
+     * plate at [index] of [count] plates, which stands where PlateGrid puts
+     * it: objects are judged by its build volume, new ones placed on it, and
+     * slicing prints it.
+     */
+    suspend fun selectPlate(index: Int, count: Int) = Unit
+
     /** Describes the plate and writes its bed model and texture into [directory]. */
     suspend fun describePlate(profiles: SlicingProfileSelection, directory: ScenePath): PlateDescriptionOutcome
 

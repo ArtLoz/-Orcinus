@@ -101,6 +101,12 @@ internal class OrcaCamera {
         lookAt(target - Vec3.UNIT_Y * (0.707 * distance) + Vec3.UNIT_Z * (0.707 * distance), target, Vec3.UNIT_Y + Vec3.UNIT_Z)
     }
 
+    /** PartPlateList::select_plate_view(): the plate view of [center], from as far as the camera is. */
+    fun selectPlateView(center: Vec3) {
+        lookAt(Vec3(center.x, center.y, distance), center, Vec3.UNIT_Y)
+        selectPlateView()
+    }
+
     fun zoomToBox(box: Box3, marginFactor: Double = DEFAULT_ZOOM_TO_BOX_MARGIN_FACTOR) {
         val factor = calcZoomToBoundingBoxFactor(box, marginFactor)
         if (factor > 0.0) {

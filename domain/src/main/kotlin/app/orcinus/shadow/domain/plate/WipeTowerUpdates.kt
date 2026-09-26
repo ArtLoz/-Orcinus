@@ -1,12 +1,11 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.FlushVolumesChange
+import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateObject
-import app.orcinus.shadow.core.model.PresetKind
-import app.orcinus.shadow.core.model.SettingState
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -40,6 +39,8 @@ class WipeTowerUpdates(
         val profiles: SlicingProfileSelection?,
         val plateSettings: ModelSettings,
         val presetValues: List<List<String>?>,
+        /** The tower stands on the plate the engine knows as the current one. */
+        val plate: EnginePlate,
     )
 
     fun start() {
@@ -50,7 +51,8 @@ class WipeTowerUpdates(
                         state.objects.map(PlateObject::placed),
                         state.profiles,
                         state.plateSettings,
-                        PRESET_TABS.map { kind -> state.settingsTabs[kind]?.settings?.settings?.map(SettingState::value) },
+                        state.presetValues(),
+                        state.enginePlate,
                     )
                 }
                 .distinctUntilChanged()
@@ -111,9 +113,6 @@ class MoveWipeTowerUseCase(private val repository: PlateRepository) {
     }
 
 }
-
-/** The tabs of the presets the tower is described with. */
-private val PRESET_TABS = listOf(PresetKind.PRINT, PresetKind.FILAMENT, PresetKind.PRINTER)
 
 private const val WIPE_TOWER_X = "wipe_tower_x"
 private const val WIPE_TOWER_Y = "wipe_tower_y"

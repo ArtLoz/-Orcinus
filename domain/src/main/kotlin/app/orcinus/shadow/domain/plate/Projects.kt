@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.DialogIcon
+import app.orcinus.shadow.core.model.plateOrigin
+import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
@@ -62,7 +64,7 @@ class SaveProjectUseCase(
             // objects on it whether it prints or not (THUMBNAIL_SIZE_3MF).
             val picture = state.plate?.let { plate ->
                 try {
-                    thumbnails.render(state.objects, plate, state.presets?.filamentColors.orEmpty(), listOf(PICTURE_SIZE), printableOnly = false) {
+                    thumbnails.render(state.objects, plate, state.plateOrigin, state.presets?.filamentColors.orEmpty(), listOf(PICTURE_SIZE), printableOnly = false) {
                         ScenePath("${prefix.value}-plate.rgba")
                     }.firstOrNull()
                 } catch (cancellation: CancellationException) {
@@ -180,6 +182,9 @@ class ProjectLifecycleUseCase(
                     selectedPart = null,
                     selectedRange = null,
                     simplifyTarget = null,
+                    // PartPlateList::reinit(): one plate again.
+                    plates = listOf(PartPlate(settings = kept)),
+                    currentPlate = 0,
                     plateSettings = kept,
                     layerGcodes = emptyList(),
                     // "New Project" is a ProjectSeparator, which clears Undo.
@@ -187,7 +192,7 @@ class ProjectLifecycleUseCase(
                     result = null,
                     problem = null,
                     project = PlateProject(
-                        baseline = ProjectContent(plateSettings = kept),
+                        baseline = ProjectContent(plates = listOf(PartPlate(settings = kept))),
                         presets = selected?.takeUnless { it.setupRequired }?.selection,
                         filamentColors = selected?.filamentColors.orEmpty(),
                     ),

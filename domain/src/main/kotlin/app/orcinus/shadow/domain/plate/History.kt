@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.PlateClipboard
+import app.orcinus.shadow.core.model.PartPlate
+import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateManipulation
@@ -22,7 +24,8 @@ internal fun PlateState.snapshot() = PlateSnapshot(
     selectedInstances = selectedInstances,
     selectedPart = selectedPart,
     selectedRange = selectedRange,
-    plateSettings = plateSettings,
+    plates = partPlates().map { PartPlate(settings = it.settings) },
+    currentPlate = currentPlate,
 )
 
 /**
@@ -74,16 +77,26 @@ class UndoRedoPlateUseCase(
 
     private fun PlateState.restored(target: PlateSnapshot, history: PlateHistory): PlateState {
         val copies = target.objects.flatMapTo(HashSet()) { plateObject -> plateObject.instances.indices.map { PlateInstanceId(plateObject.mesh, it) } }
+        val now = platesLeft()
+        val plates = target.plates.mapIndexed { index, kept ->
+            val plate = now.getOrNull(index)
+            val settings = kept.settings.withFlushVolumesOf(plateSettings)
+            PartPlate(
+                settings = settings,
+                // The codes on the layers are the model's, by plate index, which the stack leaves alone.
+                layerGcodes = plate?.layerGcodes.orEmpty(),
+                // G-code sliced before applies only while the plate prints the same.
+                result = plate?.result?.takeIf { objects == target.objects && plate.settings == settings },
+                basis = plate?.basis,
+            )
+        }
         return copy(
             objects = target.objects,
             selectedInstances = target.selectedInstances.filterTo(LinkedHashSet()) { it in copies },
             selectedPart = target.selectedPart,
             selectedRange = target.selectedRange,
-            plateSettings = target.plateSettings.withFlushVolumesOf(plateSettings),
             history = history,
-            // G-code sliced before applies only while the plate prints the same.
-            result = result.takeIf { objects == target.objects && plateSettings == target.plateSettings.withFlushVolumesOf(plateSettings) },
-        )
+        ).withPlates(plates, target.currentPlate.coerceIn(plates.indices))
     }
 }
 

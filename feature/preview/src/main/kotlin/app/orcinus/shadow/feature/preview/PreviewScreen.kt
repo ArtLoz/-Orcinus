@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.preview
 
 import android.Manifest
+import app.orcinus.shadow.core.ui.plate.PlateStrip
+import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -95,6 +97,7 @@ internal fun PreviewRoute(
     PreviewScreen(
         state = state,
         layout = currentOrcaWindowLayout(),
+        onSelectPlate = viewModel::selectPlate,
         onSlice = {
             onSliceRequested()
             viewModel.slice()
@@ -163,6 +166,7 @@ internal fun PreviewScreen(
     gcodeName: () -> String = { "plate.gcode" },
     onExportGcode: suspend (ExternalDocumentReference) -> Boolean = { false },
     layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
+    onSelectPlate: (Int) -> Unit = {},
 ) {
     val result = state.result
     var sending by rememberSaveable { mutableStateOf(false) }
@@ -280,6 +284,23 @@ internal fun PreviewScreen(
                     contentDescription = stringResource(R.string.preview_view),
                     modifier = Modifier.fillMaxSize(),
                     layer = shown,
+                    // The toolpaths stand where the current plate does (GCodeProcessor::set_xy_offset).
+                    plateOrigins = state.plateOrigins,
+                    currentPlate = state.currentPlate,
+                    followCurrentPlate = true,
+                )
+            }
+            // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), once there are several.
+            if (state.plateOrigins.size > 1) {
+                PlateStrip(
+                    count = state.plateOrigins.size,
+                    current = state.currentPlate,
+                    onSelect = onSelectPlate,
+                    enabled = state.canSelectPlate,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                        .padding(start = OrcaSidebarToggleSpace, top = 12.dp),
                 )
             }
             val controls = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -452,7 +473,12 @@ private fun SlicedInfo(result: PlateSliceResult, modifier: Modifier = Modifier) 
             OrcaInfoItem(stringResource(R.string.estimated_time), printTime(result.statistics.estimatedPrintTimeSeconds)),
             OrcaInfoItem(stringResource(R.string.used_filament), filamentLength(result.statistics.filamentMillimeters)),
             OrcaInfoItem(stringResource(R.string.layers), result.statistics.layerCount.toString()),
-            OrcaInfoItem(stringResource(R.string.model), result.objects.map { it.displayName() }.joinToString()),
+            // The objects the plate printed: a copy inside its build volume when it was sliced.
+            OrcaInfoItem(
+                stringResource(R.string.model),
+                result.objects.filter { plateObject -> plateObject.instances.any { it.printable && it.inspection.fit == BuildVolumeFit.INSIDE } }
+                    .map { it.displayName() }.joinToString(),
+            ),
         ),
         modifier = modifier,
     )

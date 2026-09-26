@@ -209,7 +209,7 @@ class PlateUseCasesTest {
         val sizes = listOf(ThumbnailSize(300, 300), ThumbnailSize(96, 96))
         val engine = FakeEngine(thumbnails = ThumbnailSizesOutcome.Success(sizes))
         var rendered: Triple<List<PlateObject>, List<String>, List<ThumbnailSize>>? = null
-        val renderer = PlateThumbnailRenderer { objects, _, colors, asked, _, fileFor ->
+        val renderer = PlateThumbnailRenderer { objects, _, _, colors, asked, _, fileFor ->
             rendered = Triple(objects, colors, asked)
             asked.map { ThumbnailImage(it, fileFor(it)) }
         }
@@ -231,7 +231,7 @@ class PlateUseCasesTest {
         val repository = FakeRepository(readyState(CUBE).copy(plate = PLATE))
         val engine = FakeEngine(thumbnails = ThumbnailSizesOutcome.Success(listOf(ThumbnailSize(300, 300))))
 
-        slicePlate(engine, repository, thumbnails = PlateThumbnailRenderer { _, _, _, _, _, _ -> error("no GL context") })()
+        slicePlate(engine, repository, thumbnails = PlateThumbnailRenderer { _, _, _, _, _, _, _ -> error("no GL context") })()
 
         assertEquals(emptyList(), engine.request?.thumbnails)
         assertEquals(STATISTICS, repository.state.value.result?.statistics)
@@ -733,7 +733,7 @@ class PlateUseCasesTest {
         var saved: List<LayerGcode>? = null
         inspector.saveProject = { _, _, _, codes, _ -> saved = codes; ProjectSaveOutcome.Success }
         val documents = FakeDocuments(name = "Box.3mf")
-        val save = SaveProjectUseCase(inspector, { _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope)
+        val save = SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope)
         val document = ExternalDocumentReference("content://documents/box")
 
         assertTrue(save.needsDocument)
@@ -750,7 +750,7 @@ class PlateUseCasesTest {
         assertEquals(listOf(document, document), documents.copied.map { it.second })
 
         // A document that cannot be written gets OrcaSlicer's message box, and the project keeps its name.
-        val failing = SaveProjectUseCase(inspector, { _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(succeeds = false), repository, scope)
+        val failing = SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(succeeds = false), repository, scope)
         failing(ExternalDocumentReference("content://documents/other"))
         assertEquals("save_project_failed", repository.state.value.plateNotices.single().id)
         assertEquals("Box", repository.state.value.project.name)
@@ -761,7 +761,7 @@ class PlateUseCasesTest {
     fun `a new project asks to save a changed plate first, and starts afresh unless cancelled`() {
         fun lifecycle(repository: FakeRepository, inspector: FakeInspector, documents: FakeDocuments) = ProjectLifecycleUseCase(
             repository,
-            SaveProjectUseCase(inspector, { _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope),
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope),
             FakePresetManager(),
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
@@ -2177,7 +2177,7 @@ class PlateUseCasesTest {
         engine: FakeEngine,
         repository: PlateRepository,
         files: FakeSceneFiles = FakeSceneFiles(),
-        thumbnails: PlateThumbnailRenderer = PlateThumbnailRenderer { _, _, _, _, _, _ -> emptyList() },
+        thumbnails: PlateThumbnailRenderer = PlateThumbnailRenderer { _, _, _, _, _, _, _ -> emptyList() },
     ) = SlicePlateUseCase(
         sliceModel = SliceModelUseCase(engine),
         renderThumbnails = RenderThumbnailsUseCase(engine, thumbnails, files),
@@ -2987,8 +2987,8 @@ class PlateUseCasesTest {
 
         override fun thumbnailOf(toolpaths: ScenePath, size: ThumbnailSize) = ScenePath("${toolpaths.value}.${size.width}x${size.height}.rgba")
 
-        override fun deleteToolpathsExcept(keep: ScenePath?) {
-            keptToolpaths = keep
+        override fun deleteToolpathsExcept(keep: Collection<ScenePath>) {
+            keptToolpaths = keep.singleOrNull()
         }
     }
 

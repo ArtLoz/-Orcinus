@@ -41,6 +41,6 @@ interface SceneFiles {
     /** A thumbnail the G-code of the slice whose toolpaths are [toolpaths] carries; deleted once the slice is done. */
     fun thumbnailOf(toolpaths: ScenePath, size: ThumbnailSize): ScenePath
 
-    /** Deletes every toolpaths file except [keep], the one the plate's result shows. */
-    fun deleteToolpathsExcept(keep: ScenePath?)
+    /** Deletes every toolpaths file except [keep], the ones the results of the plates show. */
+    fun deleteToolpathsExcept(keep: Collection<ScenePath>)
 }

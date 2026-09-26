@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.PlateDescription
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
@@ -18,15 +19,16 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 fun interface PlateThumbnailRenderer {
     /**
-     * Renders the [objects] standing on [plate], the printable ones alone
-     * when [printableOnly] (ThumbnailsParams), each in the colour of the
-     * filament it prints with ([filamentColors], "#RRGGBB" by filament), at
-     * every one of [sizes], into the file [fileFor] names. A size it cannot
-     * render is left out.
+     * Renders the [objects] standing on [plate] where it stands at [origin]
+     * among the plates, the printable ones alone when [printableOnly]
+     * (ThumbnailsParams), each in the colour of the filament it prints with
+     * ([filamentColors], "#RRGGBB" by filament), at every one of [sizes], into
+     * the file [fileFor] names. A size it cannot render is left out.
      */
     suspend fun render(
         objects: List<PlateObject>,
         plate: PlateDescription,
+        origin: Point2,
         filamentColors: List<String>,
         sizes: List<ThumbnailSize>,
         printableOnly: Boolean,
@@ -47,10 +49,11 @@ class RenderThumbnailsUseCase(
     private val renderer: PlateThumbnailRenderer,
     private val sceneFiles: SceneFiles,
 ) {
-    /** The thumbnails of a slice whose toolpaths go to [toolpaths]; their files are kept and deleted with them. */
+    /** The thumbnails of a slice of the plate at [origin] whose toolpaths go to [toolpaths]; their files are kept and deleted with them. */
     suspend operator fun invoke(
         objects: List<PlateObject>,
         plate: PlateDescription?,
+        origin: Point2,
         filamentColors: List<String>,
         profiles: SlicingProfileSelection,
         toolpaths: ScenePath,
@@ -59,7 +62,7 @@ class RenderThumbnailsUseCase(
         val sizes = (engine.thumbnailSizes(profiles) as? ThumbnailSizesOutcome.Success)?.sizes.orEmpty()
         if (sizes.isEmpty()) return emptyList()
         return try {
-            renderer.render(objects, plate, filamentColors, sizes, printableOnly = true) { size -> sceneFiles.thumbnailOf(toolpaths, size) }
+            renderer.render(objects, plate, origin, filamentColors, sizes, printableOnly = true) { size -> sceneFiles.thumbnailOf(toolpaths, size) }
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {

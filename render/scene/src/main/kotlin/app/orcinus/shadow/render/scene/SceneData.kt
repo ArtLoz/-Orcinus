@@ -1,6 +1,7 @@
 package app.orcinus.shadow.render.scene
 
 import android.graphics.Bitmap
+import app.orcinus.shadow.core.model.BuildVolumeFit
 import android.graphics.BitmapFactory
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ObjectPart
@@ -107,14 +108,16 @@ internal class SceneObject(
     val overlay: Boolean = false,
     /** GLGizmoSimplify's "Show wireframe": the edges of its triangles are drawn over it. */
     val wireframe: Boolean = false,
+    /** GLVolume::partly_inside: the copy lies across the current plate's boundary. */
+    val partlyInside: Boolean = false,
 ) {
     val bounds = mesh.bounds.transformed(world)
 
     fun withWorld(world: Affine3) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe)
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside)
 
     fun withWireframe(wireframe: Boolean) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe)
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside)
 
     /** The bounding sphere's centre in world coordinates. */
     fun sphereCenter(): Vec3 = world.transformPoint(sphereCenter)
@@ -308,6 +311,7 @@ internal object SceneLoader {
             sphereRadius = 0.5 * mesh.bounds.maxSize(),
             autoDrop = instance.autoDrop,
             printable = instance.printable,
+            partlyInside = instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE,
         )
     }
 
@@ -325,6 +329,7 @@ internal object SceneLoader {
             sphereRadius = sphere.radius,
             autoDrop = instance.autoDrop,
             printable = instance.printable,
+            partlyInside = inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE,
         )
     }
 
@@ -353,6 +358,7 @@ internal object SceneLoader {
             autoDrop = instance.autoDrop,
             printable = instance.printable,
             overlay = true,
+            partlyInside = instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE,
         )
     }
 
@@ -364,11 +370,11 @@ internal object SceneLoader {
      * the plate; one volume takes the colour of the first, since the scene
      * moves a volume as a whole.
      */
-    fun loadWipeTower(tower: WipeTower, colors: List<ColorRgba>, built: ScenePath? = null): SceneObject? {
+    fun loadWipeTower(tower: WipeTower, colors: List<ColorRgba>, built: ScenePath? = null, origin: Point2 = Point2(0.0, 0.0)): SceneObject? {
         if (built == null && tower.depth < WIPE_TOWER_MIN_DEPTH) return null
         val height = if (tower.height == 0.0) WIPE_TOWER_MIN_HEIGHT else tower.height
         val world = Affine3.assemble(
-            Vec3(tower.x, tower.y, 0.0),
+            Vec3(tower.x + origin.x, tower.y + origin.y, 0.0),
             Vec3(0.0, 0.0, Math.toRadians(tower.rotation)),
             Vec3(1.0, 1.0, 1.0),
         )

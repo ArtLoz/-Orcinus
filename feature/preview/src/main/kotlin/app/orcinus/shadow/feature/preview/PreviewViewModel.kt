@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.preview
 
 import androidx.lifecycle.ViewModel
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.plateOrigins
+import app.orcinus.shadow.domain.plate.SelectPlateUseCase
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -41,6 +44,11 @@ data class PreviewUiState(
     val filamentColors: List<String> = emptyList(),
     /** How far the slice that is running has got, from 0 to 1; null when nothing is being sliced. */
     val slicingProgress: Float? = null,
+    /** Where every plate stands (PartPlateList), and the one whose G-code the preview shows. */
+    val plateOrigins: List<Point2> = listOf(Point2(0.0, 0.0)),
+    val currentPlate: Int = 0,
+    /** Another plate can be shown: nothing is being sliced or changed. */
+    val canSelectPlate: Boolean = false,
 ) {
     /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
     val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
@@ -56,6 +64,7 @@ class PreviewViewModel(
     private val sendGcode: SendGcodeUseCase,
     private val exportGcode: ExportGcodeUseCase,
     private val editLayerGcodes: EditLayerGcodesUseCase,
+    private val selectPlate: SelectPlateUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
     val state: StateFlow<PreviewUiState> = observePlate()
@@ -63,6 +72,9 @@ class PreviewViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toPreviewUiState())
 
     fun slice() = slicePlate()
+
+    /** The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar): another plate's G-code. */
+    fun selectPlate(index: Int) = selectPlate.invoke(index)
 
     /** The layer slider's menu (IMSlider::add_code_as_tick, add_custom_gcode, delete_tick). */
     fun addPause(printZ: Double) = editLayerGcodes.add(printZ, LayerGcodeType.PAUSE_PRINT)
@@ -126,4 +138,7 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     layerGcodes = layerGcodes,
     filamentColors = presets?.filamentColors.orEmpty(),
     slicingProgress = slicing?.let { it.progress?.fraction ?: 0f },
+    plateOrigins = plateOrigins(),
+    currentPlate = currentPlate,
+    canSelectPlate = !busy,
 )

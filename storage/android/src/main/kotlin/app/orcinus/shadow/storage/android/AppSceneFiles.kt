@@ -61,8 +61,8 @@ class AppSceneFiles(context: Context) : SceneFiles {
     override fun thumbnailOf(toolpaths: ScenePath, size: ThumbnailSize): ScenePath =
         ScenePath("${toolpaths.value}.thumbnail-${size.width}x${size.height}.rgba")
 
-    override fun deleteToolpathsExcept(keep: ScenePath?) {
-        val kept = setOfNotNull(keep?.let { File(it.value) }, keep?.let { File(wipeTowerMeshOf(it).value) })
+    override fun deleteToolpathsExcept(keep: Collection<ScenePath>) {
+        val kept = keep.flatMapTo(HashSet()) { listOf(File(it.value), File(wipeTowerMeshOf(it).value)) }
         toolpaths.listFiles()?.filter { it !in kept }?.forEach(File::delete)
     }
 

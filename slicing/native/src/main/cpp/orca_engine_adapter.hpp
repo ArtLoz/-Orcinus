@@ -249,6 +249,15 @@ SliceResult slice(
 // Returns true only when job_id is the active job and cancellation was requested.
 bool cancel(const std::string& job_id);
 
+// PartPlateList::select_plate(): the plate the next requests are for, at
+// index among count plates. It stands where PartPlateList::compute_origin()
+// puts it for the printer of a request, and its build volume is the printable
+// area moved there: objects are judged by it
+// (Plater::priv::update_print_volume_state), new ones placed on it, and
+// slice() prints it with the plate's origin, from which the G-code counts
+// (Print::set_plate_origin).
+void select_plate(int index, int count);
+
 // Mesh files written by describe_plate() and inspect_model(), little-endian:
 //   char[4]   "OMSH"
 //   uint32    format version, 1

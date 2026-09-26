@@ -331,6 +331,8 @@ WipeTowerState describe_wipe_tower(
             result.message = message;
             return result;
         }
+        // The tower of the current plate follows what stands on it.
+        detail::keep_current_plate(model, config);
 
         result.status = SceneStatus::success;
         result.rotation = config_float(config, "wipe_tower_rotation_angle");

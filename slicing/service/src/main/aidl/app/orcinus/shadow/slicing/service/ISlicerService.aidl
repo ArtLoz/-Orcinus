@@ -397,6 +397,8 @@ interface ISlicerService {
     void slice(in SliceRequestParcel request, ISliceCallback callback);
     /** The thumbnails the G-code of the printer holds: width and height of each; null on failure, with the reason in error. */
     ThumbnailSizesParcel thumbnailSizes(in ProfilesParcel profiles);
+    /** select_plate(): the plate the next requests are for, among count plates. */
+    void selectPlate(int index, int count);
 
     boolean cancel(String jobId);
 }

@@ -255,11 +255,14 @@ private fun Workspace(
     val layout = currentOrcaWindowLayout()
     var sidebarVisible by rememberSaveable(layout) { mutableStateOf(layout == OrcaWindowLayout.Wide) }
 
-    var shownResult by rememberSaveable { mutableStateOf(plate.result?.jobId?.value) }
-    LaunchedEffect(plate.result?.jobId) {
+    // A slice that finishes shows its G-code; another plate becoming current,
+    // with the G-code it was sliced into before, leaves the tab as it is.
+    var runningSlice by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(plate.slicing?.jobId, plate.result?.jobId) {
+        plate.slicing?.jobId?.value?.let { runningSlice = it }
         val jobId = plate.result?.jobId?.value
-        if (jobId != null && jobId != shownResult) {
-            shownResult = jobId
+        if (jobId != null && jobId == runningSlice) {
+            runningSlice = null
             backStack.showTab(PreviewNavKey)
         }
     }

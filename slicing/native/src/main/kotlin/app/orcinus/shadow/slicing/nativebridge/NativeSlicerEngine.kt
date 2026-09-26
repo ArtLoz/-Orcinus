@@ -1293,6 +1293,11 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         NativeBindings.searchCatalog().toOutcome()
     }
 
+    // The plate is the engine's to remember whether or not it has loaded yet.
+    override suspend fun selectPlate(index: Int, count: Int) = withContext(Dispatchers.IO) {
+        NativeBindings.selectPlate(index, count)
+    }
+
     override suspend fun thumbnailSizes(profiles: SlicingProfileSelection): ThumbnailSizesOutcome =
         whenReady(ThumbnailSizesOutcome::Failure) {
             val result = NativeBindings.thumbnailSizes(

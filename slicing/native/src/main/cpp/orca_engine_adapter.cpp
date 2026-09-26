@@ -418,20 +418,59 @@ Slic3r::TriangleMesh create_mesh(const std::string& type_name, const Slic3r::Bou
     return mesh;
 }
 
+// compute_colum_count() of PartPlate.hpp: the plates stand in rows of this
+// many, as close to a square as they fill.
+int plate_columns(const int count)
+{
+    const float value = std::sqrt(static_cast<float>(count));
+    const float round_value = std::round(value);
+    return value > round_value ? static_cast<int>(round_value) + 1 : static_cast<int>(round_value);
+}
+
+// PartPlateList::compute_origin() of the current plate: every plate is as wide
+// and deep as the printable area in whole millimetres (reset_size() takes the
+// Bed3D's printable box, which the axes' tip widens by what it subtracts),
+// with a fifth of that between plates (LOGICAL_PART_PLATE_GAP); the first
+// stands at the origin, the next ones to its right, row after row towards the front.
+Slic3r::Vec2d plate_origin_of(const Slic3r::DynamicPrintConfig& config)
+{
+    constexpr double logical_part_plate_gap = 1. / 5.;
+    const Slic3r::BoundingBoxf area(config.option<Slic3r::ConfigOptionPoints>("printable_area")->values);
+    const int width = static_cast<int>(area.size().x());
+    const int depth = static_cast<int>(area.size().y());
+    const int columns = plate_columns(detail::engine().plate_count);
+    const int row = detail::engine().plate_index / columns;
+    const int column = detail::engine().plate_index % columns;
+    return {column * (width * (1. + logical_part_plate_gap)), -row * (depth * (1. + logical_part_plate_gap))};
+}
+
+// PartPlate::get_shape(): the printable area of the current plate, moved to
+// its origin among the plates.
+Slic3r::Pointfs plate_shape_of(const Slic3r::DynamicPrintConfig& config)
+{
+    Slic3r::Pointfs shape = config.option<Slic3r::ConfigOptionPoints>("printable_area")->values;
+    const Slic3r::Vec2d origin = plate_origin_of(config);
+    for (Slic3r::Vec2d& point : shape) {
+        point += origin;
+    }
+    return shape;
+}
+
+// Plater::priv::update_print_volume_state(): the build volume of the current plate.
 Slic3r::BuildVolume build_volume_of(const Slic3r::DynamicPrintConfig& config)
 {
     return Slic3r::BuildVolume(
-        config.option<Slic3r::ConfigOptionPoints>("printable_area")->values,
+        plate_shape_of(config),
         config.opt_float("printable_height"),
         {},
         {});
 }
 
-// PartPlate::get_build_volume() of the only plate: the printable area up to the
-// printable height, grown by BuildVolume::SceneEpsilon.
+// PartPlate::get_build_volume() of the current plate: the printable area up
+// to the printable height, grown by BuildVolume::SceneEpsilon.
 Slic3r::BoundingBoxf3 plate_box_of(const Slic3r::DynamicPrintConfig& config)
 {
-    const Slic3r::BoundingBoxf area(config.option<Slic3r::ConfigOptionPoints>("printable_area")->values);
+    const Slic3r::BoundingBoxf area(plate_shape_of(config));
     const double eps = Slic3r::BuildVolume::SceneEpsilon;
     return Slic3r::BoundingBoxf3(
         Slic3r::Vec3d(area.min.x() - eps, area.min.y() - eps, -eps),
@@ -1262,13 +1301,18 @@ SliceResult slice(
                 info.gcodes.push_back({code.print_z, static_cast<Slic3r::CustomGCode::Type>(code.type), code.extruder, code.color, code.extra});
             }
             std::sort(info.gcodes.begin(), info.gcodes.end());
+            // PartPlateList::select_plate() sets the model's current plate.
+            model.curr_plate_index = engine().plate_index;
             model.plates_custom_gcodes[model.curr_plate_index] = info;
         }
 
         Slic3r::Print print;
-        // PartPlate::set_print(): the print of the first plate starts at the origin.
-        // Print leaves its plate origin uninitialized, and G-code coordinates are relative to it.
-        print.set_plate_origin(Slic3r::Vec3d::Zero());
+        // PartPlate::set_print() and set_index(): the print of the current
+        // plate starts at its origin, which G-code coordinates are relative
+        // to (Print leaves it uninitialized otherwise), and takes the plate's
+        // wipe tower position.
+        print.set_plate_origin(Slic3r::to_3d(plate_origin_of(config), 0.));
+        print.set_plate_index(engine().plate_index);
         print.set_status_callback([&on_progress](const Slic3r::PrintBase::SlicingStatus& status) {
             if (on_progress && status.percent >= 0) {
                 on_progress(status.percent, status.text);
@@ -1378,6 +1422,13 @@ ThumbnailSizes thumbnail_sizes(const ProfileSelection& profiles)
         result.message = error.what();
     }
     return result;
+}
+
+void select_plate(const int index, const int count)
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    engine().plate_count = std::max(count, 1);
+    engine().plate_index = std::clamp(index, 0, engine().plate_count - 1);
 }
 
 bool cancel(const std::string& job_id)
@@ -4207,6 +4258,22 @@ bool write_mesh(const indexed_triangle_set& its, const std::string& path)
 Slic3r::BoundingBoxf3 plate_box(const Slic3r::DynamicPrintConfig& config)
 {
     return orcinus::orca::plate_box_of(config);
+}
+
+void keep_current_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config)
+{
+    const Slic3r::BoundingBoxf3 box = plate_box(config);
+    for (std::size_t index = model.objects.size(); index-- > 0;) {
+        Slic3r::ModelObject* const object = model.objects[index];
+        for (std::size_t copy = object->instances.size(); copy-- > 0;) {
+            if (!box.intersects(object->instance_convex_hull_bounding_box(copy))) {
+                object->delete_instance(copy);
+            }
+        }
+        if (object->instances.empty()) {
+            model.delete_object(index);
+        }
+    }
 }
 
 }  // namespace detail

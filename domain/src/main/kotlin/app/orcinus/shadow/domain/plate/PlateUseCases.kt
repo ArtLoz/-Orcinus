@@ -1,6 +1,9 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.partPlates
+import app.orcinus.shadow.core.model.plateOrigin
+import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.PlateProject
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.PlateHistory
@@ -150,7 +153,7 @@ class StartEngineUseCase(
         if (state.engine.availability == EngineAvailability.READY && state.presets != null) return
         if (state.objects.isEmpty()) {
             sceneFiles.deleteAllObjectMeshes()
-            sceneFiles.deleteToolpathsExcept(null)
+            sceneFiles.deleteToolpathsExcept(emptyList())
         }
         // The engine loads OrcaSlicer's profiles for seconds before it can
         // describe the plate; until then the 3D view shows the plate of the
@@ -740,6 +743,8 @@ class AddModelToPlateUseCase(
                             selectedPart = null,
                             selectedRange = null,
                             simplifyTarget = null,
+                            plates = listOf(PartPlate(settings = project.plateSettings, layerGcodes = project.layerGcodes)),
+                            currentPlate = 0,
                             plateSettings = project.plateSettings,
                             layerGcodes = project.layerGcodes,
                             history = PlateHistory(),
@@ -1065,10 +1070,14 @@ class PlacePlateObjectsUseCase(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
-    operator fun invoke(manipulation: PlateManipulation) {
+    operator fun invoke(asked: PlateManipulation) {
         var request: Triple<List<PlateObject>, Set<ScenePath>, SlicingProfileSelection>? = null
+        var manipulation = asked
         repository.update { state ->
             request = null
+            // Arranging every plate at once (ArrangeJob over PartPlateList) is
+            // not ported yet: with several plates the current one is arranged.
+            manipulation = if (asked is PlateManipulation.Arrange && state.plates.size > 1) PlateManipulation.ArrangePlate(asked.settings) else asked
             val profiles = state.profiles
             if (state.busy || profiles == null || state.objects.isEmpty() || state.objects.any(PlateObject::placing)) return@update state
             val targets = manipulation.targets(state.objects)
@@ -1895,14 +1904,16 @@ class SlicePlateUseCase(
         val profiles = plate.profiles ?: return
         val plateSettings = plate.plateSettings
         val layerGcodes = plate.layerGcodes
+        // Plater::priv::get_export_gcode_filename(): with several plates, the plate's number follows the name.
+        val plateSuffix = if (plate.plates.size > 1) "_plate_${plate.currentPlate + 1}" else ""
 
         applicationScope.launch {
             val toolpaths = sceneFiles.newToolpaths()
-            val thumbnails = renderThumbnails(objects, plate.plate, plate.presets?.filamentColors.orEmpty(), profiles, toolpaths)
+            val thumbnails = renderThumbnails(objects, plate.plate, plate.plateOrigin, plate.presets?.filamentColors.orEmpty(), profiles, toolpaths)
             val request = SliceRequest(
                 jobId = jobId,
                 objects = objects.map { it.placed() },
-                output = outputs.outputFor(objects.outputName()),
+                output = outputs.outputFor(objects.outputName() + plateSuffix),
                 toolpaths = toolpaths,
                 wipeTower = sceneFiles.wipeTowerMeshOf(toolpaths),
                 printerProfile = profiles.printer,
@@ -1924,8 +1935,8 @@ class SlicePlateUseCase(
                 SliceOutcome.Failure(jobId, SliceFailureCode.SLICING_FAILED, error.message.orEmpty(), recoverable = true)
             }
             repository.update { it.withOutcome(objects, layerGcodes, outcome) }
-            // Only the toolpaths of the result on the plate stay; a failed or replaced job leaves none.
-            sceneFiles.deleteToolpathsExcept(repository.state.value.result?.toolpaths)
+            // Only the toolpaths of the plates' results stay; a failed or replaced job leaves none.
+            sceneFiles.deleteToolpathsExcept(repository.state.value.partPlates().mapNotNull { it.result?.toolpaths })
         }
     }
 

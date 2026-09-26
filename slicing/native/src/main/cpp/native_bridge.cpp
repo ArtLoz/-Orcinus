@@ -2358,6 +2358,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_searchCatalog(JNIEnv
     return env->NewObject(result_class, constructor, static_cast<jlong>(result.status), to_java(env, result.message), options);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_selectPlate(JNIEnv* /* env */, jobject /* this */, jint index, jint count)
+{
+    orcinus::orca::select_plate(index, count);
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_thumbnailSizes(
     JNIEnv* env,

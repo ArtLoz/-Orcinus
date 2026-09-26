@@ -1,6 +1,10 @@
 package app.orcinus.shadow.di
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.SelectPlateUseCase
+import app.orcinus.shadow.domain.plate.AddPlateUseCase
+import app.orcinus.shadow.domain.plate.DeletePlateUseCase
+import app.orcinus.shadow.domain.plate.EnginePlateSync
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.domain.plate.SaveProjectUseCase
@@ -163,6 +167,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
      */
     fun startEngineEarly() {
         applicationScope.launch { startEngine() }
+        // The engine works on the plate the app shows.
+        EnginePlateSync(engine, plateRepository, placePlateObjects, applicationScope).start()
         // The wipe tower follows the plate, as the desktop canvas rebuilds it.
         wipeTowerUpdates.start()
         // Meshes go once neither the plate, its undo/redo stack nor the clipboard needs them.
@@ -174,8 +180,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     // The desktop app renders the G-code thumbnails with its 3D view's
     // renderer; the app's renderer draws them offscreen before it slices.
     private val thumbnailRenderer = ThumbnailRenderer(applicationContext)
-    private val plateThumbnails = PlateThumbnailRenderer { objects, plate, colors, sizes, printableOnly, fileFor ->
-        thumbnailRenderer.render(objects, plate, colors, sizes, printableOnly, fileFor)
+    private val plateThumbnails = PlateThumbnailRenderer { objects, plate, origin, colors, sizes, printableOnly, fileFor ->
+        thumbnailRenderer.render(objects, plate, origin, colors, sizes, printableOnly, fileFor)
     }
     private val renderThumbnails = RenderThumbnailsUseCase(
         engine = engine,
@@ -252,6 +258,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val editLayerRange = EditLayerRangeUseCase(plateRepository)
     private val setExtruder = SetExtruderUseCase(plateRepository)
     private val moveWipeTower = MoveWipeTowerUseCase(plateRepository)
+    private val selectPlate = SelectPlateUseCase(plateRepository)
     private val wipeTowerUpdates = WipeTowerUpdates(engine, plateRepository, applicationScope)
     private val setSettingsScope = SetSettingsScopeUseCase(plateRepository)
     // The object list of the sidebar and the object menu of the 3D view share them.
@@ -360,6 +367,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             previewSimplify = PreviewSimplifyUseCase(engine, sceneFiles, plateRepository),
             applySimplifyUseCase = ApplySimplifyUseCase(engine, sceneFiles, plateRepository, applicationScope),
             replaceAllVolumesUseCase = replaceAllVolumes,
+            selectPlate = selectPlate,
+            addPlate = AddPlateUseCase(plateRepository),
+            deletePlate = DeletePlateUseCase(plateRepository),
         )
     }
 
@@ -373,6 +383,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sendGcode = sendGcode,
         exportGcode = exportGcode,
         editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
+        selectPlate = selectPlate,
     )
 
     fun sidebarViewModel() = SidebarViewModel(
