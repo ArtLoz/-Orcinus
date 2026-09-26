@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.plateOrigin
 import app.orcinus.shadow.core.model.PartPlate
@@ -1070,14 +1071,23 @@ class PlacePlateObjectsUseCase(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
-    operator fun invoke(asked: PlateManipulation) {
+    /**
+     * [skipLockedPlates] off when the job works on the current plate alone
+     * (OrientJob's prepare_partplate()), which leaves no plate out.
+     */
+    operator fun invoke(asked: PlateManipulation, skipLockedPlates: Boolean = true) {
         var request: Triple<List<PlateObject>, Set<ScenePath>, SlicingProfileSelection>? = null
         var manipulation = asked
         repository.update { state ->
             request = null
-            // Arranging every plate at once (ArrangeJob over PartPlateList) is
-            // not ported yet: with several plates the current one is arranged.
-            manipulation = if (asked is PlateManipulation.Arrange && state.plates.size > 1) PlateManipulation.ArrangePlate(asked.settings) else asked
+            val locked = if (skipLockedPlates) state.lockedPlates() else emptySet()
+            manipulation = when (asked) {
+                is PlateManipulation.AutoOrient -> asked.copy(lockedPlates = locked)
+                is PlateManipulation.Arrange -> asked.copy(lockedPlates = locked)
+                is PlateManipulation.ArrangePlate -> asked.copy(lockedPlates = locked)
+                is PlateManipulation.FillBed -> asked.copy(lockedPlates = locked)
+                PlateManipulation.UpdatePrintVolume -> asked
+            }
             val profiles = state.profiles
             if (state.busy || profiles == null || state.objects.isEmpty() || state.objects.any(PlateObject::placing)) return@update state
             val targets = manipulation.targets(state.objects)
@@ -1119,7 +1129,7 @@ class PlacePlateObjectsUseCase(
                         } + added,
                     )
                 }
-                state.copy(
+                val placed = state.copy(
                     objects = objects,
                     result = state.result.takeIf { !moved },
                     problem = if (outcome is PlateInspectionOutcome.Failure) {
@@ -1128,6 +1138,11 @@ class PlacePlateObjectsUseCase(
                         state.problem
                     },
                 )
+                // ArrangeJob::finalize(): the plates added for what the others
+                // did not hold, then rebuild_plates_after_arrangement() recycles
+                // the empty ones at the end.
+                val plates = (outcome as? PlateInspectionOutcome.Success)?.plates
+                if (manipulation is PlateManipulation.Arrange && plates != null) placed.withArrangedPlates(plates) else placed
             }
         }
     }
@@ -1904,8 +1919,14 @@ class SlicePlateUseCase(
         val profiles = plate.profiles ?: return
         val plateSettings = plate.plateSettings
         val layerGcodes = plate.layerGcodes
-        // Plater::priv::get_export_gcode_filename(): with several plates, the plate's number follows the name.
-        val plateSuffix = if (plate.plates.size > 1) "_plate_${plate.currentPlate + 1}" else ""
+        // Plater::priv::get_export_gcode_filename(): the plate's name follows the
+        // name, or with several plates, its number.
+        val plateName = plate.plates.getOrNull(plate.currentPlate)?.name.orEmpty()
+        val plateSuffix = when {
+            plateName.isNotEmpty() -> "_$plateName"
+            plate.plates.size > 1 -> "_plate_${plate.currentPlate + 1}"
+            else -> ""
+        }
 
         applicationScope.launch {
             val toolpaths = sceneFiles.newToolpaths()

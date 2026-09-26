@@ -11,6 +11,10 @@ import kotlin.math.sqrt
  * GCodeResult), which applies while nothing it was sliced from changed ([basis]).
  */
 data class PartPlate(
+    /** PartPlate::m_name; empty for a plate the user did not name. */
+    val name: String = "",
+    /** PartPlate::m_locked: arranging and orienting every plate leave its objects alone. */
+    val locked: Boolean = false,
     val settings: ModelSettings = ModelSettings(),
     val layerGcodes: List<LayerGcode> = emptyList(),
     val result: PlateSliceResult? = null,
@@ -114,6 +118,9 @@ fun PlateState.plateOrigins(): List<Point2> {
 
 /** Where the current plate stands. */
 val PlateState.plateOrigin: Point2 get() = plateOrigins().getOrElse(currentPlate) { Point2(0.0, 0.0) }
+
+/** The plates arranging and orienting leave alone, by index. */
+fun PlateState.lockedPlates(): Set<Int> = plates.indices.filterTo(LinkedHashSet()) { plates[it].locked }
 
 /**
  * The plates with the current one as the plate holds it now: [PlateState]

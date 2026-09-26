@@ -36,7 +36,7 @@ internal class SceneFrame(
  * Where the plates stand, in their order, and which one is current
  * (PartPlateList): every plate is the printer's plate moved to its origin.
  */
-internal class ScenePlates(val origins: List<Vec3>, val current: Int) {
+internal class ScenePlates(val origins: List<Vec3>, val current: Int, val names: List<String> = emptyList()) {
     val currentOrigin: Vec3 get() = origins.getOrElse(current) { Vec3.ZERO }
 
     companion object {
@@ -157,7 +157,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             if (!bottom) renderBedModel(programs.hotbed, bed, frame, plates.currentOrigin)
             // PartPlateList::render()
             plates.origins.forEachIndexed { index, origin ->
-                renderPlate(programs, bed, frame, bottom, origin, index, selected = index == plates.current)
+                renderPlate(programs, bed, frame, bottom, origin, index, selected = index == plates.current, name = plates.names.getOrNull(index))
             }
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         }
@@ -226,7 +226,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
      * background of a plate other than the current one, the excluded area, the
      * grid, the current plate's texture, and the plate's number.
      */
-    private fun renderPlate(programs: Programs, bed: GpuBed, frame: SceneFrame, bottom: Boolean, origin: Vec3, index: Int, selected: Boolean) {
+    private fun renderPlate(programs: Programs, bed: GpuBed, frame: SceneFrame, bottom: Boolean, origin: Vec3, index: Int, selected: Boolean, name: String?) {
         val view = (frame.view * Affine3().translated(origin)).toFloatArray()
         val flat = programs.flat
         flat.use()
@@ -302,6 +302,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, label.id)
             bed.labelQuad.draw()
+            // render_plate_name_texture()
+            if (name != null) {
+                val (nameTexture, quad) = bed.nameLabel(name)
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nameTexture.id)
+                quad.draw()
+            }
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
             GLES30.glDisable(GLES30.GL_BLEND)
             GLES30.glDepthMask(true)
@@ -528,10 +534,24 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val boldGridLines = GlVertexArray(scene.boldGridLines, listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
         val labelQuad = GlVertexArray(PlateLabels.quad(scene.buildVolume), listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2), GLES30.GL_TRIANGLES)
 
+        /** The names written over the plates, with the squares they are drawn on, by name. */
+        private val names = HashMap<String, Pair<GlTexture, GlVertexArray>>()
+
+        fun nameLabel(name: String): Pair<GlTexture, GlVertexArray> = names.getOrPut(name) {
+            val image = PlateLabels.nameImage(name)
+            GlTexture(image.width, image.height, image.rgba) to
+                GlVertexArray(PlateLabels.nameQuad(scene.buildVolume, image), listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2), GLES30.GL_TRIANGLES)
+        }
+
         fun release() {
             model?.release()
             texture?.release()
             labelQuad.release()
+            names.values.forEach { (nameTexture, quad) ->
+                nameTexture.release()
+                quad.release()
+            }
+            names.clear()
             plateTriangles.release()
             excludeTriangles.release()
             thinGridLines.release()

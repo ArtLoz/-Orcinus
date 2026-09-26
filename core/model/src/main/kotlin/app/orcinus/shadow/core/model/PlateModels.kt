@@ -267,7 +267,7 @@ data class PlateSnapshot(
     val selectedInstances: Set<PlateInstanceId>,
     val selectedPart: ObjectPartId?,
     val selectedRange: LayerRangeId?,
-    /** Every plate with its settings alone. */
+    /** Every plate with its name, lock and settings alone. */
     val plates: List<PartPlate>,
     val currentPlate: Int,
 )
@@ -718,7 +718,7 @@ data class PlateState(
     /** What the project holds of the plate now, settled as the undo stack keeps it. */
     fun projectContent(): ProjectContent = ProjectContent(
         objects = objects.map { plateObject -> plateObject.withInstances(plateObject.instances.map { it.copy(placing = false) }) },
-        plates = partPlates().map { PartPlate(settings = it.settings, layerGcodes = it.layerGcodes) },
+        plates = partPlates().map { PartPlate(name = it.name, locked = it.locked, settings = it.settings, layerGcodes = it.layerGcodes) },
     )
 
     /**

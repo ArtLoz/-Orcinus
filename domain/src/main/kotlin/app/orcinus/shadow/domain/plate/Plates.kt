@@ -1,6 +1,11 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.EnginePlate
+import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.PlateInstance
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.PlateGrid
@@ -77,30 +82,116 @@ class AddPlateUseCase(private val repository: PlateRepository) {
  */
 class DeletePlateUseCase(private val repository: PlateRepository) {
     operator fun invoke(index: Int) = repository.update { state ->
-        val grid = state.plateGrid
-        val count = state.plates.size
-        if (!state.canDeletePlate || index !in state.plates.indices || grid == null) return@update state
-        val moves = List(count) { plate ->
-            when {
-                plate == index -> grid.unprintableOrigin(count - 1) - grid.originOf(plate, count)
-                plate > index -> grid.originOf(plate - 1, count - 1) - grid.originOf(plate, count)
-                else -> grid.originOf(plate, count - 1) - grid.originOf(plate, count)
-            }
-        }
-        val unprintable = grid.unprintableOrigin(count - 1) - grid.unprintableOrigin(count)
-        val left = state.platesLeft()
-        val plates = left.filterIndexed { plate, _ -> plate != index }
-            .mapIndexed { plate, kept -> kept.copy(layerGcodes = left[plate].layerGcodes) }
-        val current = when {
-            state.currentPlate == index && index == 0 -> 0
-            state.currentPlate >= index -> state.currentPlate - 1
-            else -> state.currentPlate
-        }
-        state.recorded()
-            .copy(objects = state.objectsMoved(moves, unprintable))
-            .withPlates(plates, current)
+        if (!state.canDeletePlate || index !in state.plates.indices) return@update state
+        state.recorded().withPlateDeleted(index) ?: state
     }
 }
+
+/**
+ * The plate's "Lock current plate" and "Unlock current plate"
+ * (PartPlateList::lock_plate), which the undo stack takes as "lock partplate":
+ * arranging and orienting every plate leave a locked plate's objects alone.
+ */
+class LockPlateUseCase(private val repository: PlateRepository) {
+    operator fun invoke(index: Int) = repository.update { state ->
+        if (!state.canChangePlates || index !in state.plates.indices) return@update state
+        val plates = state.plates.mapIndexed { at, plate -> if (at == index) plate.copy(locked = !plate.locked) else plate }
+        state.recorded().copy(plates = plates)
+    }
+}
+
+/**
+ * PlateNameEditDialog's OK (PartPlate::set_plate_name): the plate takes the
+ * name, at most 250 characters as the dialog's field holds, which the view
+ * writes over it and the G-code's file name follows.
+ */
+class RenamePlateUseCase(private val repository: PlateRepository) {
+    operator fun invoke(index: Int, name: String) = repository.update { state ->
+        if (!state.canChangePlates || index !in state.plates.indices) return@update state
+        val plates = state.plates.mapIndexed { at, plate -> if (at == index) plate.copy(name = name.take(MAX_PLATE_NAME)) else plate }
+        state.copy(plates = plates)
+    }
+
+    companion object {
+        /** The length PlateNameEditDialog's field takes. */
+        const val MAX_PLATE_NAME = 250
+    }
+}
+
+/**
+ * The plate's "Move plate to the front": the undo stack takes "move plate to
+ * the front", and PartPlateList::move_plate_to_index() puts the plate first,
+ * the ones before it one place back, each with the objects on it; the plate
+ * becomes the current one. Its settings go with it, the wipe tower positions
+ * and the codes on the layers stay with the plate indexes, as the project
+ * config and Model::plates_custom_gcodes keep them.
+ */
+class MovePlateToFrontUseCase(private val repository: PlateRepository) {
+    operator fun invoke(index: Int) = repository.update { state ->
+        val grid = state.plateGrid
+        val count = state.plates.size
+        if (!state.canChangePlates || index <= 0 || index >= count || grid == null) return@update state
+        // The new place of every plate.
+        val places = List(count) { plate -> if (plate == index) 0 else if (plate < index) plate + 1 else plate }
+        val moves = List(count) { plate -> grid.originOf(places[plate], count) - grid.originOf(plate, count) }
+        val left = state.platesLeft()
+        val plates = List(count) { at ->
+            val moved = left[places.indexOf(at)]
+            moved.copy(
+                settings = moved.settings.withWipeTowerOf(left[at].settings),
+                layerGcodes = left[at].layerGcodes,
+            )
+        }
+        state.recorded()
+            .copy(objects = state.objectsMoved(moves, unprintable = null))
+            .withPlates(plates, 0)
+    }
+}
+
+/**
+ * The plate's "Auto orient objects on current plate" and "Arrange objects on
+ * current plate" (Plater::select_plate_by_hover_id, actions 2 and 3): the
+ * plate becomes the current one, and once the engine knows it, OrientJob or
+ * ArrangeJob works on it (prepare_partplate). A locked or empty plate is left
+ * as it is.
+ */
+class PlateJobsUseCase(
+    private val repository: PlateRepository,
+    private val selectPlate: SelectPlateUseCase,
+    private val placePlateObjects: PlacePlateObjectsUseCase,
+    private val applicationScope: CoroutineScope,
+) {
+    fun orient(index: Int) = onPlate(index) { state ->
+        // prepare_partplate(): an object takes the part of its last copy, as the loop over the copies leaves the flag.
+        val selected = state.objects
+            .filter { plateObject -> plateObject.instances.lastOrNull()?.let(state::plateOf) == index }
+            .mapTo(LinkedHashSet(), PlateObject::mesh)
+        placePlateObjects(PlateManipulation.AutoOrient(selected), skipLockedPlates = false)
+    }
+
+    fun arrange(index: Int) = onPlate(index) { state -> placePlateObjects(PlateManipulation.ArrangePlate(state.arrangeSettings)) }
+
+    private fun onPlate(index: Int, job: (PlateState) -> Unit) {
+        val state = repository.state.value
+        if (index !in state.plates.indices || !state.canWorkOnPlate(index)) return
+        selectPlate(index)
+        applicationScope.launch {
+            val ready = withTimeoutOrNull(PLATE_WAIT_MILLIS) {
+                repository.state.first { it.currentPlate == index && !it.busy && it.objects.none(PlateObject::placing) }
+            } ?: return@launch
+            job(ready)
+        }
+    }
+
+    private companion object {
+        /** How long the job waits for the engine to know the plate. */
+        const val PLATE_WAIT_MILLIS = 10_000L
+    }
+}
+
+/** Whether the plate's orient and arrange work: it is not locked and has objects on it (PartPlate::empty()). */
+fun PlateState.canWorkOnPlate(index: Int): Boolean =
+    plates.getOrNull(index)?.locked == false && copies().any { plateOf(it) == index }
 
 /**
  * Tells the engine the current plate and the number of plates whenever they
@@ -143,13 +234,65 @@ class EnginePlateSync(
     }
 }
 
+/**
+ * PartPlateList::delete_plate() of the plate at [index]: its objects go where
+ * no plate is (compute_origin_for_unprintable), every later plate moves one
+ * place back with its objects, and all of them when the plates need a column
+ * less. Its wipe tower position goes with it; the codes on the layers stay
+ * with the plate indexes, as Model::plates_custom_gcodes keeps them. The plate
+ * before the deleted one becomes current when the current one was deleted or
+ * came after it. Null for the last plate.
+ */
+internal fun PlateState.withPlateDeleted(index: Int): PlateState? {
+    val grid = plateGrid ?: return null
+    val count = plates.size
+    if (count <= 1 || index !in plates.indices) return null
+    val moves = List(count) { plate ->
+        when {
+            plate == index -> grid.unprintableOrigin(count - 1) - grid.originOf(plate, count)
+            plate > index -> grid.originOf(plate - 1, count - 1) - grid.originOf(plate, count)
+            else -> grid.originOf(plate, count - 1) - grid.originOf(plate, count)
+        }
+    }
+    val unprintable = grid.unprintableOrigin(count - 1) - grid.unprintableOrigin(count)
+    val left = platesLeft()
+    val kept = left.filterIndexed { plate, _ -> plate != index }
+        .mapIndexed { plate, plateLeft -> plateLeft.copy(layerGcodes = left[plate].layerGcodes) }
+    val current = when {
+        currentPlate == index && index == 0 -> 0
+        currentPlate >= index -> currentPlate - 1
+        else -> currentPlate
+    }
+    return copy(objects = objectsMoved(moves, unprintable)).withPlates(kept, current)
+}
+
+/**
+ * ArrangeJob::finalize() after arranging every plate: plates are added up to
+ * the [count] the arrangement needed (PartPlateList::create_plate), then
+ * rebuild_plates_after_arrangement() deletes the plates at the end without
+ * objects, or without printable ones, passing over locked plates, down to the
+ * first plate.
+ */
+internal fun PlateState.withArrangedPlates(count: Int): PlateState {
+    var state = if (count > plates.size) withPlates(platesLeft() + List(count - plates.size) { PartPlate() }, currentPlate) else this
+    for (index in state.plates.lastIndex downTo 1) {
+        val onPlate = state.copies().filter { state.plateOf(it) == index }
+        state = when {
+            onPlate.none(PlateInstance::printable) -> state.withPlateDeleted(index) ?: state
+            state.plates[index].locked -> continue
+            else -> break
+        }
+    }
+    return state
+}
+
 /** Plater::can_add_plate(): fewer plates than PartPlateList::MAX_PLATES_COUNT, and nothing else going on. */
 val PlateState.canAddPlate: Boolean get() = canChangePlates && plates.size < PlateGrid.MAX_PLATES && plateGrid != null
 
 /** Plater::can_delete_plate(): more than one plate. */
 val PlateState.canDeletePlate: Boolean get() = canChangePlates && plates.size > 1 && plateGrid != null
 
-private val PlateState.canChangePlates: Boolean
+internal val PlateState.canChangePlates: Boolean
     get() = !busy && objects.none(PlateObject::placing) && history.beforeTool == null && simplifyTarget == null
 
 /** The plates as they are now, the current one with what its G-code was sliced from, as another becomes current. */
@@ -216,3 +359,9 @@ private fun ModelInspection.moved(dx: Int, dy: Int): ModelInspection {
 }
 
 private operator fun Point2.minus(other: Point2) = Point2(x - other.x, y - other.y)
+
+/** The settings with the wipe tower position of [other] (wipe_tower_x and wipe_tower_y of the project, by plate index). */
+private fun ModelSettings.withWipeTowerOf(other: ModelSettings): ModelSettings =
+    ModelSettings(values - WIPE_TOWER_KEYS + other.values.filterKeys { it in WIPE_TOWER_KEYS })
+
+private val WIPE_TOWER_KEYS = setOf("wipe_tower_x", "wipe_tower_y")

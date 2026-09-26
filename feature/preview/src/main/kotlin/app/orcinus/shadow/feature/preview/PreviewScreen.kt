@@ -169,6 +169,7 @@ internal fun PreviewScreen(
     onSelectPlate: (Int) -> Unit = {},
 ) {
     val result = state.result
+    val untitled = orcaString("Untitled")
     var sending by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     // Android 17 asks the user before an app reaches a device of the local
@@ -288,6 +289,7 @@ internal fun PreviewScreen(
                     plateOrigins = state.plateOrigins,
                     currentPlate = state.currentPlate,
                     followCurrentPlate = true,
+                    plateNames = state.plateNames.map { it.ifEmpty { untitled } },
                 )
             }
             // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), once there are several.

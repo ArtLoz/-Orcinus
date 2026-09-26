@@ -7,4 +7,6 @@ parcelable PlateInspectionParcel {
     @nullable String error;
     /** The copies of every object as placed, in the plate's order. */
     @nullable PlateObjectInspectionParcel[] inspections;
+    /** PlateInspectionOutcome.Success.plates; 0 when unknown. */
+    int plates;
 }

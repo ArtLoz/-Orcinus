@@ -470,6 +470,9 @@ struct PlateInspection {
     std::string message;
     // Every object of the plate as placed, in the plate's order.
     std::vector<PlateObjectInspection> objects;
+    // The number of plates afterwards: arranging every plate adds plates for
+    // what the others do not hold.
+    int plate_count{1};
 };
 
 // ObjectList::load_generic_subobject(): a shape added to the object as a part,
@@ -488,15 +491,17 @@ ModelInspection add_object_part(
 // Commits a manipulation of the objects of plate as the desktop app's job does.
 // selected marks the objects auto orient turns, one flag per object, and the
 // object fill_bed adds copies of; selected_instance is its selected copy, or -1
-// when the whole object is selected. An object has as many copies afterwards
-// as the result describes.
+// when the whole object is selected. locked_plates marks the plates locked
+// (PartPlate::is_locked), whose copies arranging and orienting leave alone.
+// An object has as many copies afterwards as the result describes.
 PlateInspection place_objects(
     const std::vector<PlateObject>& plate,
     const std::vector<bool>& selected,
     const ProfileSelection& profiles,
     PlateManipulation manipulation,
     const ArrangeSettings& arrange_settings,
-    int selected_instance = -1
+    int selected_instance = -1,
+    const std::vector<bool>& locked_plates = {}
 );
 
 // The wipe tower of the plate, which the desktop app draws as a volume of its

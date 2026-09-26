@@ -24,7 +24,7 @@ internal fun PlateState.snapshot() = PlateSnapshot(
     selectedInstances = selectedInstances,
     selectedPart = selectedPart,
     selectedRange = selectedRange,
-    plates = partPlates().map { PartPlate(settings = it.settings) },
+    plates = partPlates().map { PartPlate(name = it.name, locked = it.locked, settings = it.settings) },
     currentPlate = currentPlate,
 )
 
@@ -82,6 +82,8 @@ class UndoRedoPlateUseCase(
             val plate = now.getOrNull(index)
             val settings = kept.settings.withFlushVolumesOf(plateSettings)
             PartPlate(
+                name = kept.name,
+                locked = kept.locked,
                 settings = settings,
                 // The codes on the layers are the model's, by plate index, which the stack leaves alone.
                 layerGcodes = plate?.layerGcodes.orEmpty(),

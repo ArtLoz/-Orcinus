@@ -121,6 +121,8 @@ internal class NativePlateInspection(
     @JvmField val message: String,
     /** The copies of every object of the plate as placed, in the plate's order. */
     @JvmField val objects: Array<Array<NativeModelInspection>>,
+    /** The number of plates afterwards. */
+    @JvmField val plates: Int,
 )
 
 internal class NativeFlatteningPlanes(
@@ -1085,6 +1087,8 @@ internal object NativeBindings {
         arrangeAllowMultiMaterials: Boolean,
         arrangeAlignToYAxis: Boolean,
         selectedInstance: Int,
+        /** One flag per plate, set for a locked one. */
+        lockedPlates: BooleanArray,
     ): NativePlateInspection
 
     /** ObjectList::load_generic_subobject(): a shape added to the object as a part. */

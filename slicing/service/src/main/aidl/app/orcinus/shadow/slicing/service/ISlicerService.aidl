@@ -197,7 +197,8 @@ interface ISlicerService {
         String manipulation,
         in String[] selected,
         in @nullable ArrangeSettingsParcel arrangeSettings,
-        int instance
+        int instance,
+        in int[] lockedPlates
     );
     /** The wipe tower of the plate (GLCanvas3D's wipe tower volume). */
     WipeTowerParcel describeWipeTower(

@@ -119,6 +119,8 @@ fun PlateView(
     onSelectPlate: ((Int) -> Unit)? = null,
     /** Another current plate turns the view to it, as the preview's plate bar does (Plater::select_sliced_plate). */
     followCurrentPlate: Boolean = false,
+    /** What the view writes over every plate (PartPlate::generate_plate_name_texture). */
+    plateNames: List<String> = emptyList(),
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -153,7 +155,7 @@ fun PlateView(
         }
     }
     LaunchedEffect(bed) { controller.setBed(bed) }
-    LaunchedEffect(plateOrigins, currentPlate) { controller.setPlates(plateOrigins, currentPlate, followCurrentPlate) }
+    LaunchedEffect(plateOrigins, currentPlate, plateNames) { controller.setPlates(plateOrigins, currentPlate, followCurrentPlate, plateNames) }
     LaunchedEffect(layer) { controller.setLayer(layer) }
 
     val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
@@ -499,10 +501,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * (Plater::priv::on_action_add_plate: REQUIRES_ZOOM_TO_ALL_PLATE); when
      * the view [follows] the current plate, another one turns it to that plate.
      */
-    fun setPlates(origins: List<Point2>, current: Int, follows: Boolean) {
+    fun setPlates(origins: List<Point2>, current: Int, follows: Boolean, names: List<String>) {
         val added = origins.size > plates.origins.size
         val moved = current != plates.current
-        plates = ScenePlates(origins.map { Vec3(it.x, it.y, 0.0) }, current)
+        plates = ScenePlates(origins.map { Vec3(it.x, it.y, 0.0) }, current, names)
         renderer.setPlates(plates)
         val bed = bed
         if (bed != null && framedBed === bed && camera.viewportWidth > 1) {

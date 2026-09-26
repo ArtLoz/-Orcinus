@@ -427,33 +427,65 @@ int plate_columns(const int count)
     return value > round_value ? static_cast<int>(round_value) + 1 : static_cast<int>(round_value);
 }
 
-// PartPlateList::compute_origin() of the current plate: every plate is as wide
+// PartPlateList::MAX_PLATES_COUNT
+constexpr int max_plates_count = 36;
+
+// PartPlateList's layout for the printer of config: every plate is as wide
 // and deep as the printable area in whole millimetres (reset_size() takes the
 // Bed3D's printable box, which the axes' tip widens by what it subtracts),
-// with a fifth of that between plates (LOGICAL_PART_PLATE_GAP); the first
-// stands at the origin, the next ones to its right, row after row towards the front.
-Slic3r::Vec2d plate_origin_of(const Slic3r::DynamicPrintConfig& config)
+// with a fifth of that between plates (LOGICAL_PART_PLATE_GAP).
+struct PlateLayout {
+    int width{0};
+    int depth{0};
+    // plate_stride_x() and plate_stride_y()
+    double stride_x{0.0};
+    double stride_y{0.0};
+};
+
+PlateLayout plate_layout_of(const Slic3r::DynamicPrintConfig& config)
 {
     constexpr double logical_part_plate_gap = 1. / 5.;
     const Slic3r::BoundingBoxf area(config.option<Slic3r::ConfigOptionPoints>("printable_area")->values);
-    const int width = static_cast<int>(area.size().x());
-    const int depth = static_cast<int>(area.size().y());
-    const int columns = plate_columns(detail::engine().plate_count);
-    const int row = detail::engine().plate_index / columns;
-    const int column = detail::engine().plate_index % columns;
-    return {column * (width * (1. + logical_part_plate_gap)), -row * (depth * (1. + logical_part_plate_gap))};
+    PlateLayout layout;
+    layout.width = static_cast<int>(area.size().x());
+    layout.depth = static_cast<int>(area.size().y());
+    layout.stride_x = layout.width * (1. + logical_part_plate_gap);
+    layout.stride_y = layout.depth * (1. + logical_part_plate_gap);
+    return layout;
 }
 
-// PartPlate::get_shape(): the printable area of the current plate, moved to
-// its origin among the plates.
-Slic3r::Pointfs plate_shape_of(const Slic3r::DynamicPrintConfig& config)
+// PartPlateList::compute_origin() of the plate at index among count plates:
+// the first stands at the origin, the next ones to its right, row after row
+// towards the front.
+Slic3r::Vec2d plate_origin_at(const Slic3r::DynamicPrintConfig& config, const int index, const int count)
+{
+    const PlateLayout layout = plate_layout_of(config);
+    const int columns = plate_columns(count);
+    return {(index % columns) * layout.stride_x, -(index / columns) * layout.stride_y};
+}
+
+// The origin of the current plate.
+Slic3r::Vec2d plate_origin_of(const Slic3r::DynamicPrintConfig& config)
+{
+    return plate_origin_at(config, detail::engine().plate_index, detail::engine().plate_count);
+}
+
+// PartPlate::get_shape() of the plate at index among count plates: the
+// printable area moved to its origin.
+Slic3r::Pointfs plate_shape_at(const Slic3r::DynamicPrintConfig& config, const int index, const int count)
 {
     Slic3r::Pointfs shape = config.option<Slic3r::ConfigOptionPoints>("printable_area")->values;
-    const Slic3r::Vec2d origin = plate_origin_of(config);
+    const Slic3r::Vec2d origin = plate_origin_at(config, index, count);
     for (Slic3r::Vec2d& point : shape) {
         point += origin;
     }
     return shape;
+}
+
+// PartPlate::get_shape() of the current plate.
+Slic3r::Pointfs plate_shape_of(const Slic3r::DynamicPrintConfig& config)
+{
+    return plate_shape_at(config, detail::engine().plate_index, detail::engine().plate_count);
 }
 
 // Plater::priv::update_print_volume_state(): the build volume of the current plate.
@@ -466,8 +498,32 @@ Slic3r::BuildVolume build_volume_of(const Slic3r::DynamicPrintConfig& config)
         {});
 }
 
-// PartPlate::get_build_volume() of the current plate: the printable area up
-// to the printable height, grown by BuildVolume::SceneEpsilon.
+// PartPlate::get_build_volume() of the plate at index among count plates: the
+// printable area up to the printable height, grown by BuildVolume::SceneEpsilon.
+Slic3r::BoundingBoxf3 plate_box_at(const Slic3r::DynamicPrintConfig& config, const int index, const int count)
+{
+    const Slic3r::BoundingBoxf area(plate_shape_at(config, index, count));
+    const double eps = Slic3r::BuildVolume::SceneEpsilon;
+    return Slic3r::BoundingBoxf3(
+        Slic3r::Vec3d(area.min.x() - eps, area.min.y() - eps, -eps),
+        Slic3r::Vec3d(area.max.x() + eps, area.max.y() + eps, config.opt_float("printable_height") + eps));
+}
+
+// PartPlateList::find_instance(): the first of count plates the copy crosses
+// (PartPlate::intersect_instance, which puts it among the plate's instances);
+// -1 for a copy on none.
+int plate_of(const Slic3r::ModelObject& object, const std::size_t instance, const Slic3r::DynamicPrintConfig& config, const int count)
+{
+    const Slic3r::BoundingBoxf3 box = object.instance_convex_hull_bounding_box(instance);
+    for (int plate = 0; plate < count; ++plate) {
+        if (plate_box_at(config, plate, count).intersects(box)) {
+            return plate;
+        }
+    }
+    return -1;
+}
+
+// PartPlate::get_build_volume() of the current plate.
 Slic3r::BoundingBoxf3 plate_box_of(const Slic3r::DynamicPrintConfig& config)
 {
     const Slic3r::BoundingBoxf area(plate_shape_of(config));
@@ -1677,7 +1733,12 @@ ModelInspection inspect_model(
 // instances of the selected objects, or of every object when none is selected
 // (OrientJob::prepare_selection), turn as orientation::orient() finds and rest
 // on the plate.
-void auto_orient(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const std::vector<bool>& selected)
+void auto_orient(
+    Slic3r::Model& model,
+    const Slic3r::DynamicPrintConfig& config,
+    const std::vector<bool>& selected,
+    const std::vector<bool>& locked_plates
+)
 {
     Slic3r::orientation::OrientParams params;
     Slic3r::orientation::OrientParamsArea params_area;
@@ -1688,14 +1749,23 @@ void auto_orient(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config,
     params.progressind = [](unsigned, std::string) {};
     params.stopcondition = [] { return false; };
 
-    const bool all = std::find(selected.begin(), selected.end(), true) == selected.end();
+    // OrientJob::prepare_selection(): the copies of the selected objects turn,
+    // or every copy when none is selected; a copy on a locked plate stays, and
+    // when all the selected ones are on locked plates, nothing turns.
+    const int plates = detail::engine().plate_count;
     Slic3r::orientation::OrientMeshs meshes;
+    Slic3r::orientation::OrientMeshs unselected;
+    bool selected_is_locked = false;
     for (std::size_t index = 0; index < model.objects.size(); ++index) {
-        if (!all && (index >= selected.size() || !selected[index])) {
-            continue;
-        }
+        const bool chosen = index < selected.size() && selected[index];
         Slic3r::ModelObject* object = model.objects[index];
-        for (Slic3r::ModelInstance* instance : object->instances) {
+        for (std::size_t copy = 0; copy < object->instances.size(); ++copy) {
+            Slic3r::ModelInstance* instance = object->instances[copy];
+            const int plate = plate_of(*object, copy, config, plates);
+            if (plate >= 0 && plate < int(locked_plates.size()) && locked_plates[plate]) {
+                selected_is_locked |= chosen;
+                continue;
+            }
             // OrientJob::get_orient_mesh()
             Slic3r::orientation::OrientMesh mesh;
             mesh.name = object->name;
@@ -1706,8 +1776,11 @@ void auto_orient(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config,
                 instance->get_object()->invalidate_bounding_box();
                 instance->get_object()->ensure_on_bed();
             };
-            meshes.push_back(std::move(mesh));
+            (chosen ? meshes : unselected).push_back(std::move(mesh));
         }
+    }
+    if (meshes.empty() && !selected_is_locked) {
+        meshes.swap(unselected);
     }
     Slic3r::orientation::orient(meshes, {}, params);
     for (const Slic3r::orientation::OrientMesh& mesh : meshes) {
@@ -1801,39 +1874,86 @@ Slic3r::arrangement::ArrangeParams init_arrange_params(Slic3r::Model& model, con
     return params;
 }
 
-// ArrangeJob with the given settings, on the only plate: init_arrange_params(),
-// prepare_all(), or prepare_partplate() when it is only_on_plate, as the menus
-// start it, check_unprintable(), process(), and finalize(). Wipe towers do not
+// ArrangeJob with the given settings: init_arrange_params(), prepare_all() over
+// every plate, or prepare_partplate() for the current one when only_on_plate,
+// as the menus start it, check_unprintable(), process(), and finalize() with
+// PartPlateList's pre- and postprocessing of the arrange polygons. Copies on
+// locked plates stay where they are; plates are added for what the others do
+// not hold. Returns the number of plates afterwards; the app recycles the
+// empty ones at the end (rebuild_plates_after_arrangement). Wipe towers do not
 // apply to single-filament plates.
-void arrange_on_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const ArrangeSettings& settings, bool only_on_plate = false)
+int arrange_plates(
+    Slic3r::Model& model,
+    const Slic3r::DynamicPrintConfig& config,
+    const ArrangeSettings& settings,
+    const bool only_on_plate,
+    std::vector<bool> locked
+)
 {
     using namespace Slic3r;
+    using arrangement::ArrangePolygon;
+    int plates = engine().plate_count;
+    const int current = engine().plate_index;
+    locked.resize(std::size_t(plates), false);
+    // prepare_partplate(): "This plate is locked. Cannot auto-arrange on this plate."
+    if (only_on_plate && locked[std::size_t(current)]) {
+        return plates;
+    }
     arrangement::ArrangeParams params = init_arrange_params(model, config, settings);
-    const BoundingBoxf3 plate_box = plate_box_of(config);
+    const PlateLayout layout = plate_layout_of(config);
+    int columns = plate_columns(plates);
+    // The copy moved from its plate to the first one, where the arrangement happens.
+    const auto on_first_plate = [&](ArrangePolygon& polygon, const int plate) {
+        polygon.bed_idx = plate;
+        polygon.row = plate / columns;
+        polygon.col = plate % columns;
+        polygon.translation(X) -= scaled<double>(layout.stride_x * polygon.col);
+        polygon.translation(Y) += scaled<double>(layout.stride_y * polygon.row);
+    };
 
     arrangement::ArrangePolygons selected;
     arrangement::ArrangePolygons unselected;
+    arrangement::ArrangePolygons locked_items;
+    arrangement::ArrangePolygons unprintable;
+    const BoundingBoxf3 current_box = plate_box_at(config, current, plates);
     for (ModelObject* object : model.objects) {
         for (std::size_t index = 0; index < object->instances.size(); ++index) {
             ModelInstance* instance = object->instances[index];
-            if (!instance->printable)
-                continue;
-            // prepare_partplate(): a copy off the plate is locked where it is
-            // (PartPlate::intersect_instance).
-            if (only_on_plate && !plate_box.intersects(object->instance_convex_hull_bounding_box(index)))
-                continue;
-            arrangement::ArrangePolygon polygon = get_instance_arrange_poly(instance, config);
-            polygon.itemid = int(selected.size());
-            selected.emplace_back(std::move(polygon));
+            ArrangePolygon polygon = get_instance_arrange_poly(instance, config);
+            const int plate = plate_of(*object, index, config, plates);
+            bool fixed = false;
+            if (!only_on_plate) {
+                // preprocess_arrange_polygon(): the copies of a locked plate
+                // are neither arranged nor in the way.
+                if (plate >= 0 && locked[std::size_t(plate)]) {
+                    on_first_plate(polygon, plate);
+                    fixed = true;
+                }
+            } else if (plate != current && !current_box.intersects(object->instance_convex_hull_bounding_box(index))) {
+                // preprocess_arrange_polygon_other_locked(): a copy off the
+                // current plate is locked where it is.
+                if (plate >= 0) {
+                    on_first_plate(polygon, plate);
+                } else {
+                    polygon.bed_idx = max_plates_count;
+                }
+                fixed = true;
+            }
+            arrangement::ArrangePolygons& list = fixed ? locked_items : instance->printable ? selected : unprintable;
+            polygon.itemid = int(list.size());
+            list.emplace_back(std::move(polygon));
         }
     }
-    add_exclude_areas(unselected, config, MAX_NUM_PLATES, 0.0f);
+    add_exclude_areas(unselected, config, only_on_plate ? current + 1 : MAX_NUM_PLATES, 0.0f);
     // check_unprintable(): nothing without area or above the build height is arranged.
-    selected.erase(
-        std::remove_if(selected.begin(), selected.end(), [&](const arrangement::ArrangePolygon& polygon) {
-            return polygon.poly.area() < 0.001 || polygon.height > params.printable_height;
-        }),
-        selected.end());
+    for (auto it = selected.begin(); it != selected.end();) {
+        if (it->poly.area() < 0.001 || it->height > params.printable_height) {
+            unprintable.push_back(*it);
+            it = selected.erase(it);
+        } else {
+            ++it;
+        }
+    }
 
     update_arrange_params(params, &config, selected);
     update_selected_items_inflation(selected, &config, params);
@@ -1842,34 +1962,82 @@ void arrange_on_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& co
     const Points bed = get_shrink_bedpts(&config, params);
     add_exclude_areas(params.excluded_regions, config, 1, scale_(1));
     arrangement::arrange(selected, unselected, bed, params);
+    std::sort(selected.begin(), selected.end(), [](const ArrangePolygon& a, const ArrangePolygon& b) { return a.itemid < b.itemid; });
 
-    // PartPlateList::postprocess_arrange_polygon() for a list of one plate:
-    // items that do not fit go beside it, as the desktop app adds plates for them.
-    const BoundingBoxf plate = BoundingBoxf(config.option<ConfigOptionPoints>("printable_area")->values);
-    const double plate_width = plate.size().x();
-    const double plate_depth = plate.size().y();
-    const int plate_count = 1;
-    std::sort(selected.begin(), selected.end(), [](const auto& a, const auto& b) { return a.itemid < b.itemid; });
-    for (arrangement::ArrangePolygon& polygon : selected) {
+    // finalize(): the plates each copy goes to, the plates added for them.
+    const auto create_plate = [&]() -> int {
+        if (plates >= max_plates_count) {
+            return -1;
+        }
+        locked.push_back(false);
+        ++plates;
+        columns = plate_columns(plates);
+        return plates - 1;
+    };
+    int beds = 0;
+    for (ArrangePolygon& polygon : selected) {
+        if (only_on_plate) {
+            // postprocess_bed_index_for_current_plate()
+            if (polygon.bed_idx == 0) {
+                polygon.bed_idx = current;
+            } else if (polygon.bed_idx != -1) {
+                polygon.bed_idx = plates;
+            }
+        } else if (polygon.bed_idx != -1) {
+            // postprocess_bed_index_for_selected(): locked plates are skipped,
+            // and plates are created for the beds beyond the last one.
+            bool found = false;
+            for (int plate = 0; plate < plates; ++plate) {
+                if (locked[std::size_t(plate)]) {
+                    ++polygon.bed_idx;
+                } else if (polygon.bed_idx <= plate) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                for (int plate = create_plate(); plate != -1 && polygon.bed_idx > plate; plate = create_plate()) {
+                }
+            }
+        }
+        beds = std::max(polygon.bed_idx, beds);
+    }
+    // postprocess_arrange_polygon(): back from the first plate to the plate's place.
+    const auto on_plate = [&](ArrangePolygon& polygon, const bool arranged) {
+        if (!arranged && polygon.bed_idx == max_plates_count) {
+            return;
+        }
         if (polygon.bed_idx == -1) {
-            polygon.bed_idx = plate_count;
+            // Too large for a plate: beside the last one.
+            polygon.bed_idx = plates;
             const BoundingBox box = get_extents(polygon.transformed_poly());
             polygon.translation(X) = 0.5 * box.size()[0];
-            polygon.translation(Y) = scaled<double>(plate_depth) - 0.5 * box.size()[1];
+            polygon.translation(Y) = scaled<double>(static_cast<double>(layout.depth)) - 0.5 * box.size()[1];
         }
-        // compute_colum_count() of the plates the arrangement needs.
-        const int plates = std::max(plate_count, polygon.bed_idx + 1);
-        const float root = std::sqrt(float(plates));
-        const int columns = root > std::round(root) ? int(std::round(root)) + 1 : int(std::round(root));
         polygon.row = polygon.bed_idx / columns;
         polygon.col = polygon.bed_idx % columns;
-        polygon.translation(X) += scaled<double>(plate_width * (1.0 + 1.0 / 5.0) * polygon.col);
-        polygon.translation(Y) -= scaled<double>(plate_depth * (1.0 + 1.0 / 5.0) * polygon.row);
+        polygon.translation(X) += scaled<double>(layout.stride_x * polygon.col);
+        polygon.translation(Y) -= scaled<double>(layout.stride_y * polygon.row);
+    };
+    for (ArrangePolygon& polygon : locked_items) {
+        beds = std::max(polygon.bed_idx, beds);
+        on_plate(polygon, false);
+        polygon.apply();
+    }
+    for (ArrangePolygon& polygon : selected) {
+        on_plate(polygon, true);
+        polygon.apply();
+    }
+    // The unprintable copies go to the bed after the last one.
+    for (ArrangePolygon& polygon : unprintable) {
+        polygon.bed_idx = beds + 1;
+        on_plate(polygon, true);
         polygon.apply();
     }
     for (ModelObject* object : model.objects) {
         object->invalidate_bounding_box();
     }
+    return plates;
 }
 
 // Plater::get_empty_cells(): the centres of the cells of step the plate is
@@ -1905,16 +2073,17 @@ std::vector<Slic3r::Vec2f> plate_cells(const Slic3r::DynamicPrintConfig& config,
     return cells;
 }
 
-// FillBedJob(true) on the only plate: prepare(), process() and finalize(), then
-// ArrangeJob from the menu as finalize() starts it. Copies of the object at
-// object_index are added while the free area of the plate holds more, as many
-// as the arrangement packs onto the plate.
+// FillBedJob(true) on the current plate: prepare(), process() and
+// finalize(), then ArrangeJob from the menu as finalize() starts it. Copies of
+// the object at object_index are added while the free area of the plate holds
+// more, as many as the arrangement packs onto the plate.
 void fill_bed_with_instances(
     Slic3r::Model& model,
     const Slic3r::DynamicPrintConfig& config,
     const ArrangeSettings& settings,
     std::size_t object_index,
-    int selected_instance
+    int selected_instance,
+    const std::vector<bool>& locked_plates
 )
 {
     using namespace Slic3r;
@@ -1929,8 +2098,22 @@ void fill_bed_with_instances(
     if (model_object->instances.empty() || sel_id >= int(model_object->instances.size())) {
         return;
     }
-    // PartPlate::get_bounding_box_crd()
-    const BoundingBox plate_bb = Polygon::new_scale(config.option<ConfigOptionPoints>("printable_area")->values).bounding_box();
+    // PartPlate::get_bounding_box_crd() of the current plate, and bed_stride_x()
+    // and bed_stride_y() of the build volume, in scaled coordinates.
+    const BoundingBox plate_bb = Polygon::new_scale(plate_shape_of(config)).bounding_box();
+    const int plate_cols = plate_columns(engine().plate_count);
+    const int cur_plate_index = engine().plate_index;
+    const Vec2d bed_size = unscaled(plate_bb.size());
+    const double bed_stride_x = scaled<double>(bed_size.x()) * (1. + 1. / 5.);
+    const double bed_stride_y = scaled<double>(bed_size.y()) * (1. + 1. / 5.);
+    // The copies of the plate, moved to the first plate where the arrangement happens.
+    const auto on_first_plate = [&](ArrangePolygon& ap) {
+        ap.bed_idx = 0;
+        ap.row = cur_plate_index / plate_cols;
+        ap.col = cur_plate_index % plate_cols;
+        ap.translation(X) -= bed_stride_x * ap.col;
+        ap.translation(Y) += bed_stride_y * ap.row;
+    };
 
     // prepare(): the printable copies of the object are the items to pack;
     // the other copies within the plate stay fixed, and the ones off it are locked.
@@ -1947,8 +2130,7 @@ void fill_bed_with_instances(
                 ap.itemid = int(selected.size());
                 selected.emplace_back(ap);
             } else if (plate_bb.contains(ap_bb)) {
-                // On the first plate row, column and stride are 0.
-                ap.bed_idx = 0;
+                on_first_plate(ap);
                 ap.itemid = int(unselected.size());
                 unselected.emplace_back(ap);
             }
@@ -2024,7 +2206,8 @@ void fill_bed_with_instances(
         arrangement::arrange(selected, unselected, shrunk_bed, params);
     }
 
-    // finalize(): the items packed onto the plate apply, which adds the new copies.
+    // finalize(): the items packed onto the plate apply on the current plate,
+    // which adds the new copies.
     const int added_cnt = std::accumulate(selected.begin(), selected.end(), 0, [](int s, const ArrangePolygon& ap) {
         return s + int(ap.priority == 0 && ap.bed_idx == 0);
     });
@@ -2035,12 +2218,19 @@ void fill_bed_with_instances(
         if (ap.bed_idx != 0) {
             continue;
         }
+        ap.bed_idx = cur_plate_index;
+        if (selected.size() <= 100) {
+            ap.row = ap.bed_idx / plate_cols;
+            ap.col = ap.bed_idx % plate_cols;
+            ap.translation(X) += bed_stride_x * ap.col;
+            ap.translation(Y) -= bed_stride_y * ap.row;
+        }
         ap.apply();
     }
     for (ModelObject* object : model.objects) {
         object->invalidate_bounding_box();
     }
-    arrange_on_plate(model, config, settings, true);
+    arrange_plates(model, config, settings, true, locked_plates);
 }
 
 // The instance's lowest point with the transformation, as instance_bounding_box().min.z().
@@ -2557,7 +2747,8 @@ PlateInspection place_objects(
     const ProfileSelection& profiles,
     PlateManipulation manipulation,
     const ArrangeSettings& arrange_settings,
-    int selected_instance
+    int selected_instance,
+    const std::vector<bool>& locked_plates
 )
 {
     PlateInspection result;
@@ -2589,17 +2780,18 @@ PlateInspection place_objects(
             return result;
         }
         keep_models_of(plate);
+        result.plate_count = engine().plate_count;
         switch (manipulation) {
         case PlateManipulation::auto_orient:
-            auto_orient(model, config, selected);
+            auto_orient(model, config, selected, locked_plates);
             break;
         case PlateManipulation::arrange:
-            arrange_on_plate(model, config, arrange_settings);
+            result.plate_count = arrange_plates(model, config, arrange_settings, false, locked_plates);
             break;
         case PlateManipulation::update_print_volume_state:
             break;
         case PlateManipulation::arrange_plate:
-            arrange_on_plate(model, config, arrange_settings, true);
+            arrange_plates(model, config, arrange_settings, true, locked_plates);
             break;
         case PlateManipulation::fill_bed: {
             const auto object = std::find(selected.begin(), selected.end(), true);
@@ -2607,7 +2799,7 @@ PlateInspection place_objects(
                 result.message = "No object is selected";
                 return result;
             }
-            fill_bed_with_instances(model, config, arrange_settings, std::size_t(object - selected.begin()), selected_instance);
+            fill_bed_with_instances(model, config, arrange_settings, std::size_t(object - selected.begin()), selected_instance, locked_plates);
             break;
         }
         default:

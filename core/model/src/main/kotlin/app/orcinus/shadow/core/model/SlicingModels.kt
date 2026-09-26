@@ -104,8 +104,12 @@ sealed interface ModelInspectionOutcome {
 }
 
 sealed interface PlateInspectionOutcome {
-    /** The copies of every object as placed, in the order the plate listed them. */
-    data class Success(val inspections: List<List<ModelInspection>>) : PlateInspectionOutcome
+    /**
+     * The copies of every object as placed, in the order the plate listed
+     * them, and the number of [plates] afterwards, when the engine reports it:
+     * arranging every plate adds plates for what the others do not hold.
+     */
+    data class Success(val inspections: List<List<ModelInspection>>, val plates: Int? = null) : PlateInspectionOutcome
 
     data class Failure(val message: String) : PlateInspectionOutcome
 }

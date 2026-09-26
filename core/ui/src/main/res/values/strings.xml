@@ -95,4 +95,6 @@
     <string name="object_shape_cone">Конус</string>
     <string name="object_shape_disc">Диск</string>
     <string name="object_shape_torus">Тор</string>
+    <!-- The state of a plate's number in the strip of plates, whose icon shows the lock. -->
+    <string name="plate_locked">Стол заблокирован</string>
 </resources>

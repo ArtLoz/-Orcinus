@@ -111,6 +111,8 @@ val orcaIconNames = listOf(
     "custom-gcode_slicing-state_global", "custom-gcode_speed", "custom-gcode_stats", "custom-gcode_strength",
     "custom-gcode_support", "custom-gcode_temperature", "custom-gcode_time", "custom-gcode_vector",
     "custom-gcode_vector-index",
+    // PartPlate's icons (PartPlateList::generate_icon_textures).
+    "plate_close", "plate_orient", "plate_arrange", "plate_locked", "plate_unlocked", "plate_move_front", "plate_name_edit",
     "plate_settings", "printer", "process", "save", "search", "seperator",
     "spin_dec", "spin_inc", "split_objects", "split_parts", "tab_3d_active", "tab_monitor_active",
     "tab_preview_active", "toolbar_add_plate", "toolbar_arrange", "toolbar_assemble",
@@ -124,6 +126,7 @@ val orcaIconNames = listOf(
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).
 val orcaDarkIconNames = listOf(
+    "plate_close", "plate_orient", "plate_arrange", "plate_locked", "plate_unlocked", "plate_move_front", "plate_name_edit",
     "toolbar_open", "toolbar_add_plate", "toolbar_orient", "toolbar_arrange", "instance_add",
     "instance_remove", "split_objects", "split_parts", "toolbar_variable_layer_height",
     "toolbar_move", "toolbar_rotate", "toolbar_scale", "toolbar_flatten", "toolbar_cut",

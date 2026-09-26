@@ -1368,7 +1368,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
     jboolean arrange_enable_rotation,
     jboolean arrange_allow_multi_materials,
     jboolean arrange_align_to_y_axis,
-    jint selected_instance
+    jint selected_instance,
+    jbooleanArray locked_plates
 )
 {
     orcinus::orca::ArrangeSettings arrange;
@@ -1382,7 +1383,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
         to_profiles(env, printer_profile, filament_profile, process_profile),
         static_cast<orcinus::orca::PlateManipulation>(manipulation),
         arrange,
-        selected_instance
+        selected_instance,
+        to_bools(env, locked_plates)
     );
 
     const jclass inspection_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeModelInspection");
@@ -1407,9 +1409,16 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
     const jmethodID constructor = env->GetMethodID(
         result_class,
         "<init>",
-        "(JLjava/lang/String;[[Lapp/orcinus/shadow/slicing/nativebridge/NativeModelInspection;)V"
+        "(JLjava/lang/String;[[Lapp/orcinus/shadow/slicing/nativebridge/NativeModelInspection;I)V"
     );
-    return env->NewObject(result_class, constructor, static_cast<jlong>(inspection.status), to_java(env, inspection.message), objects);
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(inspection.status),
+        to_java(env, inspection.message),
+        objects,
+        static_cast<jint>(inspection.plate_count)
+    );
 }
 
 extern "C" JNIEXPORT jobject JNICALL

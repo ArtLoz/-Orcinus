@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.PartPlate
+import app.orcinus.shadow.core.model.lockedPlates
+import app.orcinus.shadow.domain.plate.canWorkOnPlate
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.domain.plate.canAddPlate
@@ -96,6 +99,11 @@ data class PrepareUiState(
     /** Plater::can_add_plate() and can_delete_plate(). */
     val canAddPlate: Boolean = false,
     val canDeletePlate: Boolean = false,
+    /** The plates' names, empty for one the user did not name, and the locked plates. */
+    val plateNames: List<String> = listOf(""),
+    val lockedPlates: Set<Int> = emptySet(),
+    /** The plates their orient and arrange work on: not locked, with objects. */
+    val workablePlates: Set<Int> = emptySet(),
     /** Position of the selected object. */
     val selectedPosition: ObjectPosition?,
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
@@ -260,6 +268,9 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         currentPlate = currentPlate,
         canAddPlate = canAddPlate && canEditPlate,
         canDeletePlate = canDeletePlate && canEditPlate,
+        plateNames = plates.map(PartPlate::name),
+        lockedPlates = lockedPlates(),
+        workablePlates = plates.indices.filterTo(mutableSetOf(), ::canWorkOnPlate),
         selectedPosition = selected?.placement?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
         selectedRotation = selected?.rotationDegrees,
         canResetRotation = selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart),

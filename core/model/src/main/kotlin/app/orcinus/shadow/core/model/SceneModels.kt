@@ -57,17 +57,29 @@ sealed interface Manipulation {
 /** Slic3r::Axis. */
 enum class Axis { X, Y, Z }
 
-/** How OrcaSlicer's jobs place several objects of the plate at once. */
+/**
+ * How OrcaSlicer's jobs place several objects of the plate at once. The
+ * copies on the [lockedPlates] (PartPlate::is_locked, by plate index) stay
+ * where they are.
+ */
 sealed interface PlateManipulation {
+    val lockedPlates: Set<Int> get() = emptySet()
+
     /**
      * OrientJob from the toolbar: the objects with the [selected] mesh files, or
      * every object when none is selected, turn to the orientation with the least
      * support area and rest on the plate.
      */
-    data class AutoOrient(val selected: Set<ScenePath> = emptySet()) : PlateManipulation
+    data class AutoOrient(
+        val selected: Set<ScenePath> = emptySet(),
+        override val lockedPlates: Set<Int> = emptySet(),
+    ) : PlateManipulation
 
-    /** ArrangeJob from the arrange options (prepare_all): every object arranged on the plate with [settings]. */
-    data class Arrange(val settings: ArrangeSettings) : PlateManipulation
+    /**
+     * ArrangeJob from the arrange options (prepare_all): every object arranged
+     * on the plates with [settings], plates added for what they do not hold.
+     */
+    data class Arrange(val settings: ArrangeSettings, override val lockedPlates: Set<Int> = emptySet()) : PlateManipulation
 
     /**
      * Plater::on_config_change() for another printer: every object stays where
@@ -80,7 +92,7 @@ sealed interface PlateManipulation {
      * the copies on the plate or over its edge arranged with [settings]; the
      * ones off it stay where they are.
      */
-    data class ArrangePlate(val settings: ArrangeSettings) : PlateManipulation
+    data class ArrangePlate(val settings: ArrangeSettings, override val lockedPlates: Set<Int> = emptySet()) : PlateManipulation
 
     /**
      * FillBedJob with instances ("Fill bed with instances"): copies of the
@@ -88,7 +100,12 @@ sealed interface PlateManipulation {
      * whole object), added while the free area of the plate holds more; then
      * the plate arranged as [ArrangePlate] arranges it.
      */
-    data class FillBed(val mesh: ScenePath, val instance: Int?, val settings: ArrangeSettings) : PlateManipulation
+    data class FillBed(
+        val mesh: ScenePath,
+        val instance: Int?,
+        val settings: ArrangeSettings,
+        override val lockedPlates: Set<Int> = emptySet(),
+    ) : PlateManipulation
 }
 
 /** Where copied objects go (CopyPlacement in the engine). */

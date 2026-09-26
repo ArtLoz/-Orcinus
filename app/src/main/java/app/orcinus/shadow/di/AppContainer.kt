@@ -1,6 +1,10 @@
 package app.orcinus.shadow.di
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.LockPlateUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateUseCase
+import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
+import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateUseCase
 import app.orcinus.shadow.domain.plate.AddPlateUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
@@ -370,6 +374,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             selectPlate = selectPlate,
             addPlate = AddPlateUseCase(plateRepository),
             deletePlate = DeletePlateUseCase(plateRepository),
+            lockPlate = LockPlateUseCase(plateRepository),
+            renamePlate = RenamePlateUseCase(plateRepository),
+            movePlateToFront = MovePlateToFrontUseCase(plateRepository),
+            plateJobs = PlateJobsUseCase(plateRepository, selectPlate, placePlateObjects, applicationScope),
         )
     }
 

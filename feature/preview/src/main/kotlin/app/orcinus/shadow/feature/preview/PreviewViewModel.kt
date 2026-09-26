@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.preview
 
 import androidx.lifecycle.ViewModel
+import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.domain.plate.SelectPlateUseCase
@@ -49,6 +50,8 @@ data class PreviewUiState(
     val currentPlate: Int = 0,
     /** Another plate can be shown: nothing is being sliced or changed. */
     val canSelectPlate: Boolean = false,
+    /** The plates' names, empty for one the user did not name. */
+    val plateNames: List<String> = listOf(""),
 ) {
     /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
     val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
@@ -141,4 +144,5 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     plateOrigins = plateOrigins(),
     currentPlate = currentPlate,
     canSelectPlate = !busy,
+    plateNames = plates.map(PartPlate::name),
 )

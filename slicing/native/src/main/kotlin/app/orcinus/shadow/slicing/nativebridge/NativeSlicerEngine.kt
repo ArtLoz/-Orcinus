@@ -810,12 +810,14 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             arrangeAllowMultiMaterials = arrange.allowMultiMaterialsOnSamePlate,
             arrangeAlignToYAxis = arrange.alignToYAxis,
             selectedInstance = (manipulation as? PlateManipulation.FillBed)?.instance ?: -1,
+            lockedPlates = manipulation.lockedPlates.let { locked -> BooleanArray((locked.maxOrNull() ?: -1) + 1) { it in locked } },
         )
         if (result.status != NativeSceneStatus.SUCCESS || result.objects.size != plate.size) {
             return@withContext PlateInspectionOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not place the objects" })
         }
         PlateInspectionOutcome.Success(
             result.objects.mapIndexed { index, copies -> copies.map { it.toInspection(plate[index].mesh) } },
+            plates = result.plates,
         )
     }
 

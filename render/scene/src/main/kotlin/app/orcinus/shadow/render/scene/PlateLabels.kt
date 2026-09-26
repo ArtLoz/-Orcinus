@@ -24,8 +24,13 @@ internal object PlateLabels {
     private const val PARTPLATE_TEXT_OFFSET_X2 = 1.0
     private const val PARTPLATE_TEXT_OFFSET_Y = 1.0
 
+    private const val PARTPLATE_EDIT_PLATE_NAME_ICON_SIZE = 9.0
+
     /** PartPlateList::generate_icon_textures(): wxGetApp().em_unit() * PARTPLATE_ICON_SIZE at 100 %. */
     private const val FONT_SIZE = 10f * 16f
+
+    /** PartPlate::generate_plate_name_texture(): wxGetApp().em_unit() * PARTPLATE_EDIT_PLATE_NAME_ICON_SIZE. */
+    private const val NAME_FONT_SIZE = 10f * 9f
 
     /** The foreground generate_from_text_string() is given. */
     private const val RED = 0xF2
@@ -37,11 +42,15 @@ internal object PlateLabels {
      * power-of-two bitmap, its top left corner; the texture takes the
      * foreground colour, with the text's whiteness as its alpha.
      */
-    fun image(index: Int): TextureImage {
-        val text = if (index < 9) "0${index + 1}" else "${index + 1}"
+    fun image(index: Int): TextureImage = textImage(if (index < 9) "0${index + 1}" else "${index + 1}", FONT_SIZE)
+
+    /** PartPlate::generate_plate_name_texture(): the plate's name, as the numbers are written. */
+    fun nameImage(name: String): TextureImage = textImage(name, NAME_FONT_SIZE)
+
+    private fun textImage(text: String, fontSize: Float): TextureImage {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = Typeface.DEFAULT_BOLD
-            textSize = FONT_SIZE
+            textSize = fontSize
             color = Color.WHITE
         }
         val metrics = paint.fontMetrics
@@ -94,6 +103,35 @@ internal object PlateLabels {
                 2 -> GROUND_Z
                 3 -> ((px - x0) / (x1 - x0)).toFloat()
                 else -> (-(py - y0) / (y1 - y0)).toFloat()
+            }
+        })
+    }
+
+    /**
+     * generate_plate_name_texture(): over the plate's back left corner, as tall
+     * as PARTPLATE_EDIT_PLATE_NAME_ICON_SIZE scaled by the plate's depth over
+     * 200 mm and as wide as the texture's proportions make it.
+     */
+    fun nameQuad(area: Box3, image: TextureImage): FloatBuffer {
+        val factor = (area.max.y - area.min.y) / 200.0
+        val height = PARTPLATE_EDIT_PLATE_NAME_ICON_SIZE * factor
+        val width = height * image.width / image.height
+        return quadOf(area.min.x, area.max.y + PARTPLATE_TEXT_OFFSET_Y * factor, width, height)
+    }
+
+    /** A textured square from ([x], [y]), [width] by [height], as init_model_from_poly() maps its bounding box. */
+    private fun quadOf(x: Double, y: Double, width: Double, height: Double): FloatBuffer {
+        val x1 = x + width
+        val y1 = y + height
+        val corners = listOf(x to y, x1 to y, x1 to y1, x to y, x1 to y1, x to y1)
+        return GlVertexArray.floatBuffer(FloatArray(corners.size * 5) { index ->
+            val (px, py) = corners[index / 5]
+            when (index % 5) {
+                0 -> px.toFloat()
+                1 -> py.toFloat()
+                2 -> GROUND_Z
+                3 -> ((px - x) / width).toFloat()
+                else -> (-(py - y) / height).toFloat()
             }
         })
     }

@@ -4654,3 +4654,62 @@ TEST_CASE("The current plate places, judges and slices objects from its own orig
     CHECK(fifth.instance_matrix[13] == Catch::Approx(-420.0 + 175.0));
     orca::select_plate(0, 1);
 }
+
+TEST_CASE("Arranging every plate leaves a locked plate alone and adds plates for what the others do not hold", "[Adapter][Plates]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("plates-arrange.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<double> centred = matrix_of(cube);
+
+    SECTION("a locked plate keeps its cube, and the other plate's cube goes to its centre")
+    {
+        orca::select_plate(0, 2);
+        std::vector<orca::PlateObject> plate = plate_of({}, centred);
+        plate.push_back(plate.front());
+        plate[0].instances[0].matrix[12] = 30.0;
+        plate[1].instances[0].matrix[12] = 420.0 + 30.0;
+
+        const orca::PlateInspection arranged =
+            orca::place_objects(plate, {}, k2_plus_profiles(), orca::PlateManipulation::arrange, {}, -1, {true, false});
+
+        INFO(arranged.message);
+        REQUIRE(arranged.status == orca::SceneStatus::success);
+        CHECK(arranged.plate_count == 2);
+        CHECK(arranged.objects[0].instances[0].instance_matrix[12] == Catch::Approx(30.0));
+        CHECK(arranged.objects[1].instances[0].instance_matrix[12] == Catch::Approx(420.0 + 175.0).margin(1.0));
+        CHECK(arranged.objects[1].instances[0].instance_matrix[13] == Catch::Approx(175.0).margin(1.0));
+    }
+    SECTION("three cubes of 200 mm take a plate each, the third in the second row")
+    {
+        orca::select_plate(0, 1);
+        std::vector<double> big = centred;
+        big[0] = big[5] = big[10] = 10.0;
+        big[14] = 100.0;
+        const std::vector<orca::PlateObject> plate(3, plate_of({}, big).front());
+
+        const orca::PlateInspection arranged = orca::place_objects(plate, {}, k2_plus_profiles(), orca::PlateManipulation::arrange, {});
+
+        INFO(arranged.message);
+        REQUIRE(arranged.status == orca::SceneStatus::success);
+        CHECK(arranged.plate_count == 3);
+        std::vector<std::pair<double, double>> centres;
+        for (const orca::PlateObjectInspection& object : arranged.objects) {
+            const auto& matrix = object.instances[0].instance_matrix;
+            centres.emplace_back(matrix[12], matrix[13]);
+        }
+        // By plate column, then from the front.
+        std::sort(centres.begin(), centres.end(), [](const auto& a, const auto& b) {
+            return std::lround(a.first) != std::lround(b.first) ? a.first < b.first : a.second < b.second;
+        });
+        // Plates at (0, 0), (420, 0) and, with two columns, (0, -420).
+        REQUIRE(centres.size() == 3);
+        CHECK(centres[0].first == Catch::Approx(175.0).margin(1.0));
+        CHECK(centres[0].second == Catch::Approx(-245.0).margin(1.0));
+        CHECK(centres[1].first == Catch::Approx(175.0).margin(1.0));
+        CHECK(centres[1].second == Catch::Approx(175.0).margin(1.0));
+        CHECK(centres[2].first == Catch::Approx(595.0).margin(1.0));
+        CHECK(centres[2].second == Catch::Approx(175.0).margin(1.0));
+    }
+    orca::select_plate(0, 1);
+}

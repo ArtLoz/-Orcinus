@@ -351,8 +351,13 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             selected: Array<String>,
             arrangeSettings: ArrangeSettingsParcel?,
             instance: Int,
+            lockedPlates: IntArray,
         ): PlateInspectionParcel = runBlocking {
-            engine.placeObjects(plate.toPlacedModels(), profiles.toProfiles(), plateManipulationOf(manipulation, selected, arrangeSettings, instance))
+            engine.placeObjects(
+                plate.toPlacedModels(),
+                profiles.toProfiles(),
+                plateManipulationOf(manipulation, selected, arrangeSettings, instance, lockedPlates),
+            )
         }.toParcel()
 
         override fun updateFlushVolumes(

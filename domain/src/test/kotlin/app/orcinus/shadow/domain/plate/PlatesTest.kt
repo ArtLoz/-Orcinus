@@ -96,6 +96,37 @@ class PlatesTest {
         assertEquals(ModelSettings(), repository.state.value.plateSettings)
     }
 
+    @Test
+    fun `arranging keeps the plates it needed and recycles the empty ones at the end`() {
+        val first = cubeAt(175.0, 175.0)
+        val third = cubeAt(175.0, -245.0)
+        val arranged = state(listOf(first, third), plates = 1, current = 0).withArrangedPlates(4)
+
+        // The third plate holds a cube, so the fourth goes and the second stays.
+        assertEquals(3, arranged.plates.size)
+        assertEquals(listOf(first, third), arranged.objects)
+        assertEquals(1, state(listOf(first), plates = 1, current = 0).withArrangedPlates(3).plates.size)
+    }
+
+    @Test
+    fun `a plate moved to the front takes its objects and settings, and the tower positions stay with the places`() {
+        val tower = ModelSettings(mapOf("wipe_tower_x" to "10.000", "wipe_tower_y" to "20.000"))
+        val named = PartPlate(name = "Brackets", settings = ModelSettings(mapOf("curr_bed_type" to "High Temp Plate")))
+        val cube = cubeAt(420.0 + 175.0, 175.0)
+        val repository = FakeRepository(
+            state(listOf(cube), plates = 2, current = 0).copy(plates = listOf(PartPlate(settings = tower), named), plateSettings = tower),
+        )
+
+        MovePlateToFrontUseCase(repository)(1)
+
+        val state = repository.state.value
+        assertEquals(listOf("Brackets", ""), state.plates.map(PartPlate::name))
+        assertEquals(0, state.currentPlate)
+        assertEquals(ModelSettings(mapOf("curr_bed_type" to "High Temp Plate") + tower.values), state.plateSettings)
+        assertEquals(175.0, state.objects.single().instances.single().inspection.placement.columns[12])
+        assertEquals(1, state.history.undo.size)
+    }
+
     private class FakeRepository(initial: PlateState) : PlateRepository {
         private val flow = MutableStateFlow(initial)
         override val state: StateFlow<PlateState> = flow

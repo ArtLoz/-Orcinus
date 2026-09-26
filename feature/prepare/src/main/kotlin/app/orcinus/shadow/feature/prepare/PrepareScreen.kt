@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.ui.plate.PlateMenuItems
+import app.orcinus.shadow.core.ui.plate.PlateIconActions
+import app.orcinus.shadow.core.ui.plate.PlateNameDialog
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.plate.PartShapeSheet
@@ -163,7 +166,16 @@ internal fun PrepareRoute(
         onAddCalibrationCube = viewModel::addCalibrationCube,
         onSelectObject = viewModel::selectObject,
         onMoveWipeTower = viewModel::moveWipeTower,
-        plateActions = PlateActions(select = viewModel::selectPlate, add = viewModel::addPlate, delete = viewModel::deletePlate),
+        plateActions = PlateActions(
+            select = viewModel::selectPlate,
+            add = viewModel::addPlate,
+            delete = viewModel::deletePlate,
+            lock = viewModel::lockPlate,
+            rename = viewModel::renamePlate,
+            moveToFront = viewModel::movePlateToFront,
+            orient = viewModel::orientPlate,
+            arrange = viewModel::arrangePlate,
+        ),
         onTogglePainting = viewModel::togglePainting,
         paintingActions = PaintingActions(
             paint = viewModel::paint,
@@ -326,6 +338,8 @@ internal fun PrepareScreen(
         var askingCopies by remember { mutableStateOf<Int?>(null) }
         var cloning by remember { mutableStateOf<Int?>(null) }
         var addingPart by remember { mutableStateOf<Pair<Int, VolumeType>?>(null) }
+        var renamingPlate by remember { mutableStateOf<Int?>(null) }
+        val untitled = orcaString("Untitled")
         // Previews have no OpenGL; they show the canvas colour.
         if (!LocalInspectionMode.current) {
             PlateView(
@@ -352,6 +366,7 @@ internal fun PrepareScreen(
                 plateOrigins = state.plateOrigins,
                 currentPlate = state.currentPlate,
                 onSelectPlate = plateActions.select,
+                plateNames = state.plateNames.map { it.ifEmpty { untitled } },
             )
         }
         plateMenu?.let { position ->
@@ -399,6 +414,16 @@ internal fun PrepareScreen(
                     },
                 )
             }
+        }
+        renamingPlate?.let { index ->
+            PlateNameDialog(
+                name = state.plateNames.getOrNull(index).orEmpty(),
+                onDismiss = { renamingPlate = null },
+                onConfirm = { name ->
+                    renamingPlate = null
+                    plateActions.rename(index, name)
+                },
+            )
         }
         addingPart?.let { (index, type) ->
             PartShapeSheet(
@@ -500,15 +525,24 @@ internal fun PrepareScreen(
                         current = state.currentPlate,
                         onSelect = plateActions.select,
                         enabled = state.canEditPlate,
+                        locked = state.lockedPlates,
                     ) { index, dismiss ->
-                        // PartPlate's delete icon (select_plate_by_hover_id, action 1).
-                        OrcaMenuItem(
-                            text = orcaString("Remove current plate (if not last one)"),
-                            onClick = {
-                                dismiss()
-                                plateActions.delete(index)
-                            },
-                            enabled = state.canDeletePlate,
+                        // PartPlate's icons (Plater::select_plate_by_hover_id).
+                        PlateMenuItems(
+                            actions = PlateIconActions(
+                                delete = { plateActions.delete(index) },
+                                orient = { plateActions.orient(index) },
+                                arrange = { plateActions.arrange(index) },
+                                lock = { plateActions.lock(index) },
+                                moveToFront = { plateActions.moveToFront(index) },
+                                rename = { renamingPlate = index },
+                            ),
+                            dismiss = dismiss,
+                            enabled = state.canEditPlate,
+                            locked = index in state.lockedPlates,
+                            workable = index in state.workablePlates,
+                            deletable = state.canDeletePlate,
+                            first = index == 0,
                         )
                     }
                 }
@@ -569,14 +603,19 @@ internal class PrepareObjectMenuActions(
     }
 }
 
-/** What the plates of the 3D view do: a plate is selected, added after the last one, or deleted. */
+/** What the plates of the 3D view do: selected, added after the last one, and what their icons do. */
 internal class PlateActions(
     val select: (index: Int) -> Unit,
     val add: () -> Unit,
     val delete: (index: Int) -> Unit,
+    val lock: (index: Int) -> Unit,
+    val rename: (index: Int, name: String) -> Unit,
+    val moveToFront: (index: Int) -> Unit,
+    val orient: (index: Int) -> Unit,
+    val arrange: (index: Int) -> Unit,
 ) {
     companion object {
-        val NONE = PlateActions({}, {}, {})
+        val NONE = PlateActions({}, {}, {}, {}, { _, _ -> }, {}, {}, {})
     }
 }
 

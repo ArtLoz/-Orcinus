@@ -1,6 +1,10 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.LockPlateUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateUseCase
+import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
+import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateUseCase
 import app.orcinus.shadow.domain.plate.AddPlateUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
@@ -137,6 +141,10 @@ class PrepareViewModel(
     private val selectPlate: SelectPlateUseCase,
     private val addPlate: AddPlateUseCase,
     private val deletePlate: DeletePlateUseCase,
+    private val lockPlate: LockPlateUseCase,
+    private val renamePlate: RenamePlateUseCase,
+    private val movePlateToFront: MovePlateToFrontUseCase,
+    private val plateJobs: PlateJobsUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -262,6 +270,20 @@ class PrepareViewModel(
 
     /** The plate's "Remove current plate (if not last one)". */
     fun deletePlate(index: Int) = deletePlate.invoke(index)
+
+    /** The plate's lock icon. */
+    fun lockPlate(index: Int) = lockPlate.invoke(index)
+
+    /** PlateNameEditDialog's OK. */
+    fun renamePlate(index: Int, name: String) = renamePlate.invoke(index, name)
+
+    /** The plate's "Move plate to the front". */
+    fun movePlateToFront(index: Int) = movePlateToFront.invoke(index)
+
+    /** The plate's "Auto orient objects on current plate" and "Arrange objects on current plate". */
+    fun orientPlate(index: Int) = plateJobs.orient(index)
+
+    fun arrangePlate(index: Int) = plateJobs.arrange(index)
 
     /**
      * GLGizmoMmuSegmentation: the colour painting tool opens on the selected

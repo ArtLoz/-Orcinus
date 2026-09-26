@@ -450,19 +450,25 @@ private fun InspectionParcel.toInspection() = ModelInspection(
 internal fun PlateInspectionOutcome.toParcel() = PlateInspectionParcel().also {
     when (this) {
         is PlateInspectionOutcome.Failure -> it.error = message
-        is PlateInspectionOutcome.Success -> it.inspections = Array(inspections.size) { index ->
-            PlateObjectInspectionParcel().also { object_ ->
-                object_.instances = Array(inspections[index].size) { copy ->
-                    ModelInspectionOutcome.Success(inspections[index][copy]).toParcel()
+        is PlateInspectionOutcome.Success -> {
+            it.inspections = Array(inspections.size) { index ->
+                PlateObjectInspectionParcel().also { object_ ->
+                    object_.instances = Array(inspections[index].size) { copy ->
+                        ModelInspectionOutcome.Success(inspections[index][copy]).toParcel()
+                    }
                 }
             }
+            it.plates = plates ?: 0
         }
     }
 }
 
 internal fun PlateInspectionParcel.toPlateInspectionOutcome(): PlateInspectionOutcome {
     error?.let { return PlateInspectionOutcome.Failure(it) }
-    return PlateInspectionOutcome.Success(checkNotNull(inspections).map { object_ -> object_.instances.orEmpty().map { it.toInspection() } })
+    return PlateInspectionOutcome.Success(
+        checkNotNull(inspections).map { object_ -> object_.instances.orEmpty().map { it.toInspection() } },
+        plates = plates.takeIf { it > 0 },
+    )
 }
 
 internal fun FlushVolumesOutcome.toParcel() = FlushVolumesParcel().also {
@@ -668,16 +674,18 @@ internal fun plateManipulationOf(
     selected: Array<String>,
     arrange: ArrangeSettingsParcel?,
     instance: Int,
+    lockedPlates: IntArray,
 ): PlateManipulation {
     fun settings() = checkNotNull(arrange).let {
         ArrangeSettings(it.distance, it.enableRotation, it.allowMultiMaterialsOnSamePlate, it.alignToYAxis)
     }
+    val locked = lockedPlates.toSet()
     return when (name) {
-        "AutoOrient" -> PlateManipulation.AutoOrient(selected.mapTo(LinkedHashSet(), ::ScenePath))
-        "Arrange" -> PlateManipulation.Arrange(settings())
+        "AutoOrient" -> PlateManipulation.AutoOrient(selected.mapTo(LinkedHashSet(), ::ScenePath), locked)
+        "Arrange" -> PlateManipulation.Arrange(settings(), locked)
         "UpdatePrintVolume" -> PlateManipulation.UpdatePrintVolume
-        "ArrangePlate" -> PlateManipulation.ArrangePlate(settings())
-        "FillBed" -> PlateManipulation.FillBed(ScenePath(selected.single()), instance.takeIf { it >= 0 }, settings())
+        "ArrangePlate" -> PlateManipulation.ArrangePlate(settings(), locked)
+        "FillBed" -> PlateManipulation.FillBed(ScenePath(selected.single()), instance.takeIf { it >= 0 }, settings(), locked)
         else -> error("Unknown manipulation $name")
     }
 }
