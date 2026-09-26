@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.sidebar
 
 import androidx.compose.foundation.layout.Arrangement
+import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,7 +46,13 @@ import app.orcinus.shadow.core.ui.orca.orcaString
  * has not ported yet stand disabled.
  */
 @Composable
-internal fun CalibrationMenuItems(enabled: Boolean, dismiss: () -> Unit, onTemperature: () -> Unit, onRange: (RangeTest) -> Unit) {
+internal fun CalibrationMenuItems(
+    enabled: Boolean,
+    dismiss: () -> Unit,
+    onTemperature: () -> Unit,
+    onRange: (RangeTest) -> Unit,
+    onPressureAdvance: () -> Unit,
+) {
     val uriHandler = LocalUriHandler.current
     @Composable
     fun item(text: String, onClick: (() -> Unit)?) = OrcaMenuItem(
@@ -58,7 +65,7 @@ internal fun CalibrationMenuItems(enabled: Boolean, dismiss: () -> Unit, onTempe
     )
     item("Temperature", onTemperature)
     item("Max flowrate") { onRange(RangeTest.MAX_FLOWRATE) }
-    item("Pressure advance", null)
+    item("Pressure advance", onPressureAdvance)
     item("Flow ratio", null)
     item("Retraction") { onRange(RangeTest.RETRACTION) }
     item("Cornering", null)
@@ -281,7 +288,7 @@ internal fun RangeCalibrationSheet(test: RangeTest, onDismiss: () -> Unit, onSta
 
 /** A figure of a test's dialog with its label beside it; a decimal comma counts as the point the dialog reads. */
 @Composable
-private fun NumberField(label: String, value: String, unit: String, onChange: (String) -> Unit) {
+private fun NumberField(label: String, value: String, unit: String?, onChange: (String) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
         OrcaTextField(
@@ -293,6 +300,170 @@ private fun NumberField(label: String, value: String, unit: String, onChange: (S
         )
     }
 }
+
+/** PA_Calibration_Dlg's choices, which the dialog keeps from one showing to the next. */
+internal data class PressureAdvanceChoice(val bowden: Boolean = false, val method: Int = PA_TOWER)
+
+/** The methods of PA_Calibration_Dlg, in its order. */
+private val PA_METHODS = listOf("PA Tower", "PA Line", "PA Pattern")
+private const val PA_TOWER = 0
+private const val PA_LINE = 1
+private const val PA_PATTERN = 2
+
+/**
+ * PA_Calibration_Dlg, as a sheet: the extruder type and the method, whose
+ * choice sets the figures again (reset_params), the PA to start and end at
+ * and its step, whether the lines print their numbers, and for the pattern
+ * its accelerations and speeds. OK wants a start of 0 or more, a step of at
+ * least 0.001 and an end past the start by a step, and accelerations above
+ * the speeds.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PressureAdvanceSheet(
+    choice: PressureAdvanceChoice,
+    onChoice: (PressureAdvanceChoice) -> Unit,
+    onDismiss: () -> Unit,
+    onStart: (CalibrationParams) -> Unit,
+) {
+    val colors = OrcaTheme.colors
+    val uriHandler = LocalUriHandler.current
+    // reset_params(): the figures of the method and extruder type.
+    fun endOf(choice: PressureAdvanceChoice) = when {
+        choice.bowden -> "1"
+        choice.method == PA_PATTERN -> "0.08"
+        else -> "0.1"
+    }
+    fun stepOf(choice: PressureAdvanceChoice) = when {
+        choice.bowden && choice.method == PA_PATTERN -> "0.05"
+        choice.bowden -> "0.02"
+        choice.method == PA_PATTERN -> "0.005"
+        else -> "0.002"
+    }
+    var start by remember { mutableStateOf("0") }
+    var end by remember { mutableStateOf(endOf(choice)) }
+    var step by remember { mutableStateOf(stepOf(choice)) }
+    var printNumbers by remember { mutableStateOf(choice.method != PA_TOWER) }
+    var accelerations by remember { mutableStateOf("") }
+    var speeds by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    val invalidMessage = orcaString("Please input valid values:\nStart PA: >= 0.0\nEnd PA: > Start PA\nPA step: >= 0.001")
+    val swappedMessage = orcaString("Acceleration values must be greater than speed values.\nPlease verify the inputs.")
+
+    fun choose(next: PressureAdvanceChoice) {
+        onChoice(next)
+        start = "0"
+        end = endOf(next)
+        step = stepOf(next)
+        printNumbers = next.method != PA_TOWER
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = colors.window,
+        dragHandle = { OrcaSheetHandle() },
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(orcaString("PA Calibration"), color = colors.text, style = OrcaTheme.typography.head16)
+            Text(orcaString("Extruder type"), color = colors.textLabel, style = OrcaTheme.typography.body14)
+            OrcaChoiceChips(
+                items = listOf(orcaString("DDE"), orcaString("Bowden")),
+                selected = if (choice.bowden) 1 else 0,
+                onSelect = { choose(choice.copy(bowden = it == 1)) },
+            )
+            Text(orcaString("Method"), color = colors.textLabel, style = OrcaTheme.typography.body14)
+            // The pattern comes with its handles and their G-code, which are not ported yet.
+            OrcaChoiceChips(
+                items = PA_METHODS.take(PA_PATTERN).map { orcaString(it) },
+                selected = choice.method,
+                onSelect = { choose(choice.copy(method = it)) },
+            )
+            Text(orcaString("Settings"), color = colors.textLabel, style = OrcaTheme.typography.body14)
+            NumberField(orcaString("Start PA: "), start, null) { start = it }
+            NumberField(orcaString("End PA: "), end, null) { end = it }
+            NumberField(orcaString("PA step: "), step, null) { step = it }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(orcaString("Print numbers"), color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
+                // Only the lines choose; the pattern always prints its numbers and the tower none.
+                OrcaCheckBox(checked = printNumbers, onCheckedChange = { printNumbers = it }, enabled = choice.method == PA_LINE)
+            }
+            ListField(orcaString("Accelerations: "), accelerations, orcaString("Comma-separated list of printing accelerations"), choice.method == PA_PATTERN) { accelerations = it }
+            ListField(orcaString("Speeds: "), speeds, orcaString("Comma-separated list of printing speeds"), choice.method == PA_PATTERN) { speeds = it }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                OrcaButton(orcaString("Wiki Guide"), onClick = { uriHandler.openUri(PRESSURE_ADVANCE_GUIDE) }, style = OrcaButtonStyle.Regular)
+                OrcaButton(orcaString("OK"), onClick = {
+                    val first = start.toDoubleOrNull()
+                    val last = end.toDoubleOrNull()
+                    val by = step.toDoubleOrNull()
+                    // ParseStringValues(): the numbers of the comma-separated list.
+                    val accels = accelerations.split(',').mapNotNull { it.trim().toDoubleOrNull() }
+                    val speedList = speeds.split(',').mapNotNull { it.trim().toDoubleOrNull() }
+                    when {
+                        first == null || last == null || by == null || first < 0 || by < 10 * CALIB_EPSILON || last < first + by -> message = invalidMessage
+                        accels.isNotEmpty() && speedList.isNotEmpty() && accels.min() <= speedList.max() -> message = swappedMessage
+                        else -> onStart(
+                            CalibrationParams(
+                                mode = if (choice.method == PA_LINE) CalibrationMode.PA_LINE else CalibrationMode.PA_TOWER,
+                                start = first,
+                                end = last,
+                                step = by,
+                                printNumbers = printNumbers,
+                                accelerations = accels,
+                                speeds = speedList,
+                            ),
+                        )
+                    }
+                })
+            }
+        }
+    }
+    message?.let { text ->
+        AlertDialog(
+            onDismissRequest = { message = null },
+            confirmButton = { OrcaButton(orcaString("OK"), onClick = { message = null }) },
+            text = { Text(text, style = OrcaTheme.typography.body14) },
+            containerColor = colors.window,
+            textContentColor = colors.text,
+            shape = OrcaTheme.shapes.window,
+        )
+    }
+}
+
+/** A comma-separated list of the PA dialog, its tooltip under it. */
+@Composable
+private fun ListField(label: String, value: String, hint: String, enabled: Boolean, onChange: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = if (enabled) OrcaTheme.colors.text else OrcaTheme.colors.textDisabled, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
+            OrcaTextField(
+                value = value,
+                // The dialog's validator takes digits and commas alone.
+                onValueChange = { text -> onChange(text.filter { it.isDigit() || it == ',' }) },
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.width(140.dp),
+            )
+        }
+        Text(hint, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body13)
+    }
+}
+
+/** EPSILON of libslic3r, which the PA dialog's step is checked against. */
+private const val CALIB_EPSILON = 1e-4
+private const val PRESSURE_ADVANCE_GUIDE = "https://www.orcaslicer.com/wiki/pressure_advance_calib"
 
 /** A temperature of the dialog, its label beside it, which [onLeave] checks once the field loses focus. */
 @Composable

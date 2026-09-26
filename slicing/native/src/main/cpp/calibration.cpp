@@ -309,6 +309,63 @@ Slic3r::ModelObject* calib_vfa(Slic3r::Model& model, const CalibrationParams& pa
     return obj;
 }
 
+// Plater::calib_pa() before its method: the process without reversed
+// overhangs and precise Z height, and the printer without resonance avoidance.
+void calib_pa_common(Slic3r::PresetBundle& bundle)
+{
+    auto print_config = &bundle.prints.get_edited_preset().config;
+    auto printer_config = &bundle.printers.get_edited_preset().config;
+    print_config->set_key_value("overhang_reverse", new Slic3r::ConfigOptionBool(false));
+    print_config->set_key_value("precise_z_height", new Slic3r::ConfigOptionBool(false));
+    printer_config->set_key_value("resonance_avoidance", new Slic3r::ConfigOptionBool{false});
+}
+
+// Plater::_calib_pa_tower(): the tower with its seam, its walls at the
+// speed the test finds best (CalibPressureAdvance::find_optimal_PA_speed),
+// two walls without shells or infill and an ear brim, cut to a millimetre
+// for every step.
+Slic3r::ModelObject* calib_pa_tower(Slic3r::Model& model, const CalibrationParams& params, const Slic3r::DynamicPrintConfig& config, Slic3r::PresetBundle& bundle)
+{
+    Slic3r::ModelObject* obj = add_calibration_model(model, "pressure_advance/tower_with_seam.drc", config);
+
+    auto& print_config = bundle.prints.get_edited_preset().config;
+    auto printer_config = &bundle.printers.get_edited_preset().config;
+    auto filament_config = &bundle.filaments.get_edited_preset().config;
+
+    const double nozzle_diameter = printer_config->option<Slic3r::ConfigOptionFloats>("nozzle_diameter")->get_at(0);
+
+    print_config.set_key_value("enable_wrapping_detection", new Slic3r::ConfigOptionBool(false));
+    filament_config->set_key_value("slow_down_layer_time", new Slic3r::ConfigOptionFloats{1.0f});
+
+    auto& obj_cfg = obj->config;
+
+    obj_cfg.set_key_value("alternate_extra_wall", new Slic3r::ConfigOptionBool(false));
+    auto full_config = bundle.full_config();
+    auto wall_speed = Slic3r::CalibPressureAdvance::find_optimal_PA_speed(
+        full_config, full_config.get_abs_value("line_width", nozzle_diameter),
+        full_config.get_abs_value("layer_height"), 0, 0);
+    obj_cfg.set_key_value("outer_wall_speed", new Slic3r::ConfigOptionFloat(wall_speed));
+    obj_cfg.set_key_value("inner_wall_speed", new Slic3r::ConfigOptionFloat(wall_speed));
+    obj_cfg.set_key_value("seam_position", new Slic3r::ConfigOptionEnum<Slic3r::SeamPosition>(Slic3r::spRear));
+    obj_cfg.set_key_value("wall_loops", new Slic3r::ConfigOptionInt(2));
+    obj_cfg.set_key_value("top_shell_layers", new Slic3r::ConfigOptionInt(0));
+    obj_cfg.set_key_value("bottom_shell_layers", new Slic3r::ConfigOptionInt(0));
+    obj_cfg.set_key_value("sparse_infill_density", new Slic3r::ConfigOptionPercent(0));
+    obj_cfg.set_key_value("brim_type", new Slic3r::ConfigOptionEnum<Slic3r::BrimType>(Slic3r::btEar));
+    obj_cfg.set_key_value("brim_object_gap", new Slic3r::ConfigOptionFloat(.0f));
+    obj_cfg.set_key_value("brim_ears_max_angle", new Slic3r::ConfigOptionFloat(135.f));
+    obj_cfg.set_key_value("brim_width", new Slic3r::ConfigOptionFloat(6.f));
+    obj_cfg.set_key_value("seam_slope_type", new Slic3r::ConfigOptionEnum<Slic3r::SeamScarfType>(Slic3r::SeamScarfType::None));
+    print_config.set_key_value("max_volumetric_extrusion_rate_slope", new Slic3r::ConfigOptionFloat(0));
+
+    auto new_height = std::ceil((params.end - params.start) / params.step) + 1;
+    auto obj_bb = obj->bounding_box_exact();
+    if (new_height < obj_bb.size().z()) {
+        obj = cut_horizontal(model, obj, new_height, Slic3r::ModelObjectCutAttribute::KeepLower);
+    }
+    return obj;
+}
+
 }  // namespace
 
 ImportedModels prepare_calibration(const CalibrationParams& params, const ProfileSelection& profiles, const std::string& output_prefix)
@@ -337,6 +394,15 @@ ImportedModels prepare_calibration(const CalibrationParams& params, const Profil
         case CalibrationMode::vol_speed_tower: object = calib_max_vol_speed(model, print_params, config, bundle); break;
         case CalibrationMode::retraction_tower: object = calib_retraction(model, params, config, bundle); break;
         case CalibrationMode::vfa_tower: object = calib_vfa(model, params, config, bundle); break;
+        case CalibrationMode::pa_tower:
+            calib_pa_common(bundle);
+            object = calib_pa_tower(model, params, config, bundle);
+            break;
+        case CalibrationMode::pa_line:
+            // The G-code draws the lines itself (CalibPressureAdvanceLine); the model stands in for them.
+            calib_pa_common(bundle);
+            object = add_calibration_model(model, "pressure_advance/pressure_advance_test.drc", config);
+            break;
         default: result.message = "This calibration is not ported yet"; return result;
         }
         result.calibration = print_params;

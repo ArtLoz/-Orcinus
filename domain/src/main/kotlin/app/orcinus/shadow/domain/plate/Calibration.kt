@@ -95,6 +95,9 @@ class CalibrateUseCase(
             CalibrationMode.VOL_SPEED_TOWER to Test("Max volumetric speed test", "SpeedTestStructure.drc"),
             CalibrationMode.RETRACTION_TOWER to Test("Retraction", "retraction_tower.drc"),
             CalibrationMode.VFA_TOWER to Test("VFA test", "vfa.drc"),
+            // Plater::calib_pa()
+            CalibrationMode.PA_TOWER to Test("Pressure Advance Test", "tower_with_seam.drc"),
+            CalibrationMode.PA_LINE to Test("Pressure Advance Test", "pressure_advance_test.drc"),
         )
     }
 }

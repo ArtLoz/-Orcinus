@@ -996,6 +996,8 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
     var calibrationMenu by remember { mutableStateOf(false) }
     var temperature by remember { mutableStateOf(false) }
     var rangeTest by remember { mutableStateOf<RangeTest?>(null) }
+    var pressureAdvance by remember { mutableStateOf(false) }
+    var pressureAdvanceChoice by remember { mutableStateOf(PressureAdvanceChoice()) }
     // Plater::priv::update_title_dirty_status()
     val title = (if (dirty) "*" else "") + (name ?: orcaString("Untitled"))
     OrcaSidebarTitle(title, DesignR.drawable.orca_open_project) {
@@ -1017,6 +1019,7 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
                     dismiss = { calibrationMenu = false },
                     onTemperature = { temperature = true },
                     onRange = { rangeTest = it },
+                    onPressureAdvance = { pressureAdvance = true },
                 )
             }
         }
@@ -1060,6 +1063,17 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
             onDismiss = { temperature = false },
             onStart = { params ->
                 temperature = false
+                actions.calibrate(params)
+            },
+        )
+    }
+    if (pressureAdvance) {
+        PressureAdvanceSheet(
+            choice = pressureAdvanceChoice,
+            onChoice = { pressureAdvanceChoice = it },
+            onDismiss = { pressureAdvance = false },
+            onStart = { params ->
+                pressureAdvance = false
                 actions.calibrate(params)
             },
         )

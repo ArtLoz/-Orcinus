@@ -4845,3 +4845,44 @@ TEST_CASE("The tests with a start, an end and a step stand cut to their range, a
 
     REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
 }
+
+TEST_CASE("The pressure advance tower steps its PA a millimetre at a time, and the PA line test draws its lines", "[Adapter][Calibration]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    orca::CalibrationParams params;
+    params.start = 0.0;
+    params.end = 0.1;
+    params.step = 0.002;
+    std::string marker;
+    SECTION("tower: a millimetre for every step")
+    {
+        params.mode = orca::CalibrationMode::pa_tower;
+        // GCode::change_layer(): set_pressure_advance(start + int(print_z) * step).
+        marker = "SET_PRESSURE_ADVANCE ADVANCE=0.02";
+    }
+    SECTION("line: the G-code draws the lines with their numbers")
+    {
+        params.mode = orca::CalibrationMode::pa_line;
+        params.print_numbers = true;
+        marker = "SET_PRESSURE_ADVANCE ADVANCE=0.1";
+    }
+    const orca::ImportedModels prepared = orca::prepare_calibration(params, k2_plus_profiles(), import_prefix("pa-test"));
+    INFO(prepared.message);
+    REQUIRE(prepared.status == orca::SceneStatus::success);
+    REQUIRE(prepared.objects.size() == 1);
+    if (params.mode == orca::CalibrationMode::pa_tower) {
+        CHECK(prepared.objects.front().instances.front().size_z == Catch::Approx(std::ceil(0.1 / 0.002) + 1).margin(0.1));
+    }
+
+    const std::string output = output_path("pa-test.gcode");
+    const orca::SliceResult result = orca::slice(
+        "pa-test", {plate_object_of(prepared.objects.front())}, output, {}, k2_plus_profiles(), {}, {}, {}, {}, {}, prepared.calibration);
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    const std::string gcode = read_file(output);
+    INFO(marker);
+    CHECK(gcode.find(marker) != std::string::npos);
+
+    REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
+}
