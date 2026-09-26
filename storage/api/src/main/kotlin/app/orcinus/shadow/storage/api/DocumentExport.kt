@@ -9,4 +9,7 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 interface DocumentExport {
     /** False when the document could not be written. */
     suspend fun copyTo(path: String, document: ExternalDocumentReference): Boolean
+
+    /** The name the document goes by, which the user may have chosen when it was created; null when unknown. */
+    suspend fun displayName(document: ExternalDocumentReference): String? = null
 }

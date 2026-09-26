@@ -18,9 +18,10 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 fun interface PlateThumbnailRenderer {
     /**
-     * Renders the printable [objects] standing on [plate], each in the colour
-     * of the filament it prints with ([filamentColors], "#RRGGBB" by filament),
-     * at every one of [sizes], into the file [fileFor] names. A size it cannot
+     * Renders the [objects] standing on [plate], the printable ones alone
+     * when [printableOnly] (ThumbnailsParams), each in the colour of the
+     * filament it prints with ([filamentColors], "#RRGGBB" by filament), at
+     * every one of [sizes], into the file [fileFor] names. A size it cannot
      * render is left out.
      */
     suspend fun render(
@@ -28,6 +29,7 @@ fun interface PlateThumbnailRenderer {
         plate: PlateDescription,
         filamentColors: List<String>,
         sizes: List<ThumbnailSize>,
+        printableOnly: Boolean,
         fileFor: (ThumbnailSize) -> ScenePath,
     ): List<ThumbnailImage>
 }
@@ -57,7 +59,7 @@ class RenderThumbnailsUseCase(
         val sizes = (engine.thumbnailSizes(profiles) as? ThumbnailSizesOutcome.Success)?.sizes.orEmpty()
         if (sizes.isEmpty()) return emptyList()
         return try {
-            renderer.render(objects, plate, filamentColors, sizes) { size -> sceneFiles.thumbnailOf(toolpaths, size) }
+            renderer.render(objects, plate, filamentColors, sizes, printableOnly = true) { size -> sceneFiles.thumbnailOf(toolpaths, size) }
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {

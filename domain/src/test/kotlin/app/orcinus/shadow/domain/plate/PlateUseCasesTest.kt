@@ -1,6 +1,9 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.PlateRequest
+import app.orcinus.shadow.core.model.ImportBatch
+import app.orcinus.shadow.core.model.PlateProject
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.HandyModel
@@ -205,7 +208,7 @@ class PlateUseCasesTest {
         val sizes = listOf(ThumbnailSize(300, 300), ThumbnailSize(96, 96))
         val engine = FakeEngine(thumbnails = ThumbnailSizesOutcome.Success(sizes))
         var rendered: Triple<List<PlateObject>, List<String>, List<ThumbnailSize>>? = null
-        val renderer = PlateThumbnailRenderer { objects, _, colors, asked, fileFor ->
+        val renderer = PlateThumbnailRenderer { objects, _, colors, asked, _, fileFor ->
             rendered = Triple(objects, colors, asked)
             asked.map { ThumbnailImage(it, fileFor(it)) }
         }
@@ -227,7 +230,7 @@ class PlateUseCasesTest {
         val repository = FakeRepository(readyState(CUBE).copy(plate = PLATE))
         val engine = FakeEngine(thumbnails = ThumbnailSizesOutcome.Success(listOf(ThumbnailSize(300, 300))))
 
-        slicePlate(engine, repository, thumbnails = PlateThumbnailRenderer { _, _, _, _, _ -> error("no GL context") })()
+        slicePlate(engine, repository, thumbnails = PlateThumbnailRenderer { _, _, _, _, _, _ -> error("no GL context") })()
 
         assertEquals(emptyList(), engine.request?.thumbnails)
         assertEquals(STATISTICS, repository.state.value.result?.statistics)
@@ -723,6 +726,32 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a saved project goes by its document's name, and Save writes that document again`() {
+        val repository = FakeRepository(readyState(CUBE).copy(layerGcodes = listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT))))
+        val inspector = FakeInspector()
+        var saved: List<LayerGcode>? = null
+        inspector.saveProject = { _, _, _, codes, _ -> saved = codes; ProjectSaveOutcome.Success }
+        val documents = FakeDocuments(name = "Box.3mf")
+        val save = SaveProjectUseCase(inspector, { _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope)
+        val document = ExternalDocumentReference("content://documents/box")
+
+        assertTrue(save.needsDocument)
+        save(document)
+
+        assertEquals(PlateProject("Box", document), repository.state.value.project)
+        assertEquals(listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT)), saved)
+        assertFalse(save.needsDocument)
+        save()
+        assertEquals(listOf(document, document), documents.copied.map { it.second })
+
+        // A document that cannot be written gets OrcaSlicer's message box, and the project keeps its name.
+        val failing = SaveProjectUseCase(inspector, { _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(succeeds = false), repository, scope)
+        failing(ExternalDocumentReference("content://documents/other"))
+        assertEquals("save_project_failed", repository.state.value.plateNotices.single().id)
+        assertEquals(PlateProject("Box", document), repository.state.value.project)
+    }
+
+    @Test
     fun `a question of the load waits on the plate, and the load goes on with the answer`() {
         val repository = FakeRepository(readyState(CUBE))
         val file = ImportedModelFile(ModelPath("/imports/stacked.amf"), "stacked.amf")
@@ -742,7 +771,7 @@ class PlateUseCasesTest {
         val asked = repository.state.value
         assertTrue(asked.importing)
         assertEquals(QUESTION, asked.plateQuestion?.question)
-        assertEquals(PlateRequest.Import(file.path), asked.plateQuestion?.request)
+        assertEquals(PlateRequest.Import(file.path, ImportBatch(document = REFERENCE, displayName = "stacked.amf")), asked.plateQuestion?.request)
         assertEquals(listOf(NOTICE), asked.plateNotices)
         assertEquals(listOf(CUBE), asked.objects)
         // Nothing the load wrote before it asked stays.
@@ -2091,7 +2120,7 @@ class PlateUseCasesTest {
         engine: FakeEngine,
         repository: PlateRepository,
         files: FakeSceneFiles = FakeSceneFiles(),
-        thumbnails: PlateThumbnailRenderer = PlateThumbnailRenderer { _, _, _, _, _ -> emptyList() },
+        thumbnails: PlateThumbnailRenderer = PlateThumbnailRenderer { _, _, _, _, _, _ -> emptyList() },
     ) = SlicePlateUseCase(
         sliceModel = SliceModelUseCase(engine),
         renderThumbnails = RenderThumbnailsUseCase(engine, thumbnails, files),
@@ -2472,13 +2501,15 @@ class PlateUseCasesTest {
     }
 
     /** The document picked for an export, which records what was copied into it. */
-    private class FakeDocuments(private val succeeds: Boolean = true) : DocumentExport {
+    private class FakeDocuments(private val succeeds: Boolean = true, private val name: String? = null) : DocumentExport {
         val copied = mutableListOf<Pair<String, ExternalDocumentReference>>()
 
         override suspend fun copyTo(path: String, document: ExternalDocumentReference): Boolean {
             copied += path to document
             return succeeds
         }
+
+        override suspend fun displayName(document: ExternalDocumentReference): String? = name
     }
 
     /** The engine's settings editor, which answers a paste with [result]. */
@@ -2710,6 +2741,19 @@ class PlateUseCasesTest {
 
         val exports = mutableListOf<Triple<Int, MeshFormat, ScenePath>>()
         var export: MeshExportOutcome = MeshExportOutcome.Success(null)
+
+        override suspend fun saveProject(
+            path: ScenePath,
+            plate: List<PlacedModel>,
+            profiles: SlicingProfileSelection,
+            plateSettings: ModelSettings,
+            layerGcodes: List<LayerGcode>,
+            thumbnail: ThumbnailImage?,
+        ): ProjectSaveOutcome = saveProject(path, plate, plateSettings, layerGcodes, thumbnail)
+
+        /** What saving a project answers; by default it is saved. */
+        var saveProject: (ScenePath, List<PlacedModel>, ModelSettings, List<LayerGcode>, ThumbnailImage?) -> ProjectSaveOutcome =
+            { _, _, _, _, _ -> ProjectSaveOutcome.Success }
 
         override suspend fun exportMesh(
             plate: List<PlacedModel>,

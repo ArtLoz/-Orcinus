@@ -4200,6 +4200,11 @@ bool write_mesh(const indexed_triangle_set& its, const std::string& path)
     return orcinus::orca::write_mesh(its, path);
 }
 
+Slic3r::BoundingBoxf3 plate_box(const Slic3r::DynamicPrintConfig& config)
+{
+    return orcinus::orca::plate_box_of(config);
+}
+
 }  // namespace detail
 
 }  // namespace orcinus::orca

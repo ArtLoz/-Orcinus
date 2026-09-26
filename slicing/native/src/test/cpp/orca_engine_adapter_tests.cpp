@@ -4513,3 +4513,48 @@ TEST_CASE("A 3MF file opens as a project with its settings or loads its geometry
         REQUIRE(restored.status == orca::SceneStatus::success);
     }
 }
+
+TEST_CASE("A saved project opens again with its objects, plate settings and layer codes", "[Adapter][Project]")
+{
+    require_engine();
+    const std::string project = output_path("saved-project.3mf");
+    // The plate's picture as the app renders it: 512 x 512 RGBA.
+    const std::string picture = output_path("saved-project.rgba");
+    {
+        std::ofstream file(picture, std::ios::binary);
+        const std::string pixels(512 * 512 * 4, char(200));
+        file.write(pixels.data(), std::streamsize(pixels.size()));
+    }
+    orca::ModelSettings plate_settings;
+    plate_settings.keys = {"curr_bed_type", "wipe_tower_x", "wipe_tower_y"};
+    plate_settings.values = {"Textured PEI Plate", "40.000", "250.000"};
+    orca::LayerGcode pause;
+    pause.print_z = 2.0;
+    pause.type = orca::LayerGcodeType::pause_print;
+
+    const orca::ProjectSave saved =
+        orca::save_project(project, plate_of(""), k2_plus_profiles(), plate_settings, {pause}, {512, 512, picture});
+    INFO(saved.message);
+    REQUIRE(saved.status == orca::SceneStatus::success);
+    CHECK(read_file(project).find("Metadata/plate_1.png") != std::string::npos);
+
+    const orca::ImportedModels opened =
+        orca::import_model(project, k2_plus_profiles(), {}, import_prefix("saved-project"), {}, orca::ModelLoad::project);
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    REQUIRE(opened.objects.size() == 1);
+    CHECK(opened.project);
+    REQUIRE(opened.layer_gcodes.size() == 1);
+    CHECK(opened.layer_gcodes.front().print_z == Catch::Approx(2.0));
+    CHECK(opened.layer_gcodes.front().type == orca::LayerGcodeType::pause_print);
+    const auto setting = [&opened](const std::string& key) {
+        const auto& keys = opened.plate_settings.keys;
+        const auto found = std::find(keys.begin(), keys.end(), key);
+        return found == keys.end() ? std::string() : opened.plate_settings.values[std::size_t(found - keys.begin())];
+    };
+    CHECK(setting("curr_bed_type") == "Textured PEI Plate");
+    CHECK(setting("wipe_tower_x") == "40.000");
+    CHECK(setting("wipe_tower_y") == "250.000");
+    const orca::PresetState presets = orca::describe_presets();
+    CHECK(presets.selection.printer == k2_plus_profiles().printer);
+}

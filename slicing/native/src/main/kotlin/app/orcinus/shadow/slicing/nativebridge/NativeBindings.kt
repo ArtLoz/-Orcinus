@@ -849,6 +849,30 @@ internal object NativeBindings {
     ): NativeImportedModels
 
     /**
+     * save_project(): the plate written to [path] as a project; answers the
+     * status and the message. The picture is [thumbnailPath] with its size,
+     * none for an empty path.
+     */
+    external fun saveProject(
+        path: String,
+        plate: NativePlate,
+        plateSettingKeys: Array<String>,
+        plateSettingValues: Array<String>,
+        layerGcodeHeights: DoubleArray,
+        layerGcodeTypes: LongArray,
+        layerGcodeExtruders: IntArray,
+        layerGcodeColors: Array<String>,
+        layerGcodeExtras: Array<String>,
+        thumbnailWidth: Int,
+        thumbnailHeight: Int,
+        thumbnailPath: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): Array<String>
+
+    /**
      * export_object_mesh(): the object at [objectIndex] of [plate] written to
      * [path] in [format] (MeshFormat in orca_engine_adapter.hpp); answers the
      * status, the message and the warning.

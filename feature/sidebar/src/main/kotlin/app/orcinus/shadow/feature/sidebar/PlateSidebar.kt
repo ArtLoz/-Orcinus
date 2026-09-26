@@ -1,6 +1,10 @@
 package app.orcinus.shadow.feature.sidebar
 
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import androidx.compose.ui.unit.IntOffset
+import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
+import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
+import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
 import app.orcinus.shadow.domain.plate.RenamePlateItemUseCase
@@ -253,6 +257,10 @@ data class SidebarUiState(
     val settingsClipboard: SettingsClipboard? = null,
     /** The Simplify gizmo is open on the canvas. */
     val simplifying: Boolean = false,
+    /** The project's name, none while it is "Untitled". */
+    val projectName: String? = null,
+    /** The project can be saved: the presets are known and the plate is not changing. */
+    val canSaveProject: Boolean = false,
 ) {
     /** Which settings the Objects side shows: a selected part's, the objects', or the plate's. */
     val modelKind: PresetKind get() = when {
@@ -319,7 +327,14 @@ class SidebarViewModel(
     private val openSimplify: OpenSimplifyUseCase,
     private val changeVolumeType: ChangeVolumeTypeUseCase,
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
+    private val saveProject: SaveProjectUseCase,
 ) : ViewModel() {
+    /** "Save Project" asks for a document first when the project has none to write again. */
+    val projectNeedsDocument: Boolean get() = saveProject.needsDocument
+
+    /** Plater::save_project(): into [document] for "Save Project as", into the project's own otherwise. */
+    fun saveProject(document: ExternalDocumentReference? = null) = saveProject.invoke(document)
+
     val state: StateFlow<SidebarUiState> = observePlate()
         .map(PlateState::toSidebarUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toSidebarUiState())
@@ -677,6 +692,8 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     flushing = flushing,
     settingsClipboard = settingsClipboard,
     simplifying = simplifyTarget != null,
+    projectName = project.name,
+    canSaveProject = profiles != null && !busy,
 )
 
 /**
@@ -843,6 +860,51 @@ private fun SidebarAction(icon: Int, text: String, onClick: () -> Unit) {
     }
 }
 
+/** The desktop app's File menu for the project: its quick-access Save and "Save Project as". */
+internal class ProjectActions(
+    val save: () -> Unit,
+    val saveAs: () -> Unit,
+) {
+    companion object {
+        val NONE = ProjectActions(save = {}, saveAs = {})
+    }
+}
+
+/**
+ * The project the plate is, named as the desktop app's title bar names it
+ * ("Untitled" until it has a name), with the Save button of its quick-access
+ * bar and its File menu under the arrow.
+ */
+@Composable
+private fun ProjectTitle(name: String?, canSave: Boolean, actions: ProjectActions) {
+    var fileMenu by remember { mutableStateOf(false) }
+    OrcaSidebarTitle(name ?: orcaString("Untitled"), DesignR.drawable.orca_open_project) {
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_save,
+            contentDescription = orcaString("Save Project"),
+            onClick = actions.save,
+            enabled = canSave,
+        )
+        Box {
+            OrcaIconButton(
+                icon = DesignR.drawable.orca_drop_down,
+                contentDescription = orcaString("File"),
+                onClick = { fileMenu = true },
+            )
+            OrcaContextMenu(expanded = fileMenu, position = IntOffset.Zero, onDismissRequest = { fileMenu = false }) {
+                OrcaMenuItem(
+                    text = orcaString("Save Project as"),
+                    onClick = {
+                        fileMenu = false
+                        actions.saveAs()
+                    },
+                    enabled = canSave,
+                )
+            }
+        }
+    }
+}
+
 /** The filaments of the plate, as the sidebar changes them. */
 internal class FilamentActions(
     val add: () -> Unit,
@@ -881,6 +943,9 @@ private fun parseFilamentColor(value: String): Color? {
  * document provider keeps the extension the suggested name has.
  */
 private const val MESH_MIME_TYPE = "application/octet-stream"
+
+/** The media type of a 3MF project. */
+private const val PROJECT_MIME_TYPE = "model/3mf"
 
 /** Which Setup Wizard page a preset list opens: its printers or its filaments. */
 enum class PresetWizardPage { PRINTERS, FILAMENTS }
@@ -928,6 +993,13 @@ fun PlateSidebar(
             viewModel.replaceVolume(PlateInstanceId(ScenePath(target.first), target.second), target.third, ExternalDocumentReference(uri.toString()))
         }
     }
+    // "Save Project as" asks for the document; "Save Project" does too until
+    // the project has one (Plater::save_project with saveAs).
+    val projectPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME_TYPE)) { uri ->
+        if (uri != null) viewModel.saveProject(ExternalDocumentReference(uri.toString()))
+    }
+    val untitled = orcaString("Untitled")
+    val saveProjectAs = { projectPicker.launch((state.projectName ?: untitled) + ".3mf") }
     // Import Configs takes a document, Export Preset Bundle a folder.
     // The file dialog of the desktop app takes several files at once.
     val configPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -1031,6 +1103,10 @@ fun PlateSidebar(
         onOpenAbout = onOpenAbout,
         onImportConfig = { configPicker.launch(arrayOf("*/*")) },
         onExportConfig = { exporting = true },
+        project = ProjectActions(
+            save = { if (viewModel.projectNeedsDocument) saveProjectAs() else viewModel.saveProject() },
+            saveAs = saveProjectAs,
+        ),
         filaments = FilamentActions(
             add = viewModel::addFilament,
             remove = viewModel::removeFilament,
@@ -1122,6 +1198,7 @@ internal fun PlateSidebarContent(
     comparison: PresetComparisonActions = PresetComparisonActions.NONE,
     printers: CustomPrinterActions = CustomPrinterActions.NONE,
     network: NetworkPrinterActions = NetworkPrinterActions.NONE,
+    project: ProjectActions = ProjectActions.NONE,
 ) {
     // DiffPresetDialog, which the compare button of the process panel opens.
     var comparing by rememberSaveable { mutableStateOf(false) }
@@ -1172,6 +1249,10 @@ internal fun PlateSidebarContent(
             .fillMaxSize()
             .background(OrcaTheme.colors.window),
     ) {
+        item(key = "project") {
+            ProjectTitle(state.projectName, state.canSaveProject, project)
+        }
+
         item(key = "printer") {
         OrcaSidebarTitle(stringResource(R.string.section_printer), DesignR.drawable.orca_printer) {
             // Plater's m_printer_connect: the printers of the network the app

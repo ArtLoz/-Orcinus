@@ -1,6 +1,8 @@
 #include "project_3mf.hpp"
 
 #include <algorithm>
+#include <fstream>
+#include <mutex>
 #include <optional>
 #include <set>
 
@@ -599,3 +601,163 @@ void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialog
 }
 
 }  // namespace orcinus::orca::detail
+
+namespace orcinus::orca {
+
+namespace {
+
+// The project's own values the app keeps among the settings of the plate,
+// which the desktop app keeps in PresetBundle::project_config.
+bool is_project_value(const std::string& key)
+{
+    return key == "wipe_tower_x" || key == "wipe_tower_y" || key == "flush_volumes_matrix" || key == "flush_multiplier";
+}
+
+// The picture of a plate the app rendered: RGBA rows from the bottom up, as
+// the desktop app reads its framebuffer.
+bool read_thumbnail(const ThumbnailImage& image, Slic3r::ThumbnailData& data)
+{
+    if (image.path.empty() || image.width <= 0 || image.height <= 0) {
+        return false;
+    }
+    data.set(unsigned(image.width), unsigned(image.height));
+    std::ifstream file(image.path, std::ios::binary);
+    file.read(reinterpret_cast<char*>(data.pixels.data()), std::streamsize(data.pixels.size()));
+    if (!file || !data.is_valid()) {
+        data.reset();
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+ProjectSave save_project(
+    const std::string& path,
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings,
+    const std::vector<LayerGcode>& layer_gcodes,
+    const ThumbnailImage& thumbnail
+)
+{
+    ProjectSave result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    if (detail::engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    Slic3r::PlateDataPtrs plate_data_list;
+    std::vector<Slic3r::Preset*> project_presets;
+    try {
+        Slic3r::PresetBundle& preset_bundle = *detail::engine().bundle;
+        Slic3r::DynamicPrintConfig selected;
+        if (const SliceStatus status = detail::select_profiles(preset_bundle, profiles, selected, result.message);
+            status != SliceStatus::success) {
+            result.status = SceneStatus::profile_not_found;
+            return result;
+        }
+        Slic3r::Model model;
+        if (!detail::load_plate(plate, selected, model, result.message)) {
+            result.status = SceneStatus::model_read_failed;
+            return result;
+        }
+        if (!layer_gcodes.empty()) {
+            // The mode the layer slider keeps its codes in (Preview::update_layers_slider_mode).
+            Slic3r::CustomGCode::Info info;
+            info.mode = profiles.filaments.size() > 1 ? Slic3r::CustomGCode::MultiAsSingle : Slic3r::CustomGCode::SingleExtruder;
+            for (const LayerGcode& code : layer_gcodes) {
+                info.gcodes.push_back({code.print_z, static_cast<Slic3r::CustomGCode::Type>(code.type), code.extruder, code.color, code.extra});
+            }
+            std::sort(info.gcodes.begin(), info.gcodes.end());
+            model.plates_custom_gcodes[0] = info;
+        }
+
+        // The plate's own settings (PartPlate::config), and the project's values.
+        ModelSettings own;
+        ModelSettings project;
+        for (std::size_t i = 0; i < plate_settings.keys.size() && i < plate_settings.values.size(); ++i) {
+            ModelSettings& settings = is_project_value(plate_settings.keys[i]) ? project : own;
+            settings.keys.push_back(plate_settings.keys[i]);
+            settings.values.push_back(plate_settings.values[i]);
+        }
+
+        Slic3r::DynamicPrintConfig cfg = preset_bundle.full_config_secure();
+        cfg.apply(detail::model_config(project), true);
+        const Slic3r::DynamicPrintConfig plate_config = detail::model_config(own);
+
+        //BBS: add plate logic for thumbnail generate
+        Slic3r::ThumbnailData thumbnail_data;
+        read_thumbnail(thumbnail, thumbnail_data);
+        std::vector<Slic3r::ThumbnailData*> thumbnails = {&thumbnail_data};
+
+        // PartPlateList::store_to_3mf_structure() for the only plate, without slice info.
+        Slic3r::PlateData* plate_data_item = new Slic3r::PlateData();
+        plate_data_list.push_back(plate_data_item);
+        if (const auto* maps = plate_config.option<Slic3r::ConfigOptionInts>("filament_map")) {
+            plate_data_item->filament_maps = maps->values;
+        }
+        plate_data_item->locked = false;
+        plate_data_item->plate_index = 0;
+        plate_data_item->plate_name = "";
+        plate_data_item->plate_thumbnail.load_from(thumbnail_data);
+        plate_data_item->config.apply(plate_config);
+        // PartPlateList::reload_all_objects(): the copies that meet the plate.
+        const Slic3r::BoundingBoxf3 plate_box = detail::plate_box(selected);
+        for (std::size_t obj_id = 0; obj_id < model.objects.size(); ++obj_id) {
+            for (std::size_t instance_id = 0; instance_id < model.objects[obj_id]->instances.size(); ++instance_id) {
+                if (plate_box.intersects(model.objects[obj_id]->instance_convex_hull_bounding_box(instance_id))) {
+                    plate_data_item->objects_and_instances.emplace_back(int(obj_id), int(instance_id));
+                }
+            }
+        }
+
+        // BBS: backup
+        project_presets = preset_bundle.get_current_project_embedded_presets();
+
+        // Plater::save_project()
+        auto save_strategy = Slic3r::SaveStrategy::SplitModel | Slic3r::SaveStrategy::ShareMesh;
+        if (detail::engine().config->get_bool("export_sources_full_pathnames")) {
+            save_strategy = save_strategy | Slic3r::SaveStrategy::FullPathSources;
+        }
+
+        Slic3r::StoreParams store_params;
+        store_params.path = path.c_str();
+        store_params.model = &model;
+        store_params.plate_data_list = plate_data_list;
+        store_params.export_plate_idx = -1;
+        store_params.project_presets = project_presets;
+        store_params.config = &cfg;
+        store_params.thumbnail_data = thumbnails;
+        store_params.strategy = save_strategy | Slic3r::SaveStrategy::Zip64;
+
+        // get type and color for platedata
+        auto* nozzle_diameter_option = dynamic_cast<const Slic3r::ConfigOptionFloats*>(cfg.option("nozzle_diameter"));
+        std::string nozzle_diameter_str;
+        if (nozzle_diameter_option)
+            nozzle_diameter_str = nozzle_diameter_option->serialize();
+        std::string printer_model_id = preset_bundle.printers.get_edited_preset().get_printer_type(&preset_bundle);
+        for (Slic3r::PlateData* plate_data : plate_data_list) {
+            plate_data->printer_model_id = printer_model_id;
+            plate_data->nozzle_diameters = nozzle_diameter_str;
+        }
+
+        if (!Slic3r::store_bbs_3mf(store_params)) {
+            // Plater::save_project()'s message box.
+            result.status = SceneStatus::write_failed;
+            result.message = "Failed to save the project.\nPlease check whether the folder exists online or if other programs open the project file.";
+        } else {
+            result.status = SceneStatus::success;
+        }
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::write_failed;
+        result.message = error.what();
+    }
+    for (Slic3r::Preset* preset : project_presets) {
+        delete preset;
+    }
+    Slic3r::release_PlateData_list(plate_data_list);
+    return result;
+}
+
+}  // namespace orcinus::orca

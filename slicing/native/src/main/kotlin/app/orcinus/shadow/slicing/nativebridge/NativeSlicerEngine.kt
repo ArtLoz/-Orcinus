@@ -1,6 +1,8 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
+import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.LayerGcodeType
@@ -297,6 +299,43 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             answerIds = answers.keys.toTypedArray(),
             answers = answers.values.toBooleanArray(),
         ).toOutcome()
+    }
+
+    override suspend fun saveProject(
+        path: ScenePath,
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        plateSettings: ModelSettings,
+        layerGcodes: List<LayerGcode>,
+        thumbnail: ThumbnailImage?,
+    ): ProjectSaveOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ProjectSaveOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        val (saveStatus, message) = NativeBindings.saveProject(
+            path = path.value,
+            plate = nativePlate(plate),
+            plateSettingKeys = plateSettings.keys(),
+            plateSettingValues = plateSettings.values(),
+            layerGcodeHeights = layerGcodes.map(LayerGcode::printZ).toDoubleArray(),
+            layerGcodeTypes = layerGcodes.map { it.type.ordinal.toLong() }.toLongArray(),
+            layerGcodeExtruders = layerGcodes.map(LayerGcode::extruder).toIntArray(),
+            layerGcodeColors = layerGcodes.map(LayerGcode::color).toTypedArray(),
+            layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray(),
+            thumbnailWidth = thumbnail?.size?.width ?: 0,
+            thumbnailHeight = thumbnail?.size?.height ?: 0,
+            thumbnailPath = thumbnail?.path?.value.orEmpty(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+        )
+        if (saveStatus.toLong() == NativeSceneStatus.SUCCESS) {
+            ProjectSaveOutcome.Success
+        } else {
+            ProjectSaveOutcome.Failure(message.ifBlank { "OrcaSlicer could not save the project" })
+        }
     }
 
     override suspend fun exportMesh(

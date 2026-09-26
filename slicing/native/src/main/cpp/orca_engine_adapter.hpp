@@ -1211,6 +1211,30 @@ struct ImportedModels {
     bool presets_changed{false};
 };
 
+// What saving a project came to.
+struct ProjectSave {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+};
+
+// Plater::export_3mf() for "Save project" (SplitModel | ShareMesh): the
+// objects of plate with their parts, settings, paint and copies, the codes on
+// its layers (Model::plates_custom_gcodes), the configuration of the presets
+// profiles names with the project's values of plate_settings (the wipe
+// tower's position and the flushing volumes), the presets the project
+// brought, and the plate (PartPlateList::store_to_3mf_structure): its own
+// settings of plate_settings, the copies standing on it and its picture
+// thumbnail, which the app rendered at 512 x 512 as the desktop app renders
+// it (THUMBNAIL_SIZE_3MF); no picture is written for an empty path.
+ProjectSave save_project(
+    const std::string& path,
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings,
+    const std::vector<LayerGcode>& layer_gcodes,
+    const ThumbnailImage& thumbnail
+);
+
 // How a 3MF file loads (LoadType of Plater.cpp): its objects alone ("Import
 // geometry only"), or as a project with its settings and presets ("Open as
 // project"). Files of other types load their objects alone.

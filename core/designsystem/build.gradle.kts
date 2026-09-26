@@ -82,6 +82,8 @@ val orcaIconNames = listOf(
     "check_half_disabled", "check_off", "check_off_disabled", "check_on", "check_on_disabled",
     "advanced", "cog", "collapse", "cross", "delete", "drop_down", "edit", "filament", "fuzzy_skin", "help", "hms_arrow",
     "im_hidden", "im_visible", "instance_add", "instance_remove", "monitor_item_cost", "monitor_item_prediction", "note",
+    // The project row of the sidebar (the desktop app's File menu).
+    "open_project",
     // The option groups of the settings tabs (Tab.cpp).
     "compare",
     // DiffPresetDialog: the button between the two presets of a kind.

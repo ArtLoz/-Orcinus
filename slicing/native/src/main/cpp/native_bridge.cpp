@@ -904,6 +904,74 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_initialize(
     return result.ready ? nullptr : to_java(env, result.message);
 }
 
+// The codes on the layers: one entry per code in every array.
+static std::vector<orcinus::orca::LayerGcode> to_layer_gcodes(
+    JNIEnv* env,
+    jdoubleArray layer_gcode_heights,
+    jlongArray layer_gcode_types,
+    jintArray layer_gcode_extruders,
+    jobjectArray layer_gcode_colors,
+    jobjectArray layer_gcode_extras
+)
+{
+    std::vector<orcinus::orca::LayerGcode> layer_gcodes;
+    const std::vector<double> heights = to_doubles(env, layer_gcode_heights);
+    const std::vector<std::int32_t> extruders = to_ints(env, layer_gcode_extruders);
+    const std::vector<std::string> colors = to_strings(env, layer_gcode_colors);
+    const std::vector<std::string> extras = to_strings(env, layer_gcode_extras);
+    std::vector<jlong> types(heights.size(), 0);
+    if (layer_gcode_types != nullptr) {
+        env->GetLongArrayRegion(layer_gcode_types, 0, std::min<jsize>(env->GetArrayLength(layer_gcode_types), jsize(types.size())), types.data());
+    }
+    for (std::size_t index = 0; index < heights.size(); ++index) {
+        orcinus::orca::LayerGcode& code = layer_gcodes.emplace_back();
+        code.print_z = heights[index];
+        code.type = static_cast<orcinus::orca::LayerGcodeType>(types[index]);
+        code.extruder = index < extruders.size() ? extruders[index] : 1;
+        code.color = index < colors.size() ? colors[index] : std::string();
+        code.extra = index < extras.size() ? extras[index] : std::string();
+    }
+    return layer_gcodes;
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_saveProject(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring path,
+    jobject plate,
+    jobjectArray plate_setting_keys,
+    jobjectArray plate_setting_values,
+    jdoubleArray layer_gcode_heights,
+    jlongArray layer_gcode_types,
+    jintArray layer_gcode_extruders,
+    jobjectArray layer_gcode_colors,
+    jobjectArray layer_gcode_extras,
+    jint thumbnail_width,
+    jint thumbnail_height,
+    jstring thumbnail_path,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    orcinus::orca::ThumbnailImage thumbnail;
+    thumbnail.width = thumbnail_width;
+    thumbnail.height = thumbnail_height;
+    thumbnail.path = to_utf8(env, thumbnail_path);
+    const orcinus::orca::ProjectSave saved = orcinus::orca::save_project(
+        to_utf8(env, path),
+        to_plate(env, plate),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+        to_model_settings(env, plate_setting_keys, plate_setting_values),
+        to_layer_gcodes(env, layer_gcode_heights, layer_gcode_types, layer_gcode_extruders, layer_gcode_colors, layer_gcode_extras),
+        thumbnail
+    );
+    // status, message.
+    return to_java(env, std::vector<std::string>{std::to_string(static_cast<int>(saved.status)), saved.message});
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     JNIEnv* env,
@@ -929,26 +997,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     jobjectArray layer_gcode_extras
 )
 {
-    // The codes on the layers: one entry per code in every array.
-    std::vector<orcinus::orca::LayerGcode> layer_gcodes;
-    {
-        const std::vector<double> heights = to_doubles(env, layer_gcode_heights);
-        const std::vector<std::int32_t> extruders = to_ints(env, layer_gcode_extruders);
-        const std::vector<std::string> colors = to_strings(env, layer_gcode_colors);
-        const std::vector<std::string> extras = to_strings(env, layer_gcode_extras);
-        std::vector<jlong> types(heights.size(), 0);
-        if (layer_gcode_types != nullptr) {
-            env->GetLongArrayRegion(layer_gcode_types, 0, std::min<jsize>(env->GetArrayLength(layer_gcode_types), jsize(types.size())), types.data());
-        }
-        for (std::size_t index = 0; index < heights.size(); ++index) {
-            orcinus::orca::LayerGcode& code = layer_gcodes.emplace_back();
-            code.print_z = heights[index];
-            code.type = static_cast<orcinus::orca::LayerGcodeType>(types[index]);
-            code.extruder = index < extruders.size() ? extruders[index] : 1;
-            code.color = index < colors.size() ? colors[index] : std::string();
-            code.extra = index < extras.size() ? extras[index] : std::string();
-        }
-    }
+    const std::vector<orcinus::orca::LayerGcode> layer_gcodes =
+        to_layer_gcodes(env, layer_gcode_heights, layer_gcode_types, layer_gcode_extruders, layer_gcode_colors, layer_gcode_extras);
     // The thumbnails the app rendered: a width and a height per file.
     std::vector<orcinus::orca::ThumbnailImage> thumbnails;
     {

@@ -1,6 +1,7 @@
 package app.orcinus.shadow.storage.android
 
 import android.content.Context
+import android.provider.OpenableColumns
 import android.net.Uri
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.storage.api.DocumentExport
@@ -26,5 +27,17 @@ class AppDocumentExport(context: Context) : DocumentExport {
             return@withContext false
         }
         true
+    }
+
+    override suspend fun displayName(document: ExternalDocumentReference): String? = withContext(Dispatchers.IO) {
+        try {
+            applicationContext.contentResolver.query(Uri.parse(document.value), arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        } catch (error: SecurityException) {
+            null
+        } catch (error: IllegalArgumentException) {
+            null
+        }
     }
 }

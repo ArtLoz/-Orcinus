@@ -104,7 +104,7 @@ internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
 }
 
 /** The layer codes of a parcel's parallel arrays; none without heights. */
-private fun layerGcodesOf(
+internal fun layerGcodesOf(
     heights: DoubleArray?,
     types: Array<String>?,
     extruders: IntArray?,

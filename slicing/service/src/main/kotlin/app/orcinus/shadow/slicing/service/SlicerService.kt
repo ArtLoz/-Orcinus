@@ -1,6 +1,9 @@
 package app.orcinus.shadow.slicing.service
 
 import android.app.Service
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ModelLoad
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -152,6 +155,30 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                 answerIds.zip(answers.toList()).toMap(),
             )
         }.toParcel()
+
+        override fun saveProject(
+            path: String,
+            plate: Array<PlacedModelParcel>,
+            profiles: ProfilesParcel,
+            plateSettings: ModelSettingsParcel,
+            layerGcodeHeights: DoubleArray,
+            layerGcodeTypes: Array<String>,
+            layerGcodeExtruders: IntArray,
+            layerGcodeColors: Array<String>,
+            layerGcodeExtras: Array<String>,
+            thumbnailWidth: Int,
+            thumbnailHeight: Int,
+            thumbnailPath: String?,
+        ): String? = runBlocking {
+            engine.saveProject(
+                ScenePath(path),
+                plate.toPlacedModels(),
+                profiles.toProfiles(),
+                plateSettings.toModelSettings(),
+                layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
+                thumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
+            )
+        }.let { outcome -> (outcome as? ProjectSaveOutcome.Failure)?.message }
 
         override fun exportMesh(
             plate: Array<PlacedModelParcel>,

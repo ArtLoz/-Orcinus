@@ -442,6 +442,24 @@ data class ImportBatch(
     /** How a 3MF file of the batch loads, and whether the user chose it in ProjectDropDialog. */
     val load: ModelLoad = ModelLoad.GEOMETRY,
     val chosen: Boolean = false,
+    /**
+     * The document the user picked and the name it goes by: a project opened
+     * from it is saved into it again, and a plate without a name takes the
+     * name of the first model file it loads (Plater::add_file).
+     */
+    val document: ExternalDocumentReference? = null,
+    val displayName: String? = null,
+)
+
+/**
+ * The project the plate is (Plater's project name and project filename): the
+ * name the desktop app shows in its title, none while it is "Untitled", and
+ * the document it was opened from or last saved to, which "Save Project"
+ * writes again.
+ */
+data class PlateProject(
+    val name: String? = null,
+    val document: ExternalDocumentReference? = null,
 )
 
 /**
@@ -518,6 +536,10 @@ data class PlateState(
      * objects, which waits to be opened as a project or for its geometry only.
      */
     val projectDrop: ModelPath? = null,
+    /** The document of that file, which a project opened from it is saved into. */
+    val projectDropBatch: ImportBatch = ImportBatch(),
+    /** The project the plate is: its name and the document it is saved into. */
+    val project: PlateProject = PlateProject(),
     /** Message boxes OrcaSlicer showed while it changed the plate, which the user dismisses in turn. */
     val plateNotices: List<SettingsDialog> = emptyList(),
     /** The objects on the plate, in the order they were added, as OrcaSlicer's object list shows them. */

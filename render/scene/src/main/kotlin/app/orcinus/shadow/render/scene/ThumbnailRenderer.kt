@@ -48,16 +48,18 @@ class ThumbnailRenderer(context: Context) {
     /**
      * Renders [objects] standing on [plate] in the colours of their filaments
      * ([filamentColors], "#RRGGBB" by filament) at every one of [sizes], and
-     * writes each picture to the file [fileFor] names.
+     * writes each picture to the file [fileFor] names. The G-code's pictures
+     * show the printable copies alone ([printableOnly]), a project's every one.
      */
     suspend fun render(
         objects: List<PlateObject>,
         plate: PlateDescription,
         filamentColors: List<String>,
         sizes: List<ThumbnailSize>,
+        printableOnly: Boolean,
         fileFor: (ThumbnailSize) -> ScenePath,
     ): List<ThumbnailImage> = withContext(dispatcher) {
-        val volumes = visibleVolumes(objects, plate, filamentColors)
+        val volumes = visibleVolumes(objects, plate, filamentColors, printableOnly)
         OffscreenContext().use {
             val program = GlProgram(assets, THUMBNAIL_SHADER)
             val arrays = volumes.associate { volume ->
@@ -83,14 +85,14 @@ class ThumbnailRenderer(context: Context) {
      * build volume and above the plate, without modifiers and the wipe tower
      * (ThumbnailsParams parts_only), each in the colour of its filament.
      */
-    private fun visibleVolumes(objects: List<PlateObject>, plate: PlateDescription, filamentColors: List<String>): List<SceneObject> {
+    private fun visibleVolumes(objects: List<PlateObject>, plate: PlateDescription, filamentColors: List<String>, printableOnly: Boolean): List<SceneObject> {
         val colors = filamentColors.map { parseFilamentColor(it) }
         val default = plate.filamentColor
         fun colorOf(extruder: Int): ColorRgba = colors.getOrNull(extruder - 1) ?: default
         val plateBox = buildVolume(plate).let { Box3(it.min.copy(z = -1e10), it.max) }
         val meshes = MeshCache()
         return objects.flatMap { plateObject ->
-            plateObject.instances.filter { it.printable }.flatMap { instance ->
+            plateObject.instances.filter { it.printable || !printableOnly }.flatMap { instance ->
                 val copy = SceneLoader.loadObject(0, plateObject, instance, colorOf(plateObject.extruderNumber), meshes)
                 val parts = plateObject.parts
                     .filter { it.type == VolumeType.PART }

@@ -74,6 +74,25 @@ interface ISlicerService {
         in String[] answerIds,
         in boolean[] answers
     );
+    /**
+     * save_project(): the error message, null once saved. The layer codes are
+     * parallel arrays, their types by LayerGcodeType name; the picture has no
+     * path when there is none.
+     */
+    @nullable String saveProject(
+        String path,
+        in PlacedModelParcel[] plate,
+        in ProfilesParcel profiles,
+        in ModelSettingsParcel plateSettings,
+        in double[] layerGcodeHeights,
+        in String[] layerGcodeTypes,
+        in int[] layerGcodeExtruders,
+        in String[] layerGcodeColors,
+        in String[] layerGcodeExtras,
+        int thumbnailWidth,
+        int thumbnailHeight,
+        @nullable String thumbnailPath
+    );
     /** export_object_mesh(): format is the MeshFormat's name. */
     MeshExportParcel exportMesh(
         in PlacedModelParcel[] plate,

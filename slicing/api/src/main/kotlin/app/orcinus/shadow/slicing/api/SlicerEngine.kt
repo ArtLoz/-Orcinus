@@ -1,6 +1,9 @@
 package app.orcinus.shadow.slicing.api
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.ComparedPresets
@@ -141,6 +144,23 @@ interface PlateInspector {
         load: ModelLoad = ModelLoad.GEOMETRY,
         chosen: Boolean = false,
     ): ModelLoadOutcome
+
+    /**
+     * Plater::export_3mf() for "Save project": the objects of [plate] with the
+     * codes on its layers, the configuration of [profiles] with the project's
+     * values of [plateSettings] (the wipe tower's position, the flushing
+     * volumes), the presets the project brought, and the plate with its own
+     * settings and its picture [thumbnail], written to [path] as OrcaSlicer
+     * writes a project.
+     */
+    suspend fun saveProject(
+        path: ScenePath,
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        plateSettings: ModelSettings,
+        layerGcodes: List<LayerGcode>,
+        thumbnail: ThumbnailImage?,
+    ): ProjectSaveOutcome
 
     /**
      * Plater::export_stl(false, true): the object at [index] of [plate], whole,

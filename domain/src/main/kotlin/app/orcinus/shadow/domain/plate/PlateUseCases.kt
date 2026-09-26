@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.PlateProject
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.BuildVolumeFit
@@ -570,11 +571,12 @@ class AddModelToPlateUseCase(
                 is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
                 is ModelImportOutcome.Success -> {
                     val path = imported.model.path
+                    val picked = ImportBatch(document = reference, displayName = imported.model.displayName)
                     when {
-                        !path.value.endsWith(".3mf", ignoreCase = true) -> load(path, ImportBatch(), emptyMap(), emptyList())
+                        !path.value.endsWith(".3mf", ignoreCase = true) -> load(path, picked, emptyMap(), emptyList())
                         // determine_load_type(): a plate without objects opens the project.
-                        repository.state.value.objects.isEmpty() -> load(path, ImportBatch(load = ModelLoad.PROJECT), emptyMap(), emptyList())
-                        else -> repository.update { it.copy(projectDrop = path) }
+                        repository.state.value.objects.isEmpty() -> load(path, picked.copy(load = ModelLoad.PROJECT), emptyMap(), emptyList())
+                        else -> repository.update { it.copy(projectDrop = path, projectDropBatch = picked) }
                     }
                 }
             }
@@ -584,17 +586,19 @@ class AddModelToPlateUseCase(
     /** ProjectDropDialog's choice for the 3MF file that waits; null cancels the load. */
     fun openAs(load: ModelLoad?) {
         var source: ModelPath? = null
+        var picked = ImportBatch()
         repository.update { state ->
             source = state.projectDrop
+            picked = state.projectDropBatch
             when {
                 source == null -> state
-                load == null -> state.copy(projectDrop = null, importing = false)
-                else -> state.copy(projectDrop = null)
+                load == null -> state.copy(projectDrop = null, projectDropBatch = ImportBatch(), importing = false)
+                else -> state.copy(projectDrop = null, projectDropBatch = ImportBatch())
             }
         }
         val path = source ?: return
         if (load == null) return
-        applicationScope.launch { load(path, ImportBatch(load = load, chosen = true), emptyMap(), emptyList()) }
+        applicationScope.launch { load(path, picked.copy(load = load, chosen = true), emptyMap(), emptyList()) }
     }
 
     /**
@@ -699,8 +703,10 @@ class AddModelToPlateUseCase(
                     val project = outcome.project
                     if (project != null) {
                         // Plater::load_project(): the project takes the plate's place, and
-                        // its "Load Project" snapshot (a ProjectSeparator) clears Undo.
+                        // its "Load Project" snapshot (a ProjectSeparator) clears Undo; it
+                        // goes by the file's name and is saved into it again.
                         informed.copy(
+                            project = PlateProject(batch.displayName?.let(::projectNameOf), batch.document),
                             importing = false,
                             objects = added,
                             selectedInstances = loaded,
@@ -713,8 +719,16 @@ class AddModelToPlateUseCase(
                             result = null,
                         )
                     } else {
+                        // Plater::add_file(): an untitled plate takes the name of the
+                        // first model file it loads, a 3MF file's geometry aside.
+                        val name = batch.displayName?.takeIf { batch.load == ModelLoad.GEOMETRY && !batch.chosen && added.isNotEmpty() }
+                        val named = if (name != null && state.project.name == null) {
+                            informed.copy(project = state.project.copy(name = projectNameOf(name)))
+                        } else {
+                            informed
+                        }
                         // load_files(): "Import Object", once for all its files.
-                        (if (added.isEmpty() || batch.loaded.isNotEmpty()) informed else informed.recorded()).copy(
+                        (if (added.isEmpty() || batch.loaded.isNotEmpty()) named else named.recorded()).copy(
                             importing = batch.rest.isNotEmpty(),
                             objects = state.objects + added,
                             selectedInstances = loaded,

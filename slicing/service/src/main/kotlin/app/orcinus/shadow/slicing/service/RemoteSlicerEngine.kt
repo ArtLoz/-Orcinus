@@ -1,6 +1,9 @@
 package app.orcinus.shadow.slicing.service
 
 import android.content.ComponentName
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.ModelLoad
 import android.content.Context
 import android.content.Intent
@@ -206,6 +209,35 @@ class RemoteSlicerEngine(
             answers.keys.toTypedArray(),
             answers.values.toBooleanArray(),
         ).toModelLoadOutcome()
+    }
+
+    override suspend fun saveProject(
+        path: ScenePath,
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        plateSettings: ModelSettings,
+        layerGcodes: List<LayerGcode>,
+        thumbnail: ThumbnailImage?,
+    ): ProjectSaveOutcome = withContext(Dispatchers.IO) {
+        try {
+            val error = service().saveProject(
+                path.value,
+                plate.toParcels(),
+                profiles.toParcel(),
+                plateSettings.toParcel(),
+                layerGcodes.map(LayerGcode::printZ).toDoubleArray(),
+                layerGcodes.map { it.type.name }.toTypedArray(),
+                layerGcodes.map(LayerGcode::extruder).toIntArray(),
+                layerGcodes.map(LayerGcode::color).toTypedArray(),
+                layerGcodes.map(LayerGcode::extra).toTypedArray(),
+                thumbnail?.size?.width ?: 0,
+                thumbnail?.size?.height ?: 0,
+                thumbnail?.path?.value,
+            )
+            error?.let(ProjectSaveOutcome::Failure) ?: ProjectSaveOutcome.Success
+        } catch (_: RemoteException) {
+            ProjectSaveOutcome.Failure(PROCESS_DIED)
+        }
     }
 
     override suspend fun exportMesh(

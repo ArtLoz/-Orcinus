@@ -218,6 +218,13 @@ sealed interface MeshExportOutcome {
     data class Failure(val message: String) : MeshExportOutcome
 }
 
+/** What "Save project" came to. */
+sealed interface ProjectSaveOutcome {
+    data object Success : ProjectSaveOutcome
+
+    data class Failure(val message: String) : ProjectSaveOutcome
+}
+
 sealed interface ModelLoadOutcome {
     /** The message boxes the load showed; they informed only. */
     val notices: List<SettingsDialog>

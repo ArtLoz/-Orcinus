@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 
+#include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "orca_engine_adapter.hpp"
@@ -58,6 +59,10 @@ bool load_plate(
     Slic3r::Model& model,
     std::string& message
 );
+
+// PartPlate::get_build_volume() of the only plate, as the adapter judges
+// which copies stand on it.
+Slic3r::BoundingBoxf3 plate_box(const Slic3r::DynamicPrintConfig& config);
 
 // Writes a mesh for the 3D view, in the format :render:scene reads
 // (mesh_file_magic of orca_engine_adapter.hpp).

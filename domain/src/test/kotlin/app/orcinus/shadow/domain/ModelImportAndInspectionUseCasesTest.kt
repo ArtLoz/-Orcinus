@@ -1,6 +1,9 @@
 package app.orcinus.shadow.domain
 
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
@@ -249,6 +252,19 @@ class ModelImportAndInspectionUseCasesTest {
         ) = ModelLoadOutcome.Failure("not used")
 
         override suspend fun handyModel(file: String): ModelPath? = null
+
+        override suspend fun saveProject(
+            path: ScenePath,
+            plate: List<PlacedModel>,
+            profiles: SlicingProfileSelection,
+            plateSettings: ModelSettings,
+            layerGcodes: List<LayerGcode>,
+            thumbnail: ThumbnailImage?,
+        ): ProjectSaveOutcome = saveProject(path, plate, plateSettings, layerGcodes, thumbnail)
+
+        /** What saving a project answers; by default it is saved. */
+        var saveProject: (ScenePath, List<PlacedModel>, ModelSettings, List<LayerGcode>, ThumbnailImage?) -> ProjectSaveOutcome =
+            { _, _, _, _, _ -> ProjectSaveOutcome.Success }
 
         override suspend fun exportMesh(
             plate: List<PlacedModel>,

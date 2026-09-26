@@ -1,6 +1,7 @@
 package app.orcinus.shadow.di
 
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
@@ -171,9 +172,12 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     // The desktop app renders the G-code thumbnails with its 3D view's
     // renderer; the app's renderer draws them offscreen before it slices.
     private val thumbnailRenderer = ThumbnailRenderer(applicationContext)
+    private val plateThumbnails = PlateThumbnailRenderer { objects, plate, colors, sizes, printableOnly, fileFor ->
+        thumbnailRenderer.render(objects, plate, colors, sizes, printableOnly, fileFor)
+    }
     private val renderThumbnails = RenderThumbnailsUseCase(
         engine = engine,
-        renderer = PlateThumbnailRenderer { objects, plate, colors, sizes, fileFor -> thumbnailRenderer.render(objects, plate, colors, sizes, fileFor) },
+        renderer = plateThumbnails,
         sceneFiles = sceneFiles,
     )
     val slicePlate = SlicePlateUseCase(
@@ -280,6 +284,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val copyProcessSettings = CopyProcessSettingsUseCase(plateRepository)
     private val pasteProcessSettings = PasteProcessSettingsUseCase(engine, plateRepository, settingsTabs, applicationScope)
     private val exportObjectMesh = ExportObjectMeshUseCase(engine, sceneFiles, AppDocumentExport(applicationContext), plateRepository)
+    private val saveProject = SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope)
     private val replaceObjectVolume = ReplaceObjectVolumeUseCase(
         ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
         engine,
@@ -411,6 +416,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         openSimplify = openSimplify,
         changeVolumeType = ChangeVolumeTypeUseCase(engine, sceneFiles, plateRepository, applicationScope),
         replaceAllVolumesUseCase = replaceAllVolumes,
+        saveProject = saveProject,
     )
 
     fun presetSettingsViewModel(kind: PresetKind) = PresetSettingsViewModel(
