@@ -22,4 +22,6 @@ parcelable ModelLoadParcel {
     @nullable String[] layerGcodeColors;
     @nullable String[] layerGcodeExtras;
     boolean presetsChanged;
+    /** LoadedProject.info */
+    @nullable String projectInfo;
 }

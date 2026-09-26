@@ -676,6 +676,8 @@ internal class NativeImportedModels(
     @JvmField val layerGcodeColors: Array<String>,
     @JvmField val layerGcodeExtras: Array<String>,
     @JvmField val presetsChanged: Boolean,
+    /** Where the load kept the project's information and auxiliary files; empty for none. */
+    @JvmField val projectInfo: String,
 )
 
 /** SceneStatus in orca_engine_adapter.hpp. */
@@ -886,6 +888,7 @@ internal object NativeBindings {
         filamentProfile: String,
         filamentProfiles: Array<String>,
         processProfile: String,
+        projectInfo: String,
     ): Array<String>
 
     /**

@@ -152,7 +152,8 @@ interface PlateInspector {
      * values of [plateSettings] (the wipe tower's position, the flushing
      * volumes), the presets the project brought, and the plate with its own
      * settings and its picture [thumbnail], written to [path] as OrcaSlicer
-     * writes a project.
+     * writes a project, with what the project it was opened from holds
+     * besides its objects ([projectInfo], LoadedProject.info).
      */
     suspend fun saveProject(
         path: ScenePath,
@@ -161,6 +162,7 @@ interface PlateInspector {
         plateSettings: ModelSettings,
         layerGcodes: List<LayerGcode>,
         thumbnail: ThumbnailImage?,
+        projectInfo: ScenePath? = null,
     ): ProjectSaveOutcome
 
     /**

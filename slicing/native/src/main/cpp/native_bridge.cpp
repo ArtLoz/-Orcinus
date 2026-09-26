@@ -953,7 +953,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_saveProject(
     jstring printer_profile,
     jstring filament_profile,
     jobjectArray filament_profiles,
-    jstring process_profile
+    jstring process_profile,
+    jstring project_info
 )
 {
     orcinus::orca::ThumbnailImage thumbnail;
@@ -966,7 +967,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_saveProject(
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_model_settings(env, plate_setting_keys, plate_setting_values),
         to_layer_gcodes(env, layer_gcode_heights, layer_gcode_types, layer_gcode_extruders, layer_gcode_colors, layer_gcode_extras),
-        thumbnail
+        thumbnail,
+        to_utf8(env, project_info)
     );
     // status, message.
     return to_java(env, std::vector<std::string>{std::to_string(static_cast<int>(saved.status)), saved.message});
@@ -2766,7 +2768,7 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "Z"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
-        "Z[Ljava/lang/String;[Ljava/lang/String;[D[J[I[Ljava/lang/String;[Ljava/lang/String;Z)V"
+        "Z[Ljava/lang/String;[Ljava/lang/String;[D[J[I[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;)V"
     );
     std::vector<double> heights;
     std::vector<jlong> types;
@@ -2803,7 +2805,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         extruder_array,
         to_java(env, colors),
         to_java(env, extras),
-        imported.presets_changed ? JNI_TRUE : JNI_FALSE
+        imported.presets_changed ? JNI_TRUE : JNI_FALSE,
+        to_java(env, imported.project_info)
     );
 }
 

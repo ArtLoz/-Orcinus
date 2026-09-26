@@ -72,7 +72,7 @@ class SaveProjectUseCase(
                 }
             }
             val outcome = try {
-                inspector.saveProject(file, state.objects.map { it.placed() }, profiles, state.plateSettings, state.layerGcodes, picture)
+                inspector.saveProject(file, state.objects.map { it.placed() }, profiles, state.plateSettings, state.layerGcodes, picture, state.project.info)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {

@@ -219,6 +219,7 @@ class RemoteSlicerEngine(
         plateSettings: ModelSettings,
         layerGcodes: List<LayerGcode>,
         thumbnail: ThumbnailImage?,
+        projectInfo: ScenePath?,
     ): ProjectSaveOutcome = withContext(Dispatchers.IO) {
         try {
             val error = service().saveProject(
@@ -234,6 +235,7 @@ class RemoteSlicerEngine(
                 thumbnail?.size?.width ?: 0,
                 thumbnail?.size?.height ?: 0,
                 thumbnail?.path?.value,
+                projectInfo?.value,
             )
             error?.let(ProjectSaveOutcome::Failure) ?: ProjectSaveOutcome.Success
         } catch (_: RemoteException) {

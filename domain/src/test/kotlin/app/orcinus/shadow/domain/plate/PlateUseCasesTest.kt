@@ -2807,6 +2807,7 @@ class PlateUseCasesTest {
             plateSettings: ModelSettings,
             layerGcodes: List<LayerGcode>,
             thumbnail: ThumbnailImage?,
+            projectInfo: ScenePath?,
         ): ProjectSaveOutcome = saveProject(path, plate, plateSettings, layerGcodes, thumbnail)
 
         /** What saving a project answers; by default it is saved. */

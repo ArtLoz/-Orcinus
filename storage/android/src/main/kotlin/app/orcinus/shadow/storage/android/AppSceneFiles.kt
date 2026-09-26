@@ -37,7 +37,8 @@ class AppSceneFiles(context: Context) : SceneFiles {
     override fun deleteImport(prefix: ScenePath) {
         val start = File(prefix.value)
         if (start.parentFile != objects) return
-        objects.listFiles()?.filter { it.name.startsWith(start.name + "-") }?.forEach(File::delete)
+        // A project's information is a folder of its own (LoadedProject.info).
+        objects.listFiles()?.filter { it.name.startsWith(start.name + "-") }?.forEach(File::deleteRecursively)
     }
 
     override fun deleteObjectMesh(mesh: ScenePath) {
@@ -46,7 +47,7 @@ class AppSceneFiles(context: Context) : SceneFiles {
     }
 
     override fun deleteAllObjectMeshes() {
-        objects.listFiles()?.forEach(File::delete)
+        objects.listFiles()?.forEach(File::deleteRecursively)
     }
 
     override fun newToolpaths(): ScenePath {

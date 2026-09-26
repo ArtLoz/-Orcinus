@@ -92,7 +92,8 @@ interface ISlicerService {
         in String[] layerGcodeExtras,
         int thumbnailWidth,
         int thumbnailHeight,
-        @nullable String thumbnailPath
+        @nullable String thumbnailPath,
+        @nullable String projectInfo
     );
     /** export_object_mesh(): format is the MeshFormat's name. */
     MeshExportParcel exportMesh(

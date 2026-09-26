@@ -7,6 +7,8 @@
 #include <set>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/filesystem.hpp>
+#include <nlohmann/json.hpp>
 
 #include "engine_context.hpp"
 #include "settings_tab.hpp"
@@ -270,6 +272,117 @@ void warn_about_modified_gcodes(const std::string& file_name, Slic3r::DynamicPri
 }
 
 }  // namespace
+
+namespace {
+
+// Copies every file under from into to, keeping the folders between.
+void copy_tree(const boost::filesystem::path& from, const boost::filesystem::path& to)
+{
+    boost::system::error_code ec;
+    if (!boost::filesystem::is_directory(from, ec)) {
+        return;
+    }
+    for (boost::filesystem::recursive_directory_iterator it(from, ec), end; !ec && it != end; it.increment(ec)) {
+        const boost::filesystem::path target = to / boost::filesystem::relative(it->path(), from, ec);
+        if (boost::filesystem::is_directory(it->path(), ec)) {
+            boost::filesystem::create_directories(target, ec);
+        } else if (boost::filesystem::is_regular_file(it->path(), ec)) {
+            boost::filesystem::create_directories(target.parent_path(), ec);
+            boost::filesystem::copy_file(it->path(), target, boost::filesystem::copy_options::overwrite_existing, ec);
+        }
+    }
+}
+
+constexpr const char* project_info_file = "info.json";
+constexpr const char* project_auxiliaries = "Auxiliaries";
+
+}  // namespace
+
+void keep_project_info(Slic3r::Model& model, const std::string& directory)
+{
+    nlohmann::json info;
+    info["stl_design_id"] = model.stl_design_id;
+    info["stl_design_country"] = model.stl_design_country;
+    if (model.design_info) {
+        info["design_info"] = {{"DesignId", model.design_info->DesignId},
+                               {"Designer", model.design_info->Designer},
+                               {"DesignerUserId", model.design_info->DesignerUserId}};
+    }
+    if (model.model_info) {
+        info["model_info"] = {{"cover_file", model.model_info->cover_file},   {"license", model.model_info->license},
+                              {"description", model.model_info->description}, {"copyright", model.model_info->copyright},
+                              {"model_name", model.model_info->model_name},   {"origin", model.model_info->origin},
+                              {"metadata_items", model.model_info->metadata_items}};
+    }
+    if (model.profile_info) {
+        info["profile_info"] = {{"ProfileTile", model.profile_info->ProfileTile},
+                                {"ProfileCover", model.profile_info->ProfileCover},
+                                {"ProfileDescription", model.profile_info->ProfileDescription},
+                                {"ProfileUserId", model.profile_info->ProfileUserId},
+                                {"ProfileUserName", model.profile_info->ProfileUserName}};
+    }
+    info["mk_name"] = model.mk_name;
+    info["mk_version"] = model.mk_version;
+    info["md_name"] = model.md_name;
+    info["md_value"] = model.md_value;
+
+    boost::filesystem::create_directories(directory);
+    std::ofstream((boost::filesystem::path(directory) / project_info_file).string()) << info.dump();
+    copy_tree(model.get_auxiliary_file_temp_path(), boost::filesystem::path(directory) / project_auxiliaries);
+}
+
+void restore_project_info(Slic3r::Model& model, const std::string& directory)
+{
+    std::ifstream file((boost::filesystem::path(directory) / project_info_file).string());
+    if (!file) {
+        return;
+    }
+    const nlohmann::json info = nlohmann::json::parse(file, nullptr, false);
+    if (info.is_discarded()) {
+        return;
+    }
+    const auto text = [](const nlohmann::json& object, const char* key) {
+        const auto found = object.find(key);
+        return found != object.end() && found->is_string() ? found->get<std::string>() : std::string();
+    };
+    model.stl_design_id = text(info, "stl_design_id");
+    model.stl_design_country = text(info, "stl_design_country");
+    if (const auto design = info.find("design_info"); design != info.end()) {
+        model.design_info = std::make_shared<Slic3r::ModelDesignInfo>();
+        model.design_info->DesignId = text(*design, "DesignId");
+        model.design_info->Designer = text(*design, "Designer");
+        model.design_info->DesignerUserId = text(*design, "DesignerUserId");
+    }
+    if (const auto described = info.find("model_info"); described != info.end()) {
+        model.model_info = std::make_shared<Slic3r::ModelInfo>();
+        model.model_info->cover_file = text(*described, "cover_file");
+        model.model_info->license = text(*described, "license");
+        model.model_info->description = text(*described, "description");
+        model.model_info->copyright = text(*described, "copyright");
+        model.model_info->model_name = text(*described, "model_name");
+        model.model_info->origin = text(*described, "origin");
+        if (const auto items = described->find("metadata_items"); items != described->end() && items->is_object()) {
+            model.model_info->metadata_items = items->get<std::map<std::string, std::string>>();
+        }
+    }
+    if (const auto profile = info.find("profile_info"); profile != info.end()) {
+        model.profile_info = std::make_shared<Slic3r::ModelProfileInfo>();
+        model.profile_info->ProfileTile = text(*profile, "ProfileTile");
+        model.profile_info->ProfileCover = text(*profile, "ProfileCover");
+        model.profile_info->ProfileDescription = text(*profile, "ProfileDescription");
+        model.profile_info->ProfileUserId = text(*profile, "ProfileUserId");
+        model.profile_info->ProfileUserName = text(*profile, "ProfileUserName");
+    }
+    model.mk_name = text(info, "mk_name");
+    model.mk_version = text(info, "mk_version");
+    if (const auto names = info.find("md_name"); names != info.end() && names->is_array()) {
+        model.md_name = names->get<std::vector<std::string>>();
+    }
+    if (const auto values = info.find("md_value"); values != info.end() && values->is_array()) {
+        model.md_value = values->get<std::vector<std::string>>();
+    }
+    copy_tree(boost::filesystem::path(directory) / project_auxiliaries, model.get_auxiliary_file_temp_path());
+}
 
 Archive3mf::~Archive3mf()
 {
@@ -638,7 +751,8 @@ ProjectSave save_project(
     const ProfileSelection& profiles,
     const ModelSettings& plate_settings,
     const std::vector<LayerGcode>& layer_gcodes,
-    const ThumbnailImage& thumbnail
+    const ThumbnailImage& thumbnail,
+    const std::string& project_info
 )
 {
     ProjectSave result;
@@ -661,6 +775,9 @@ ProjectSave save_project(
         if (!detail::load_plate(plate, selected, model, result.message)) {
             result.status = SceneStatus::model_read_failed;
             return result;
+        }
+        if (!project_info.empty()) {
+            detail::restore_project_info(model, project_info);
         }
         if (!layer_gcodes.empty()) {
             // The mode the layer slider keeps its codes in (Preview::update_layers_slider_mode).

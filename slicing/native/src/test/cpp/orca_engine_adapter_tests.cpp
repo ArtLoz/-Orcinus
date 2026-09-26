@@ -4583,3 +4583,33 @@ TEST_CASE("The presets with unsaved changes are listed for a project, and their 
     CHECK(orca::dirty_presets().presets.empty());
     CHECK(orca::reset_project_presets().selection.process == standard);
 }
+
+TEST_CASE("A project keeps its designer, license and auxiliary files through a save", "[Adapter][Project]")
+{
+    require_engine();
+    // What an opened project left besides its objects (keep_project_info).
+    const fs::path kept = fs::path(device_dir) / "tmp" / "kept-project";
+    fs::remove_all(kept);
+    fs::create_directories(kept / "Auxiliaries" / "Model Pictures");
+    write_text((kept / "info.json").string(),
+               R"({"design_info":{"DesignId":"","Designer":"Orcinus","DesignerUserId":""},)"
+               R"("model_info":{"cover_file":"","license":"CC-BY","description":"A cube","copyright":"","model_name":"Cube","origin":"","metadata_items":{}}})");
+    write_text((kept / "Auxiliaries" / "Model Pictures" / "cover.png").string(), "picture");
+
+    const std::string project = output_path("kept-project.3mf");
+    const orca::ProjectSave saved = orca::save_project(project, plate_of(""), k2_plus_profiles(), {}, {}, {}, kept.string());
+    INFO(saved.message);
+    REQUIRE(saved.status == orca::SceneStatus::success);
+    CHECK(read_file(project).find("Auxiliaries/Model Pictures/cover.png") != std::string::npos);
+
+    const orca::ImportedModels opened =
+        orca::import_model(project, k2_plus_profiles(), {}, import_prefix("kept-project"), {}, orca::ModelLoad::project);
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    REQUIRE_FALSE(opened.project_info.empty());
+    const std::string info = read_file((fs::path(opened.project_info) / "info.json").string());
+    CHECK(info.find("\"Designer\":\"Orcinus\"") != std::string::npos);
+    CHECK(info.find("\"license\":\"CC-BY\"") != std::string::npos);
+    CHECK(info.find("\"description\":\"A cube\"") != std::string::npos);
+    CHECK(read_file((fs::path(opened.project_info) / "Auxiliaries" / "Model Pictures" / "cover.png").string()) == "picture");
+}

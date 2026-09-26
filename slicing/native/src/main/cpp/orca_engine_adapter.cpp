@@ -3026,6 +3026,10 @@ ImportedModels import_model(
         if (type_3mf) {
             detail::apply_3mf(archive, file_name, dialogs, result);
         }
+        if (result.project) {
+            result.project_info = output_prefix + "-project";
+            detail::keep_project_info(imported, result.project_info);
+        }
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;
         return result;

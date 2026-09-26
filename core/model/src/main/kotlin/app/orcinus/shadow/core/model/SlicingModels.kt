@@ -268,6 +268,12 @@ enum class ModelLoad { GEOMETRY, PROJECT }
 data class LoadedProject(
     val plateSettings: ModelSettings = ModelSettings(),
     val layerGcodes: List<LayerGcode> = emptyList(),
+    /**
+     * Where the engine kept what the project holds besides its objects: the
+     * designer, the model's information and its auxiliary files, which its
+     * next save writes again.
+     */
+    val info: ScenePath? = null,
 )
 
 @JvmInline

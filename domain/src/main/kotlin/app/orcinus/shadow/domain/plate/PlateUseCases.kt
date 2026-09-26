@@ -749,6 +749,7 @@ class AddModelToPlateUseCase(
                                 project = loaded.projectBaseline().copy(
                                     name = batch.displayName?.let(::projectNameOf),
                                     document = batch.document,
+                                    info = project.info,
                                 ),
                             )
                         }

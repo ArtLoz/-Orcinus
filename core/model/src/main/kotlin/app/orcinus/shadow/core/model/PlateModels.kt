@@ -468,6 +468,8 @@ data class PlateProject(
      */
     val presets: SlicingProfileSelection? = null,
     val filamentColors: List<String> = emptyList(),
+    /** What the project opened from a file holds besides its objects (LoadedProject.info), which Save writes again. */
+    val info: ScenePath? = null,
 )
 
 /**

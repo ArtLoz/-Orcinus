@@ -54,6 +54,17 @@ Slic3r::Model read_3mf(
 // printer's for a project, the selected one's otherwise.
 const Slic3r::DynamicPrintConfig& placing_config(const Archive3mf& archive, const Slic3r::DynamicPrintConfig& current);
 
+// What Plater::priv::load_files() keeps of a project besides its objects
+// (Model::load_from): the designer, the model's and the profile's
+// information, MakerLab's, and the auxiliary files (the model's pictures, bill
+// of materials, assembly guide and others), written into directory as
+// info.json and Auxiliaries/ for the project's next save.
+void keep_project_info(Slic3r::Model& model, const std::string& directory);
+
+// Gives model what keep_project_info() kept in directory, as the desktop
+// app's model still holds it when the project is saved.
+void restore_project_info(Slic3r::Model& model, const std::string& directory);
+
 // What the file brings into the presets once its objects are loaded: a
 // project's presets and settings are selected, or the plate gets the
 // filaments its objects need. result gets the first plate's settings and codes.

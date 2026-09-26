@@ -1239,6 +1239,10 @@ struct ImportedModels {
     bool project{false};
     ModelSettings plate_settings;
     std::vector<LayerGcode> layer_gcodes;
+    // The folder where the load kept the project's information and auxiliary
+    // files besides its objects (keep_project_info), which save_project()
+    // writes into the project again.
+    std::string project_info;
     // The load changed the presets: a project's were selected, or filaments
     // joined the plate for the extruders of a 3MF file's objects.
     bool presets_changed{false};
@@ -1265,7 +1269,10 @@ ProjectSave save_project(
     const ProfileSelection& profiles,
     const ModelSettings& plate_settings,
     const std::vector<LayerGcode>& layer_gcodes,
-    const ThumbnailImage& thumbnail
+    const ThumbnailImage& thumbnail,
+    // What import_model() kept of the project the plate was opened from
+    // (ImportedModels::project_info); empty for a plate that was not.
+    const std::string& project_info = {}
 );
 
 // How a 3MF file loads (LoadType of Plater.cpp): its objects alone ("Import

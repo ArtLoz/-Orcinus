@@ -310,6 +310,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         plateSettings: ModelSettings,
         layerGcodes: List<LayerGcode>,
         thumbnail: ThumbnailImage?,
+        projectInfo: ScenePath?,
     ): ProjectSaveOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -332,6 +333,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             filamentProfile = profiles.filament.value,
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
+            projectInfo = projectInfo?.value.orEmpty(),
         )
         if (saveStatus.toLong() == NativeSceneStatus.SUCCESS) {
             ProjectSaveOutcome.Success
@@ -1517,6 +1519,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                                 extra = layerGcodeExtras[index],
                             )
                         },
+                        info = projectInfo.takeIf(String::isNotEmpty)?.let(::ScenePath),
                     )
                 },
                 presetsChanged = presetsChanged,

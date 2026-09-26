@@ -169,6 +169,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             thumbnailWidth: Int,
             thumbnailHeight: Int,
             thumbnailPath: String?,
+            projectInfo: String?,
         ): String? = runBlocking {
             engine.saveProject(
                 ScenePath(path),
@@ -177,6 +178,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                 plateSettings.toModelSettings(),
                 layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
                 thumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
+                projectInfo?.let(::ScenePath),
             )
         }.let { outcome -> (outcome as? ProjectSaveOutcome.Failure)?.message }
 

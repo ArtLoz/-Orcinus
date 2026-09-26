@@ -269,6 +269,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
         it.layerGcodeExtruders = project.layerGcodes.map(LayerGcode::extruder).toIntArray()
         it.layerGcodeColors = project.layerGcodes.map(LayerGcode::color).toTypedArray()
         it.layerGcodeExtras = project.layerGcodes.map(LayerGcode::extra).toTypedArray()
+        it.projectInfo = project.info?.value
     }
     when (this) {
         is ModelLoadOutcome.Failure -> it.error = message
@@ -322,6 +323,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
             LoadedProject(
                 plateSettings = settings.toModelSettings(),
                 layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
+                info = projectInfo?.let(::ScenePath),
             )
         },
         presetsChanged = presetsChanged,
