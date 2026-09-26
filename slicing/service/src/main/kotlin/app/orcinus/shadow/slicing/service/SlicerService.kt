@@ -160,24 +160,14 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             path: String,
             plate: Array<PlacedModelParcel>,
             profiles: ProfilesParcel,
-            plateSettings: ModelSettingsParcel,
-            layerGcodeHeights: DoubleArray,
-            layerGcodeTypes: Array<String>,
-            layerGcodeExtruders: IntArray,
-            layerGcodeColors: Array<String>,
-            layerGcodeExtras: Array<String>,
-            thumbnailWidth: Int,
-            thumbnailHeight: Int,
-            thumbnailPath: String?,
+            plates: Array<ProjectPlateParcel>,
             projectInfo: String?,
         ): String? = runBlocking {
             engine.saveProject(
                 ScenePath(path),
                 plate.toPlacedModels(),
                 profiles.toProfiles(),
-                plateSettings.toModelSettings(),
-                layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
-                thumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
+                plates.map { it.toProjectPlate() },
                 projectInfo?.let(::ScenePath),
             )
         }.let { outcome -> (outcome as? ProjectSaveOutcome.Failure)?.message }

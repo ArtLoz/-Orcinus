@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.api
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ThumbnailImage
@@ -155,21 +156,19 @@ interface PlateInspector {
     ): ModelLoadOutcome
 
     /**
-     * Plater::export_3mf() for "Save project": the objects of [plate] with the
-     * codes on its layers, the configuration of [profiles] with the project's
-     * values of [plateSettings] (the wipe tower's position, the flushing
-     * volumes), the presets the project brought, and the plate with its own
-     * settings and its picture [thumbnail], written to [path] as OrcaSlicer
-     * writes a project, with what the project it was opened from holds
-     * besides its objects ([projectInfo], LoadedProject.info).
+     * Plater::export_3mf() for "Save project": the objects of every plate in
+     * [plate], the configuration of [profiles] with the project's values the
+     * [plates] keep (their wipe tower positions, the flushing volumes), the
+     * presets the project brought, and the plates with their names, locks,
+     * own settings, codes on their layers and pictures, written to [path] as
+     * OrcaSlicer writes a project, with what the project it was opened from
+     * holds besides its objects ([projectInfo], LoadedProject.info).
      */
     suspend fun saveProject(
         path: ScenePath,
         plate: List<PlacedModel>,
         profiles: SlicingProfileSelection,
-        plateSettings: ModelSettings,
-        layerGcodes: List<LayerGcode>,
-        thumbnail: ThumbnailImage?,
+        plates: List<ProjectPlate>,
         projectInfo: ScenePath? = null,
     ): ProjectSaveOutcome
 

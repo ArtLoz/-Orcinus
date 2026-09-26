@@ -936,22 +936,51 @@ static std::vector<orcinus::orca::LayerGcode> to_layer_gcodes(
     return layer_gcodes;
 }
 
+// The plates of a project as NativeProjectPlate carries them (NativeBindings.kt).
+static std::vector<orcinus::orca::ProjectPlate> to_project_plates(JNIEnv* env, jobjectArray native_plates)
+{
+    std::vector<orcinus::orca::ProjectPlate> plates;
+    const jclass plate_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeProjectPlate");
+    const jsize count = native_plates == nullptr ? 0 : env->GetArrayLength(native_plates);
+    constexpr const char* string = "Ljava/lang/String;";
+    constexpr const char* strings = "[Ljava/lang/String;";
+    for (jsize index = 0; index < count; ++index) {
+        if (env->PushLocalFrame(16) != JNI_OK) {
+            break;
+        }
+        const jobject native_plate = env->GetObjectArrayElement(native_plates, index);
+        const auto field = [env, native_plate, plate_class](const char* name, const char* signature) {
+            return env->GetObjectField(native_plate, env->GetFieldID(plate_class, name, signature));
+        };
+        orcinus::orca::ProjectPlate& plate = plates.emplace_back();
+        plate.name = to_utf8(env, static_cast<jstring>(field("name", string)));
+        plate.locked = env->GetBooleanField(native_plate, env->GetFieldID(plate_class, "locked", "Z")) == JNI_TRUE;
+        plate.settings = to_model_settings(env, static_cast<jobjectArray>(field("settingKeys", strings)),
+                                           static_cast<jobjectArray>(field("settingValues", strings)));
+        plate.layer_gcodes = to_layer_gcodes(
+            env,
+            static_cast<jdoubleArray>(field("layerGcodeHeights", "[D")),
+            static_cast<jlongArray>(field("layerGcodeTypes", "[J")),
+            static_cast<jintArray>(field("layerGcodeExtruders", "[I")),
+            static_cast<jobjectArray>(field("layerGcodeColors", strings)),
+            static_cast<jobjectArray>(field("layerGcodeExtras", strings))
+        );
+        plate.thumbnail.width = env->GetIntField(native_plate, env->GetFieldID(plate_class, "thumbnailWidth", "I"));
+        plate.thumbnail.height = env->GetIntField(native_plate, env->GetFieldID(plate_class, "thumbnailHeight", "I"));
+        plate.thumbnail.path = to_utf8(env, static_cast<jstring>(field("thumbnailPath", string)));
+        env->PopLocalFrame(nullptr);
+    }
+    env->DeleteLocalRef(plate_class);
+    return plates;
+}
+
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_saveProject(
     JNIEnv* env,
     jobject /* this */,
     jstring path,
     jobject plate,
-    jobjectArray plate_setting_keys,
-    jobjectArray plate_setting_values,
-    jdoubleArray layer_gcode_heights,
-    jlongArray layer_gcode_types,
-    jintArray layer_gcode_extruders,
-    jobjectArray layer_gcode_colors,
-    jobjectArray layer_gcode_extras,
-    jint thumbnail_width,
-    jint thumbnail_height,
-    jstring thumbnail_path,
+    jobjectArray plates,
     jstring printer_profile,
     jstring filament_profile,
     jobjectArray filament_profiles,
@@ -959,17 +988,11 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_saveProject(
     jstring project_info
 )
 {
-    orcinus::orca::ThumbnailImage thumbnail;
-    thumbnail.width = thumbnail_width;
-    thumbnail.height = thumbnail_height;
-    thumbnail.path = to_utf8(env, thumbnail_path);
     const orcinus::orca::ProjectSave saved = orcinus::orca::save_project(
         to_utf8(env, path),
         to_plate(env, plate),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
-        to_model_settings(env, plate_setting_keys, plate_setting_values),
-        to_layer_gcodes(env, layer_gcode_heights, layer_gcode_types, layer_gcode_extruders, layer_gcode_colors, layer_gcode_extras),
-        thumbnail,
+        to_project_plates(env, plates),
         to_utf8(env, project_info)
     );
     // status, message.
@@ -2763,6 +2786,49 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
     );
 }
 
+// NativeProjectPlate, without a picture.
+static jobject to_java(JNIEnv* env, const orcinus::orca::ProjectPlate& plate)
+{
+    const jclass plate_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeProjectPlate");
+    const jmethodID constructor = env->GetMethodID(
+        plate_class,
+        "<init>",
+        "(Ljava/lang/String;Z[Ljava/lang/String;[Ljava/lang/String;[D[J[I[Ljava/lang/String;[Ljava/lang/String;IILjava/lang/String;)V"
+    );
+    std::vector<double> heights;
+    std::vector<jlong> types;
+    std::vector<jint> extruders;
+    std::vector<std::string> colors;
+    std::vector<std::string> extras;
+    for (const orcinus::orca::LayerGcode& code : plate.layer_gcodes) {
+        heights.push_back(code.print_z);
+        types.push_back(static_cast<jlong>(code.type));
+        extruders.push_back(code.extruder);
+        colors.push_back(code.color);
+        extras.push_back(code.extra);
+    }
+    const jlongArray type_array = env->NewLongArray(static_cast<jsize>(types.size()));
+    env->SetLongArrayRegion(type_array, 0, static_cast<jsize>(types.size()), types.data());
+    const jintArray extruder_array = env->NewIntArray(static_cast<jsize>(extruders.size()));
+    env->SetIntArrayRegion(extruder_array, 0, static_cast<jsize>(extruders.size()), extruders.data());
+    return env->NewObject(
+        plate_class,
+        constructor,
+        to_java(env, plate.name),
+        plate.locked ? JNI_TRUE : JNI_FALSE,
+        to_java(env, plate.settings.keys),
+        to_java(env, plate.settings.values),
+        to_java(env, heights.data(), heights.size()),
+        type_array,
+        extruder_array,
+        to_java(env, colors),
+        to_java(env, extras),
+        static_cast<jint>(plate.thumbnail.width),
+        static_cast<jint>(plate.thumbnail.height),
+        to_java(env, plate.thumbnail.path)
+    );
+}
+
 // NativeImportedModels
 static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& imported)
 {
@@ -2785,24 +2851,14 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "Z"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
-        "Z[Ljava/lang/String;[Ljava/lang/String;[D[J[I[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;)V"
+        "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;)V"
     );
-    std::vector<double> heights;
-    std::vector<jlong> types;
-    std::vector<jint> extruders;
-    std::vector<std::string> colors;
-    std::vector<std::string> extras;
-    for (const orcinus::orca::LayerGcode& code : imported.layer_gcodes) {
-        heights.push_back(code.print_z);
-        types.push_back(static_cast<jlong>(code.type));
-        extruders.push_back(code.extruder);
-        colors.push_back(code.color);
-        extras.push_back(code.extra);
-    }
-    const jlongArray type_array = env->NewLongArray(static_cast<jsize>(types.size()));
-    env->SetLongArrayRegion(type_array, 0, static_cast<jsize>(types.size()), types.data());
-    const jintArray extruder_array = env->NewIntArray(static_cast<jsize>(extruders.size()));
-    env->SetIntArrayRegion(extruder_array, 0, static_cast<jsize>(extruders.size()), extruders.data());
+    const jobjectArray plates = to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativeProjectPlate",
+        imported.plates,
+        [](JNIEnv* plate_env, const orcinus::orca::ProjectPlate& plate) { return to_java(plate_env, plate); }
+    );
     return env->NewObject(
         result_class,
         constructor,
@@ -2815,13 +2871,7 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         imported.appended ? JNI_TRUE : JNI_FALSE,
         static_cast<jint>(imported.selected_volume),
         imported.project ? JNI_TRUE : JNI_FALSE,
-        to_java(env, imported.plate_settings.keys),
-        to_java(env, imported.plate_settings.values),
-        to_java(env, heights.data(), heights.size()),
-        type_array,
-        extruder_array,
-        to_java(env, colors),
-        to_java(env, extras),
+        plates,
         imported.presets_changed ? JNI_TRUE : JNI_FALSE,
         to_java(env, imported.project_info)
     );

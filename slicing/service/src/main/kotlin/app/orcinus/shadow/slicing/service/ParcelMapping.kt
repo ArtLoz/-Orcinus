@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -258,18 +259,35 @@ private fun ObjectPartParcel.toObjectPart() = ObjectPart(
     inputFile = inputFile.orEmpty(),
 )
 
+internal fun ProjectPlate.toParcel() = ProjectPlateParcel().also {
+    it.name = name
+    it.locked = locked
+    it.settings = settings.toParcel()
+    it.layerGcodeHeights = layerGcodes.map(LayerGcode::printZ).toDoubleArray()
+    it.layerGcodeTypes = layerGcodes.map { code -> code.type.name }.toTypedArray()
+    it.layerGcodeExtruders = layerGcodes.map(LayerGcode::extruder).toIntArray()
+    it.layerGcodeColors = layerGcodes.map(LayerGcode::color).toTypedArray()
+    it.layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray()
+    it.thumbnailWidth = thumbnail?.size?.width ?: 0
+    it.thumbnailHeight = thumbnail?.size?.height ?: 0
+    it.thumbnailPath = thumbnail?.path?.value
+}
+
+internal fun ProjectPlateParcel.toProjectPlate() = ProjectPlate(
+    name = name.orEmpty(),
+    locked = locked,
+    settings = settings.toModelSettings(),
+    layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
+    thumbnail = thumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
+)
+
 internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.notices = notices.map { dialog -> dialog.toParcel() }.toTypedArray()
     it.appended = this is ModelLoadOutcome.Success && appended
     it.selectedVolume = (this as? ModelLoadOutcome.Success)?.selectedVolume ?: -1
     it.presetsChanged = this is ModelLoadOutcome.Success && presetsChanged
     (this as? ModelLoadOutcome.Success)?.project?.let { project ->
-        it.plateSettings = project.plateSettings.toParcel()
-        it.layerGcodeHeights = project.layerGcodes.map(LayerGcode::printZ).toDoubleArray()
-        it.layerGcodeTypes = project.layerGcodes.map { code -> code.type.name }.toTypedArray()
-        it.layerGcodeExtruders = project.layerGcodes.map(LayerGcode::extruder).toIntArray()
-        it.layerGcodeColors = project.layerGcodes.map(LayerGcode::color).toTypedArray()
-        it.layerGcodeExtras = project.layerGcodes.map(LayerGcode::extra).toTypedArray()
+        it.plates = project.plates.map { plate -> plate.toParcel() }.toTypedArray()
         it.projectInfo = project.info?.value
     }
     when (this) {
@@ -320,10 +338,9 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
         shown,
         appended,
         selectedVolume.takeIf { it >= 0 },
-        project = plateSettings?.let { settings ->
+        project = plates?.let { parcels ->
             LoadedProject(
-                plateSettings = settings.toModelSettings(),
-                layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
+                plates = parcels.map { it.toProjectPlate() }.ifEmpty { listOf(ProjectPlate()) },
                 info = projectInfo?.let(::ScenePath),
             )
         },

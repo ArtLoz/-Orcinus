@@ -265,13 +265,23 @@ sealed interface ModelLoadOutcome {
 enum class ModelLoad { GEOMETRY, PROJECT }
 
 /**
- * A 3MF project's first plate: its own settings (PartPlate::config) with the
- * project's values the app keeps with the plate (the wipe tower's position and
- * the flushing volumes), and the codes on its layers (Model::plates_custom_gcodes).
+ * A plate of a 3MF project (PartPlate, PlateData): its name, whether it is
+ * locked, its own settings (PartPlate::config) with the project's values the
+ * app keeps with each plate (its wipe tower's position and the flushing
+ * volumes), the codes on its layers (Model::plates_custom_gcodes) and, to be
+ * saved, its picture.
  */
-data class LoadedProject(
-    val plateSettings: ModelSettings = ModelSettings(),
+data class ProjectPlate(
+    val name: String = "",
+    val locked: Boolean = false,
+    val settings: ModelSettings = ModelSettings(),
     val layerGcodes: List<LayerGcode> = emptyList(),
+    val thumbnail: ThumbnailImage? = null,
+)
+
+/** A 3MF file opened as a project: its plates, at least one (PartPlateList::load_from_3mf_structure). */
+data class LoadedProject(
+    val plates: List<ProjectPlate> = listOf(ProjectPlate()),
     /**
      * Where the engine kept what the project holds besides its objects: the
      * designer, the model's information and its auxiliary files, which its

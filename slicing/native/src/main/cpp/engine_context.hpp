@@ -64,9 +64,9 @@ bool load_plate(
     std::string& message
 );
 
-// PartPlate::get_build_volume() of the current plate, as the adapter judges
-// which copies stand on it.
-Slic3r::BoundingBoxf3 plate_box(const Slic3r::DynamicPrintConfig& config);
+// PartPlateList::find_instance(): the first of count plates the copy at
+// instance of object crosses; -1 for a copy on none.
+int plate_of(const Slic3r::ModelObject& object, std::size_t instance, const Slic3r::DynamicPrintConfig& config, int count);
 
 // PartPlate's obj_to_instance_set: the copies of model that stand on the
 // current plate (PartPlate::intersect_instance()) are kept, the others and the

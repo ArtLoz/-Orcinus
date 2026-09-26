@@ -715,9 +715,18 @@ data class PlateState(
     /** Every copy on the plate, in the plate's order. */
     fun copies(): List<PlateInstance> = objects.flatMap(PlateObject::instances)
 
-    /** What the project holds of the plate now, settled as the undo stack keeps it. */
+    /**
+     * What the project holds of the plate now, settled as the undo stack keeps
+     * it. How a copy fits judges it against the current plate
+     * (update_print_volume_state), which selecting another plate changes and
+     * the project does not keep.
+     */
     fun projectContent(): ProjectContent = ProjectContent(
-        objects = objects.map { plateObject -> plateObject.withInstances(plateObject.instances.map { it.copy(placing = false) }) },
+        objects = objects.map { plateObject ->
+            plateObject.withInstances(
+                plateObject.instances.map { it.copy(placing = false, inspection = it.inspection.copy(fit = BuildVolumeFit.INSIDE)) },
+            )
+        },
         plates = partPlates().map { PartPlate(name = it.name, locked = it.locked, settings = it.settings, layerGcodes = it.layerGcodes) },
     )
 

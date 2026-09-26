@@ -1,7 +1,11 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.DialogIcon
-import app.orcinus.shadow.core.model.plateOrigin
+import app.orcinus.shadow.core.model.ProjectPlate
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.plateOrigins
+import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -31,7 +35,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * Plater::save_project(): the plate written as an OrcaSlicer project, into
+ * Plater::save_project(): the plates written as an OrcaSlicer project, into
  * the document the user picked ("Save Project as") or, for "Save Project",
  * into the one the project was opened from or last saved to. The project then
  * goes by the name of that document (set_project_filename) and is no longer
@@ -60,21 +64,21 @@ class SaveProjectUseCase(
         val prefix = sceneFiles.newImportPrefix()
         val file = ScenePath("${prefix.value}-project.3mf")
         try {
-            // Plater::export_3mf(): the plate's picture, every part of the
-            // objects on it whether it prints or not (THUMBNAIL_SIZE_3MF).
-            val picture = state.plate?.let { plate ->
-                try {
-                    thumbnails.render(state.objects, plate, state.plateOrigin, state.presets?.filamentColors.orEmpty(), listOf(PICTURE_SIZE), printableOnly = false) {
-                        ScenePath("${prefix.value}-plate.rgba")
-                    }.firstOrNull()
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (_: Exception) {
-                    null
-                }
+            // Plater::export_3mf(): every plate with its picture, every part
+            // of the objects on it whether it prints or not (THUMBNAIL_SIZE_3MF).
+            val origins = state.plateOrigins()
+            val plates = state.partPlates().mapIndexed { index, plate ->
+                ProjectPlate(
+                    name = plate.name,
+                    locked = plate.locked,
+                    // The flushing volumes are the project's, which the current plate holds.
+                    settings = plate.settings.withFlushVolumesOf(state.plateSettings),
+                    layerGcodes = plate.layerGcodes,
+                    thumbnail = picture(state, origins[index], ScenePath("${prefix.value}-plate-${index + 1}.rgba")),
+                )
             }
             val outcome = try {
-                inspector.saveProject(file, state.objects.map { it.placed() }, profiles, state.plateSettings, state.layerGcodes, picture, state.project.info)
+                inspector.saveProject(file, state.objects.map { it.placed() }, profiles, plates, state.project.info)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -95,6 +99,19 @@ class SaveProjectUseCase(
             return saved
         } finally {
             sceneFiles.deleteImport(prefix)
+        }
+    }
+
+    /** The picture of the plate at [origin] in [state], written to [file]; null when it cannot be rendered. */
+    private suspend fun picture(state: PlateState, origin: Point2, file: ScenePath): ThumbnailImage? {
+        val plate = state.plate ?: return null
+        return try {
+            thumbnails.render(state.objects, plate, origin, state.presets?.filamentColors.orEmpty(), listOf(PICTURE_SIZE), printableOnly = false) { file }
+                .firstOrNull()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
         }
     }
 

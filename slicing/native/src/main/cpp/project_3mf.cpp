@@ -680,33 +680,41 @@ void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialog
     save_config(engine());
     engine().bundle_follows_config = true;
 
-    // The first plate: its own settings, and the project's values the app keeps with it.
-    Slic3r::DynamicPrintConfig plate;
-    if (!archive.plate_data.empty()) {
-        plate.apply(archive.plate_data.front()->config);
-    }
-    for (const std::string& key : plate.keys()) {
-        result.plate_settings.keys.push_back(key);
-        result.plate_settings.values.push_back(plate.opt_serialize(key));
-    }
-    auto keep = [&result](const std::string& key, const std::string& value) {
-        result.plate_settings.keys.push_back(key);
-        result.plate_settings.values.push_back(value);
-    };
+    // PartPlateList::load_from_3mf_structure(): a plate for each of the
+    // file's, with its lock, name and own settings, and the project's values
+    // the app keeps with it; the codes on its layers.
     const auto* tower_x = proj_cfg.opt<Slic3r::ConfigOptionFloats>("wipe_tower_x");
     const auto* tower_y = proj_cfg.opt<Slic3r::ConfigOptionFloats>("wipe_tower_y");
-    if (tower_x != nullptr && tower_y != nullptr && !tower_x->values.empty() && !tower_y->values.empty()) {
-        keep("wipe_tower_x", Slic3r::float_to_string_decimal_point(tower_x->get_at(0), 3));
-        keep("wipe_tower_y", Slic3r::float_to_string_decimal_point(tower_y->get_at(0), 3));
-    }
-    for (const char* key : {"flush_volumes_matrix", "flush_multiplier"}) {
-        if (proj_cfg.has(key)) keep(key, proj_cfg.opt_serialize(key));
-    }
-
-    const auto codes = archive.custom_gcodes.find(0);
-    if (codes != archive.custom_gcodes.end()) {
-        for (const Slic3r::CustomGCode::Item& item : codes->second.gcodes) {
-            result.layer_gcodes.push_back({item.print_z, static_cast<LayerGcodeType>(item.type), item.extruder, item.color, item.extra});
+    const std::size_t count = std::max<std::size_t>(archive.plate_data.size(), 1);
+    for (std::size_t index = 0; index < count; ++index) {
+        ProjectPlate& plate = result.plates.emplace_back();
+        Slic3r::DynamicPrintConfig own;
+        if (index < archive.plate_data.size()) {
+            const Slic3r::PlateData& data = *archive.plate_data[index];
+            plate.locked = data.locked;
+            plate.name = data.plate_name;
+            own.apply(data.config);
+        }
+        const auto keep = [&plate](const std::string& key, const std::string& value) {
+            plate.settings.keys.push_back(key);
+            plate.settings.values.push_back(value);
+        };
+        for (const std::string& key : own.keys()) {
+            keep(key, own.opt_serialize(key));
+        }
+        // The project keeps a wipe tower position for every plate, by its index.
+        if (tower_x != nullptr && tower_y != nullptr && !tower_x->values.empty() && !tower_y->values.empty()) {
+            keep("wipe_tower_x", Slic3r::float_to_string_decimal_point(tower_x->get_at(index), 3));
+            keep("wipe_tower_y", Slic3r::float_to_string_decimal_point(tower_y->get_at(index), 3));
+        }
+        for (const char* key : {"flush_volumes_matrix", "flush_multiplier"}) {
+            if (proj_cfg.has(key)) keep(key, proj_cfg.opt_serialize(key));
+        }
+        const auto codes = archive.custom_gcodes.find(int(index));
+        if (codes != archive.custom_gcodes.end()) {
+            for (const Slic3r::CustomGCode::Item& item : codes->second.gcodes) {
+                plate.layer_gcodes.push_back({item.print_z, static_cast<LayerGcodeType>(item.type), item.extruder, item.color, item.extra});
+            }
         }
     }
     result.project = true;
@@ -719,11 +727,17 @@ namespace orcinus::orca {
 
 namespace {
 
-// The project's own values the app keeps among the settings of the plate,
-// which the desktop app keeps in PresetBundle::project_config.
-bool is_project_value(const std::string& key)
+// The wipe tower's position the app keeps among the settings of each plate,
+// which the desktop app keeps in PresetBundle::project_config by plate index.
+bool is_tower_value(const std::string& key)
 {
-    return key == "wipe_tower_x" || key == "wipe_tower_y" || key == "flush_volumes_matrix" || key == "flush_multiplier";
+    return key == "wipe_tower_x" || key == "wipe_tower_y";
+}
+
+// The project's flushing volumes the app keeps among the settings of every plate.
+bool is_flush_value(const std::string& key)
+{
+    return key == "flush_volumes_matrix" || key == "flush_multiplier";
 }
 
 // The picture of a plate the app rendered: RGBA rows from the bottom up, as
@@ -749,9 +763,7 @@ ProjectSave save_project(
     const std::string& path,
     const std::vector<PlateObject>& plate,
     const ProfileSelection& profiles,
-    const ModelSettings& plate_settings,
-    const std::vector<LayerGcode>& layer_gcodes,
-    const ThumbnailImage& thumbnail,
+    const std::vector<ProjectPlate>& plates,
     const std::string& project_info
 )
 {
@@ -763,6 +775,8 @@ ProjectSave save_project(
     }
     Slic3r::PlateDataPtrs plate_data_list;
     std::vector<Slic3r::Preset*> project_presets;
+    // Every plate's picture, which store_bbs_3mf() takes by plate index.
+    std::vector<Slic3r::ThumbnailData> thumbnail_data(plates.size());
     try {
         Slic3r::PresetBundle& preset_bundle = *detail::engine().bundle;
         Slic3r::DynamicPrintConfig selected;
@@ -779,52 +793,84 @@ ProjectSave save_project(
         if (!project_info.empty()) {
             detail::restore_project_info(model, project_info);
         }
-        if (!layer_gcodes.empty()) {
-            // The mode the layer slider keeps its codes in (Preview::update_layers_slider_mode).
+        // The mode the layer slider keeps its codes in (Preview::update_layers_slider_mode).
+        const Slic3r::CustomGCode::Mode mode = profiles.filaments.size() > 1 ? Slic3r::CustomGCode::MultiAsSingle : Slic3r::CustomGCode::SingleExtruder;
+        for (std::size_t index = 0; index < plates.size(); ++index) {
+            if (plates[index].layer_gcodes.empty()) {
+                continue;
+            }
             Slic3r::CustomGCode::Info info;
-            info.mode = profiles.filaments.size() > 1 ? Slic3r::CustomGCode::MultiAsSingle : Slic3r::CustomGCode::SingleExtruder;
-            for (const LayerGcode& code : layer_gcodes) {
+            info.mode = mode;
+            for (const LayerGcode& code : plates[index].layer_gcodes) {
                 info.gcodes.push_back({code.print_z, static_cast<Slic3r::CustomGCode::Type>(code.type), code.extruder, code.color, code.extra});
             }
             std::sort(info.gcodes.begin(), info.gcodes.end());
-            model.plates_custom_gcodes[0] = info;
+            model.plates_custom_gcodes[int(index)] = info;
         }
 
-        // The plate's own settings (PartPlate::config), and the project's values.
-        ModelSettings own;
-        ModelSettings project;
-        for (std::size_t i = 0; i < plate_settings.keys.size() && i < plate_settings.values.size(); ++i) {
-            ModelSettings& settings = is_project_value(plate_settings.keys[i]) ? project : own;
-            settings.keys.push_back(plate_settings.keys[i]);
-            settings.values.push_back(plate_settings.values[i]);
-        }
-
+        // The project's values the plates keep: the flushing volumes, alike on
+        // every plate, and a wipe tower position for each plate by its index,
+        // which a plate without one takes from the first
+        // (PartPlateList::create_plate).
         Slic3r::DynamicPrintConfig cfg = preset_bundle.full_config_secure();
-        cfg.apply(detail::model_config(project), true);
-        const Slic3r::DynamicPrintConfig plate_config = detail::model_config(own);
+        ModelSettings flush;
+        std::vector<Slic3r::DynamicPrintConfig> own_configs;
+        std::vector<Slic3r::DynamicPrintConfig> tower_configs;
+        for (std::size_t index = 0; index < plates.size(); ++index) {
+            const ModelSettings& settings = plates[index].settings;
+            ModelSettings own;
+            ModelSettings tower;
+            for (std::size_t i = 0; i < settings.keys.size() && i < settings.values.size(); ++i) {
+                const std::string& key = settings.keys[i];
+                ModelSettings* target = is_tower_value(key) ? &tower : is_flush_value(key) ? (index == 0 ? &flush : nullptr) : &own;
+                if (target != nullptr) {
+                    target->keys.push_back(key);
+                    target->values.push_back(settings.values[i]);
+                }
+            }
+            own_configs.push_back(detail::model_config(own));
+            tower_configs.push_back(detail::model_config(tower));
+        }
+        cfg.apply(detail::model_config(flush), true);
+        for (const char* key : {"wipe_tower_x", "wipe_tower_y"}) {
+            auto* positions = cfg.opt<Slic3r::ConfigOptionFloats>(key, true);
+            const double first = positions->values.empty() ? 0.0 : positions->get_at(0);
+            std::vector<double> values(std::max<std::size_t>(plates.size(), 1), first);
+            for (std::size_t index = 0; index < plates.size(); ++index) {
+                if (const auto* own = tower_configs[index].opt<Slic3r::ConfigOptionFloats>(key); own != nullptr && !own->values.empty()) {
+                    values[index] = own->get_at(0);
+                } else if (index > 0) {
+                    values[index] = values.front();
+                }
+            }
+            positions->values = values;
+        }
 
         //BBS: add plate logic for thumbnail generate
-        Slic3r::ThumbnailData thumbnail_data;
-        read_thumbnail(thumbnail, thumbnail_data);
-        std::vector<Slic3r::ThumbnailData*> thumbnails = {&thumbnail_data};
+        std::vector<Slic3r::ThumbnailData*> thumbnails;
+        // PartPlateList::store_to_3mf_structure() for every plate, without slice info.
+        const int count = int(plates.size());
+        for (std::size_t index = 0; index < plates.size(); ++index) {
+            read_thumbnail(plates[index].thumbnail, thumbnail_data[index]);
+            thumbnails.push_back(&thumbnail_data[index]);
 
-        // PartPlateList::store_to_3mf_structure() for the only plate, without slice info.
-        Slic3r::PlateData* plate_data_item = new Slic3r::PlateData();
-        plate_data_list.push_back(plate_data_item);
-        if (const auto* maps = plate_config.option<Slic3r::ConfigOptionInts>("filament_map")) {
-            plate_data_item->filament_maps = maps->values;
+            Slic3r::PlateData* plate_data_item = new Slic3r::PlateData();
+            plate_data_list.push_back(plate_data_item);
+            if (const auto* maps = own_configs[index].option<Slic3r::ConfigOptionInts>("filament_map")) {
+                plate_data_item->filament_maps = maps->values;
+            }
+            plate_data_item->locked = plates[index].locked;
+            plate_data_item->plate_index = int(index);
+            plate_data_item->plate_name = plates[index].name;
+            plate_data_item->plate_thumbnail.load_from(thumbnail_data[index]);
+            plate_data_item->config.apply(own_configs[index]);
         }
-        plate_data_item->locked = false;
-        plate_data_item->plate_index = 0;
-        plate_data_item->plate_name = "";
-        plate_data_item->plate_thumbnail.load_from(thumbnail_data);
-        plate_data_item->config.apply(plate_config);
-        // PartPlateList::reload_all_objects(): the copies that meet the plate.
-        const Slic3r::BoundingBoxf3 plate_box = detail::plate_box(selected);
+        // PartPlateList::reload_all_objects(): every copy joins the first plate it meets.
         for (std::size_t obj_id = 0; obj_id < model.objects.size(); ++obj_id) {
             for (std::size_t instance_id = 0; instance_id < model.objects[obj_id]->instances.size(); ++instance_id) {
-                if (plate_box.intersects(model.objects[obj_id]->instance_convex_hull_bounding_box(instance_id))) {
-                    plate_data_item->objects_and_instances.emplace_back(int(obj_id), int(instance_id));
+                const int index = detail::plate_of(*model.objects[obj_id], instance_id, selected, count);
+                if (index >= 0) {
+                    plate_data_list[std::size_t(index)]->objects_and_instances.emplace_back(int(obj_id), int(instance_id));
                 }
             }
         }

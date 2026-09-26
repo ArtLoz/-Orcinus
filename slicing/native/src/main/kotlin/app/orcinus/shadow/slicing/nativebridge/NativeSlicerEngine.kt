@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -308,9 +309,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         path: ScenePath,
         plate: List<PlacedModel>,
         profiles: SlicingProfileSelection,
-        plateSettings: ModelSettings,
-        layerGcodes: List<LayerGcode>,
-        thumbnail: ThumbnailImage?,
+        plates: List<ProjectPlate>,
         projectInfo: ScenePath?,
     ): ProjectSaveOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
@@ -320,16 +319,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         val (saveStatus, message) = NativeBindings.saveProject(
             path = path.value,
             plate = nativePlate(plate),
-            plateSettingKeys = plateSettings.keys(),
-            plateSettingValues = plateSettings.values(),
-            layerGcodeHeights = layerGcodes.map(LayerGcode::printZ).toDoubleArray(),
-            layerGcodeTypes = layerGcodes.map { it.type.ordinal.toLong() }.toLongArray(),
-            layerGcodeExtruders = layerGcodes.map(LayerGcode::extruder).toIntArray(),
-            layerGcodeColors = layerGcodes.map(LayerGcode::color).toTypedArray(),
-            layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray(),
-            thumbnailWidth = thumbnail?.size?.width ?: 0,
-            thumbnailHeight = thumbnail?.size?.height ?: 0,
-            thumbnailPath = thumbnail?.path?.value.orEmpty(),
+            plates = plates.map { it.toNative() }.toTypedArray(),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
@@ -1518,16 +1508,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     null
                 } else {
                     LoadedProject(
-                        plateSettings = ModelSettings(plateSettingKeys.zip(plateSettingValues).toMap()),
-                        layerGcodes = layerGcodeHeights.indices.map { index ->
-                            LayerGcode(
-                                printZ = layerGcodeHeights[index],
-                                type = LayerGcodeType.entries[layerGcodeTypes[index].toInt()],
-                                extruder = layerGcodeExtruders[index],
-                                color = layerGcodeColors[index],
-                                extra = layerGcodeExtras[index],
-                            )
-                        },
+                        plates = plates.map { it.toProjectPlate() }.ifEmpty { listOf(ProjectPlate()) },
                         info = projectInfo.takeIf(String::isNotEmpty)?.let(::ScenePath),
                     )
                 },
@@ -1535,6 +1516,37 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             )
         }
     }
+
+    /** ProjectPlate in orca_engine_adapter.hpp. */
+    private fun ProjectPlate.toNative() = NativeProjectPlate(
+        name = name,
+        locked = locked,
+        settingKeys = settings.keys(),
+        settingValues = settings.values(),
+        layerGcodeHeights = layerGcodes.map(LayerGcode::printZ).toDoubleArray(),
+        layerGcodeTypes = layerGcodes.map { it.type.ordinal.toLong() }.toLongArray(),
+        layerGcodeExtruders = layerGcodes.map(LayerGcode::extruder).toIntArray(),
+        layerGcodeColors = layerGcodes.map(LayerGcode::color).toTypedArray(),
+        layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray(),
+        thumbnailWidth = thumbnail?.size?.width ?: 0,
+        thumbnailHeight = thumbnail?.size?.height ?: 0,
+        thumbnailPath = thumbnail?.path?.value.orEmpty(),
+    )
+
+    private fun NativeProjectPlate.toProjectPlate() = ProjectPlate(
+        name = name,
+        locked = locked,
+        settings = ModelSettings(settingKeys.zip(settingValues).toMap()),
+        layerGcodes = layerGcodeHeights.indices.map { index ->
+            LayerGcode(
+                printZ = layerGcodeHeights[index],
+                type = LayerGcodeType.entries[layerGcodeTypes[index].toInt()],
+                extruder = layerGcodeExtruders[index],
+                color = layerGcodeColors[index],
+                extra = layerGcodeExtras[index],
+            )
+        },
+    )
 
     private fun NativeImportedObject.toLoadedObject(): LoadedObject {
         val mesh = ScenePath(meshPath)

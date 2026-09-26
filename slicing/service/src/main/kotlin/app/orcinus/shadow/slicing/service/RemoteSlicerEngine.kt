@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import android.content.ComponentName
+import app.orcinus.shadow.core.model.ProjectPlate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -225,9 +226,7 @@ class RemoteSlicerEngine(
         path: ScenePath,
         plate: List<PlacedModel>,
         profiles: SlicingProfileSelection,
-        plateSettings: ModelSettings,
-        layerGcodes: List<LayerGcode>,
-        thumbnail: ThumbnailImage?,
+        plates: List<ProjectPlate>,
         projectInfo: ScenePath?,
     ): ProjectSaveOutcome = withContext(Dispatchers.IO) {
         try {
@@ -235,15 +234,7 @@ class RemoteSlicerEngine(
                 path.value,
                 plate.toParcels(),
                 profiles.toParcel(),
-                plateSettings.toParcel(),
-                layerGcodes.map(LayerGcode::printZ).toDoubleArray(),
-                layerGcodes.map { it.type.name }.toTypedArray(),
-                layerGcodes.map(LayerGcode::extruder).toIntArray(),
-                layerGcodes.map(LayerGcode::color).toTypedArray(),
-                layerGcodes.map(LayerGcode::extra).toTypedArray(),
-                thumbnail?.size?.width ?: 0,
-                thumbnail?.size?.height ?: 0,
-                thumbnail?.path?.value,
+                plates.map { it.toParcel() }.toTypedArray(),
                 projectInfo?.value,
             )
             error?.let(ProjectSaveOutcome::Failure) ?: ProjectSaveOutcome.Success

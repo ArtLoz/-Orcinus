@@ -4447,14 +4447,14 @@ bool write_mesh(const indexed_triangle_set& its, const std::string& path)
     return orcinus::orca::write_mesh(its, path);
 }
 
-Slic3r::BoundingBoxf3 plate_box(const Slic3r::DynamicPrintConfig& config)
+int plate_of(const Slic3r::ModelObject& object, const std::size_t instance, const Slic3r::DynamicPrintConfig& config, const int count)
 {
-    return orcinus::orca::plate_box_of(config);
+    return orcinus::orca::plate_of(object, instance, config, count);
 }
 
 void keep_current_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config)
 {
-    const Slic3r::BoundingBoxf3 box = plate_box(config);
+    const Slic3r::BoundingBoxf3 box = plate_box_of(config);
     for (std::size_t index = model.objects.size(); index-- > 0;) {
         Slic3r::ModelObject* const object = model.objects[index];
         for (std::size_t copy = object->instances.size(); copy-- > 0;) {

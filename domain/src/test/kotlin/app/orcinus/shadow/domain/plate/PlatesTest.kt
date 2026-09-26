@@ -7,6 +7,7 @@ import app.orcinus.shadow.core.model.plateSettingsChoice
 import app.orcinus.shadow.core.model.withPlateSettingsChoice
 import app.orcinus.shadow.core.model.withName
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.withInstances
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.ModelDimensions
@@ -32,6 +33,7 @@ import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -182,6 +184,30 @@ class PlatesTest {
         PlateObjectsUseCase(repository).deleteCurrentPlate()
         assertEquals(listOf(other), repository.state.value.objects)
         assertEquals(emptySet(), repository.state.value.selectedInstances)
+    }
+
+    @Test
+    fun `selecting another plate leaves the project as it was saved`() {
+        val saved = state(listOf(cubeAt(175.0, 175.0), cubeAt(595.0, 175.0, "other")), plates = 2, current = 0)
+            .let { it.copy(project = it.projectBaseline()) }
+        val repository = FakeRepository(saved)
+
+        SelectPlateUseCase(repository)(1)
+        // The engine judges the copies against the second plate.
+        repository.update { state ->
+            state.copy(
+                objects = state.objects.map { plateObject ->
+                    plateObject.withInstances(
+                        plateObject.instances.map { copy ->
+                            val fit = if (copy.inspection.placement.columns[12] > 400.0) BuildVolumeFit.INSIDE else BuildVolumeFit.OUTSIDE
+                            copy.copy(inspection = copy.inspection.copy(fit = fit))
+                        },
+                    )
+                },
+            )
+        }
+
+        assertFalse(repository.state.value.projectDirty)
     }
 
     private class FakeRepository(initial: PlateState) : PlateRepository {

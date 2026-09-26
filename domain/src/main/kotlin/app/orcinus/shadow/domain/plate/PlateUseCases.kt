@@ -734,9 +734,13 @@ class AddModelToPlateUseCase(
                     if (batch.rest.isNotEmpty()) next = batch.copy(rest = batch.rest.drop(1), loaded = loaded) else done = true
                     val project = outcome.project
                     if (project != null) {
-                        // Plater::load_project(): the project takes the plate's place, and
+                        // Plater::load_project(): the project takes the plate's place with
+                        // its plates, the first one current (load_from_3mf_structure), and
                         // its "Load Project" snapshot (a ProjectSeparator) clears Undo; it
                         // goes by the file's name, is saved into it again and is not dirty.
+                        val plates = project.plates.map { plate ->
+                            PartPlate(name = plate.name, locked = plate.locked, settings = plate.settings, layerGcodes = plate.layerGcodes)
+                        }.ifEmpty { listOf(PartPlate()) }
                         informed.copy(
                             importing = false,
                             objects = added,
@@ -744,10 +748,10 @@ class AddModelToPlateUseCase(
                             selectedPart = null,
                             selectedRange = null,
                             simplifyTarget = null,
-                            plates = listOf(PartPlate(settings = project.plateSettings, layerGcodes = project.layerGcodes)),
+                            plates = plates,
                             currentPlate = 0,
-                            plateSettings = project.plateSettings,
-                            layerGcodes = project.layerGcodes,
+                            plateSettings = plates.first().settings,
+                            layerGcodes = plates.first().layerGcodes,
                             history = PlateHistory(),
                             result = null,
                         ).let { loaded ->

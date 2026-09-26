@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.PlateRequest
+import app.orcinus.shadow.core.model.PartPlate
+import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectPrompt
 import app.orcinus.shadow.core.model.ImportBatch
 import app.orcinus.shadow.core.model.PlateProject
@@ -685,7 +687,9 @@ class PlateUseCasesTest {
         val repository = FakeRepository(readyState(CUBE).let { it.copy(history = PlateHistory(undo = listOf(it.snapshot()))) })
         val file = ImportedModelFile(ModelPath("/imports/p.3mf"), "p.3mf")
         val inspector = FakeInspector()
-        val project = LoadedProject(ModelSettings(mapOf("curr_bed_type" to "Textured PEI Plate")), listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT)))
+        val first = ProjectPlate(settings = ModelSettings(mapOf("curr_bed_type" to "Textured PEI Plate")), layerGcodes = listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT)))
+        val second = ProjectPlate(name = "Brackets", locked = true, layerGcodes = listOf(LayerGcode(3.0, LayerGcodeType.PAUSE_PRINT)))
+        val project = LoadedProject(listOf(first, second))
         inspector.load = { ModelLoadOutcome.Success(listOf(LOADED), emptyList(), project = project, presetsChanged = true) }
         val addModel = addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles())
 
@@ -705,8 +709,13 @@ class PlateUseCasesTest {
         assertNull(state.projectDrop)
         assertFalse(state.importing)
         assertEquals(1, state.objects.size)
-        assertEquals(project.plateSettings, state.plateSettings)
-        assertEquals(project.layerGcodes, state.layerGcodes)
+        // Its plates, the first one current.
+        assertEquals(listOf("", "Brackets"), state.plates.map(PartPlate::name))
+        assertEquals(listOf(false, true), state.plates.map(PartPlate::locked))
+        assertEquals(0, state.currentPlate)
+        assertEquals(first.settings, state.plateSettings)
+        assertEquals(first.layerGcodes, state.layerGcodes)
+        assertEquals(second.layerGcodes, state.plates[1].layerGcodes)
         assertTrue(state.history.undo.isEmpty())
 
         // On an empty plate the project opens without the question; Cancel loads nothing.
@@ -731,7 +740,7 @@ class PlateUseCasesTest {
         val repository = FakeRepository(readyState(CUBE).copy(layerGcodes = listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT))))
         val inspector = FakeInspector()
         var saved: List<LayerGcode>? = null
-        inspector.saveProject = { _, _, _, codes, _ -> saved = codes; ProjectSaveOutcome.Success }
+        inspector.saveProject = { _, _, plates -> saved = plates.single().layerGcodes; ProjectSaveOutcome.Success }
         val documents = FakeDocuments(name = "Box.3mf")
         val save = SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope)
         val document = ExternalDocumentReference("content://documents/box")
@@ -795,7 +804,7 @@ class PlateUseCasesTest {
         val saving = FakeRepository(changed)
         val inspector = FakeInspector()
         var saved = false
-        inspector.saveProject = { _, _, _, _, _ -> saved = true; ProjectSaveOutcome.Success }
+        inspector.saveProject = { _, _, _ -> saved = true; ProjectSaveOutcome.Success }
         val documents = FakeDocuments(name = "Box.3mf")
         lifecycle(saving, inspector, documents).run {
             newProject()
@@ -2804,15 +2813,13 @@ class PlateUseCasesTest {
             path: ScenePath,
             plate: List<PlacedModel>,
             profiles: SlicingProfileSelection,
-            plateSettings: ModelSettings,
-            layerGcodes: List<LayerGcode>,
-            thumbnail: ThumbnailImage?,
+            plates: List<ProjectPlate>,
             projectInfo: ScenePath?,
-        ): ProjectSaveOutcome = saveProject(path, plate, plateSettings, layerGcodes, thumbnail)
+        ): ProjectSaveOutcome = saveProject(path, plate, plates)
 
         /** What saving a project answers; by default it is saved. */
-        var saveProject: (ScenePath, List<PlacedModel>, ModelSettings, List<LayerGcode>, ThumbnailImage?) -> ProjectSaveOutcome =
-            { _, _, _, _, _ -> ProjectSaveOutcome.Success }
+        var saveProject: (ScenePath, List<PlacedModel>, List<ProjectPlate>) -> ProjectSaveOutcome =
+            { _, _, _ -> ProjectSaveOutcome.Success }
 
         override suspend fun exportMesh(
             plate: List<PlacedModel>,

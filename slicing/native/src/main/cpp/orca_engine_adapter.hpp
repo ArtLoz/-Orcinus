@@ -1234,6 +1234,20 @@ struct ImportedObject {
     std::vector<bool> printables;
 };
 
+// A plate of a project (PartPlate, PlateData of bbs_3mf.hpp): its name,
+// whether it is locked, its own settings (PartPlate::config) with the
+// project's values the app keeps with each plate (its wipe_tower_x and
+// wipe_tower_y by the plate's index, and the project's flush_volumes_matrix
+// and flush_multiplier), the codes on its layers (Model::plates_custom_gcodes)
+// and, to save it, its picture.
+struct ProjectPlate {
+    std::string name;
+    bool locked{false};
+    ModelSettings settings;
+    std::vector<LayerGcode> layer_gcodes;
+    ThumbnailImage thumbnail;
+};
+
 struct ImportedModels {
     SceneStatus status{SceneStatus::model_read_failed};
     std::string message;
@@ -1251,14 +1265,11 @@ struct ImportedModels {
     // list selects; -1 for none.
     int selected_volume{-1};
     // import_model() of a 3MF file opened as a project with its settings
-    // (Plater::load_project): the settings of its first plate
-    // (PartPlate::config) with the project's values the app keeps with the
-    // plate (that plate's wipe_tower_x and wipe_tower_y, flush_volumes_matrix
-    // and flush_multiplier), and the codes on that plate's layers
-    // (Model::plates_custom_gcodes). The presets of the project are selected.
+    // (Plater::load_project): its plates, at least one, as
+    // PartPlateList::load_from_3mf_structure() makes them, without pictures.
+    // The presets of the project are selected.
     bool project{false};
-    ModelSettings plate_settings;
-    std::vector<LayerGcode> layer_gcodes;
+    std::vector<ProjectPlate> plates;
     // The folder where the load kept the project's information and auxiliary
     // files besides its objects (keep_project_info), which save_project()
     // writes into the project again.
@@ -1275,21 +1286,20 @@ struct ProjectSave {
 };
 
 // Plater::export_3mf() for "Save project" (SplitModel | ShareMesh): the
-// objects of plate with their parts, settings, paint and copies, the codes on
-// its layers (Model::plates_custom_gcodes), the configuration of the presets
-// profiles names with the project's values of plate_settings (the wipe
-// tower's position and the flushing volumes), the presets the project
-// brought, and the plate (PartPlateList::store_to_3mf_structure): its own
-// settings of plate_settings, the copies standing on it and its picture
-// thumbnail, which the app rendered at 512 x 512 as the desktop app renders
-// it (THUMBNAIL_SIZE_3MF); no picture is written for an empty path.
+// objects of every plate with their parts, settings, paint and copies, the
+// codes on the layers of each plate (Model::plates_custom_gcodes), the
+// configuration of the presets profiles names with the project's values the
+// plates keep (every plate's wipe tower position, the flushing volumes of the
+// first), the presets the project brought, and the plates
+// (PartPlateList::store_to_3mf_structure): each with its name, lock, own
+// settings, the copies standing on it and its picture, which the app rendered
+// at 512 x 512 as the desktop app renders it (THUMBNAIL_SIZE_3MF); no picture
+// is written for an empty path.
 ProjectSave save_project(
     const std::string& path,
     const std::vector<PlateObject>& plate,
     const ProfileSelection& profiles,
-    const ModelSettings& plate_settings,
-    const std::vector<LayerGcode>& layer_gcodes,
-    const ThumbnailImage& thumbnail,
+    const std::vector<ProjectPlate>& plates,
     // What import_model() kept of the project the plate was opened from
     // (ImportedModels::project_info); empty for a plate that was not.
     const std::string& project_info = {}

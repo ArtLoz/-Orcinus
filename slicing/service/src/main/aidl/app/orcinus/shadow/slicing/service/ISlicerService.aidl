@@ -34,6 +34,7 @@ import app.orcinus.shadow.slicing.service.PhysicalPrinterParcel;
 import app.orcinus.shadow.slicing.service.PhysicalPrintersParcel;
 import app.orcinus.shadow.slicing.service.PresetComparisonParcel;
 import app.orcinus.shadow.slicing.service.PresetsParcel;
+import app.orcinus.shadow.slicing.service.ProjectPlateParcel;
 import app.orcinus.shadow.slicing.service.ProfilesParcel;
 import app.orcinus.shadow.slicing.service.SearchCatalogParcel;
 import app.orcinus.shadow.slicing.service.ThumbnailSizesParcel;
@@ -75,24 +76,12 @@ interface ISlicerService {
         in String[] answerIds,
         in boolean[] answers
     );
-    /**
-     * save_project(): the error message, null once saved. The layer codes are
-     * parallel arrays, their types by LayerGcodeType name; the picture has no
-     * path when there is none.
-     */
+    /** save_project(): the error message, null once saved. */
     @nullable String saveProject(
         String path,
         in PlacedModelParcel[] plate,
         in ProfilesParcel profiles,
-        in ModelSettingsParcel plateSettings,
-        in double[] layerGcodeHeights,
-        in String[] layerGcodeTypes,
-        in int[] layerGcodeExtruders,
-        in String[] layerGcodeColors,
-        in String[] layerGcodeExtras,
-        int thumbnailWidth,
-        int thumbnailHeight,
-        @nullable String thumbnailPath,
+        in ProjectPlateParcel[] plates,
         @nullable String projectInfo
     );
     /** export_object_mesh(): format is the MeshFormat's name. */

@@ -4482,7 +4482,7 @@ TEST_CASE("A 3MF file opens as a project with its settings or loads its geometry
         REQUIRE_FALSE(imported.objects.empty());
         CHECK_FALSE(imported.project);
         CHECK_FALSE(imported.presets_changed);
-        CHECK(imported.layer_gcodes.empty());
+        CHECK(imported.plates.empty());
         const auto& placed = imported.objects.front().instances.front().instance_matrix;
         CHECK(std::hypot(placed[12] - 175.0, placed[13] - 175.0) < 100.0);
     }
@@ -4496,7 +4496,8 @@ TEST_CASE("A 3MF file opens as a project with its settings or loads its geometry
         REQUIRE_FALSE(imported.objects.empty());
         CHECK(imported.project);
         CHECK(imported.presets_changed);
-        CHECK_FALSE(imported.layer_gcodes.empty());
+        REQUIRE_FALSE(imported.plates.empty());
+        CHECK_FALSE(imported.plates.front().layer_gcodes.empty());
         const orca::PresetState presets = orca::describe_presets();
         INFO(presets.selection.printer);
         CHECK(presets.selection.printer != k2_plus_profiles().printer);
@@ -4514,47 +4515,87 @@ TEST_CASE("A 3MF file opens as a project with its settings or loads its geometry
     }
 }
 
-TEST_CASE("A saved project opens again with its objects, plate settings and layer codes", "[Adapter][Project]")
+TEST_CASE("A saved project opens again with its plates, their objects, settings and layer codes", "[Adapter][Project]")
 {
     require_engine();
     const std::string project = output_path("saved-project.3mf");
-    // The plate's picture as the app renders it: 512 x 512 RGBA.
+    // The plates' pictures as the app renders them: 512 x 512 RGBA.
     const std::string picture = output_path("saved-project.rgba");
     {
         std::ofstream file(picture, std::ios::binary);
         const std::string pixels(512 * 512 * 4, char(200));
         file.write(pixels.data(), std::streamsize(pixels.size()));
     }
-    orca::ModelSettings plate_settings;
-    plate_settings.keys = {"curr_bed_type", "wipe_tower_x", "wipe_tower_y"};
-    plate_settings.values = {"Textured PEI Plate", "40.000", "250.000"};
+    // A cube in the middle of each of the K2 Plus' two plates; the second
+    // stands 420 mm to the right of the first.
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("saved-project.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<double> first = matrix_of(cube);
+    first[12] = 175.0;
+    first[13] = 175.0;
+    std::vector<double> second = first;
+    second[12] = 420.0 + 175.0;
+    std::vector<orca::PlateObject> objects = plate_of("", first);
+    objects.push_back(plate_of("", second).front());
+
+    std::vector<orca::ProjectPlate> plates(2);
+    plates[0].settings.keys = {"curr_bed_type", "wipe_tower_x", "wipe_tower_y"};
+    plates[0].settings.values = {"Textured PEI Plate", "40.000", "250.000"};
     orca::LayerGcode pause;
     pause.print_z = 2.0;
     pause.type = orca::LayerGcodeType::pause_print;
+    plates[0].layer_gcodes = {pause};
+    plates[0].thumbnail = {512, 512, picture};
+    plates[1].name = "Brackets";
+    plates[1].locked = true;
+    plates[1].settings.keys = {"print_sequence", "wipe_tower_x", "wipe_tower_y"};
+    plates[1].settings.values = {"by object", "60.000", "200.000"};
+    orca::LayerGcode custom;
+    custom.print_z = 3.0;
+    custom.type = orca::LayerGcodeType::custom;
+    custom.extra = "M117 Brackets";
+    plates[1].layer_gcodes = {custom};
+    plates[1].thumbnail = {512, 512, picture};
 
-    const orca::ProjectSave saved =
-        orca::save_project(project, plate_of(""), k2_plus_profiles(), plate_settings, {pause}, {512, 512, picture});
+    const orca::ProjectSave saved = orca::save_project(project, objects, k2_plus_profiles(), plates);
     INFO(saved.message);
     REQUIRE(saved.status == orca::SceneStatus::success);
-    CHECK(read_file(project).find("Metadata/plate_1.png") != std::string::npos);
+    const std::string archive = read_file(project);
+    CHECK(archive.find("Metadata/plate_1.png") != std::string::npos);
+    CHECK(archive.find("Metadata/plate_2.png") != std::string::npos);
 
     const orca::ImportedModels opened =
         orca::import_model(project, k2_plus_profiles(), {}, import_prefix("saved-project"), {}, orca::ModelLoad::project);
     INFO(opened.message);
     REQUIRE(opened.status == orca::SceneStatus::success);
-    REQUIRE(opened.objects.size() == 1);
     CHECK(opened.project);
-    REQUIRE(opened.layer_gcodes.size() == 1);
-    CHECK(opened.layer_gcodes.front().print_z == Catch::Approx(2.0));
-    CHECK(opened.layer_gcodes.front().type == orca::LayerGcodeType::pause_print);
-    const auto setting = [&opened](const std::string& key) {
-        const auto& keys = opened.plate_settings.keys;
+    // The objects stand where they stood, one on each plate.
+    REQUIRE(opened.objects.size() == 2);
+    CHECK(opened.objects[0].instances.front().instance_matrix[12] == Catch::Approx(175.0));
+    CHECK(opened.objects[1].instances.front().instance_matrix[12] == Catch::Approx(595.0));
+    REQUIRE(opened.plates.size() == 2);
+    const auto setting = [](const orca::ProjectPlate& plate, const std::string& key) {
+        const auto& keys = plate.settings.keys;
         const auto found = std::find(keys.begin(), keys.end(), key);
-        return found == keys.end() ? std::string() : opened.plate_settings.values[std::size_t(found - keys.begin())];
+        return found == keys.end() ? std::string() : plate.settings.values[std::size_t(found - keys.begin())];
     };
-    CHECK(setting("curr_bed_type") == "Textured PEI Plate");
-    CHECK(setting("wipe_tower_x") == "40.000");
-    CHECK(setting("wipe_tower_y") == "250.000");
+    CHECK(opened.plates[0].name.empty());
+    CHECK_FALSE(opened.plates[0].locked);
+    CHECK(setting(opened.plates[0], "curr_bed_type") == "Textured PEI Plate");
+    CHECK(setting(opened.plates[0], "wipe_tower_x") == "40.000");
+    CHECK(setting(opened.plates[0], "wipe_tower_y") == "250.000");
+    REQUIRE(opened.plates[0].layer_gcodes.size() == 1);
+    CHECK(opened.plates[0].layer_gcodes.front().print_z == Catch::Approx(2.0));
+    CHECK(opened.plates[0].layer_gcodes.front().type == orca::LayerGcodeType::pause_print);
+    CHECK(opened.plates[1].name == "Brackets");
+    CHECK(opened.plates[1].locked);
+    CHECK(setting(opened.plates[1], "print_sequence") == "by object");
+    CHECK(setting(opened.plates[1], "curr_bed_type").empty());
+    CHECK(setting(opened.plates[1], "wipe_tower_x") == "60.000");
+    CHECK(setting(opened.plates[1], "wipe_tower_y") == "200.000");
+    REQUIRE(opened.plates[1].layer_gcodes.size() == 1);
+    CHECK(opened.plates[1].layer_gcodes.front().print_z == Catch::Approx(3.0));
+    CHECK(opened.plates[1].layer_gcodes.front().extra == "M117 Brackets");
     const orca::PresetState presets = orca::describe_presets();
     CHECK(presets.selection.printer == k2_plus_profiles().printer);
 }
@@ -4597,7 +4638,7 @@ TEST_CASE("A project keeps its designer, license and auxiliary files through a s
     write_text((kept / "Auxiliaries" / "Model Pictures" / "cover.png").string(), "picture");
 
     const std::string project = output_path("kept-project.3mf");
-    const orca::ProjectSave saved = orca::save_project(project, plate_of(""), k2_plus_profiles(), {}, {}, {}, kept.string());
+    const orca::ProjectSave saved = orca::save_project(project, plate_of(""), k2_plus_profiles(), {orca::ProjectPlate{}}, kept.string());
     INFO(saved.message);
     REQUIRE(saved.status == orca::SceneStatus::success);
     CHECK(read_file(project).find("Auxiliaries/Model Pictures/cover.png") != std::string::npos);

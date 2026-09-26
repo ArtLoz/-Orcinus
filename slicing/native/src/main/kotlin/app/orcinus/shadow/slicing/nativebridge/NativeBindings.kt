@@ -670,18 +670,32 @@ internal class NativeImportedModels(
     @JvmField val appended: Boolean,
     /** The volume of the edited object the object list selects; -1 for none. */
     @JvmField val selectedVolume: Int,
-    /** A 3MF file opened as a project, its first plate's settings and the codes on its layers. */
+    /** A 3MF file opened as a project, with its plates. */
     @JvmField val project: Boolean,
-    @JvmField val plateSettingKeys: Array<String>,
-    @JvmField val plateSettingValues: Array<String>,
+    @JvmField val plates: Array<NativeProjectPlate>,
+    @JvmField val presetsChanged: Boolean,
+    /** Where the load kept the project's information and auxiliary files; empty for none. */
+    @JvmField val projectInfo: String,
+)
+
+/**
+ * Constructed by the native bridge and read by it; see ProjectPlate in
+ * orca_engine_adapter.hpp. The codes on the layers are parallel arrays, their
+ * types by LayerGcodeType's order; the picture has no path when there is none.
+ */
+internal class NativeProjectPlate(
+    @JvmField val name: String,
+    @JvmField val locked: Boolean,
+    @JvmField val settingKeys: Array<String>,
+    @JvmField val settingValues: Array<String>,
     @JvmField val layerGcodeHeights: DoubleArray,
     @JvmField val layerGcodeTypes: LongArray,
     @JvmField val layerGcodeExtruders: IntArray,
     @JvmField val layerGcodeColors: Array<String>,
     @JvmField val layerGcodeExtras: Array<String>,
-    @JvmField val presetsChanged: Boolean,
-    /** Where the load kept the project's information and auxiliary files; empty for none. */
-    @JvmField val projectInfo: String,
+    @JvmField val thumbnailWidth: Int,
+    @JvmField val thumbnailHeight: Int,
+    @JvmField val thumbnailPath: String,
 )
 
 /** SceneStatus in orca_engine_adapter.hpp. */
@@ -871,23 +885,13 @@ internal object NativeBindings {
     ): NativeImportedModels
 
     /**
-     * save_project(): the plate written to [path] as a project; answers the
-     * status and the message. The picture is [thumbnailPath] with its size,
-     * none for an empty path.
+     * save_project(): the objects of [plate] and the [plates] written to
+     * [path] as a project; answers the status and the message.
      */
     external fun saveProject(
         path: String,
         plate: NativePlate,
-        plateSettingKeys: Array<String>,
-        plateSettingValues: Array<String>,
-        layerGcodeHeights: DoubleArray,
-        layerGcodeTypes: LongArray,
-        layerGcodeExtruders: IntArray,
-        layerGcodeColors: Array<String>,
-        layerGcodeExtras: Array<String>,
-        thumbnailWidth: Int,
-        thumbnailHeight: Int,
-        thumbnailPath: String,
+        plates: Array<NativeProjectPlate>,
         printerProfile: String,
         filamentProfile: String,
         filamentProfiles: Array<String>,

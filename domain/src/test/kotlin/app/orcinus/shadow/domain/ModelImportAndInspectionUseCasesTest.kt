@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain
 
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.LayerGcode
@@ -257,15 +258,13 @@ class ModelImportAndInspectionUseCasesTest {
             path: ScenePath,
             plate: List<PlacedModel>,
             profiles: SlicingProfileSelection,
-            plateSettings: ModelSettings,
-            layerGcodes: List<LayerGcode>,
-            thumbnail: ThumbnailImage?,
+            plates: List<ProjectPlate>,
             projectInfo: ScenePath?,
-        ): ProjectSaveOutcome = saveProject(path, plate, plateSettings, layerGcodes, thumbnail)
+        ): ProjectSaveOutcome = saveProject(path, plate, plates)
 
         /** What saving a project answers; by default it is saved. */
-        var saveProject: (ScenePath, List<PlacedModel>, ModelSettings, List<LayerGcode>, ThumbnailImage?) -> ProjectSaveOutcome =
-            { _, _, _, _, _ -> ProjectSaveOutcome.Success }
+        var saveProject: (ScenePath, List<PlacedModel>, List<ProjectPlate>) -> ProjectSaveOutcome =
+            { _, _, _ -> ProjectSaveOutcome.Success }
 
         override suspend fun exportMesh(
             plate: List<PlacedModel>,
