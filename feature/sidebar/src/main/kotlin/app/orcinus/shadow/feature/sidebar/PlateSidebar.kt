@@ -1,40 +1,5 @@
 package app.orcinus.shadow.feature.sidebar
 
-import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
-import app.orcinus.shadow.core.model.FlowRateCalibration
-import app.orcinus.shadow.core.model.CalibrationParams
-import app.orcinus.shadow.domain.plate.CalibrateUseCase
-import app.orcinus.shadow.core.model.partPlates
-import app.orcinus.shadow.core.model.listPlateOf
-import app.orcinus.shadow.core.model.plateOf
-import app.orcinus.shadow.core.model.HandyModel
-import app.orcinus.shadow.domain.plate.canDeletePlate
-import app.orcinus.shadow.domain.plate.SelectPlateUseCase
-import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
-import app.orcinus.shadow.domain.plate.PlateJobsUseCase
-import app.orcinus.shadow.domain.plate.DeletePlateUseCase
-import app.orcinus.shadow.domain.plate.LockPlateUseCase
-import app.orcinus.shadow.domain.plate.RenamePlateUseCase
-import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
-import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
-import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
-import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
-import androidx.compose.ui.unit.IntOffset
-import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
-import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
-import app.orcinus.shadow.domain.plate.SaveProjectUseCase
-import app.orcinus.shadow.core.model.ObjectEdit
-import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
-import app.orcinus.shadow.domain.plate.RenamePlateItemUseCase
-import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
-import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
-import app.orcinus.shadow.core.ui.plate.RenameDialog
-import app.orcinus.shadow.core.ui.plate.PartShapeSheet
-import app.orcinus.shadow.core.ui.plate.CloneDialog
-import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
-import app.orcinus.shadow.core.model.PlateClipboard
-import app.orcinus.shadow.core.model.PlateDescription
-import app.orcinus.shadow.core.model.Manipulation
 import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -81,6 +46,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -91,8 +57,11 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
+import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
 import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaSidebarSection
@@ -104,35 +73,44 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
+import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
-import app.orcinus.shadow.core.model.GcodePlaceholderInfo
-import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
-import app.orcinus.shadow.core.model.ColorRgba
-import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.EngineState
 import app.orcinus.shadow.core.model.EngineVersion
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.FlowRateCalibration
+import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
+import app.orcinus.shadow.core.model.GcodePlaceholderInfo
+import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
+import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.LayerRangeId
+import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PendingPresetChange
+import app.orcinus.shadow.core.model.PhysicalPrinter
+import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
+import app.orcinus.shadow.core.model.PlateClipboard
+import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PresetChangeAction
-import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
-import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
 import app.orcinus.shadow.core.model.PresetCreationOutcome
@@ -143,43 +121,41 @@ import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetTransfer
 import app.orcinus.shadow.core.model.Presets
+import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SettingsDialog
+import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SettingsRequest
 import app.orcinus.shadow.core.model.SettingsScope
-import app.orcinus.shadow.core.model.FlushOption
-import app.orcinus.shadow.core.model.MeshFormat
-import app.orcinus.shadow.core.model.SettingsClipboard
-import app.orcinus.shadow.core.model.SettingsItem
-import app.orcinus.shadow.core.model.WipeTower
-import app.orcinus.shadow.core.ui.plate.MenuFilament
-import app.orcinus.shadow.core.ui.plate.exportFileName
-import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
-import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
-import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
-import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
-import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
-import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
-import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
-import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.core.model.SettingsTabState
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
+import app.orcinus.shadow.core.ui.plate.CloneDialog
+import app.orcinus.shadow.core.ui.plate.MenuFilament
+import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
+import app.orcinus.shadow.core.ui.plate.PartShapeSheet
+import app.orcinus.shadow.core.ui.plate.RenameDialog
+import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.preset.PresetListSheet
 import app.orcinus.shadow.core.ui.settings.CreatePrinterDialog
-import app.orcinus.shadow.core.ui.settings.PhysicalPrintersSheet
 import app.orcinus.shadow.core.ui.settings.CustomPrinterActions
 import app.orcinus.shadow.core.ui.settings.DiffPresetDialog
 import app.orcinus.shadow.core.ui.settings.ExportConfigsDialog
+import app.orcinus.shadow.core.ui.settings.PhysicalPrintersSheet
 import app.orcinus.shadow.core.ui.settings.PresetChangeActions
 import app.orcinus.shadow.core.ui.settings.PresetChangeDialog
 import app.orcinus.shadow.core.ui.settings.PresetComparisonActions
@@ -193,40 +169,66 @@ import app.orcinus.shadow.core.ui.settings.SettingsTabDialogs
 import app.orcinus.shadow.core.ui.settings.rememberSettingsTab
 import app.orcinus.shadow.core.ui.settings.settingsTabItems
 import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
+import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddObjectPartUseCase
 import app.orcinus.shadow.domain.plate.AddPlateInstanceUseCase
-import app.orcinus.shadow.domain.plate.CustomPrinterUseCase
+import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.CalibrateUseCase
+import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
 import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
-import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
+import app.orcinus.shadow.domain.plate.CustomPrinterUseCase
+import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
-import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
-import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
+import app.orcinus.shadow.domain.plate.DeletePlateUseCase
+import app.orcinus.shadow.domain.plate.DescribeCalibrationPrinterUseCase
 import app.orcinus.shadow.domain.plate.DescribeFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerRangeUseCase
+import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.ExportConfigUseCase
+import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
+import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
 import app.orcinus.shadow.domain.plate.ImportConfigUseCase
+import app.orcinus.shadow.domain.plate.LockPlateUseCase
+import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
+import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
+import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlateFilamentsUseCase
+import app.orcinus.shadow.domain.plate.PlateJobsUseCase
+import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
+import app.orcinus.shadow.domain.plate.PrinterPresetNamesUseCase
+import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
+import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.RemoveObjectPartUseCase
 import app.orcinus.shadow.domain.plate.RemovePlateInstanceUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateItemUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateUseCase
+import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
+import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
+import app.orcinus.shadow.domain.plate.SavePhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.SelectPlateUseCase
 import app.orcinus.shadow.domain.plate.SelectPresetUseCase
+import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetBedShapeUseCase
-import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
-import app.orcinus.shadow.domain.plate.SavePhysicalPrinterUseCase
-import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
-import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
-import app.orcinus.shadow.domain.plate.PrinterPresetNamesUseCase
 import app.orcinus.shadow.domain.plate.SetExtruderUseCase
+import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
 import app.orcinus.shadow.domain.plate.SetFlushVolumesUseCase
+import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
 import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
+import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.canDeletePlate
 import java.util.Locale
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -355,6 +357,7 @@ class SidebarViewModel(
     private val saveProject: SaveProjectUseCase,
     private val projectLifecycle: ProjectLifecycleUseCase,
     private val calibrateUseCase: CalibrateUseCase,
+    private val describeCalibrationPrinterUseCase: DescribeCalibrationPrinterUseCase,
     private val addModelToPlate: AddModelToPlateUseCase,
     private val selectPlate: SelectPlateUseCase,
     private val plateObjects: PlateObjectsUseCase,
@@ -411,6 +414,9 @@ class SidebarViewModel(
 
     /** The flow ratio test of the Calibration menu (Plater::calib_flowrate). */
     fun calibrateFlowRate(test: FlowRateCalibration) = calibrateUseCase(test)
+
+    /** What the dialogs of Input Shaping and Cornering read of the printer. */
+    suspend fun describeCalibrationPrinter(): CalibrationPrinterOutcome = describeCalibrationPrinterUseCase()
 
     /** Open Project: the document the user picked opens as a project. */
     fun openProject(document: ExternalDocumentReference) = addModelToPlate.openProject(document)
@@ -985,6 +991,8 @@ internal class ProjectActions(
     val calibrate: (CalibrationParams) -> Unit = {},
     /** The flow ratio test of the Calibration menu, which starts a project of its own. */
     val calibrateFlowRate: (FlowRateCalibration) -> Unit = {},
+    /** What the dialogs of Input Shaping and Cornering read of the printer as they open. */
+    val describeCalibrationPrinter: suspend () -> CalibrationPrinterOutcome = { CalibrationPrinterOutcome.Failure("") },
 ) {
     companion object {
         val NONE = ProjectActions(save = {}, saveAs = {}, new = {}, open = {})
@@ -1006,6 +1014,8 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
     var pressureAdvanceChoice by remember { mutableStateOf(PressureAdvanceChoice()) }
     var flowRate by remember { mutableStateOf(false) }
     var flowRateChoice by remember { mutableStateOf(FlowRateChoice()) }
+    var printerTest by remember { mutableStateOf<PrinterTest?>(null) }
+    var calibrationPrinter by remember { mutableStateOf<CalibrationPrinterOutcome?>(null) }
     // Plater::priv::update_title_dirty_status()
     val title = (if (dirty) "*" else "") + (name ?: orcaString("Untitled"))
     OrcaSidebarTitle(title, DesignR.drawable.orca_open_project) {
@@ -1029,6 +1039,7 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
                     onRange = { rangeTest = it },
                     onPressureAdvance = { pressureAdvance = true },
                     onFlowRate = { flowRate = true },
+                    onPrinterTest = { printerTest = it },
                 )
             }
         }
@@ -1097,6 +1108,34 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
                 actions.calibrateFlowRate(test)
             },
         )
+    }
+    // The dialogs of Input Shaping and Cornering, once they read the printer.
+    printerTest?.let { test ->
+        LaunchedEffect(test) { calibrationPrinter = actions.describeCalibrationPrinter() }
+        val close = {
+            printerTest = null
+            calibrationPrinter = null
+        }
+        val start = { params: CalibrationParams ->
+            close()
+            actions.calibrate(params)
+        }
+        when (val outcome = calibrationPrinter) {
+            null -> Unit
+            is CalibrationPrinterOutcome.Failure -> AlertDialog(
+                onDismissRequest = close,
+                confirmButton = { OrcaButton(orcaString("OK"), onClick = close) },
+                text = { Text(outcome.message, style = OrcaTheme.typography.body14) },
+                containerColor = OrcaTheme.colors.window,
+                textContentColor = OrcaTheme.colors.text,
+                shape = OrcaTheme.shapes.window,
+            )
+            is CalibrationPrinterOutcome.Success -> when (test) {
+                PrinterTest.INPUT_SHAPING_FREQUENCY -> InputShapingFrequencySheet(outcome.printer, onDismiss = close, onStart = start)
+                PrinterTest.INPUT_SHAPING_DAMPING -> InputShapingDampingSheet(outcome.printer, onDismiss = close, onStart = start)
+                PrinterTest.CORNERING -> CorneringSheet(outcome.printer, onDismiss = close, onStart = start)
+            }
+        }
     }
     rangeTest?.let { test ->
         RangeCalibrationSheet(
@@ -1355,6 +1394,7 @@ fun PlateSidebar(
                 viewModel.calibrateFlowRate(test)
                 onShowPrepare()
             },
+            describeCalibrationPrinter = viewModel::describeCalibrationPrinter,
         ),
         filaments = FilamentActions(
             add = viewModel::addFilament,

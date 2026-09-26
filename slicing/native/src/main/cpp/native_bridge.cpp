@@ -3189,6 +3189,32 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_prepareCalibration(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCalibrationPrinter(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    const orcinus::orca::CalibrationPrinter printer = orcinus::orca::describe_calibration_printer(
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles)
+    );
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeCalibrationPrinter");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;Ljava/lang/String;Z[Ljava/lang/String;)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(printer.status),
+        to_java(env, printer.message),
+        to_java(env, printer.gcode_flavor),
+        printer.junction_deviation ? JNI_TRUE : JNI_FALSE,
+        to_java(env, printer.shaper_types)
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_prepareFlowRateCalibration(
     JNIEnv* env,
     jobject /* this */,

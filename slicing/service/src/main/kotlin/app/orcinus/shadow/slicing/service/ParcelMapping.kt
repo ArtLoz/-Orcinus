@@ -1,42 +1,41 @@
 package app.orcinus.shadow.slicing.service
 
 import app.orcinus.shadow.core.model.ArrangeSettings
-import app.orcinus.shadow.core.model.CalibrationParams
-import app.orcinus.shadow.core.model.CalibrationMode
-import app.orcinus.shadow.core.model.FilamentUsage
-import app.orcinus.shadow.core.model.filamentUsagesOf
-import app.orcinus.shadow.core.model.amounts
-import app.orcinus.shadow.core.model.ProjectPlate
-import app.orcinus.shadow.core.model.BedTypeChoice
-import app.orcinus.shadow.core.model.DirtyPreset
-import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.Axis
+import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
+import app.orcinus.shadow.core.model.CalibrationMode
+import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.CalibrationPrinter
+import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ColorRgba
-import app.orcinus.shadow.core.model.ThumbnailImage
-import app.orcinus.shadow.core.model.ThumbnailSize
-import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
+import app.orcinus.shadow.core.model.DirtyPreset
+import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
 import app.orcinus.shadow.core.model.EngineVersion
+import app.orcinus.shadow.core.model.FilamentUsage
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.FlushVolumes
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
+import app.orcinus.shadow.core.model.LayerGcode
+import app.orcinus.shadow.core.model.LayerGcodeRules
+import app.orcinus.shadow.core.model.LayerGcodeType
 import app.orcinus.shadow.core.model.LayerRange
+import app.orcinus.shadow.core.model.LoadedObject
+import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
-import app.orcinus.shadow.core.model.LoadedObject
-import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelLoadOutcome
-import app.orcinus.shadow.core.model.PlateInstance
-import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectPart
+import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintedSurface
@@ -47,6 +46,7 @@ import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateGeometry
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetChange
@@ -57,6 +57,7 @@ import app.orcinus.shadow.core.model.PresetListItem
 import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SetupFilament
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
@@ -68,15 +69,16 @@ import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.ThumbnailSize
+import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
-import app.orcinus.shadow.core.model.LayerGcodeType
-import app.orcinus.shadow.core.model.LayerGcodeRules
-import app.orcinus.shadow.core.model.LayerGcode
-import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.WipeTowerOutcome
+import app.orcinus.shadow.core.model.amounts
+import app.orcinus.shadow.core.model.filamentUsagesOf
 
 // Both processes run the same APK, so enum names are a safe wire format.
 
@@ -996,3 +998,21 @@ internal fun FlatteningPlanesParcel.toOutcome(): FlatteningPlanesOutcome {
         },
     )
 }
+
+internal fun CalibrationPrinterOutcome.toParcel() = CalibrationPrinterParcel().also {
+    when (this) {
+        is CalibrationPrinterOutcome.Success -> {
+            it.gcodeFlavor = printer.gcodeFlavor
+            it.junctionDeviation = printer.junctionDeviation
+            it.shaperTypes = printer.shaperTypes.toTypedArray()
+        }
+        is CalibrationPrinterOutcome.Failure -> {
+            it.error = message
+            it.gcodeFlavor = ""
+            it.shaperTypes = emptyArray()
+        }
+    }
+}
+
+internal fun CalibrationPrinterParcel.toOutcome(): CalibrationPrinterOutcome = error?.let { CalibrationPrinterOutcome.Failure(it) }
+    ?: CalibrationPrinterOutcome.Success(CalibrationPrinter(gcodeFlavor, junctionDeviation, shaperTypes.toList()))

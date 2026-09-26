@@ -387,6 +387,24 @@ data class CalibrationParams(
 )
 
 /**
+ * What the dialogs of Input Shaping and Cornering read of the printer:
+ * gcode_flavor as the configuration writes it, whether Marlin 2 runs with a
+ * junction deviation (Plater::has_junction_deviation), and the input shapers
+ * the firmware knows (get_shaper_type_values of calib_dlg.cpp).
+ */
+data class CalibrationPrinter(
+    val gcodeFlavor: String,
+    val junctionDeviation: Boolean,
+    val shaperTypes: List<String>,
+)
+
+sealed interface CalibrationPrinterOutcome {
+    data class Success(val printer: CalibrationPrinter) : CalibrationPrinterOutcome
+
+    data class Failure(val message: String) : CalibrationPrinterOutcome
+}
+
+/**
  * What FlowRateCalibrationDialog asks Plater::calib_flowrate() for: the YOLO
  * tests when [linear] (pass 1 the recommended one, pass 2 the perfectionist
  * one), the coarse first or fine second pass otherwise, and the top surface

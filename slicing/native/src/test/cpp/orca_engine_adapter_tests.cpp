@@ -4887,6 +4887,70 @@ TEST_CASE("The pressure advance tower steps its PA a millimetre at a time, and t
     REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
 }
 
+TEST_CASE("The Input Shaping and Cornering dialogs read the printer's firmware and its input shapers", "[Adapter][Calibration]")
+{
+    require_engine();
+    const orca::CalibrationPrinter printer = orca::describe_calibration_printer(k2_plus_profiles());
+    INFO(printer.message);
+    REQUIRE(printer.status == orca::SceneStatus::success);
+    CHECK(printer.gcode_flavor == "klipper");
+    CHECK_FALSE(printer.junction_deviation);
+    // input_shaper_types_for_flavor(): Klipper's seven but Disable.
+    CHECK(printer.shaper_types.size() == 7);
+}
+
+TEST_CASE("The Input Shaping and Cornering towers print as vases whose G-code steps the tested figure", "[Adapter][Calibration]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    orca::CalibrationParams params;
+    std::string marker;
+    SECTION("input shaping frequency: the frequency of both axes")
+    {
+        params.mode = orca::CalibrationMode::input_shaping_freq;
+        params.freq_start_x = params.freq_start_y = 15;
+        params.freq_end_x = params.freq_end_y = 110;
+        marker = "SHAPER_FREQ_X=";
+    }
+    SECTION("input shaping damping: the damping ratio")
+    {
+        params.mode = orca::CalibrationMode::input_shaping_damp;
+        params.freq_start_x = params.freq_start_y = 30;
+        params.start = 0;
+        params.end = 0.4;
+        marker = "DAMPING_RATIO_";
+    }
+    SECTION("cornering: the square corner velocity")
+    {
+        params.mode = orca::CalibrationMode::cornering;
+        params.start = 1;
+        params.end = 15;
+        params.test_model = 2;
+        marker = "SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=";
+    }
+    const orca::ImportedModels prepared = orca::prepare_calibration(params, k2_plus_profiles(), import_prefix("shaping-test"));
+    INFO(prepared.message);
+    REQUIRE(prepared.status == orca::SceneStatus::success);
+    REQUIRE(prepared.objects.size() == 1);
+    CHECK(prepared.presets_changed);
+
+    const std::string output = output_path("shaping-test.gcode");
+    const orca::SliceResult result = orca::slice(
+        "shaping-test", {plate_object_of(prepared.objects.front())}, output, {}, k2_plus_profiles(), {}, {}, {}, {}, {}, prepared.calibration);
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    const std::string gcode = read_file(output);
+    std::size_t steps = 0;
+    for (std::size_t at = gcode.find(marker); at != std::string::npos; at = gcode.find(marker, at + 1)) {
+        ++steps;
+    }
+    INFO(marker);
+    // A step on (almost) every layer of the tower.
+    CHECK(steps > 50);
+
+    REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
+}
+
 TEST_CASE("The flow ratio tests stand their blocks ten layers high, each with the flow ratio its name tells", "[Adapter][Calibration]")
 {
     require_engine();

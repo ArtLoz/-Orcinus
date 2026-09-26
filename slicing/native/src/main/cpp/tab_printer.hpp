@@ -4,6 +4,10 @@
 
 namespace orcinus::orca::detail {
 
+// input_shaper_types_for_flavor() of Tab.cpp: the input shapers the firmware
+// knows, Disable last.
+std::vector<Slic3r::InputShaperType> input_shaper_types_for_flavor(Slic3r::GCodeFlavor flavor);
+
 // TabPrinter of Tab.hpp: the printer tab. Its pages depend on the printer:
 // one per extruder, and the motion ability of a Marlin-like firmware.
 class TabPrinter : public Tab {

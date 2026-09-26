@@ -1,16 +1,6 @@
 package app.orcinus.shadow.slicing.service
 
 import android.content.ComponentName
-import app.orcinus.shadow.core.model.FlowRateCalibration
-import app.orcinus.shadow.core.model.CalibrationParams
-import app.orcinus.shadow.core.model.ProjectPlate
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import app.orcinus.shadow.core.model.DirtyPresetsOutcome
-import app.orcinus.shadow.core.model.ProjectSaveOutcome
-import app.orcinus.shadow.core.model.ThumbnailImage
-import app.orcinus.shadow.core.model.LayerGcode
-import app.orcinus.shadow.core.model.ModelLoad
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
@@ -18,36 +8,42 @@ import android.os.IBinder
 import android.os.RemoteException
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
-import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
-import app.orcinus.shadow.core.model.CopyPlacement
-import app.orcinus.shadow.core.model.MeshExportOutcome
-import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
+import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
+import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
-import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.FlowRateCalibration
+import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
+import app.orcinus.shadow.core.model.GcodePlaceholderInfo
+import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshExportOutcome
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.ModelLoadOutcome
-import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
-import app.orcinus.shadow.core.model.SimplifyOutcome
-import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
@@ -61,22 +57,23 @@ import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
+import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ProjectPlate
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
-import app.orcinus.shadow.core.model.FlushVolumesChange
-import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
-import app.orcinus.shadow.core.model.GcodePlaceholderInfo
-import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SettingsTabOutcome
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
 import app.orcinus.shadow.core.model.SetupPrintersOutcome
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.SimplifyOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
@@ -84,6 +81,8 @@ import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -96,6 +95,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -342,6 +343,9 @@ class RemoteSlicerEngine(
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         prepareCalibration(params.toParcel(), profiles.toParcel(), prefix.value).toModelLoadOutcome()
     }
+
+    override suspend fun describeCalibrationPrinter(profiles: SlicingProfileSelection): CalibrationPrinterOutcome =
+        remote({ CalibrationPrinterOutcome.Failure(it) }) { describeCalibrationPrinter(profiles.toParcel()).toOutcome() }
 
     override suspend fun prepareFlowRateCalibration(
         test: FlowRateCalibration,

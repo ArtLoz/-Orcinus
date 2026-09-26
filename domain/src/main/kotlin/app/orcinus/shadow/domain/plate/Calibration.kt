@@ -1,14 +1,15 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.CalibrationMode
-import app.orcinus.shadow.core.model.FlowRateCalibration
-import app.orcinus.shadow.core.model.ScenePath
-import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
@@ -35,7 +36,7 @@ class CalibrateUseCase(
     private val applicationScope: CoroutineScope,
 ) {
     operator fun invoke(params: CalibrationParams) {
-        val test = TESTS[params.mode] ?: return
+        val test = testOf(params) ?: return
         start(test, params) { selection, prefix -> inspector.prepareCalibration(params, selection, prefix) }
     }
 
@@ -110,6 +111,18 @@ class CalibrateUseCase(
     private class Test(val projectName: String, val modelFile: String)
 
     private companion object {
+        /** A test of the menu, whose model the dialog's test model may choose. */
+        fun testOf(params: CalibrationParams): Test? {
+            // Plater::calib_input_shaping_freq(), calib_input_shaping_damp() and Calib_Cornering()
+            val tower = if (params.testModel < 1) "ringing_tower.drc" else "fast_tower_test.drc"
+            return when (params.mode) {
+                CalibrationMode.INPUT_SHAPING_FREQ -> Test("Input shaping Frequency test", tower)
+                CalibrationMode.INPUT_SHAPING_DAMP -> Test("Input shaping Damping test", tower)
+                CalibrationMode.CORNERING -> Test("Cornering test", if (params.testModel == 2) "SCV-V2.drc" else tower)
+                else -> TESTS[params.mode]
+            }
+        }
+
         val TESTS = mapOf(
             // Plater::calib_temp()
             CalibrationMode.TEMP_TOWER to Test("Nozzle temperature test", "temperature_tower.drc"),
@@ -123,5 +136,19 @@ class CalibrateUseCase(
             // The handles are cubes of create_mesh(), which name no file.
             CalibrationMode.PA_PATTERN to Test("Pressure Advance Test", ""),
         )
+    }
+}
+
+/**
+ * What the dialogs of Input Shaping and Cornering read of the printer when
+ * they open. It is not part of the plate state, since nothing else needs it.
+ */
+class DescribeCalibrationPrinterUseCase(
+    private val inspector: PlateInspector,
+    private val repository: PlateRepository,
+) {
+    suspend operator fun invoke(): CalibrationPrinterOutcome {
+        val profiles = repository.state.value.profiles ?: return CalibrationPrinterOutcome.Failure("No printer is set up")
+        return inspector.describeCalibrationPrinter(profiles)
     }
 }

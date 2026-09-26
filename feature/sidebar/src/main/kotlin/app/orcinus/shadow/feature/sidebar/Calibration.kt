@@ -1,28 +1,22 @@
 package app.orcinus.shadow.feature.sidebar
 
 import androidx.compose.foundation.layout.Arrangement
-import app.orcinus.shadow.core.model.FlowRateCalibration
-import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
-import app.orcinus.shadow.core.designsystem.icon.orcaIcon
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.material3.Icon
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
-import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -35,25 +29,35 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
+import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaChoiceChips
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
+import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
 import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
+import app.orcinus.shadow.core.designsystem.icon.orcaIcon
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.CalibrationPrinter
+import app.orcinus.shadow.core.model.FlowRateCalibration
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.orca.orcaText
+import java.util.Locale
 
 /**
  * MainFrame's Calibration menu, which the desktop app's top bar opens: the
- * tests in its order, and the calibration guide on the web. The tests the app
- * has not ported yet stand disabled.
+ * tests in its order, and the calibration guide on the web.
  */
 @Composable
 internal fun CalibrationMenuItems(
@@ -63,15 +67,16 @@ internal fun CalibrationMenuItems(
     onRange: (RangeTest) -> Unit,
     onPressureAdvance: () -> Unit,
     onFlowRate: () -> Unit,
+    onPrinterTest: (PrinterTest) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     @Composable
-    fun item(text: String, onClick: (() -> Unit)?) = OrcaMenuItem(
+    fun item(text: String, onClick: () -> Unit) = OrcaMenuItem(
         text = orcaString(text),
-        enabled = enabled && onClick != null,
+        enabled = enabled,
         onClick = {
             dismiss()
-            onClick?.invoke()
+            onClick()
         },
     )
     item("Temperature", onTemperature)
@@ -79,10 +84,10 @@ internal fun CalibrationMenuItems(
     item("Pressure advance", onPressureAdvance)
     item("Flow ratio", onFlowRate)
     item("Retraction") { onRange(RangeTest.RETRACTION) }
-    item("Cornering", null)
-    OrcaSubmenu(text = orcaString("Input Shaping"), enabled = false) {
-        item("Input Shaping Frequency", null)
-        item("Input Shaping Damping/zeta factor", null)
+    item("Cornering") { onPrinterTest(PrinterTest.CORNERING) }
+    OrcaSubmenu(text = orcaString("Input Shaping"), enabled = enabled) {
+        item("Input Shaping Frequency") { onPrinterTest(PrinterTest.INPUT_SHAPING_FREQUENCY) }
+        item("Input Shaping Damping/zeta factor") { onPrinterTest(PrinterTest.INPUT_SHAPING_DAMPING) }
     }
     item("VFA") { onRange(RangeTest.VFA) }
     OrcaMenuItem(
@@ -311,6 +316,311 @@ private fun NumberField(label: String, value: String, unit: String?, onChange: (
         )
     }
 }
+
+/** The tests whose dialogs read the printer (CalibrationPrinter) as they open. */
+internal enum class PrinterTest { INPUT_SHAPING_FREQUENCY, INPUT_SHAPING_DAMPING, CORNERING }
+
+/** The printer's firmware in the dialogs of Input Shaping and Cornering (GCodeFlavor). */
+private const val FLAVOR_MARLIN_LEGACY = "marlin"
+private const val FLAVOR_MARLIN = "marlin2"
+private const val FLAVOR_KLIPPER = "klipper"
+private const val FLAVOR_REPRAP = "reprapfirmware"
+
+/** The test models of the Input Shaping dialogs, and Cornering's third. */
+private val SHAPING_MODELS = listOf("Ringing Tower", "Fast Tower")
+private val CORNERING_MODELS = SHAPING_MODELS + "SCV-V2"
+
+/** The note of the Input Shaping dialogs on the firmware; [fallback] for a firmware with none. */
+@Composable
+private fun firmwareNote(printer: CalibrationPrinter, fallback: String): String = orcaString(
+    when (printer.gcodeFlavor) {
+        FLAVOR_MARLIN, FLAVOR_MARLIN_LEGACY -> "Marlin version => 2.1.2\nFixed-Time motion not yet implemented."
+        FLAVOR_KLIPPER -> "Klipper version => 0.9.0"
+        FLAVOR_REPRAP -> "RepRap firmware version => 3.4.0\nCheck your firmware documentation for supported shaper types."
+        else -> fallback
+    },
+)
+
+/**
+ * Input_Shaping_Freq_Test_Dlg, as a sheet: the test model, the input shaper
+ * type among those the firmware knows, the frequencies to go from and to on
+ * each axis (one range for RepRap firmware) and the damping. OK wants
+ * frequencies from 0 up to 500 Hz and a damping from 0 below 1.
+ */
+@Composable
+internal fun InputShapingFrequencySheet(printer: CalibrationPrinter, onDismiss: () -> Unit, onStart: (CalibrationParams) -> Unit) {
+    val reprap = printer.gcodeFlavor == FLAVOR_REPRAP
+    var model by remember { mutableIntStateOf(0) }
+    var type by remember { mutableIntStateOf(0) }
+    var startX by remember { mutableStateOf("15") }
+    var endX by remember { mutableStateOf("110") }
+    var startY by remember { mutableStateOf("15") }
+    var endY by remember { mutableStateOf("110") }
+    var damping by remember { mutableStateOf("0.150") }
+    var message by remember { mutableStateOf<String?>(null) }
+    val invalidFrequencies = orcaString("Please input valid values:\n(0 < FreqStart < FreqEnd < 500)")
+    val invalidDamping = orcaString("Please input a valid damping factor (0 < Damping/zeta factor <= 1)")
+    val hz = orcaString("Hz")
+    val startEnd = orcaString("Start / End")
+    TestSheet(
+        title = orcaString("Input shaping Frequency test"),
+        guide = INPUT_SHAPING_GUIDE,
+        onDismiss = onDismiss,
+        onOk = {
+            val x = startX.toDoubleOrNull() to endX.toDoubleOrNull()
+            // RepRap firmware takes the range of X for both axes.
+            val y = if (reprap) x else startY.toDoubleOrNull() to endY.toDoubleOrNull()
+            val damp = damping.toDoubleOrNull()
+            val (fromX, toX) = x
+            val (fromY, toY) = y
+            when {
+                fromX == null || toX == null || fromY == null || toY == null || damp == null ||
+                    fromX < 0 || toX > 500 || (!reprap && (fromY < 0 || toY > 500)) ||
+                    fromX >= toX || (!reprap && fromY >= toY) -> message = invalidFrequencies
+                damp < 0 || damp >= 1 -> message = invalidDamping
+                else -> onStart(
+                    CalibrationParams(
+                        CalibrationMode.INPUT_SHAPING_FREQ,
+                        start = damp,
+                        freqStartX = fromX,
+                        freqEndX = toX,
+                        freqStartY = fromY,
+                        freqEndY = toY,
+                        testModel = model,
+                        shaperType = printer.shaperTypes.getOrElse(type) { printer.shaperTypes.firstOrNull().orEmpty() },
+                    ),
+                )
+            }
+        },
+    ) {
+        Choices(orcaString("Test model"), SHAPING_MODELS.map { orcaString(it) }, model) { model = it }
+        Choices(orcaString("Input shaper type"), printer.shaperTypes, type) { type = it }
+        Note(firmwareNote(printer, "Please ensure the selected type is compatible with your firmware version."))
+        SectionLabel(orcaString("Frequency settings"))
+        if (reprap) {
+            RangeFields(orcaString("Frequency (Start / End): "), startX, endX, hz, { startX = it }, { endX = it })
+        } else {
+            RangeFields("X $startEnd: ", startX, endX, hz, { startX = it }, { endX = it })
+            RangeFields("Y $startEnd: ", startY, endY, hz, { startY = it }, { endY = it })
+        }
+        NumberField(orcaString("Damp: "), damping, null) { damping = it }
+        Note(orcaString("Recommended: Set Damp to 0.\nThis will use the printer's default or saved value."))
+    }
+    message?.let { text -> CalibrationMessage(text) { message = null } }
+}
+
+/**
+ * Input_Shaping_Damp_Test_Dlg, as a sheet: the test model, the input shaper
+ * type, the frequency of each axis found before (one for RepRap firmware) and
+ * the damping to go from and to. OK wants frequencies from 0 up to 500 Hz and
+ * a damping range within 0 and 1.
+ */
+@Composable
+internal fun InputShapingDampingSheet(printer: CalibrationPrinter, onDismiss: () -> Unit, onStart: (CalibrationParams) -> Unit) {
+    val reprap = printer.gcodeFlavor == FLAVOR_REPRAP
+    var model by remember { mutableIntStateOf(0) }
+    var type by remember { mutableIntStateOf(0) }
+    var frequencyX by remember { mutableStateOf("30") }
+    var frequencyY by remember { mutableStateOf("30") }
+    var dampingStart by remember { mutableStateOf("0.000") }
+    var dampingEnd by remember { mutableStateOf("0.400") }
+    var message by remember { mutableStateOf<String?>(null) }
+    val invalidFrequencies = orcaString("Please input valid values:\n(0 < Freq < 500)")
+    val invalidDamping = orcaString("Please input a valid damping factor (0 <= DampingStart < DampingEnd <= 1)")
+    val hz = orcaString("Hz")
+    TestSheet(
+        title = orcaString("Input shaping Damp test"),
+        guide = INPUT_SHAPING_GUIDE,
+        onDismiss = onDismiss,
+        onOk = {
+            val x = frequencyX.toDoubleOrNull()
+            // RepRap firmware takes the frequency of X for both axes.
+            val y = if (reprap) x else frequencyY.toDoubleOrNull()
+            val from = dampingStart.toDoubleOrNull()
+            val to = dampingEnd.toDoubleOrNull()
+            when {
+                x == null || y == null || from == null || to == null ||
+                    x < 0 || x > 500 || (!reprap && (y < 0 || y > 500)) -> message = invalidFrequencies
+                from < 0 || to > 1 || from >= to -> message = invalidDamping
+                else -> onStart(
+                    CalibrationParams(
+                        CalibrationMode.INPUT_SHAPING_DAMP,
+                        start = from,
+                        end = to,
+                        freqStartX = x,
+                        freqStartY = y,
+                        testModel = model,
+                        shaperType = printer.shaperTypes.getOrElse(type) { printer.shaperTypes.firstOrNull().orEmpty() },
+                    ),
+                )
+            }
+        },
+    ) {
+        Choices(orcaString("Test model"), SHAPING_MODELS.map { orcaString(it) }, model) { model = it }
+        Choices(orcaString("Input shaper type"), printer.shaperTypes, type) { type = it }
+        Note(firmwareNote(printer, "Check firmware compatibility."))
+        SectionLabel(orcaString("Frequency settings"))
+        if (reprap) {
+            NumberField(orcaString("Frequency: "), frequencyX, hz) { frequencyX = it }
+        } else {
+            RangeFields(orcaString("Frequency") + " X / Y: ", frequencyX, frequencyY, hz, { frequencyX = it }, { frequencyY = it })
+        }
+        RangeFields(orcaString("Damp") + " " + orcaString("Start / End") + ": ", dampingStart, dampingEnd, null, { dampingStart = it }, { dampingEnd = it })
+        Note(orcaString("Note: Use previously calculated frequencies."))
+    }
+    message?.let { text -> CalibrationMessage(text) { message = null } }
+}
+
+/**
+ * Cornering_Test_Dlg, as a sheet: the test model and the jerk to go from and
+ * to, or the junction deviation for Marlin 2 with one, with the notes on the
+ * firmware. OK wants a range from 0 up to 100 mm/s (0.3 mm), and warns of
+ * layer shifts above 20 mm/s (0.25 mm) before the test starts.
+ */
+@Composable
+internal fun CorneringSheet(printer: CalibrationPrinter, onDismiss: () -> Unit, onStart: (CalibrationParams) -> Unit) {
+    val junctionDeviation = printer.junctionDeviation
+    var model by remember { mutableIntStateOf(0) }
+    var start by remember { mutableStateOf(if (junctionDeviation) "0.000" else "1.000") }
+    var end by remember { mutableStateOf(if (junctionDeviation) "0.250" else "15.000") }
+    var message by remember { mutableStateOf<String?>(null) }
+    var warned by remember { mutableStateOf<CalibrationParams?>(null) }
+    val maxEnd = if (junctionDeviation) 0.3 else 100.0
+    val warningThreshold = if (junctionDeviation) 0.25 else 20.0
+    val invalid = orcaText(OrcaText("Please input valid values:\n(0 <= Cornering <= %s)", listOf("%.3f".format(Locale.ROOT, maxEnd))))
+    val warning = orcaText(OrcaText("NOTE: High values may cause Layer shift (>%s)", listOf("%.3f".format(Locale.ROOT, warningThreshold))))
+    val unit = if (junctionDeviation) "mm" else "mm/s"
+    TestSheet(
+        title = orcaString("Cornering test"),
+        guide = CORNERING_GUIDE,
+        onDismiss = onDismiss,
+        onOk = {
+            val from = start.toDoubleOrNull()
+            val to = end.toDoubleOrNull()
+            if (from == null || to == null || from < 0 || to > maxEnd || from >= to) {
+                message = invalid
+            } else {
+                val params = CalibrationParams(CalibrationMode.CORNERING, start = from, end = to, testModel = model)
+                if (to > warningThreshold) warned = params else onStart(params)
+            }
+        },
+    ) {
+        Choices(orcaString("Test model"), CORNERING_MODELS.map { orcaString(it) }, model) { model = it }
+        SectionLabel(orcaString("Cornering settings"))
+        NumberField(orcaString("Start: "), start, unit) { start = it }
+        NumberField(orcaString("End: "), end, unit) { end = it }
+        Note(orcaString("Note: Lower values = sharper corners but slower speeds."))
+        when (printer.gcodeFlavor) {
+            FLAVOR_MARLIN -> Note(
+                orcaString(
+                    if (junctionDeviation) {
+                        "Marlin 2 Junction Deviation detected:\nTo test Classic Jerk, set 'Maximum Junction Deviation' in Motion ability to 0."
+                    } else {
+                        "Marlin 2 Classic Jerk detected:\nTo test Junction Deviation, set 'Maximum Junction Deviation' in Motion ability to a value > 0."
+                    },
+                ),
+            )
+            FLAVOR_REPRAP -> Note(orcaString("RepRap detected: Jerk in mm/s.\nOrcaSlicer will convert the values to mm/min when necessary."))
+        }
+    }
+    message?.let { text -> CalibrationMessage(text) { message = null } }
+    // The warning informs; the test starts once it is closed.
+    warned?.let { params ->
+        CalibrationMessage(warning) {
+            warned = null
+            onStart(params)
+        }
+    }
+}
+
+/** A sheet of a test's dialog: its title, its content, and the guide and OK at the bottom. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TestSheet(title: String, guide: String, onDismiss: () -> Unit, onOk: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    val colors = OrcaTheme.colors
+    val uriHandler = LocalUriHandler.current
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = colors.window,
+        dragHandle = { OrcaSheetHandle() },
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(title, color = colors.text, style = OrcaTheme.typography.head16)
+            content()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                OrcaButton(orcaString("Wiki Guide"), onClick = { uriHandler.openUri(guide) }, style = OrcaButtonStyle.Regular)
+                OrcaButton(orcaString("OK"), onClick = onOk)
+            }
+        }
+    }
+}
+
+/** A titled group of a dialog's radio buttons, as rows of the sheet. */
+@Composable
+private fun Choices(title: String, items: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    SectionLabel(title)
+    items.forEachIndexed { index, item -> ChoiceRow(item, selected = selected == index, onSelect = { onSelect(index) }) }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, color = OrcaTheme.colors.textLabel, style = OrcaTheme.typography.body14, modifier = Modifier.padding(top = 8.dp))
+}
+
+/** The grey note of a dialog under its fields. */
+@Composable
+private fun Note(text: String) {
+    Text(text, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body13, modifier = Modifier.padding(vertical = 4.dp))
+}
+
+/** A figure's start and end of a dialog, the label above the two fields. */
+@Composable
+private fun RangeFields(label: String, first: String, second: String, unit: String?, onFirst: (String) -> Unit, onSecond: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(label, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body14)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(first to onFirst, second to onSecond).forEach { (value, onChange) ->
+                OrcaTextField(
+                    value = value,
+                    onValueChange = { text -> onChange(text.replace(',', '.').filter { it.isDigit() || it == '.' || it == '-' }.take(8)) },
+                    unit = unit,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/** MessageDialog(wxICON_WARNING | wxOK) of a test's dialog. */
+@Composable
+private fun CalibrationMessage(text: String, onDismiss: () -> Unit) {
+    val colors = OrcaTheme.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { OrcaButton(orcaString("OK"), onClick = onDismiss) },
+        text = { Text(text, style = OrcaTheme.typography.body14) },
+        containerColor = colors.window,
+        textContentColor = colors.text,
+        shape = OrcaTheme.shapes.window,
+    )
+}
+
+private const val INPUT_SHAPING_GUIDE = "https://www.orcaslicer.com/wiki/input_shaping_calib"
+private const val CORNERING_GUIDE = "https://www.orcaslicer.com/wiki/cornering_calib"
 
 /** FlowRateCalibrationDialog's choices, which the dialog keeps from one showing to the next. */
 internal data class FlowRateChoice(val type: Int = FLOW_YOLO, val pattern: Int = 0)

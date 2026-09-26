@@ -1,11 +1,6 @@
 package app.orcinus.shadow.slicing.service
 
 import android.app.Service
-import app.orcinus.shadow.core.model.FlowRateCalibration
-import app.orcinus.shadow.core.model.ProjectSaveOutcome
-import app.orcinus.shadow.core.model.ThumbnailImage
-import app.orcinus.shadow.core.model.ThumbnailSize
-import app.orcinus.shadow.core.model.ModelLoad
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -18,16 +13,16 @@ import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.CopyPlacement
-import app.orcinus.shadow.core.model.MeshExportOutcome
-import app.orcinus.shadow.core.model.MeshFormat
-import app.orcinus.shadow.core.model.SimplifyOutcome
-import app.orcinus.shadow.core.model.SimplifyConfig
-import app.orcinus.shadow.core.model.ModelSettingsOutcome
-import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.FilamentPresetChoice
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
+import app.orcinus.shadow.core.model.MeshExportOutcome
+import app.orcinus.shadow.core.model.MeshFormat
+import app.orcinus.shadow.core.model.ModelLoad
+import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintTool
@@ -36,12 +31,17 @@ import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsMode
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.SimplifyOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
+import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
@@ -278,6 +278,10 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun prepareCalibration(params: CalibrationParcel, profiles: ProfilesParcel, prefix: String): ModelLoadParcel = runBlocking {
             engine.prepareCalibration(params.toCalibrationParams(), profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun describeCalibrationPrinter(profiles: ProfilesParcel): CalibrationPrinterParcel = runBlocking {
+            engine.describeCalibrationPrinter(profiles.toProfiles())
         }.toParcel()
 
         override fun prepareFlowRateCalibration(

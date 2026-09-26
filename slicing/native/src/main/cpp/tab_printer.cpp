@@ -16,9 +16,6 @@ namespace orcinus::orca::detail {
 
 using namespace Slic3r;
 
-namespace {
-
-// input_shaper_types_for_flavor() of Tab.cpp.
 std::vector<InputShaperType> input_shaper_types_for_flavor(const GCodeFlavor flavor)
 {
     switch (flavor) {
@@ -57,8 +54,6 @@ std::vector<InputShaperType> input_shaper_types_for_flavor(const GCodeFlavor fla
         };
     }
 }
-
-}  // namespace
 
 void TabPrinter::build()
 {

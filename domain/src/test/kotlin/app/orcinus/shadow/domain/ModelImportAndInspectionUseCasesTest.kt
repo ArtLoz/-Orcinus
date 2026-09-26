@@ -1,35 +1,31 @@
 package app.orcinus.shadow.domain
 
-import app.orcinus.shadow.core.model.CalibrationParams
-import app.orcinus.shadow.core.model.FlowRateCalibration
-import app.orcinus.shadow.core.model.ObjectEdit
-import app.orcinus.shadow.core.model.ProjectPlate
-import app.orcinus.shadow.core.model.ProjectSaveOutcome
-import app.orcinus.shadow.core.model.ThumbnailImage
-import app.orcinus.shadow.core.model.LayerGcode
-import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumes
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.ImportedModelFile
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshExportOutcome
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
-import app.orcinus.shadow.core.model.CopyPlacement
+import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
-import app.orcinus.shadow.core.model.SimplifyOutcome
-import app.orcinus.shadow.core.model.SimplifyConfig
-import app.orcinus.shadow.core.model.MeshFormat
-import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintedSurface
@@ -40,8 +36,13 @@ import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ProjectPlate
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.SimplifyOutcome
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
@@ -261,6 +262,8 @@ class ModelImportAndInspectionUseCasesTest {
 
         override suspend fun prepareFlowRateCalibration(test: FlowRateCalibration, profiles: SlicingProfileSelection, prefix: ScenePath) =
             ModelLoadOutcome.Failure("not used")
+
+        override suspend fun describeCalibrationPrinter(profiles: SlicingProfileSelection) = CalibrationPrinterOutcome.Failure("not used")
 
         override suspend fun saveProject(
             path: ScenePath,

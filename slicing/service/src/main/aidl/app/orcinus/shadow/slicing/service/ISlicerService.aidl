@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service;
 
 import app.orcinus.shadow.slicing.service.CalibrationParcel;
+import app.orcinus.shadow.slicing.service.CalibrationPrinterParcel;
 import app.orcinus.shadow.slicing.service.DirtyPresetsParcel;
 import app.orcinus.shadow.slicing.service.ArrangeSettingsParcel;
 import app.orcinus.shadow.slicing.service.BedShapeParcel;
@@ -145,6 +146,9 @@ interface ISlicerService {
     @nullable String handyModel(String file);
     /** prepare_calibration(): the calibration's model on the empty plate. */
     ModelLoadParcel prepareCalibration(in CalibrationParcel params, in ProfilesParcel profiles, String prefix);
+
+    /** describe_calibration_printer(): what the dialogs of Input Shaping and Cornering read of the printer. */
+    CalibrationPrinterParcel describeCalibrationPrinter(in ProfilesParcel profiles);
 
     /** prepare_flow_rate_calibration(): the flow ratio test on the empty plate. */
     ModelLoadParcel prepareFlowRateCalibration(boolean linear, int pass, String topSurfacePattern, in ProfilesParcel profiles, String prefix);

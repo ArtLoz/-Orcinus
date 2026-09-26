@@ -1361,6 +1361,24 @@ struct ProjectSave {
 // written as import_model() writes them, and the presets are changed.
 ImportedModels prepare_calibration(const CalibrationParams& params, const ProfileSelection& profiles, const std::string& output_prefix);
 
+// What the dialogs of Input Shaping and Cornering read of the edited preset of
+// the printer the profiles select.
+struct CalibrationPrinter {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    // gcode_flavor, as the configuration writes it ("klipper", "marlin2",
+    // "reprapfirmware" and the others).
+    std::string gcode_flavor;
+    // Plater::has_junction_deviation(): Marlin 2 with a maximum junction
+    // deviation above 0, which the cornering test changes instead of the jerk.
+    bool junction_deviation{false};
+    // get_shaper_type_values() of calib_dlg.cpp: the input shapers the
+    // firmware knows but Disable, as input_shaping_type writes them.
+    std::vector<std::string> shaper_types;
+};
+
+CalibrationPrinter describe_calibration_printer(const ProfileSelection& profiles);
+
 // Plater::calib_flowrate() once the new project for it stands: the objects of
 // the test's 3MF file (the YOLO tests when linear, the first or the finer
 // second pass by pass) scaled to ten layers and set up with the top surface

@@ -1,95 +1,72 @@
 package app.orcinus.shadow.domain.plate
 
-import app.orcinus.shadow.core.model.CalibrationMode
-import app.orcinus.shadow.core.model.FlowRateCalibration
-import app.orcinus.shadow.core.model.CalibrationParams
-import app.orcinus.shadow.core.model.PlateRequest
-import app.orcinus.shadow.core.model.EnginePlate
-import app.orcinus.shadow.core.model.partPlates
-import app.orcinus.shadow.core.model.PartPlate
-import app.orcinus.shadow.core.model.ProjectPlate
-import app.orcinus.shadow.core.model.ProjectPrompt
-import app.orcinus.shadow.core.model.ImportBatch
-import app.orcinus.shadow.core.model.PlateProject
-import app.orcinus.shadow.core.model.ProjectSaveOutcome
-import app.orcinus.shadow.core.model.LoadedProject
-import app.orcinus.shadow.core.model.ModelLoad
-import app.orcinus.shadow.core.model.HandyModel
-import app.orcinus.shadow.core.model.PresetSettings
-import app.orcinus.shadow.core.model.SettingState
-import app.orcinus.shadow.core.model.SettingsTab
-import app.orcinus.shadow.core.model.SettingsTabState
-import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ArrangeSettings
-import app.orcinus.shadow.core.model.CopyPlacement
-import app.orcinus.shadow.core.model.PlateHistory
-import app.orcinus.shadow.core.model.PlateClipboard
+import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
-import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BuiltInModel
+import app.orcinus.shadow.core.model.CalibrationMode
+import app.orcinus.shadow.core.model.CalibrationParams
+import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
+import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.EngineAvailability
+import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.EngineState
 import app.orcinus.shadow.core.model.EngineStatus
 import app.orcinus.shadow.core.model.EngineVersion
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.FlowRateCalibration
+import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.FlushVolumes
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
+import app.orcinus.shadow.core.model.GcodePlaceholderInfo
+import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
+import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.core.model.ImportBatch
 import app.orcinus.shadow.core.model.ImportedModelFile
+import app.orcinus.shadow.core.model.LayerGcode
+import app.orcinus.shadow.core.model.LayerGcodeRules
+import app.orcinus.shadow.core.model.LayerGcodeType
 import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.LayerRangeId
+import app.orcinus.shadow.core.model.LoadedObject
+import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshExportOutcome
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelImportFailureCode
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
-import app.orcinus.shadow.core.model.ModelPath
-import app.orcinus.shadow.core.model.LayerGcodeType
-import app.orcinus.shadow.core.model.LayerGcodeRules
-import app.orcinus.shadow.core.model.LayerGcode
-import app.orcinus.shadow.storage.api.DocumentFolders
-import app.orcinus.shadow.core.model.withVolume
-import app.orcinus.shadow.core.model.SimplifyOutcome
-import app.orcinus.shadow.core.model.SimplifyConfig
-import app.orcinus.shadow.storage.api.DocumentExport
-import app.orcinus.shadow.core.model.withInstances
-import app.orcinus.shadow.core.model.withSettings
-import app.orcinus.shadow.core.model.withParts
-import app.orcinus.shadow.core.model.flushesInto
-import app.orcinus.shadow.core.model.SettingsItemKind
-import app.orcinus.shadow.core.model.SettingsItem
-import app.orcinus.shadow.core.model.SettingsClipboard
-import app.orcinus.shadow.core.model.FlushOption
-import app.orcinus.shadow.core.model.MeshFormat
-import app.orcinus.shadow.core.model.MeshExportOutcome
-import app.orcinus.shadow.core.model.DialogIcon
-import app.orcinus.shadow.core.model.LoadedObject
+import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.ModelLoadOutcome
-import app.orcinus.shadow.core.model.SettingsDialog
+import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
-import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PaintStroke
@@ -97,19 +74,24 @@ import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintedMesh
 import app.orcinus.shadow.core.model.PaintedSurface
 import app.orcinus.shadow.core.model.PaintingOutcome
+import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlacedInstance
 import app.orcinus.shadow.core.model.PlacedModel
+import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateGeometry
+import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblemKind
+import app.orcinus.shadow.core.model.PlateProject
+import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
@@ -121,17 +103,30 @@ import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNamesOutcome
+import app.orcinus.shadow.core.model.PresetSettings
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
 import app.orcinus.shadow.core.model.PresetTransfer
 import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ProjectPlate
+import app.orcinus.shadow.core.model.ProjectPrompt
+import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
+import app.orcinus.shadow.core.model.SettingState
+import app.orcinus.shadow.core.model.SettingsClipboard
+import app.orcinus.shadow.core.model.SettingsDialog
+import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.core.model.SettingsItemKind
 import app.orcinus.shadow.core.model.SettingsMode
+import app.orcinus.shadow.core.model.SettingsTab
 import app.orcinus.shadow.core.model.SettingsTabOutcome
+import app.orcinus.shadow.core.model.SettingsTabState
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
 import app.orcinus.shadow.core.model.SetupPrintersOutcome
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.SimplifyOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
@@ -149,8 +144,14 @@ import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.extruderNumber
+import app.orcinus.shadow.core.model.flushesInto
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.withInstance
+import app.orcinus.shadow.core.model.withInstances
+import app.orcinus.shadow.core.model.withParts
+import app.orcinus.shadow.core.model.withSettings
+import app.orcinus.shadow.core.model.withVolume
 import app.orcinus.shadow.domain.CancelSliceUseCase
 import app.orcinus.shadow.domain.GetEngineStatusUseCase
 import app.orcinus.shadow.domain.ImportModelUseCase
@@ -162,12 +163,12 @@ import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
-import app.orcinus.shadow.core.model.GcodePlaceholderInfo
-import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import app.orcinus.shadow.storage.api.CachedPlate
 import app.orcinus.shadow.storage.api.ConfigFiles
+import app.orcinus.shadow.storage.api.DocumentExport
+import app.orcinus.shadow.storage.api.DocumentFolders
 import app.orcinus.shadow.storage.api.GcodeOutputs
 import app.orcinus.shadow.storage.api.ModelFileImporter
 import app.orcinus.shadow.storage.api.PlateCache
@@ -264,6 +265,29 @@ class PlateUseCasesTest {
         inspector.load = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
         addModel(repository, ModelImportOutcome.Success(ImportedModelFile(ModelPath("/imports/b.stl"), "b.stl")), inspector, FakeSceneFiles())(REFERENCE)
         assertNull(repository.state.value.plates.single().calibration)
+    }
+
+    @Test
+    fun `the cornering test takes the model its dialog chose, and the plate prints the test`() {
+        val repository = FakeRepository(readyState())
+        val inspector = FakeInspector()
+        val params = CalibrationParams(CalibrationMode.CORNERING, start = 1.0, end = 15.0, testModel = 2)
+        inspector.calibration = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
+        val lifecycle = ProjectLifecycleUseCase(
+            repository,
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            FakePresetManager(),
+            NoSettingsEditor,
+            PresetsApplier { _, _ -> },
+            scope,
+        )
+
+        CalibrateUseCase(lifecycle, inspector, FakePresetManager(), PresetsApplier { _, _ -> }, FakeSceneFiles(), repository, scope)(params)
+
+        val state = repository.state.value
+        assertEquals("Cornering test", state.project.name)
+        assertEquals("SCV-V2.drc", (state.objects.single() as PlateObject.ImportedModel).inputName)
+        assertEquals(params, state.plates.single().calibration)
     }
 
     @Test
@@ -2951,6 +2975,8 @@ class PlateUseCasesTest {
 
         override suspend fun prepareFlowRateCalibration(test: FlowRateCalibration, profiles: SlicingProfileSelection, prefix: ScenePath) =
             flowRate(test)
+
+        override suspend fun describeCalibrationPrinter(profiles: SlicingProfileSelection) = CalibrationPrinterOutcome.Failure("not used")
 
         val exports = mutableListOf<Triple<Int, MeshFormat, ScenePath>>()
         var export: MeshExportOutcome = MeshExportOutcome.Success(null)

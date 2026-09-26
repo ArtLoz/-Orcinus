@@ -706,6 +706,15 @@ internal class NativeProjectPlate(
     @JvmField val thumbnailPath: String,
 )
 
+/** Constructed by the native bridge; see CalibrationPrinter in orca_engine_adapter.hpp. */
+internal class NativeCalibrationPrinter(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val gcodeFlavor: String,
+    @JvmField val junctionDeviation: Boolean,
+    @JvmField val shaperTypes: Array<String>,
+)
+
 /** Read and constructed by the native bridge; see CalibrationParams in orca_engine_adapter.hpp. */
 internal class NativeCalibration(
     /** CalibrationMode's order. */
@@ -809,6 +818,14 @@ internal object NativeBindings {
         processProfile: String,
         outputPrefix: String,
     ): NativeImportedModels
+
+    /** describe_calibration_printer(): what the dialogs of Input Shaping and Cornering read of the printer. */
+    external fun describeCalibrationPrinter(
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): NativeCalibrationPrinter
 
     /** prepare_flow_rate_calibration(): the flow ratio test set up on the empty plate, and the presets changed. */
     external fun prepareFlowRateCalibration(
