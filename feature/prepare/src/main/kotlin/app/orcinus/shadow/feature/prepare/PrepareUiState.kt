@@ -1,49 +1,50 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ArrangeSettings
-import app.orcinus.shadow.core.model.SliceMode
-import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.BedTypeChoice
-import app.orcinus.shadow.core.model.PresetKind
-import app.orcinus.shadow.core.model.partPlates
-import app.orcinus.shadow.core.model.plateSettingsChoice
-import app.orcinus.shadow.domain.plate.spiralVaseMode
-import app.orcinus.shadow.domain.plate.presetValue
-import app.orcinus.shadow.core.model.PartPlate
-import app.orcinus.shadow.core.model.lockedPlates
-import app.orcinus.shadow.domain.plate.canWorkOnPlate
-import app.orcinus.shadow.core.model.Point2
-import app.orcinus.shadow.core.model.plateOrigins
-import app.orcinus.shadow.domain.plate.canAddPlate
-import app.orcinus.shadow.domain.plate.canDeletePlate
-import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.FlatteningPlane
+import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintTool
+import app.orcinus.shadow.core.model.PaintedFacets
+import app.orcinus.shadow.core.model.PartPlate
+import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
+import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.ScenePath
-import app.orcinus.shadow.core.model.ObjectPartId
-import app.orcinus.shadow.core.model.PaintedFacets
+import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.lockedPlates
+import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.parseFilamentColor
+import app.orcinus.shadow.core.model.partPlates
+import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.plateOrigins
+import app.orcinus.shadow.core.model.plateSettingsChoice
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withPainted
 import app.orcinus.shadow.core.model.withPartAt
 import app.orcinus.shadow.domain.plate.SimplifyPreview
-import app.orcinus.shadow.core.model.SettingsClipboard
-import app.orcinus.shadow.core.model.Transform3
-import app.orcinus.shadow.core.model.Vector3
-import app.orcinus.shadow.core.model.WipeTower
-import app.orcinus.shadow.core.model.mesh
-import app.orcinus.shadow.core.model.parseFilamentColor
-import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.domain.plate.canAddPlate
+import app.orcinus.shadow.domain.plate.canDeletePlate
+import app.orcinus.shadow.domain.plate.canWorkOnPlate
+import app.orcinus.shadow.domain.plate.presetValue
+import app.orcinus.shadow.domain.plate.spiralVaseMode
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
@@ -188,16 +189,21 @@ data class PrepareUiState(
  * selected object is the plate's, since the settings of an object follow it.
  */
 /**
- * OrcaSlicer's colour painting gizmo while it is open: which filament the
- * finger paints with and how wide the brush is (GLGizmoPainterBase).
+ * One of OrcaSlicer's painting gizmos while it is open (GLGizmoPainterBase):
+ * what it paints, the state the finger paints, the tool and its size.
  */
 data class PaintingMode(
     /** The object being painted. */
     val mesh: ScenePath,
-    /** The filament the brush paints with, 1-based; 0 takes the paint off. */
-    val filament: Int = 1,
+    val kind: PaintKind = PaintKind.COLOR,
+    /** The state the finger paints ([PaintState]); for colour, the filament, 1-based; 0 takes the paint off. */
+    val state: Int = 1,
     val radius: Double = 2.0,
     val tool: PaintTool = PaintTool.BRUSH,
+    /** The angle the smart fill keeps to (m_smart_fill_angle), in degrees. */
+    val fillAngle: Double = 30.0,
+    /** Whether the model carries the tool's kind of paint at all, which "Erase all" takes off. */
+    val painted: Boolean = false,
     /** Whether the tool can undo or redo a stroke, which the Undo and Redo buttons do while it is open. */
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,

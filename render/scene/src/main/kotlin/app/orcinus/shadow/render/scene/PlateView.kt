@@ -1,7 +1,6 @@
 package app.orcinus.shadow.render.scene
 
 import android.annotation.SuppressLint
-import app.orcinus.shadow.core.model.Point2
 import android.content.Context
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
@@ -39,8 +38,11 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
@@ -90,7 +92,7 @@ fun PlateView(
     builtWipeTower: ScenePath? = null,
     /** GLCanvas3D::WipeTowerInfo::apply_wipe_tower(): the tower was dragged to that corner. */
     onMoveWipeTower: (x: Double, y: Double) -> Unit = { _, _ -> },
-    /** The colour painting tool is open: a finger paints instead of moving the object. */
+    /** A painting tool is open: a finger paints instead of moving the object. */
     painting: Boolean = false,
     /** A stroke of the finger, as a ray in world coordinates. */
     /** [starts] is true for the first touch of a stroke. */
@@ -195,9 +197,13 @@ fun PlateView(
                         runCatching { SceneLoader.loadPart(copyIndex, part, instance, partColor, meshes) }.getOrNull()
                             ?.let { it.withWireframe(part.mesh in wireframes) }
                     }
-                    // The colours the object is painted with, over its surface.
+                    // The colours the object is painted with, over its surface, or
+                    // the paint of the open painting tool of another kind.
                     val painted = plateObject.paintedMeshes.mapNotNull { mesh ->
-                        val paint = filamentColors.getOrNull(mesh.filament - 1) ?: color
+                        val paint = when (mesh.kind) {
+                            PaintKind.COLOR -> filamentColors.getOrNull(mesh.state - 1) ?: color
+                            else -> if (mesh.state == PaintState.BLOCKER) GizmoColors.BLOCKERS else GizmoColors.ENFORCERS
+                        }
                         runCatching { SceneLoader.loadPaintedMesh(copyIndex, mesh, instance, paint, meshes) }.getOrNull()
                     }
                     listOfNotNull(copy) + parts + painted
@@ -346,9 +352,12 @@ private suspend fun PointerInputScope.detectPlateGestures(
         controller.endMove()
 
         if (!dragging && !multiTouch && !pressedObject && !menuOpened) {
-            controller.clearSelection()
-            // A tap on another plate selects it.
-            controller.selectPlateAt(down.position.x, down.position.y)
+            // A painting tool keeps its object while the finger turns the camera around it.
+            if (!controller.isPainting) {
+                controller.clearSelection()
+                // A tap on another plate selects it.
+                controller.selectPlateAt(down.position.x, down.position.y)
+            }
             val now = down.uptimeMillis
             if (now - lastTapUptime <= doubleTapTimeoutMillis) {
                 controller.resetView()
@@ -376,8 +385,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The objects of the plate alone; the scene also draws the wipe tower. */
     private var plateObjects: List<SceneObject> = emptyList()
     private var wipeTower: SceneObject? = null
-    /** The colour painting tool is open, so a finger paints (GLGizmoMmuSegmentation). */
+    /** A painting tool is open, so a finger on the object paints (GLGizmoPainterBase). */
     private var painting = false
+
+    val isPainting: Boolean get() = painting
     private var paintingStroke = false
     private var layer: PlateLayer? = null
     private var layerBox: Box3? = null
@@ -425,8 +436,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         var angle = 0.0
     }
 
-    /** Whether a finger holds an object or a grabber it can move. */
-    val moving: Boolean get() = drag != null
+    /**
+     * Whether a finger holds an object or a grabber it can move, or paints a
+     * stroke that follows it, instead of orbiting the camera.
+     */
+    val moving: Boolean get() = drag != null || paintingStroke
 
     /** Whether a finger holds an object it has not moved yet, which a long press turns into its context menu. */
     val holdsObject: Boolean get() = (drag as? ObjectDrag)?.moved == false
@@ -589,9 +603,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     fun press(x: Float, y: Float, grabberRadius: Float): Boolean {
         if (painting) {
-            // GLGizmoPainterBase::gizmo_event(): the stroke starts where the
-            // finger went down, and the engine finds the triangle under it.
+            // GLGizmoPainterBase::gizmo_event(): a press on the painted object
+            // starts a stroke there, and the engine finds the triangle under
+            // it; off the object the finger turns the camera, as the gizmo
+            // leaves the mouse to the canvas.
             val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
+            if (objects.none { it.index == selectedIndex && it.raycast(ray) != null }) return false
             paintingStroke = true
             onPaint(ray, true)
             return true

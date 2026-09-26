@@ -1,7 +1,6 @@
 package app.orcinus.shadow.render.scene
 
 import android.content.Context
-import app.orcinus.shadow.core.model.Point2
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
@@ -10,8 +9,10 @@ import android.opengl.EGLExt
 import android.opengl.EGLSurface
 import android.opengl.GLES30
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
@@ -112,8 +113,8 @@ class ThumbnailRenderer(context: Context) {
                     }
                 // GLVolume::simple_render() draws a painted volume in the colour
                 // of every filament it is painted with.
-                val painted = plateObject.paintedMeshes.map { mesh ->
-                    SceneLoader.loadPaintedMesh(0, mesh, instance, colorOf(mesh.filament), meshes)
+                val painted = plateObject.paintedMeshes.filter { it.kind == PaintKind.COLOR }.map { mesh ->
+                    SceneLoader.loadPaintedMesh(0, mesh, instance, colorOf(mesh.state), meshes)
                 }
                 val contained = { volume: SceneObject ->
                     val hull = hullBox(volume)

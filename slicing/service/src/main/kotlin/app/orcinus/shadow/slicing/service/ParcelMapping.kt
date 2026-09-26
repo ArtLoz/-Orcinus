@@ -580,7 +580,7 @@ internal fun PaintingOutcome.toParcel() = PaintingParcel().also {
         is PaintingOutcome.Failure -> it.error = message
         is PaintingOutcome.Success -> with(surface) {
             it.hit = hit
-            it.filaments = filaments.toIntArray()
+            it.states = states.toIntArray()
             it.meshes = meshes.map(ScenePath::value).toTypedArray()
             it.facets = facets.value
             it.canUndo = canUndo
@@ -593,7 +593,7 @@ internal fun PaintingParcel.toOutcome(): PaintingOutcome = error?.let(PaintingOu
     ?: PaintingOutcome.Success(
         PaintedSurface(
             hit = hit,
-            filaments = filaments?.toList().orEmpty(),
+            states = states?.toList().orEmpty(),
             meshes = meshes?.map(::ScenePath).orEmpty(),
             facets = PaintedFacets(facets.orEmpty()),
             canUndo = canUndo,

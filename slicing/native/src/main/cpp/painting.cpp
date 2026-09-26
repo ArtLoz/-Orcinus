@@ -1,12 +1,15 @@
-// Painting a model with the filaments of the plate, ported from OrcaSlicer's
-// colour painting gizmo (GLGizmoMmuSegmentation over GLGizmoPainterBase): the
-// desktop app keeps a TriangleSelector per volume while the gizmo is open and
-// paints into it with a cursor that follows the mouse. The app does the same
-// through a painting session: it opens one for the volume it paints, sends the
+// Painting a model, ported from OrcaSlicer's painting gizmos over
+// GLGizmoPainterBase (colour, supports, seam and fuzzy skin): the desktop app
+// keeps a TriangleSelector per volume while a gizmo is open and paints into it
+// with a cursor that follows the mouse. The app does the same through a
+// painting session: it opens one of a kind for the volume it paints, sends the
 // strokes of a finger, and closes it with the painted facets in hand.
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -148,14 +151,123 @@ bool deserialize_facets(const std::string& text, Slic3r::TriangleSelector::Trian
     return reader.bits(data.bitstream) && reader.bits(data.used_states);
 }
 
-/** Extruder1 is 1, as EnforcerBlockerType numbers the filaments. */
-Slic3r::EnforcerBlockerType state_of(const int filament)
+/** The facets a volume is painted with, of each kind, in PaintKind's order. */
+using KindFacets = std::array<std::string, 4>;
+
+/** The names the facets of each kind go by, in PaintKind's order. */
+const char* const KIND_NAMES[] = {"supports", "seam", "color", "fuzzy_skin"};
+
+/**
+ * The painting of a volume as the app keeps it: the facets of each kind the
+ * volume is painted with, each as serialize() writes them behind the name of
+ * its kind, "<kind>=<facets>", separated by ';'. Facets without a name are
+ * colour, as the app kept them before it painted anything else.
+ */
+KindFacets split_painting(const std::string& painting)
 {
-    if (filament <= 0) {
+    KindFacets kinds;
+    if (painting.find('=') == std::string::npos) {
+        kinds[static_cast<std::size_t>(PaintKind::color)] = painting;
+        return kinds;
+    }
+    std::size_t at = 0;
+    while (at < painting.size()) {
+        const std::size_t separator = painting.find(';', at);
+        const std::size_t end = separator == std::string::npos ? painting.size() : separator;
+        const std::size_t equals = painting.find('=', at);
+        if (equals != std::string::npos && equals < end) {
+            for (std::size_t kind = 0; kind < kinds.size(); ++kind) {
+                if (painting.compare(at, equals - at, KIND_NAMES[kind]) == 0) {
+                    kinds[kind] = painting.substr(equals + 1, end - equals - 1);
+                }
+            }
+        }
+        at = end + 1;
+    }
+    return kinds;
+}
+
+std::string join_painting(const KindFacets& kinds)
+{
+    std::string painting;
+    for (std::size_t kind = 0; kind < kinds.size(); ++kind) {
+        if (kinds[kind].empty()) {
+            continue;
+        }
+        if (!painting.empty()) {
+            painting += ';';
+        }
+        painting += KIND_NAMES[kind];
+        painting += '=';
+        painting += kinds[kind];
+    }
+    return painting;
+}
+
+/**
+ * The painting the app keeps for a volume: the file at [facets], or the
+ * painting itself, as the app kept it inline before its paintings went to
+ * files (a path is absolute, a painting starts with a name or a digit).
+ */
+bool read_painting(const std::string& facets, std::string& painting)
+{
+    if (facets.empty() || facets.front() != '/') {
+        painting = facets;
+        return true;
+    }
+    std::ifstream in(facets, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    painting.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    return true;
+}
+
+/** Writes a painting to path and returns the path; empty for a painting of nothing. */
+std::string write_painting(const std::string& painting, const std::string& path)
+{
+    if (painting.empty()) {
+        return {};
+    }
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << painting;
+    if (!out) {
+        throw std::runtime_error("The painted facets could not be written to " + path);
+    }
+    return path;
+}
+
+/** The facets of a kind of the volume (GLGizmoPainterBase's subclasses each keep their own). */
+Slic3r::FacetsAnnotation& facets_of(Slic3r::ModelVolume& volume, const std::size_t kind)
+{
+    switch (static_cast<PaintKind>(kind)) {
+    case PaintKind::supports: return volume.supported_facets;
+    case PaintKind::seam: return volume.seam_facets;
+    case PaintKind::fuzzy_skin: return volume.fuzzy_skin_facets;
+    case PaintKind::color: break;
+    }
+    return volume.mmu_segmentation_facets;
+}
+
+const Slic3r::FacetsAnnotation& facets_of(const Slic3r::ModelVolume& volume, const std::size_t kind)
+{
+    return facets_of(const_cast<Slic3r::ModelVolume&>(volume), kind);
+}
+
+/** The painted facets, or none when nothing is painted (FacetsAnnotation::empty()). */
+std::string serialized(const Slic3r::TriangleSelector::TriangleSplittingData& data)
+{
+    return data.triangles_to_split.empty() ? std::string() : serialize(data);
+}
+
+/** The state of a stroke; Extruder1 is 1, as EnforcerBlockerType numbers the filaments. */
+Slic3r::EnforcerBlockerType state_of(const int state)
+{
+    if (state <= 0) {
         return Slic3r::EnforcerBlockerType::NONE;
     }
     const int highest = static_cast<int>(Slic3r::EnforcerBlockerType::ExtruderMax);
-    return static_cast<Slic3r::EnforcerBlockerType>(std::min(filament, highest));
+    return static_cast<Slic3r::EnforcerBlockerType>(std::min(state, highest));
 }
 
 /**
@@ -164,6 +276,14 @@ Slic3r::EnforcerBlockerType state_of(const int filament)
  */
 struct Session {
     bool open{false};
+    // What the session paints, and the painting of the volume of every kind,
+    // which end_painting() hands back with the session's kind painted anew.
+    PaintKind kind{PaintKind::color};
+    KindFacets painting;
+    // The file the session opened with, handed back while nothing changed,
+    // and where the painting is written once it did.
+    std::string opened_with;
+    std::string painting_path;
     // The mesh being painted, in its own coordinates, with the tree that finds
     // the triangle under the finger.
     Slic3r::TriangleMesh mesh;
@@ -177,6 +297,15 @@ struct Session {
     std::vector<Slic3r::TriangleSelector::TriangleSplittingData> redo;
     // A stroke began and has not met the model yet.
     bool stroke_pending{false};
+    // Where the stroke last met the model, in the mesh's coordinates, and on
+    // which facet: the brush paints from there to where the finger is now
+    // (the gizmo's DoublePointCursor between its mouse positions).
+    bool has_last{false};
+    Slic3r::Vec3f last_position{Slic3r::Vec3f::Zero()};
+    int last_face{-1};
+    // How many times the painted meshes were written, which names them anew
+    // each time so the 3D view reads them again.
+    std::size_t writes{0};
 };
 
 Session& session()
@@ -185,22 +314,23 @@ Session& session()
     return current;
 }
 
-/** The triangles painted with each filament, written for the 3D view, and what the tool can undo. */
+/** The triangles painted in each state, written for the 3D view, and what the tool can undo. */
 void write_painted_meshes(const std::string& mesh_prefix, PaintingState& result)
 {
     result.can_undo = !session().undo.empty();
     result.can_redo = !session().redo.empty();
     std::vector<indexed_triangle_set> per_state;
     session().selector->get_facets(per_state);
+    const std::size_t write = session().writes++;
     for (std::size_t state = 1; state < per_state.size(); ++state) {
         if (per_state[state].indices.empty()) {
             continue;
         }
-        const std::string path = mesh_prefix + "-" + std::to_string(state) + ".mesh";
+        const std::string path = mesh_prefix + "-" + std::to_string(state) + "-" + std::to_string(write) + ".mesh";
         if (!detail::write_mesh(per_state[state], path)) {
             continue;
         }
-        result.filaments.push_back(static_cast<int>(state));
+        result.states.push_back(static_cast<int>(state));
         result.meshes.push_back(path);
     }
 }
@@ -208,28 +338,43 @@ void write_painted_meshes(const std::string& mesh_prefix, PaintingState& result)
 }  // namespace
 
 // Called by the adapter while it loads a plate, so painted objects are sliced
-// with their colours (Model's mmu_segmentation_facets).
-bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& facets)
+// with their paint: colours, supports, seams and fuzzy skin.
+bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& path)
 {
-    if (facets.empty()) {
-        return true;
-    }
-    Slic3r::TriangleSelector::TriangleSplittingData data;
-    if (!deserialize_facets(facets, data)) {
+    std::string painting;
+    if (!read_painting(path, painting)) {
         return false;
     }
-    volume.mmu_segmentation_facets.set_data(std::move(data));
+    const KindFacets kinds = split_painting(painting);
+    for (std::size_t kind = 0; kind < kinds.size(); ++kind) {
+        if (kinds[kind].empty()) {
+            continue;
+        }
+        Slic3r::TriangleSelector::TriangleSplittingData data;
+        if (!deserialize_facets(kinds[kind], data)) {
+            return false;
+        }
+        facets_of(volume, kind).set_data(std::move(data));
+    }
     return true;
 }
 
-std::string painted_facets_of(const Slic3r::ModelVolume& volume)
+std::string painted_facets_of(const Slic3r::ModelVolume& volume, const std::string& path)
 {
-    return volume.mmu_segmentation_facets.empty() ? std::string() : serialize(volume.mmu_segmentation_facets.get_data());
+    KindFacets kinds;
+    for (std::size_t kind = 0; kind < kinds.size(); ++kind) {
+        const Slic3r::FacetsAnnotation& facets = facets_of(volume, kind);
+        if (!facets.empty()) {
+            kinds[kind] = serialize(facets.get_data());
+        }
+    }
+    return write_painting(join_painting(kinds), path);
 }
 
 PaintingState begin_painting(
     const PlateObject& object,
     const int part,
+    const PaintKind kind,
     const ProfileSelection& profiles,
     const std::string& facets,
     const std::string& mesh_prefix
@@ -273,9 +418,20 @@ PaintingState begin_painting(
         current.world = loaded.instances.empty()
             ? volume.get_matrix()
             : loaded.instances.front()->get_transformation().get_matrix() * volume.get_matrix();
-        if (!facets.empty()) {
+        current.kind = kind;
+        std::string opened;
+        if (!read_painting(facets, opened)) {
+            result.status = SceneStatus::model_read_failed;
+            result.message = "The painted facets could not be read";
+            return result;
+        }
+        current.painting = split_painting(opened);
+        current.opened_with = facets;
+        current.painting_path = mesh_prefix + ".painted";
+        const std::string& painted = current.painting[static_cast<std::size_t>(kind)];
+        if (!painted.empty()) {
             Slic3r::TriangleSelector::TriangleSplittingData data;
-            if (!deserialize_facets(facets, data)) {
+            if (!deserialize_facets(painted, data)) {
                 result.status = SceneStatus::model_read_failed;
                 result.message = "The painted facets could not be read";
                 return result;
@@ -285,6 +441,8 @@ PaintingState begin_painting(
         current.undo.clear();
         current.redo.clear();
         current.stroke_pending = false;
+        current.has_last = false;
+        current.writes = 0;
         current.open = true;
 
         result.status = SceneStatus::success;
@@ -323,9 +481,12 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         result.status = SceneStatus::success;
         if (stroke.starts) {
             current.stroke_pending = true;
+            current.has_last = false;
         }
         if (hit.face() < 0) {
-            // The finger missed the model, which leaves it as it was.
+            // The finger missed the model, which leaves it as it was, and the
+            // brush starts anew where it meets it again.
+            current.has_last = false;
             result.hit = false;
             write_painted_meshes(mesh_prefix, result);
             return result;
@@ -342,20 +503,33 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         const Slic3r::Vec3f position = hit.position().cast<float>();
         const Slic3r::Transform3d no_translation = Slic3r::Transform3d(current.world.linear());
         const Slic3r::TriangleSelector::ClippingPlane clipping_plane;
-        const Slic3r::EnforcerBlockerType state = state_of(stroke.filament);
+        const Slic3r::EnforcerBlockerType state = state_of(stroke.state);
+        // m_paint_on_overhangs_only ? m_highlight_by_angle_threshold_deg : 0.f
+        const auto overhang_angle = static_cast<float>(stroke.overhang_angle);
 
         switch (stroke.tool) {
-        case PaintTool::brush: {
-            std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor =
-                Slic3r::TriangleSelector::SinglePointCursor::cursor_factory(
-                    position,
-                    source.cast<float>(),
-                    static_cast<float>(stroke.radius),
-                    Slic3r::TriangleSelector::CursorType::SPHERE,
-                    current.world,
-                    clipping_plane
-                );
-            current.selector->select_patch(hit.face(), std::move(cursor), state, no_translation, true, 0.0f);
+        case PaintTool::brush:
+        case PaintTool::circle: {
+            // The camera looks along the finger's ray, from its origin. Along
+            // a stroke the brush paints the capsule from where it last met the
+            // model, as the gizmo joins its mouse positions.
+            const Slic3r::TriangleSelector::CursorType type = stroke.tool == PaintTool::circle
+                ? Slic3r::TriangleSelector::CursorType::CIRCLE
+                : Slic3r::TriangleSelector::CursorType::SPHERE;
+            const auto radius = static_cast<float>(stroke.radius);
+            if (current.has_last) {
+                std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor =
+                    Slic3r::TriangleSelector::DoublePointCursor::cursor_factory(
+                        current.last_position, position, source.cast<float>(), radius, type, current.world, clipping_plane);
+                current.selector->select_patch(current.last_face, std::move(cursor), state, no_translation, true, overhang_angle);
+            } else {
+                std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor =
+                    Slic3r::TriangleSelector::SinglePointCursor::cursor_factory(position, source.cast<float>(), radius, type, current.world, clipping_plane);
+                current.selector->select_patch(hit.face(), std::move(cursor), state, no_translation, true, overhang_angle);
+            }
+            current.has_last = true;
+            current.last_position = position;
+            current.last_face = hit.face();
             break;
         }
         case PaintTool::fill:
@@ -367,7 +541,7 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
                 no_translation,
                 clipping_plane,
                 static_cast<float>(stroke.angle),
-                0.0f,
+                overhang_angle,
                 true
             );
             current.selector->seed_fill_apply_on_triangles(state);
@@ -417,6 +591,7 @@ PaintingState step_painting(
             current.selector->deserialize(from.back(), true);
             from.pop_back();
             current.stroke_pending = false;
+            current.has_last = false;
         }
         write_painted_meshes(mesh_prefix, result);
         return result;
@@ -439,6 +614,33 @@ PaintingState redo_painting(const std::string& mesh_prefix)
     return step_painting(session().redo, session().undo, mesh_prefix);
 }
 
+PaintingState clear_painting(const std::string& mesh_prefix)
+{
+    PaintingState result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    Session& current = session();
+    if (!current.open || current.selector == nullptr) {
+        result.message = "No painting session is open";
+        return result;
+    }
+    try {
+        // Plater::TakeSnapshot(... "Reset selection", GizmoAction), which the
+        // gizmo's stack keeps here.
+        current.undo.push_back(current.selector->serialize());
+        current.redo.clear();
+        current.stroke_pending = false;
+        current.has_last = false;
+        current.selector->reset();
+        result.status = SceneStatus::success;
+        write_painted_meshes(mesh_prefix, result);
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
 PaintingState end_painting()
 {
     PaintingState result;
@@ -449,14 +651,26 @@ PaintingState end_painting()
         return result;
     }
     current.selector->garbage_collect();
-    result.facets = serialize(current.selector->serialize());
-    result.status = SceneStatus::success;
+    // FacetsAnnotation::set(): the kind painted anew, the other kinds as they
+    // were; the file the session opened with while nothing changed.
+    std::string& painted = current.painting[static_cast<std::size_t>(current.kind)];
+    const std::string before = painted;
+    painted = serialized(current.selector->serialize());
+    try {
+        result.facets = painted == before ? current.opened_with : write_painting(join_painting(current.painting), current.painting_path);
+        result.status = SceneStatus::success;
+    } catch (const std::exception& error) {
+        // The session closes all the same; the painting it had stays as it was.
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+    }
     current.open = false;
     current.undo.clear();
     current.redo.clear();
     current.selector.reset();
     current.tree.reset();
     current.mesh = Slic3r::TriangleMesh();
+    current.painting = KindFacets();
     return result;
 }
 

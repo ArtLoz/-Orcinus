@@ -65,6 +65,7 @@ import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintedSurface
@@ -784,6 +785,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
     override suspend fun beginPainting(
         plateObject: PlacedModel,
         part: Int?,
+        kind: PaintKind,
         profiles: SlicingProfileSelection,
         facets: PaintedFacets,
         meshPrefix: ScenePath,
@@ -796,6 +798,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             NativeBindings.beginPainting(
                 plateObject = nativePlate(listOf(plateObject)),
                 part = part ?: -1,
+                kind = kind.ordinal.toLong(),
                 printerProfile = profiles.printer.value,
                 filamentProfile = profiles.filament.value,
                 filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
@@ -811,10 +814,11 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             NativeBindings.paintStroke(
                 origin = doubleArrayOf(stroke.origin.x, stroke.origin.y, stroke.origin.z),
                 direction = doubleArrayOf(stroke.direction.x, stroke.direction.y, stroke.direction.z),
-                filament = stroke.filament,
+                state = stroke.state,
                 radius = stroke.radius,
                 tool = stroke.tool.ordinal.toLong(),
                 angle = stroke.angle,
+                overhangAngle = stroke.overhangAngle,
                 starts = stroke.startsStroke,
                 meshPrefix = meshPrefix.value,
             ),
@@ -829,6 +833,10 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         painting(NativeBindings.redoPainting(meshPrefix.value))
     }
 
+    override suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        painting(NativeBindings.clearPainting(meshPrefix.value))
+    }
+
     override suspend fun endPainting(): PaintingOutcome = withContext(Dispatchers.IO) {
         painting(NativeBindings.endPainting())
     }
@@ -839,7 +847,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         PaintingOutcome.Success(
             PaintedSurface(
                 hit = state.hit,
-                filaments = state.filaments.map { it.toInt() },
+                states = state.states.map { it.toInt() },
                 meshes = state.meshes.map(::ScenePath),
                 facets = PaintedFacets(state.facets),
                 canUndo = state.canUndo,

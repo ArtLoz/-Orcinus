@@ -90,9 +90,9 @@ internal class NativePainting(
     @JvmField val status: Long,
     @JvmField val message: String,
     @JvmField val hit: Boolean,
-    /** The filaments the model is painted with, 1-based. */
-    @JvmField val filaments: DoubleArray,
-    /** The mesh of the triangles painted with each of them. */
+    /** The states the model is painted with (EnforcerBlockerType; the filaments for colour). */
+    @JvmField val states: DoubleArray,
+    /** The mesh of the triangles painted in each of them. */
     @JvmField val meshes: Array<String>,
     @JvmField val facets: String,
     /** Whether the tool can undo or redo a stroke. */
@@ -882,12 +882,14 @@ internal object NativeBindings {
         processProfile: String,
     ): NativeFlushVolumes
 
-    /** GLGizmoMmuSegmentation: opens the painting tool on an object or one of its parts. */
+    /** GLGizmoPainterBase: opens the painting tool of a kind on an object or one of its parts. */
     external fun beginPainting(
         /** The object alone, as a plate of one. */
         plateObject: NativePlate,
         /** The part to paint; -1 paints the object's own mesh. */
         part: Int,
+        /** PaintKind's ordinal. */
+        kind: Long,
         printerProfile: String,
         filamentProfile: String,
         filamentProfiles: Array<String>,
@@ -900,10 +902,11 @@ internal object NativeBindings {
     external fun paintStroke(
         origin: DoubleArray,
         direction: DoubleArray,
-        filament: Int,
+        state: Int,
         radius: Double,
         tool: Long,
         angle: Double,
+        overhangAngle: Double,
         starts: Boolean,
         meshPrefix: String,
     ): NativePainting
@@ -912,6 +915,9 @@ internal object NativeBindings {
     external fun undoPainting(meshPrefix: String): NativePainting
 
     external fun redoPainting(meshPrefix: String): NativePainting
+
+    /** "Erase all" of the painting tool. */
+    external fun clearPainting(meshPrefix: String): NativePainting
 
     external fun endPainting(): NativePainting
 

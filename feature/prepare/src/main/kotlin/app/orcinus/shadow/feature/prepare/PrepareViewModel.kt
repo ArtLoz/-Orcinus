@@ -1,62 +1,19 @@
 package app.orcinus.shadow.feature.prepare
 
-import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
-import app.orcinus.shadow.domain.plate.SliceActionUseCase
-import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
-import app.orcinus.shadow.core.model.SliceMode
-import app.orcinus.shadow.domain.plate.SetPlateSettingsUseCase
-import app.orcinus.shadow.core.model.PlateSettingsChoice
-import app.orcinus.shadow.domain.plate.LockPlateUseCase
-import app.orcinus.shadow.domain.plate.RenamePlateUseCase
-import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
-import app.orcinus.shadow.domain.plate.PlateJobsUseCase
-import app.orcinus.shadow.domain.plate.SelectPlateUseCase
-import app.orcinus.shadow.domain.plate.AddPlateUseCase
-import app.orcinus.shadow.domain.plate.DeletePlateUseCase
-import app.orcinus.shadow.core.model.ObjectPartId
-import app.orcinus.shadow.core.model.SimplifyConfig
-import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
-import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
-import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
-import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
-import app.orcinus.shadow.domain.plate.SimplifyPreview
-import kotlinx.coroutines.flow.map
-import app.orcinus.shadow.core.model.FlushOption
-import app.orcinus.shadow.core.model.MeshFormat
-import app.orcinus.shadow.core.model.SettingsItem
-import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
-import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
-import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
-import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
-import app.orcinus.shadow.domain.plate.SetExtruderUseCase
-import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
-import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
-import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
-import app.orcinus.shadow.core.model.HandyModel
-import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
-import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
-import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
-import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
-import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
-import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
-import app.orcinus.shadow.domain.plate.SetArrangeSettingsUseCase
-import app.orcinus.shadow.core.model.ObjectEdit
-import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
-import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
-import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
-import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
-import app.orcinus.shadow.domain.plate.AddObjectPartUseCase
-import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
-import app.orcinus.shadow.core.model.VolumeType
-import app.orcinus.shadow.core.model.SettingsScope
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
+import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -64,37 +21,82 @@ import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.core.model.SettingsScope
+import app.orcinus.shadow.core.model.SimplifyConfig
+import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.domain.DescribeFlatteningPlanesUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
+import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
+import app.orcinus.shadow.domain.plate.AddObjectPartUseCase
 import app.orcinus.shadow.domain.plate.AddPlateInstanceUseCase
+import app.orcinus.shadow.domain.plate.AddPlateUseCase
+import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
+import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
+import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
+import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
+import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
+import app.orcinus.shadow.domain.plate.LockPlateUseCase
+import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PaintObjectUseCase
+import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
+import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.PlateJobsUseCase
+import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
+import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemovePlateInstanceUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateUseCase
+import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
+import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
+import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.SelectPlateUseCase
+import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
+import app.orcinus.shadow.domain.plate.SetArrangeSettingsUseCase
+import app.orcinus.shadow.domain.plate.SetExtruderUseCase
+import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
+import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
+import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
+import app.orcinus.shadow.domain.plate.SetPlateSettingsUseCase
+import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
+import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.domain.plate.SimplifyPreview
+import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.render.scene.ObjectTransforms
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -159,6 +161,12 @@ class PrepareViewModel(
 
     /** A stroke began with a touch that was dropped: the next touch sent starts it. */
     private var strokeStarts = false
+
+    /** The painting tool closing, which the next one waits for. */
+    private var closingPainting: Job? = null
+
+    /** What each painting tool was left with, which it opens with again, as the desktop gizmos keep it. */
+    private val paintingTools = mutableMapOf<PaintKind, PaintingMode>()
     private val view = MutableStateFlow(PrepareViewState())
 
     /**
@@ -295,22 +303,33 @@ class PrepareViewModel(
     fun setPlateSettings(choice: PlateSettingsChoice, vaseSettingsAgreed: Boolean) = setPlateSettings.invoke(choice, vaseSettingsAgreed)
 
     /**
-     * GLGizmoMmuSegmentation: the colour painting tool opens on the selected
-     * object, paints while a finger moves over it, and keeps the colours when
-     * it closes. A stroke is dropped while the engine is still painting the
-     * one before, so a fast finger does not pile up work.
+     * The painting gizmos (GLGizmoPainterBase): the tool of [kind] opens on
+     * the selected object, paints while a finger moves over it, and keeps the
+     * paint when it closes; the tool of another kind closes first, as
+     * GLGizmosManager opens one gizmo at a time. A stroke is dropped while the
+     * engine is still painting the one before, so a fast finger does not pile
+     * up work.
      */
-    fun togglePainting() {
+    fun togglePainting(kind: PaintKind = PaintKind.COLOR) {
         val open = view.value.painting
         if (open != null) {
             closePainting()
-            return
+            if (open.kind == kind) return
         }
         val mesh = state.value.sceneCopies.getOrNull(state.value.selectedObject ?: -1)?.plateObject?.mesh ?: return
-        // GLGizmosManager opens one gizmo at a time.
         openSimplify.close()
-        view.update { it.copy(painting = PaintingMode(mesh), gizmo = null) }
-        viewModelScope.launch { paintObject.begin(mesh).also(::showStrokes) }
+        val mode = paintingTools[kind]?.copy(mesh = mesh, painted = false, canUndo = false, canRedo = false) ?: PaintingMode(
+            mesh = mesh,
+            kind = kind,
+            // GLGizmoFdmSupports paints with the circle, the colour tool with the sphere.
+            tool = if (kind == PaintKind.COLOR) PaintTool.BRUSH else PaintTool.CIRCLE,
+        )
+        view.update { it.copy(painting = mode, gizmo = null) }
+        val closing = closingPainting
+        viewModelScope.launch {
+            closing?.join()
+            paintObject.begin(mesh, kind).also(::showStrokes)
+        }
     }
 
     /** The object menu's "Simplify Model" over the copy at [index] (ObjectList::simplify). */
@@ -387,13 +406,25 @@ class PrepareViewModel(
     }
 
     fun closePainting() {
-        if (view.value.painting == null) return
+        val open = view.value.painting ?: return
+        paintingTools[open.kind] = open
         view.update { it.copy(painting = null) }
-        viewModelScope.launch { paintObject.end() }
+        closingPainting = viewModelScope.launch { paintObject.end() }
     }
 
-    fun paintWith(filament: Int) {
-        view.update { state -> state.painting?.let { state.copy(painting = it.copy(filament = filament)) } ?: state }
+    /** The state the finger paints: a filament, enforcing or blocking, or the eraser ([PaintState.NONE]). */
+    fun paintWith(state: Int) {
+        view.update { view -> view.painting?.let { view.copy(painting = it.copy(state = state)) } ?: view }
+    }
+
+    fun setFillAngle(angle: Double) {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(fillAngle = angle)) } ?: state }
+    }
+
+    /** "Erase all" of the painting tool, which its Undo brings back. */
+    fun clearPainting() {
+        if (view.value.painting == null) return
+        viewModelScope.launch { paintObject.clear().also(::showStrokes) }
     }
 
     fun setBrushRadius(radius: Double) {
@@ -423,9 +454,10 @@ class PrepareViewModel(
                     PaintStroke(
                         origin = origin,
                         direction = direction,
-                        filament = mode.filament,
+                        state = mode.state,
                         radius = mode.radius,
                         tool = mode.tool,
+                        angle = mode.fillAngle,
                         startsStroke = first,
                     ),
                 ).also(::showStrokes)
@@ -435,10 +467,14 @@ class PrepareViewModel(
         }
     }
 
-    /** What the painting tool can undo and redo after [outcome]. */
+    /** What the painting tool carries and can undo and redo after [outcome]. */
     private fun showStrokes(outcome: PaintingOutcome) {
         val surface = (outcome as? PaintingOutcome.Success)?.surface ?: return
-        view.update { state -> state.painting?.let { state.copy(painting = it.copy(canUndo = surface.canUndo, canRedo = surface.canRedo)) } ?: state }
+        view.update { state ->
+            state.painting?.let {
+                state.copy(painting = it.copy(painted = surface.states.isNotEmpty(), canUndo = surface.canUndo, canRedo = surface.canRedo))
+            } ?: state
+        }
     }
 
     private fun select(id: PlateInstanceId?, selected: ModelInspection?) {

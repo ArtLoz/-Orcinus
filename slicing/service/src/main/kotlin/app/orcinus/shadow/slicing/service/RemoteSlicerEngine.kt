@@ -45,6 +45,7 @@ import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -468,6 +469,7 @@ class RemoteSlicerEngine(
     override suspend fun beginPainting(
         plateObject: PlacedModel,
         part: Int?,
+        kind: PaintKind,
         profiles: SlicingProfileSelection,
         facets: PaintedFacets,
         meshPrefix: ScenePath,
@@ -476,6 +478,7 @@ class RemoteSlicerEngine(
             service().beginPainting(
                 listOf(plateObject).toParcels().first(),
                 part ?: -1,
+                kind.name,
                 profiles.toParcel(),
                 facets.value,
                 meshPrefix.value,
@@ -490,10 +493,11 @@ class RemoteSlicerEngine(
             service().paintStroke(
                 doubleArrayOf(stroke.origin.x, stroke.origin.y, stroke.origin.z),
                 doubleArrayOf(stroke.direction.x, stroke.direction.y, stroke.direction.z),
-                stroke.filament,
+                stroke.state,
                 stroke.radius,
                 stroke.tool.name,
                 stroke.angle,
+                stroke.overhangAngle,
                 stroke.startsStroke,
                 meshPrefix.value,
             ).toOutcome()
@@ -517,6 +521,9 @@ class RemoteSlicerEngine(
             PaintingOutcome.Failure(PROCESS_DIED)
         }
     }
+
+    override suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome =
+        remote(PaintingOutcome::Failure) { clearPainting(meshPrefix.value).toOutcome() }
 
     override suspend fun endPainting(): PaintingOutcome = withContext(Dispatchers.IO) {
         try {

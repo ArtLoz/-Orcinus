@@ -89,8 +89,12 @@ data class LayerRange(
     val settings: ModelSettings = ModelSettings(),
 )
 
-/** The triangles of an object painted with one filament, as a mesh for the 3D view. */
-data class PaintedMesh(val filament: Int, val mesh: ScenePath)
+/**
+ * The triangles of an object painted in one state, as a mesh for the 3D view:
+ * the filament of colour painting, or while another painting tool is open,
+ * the state it paints ([PaintState]).
+ */
+data class PaintedMesh(val state: Int, val mesh: ScenePath, val kind: PaintKind = PaintKind.COLOR)
 
 /**
  * A model on the build plate, as OrcaSlicer loaded it, with the parts added to

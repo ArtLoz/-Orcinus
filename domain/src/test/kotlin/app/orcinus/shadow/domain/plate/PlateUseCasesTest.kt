@@ -69,6 +69,8 @@ import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintedMesh
@@ -149,6 +151,7 @@ import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withInstances
+import app.orcinus.shadow.core.model.withPainted
 import app.orcinus.shadow.core.model.withParts
 import app.orcinus.shadow.core.model.withSettings
 import app.orcinus.shadow.core.model.withVolume
@@ -1408,7 +1411,7 @@ class PlateUseCasesTest {
 
         runSuspend { paint.begin(CUBE.mesh) }
         assertFalse(repository.state.value.canUndo)
-        runSuspend { paint.stroke(PaintStroke(origin = Vector3(0.0, 0.0, 50.0), direction = Vector3(0.0, 0.0, -1.0), filament = 2)) }
+        runSuspend { paint.stroke(PaintStroke(origin = Vector3(0.0, 0.0, 50.0), direction = Vector3(0.0, 0.0, -1.0), state = 2)) }
         runSuspend { paint.end() }
 
         val state = repository.state.value
@@ -1419,13 +1422,35 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `support painting shows its paint while it is open and leaves the colours shown once it closes`() {
+        val colours = listOf(PaintedMesh(2, ScenePath("/scene/objects/colour-2.mesh")))
+        val repository = FakeRepository(readyState(CUBE.withPainted(PaintedFacets("colour"), colours)))
+        val inspector = FakeInspector()
+        val paint = PaintObjectUseCase(inspector, FakeSceneFiles(), repository)
+
+        runSuspend { paint.begin(CUBE.mesh, PaintKind.SUPPORTS) }
+        assertEquals(PaintKind.SUPPORTS, inspector.paintKind)
+        // The engine takes the paint of every kind and paints the supports' own.
+        assertEquals(PaintedFacets("colour"), inspector.paintedFacets)
+        runSuspend { paint.stroke(PaintStroke(Vector3(0.0, 0.0, -50.0), Vector3(0.0, 0.0, 1.0), state = PaintState.BLOCKER)) }
+        assertEquals(PaintState.BLOCKER, inspector.stroke?.state)
+        assertEquals(listOf(PaintKind.SUPPORTS), repository.state.value.objects.single().paintedMeshes.map { it.kind })
+        runSuspend { paint.end() }
+
+        val painted = repository.state.value.objects.single()
+        assertEquals(PaintedFacets("painted"), painted.painted)
+        assertEquals(colours, painted.paintedMeshes)
+        assertNull(repository.state.value.history.beforeTool)
+    }
+
+    @Test
     fun `the painting tool undoes a stroke with its own stack and shows what is left`() {
         val repository = FakeRepository(readyState(CUBE))
         val inspector = FakeInspector()
         val paint = PaintObjectUseCase(inspector, FakeSceneFiles(), repository)
 
         runSuspend { paint.begin(CUBE.mesh) }
-        runSuspend { paint.stroke(PaintStroke(Vector3(0.0, 0.0, 50.0), Vector3(0.0, 0.0, -1.0), filament = 2, startsStroke = true)) }
+        runSuspend { paint.stroke(PaintStroke(Vector3(0.0, 0.0, 50.0), Vector3(0.0, 0.0, -1.0), state = 2, startsStroke = true)) }
         assertEquals(true, inspector.stroke?.startsStroke)
         val undone = runSuspend { paint.undo() }
 
@@ -2172,7 +2197,7 @@ class PlateUseCasesTest {
         assertEquals(CUBE.painted, inspector.paintedFacets)
         assertEquals(listOf(PaintedMesh(2, ScenePath("/scene/objects/painted-2.mesh"))), repository.state.value.objects.single().paintedMeshes)
 
-        val stroke = PaintStroke(origin = Vector3(0.0, 0.0, 50.0), direction = Vector3(0.0, 0.0, -1.0), filament = 2)
+        val stroke = PaintStroke(origin = Vector3(0.0, 0.0, 50.0), direction = Vector3(0.0, 0.0, -1.0), state = 2)
         runSuspend { paint.stroke(stroke) }
 
         assertEquals(stroke, inspector.stroke)
@@ -2189,7 +2214,7 @@ class PlateUseCasesTest {
         val repository = FakeRepository(twoFilaments(CUBE))
         val paint = PaintObjectUseCase(FakeInspector(), FakeSceneFiles(), repository)
 
-        val outcome = runSuspend { paint.stroke(PaintStroke(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), filament = 1)) }
+        val outcome = runSuspend { paint.stroke(PaintStroke(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), state = 1)) }
 
         assertTrue(outcome is PaintingOutcome.Failure)
     }
@@ -2781,16 +2806,19 @@ class PlateUseCasesTest {
     ) : PlateInspector {
         /** What the painting tool was opened and painted with. */
         var paintedFacets: PaintedFacets? = null
+        var paintKind: PaintKind? = null
         var stroke: PaintStroke? = null
 
         override suspend fun beginPainting(
             plateObject: PlacedModel,
             part: Int?,
+            kind: PaintKind,
             profiles: SlicingProfileSelection,
             facets: PaintedFacets,
             meshPrefix: ScenePath,
         ): PaintingOutcome {
             paintedFacets = facets
+            paintKind = kind
             return PaintingOutcome.Success(painted(meshPrefix))
         }
 
@@ -2812,9 +2840,13 @@ class PlateUseCasesTest {
 
         override suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(painted(meshPrefix))
 
+        /** "Erase all", which takes every painted triangle off and can be undone. */
+        override suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome =
+            PaintingOutcome.Success(PaintedSurface(canUndo = true))
+
         private fun painted(meshPrefix: ScenePath) = PaintedSurface(
             hit = true,
-            filaments = listOf(2),
+            states = listOf(2),
             meshes = listOf(ScenePath("${meshPrefix.value}-2.mesh")),
         )
         /** What the last flushing volumes request carried. */

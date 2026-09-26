@@ -24,6 +24,7 @@ import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PaintedFacets
@@ -396,6 +397,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         override fun beginPainting(
             plateObject: PlacedModelParcel,
             part: Int,
+            kind: String,
             profiles: ProfilesParcel,
             facets: String,
             meshPrefix: String,
@@ -403,6 +405,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             engine.beginPainting(
                 plateObject = arrayOf(plateObject).toPlacedModels().first(),
                 part = part.takeIf { it >= 0 },
+                kind = PaintKind.valueOf(kind),
                 profiles = profiles.toProfiles(),
                 facets = PaintedFacets(facets),
                 meshPrefix = ScenePath(meshPrefix),
@@ -412,10 +415,11 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         override fun paintStroke(
             origin: DoubleArray,
             direction: DoubleArray,
-            filament: Int,
+            state: Int,
             radius: Double,
             tool: String,
             angle: Double,
+            overhangAngle: Double,
             starts: Boolean,
             meshPrefix: String,
         ): PaintingParcel = runBlocking {
@@ -423,10 +427,11 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                 PaintStroke(
                     origin = Vector3(origin[0], origin[1], origin[2]),
                     direction = Vector3(direction[0], direction[1], direction[2]),
-                    filament = filament,
+                    state = state,
                     radius = radius,
                     tool = PaintTool.valueOf(tool),
                     angle = angle,
+                    overhangAngle = overhangAngle,
                     startsStroke = starts,
                 ),
                 ScenePath(meshPrefix),
@@ -436,6 +441,8 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         override fun undoPainting(meshPrefix: String): PaintingParcel = runBlocking { engine.undoPainting(ScenePath(meshPrefix)) }.toParcel()
 
         override fun redoPainting(meshPrefix: String): PaintingParcel = runBlocking { engine.redoPainting(ScenePath(meshPrefix)) }.toParcel()
+
+        override fun clearPainting(meshPrefix: String): PaintingParcel = runBlocking { engine.clearPainting(ScenePath(meshPrefix)) }.toParcel()
 
         override fun endPainting(): PaintingParcel = runBlocking { engine.endPainting() }.toParcel()
 

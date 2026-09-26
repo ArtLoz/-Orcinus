@@ -219,10 +219,11 @@ interface ISlicerService {
         String change,
         int index
     );
-    /** GLGizmoMmuSegmentation: the colour painting tool of the 3D view. */
+    /** GLGizmoPainterBase: the painting tools of the 3D view; kind is the PaintKind's name. */
     PaintingParcel beginPainting(
         in PlacedModelParcel plateObject,
         int part,
+        String kind,
         in ProfilesParcel profiles,
         String facets,
         String meshPrefix
@@ -230,15 +231,17 @@ interface ISlicerService {
     PaintingParcel paintStroke(
         in double[] origin,
         in double[] direction,
-        int filament,
+        int state,
         double radius,
         String tool,
         double angle,
+        double overhangAngle,
         boolean starts,
         String meshPrefix
     );
     PaintingParcel undoPainting(String meshPrefix);
     PaintingParcel redoPainting(String meshPrefix);
+    PaintingParcel clearPainting(String meshPrefix);
     PaintingParcel endPainting();
     FlatteningPlanesParcel flatteningPlanes(in PlacedModelParcel plateObject, in ProfilesParcel profiles, in double[] placement);
     /** ObjectList::load_generic_subobject(); type is the VolumeType's name. */

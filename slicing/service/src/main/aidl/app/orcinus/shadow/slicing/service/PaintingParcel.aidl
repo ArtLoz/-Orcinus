@@ -5,9 +5,9 @@ parcelable PaintingParcel {
     @nullable String error;
     /** Whether the stroke met the model. */
     boolean hit;
-    /** The filaments the model is painted with, 1-based. */
-    @nullable int[] filaments;
-    /** The mesh of the triangles painted with each of them, in the same order. */
+    /** The states the model is painted with (PaintState; the filaments for colour). */
+    @nullable int[] states;
+    /** The mesh of the triangles painted in each of them, in the same order. */
     @nullable String[] meshes;
     /** The painted facets, reported when the tool closes. */
     @nullable String facets;

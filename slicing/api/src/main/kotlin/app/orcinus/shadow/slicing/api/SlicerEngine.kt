@@ -38,6 +38,7 @@ import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -388,7 +389,7 @@ interface PlateInspector {
     ): FlushVolumesOutcome
 
     /**
-     * GLGizmoMmuSegmentation: opens the colour painting tool on [plateObject],
+     * GLGizmoPainterBase: opens the painting tool of [kind] on [plateObject],
      * or on one of its parts, with the facets it is already painted with. The
      * engine keeps the tool open until [endPainting], as the desktop gizmo
      * keeps its selectors, and writes the painted triangles as meshes named
@@ -398,6 +399,7 @@ interface PlateInspector {
         plateObject: PlacedModel,
         /** The part to paint; null paints the object's own mesh. */
         part: Int?,
+        kind: PaintKind,
         profiles: SlicingProfileSelection,
         facets: PaintedFacets,
         meshPrefix: ScenePath,
@@ -410,6 +412,9 @@ interface PlateInspector {
     suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome
 
     suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome
+
+    /** "Erase all": the painting tool's kind of paint comes off the model, which its Undo brings back. */
+    suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome
 
     /** Closes the tool and reports the painted facets to keep with the object. */
     suspend fun endPainting(): PaintingOutcome

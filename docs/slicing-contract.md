@@ -132,21 +132,32 @@ plate's settings, which the slice request carries.
 
 ## Painting a model
 
-`beginPainting(object, part, profiles, facets, meshPrefix)` opens OrcaSlicer's
-colour painting gizmo on one volume (GLGizmoMmuSegmentation): the engine builds
-a TriangleSelector over its mesh, reads the facets it is already painted with,
-and keeps it until `endPainting()`, as the desktop gizmo keeps its selectors.
-`paint(stroke, meshPrefix)` is one touch of a finger: the ray is cast into the
-mesh (AABBMesh::query_ray_hit) and the triangles under the cursor take the
-filament, with the brush (SinglePointCursor and select_patch), the smart fill or
-the bucket fill. Every answer carries the triangles painted with each filament,
-written as a mesh per filament for the 3D view, and says whether the stroke met
-the model at all. `endPainting()` reports the painted facets
-(TriangleSelector::TriangleSplittingData, as hexadecimal text), which the app
-keeps with the object and sends back with the plate: a slice request carries
-them per object and per part, and the engine applies them to
-ModelVolume::mmu_segmentation_facets, so the print changes filament over the
-painted surface.
+`beginPainting(object, part, kind, profiles, facets, meshPrefix)` opens one of
+OrcaSlicer's painting gizmos on one volume (GLGizmoPainterBase): colour
+(GLGizmoMmuSegmentation), supports (GLGizmoFdmSupports), the seam or fuzzy
+skin. The engine builds a TriangleSelector over the mesh, reads the facets of
+that kind it is already painted with, and keeps it until `endPainting()`, as
+the desktop gizmo keeps its selectors. `paint(stroke, meshPrefix)` is one touch
+of a finger: the ray is cast into the mesh (AABBMesh::query_ray_hit) and the
+triangles under the cursor take the stroke's state (EnforcerBlockerType: the
+filament for colour, enforcer or blocker for supports and the seam), with the
+sphere or circle brush (SinglePointCursor, and DoublePointCursor from where the
+stroke last met the model, as the gizmo joins its mouse positions), the smart
+fill or the bucket fill; "on overhangs only" limits it to overhanging facets.
+`clearPainting(meshPrefix)` is "Erase all". Every answer carries the triangles
+painted in each state, written as a mesh per state under a new name each time
+for the 3D view, and says whether the stroke met the model at all.
+
+The painted facets of a volume, of every kind, travel as a file: the engine
+writes them (TriangleSelector::TriangleSplittingData as hexadecimal text, each
+kind behind its name) next to the meshes, since the painting of a detailed
+model runs to megabytes that do not fit a call between the app and the engine's
+process. `endPainting()` reports the file, or the one the session opened with
+while nothing changed; the app keeps it with the object and sends it back with
+the plate: a slice request carries it per object and per part, and the engine
+applies each kind to its ModelVolume facets (mmu_segmentation_facets,
+supported_facets, seam_facets, fuzzy_skin_facets), so the print changes
+filament, supports, seam or skin over the painted surface.
 
 A request that names presets other than the selected ones is still served as
 before: the adapter selects them on a copy of the configuration, and shows the

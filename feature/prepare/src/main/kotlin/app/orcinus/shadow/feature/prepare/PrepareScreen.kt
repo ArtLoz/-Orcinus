@@ -1,22 +1,5 @@
 package app.orcinus.shadow.feature.prepare
 
-import app.orcinus.shadow.core.model.ObjectEdit
-import app.orcinus.shadow.core.ui.plate.SliceButton
-import app.orcinus.shadow.core.model.SliceMode
-import app.orcinus.shadow.core.ui.plate.AddObjectItems
-import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
-import app.orcinus.shadow.core.model.PlateSettingsChoice
-import app.orcinus.shadow.core.ui.plate.PlateMenuItems
-import app.orcinus.shadow.core.ui.plate.PlateIconActions
-import app.orcinus.shadow.core.ui.plate.PlateNameDialog
-import app.orcinus.shadow.core.ui.plate.PlateStrip
-import app.orcinus.shadow.core.ui.plate.objectMenuState
-import app.orcinus.shadow.core.ui.plate.PartShapeSheet
-import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
-import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
-import app.orcinus.shadow.core.ui.plate.CloneDialog
-import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
-import app.orcinus.shadow.core.model.VolumeType
 import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,8 +32,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,8 +68,6 @@ import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
-import app.orcinus.shadow.core.model.HandyModel
-import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
@@ -101,26 +82,47 @@ import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PlateInstance
+import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.ScenePath
-import app.orcinus.shadow.core.model.FlushOption
-import app.orcinus.shadow.core.model.MeshFormat
-import app.orcinus.shadow.core.model.PlateInstanceId
-import app.orcinus.shadow.core.ui.plate.MenuFilament
-import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.model.SliceJobId
+import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
+import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.plate.AddObjectItems
+import app.orcinus.shadow.core.ui.plate.CloneDialog
+import app.orcinus.shadow.core.ui.plate.MenuFilament
+import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
+import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
+import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
+import app.orcinus.shadow.core.ui.plate.PartShapeSheet
+import app.orcinus.shadow.core.ui.plate.PlateIconActions
+import app.orcinus.shadow.core.ui.plate.PlateMenuItems
+import app.orcinus.shadow.core.ui.plate.PlateNameDialog
+import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
+import app.orcinus.shadow.core.ui.plate.PlateStrip
+import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.ui.plate.exportFileName
+import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.PlateGizmo
@@ -184,9 +186,11 @@ internal fun PrepareRoute(
         onTogglePainting = viewModel::togglePainting,
         paintingActions = PaintingActions(
             paint = viewModel::paint,
-            setFilament = viewModel::paintWith,
+            setState = viewModel::paintWith,
             setRadius = viewModel::setBrushRadius,
             setTool = viewModel::setPaintTool,
+            setFillAngle = viewModel::setFillAngle,
+            clear = viewModel::clearPainting,
             close = viewModel::closePainting,
         ),
         onPlaceObject = viewModel::placeObject,
@@ -287,17 +291,21 @@ internal fun PrepareRoute(
     )
 }
 
-/** What the colour painting tool does while it is open (GLGizmoMmuSegmentation). */
+/** What a painting tool does while it is open (GLGizmoPainterBase). */
 internal class PaintingActions(
     /** A touch of the finger, as a ray in world coordinates; [starts] for the first of a stroke. */
     val paint: (origin: Vector3, direction: Vector3, starts: Boolean) -> Unit,
-    val setFilament: (Int) -> Unit,
+    /** The state the finger paints ([PaintState]); for colour, the filament. */
+    val setState: (Int) -> Unit,
     val setRadius: (Double) -> Unit,
     val setTool: (PaintTool) -> Unit,
+    val setFillAngle: (Double) -> Unit,
+    /** "Erase all". */
+    val clear: () -> Unit,
     val close: () -> Unit,
 ) {
     companion object {
-        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {})
+        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {})
     }
 }
 
@@ -313,7 +321,7 @@ internal fun PrepareScreen(
     onAddCalibrationCube: () -> Unit,
     onSelectObject: (Int?) -> Unit,
     onMoveWipeTower: (Double, Double) -> Unit,
-    onTogglePainting: () -> Unit,
+    onTogglePainting: (PaintKind) -> Unit,
     paintingActions: PaintingActions,
     onPlaceObject: (Int, Transform3, Manipulation) -> Unit,
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
@@ -502,7 +510,8 @@ internal fun PrepareScreen(
                         state.simplify,
                         simplifyActions,
                     )
-                    state.painting != null -> PaintingPanel(state, state.painting, paintingActions)
+                    state.painting?.kind == PaintKind.COLOR -> PaintingPanel(state, state.painting, paintingActions)
+                    state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null -> ScaleGizmoPanel(state, scale, size, scaleActions, onCloseGizmo)
                     state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(position, onSetPosition, onCloseGizmo)
@@ -842,7 +851,7 @@ private fun ObjectInfo(copy: SceneCopy) {
 @Composable
 private fun CanvasToolbar(
     state: PrepareUiState,
-    onTogglePainting: () -> Unit,
+    onTogglePainting: (PaintKind) -> Unit,
     onAddModel: () -> Unit,
     onAddCalibrationCube: () -> Unit,
     onAddPlate: () -> Unit,
@@ -915,11 +924,18 @@ private fun CanvasToolbar(
         OrcaCanvasTool(
             icon = DesignR.drawable.orca_mmu_segmentation,
             contentDescription = stringResource(R.string.gizmo_color_painting),
-            onClick = onTogglePainting,
+            onClick = { onTogglePainting(PaintKind.COLOR) },
             enabled = state.canPaint,
-            selected = state.painting != null,
+            selected = state.painting?.kind == PaintKind.COLOR,
         )
-        gizmo(DesignR.drawable.orca_toolbar_support, R.string.gizmo_support_painting, null)
+        // GLGizmoFdmSupports: supports are enforced or blocked where they are painted.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_support,
+            contentDescription = stringResource(R.string.gizmo_support_painting),
+            onClick = { onTogglePainting(PaintKind.SUPPORTS) },
+            enabled = state.canManipulate,
+            selected = state.painting?.kind == PaintKind.SUPPORTS,
+        )
         gizmo(DesignR.drawable.orca_toolbar_seam, R.string.gizmo_seam_painting, null)
         gizmo(DesignR.drawable.orca_toolbar_fuzzy_skin_paint, R.string.gizmo_fuzzy_skin_painting, null)
         gizmo(DesignR.drawable.orca_toolbar_text, R.string.gizmo_emboss, null)
@@ -971,19 +987,19 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
                     modifier = Modifier
                         .size(36.dp)
                         .border(
-                            width = if (painting.filament == filament) 2.dp else 1.dp,
-                            color = if (painting.filament == filament) OrcaTheme.colors.accent else OrcaTheme.colors.border,
+                            width = if (painting.state == filament) 2.dp else 1.dp,
+                            color = if (painting.state == filament) OrcaTheme.colors.accent else OrcaTheme.colors.border,
                         )
-                        .clickable { actions.setFilament(filament) },
+                        .clickable { actions.setState(filament) },
                 )
             }
             // The eraser takes the paint off again, as the desktop gizmo does
             // with the right button (EnforcerBlockerType::NONE).
             OrcaButton(
                 text = stringResource(R.string.painting_eraser),
-                style = if (painting.filament == 0) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
+                style = if (painting.state == PaintState.NONE) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
                 size = OrcaButtonSize.Compact,
-                onClick = { actions.setFilament(0) },
+                onClick = { actions.setState(PaintState.NONE) },
             )
         }
         Row(
@@ -1028,9 +1044,129 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
     }
 }
 
+/**
+ * GLGizmoFdmSupports' window while it is open: whether the finger enforces or
+ * blocks supports or takes them off (the left and right mouse buttons and
+ * Shift of the desktop, as buttons a thumb reaches), the tool — circle, sphere
+ * or smart fill — with its brush size or fill angle, "Erase all" and "Done".
+ */
+@Composable
+private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingActions) {
+    OrcaGizmoPanel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.gizmo_support_painting),
+                color = OrcaTheme.colors.onCanvasPanel,
+                style = OrcaTheme.typography.head14,
+                modifier = Modifier.weight(1f),
+            )
+            OrcaButton(
+                text = orcaString("Done"),
+                size = OrcaButtonSize.Compact,
+                onClick = actions.close,
+            )
+        }
+        PaintingChoices(
+            listOf(
+                PaintState.ENFORCER to orcaString("Enforce supports"),
+                PaintState.BLOCKER to orcaString("Block supports"),
+                PaintState.NONE to orcaString("Erase"),
+            ),
+            selected = painting.state,
+            onSelect = actions.setState,
+        )
+        Text(
+            text = orcaString("Tool type"),
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+        )
+        PaintingChoices(
+            listOf(
+                PaintTool.CIRCLE to orcaString("Circle"),
+                PaintTool.BRUSH to orcaString("Sphere"),
+                PaintTool.FILL to orcaString("Fill"),
+            ),
+            selected = painting.tool,
+            onSelect = actions.setTool,
+        )
+        if (painting.tool == PaintTool.FILL) {
+            PaintingSlider(
+                label = orcaString("Smart fill angle"),
+                value = painting.fillAngle.toFloat(),
+                range = SMART_FILL_ANGLE_MIN..SMART_FILL_ANGLE_MAX,
+                text = String.format(textLocale(), "%.0f°", painting.fillAngle),
+                onChange = { actions.setFillAngle(it.toDouble()) },
+            )
+        } else {
+            PaintingSlider(
+                label = orcaString("Brush size"),
+                value = painting.radius.toFloat(),
+                range = BRUSH_MIN..BRUSH_MAX,
+                text = String.format(textLocale(), "%.2f", painting.radius),
+                onChange = { actions.setRadius(it.toDouble()) },
+            )
+        }
+        OrcaButton(
+            text = orcaString("Erase all"),
+            size = OrcaButtonSize.Compact,
+            enabled = painting.painted,
+            onClick = actions.clear,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/** A row of a painting tool's choices, the chosen one filled. */
+@Composable
+private fun <T> PaintingChoices(items: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = 4.dp),
+    ) {
+        items.forEach { (item, label) ->
+            OrcaButton(
+                text = label,
+                style = if (item == selected) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
+                size = OrcaButtonSize.Compact,
+                onClick = { onSelect(item) },
+            )
+        }
+    }
+}
+
+/** A slider of a painting tool with its label before it and its value after it. */
+@Composable
+private fun PaintingSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, text: String, onChange: (Float) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = label,
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier.padding(end = 8.dp),
+        )
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = range,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = text,
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
 /** GLGizmoPainterBase::get_cursor_radius_min/max for a finger. */
 private const val BRUSH_MIN = 0.4f
 private const val BRUSH_MAX = 8.0f
+
+/** GLGizmoPainterBase::SmartFillAngleMin and SmartFillAngleMax. */
+private const val SMART_FILL_ANGLE_MIN = 0f
+private const val SMART_FILL_ANGLE_MAX = 90f
 
 /**
  * GizmoObjectManipulation::do_render_move_window() in world coordinates: the

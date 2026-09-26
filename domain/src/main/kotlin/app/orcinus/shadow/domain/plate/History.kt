@@ -132,13 +132,15 @@ internal fun PlateState.referencedMeshes(): Set<ScenePath> = buildSet {
     }
 }
 
-/** The files an object is drawn and loaded from. */
+/** The files an object is drawn and loaded from, its painted facets among them. */
 internal fun PlateObject.files(): Set<ScenePath> = buildSet {
     instances.forEach { add(it.inspection.mesh) }
     parts.forEach { part ->
         add(part.mesh)
         part.source?.let { add(ScenePath(it.value)) }
+        part.painted.file?.let(::add)
     }
     paintedMeshes.forEach { add(it.mesh) }
+    painted.file?.let(::add)
     if (this@files is PlateObject.ImportedModel) add(ScenePath(file.path.value))
 }

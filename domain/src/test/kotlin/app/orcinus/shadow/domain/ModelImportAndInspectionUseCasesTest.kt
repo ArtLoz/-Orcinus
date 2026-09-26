@@ -26,6 +26,7 @@ import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintedSurface
@@ -169,6 +170,7 @@ class ModelImportAndInspectionUseCasesTest {
         override suspend fun beginPainting(
             plateObject: PlacedModel,
             part: Int?,
+            kind: PaintKind,
             profiles: SlicingProfileSelection,
             facets: PaintedFacets,
             meshPrefix: ScenePath,
@@ -182,6 +184,8 @@ class ModelImportAndInspectionUseCasesTest {
         override suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
 
         override suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
+
+        override suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
         override suspend fun describeFlushVolumes(
             plate: List<PlacedModel>,
             profiles: SlicingProfileSelection,

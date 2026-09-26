@@ -1876,10 +1876,10 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
 
     // GLGizmoMmuSegmentation: the tool opens on the object, paints, and closes.
     const orca::PaintingState opened =
-        orca::begin_painting(plate.front(), -1, profiles, {}, output_path("paint-face"));
+        orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, {}, output_path("paint-face"));
     INFO(opened.message);
     REQUIRE(opened.status == orca::SceneStatus::success);
-    CHECK(opened.filaments.empty());
+    CHECK(opened.states.empty());
 
     // A brush stroke onto the top of the cube, from straight above.
     orca::PaintStroke stroke;
@@ -1888,15 +1888,15 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
     stroke.origin[1] = center[13];
     stroke.origin[2] = 100.0;
     stroke.direction[2] = -1.0;
-    stroke.filament = 2;
+    stroke.state = 2;
     stroke.radius = 6.0;
     const orca::PaintingState painted = orca::paint(stroke, output_path("paint-face"));
     INFO(painted.message);
     REQUIRE(painted.status == orca::SceneStatus::success);
     CHECK(painted.hit);
     // The painted triangles are reported as a mesh per filament, for the 3D view.
-    REQUIRE(painted.filaments.size() == 1);
-    CHECK(painted.filaments.front() == 2);
+    REQUIRE(painted.states.size() == 1);
+    CHECK(painted.states.front() == 2);
     REQUIRE(painted.meshes.size() == 1);
     CHECK(std::ifstream(painted.meshes.front()).good());
 
@@ -1908,7 +1908,7 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
     // The tool's own Undo and Redo: a stroke is undone as a whole, and a
     // stroke that begins off the model and moves onto it is one step too.
     {
-        const orca::PaintingState again = orca::begin_painting(plate.front(), -1, profiles, {}, output_path("paint-undo"));
+        const orca::PaintingState again = orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, {}, output_path("paint-undo"));
         REQUIRE(again.status == orca::SceneStatus::success);
         CHECK_FALSE(again.can_undo);
         orca::PaintStroke first = stroke;
@@ -1919,14 +1919,14 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
         CHECK_FALSE(orca::paint(off, output_path("paint-undo")).can_undo);
         const orca::PaintingState onto = orca::paint(stroke, output_path("paint-undo"));
         CHECK(onto.can_undo);
-        CHECK(onto.filaments.size() == 1);
+        CHECK(onto.states.size() == 1);
         const orca::PaintingState undone = orca::undo_painting(output_path("paint-undo"));
         REQUIRE(undone.status == orca::SceneStatus::success);
-        CHECK(undone.filaments.empty());
+        CHECK(undone.states.empty());
         CHECK_FALSE(undone.can_undo);
         CHECK(undone.can_redo);
         const orca::PaintingState redone = orca::redo_painting(output_path("paint-undo"));
-        CHECK(redone.filaments.size() == 1);
+        CHECK(redone.states.size() == 1);
         CHECK(redone.can_undo);
         CHECK_FALSE(redone.can_redo);
         // A new stroke drops what Undo left.
@@ -1936,15 +1936,16 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
         CHECK_FALSE(repainted.can_redo);
         const orca::PaintingState kept = orca::end_painting();
         REQUIRE(kept.status == orca::SceneStatus::success);
-        CHECK(kept.facets == closed.facets);
+        // The painting ends as it was, written to a file of its own.
+        CHECK(read_file(kept.facets) == read_file(closed.facets));
     }
 
     // A stroke that misses the model paints nothing.
     const orca::PaintingState reopened =
-        orca::begin_painting(plate.front(), -1, profiles, closed.facets, output_path("paint-again"));
+        orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, closed.facets, output_path("paint-again"));
     REQUIRE(reopened.status == orca::SceneStatus::success);
     // The painted facets come back with the session.
-    REQUIRE(reopened.filaments.size() == 1);
+    REQUIRE(reopened.states.size() == 1);
     orca::PaintStroke away = stroke;
     away.origin[0] = center[12] + 500.0;
     const orca::PaintingState missed = orca::paint(away, output_path("paint-again"));
@@ -4885,6 +4886,112 @@ TEST_CASE("The pressure advance tower steps its PA a millimetre at a time, and t
     CHECK(gcode.find(marker) != std::string::npos);
 
     REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
+}
+
+TEST_CASE("Supports painted under an overhang print there alone, and keep the colours painted before", "[Adapter][Scene]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    // A T: a 6 mm pillar 15 mm high under a 30 x 30 x 5 mm slab, whose
+    // underside overhangs the bed.
+    const std::string path = device_dir + "/tmp/import/t-shape.obj";
+    {
+        std::ostringstream obj;
+        int base = 0;
+        const auto box = [&obj, &base](double x0, double y0, double z0, double x1, double y1, double z1) {
+            const double v[8][3] = {{x1, y1, z0}, {x1, y0, z0}, {x0, y0, z0}, {x0, y1, z0}, {x1, y1, z1}, {x0, y1, z1}, {x0, y0, z1}, {x1, y0, z1}};
+            const int f[12][3] = {{0, 1, 2}, {0, 2, 3}, {4, 5, 6}, {4, 6, 7}, {0, 4, 7}, {0, 7, 1},
+                                  {1, 7, 6}, {1, 6, 2}, {2, 6, 5}, {2, 5, 3}, {4, 0, 3}, {4, 3, 5}};
+            for (const auto& vertex : v) {
+                obj << "v " << vertex[0] << ' ' << vertex[1] << ' ' << vertex[2] << '\n';
+            }
+            for (const auto& face : f) {
+                obj << "f " << base + face[0] + 1 << ' ' << base + face[1] + 1 << ' ' << base + face[2] + 1 << '\n';
+            }
+            base += 8;
+        };
+        box(12, 12, 0, 18, 18, 15);
+        box(0, 0, 15, 30, 30, 20);
+        write_text(path, obj.str());
+    }
+    const orca::ImportedModels imported = orca::import_model(path, k2_plus_profiles(), {}, import_prefix("t-shape"), {});
+    INFO(imported.message);
+    REQUIRE(imported.objects.size() == 1);
+    const orca::ModelInspection& shape = imported.objects.front().instances.front();
+    std::vector<orca::PlateObject> plate = {plate_object_of(imported.objects.front())};
+    // Supports where they are painted alone (support_type "normal(manual)").
+    plate.front().settings.keys = {"enable_support", "support_type"};
+    plate.front().settings.values = {"1", "normal(manual)"};
+    const std::vector<double> center = matrix_of(shape);
+
+    // The object is painted with a colour first.
+    orca::ProfileSelection profiles = k2_plus_profiles();
+    profiles.filaments = {k2_plus_profiles().filament, k2_plus_profiles().filament};
+    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, {}, output_path("t-color")).status ==
+            orca::SceneStatus::success);
+    orca::PaintStroke dab;
+    dab.origin[0] = center[12];
+    dab.origin[1] = center[13];
+    dab.origin[2] = 100.0;
+    dab.direction[2] = -1.0;
+    dab.state = 2;
+    dab.radius = 3.0;
+    REQUIRE(orca::paint(dab, output_path("t-color")).hit);
+    const orca::PaintingState coloured = orca::end_painting();
+    REQUIRE_FALSE(coloured.facets.empty());
+    plate.front().painted = coloured.facets;
+
+    // GLGizmoFdmSupports: the smart fill enforces supports under the slab, from below.
+    const orca::PaintingState opened =
+        orca::begin_painting(plate.front(), -1, orca::PaintKind::supports, profiles, plate.front().painted, output_path("t-supports"));
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    // The colours are not the supports' paint.
+    CHECK(opened.states.empty());
+    orca::PaintStroke fill;
+    fill.origin[0] = center[12] + 12.0;
+    fill.origin[1] = center[13];
+    fill.origin[2] = -50.0;
+    fill.direction[2] = 1.0;
+    fill.state = 1;  // EnforcerBlockerType::ENFORCER
+    fill.tool = orca::PaintTool::fill;
+    fill.starts = true;
+    const orca::PaintingState enforced = orca::paint(fill, output_path("t-supports"));
+    INFO(enforced.message);
+    REQUIRE(enforced.hit);
+    REQUIRE(enforced.states == std::vector<int>{1});
+
+    // "Erase all" takes it off, and Undo brings it back.
+    const orca::PaintingState erased = orca::clear_painting(output_path("t-supports"));
+    REQUIRE(erased.status == orca::SceneStatus::success);
+    CHECK(erased.states.empty());
+    CHECK(erased.can_undo);
+    CHECK(orca::undo_painting(output_path("t-supports")).states == std::vector<int>{1});
+    const orca::PaintingState closed = orca::end_painting();
+    REQUIRE(closed.status == orca::SceneStatus::success);
+    // Both kinds of paint are kept with the object.
+    const std::string both = read_file(closed.facets);
+    CHECK(both.find("supports=") != std::string::npos);
+    CHECK(both.find("color=") != std::string::npos);
+
+    const auto supports_of = [&](const std::string& painted, const std::string& name) {
+        std::vector<orca::PlateObject> sliced_plate = plate;
+        sliced_plate.front().painted = painted;
+        const std::string output = output_path(name + ".gcode");
+        const orca::SliceResult sliced = orca::slice(name, sliced_plate, output, {}, profiles, {}, {});
+        INFO(sliced.message);
+        REQUIRE(sliced.status == orca::SliceStatus::success);
+        return read_file(output).find(";TYPE:Support") != std::string::npos;
+    };
+    CHECK_FALSE(supports_of(coloured.facets, "t-unpainted"));
+    CHECK(supports_of(closed.facets, "t-enforced"));
+
+    // Opening the colours again finds them as they were.
+    const orca::PaintingState colours =
+        orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, closed.facets, output_path("t-color-again"));
+    CHECK(colours.states == std::vector<int>{2});
+    // Unchanged, the painting stays the file it was opened with.
+    CHECK(orca::end_painting().facets == closed.facets);
 }
 
 TEST_CASE("The Input Shaping and Cornering dialogs read the printer's firmware and its input shapers", "[Adapter][Calibration]")

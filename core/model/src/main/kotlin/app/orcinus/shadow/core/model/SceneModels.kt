@@ -308,19 +308,40 @@ enum class FlushVolumesChange {
 }
 
 /**
- * The facets of a volume painted with the filaments of the plate, as
- * OrcaSlicer's colour painting gizmo leaves them
- * (ModelVolume::mmu_segmentation_facets). The app keeps them as the engine
- * hands them over and sends them back for painting and for slicing.
+ * The facets painted on a volume by OrcaSlicer's painting gizmos, of every
+ * kind (PaintKind): ModelVolume's mmu_segmentation_facets, supported_facets,
+ * seam_facets and fuzzy_skin_facets. The engine writes them to a file, since
+ * the painting of a detailed model runs to megabytes that do not fit a call
+ * between the app and the engine's process; the app keeps the file as the
+ * engine hands it over and sends it back for painting and for slicing.
+ * Paintings the app kept before hold the facets themselves.
  */
 @JvmInline
 value class PaintedFacets(val value: String = "") {
     val isEmpty: Boolean get() = value.isEmpty()
+
+    /** The file the facets are written to; null for none, or for facets kept inline. */
+    val file: ScenePath? get() = value.takeIf { it.startsWith('/') }?.let(::ScenePath)
 }
 
-/** The tools the colour painting gizmo paints with (GLGizmoPainterBase::ToolType). */
+/** PainterGizmoType: what a painting tool paints on a volume, each kind into facets of its own. */
+enum class PaintKind {
+    /** GLGizmoFdmSupports: where supports are enforced or blocked. */
+    SUPPORTS,
+
+    /** GLGizmoSeam: where the seam is enforced or blocked. */
+    SEAM,
+
+    /** GLGizmoMmuSegmentation: the filaments of the plate. */
+    COLOR,
+
+    /** GLGizmoFuzzySkin: where the walls get fuzzy skin. */
+    FUZZY_SKIN,
+}
+
+/** The tools the painting gizmos paint with (GLGizmoPainterBase's ToolType and CursorType). */
 enum class PaintTool {
-    /** A round brush that follows the finger. */
+    /** A round brush that follows the finger and paints within a sphere around it. */
     BRUSH,
 
     /** Smart fill: the facets that lie flat enough against the touched one. */
@@ -328,6 +349,21 @@ enum class PaintTool {
 
     /** Bucket fill: the whole surface up to its sharp edges. */
     BUCKET,
+
+    /** A round brush that paints what the camera sees under it, through the model. */
+    CIRCLE,
+}
+
+/** EnforcerBlockerType: the states a stroke paints; a filament's number paints colour. */
+object PaintState {
+    /** Takes the paint off again. */
+    const val NONE = 0
+
+    /** Supports or the seam are enforced there; fuzzy skin is added. */
+    const val ENFORCER = 1
+
+    /** Supports or the seam are blocked there. */
+    const val BLOCKER = 2
 }
 
 /** One touch of a finger on the model being painted. */
@@ -335,13 +371,18 @@ data class PaintStroke(
     /** The finger's ray in world coordinates, as the 3D view casts it. */
     val origin: Vector3,
     val direction: Vector3,
-    /** The filament to paint with, 1-based; 0 takes the paint off again. */
-    val filament: Int,
+    /** The state to paint ([PaintState]); for colour, the filament, 1-based. */
+    val state: Int,
     /** The brush's radius in millimetres. */
     val radius: Double = 2.0,
     val tool: PaintTool = PaintTool.BRUSH,
     /** The angle the fills keep to (m_smart_fill_angle), in degrees. */
     val angle: Double = 30.0,
+    /**
+     * "On highlighted overhangs only": the facets overhanging more than this
+     * angle are the only ones painted, in degrees; 0 paints anywhere.
+     */
+    val overhangAngle: Double = 0.0,
     /** The first touch of a stroke, before which the tool keeps what its Undo returns to. */
     val startsStroke: Boolean = false,
 )
@@ -350,8 +391,8 @@ data class PaintStroke(
 data class PaintedSurface(
     /** Whether the stroke met the model at all. */
     val hit: Boolean = false,
-    /** The filaments the model is painted with, 1-based. */
-    val filaments: List<Int> = emptyList(),
+    /** The states the model is painted with ([PaintState]; for colour, the filaments); none while nothing is. */
+    val states: List<Int> = emptyList(),
     /** The mesh of the triangles painted with each of them, in the same order. */
     val meshes: List<ScenePath> = emptyList(),
     /** The painted facets, reported when the tool closes. */

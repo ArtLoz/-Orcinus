@@ -181,8 +181,9 @@ struct ObjectPart {
     std::vector<double> matrix;
     // The settings of the part (ModelVolume::config).
     ModelSettings settings;
-    // The facets painted with the filaments of the plate, as begin_painting()
-    // and end_painting() hand them over; empty for a part painted with nothing.
+    // The file holding the facets painted on the part, of every kind the
+    // painting tools paint (PaintKind), as begin_painting() and end_painting()
+    // hand them over; empty for a part painted with nothing.
     std::string painted;
     // ModelVolume::source: the units the mesh was converted from, which the
     // object menu can restore.
@@ -225,8 +226,11 @@ struct PlateObject {
     ModelSettings settings;
     // The height ranges of the object, in their order from the bed up.
     std::vector<LayerRange> layer_ranges;
-    // The facets of the object's own mesh painted with the filaments of the
-    // plate (ModelVolume::mmu_segmentation_facets).
+    // The file holding the facets painted on the object's own mesh, of every
+    // kind (PaintKind): ModelVolume's mmu_segmentation_facets,
+    // supported_facets, seam_facets and fuzzy_skin_facets. The painting of a
+    // detailed model runs to megabytes, which only a file carries between the
+    // app and the engine's process.
     std::string painted;
     // The settings of the object's own mesh (the config of its first
     // ModelVolume), which the object list edits once the object has parts.
@@ -682,21 +686,39 @@ FlushVolumesUpdate update_flush_volumes(
     std::int64_t index
 );
 
-// Applies painted facets to a volume of a loaded model, as a project does.
-bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& facets);
+// Applies the painted facets of the file at path to a volume of a loaded
+// model, as a project does.
+bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& path);
 
-// The painted facets of a volume as the app keeps them; empty for none.
-std::string painted_facets_of(const Slic3r::ModelVolume& volume);
+// Writes the painted facets of a volume to path as the app keeps them, and
+// returns the path; empty for a volume painted with nothing.
+std::string painted_facets_of(const Slic3r::ModelVolume& volume, const std::string& path);
 
-// Painting a model with the filaments of the plate (GLGizmoMmuSegmentation):
-// which tool the finger paints with.
+// PainterGizmoType of GLGizmoPainterBase.hpp: what a painting tool paints on
+// a volume, each kind into facets of its own.
+enum class PaintKind : std::int64_t {
+    // GLGizmoFdmSupports: supported_facets, where supports are enforced or blocked.
+    supports = 0,
+    // GLGizmoSeam: seam_facets, where the seam is enforced or blocked.
+    seam = 1,
+    // GLGizmoMmuSegmentation: mmu_segmentation_facets, painted with the filaments of the plate.
+    color = 2,
+    // GLGizmoFuzzySkin: fuzzy_skin_facets, where the walls get fuzzy skin.
+    fuzzy_skin = 3,
+};
+
+// Which tool the finger paints with (GLGizmoPainterBase's ToolType and CursorType).
 enum class PaintTool : std::int64_t {
-    // A round brush that follows the finger (CursorType::SPHERE).
+    // A round brush that follows the finger and paints the facets within a
+    // sphere around it (CursorType::SPHERE).
     brush = 0,
     // Smart fill: the facets that lie flat enough against the touched one.
     fill = 1,
     // Bucket fill: the whole surface up to its sharp edges.
     bucket = 2,
+    // A round brush that paints what the camera sees under it, through the
+    // model (CursorType::CIRCLE).
+    circle = 3,
 };
 
 // One touch of the finger on a model being painted.
@@ -704,31 +726,39 @@ struct PaintStroke {
     // The finger's ray in world coordinates, as the 3D view casts it.
     double origin[3]{0.0, 0.0, 0.0};
     double direction[3]{0.0, 0.0, 0.0};
-    // The filament to paint with, 1-based; 0 takes the paint off again.
-    int filament{0};
+    // The state to paint (EnforcerBlockerType): the filament, 1-based, for
+    // colour; ENFORCER (1) or BLOCKER (2) for supports and the seam;
+    // FUZZY_SKIN (1) for fuzzy skin. NONE (0) takes the paint off again.
+    int state{0};
     // The brush's radius in millimetres (GLGizmoPainterBase::m_cursor_radius).
     double radius{2.0};
     PaintTool tool{PaintTool::brush};
     // The angle the fills keep to (m_smart_fill_angle), in degrees.
     double angle{30.0};
+    // "On highlighted overhangs only": the facets overhanging more than this
+    // angle below the horizontal are the only ones painted
+    // (m_highlight_by_angle_threshold_deg), in degrees; 0 paints anywhere.
+    double overhang_angle{0.0};
     // The first touch of a stroke: the tool keeps the painting as it was, which
     // Undo returns to, once the stroke meets the model (the gizmo takes its
     // snapshot as the mouse button goes down on the object).
     bool starts{false};
 };
 
-// What a painting session answers with: the triangles painted with each
-// filament, written as meshes for the 3D view, and, when the session is closed,
-// the painted facets for the app to keep with the object.
+// What a painting session answers with: the triangles painted in each state,
+// written as meshes for the 3D view, and, when the session is closed, the
+// painted facets for the app to keep with the object.
 struct PaintingState {
     SceneStatus status{SceneStatus::engine_not_ready};
     std::string message;
     // Whether the stroke met the model at all.
     bool hit{false};
-    // The filaments the model is painted with, 1-based, and the mesh of each.
-    std::vector<int> filaments;
+    // The states the model is painted with (PaintStroke::state), and the mesh
+    // of each; none while nothing is painted.
+    std::vector<int> states;
     std::vector<std::string> meshes;
-    // The painted facets of the volume, as the app keeps them.
+    // The file of the painted facets of the volume, of every kind, as the app
+    // keeps it: the one the session opened with while nothing changed.
     std::string facets;
     // Whether a stroke can be undone or redone inside the tool, which keeps a
     // stack of its own while it is open (the gizmo's UndoRedo::Stack).
@@ -736,16 +766,21 @@ struct PaintingState {
     bool can_redo{false};
 };
 
-// Opens a painting session for the object, or for one of its parts, with the
-// facets it is already painted with. The engine keeps the session until
-// end_painting(), as the desktop gizmo keeps its selectors while it is open.
+// Opens a painting session of a kind for the object, or for one of its parts,
+// with the facets it is already painted with. The engine keeps the session
+// until end_painting(), as the desktop gizmo keeps its selectors while it is
+// open.
 PaintingState begin_painting(
     const PlateObject& object,
     // The part of the object to paint; -1 paints the object's own mesh.
     int part,
+    PaintKind kind,
     const ProfileSelection& profiles,
+    // The file of the painted facets of the volume, of every kind, as the app keeps it.
     const std::string& facets,
-    // Where the meshes of the painted triangles are written, "<prefix>-<filament>.mesh".
+    // Where the meshes of the painted triangles are written,
+    // "<prefix>-<state>-<n>.mesh", named anew each time so the view reads them
+    // again, and the painted facets once the session closes, "<prefix>.painted".
     const std::string& mesh_prefix
 );
 
@@ -756,7 +791,12 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix);
 PaintingState undo_painting(const std::string& mesh_prefix);
 PaintingState redo_painting(const std::string& mesh_prefix);
 
-// Closes the session and reports the painted facets.
+// "Erase all": the painting of the session's kind is taken off the volume
+// (TriangleSelector::reset()), which Undo brings back.
+PaintingState clear_painting(const std::string& mesh_prefix);
+
+// Closes the session and reports the painted facets of every kind, the
+// session's kind as it was painted.
 PaintingState end_painting();
 
 // A text of the desktop app. msgid, with its gettext context when it has one,

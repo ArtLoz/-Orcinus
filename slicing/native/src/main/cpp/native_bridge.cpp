@@ -1240,10 +1240,10 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PaintingState& state)
     for (std::size_t index = 0; index < state.meshes.size(); ++index) {
         env->SetObjectArrayElement(meshes, static_cast<jsize>(index), to_java(env, state.meshes[index]));
     }
-    std::vector<double> filaments;
-    filaments.reserve(state.filaments.size());
-    for (const int filament : state.filaments) {
-        filaments.push_back(static_cast<double>(filament));
+    std::vector<double> states;
+    states.reserve(state.states.size());
+    for (const int painted : state.states) {
+        states.push_back(static_cast<double>(painted));
     }
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePainting");
     const jmethodID constructor =
@@ -1254,7 +1254,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PaintingState& state)
         static_cast<jlong>(state.status),
         to_java(env, state.message),
         state.hit ? JNI_TRUE : JNI_FALSE,
-        to_java(env, filaments.data(), filaments.size()),
+        to_java(env, states.data(), states.size()),
         meshes,
         to_java(env, state.facets),
         state.can_undo ? JNI_TRUE : JNI_FALSE,
@@ -1268,6 +1268,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     jobject /* this */,
     jobject object,
     jint part,
+    jlong kind,
     jstring printer_profile,
     jstring filament_profile,
     jobjectArray filament_profiles,
@@ -1280,6 +1281,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     const orcinus::orca::PaintingState state = orcinus::orca::begin_painting(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
         static_cast<int>(part),
+        static_cast<orcinus::orca::PaintKind>(kind),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_utf8(env, facets),
         to_utf8(env, mesh_prefix)
@@ -1293,10 +1295,11 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
     jobject /* this */,
     jdoubleArray origin,
     jdoubleArray direction,
-    jint filament,
+    jint state,
     jdouble radius,
     jlong tool,
     jdouble angle,
+    jdouble overhang_angle,
     jboolean starts,
     jstring mesh_prefix
 )
@@ -1308,10 +1311,11 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
         stroke.origin[axis] = axis < from.size() ? from[axis] : 0.0;
         stroke.direction[axis] = axis < along.size() ? along[axis] : 0.0;
     }
-    stroke.filament = static_cast<int>(filament);
+    stroke.state = static_cast<int>(state);
     stroke.radius = radius;
     stroke.tool = static_cast<orcinus::orca::PaintTool>(tool);
     stroke.angle = angle;
+    stroke.overhang_angle = overhang_angle;
     stroke.starts = starts == JNI_TRUE;
     return to_java(env, orcinus::orca::paint(stroke, to_utf8(env, mesh_prefix)));
 }
@@ -1326,6 +1330,12 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_redoPainting(JNIEnv* env, jobject /* this */, jstring mesh_prefix)
 {
     return to_java(env, orcinus::orca::redo_painting(to_utf8(env, mesh_prefix)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_clearPainting(JNIEnv* env, jobject /* this */, jstring mesh_prefix)
+{
+    return to_java(env, orcinus::orca::clear_painting(to_utf8(env, mesh_prefix)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL

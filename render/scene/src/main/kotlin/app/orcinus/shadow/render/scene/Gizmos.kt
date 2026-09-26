@@ -96,6 +96,11 @@ internal object GizmoColors {
     val UNIFORM = ColorRgba(0f, 1f, 1f)
     val UNIFORM_HOVER = ColorRgba(0f, 0.7f, 0.7f)
 
+    // TriangleSelectorGUI::enforcers_color and blockers_color, which the
+    // painting gizmos of supports, the seam and fuzzy skin paint with.
+    val ENFORCERS = ColorRgba(0.5f, 1f, 0.5f)
+    val BLOCKERS = ColorRgba(1f, 0.5f, 0.5f)
+
     private fun ColorRgba.scaled(r: Float, g: Float, b: Float) = ColorRgba(red * r, green * g, blue * b, alpha)
 }
 

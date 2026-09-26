@@ -3168,7 +3168,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
         const Slic3r::ModelVolume& own = *object.volumes.front();
         out.volume_name = own.name;
         out.volume_settings = settings_of(own.config);
-        out.painted = painted_facets_of(own);
+        out.painted = painted_facets_of(own, base + ".painted");
         out.volume_splittable = own.is_splittable();
         out.volume_from_inches = own.source.is_converted_from_inches;
         out.volume_from_meters = own.source.is_converted_from_meters;
@@ -3190,7 +3190,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             part.model_path = base + "-part-" + std::to_string(volume) + ".mesh";
             part.matrix = matrix_of(source.get_matrix());
             part.settings = settings_of(source.config);
-            part.painted = painted_facets_of(source);
+            part.painted = painted_facets_of(source, base + "-part-" + std::to_string(volume) + ".painted");
             part.splittable = source.is_splittable();
             part.from_inches = source.source.is_converted_from_inches;
             part.from_meters = source.source.is_converted_from_meters;

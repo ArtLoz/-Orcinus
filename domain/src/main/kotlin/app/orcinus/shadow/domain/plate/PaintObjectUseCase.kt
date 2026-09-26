@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedMesh
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -11,13 +12,18 @@ import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.storage.api.SceneFiles
 
 /**
- * OrcaSlicer's colour painting gizmo (GLGizmoMmuSegmentation) for a touch
- * screen: the tool opens on the object the user picked, every drag of a finger
- * paints a stroke, and closing it keeps the painted facets with the object, so
- * the plate is sliced with them. The engine holds the painted mesh while the
- * tool is open, as the desktop gizmo holds its selectors. The plate before the
- * tool opened is kept (UndoRedo's EnteringGizmo), and the painting is one step
- * of Undo once the tool leaves the object painted otherwise.
+ * OrcaSlicer's painting gizmos (GLGizmoPainterBase: colour, supports, seam and
+ * fuzzy skin) for a touch screen: the tool of a kind opens on the object the
+ * user picked, every drag of a finger paints a stroke, and closing it keeps
+ * the painted facets with the object, so the plate is sliced with them. The
+ * engine holds the painted mesh while the tool is open, as the desktop gizmo
+ * holds its selectors. The plate before the tool opened is kept (UndoRedo's
+ * EnteringGizmo), and the painting is one step of Undo once the tool leaves
+ * the object painted otherwise.
+ *
+ * The object shows the paint of the open tool, as the gizmo renders its
+ * selectors in place of the volume; colour painting stays shown once its tool
+ * closes, and the paint of the other kinds goes with their tool.
  */
 class PaintObjectUseCase(
     private val inspector: PlateInspector,
@@ -27,9 +33,13 @@ class PaintObjectUseCase(
     /** Where the painted triangles are written while the tool is open. */
     private var meshPrefix: ScenePath? = null
     private var painting: ScenePath? = null
+    private var kind = PaintKind.COLOR
 
-    /** Opens the tool on the object [mesh] names, or on one of its parts. */
-    suspend fun begin(mesh: ScenePath, part: Int? = null): PaintingOutcome {
+    /** What the object showed before a tool of another kind than colour opened. */
+    private var shownBefore: List<PaintedMesh> = emptyList()
+
+    /** Opens the tool of [kind] on the object [mesh] names, or on one of its parts. */
+    suspend fun begin(mesh: ScenePath, kind: PaintKind = PaintKind.COLOR, part: Int? = null): PaintingOutcome {
         val state = repository.state.value
         val target = state.objects.firstOrNull { it.mesh == mesh }
         val profiles = state.profiles
@@ -37,10 +47,12 @@ class PaintObjectUseCase(
             return PaintingOutcome.Failure("The plate is not ready to be painted")
         }
         val prefix = sceneFiles.newPaintedMeshes()
-        val outcome = inspector.beginPainting(target.placed(), part, profiles, target.painted, prefix)
+        val outcome = inspector.beginPainting(target.placed(), part, kind, profiles, target.painted, prefix)
         if (outcome is PaintingOutcome.Success) {
             meshPrefix = prefix
             painting = mesh
+            this.kind = kind
+            shownBefore = target.paintedMeshes
             repository.update { it.copy(history = it.history.copy(beforeTool = it.snapshot())) }
             show(mesh, outcome)
         }
@@ -63,6 +75,9 @@ class PaintObjectUseCase(
 
     suspend fun redo(): PaintingOutcome = step { prefix -> inspector.redoPainting(prefix) }
 
+    /** "Erase all": the tool's kind of paint comes off the object, which the tool's Undo brings back. */
+    suspend fun clear(): PaintingOutcome = step { prefix -> inspector.clearPainting(prefix) }
+
     private suspend fun step(action: suspend (ScenePath) -> PaintingOutcome): PaintingOutcome {
         val prefix = meshPrefix ?: return PaintingOutcome.Failure("The painting tool is not open")
         val outcome = action(prefix)
@@ -82,22 +97,26 @@ class PaintObjectUseCase(
         val outcome = inspector.endPainting()
         meshPrefix = null
         painting = null
+        // Colour painting stays shown; the paint of another kind goes with its tool.
+        val shown = if (kind == PaintKind.COLOR) null else shownBefore
+        shownBefore = emptyList()
         repository.update { state ->
             val before = state.history.beforeTool
-            val closed = state.copy(history = state.history.copy(beforeTool = null))
             val target = state.objects.firstOrNull { it.mesh == mesh }
+            val objects = state.objects.map { if (it.mesh == mesh && shown != null) it.withPainted(it.painted, shown) else it }
+            val closed = state.copy(history = state.history.copy(beforeTool = null), objects = objects)
             // LeavingGizmoNoAction: nothing painted, nothing to undo.
             if (outcome !is PaintingOutcome.Success || target == null || outcome.surface.facets == target.painted) return@update closed
-            val painted = target.withPainted(outcome.surface.facets, target.paintedMeshes)
+            val painted = target.withPainted(outcome.surface.facets, shown ?: target.paintedMeshes)
             (if (before != null) closed.recorded(before) else closed)
                 .copy(objects = state.objects.map { if (it.mesh == mesh) painted else it }, result = null)
         }
         return outcome
     }
 
-    /** The painted triangles of the object, which the 3D view draws in the filament colours. */
+    /** The painted triangles of the object, which the 3D view draws in the colours of their kind and state. */
     private fun show(mesh: ScenePath, outcome: PaintingOutcome.Success) {
-        val meshes = outcome.surface.filaments.zip(outcome.surface.meshes) { filament, path -> PaintedMesh(filament, path) }
+        val meshes = outcome.surface.states.zip(outcome.surface.meshes) { state, path -> PaintedMesh(state, path, kind) }
         repository.update { state ->
             val target = state.objects.firstOrNull { it.mesh == mesh } ?: return@update state
             if (target.paintedMeshes == meshes) return@update state
