@@ -105,6 +105,8 @@ fun PlateView(
     onCutPlane: (plane: Transform3, finished: Boolean) -> Unit = { _, _ -> },
     /** A tap on the plane outside the section: flip_cut_plane(). */
     onFlipCutPlane: () -> Unit = {},
+    /** What a finger does to the connectors while their window is open. */
+    onCutConnector: (CutConnectorEvent) -> Unit = {},
     selectedObject: Int?,
     /** Every selected object, which the scene draws as selected; the tools work on a single one. */
     selectedObjects: Set<Int> = setOfNotNull(selectedObject),
@@ -239,6 +241,14 @@ fun PlateView(
         }
         controller.setCutMeshes(loaded[0], loaded[1])
     }
+    // The shapes of the cut's connectors.
+    val connectorMeshPaths = cut?.connectors?.mapNotNull { it.mesh?.value }?.distinct().orEmpty()
+    LaunchedEffect(connectorMeshPaths) {
+        val loaded = withContext(Dispatchers.IO) {
+            connectorMeshPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
+        }
+        controller.setCutConnectorMeshes(loaded)
+    }
     // The copy the cut gizmo is open on, numbered as the scene numbers the copies.
     val cutIndex = cut?.let { open ->
         var index = 0
@@ -264,6 +274,7 @@ fun PlateView(
         }
         controller.onCutPlane = { plane, finished -> onCutPlane(Transform3(plane.elements().toList()), finished) }
         controller.onFlipCutPlane = onFlipCutPlane
+        controller.onCutConnector = onCutConnector
         controller.setCut(cut, cutIndex)
         controller.setPainting(painting != null)
         controller.setVerticalOnly(painting?.verticalOnly == true)
@@ -398,6 +409,8 @@ private suspend fun PointerInputScope.detectPlateGestures(
         controller.endMove()
 
         if (!dragging && !multiTouch && !pressedObject && !menuOpened) {
+            // The connectors' window: a touch on the section places a connector, elsewhere unselects them.
+            if (controller.isCutting) controller.tapCut(down.position.x, down.position.y)
             // A painting tool and the cut gizmo keep their object while the finger turns the camera around it.
             if (!controller.isPainting && !controller.isCutting) {
                 controller.clearSelection()
@@ -445,6 +458,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     val isCutting: Boolean get() = cut != null
     var onCutPlane: (Affine3, Boolean) -> Unit = { _, _ -> }
     var onFlipCutPlane: () -> Unit = {}
+    var onCutConnector: (CutConnectorEvent) -> Unit = {}
+    private var cutConnectorMeshes: Map<String, MeshData> = emptyMap()
     private var layer: PlateLayer? = null
     private var layerBox: Box3? = null
     private var selectedIndex: Int? = null
@@ -495,6 +510,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         var angle = 0.0
     }
 
+    /** A connector of the cut, held at [index], where the finger dragged it last. */
+    private class CutConnectorDrag(index: Int, val connector: Int, start: Affine3) : Drag(index, start) {
+        var position: Vec3? = null
+    }
+
     /** The rotation gizmo's grabber of [axis], turning about the sphere [center] by [angle]. */
     private class RotateGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val center: Vec3, val sphereRadius: Double) :
         Drag(index, startWorld) {
@@ -508,7 +528,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     val moving: Boolean get() = drag != null || paintingStroke
 
     /** Whether a finger holds an object it has not moved yet, which a long press turns into its context menu. */
-    val holdsObject: Boolean get() = (drag as? ObjectDrag)?.moved == false
+    val holdsObject: Boolean get() = (drag as? ObjectDrag)?.moved == false || (drag as? CutConnectorDrag)?.moved == false
 
     /**
      * Plater::priv::on_right_click() for the object the finger holds: asks for
@@ -516,6 +536,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * when the finger holds no object.
      */
     fun openObjectMenu(x: Float, y: Float): Boolean {
+        (drag as? CutConnectorDrag)?.takeIf { !it.moved }?.let { held ->
+            // A connector held still joins the selection or leaves it, as a click with Shift or Alt does.
+            drag = null
+            onCutConnector(CutConnectorEvent.Select(held.connector, toggle = true))
+            return true
+        }
         val held = drag as? ObjectDrag ?: return false
         if (held.moved) return false
         drag = null
@@ -634,6 +660,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         } else {
             invalidate()
         }
+    }
+
+    fun setCutConnectorMeshes(meshes: Map<String, MeshData>) {
+        cutConnectorMeshes = meshes
+        invalidate()
     }
 
     /** The outline and the section of the cut plane, as GL_TRIANGLES corners. */
@@ -779,6 +810,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             camera.mouseRay(x.toDouble(), y.toDouble())?.let { dragCut(drag, it) }
             return
         }
+        if (drag is CutConnectorDrag) {
+            // dragging_connector(): the connector follows the finger over the section.
+            val point = camera.mouseRay(x.toDouble(), y.toDouble())?.let(::cutPlaneHit) ?: return
+            if (!insideSection(point)) return
+            drag.moved = true
+            drag.position = point
+            onCutConnector(CutConnectorEvent.Move(drag.connector, Vector3(point.x, point.y, point.z), finished = false))
+            return
+        }
         val target = objects.firstOrNull { it.index == drag.index } ?: return
         val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
         if (drag is RotateGrabberDrag) {
@@ -850,6 +890,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         val drag = drag ?: return
         this.drag = null
+        if (drag is CutConnectorDrag) {
+            val position = drag.position
+            if (drag.moved && position != null) {
+                onCutConnector(CutConnectorEvent.Move(drag.connector, Vector3(position.x, position.y, position.z), finished = true))
+            } else {
+                onCutConnector(CutConnectorEvent.Select(drag.connector, toggle = false))
+            }
+            invalidate()
+            return
+        }
         if (drag is CutDrag) {
             // on_stop_dragging(): the plane is where the drag left it; a click on
             // the plane outside the section turns it over (on_mouse()).
@@ -989,6 +1039,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private fun pressCut(x: Double, y: Double, radius: Double): Boolean {
         val gizmo = cutGizmo() ?: return false
         val index = cutIndex ?: -1
+        if (cut?.editingConnectors == true) {
+            // The connectors' raycasters: the one nearest to the finger, within
+            // its own radius on the screen or the finger's reach.
+            val held = cut?.connectors.orEmpty().mapIndexedNotNull { connector, view ->
+                val center = Vec3(view.position.x, view.position.y, view.position.z)
+                val projected = camera.project(center) ?: return@mapIndexedNotNull null
+                val rim = camera.project(center + gizmo.rotation.transformVector(Vec3.UNIT_X) * view.radius)
+                val reach = rim?.let { hypot(it.first - projected.first, it.second - projected.second) } ?: 0.0
+                val distance = hypot(projected.first - x, projected.second - y)
+                if (distance <= maxOf(radius, reach)) connector to distance else null
+            }.minByOrNull { it.second }?.first ?: return false
+            drag = CutConnectorDrag(index, held, gizmo.plane)
+            invalidate()
+            return true
+        }
         val grabber = listOf(
             CutGrabber.Z to listOf(gizmo.sphereCenter()),
             CutGrabber.X to gizmo.coneCenters(CutGrabber.X),
@@ -1035,6 +1100,33 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         onCutPlane(drag.plane, false)
         invalidate()
     }
+
+    /**
+     * gizmo_event() for a click that did not move: in the connectors' window a
+     * click on the section adds a connector there, elsewhere it unselects them.
+     */
+    fun tapCut(x: Float, y: Float) {
+        if (cut?.editingConnectors != true) return
+        val point = camera.mouseRay(x.toDouble(), y.toDouble())?.let(::cutPlaneHit)
+        if (point != null && insideSection(point)) {
+            onCutConnector(CutConnectorEvent.Add(Vector3(point.x, point.y, point.z)))
+        } else {
+            onCutConnector(CutConnectorEvent.Deselect)
+        }
+    }
+
+    /** unproject_on_cut_plane(): where [ray] meets the cut plane. */
+    private fun cutPlaneHit(ray: Line3): Vec3? {
+        val gizmo = cutGizmo() ?: return null
+        val direction = ray.b - ray.a
+        val den = gizmo.normal.dot(direction)
+        if (den == 0.0) return null
+        val t = (gizmo.normal.dot(gizmo.center) - gizmo.normal.dot(ray.a)) / den
+        return (ray.a + direction * t).takeIf(Vec3::isFinite)
+    }
+
+    /** is_looking_forward(): the camera looks against the normal of the cut plane. */
+    private fun lookingForward(gizmo: CutGizmo) = camera.dirForward().dot(gizmo.normal) < 0.05
 
     /** unproject_on_cut_plane() with the contours respected: whether [point] of the plane lies in the section. */
     private fun insideSection(point: Vec3): Boolean {
@@ -1127,6 +1219,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     // update_clipper(): set_color_clip_plane(normal, normal . centre).
                     floatArrayOf(-gizmo.normal.x.toFloat(), -gizmo.normal.y.toFloat(), -gizmo.normal.z.toFloat(), gizmo.normal.dot(gizmo.center).toFloat())
                 },
+                clippingPlane = cutGizmo()?.takeIf { cut?.editingConnectors == true }?.let { gizmo ->
+                    // set_behavior(true, ...): the object is clipped on the camera's side.
+                    val normal = gizmo.clippingNormal(lookingForward(gizmo))
+                    floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), normal.dot(gizmo.center).toFloat())
+                },
             ),
         )
         surface.requestRender()
@@ -1134,8 +1231,22 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     private fun gizmoFrame(): GizmoFrame? {
         cutGizmo()?.let { gizmo ->
+            val open = cut ?: return null
             val dragging = drag as? CutDrag
-            return gizmo.frame(dragging?.grabber, dragging?.angle ?: 0.0, dragging?.startPlane?.withTranslation(Vec3.ZERO), cut?.canCut == true, cutContour, density)
+            return gizmo.frame(
+                dragged = dragging?.grabber,
+                angle = dragging?.angle ?: 0.0,
+                dragStart = dragging?.startPlane?.withTranslation(Vec3.ZERO),
+                canCut = open.canCut,
+                contour = cutContour,
+                section = cutSection,
+                connectors = open.connectors,
+                meshes = cutConnectorMeshes,
+                editing = open.editingConnectors,
+                lookingForward = lookingForward(gizmo),
+                hovered = (drag as? CutConnectorDrag)?.connector,
+                pixelScale = density,
+            )
         }
         val target = objects.firstOrNull { it.index == selectedIndex } ?: return null
         return when (gizmo) {

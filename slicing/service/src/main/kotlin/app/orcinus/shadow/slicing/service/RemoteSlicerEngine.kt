@@ -21,6 +21,7 @@ import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -90,6 +91,8 @@ import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
+import app.orcinus.shadow.core.model.connectorKinds
+import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -234,8 +237,22 @@ class RemoteSlicerEngine(
     override suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome =
         remote({ CutObjectOutcome.Failure(it) }) { beginCut(listOf(plateObject).toParcels().first(), instance, profiles.toParcel()).toOutcome() }
 
-    override suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome =
-        remote({ CutPlaneOutcome.Failure(it) }) { describeCutPlane(plane.columns.toDoubleArray(), meshPrefix.value).toOutcome() }
+    override suspend fun describeCutPlane(
+        plane: Transform3,
+        connectors: List<CutConnector>,
+        snapSpace: Double,
+        snapBulge: Double,
+        meshPrefix: ScenePath,
+    ): CutPlaneOutcome = remote({ CutPlaneOutcome.Failure(it) }) {
+        describeCutPlane(
+            plane.columns.toDoubleArray(),
+            connectors.connectorValues(),
+            connectors.connectorKinds(),
+            snapSpace,
+            snapBulge,
+            meshPrefix.value,
+        ).toOutcome()
+    }
 
     override suspend fun endCut() = remote({}) { endCut() }
 

@@ -84,7 +84,14 @@ interface ISlicerService {
     );
     /** begin_cut(): the cut gizmo opened on a copy of the object. */
     CutObjectParcel beginCut(in PlacedModelParcel plateObject, int instance, in ProfilesParcel profiles);
-    CutPlaneParcel describeCutPlane(in double[] plane, String meshPrefix);
+    CutPlaneParcel describeCutPlane(
+        in double[] plane,
+        in double[] connectorValues,
+        in int[] connectorKinds,
+        double snapSpace,
+        double snapBulge,
+        String meshPrefix
+    );
     void endCut();
     /** save_project(): the error message, null once saved. */
     @nullable String saveProject(

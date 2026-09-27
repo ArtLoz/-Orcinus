@@ -3514,6 +3514,44 @@ ImportedModels import_model(
 
 namespace {
 
+// check_objects_after_cut() of GLGizmoCut.cpp: objects whose connectors
+// came out with the same name are named in a warning.
+void check_objects_after_cut(const Slic3r::ModelObjectPtrs& objects, detail::SettingsDialogs& dialogs)
+{
+    std::vector<std::string> err_objects_names;
+    for (const Slic3r::ModelObject* object : objects) {
+        std::vector<std::string> connectors_names;
+        connectors_names.reserve(object->volumes.size());
+        for (const Slic3r::ModelVolume* vol : object->volumes)
+            if (vol->cut_info.is_connector)
+                connectors_names.push_back(vol->name);
+        const size_t connectors_count = connectors_names.size();
+        Slic3r::sort_remove_duplicates(connectors_names);
+        if (connectors_count != connectors_names.size())
+            err_objects_names.push_back(object->name);
+    }
+    if (err_objects_names.empty())
+        return;
+
+    std::string names = err_objects_names[0];
+    for (size_t i = 1; i < err_objects_names.size(); i++)
+        names += ", " + err_objects_names[i];
+    // The desktop app formats this message without translating it.
+    UiText warning;
+    warning.msgid = "Objects(%s) have duplicated connectors. Some connectors may be missing in slicing result.\n"
+                    "Please report to PrusaSlicer team in which scenario this issue happened.\nThank you.";
+    warning.args = {names};
+    dialogs.inform("cut_duplicated_connectors", {warning});
+}
+
+// synchronize_model_after_cut() of GLGizmoCut.cpp
+void synchronize_model_after_cut(Slic3r::Model& model, const Slic3r::CutObjectBase& cut_id)
+{
+    for (Slic3r::ModelObject* obj : model.objects)
+        if (obj->is_cut() && obj->cut_id.has_same_id(cut_id) && !obj->cut_id.is_equal(cut_id))
+            obj->cut_id.copy(cut_id);
+}
+
 // update_object_cut_id() of GLGizmoCut.cpp: an object whose cut keeps all of
 // it remembers the cut, with how many objects came of it.
 void update_object_cut_id(Slic3r::CutObjectBase& cut_id, Slic3r::ModelObjectCutAttributes attributes, const int dowels_count)
@@ -3920,7 +3958,10 @@ ImportedModels edit_object(
                 Slic3r::Geometry::translation_transform(cut_center_offset) * Slic3r::Transform3d(plane.linear());
 
             using Attribute = Slic3r::ModelObjectCutAttribute;
-            const bool has_connectors = !object->cut_connectors.empty();
+            // perform_cut(): the connectors join the object as its volumes first.
+            const bool has_connectors = !cut.connectors.empty();
+            int dowels_count = 0;
+            detail::apply_cut_connectors(*object, cut, Slic3r::Transform3d(plane.linear()), dowels_count);
             const Slic3r::ModelObjectCutAttributes attributes =
                 Slic3r::only_if(has_connectors ? true : cut.keep_upper, Attribute::KeepUpper) |
                 Slic3r::only_if(has_connectors ? true : cut.keep_lower, Attribute::KeepLower) |
@@ -3929,9 +3970,10 @@ ImportedModels edit_object(
                 Slic3r::only_if(cut.place_on_cut_lower, Attribute::PlaceOnCutLower) |
                 Slic3r::only_if(cut.flip_upper, Attribute::FlipUpper) |
                 Slic3r::only_if(cut.flip_lower, Attribute::FlipLower) |
+                Slic3r::only_if(dowels_count > 0, Attribute::CreateDowels) |
                 Slic3r::only_if(!has_connectors && object->cut_id.id().invalid(), Attribute::InvalidateCutInfo) |
                 Slic3r::only_if(keep_painting, Attribute::KeepPaint);
-            update_object_cut_id(object->cut_id, attributes, 0);
+            update_object_cut_id(object->cut_id, attributes, dowels_count);
 
             Slic3r::Cut cutter(object, cut.instance, cut_matrix, attributes);
             const Slic3r::ModelObjectPtrs& new_objects = cutter.perform_with_plane();
@@ -3966,6 +4008,11 @@ ImportedModels edit_object(
                 }
             }
 
+            check_objects_after_cut(new_objects, dialogs);
+
+            // save cut_id to post update synchronization
+            const Slic3r::CutObjectBase cut_id = new_objects.empty() ? Slic3r::CutObjectBase() : new_objects.front()->cut_id;
+
             // Plater::apply_cut_object_to_model(): the object leaves the plate,
             // and the parts join the end of it (load_model_objects(new_objects, false, false)).
             model.delete_object(object);
@@ -3976,6 +4023,7 @@ ImportedModels edit_object(
                 joined->ensure_on_bed(false);
                 edited.push_back(joined);
             }
+            synchronize_model_after_cut(model, cut_id);
             result.appended = true;
             break;
         }

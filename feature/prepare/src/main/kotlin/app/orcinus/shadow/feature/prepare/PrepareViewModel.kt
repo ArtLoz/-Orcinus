@@ -3,6 +3,10 @@ package app.orcinus.shadow.feature.prepare
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.CutConnector
+import app.orcinus.shadow.core.model.CutConnectorShape
+import app.orcinus.shadow.core.model.CutConnectorStyle
+import app.orcinus.shadow.core.model.CutConnectorType
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
@@ -94,6 +98,7 @@ import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.render.scene.CutConnectorEvent
 import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.ObjectTransforms
 import app.orcinus.shadow.render.scene.PlateGizmo
@@ -184,8 +189,8 @@ class PrepareViewModel(
      */
     private val gapAreas = Channel<Double?>(Channel.CONFLATED)
 
-    /** The planes the cut gizmo asks the engine about; a drag sends many, so only the last one waiting is described. */
-    private val cutPlanes = Channel<Transform3>(Channel.CONFLATED)
+    /** The planes the cut gizmo asks the engine about, with its connectors; a drag sends many, so only the last one waiting is described. */
+    private val cutPlanes = Channel<CutMode>(Channel.CONFLATED)
 
     /** The cut gizmo as it was left, which it opens with again (the gizmo's members outlive it). */
     private var lastCut: CutMode? = null
@@ -212,11 +217,14 @@ class PrepareViewModel(
 
     init {
         viewModelScope.launch {
-            for (plane in cutPlanes) {
+            for (asked in cutPlanes) {
+                val plane = asked.plane ?: continue
                 if (view.value.cut == null) continue
-                val outcome = cutObject.describe(plane)
+                val outcome = cutObject.describe(plane, asked.connectors, asked.snapSpace, asked.snapBulge)
                 if (outcome !is CutPlaneOutcome.Success) continue
-                view.update { state -> state.cut?.let { state.copy(cut = it.copy(described = outcome.plane, describedPlane = plane)) } ?: state }
+                view.update { state ->
+                    state.cut?.let { state.copy(cut = it.copy(described = outcome.plane, describedPlane = plane, describedConnectors = asked.connectors)) } ?: state
+                }
             }
         }
         viewModelScope.launch {
@@ -550,9 +558,11 @@ class PrepareViewModel(
             val kept = left?.takeIf { it.mesh == mode.mesh && it.instance == mode.instance && it.boundsMin == outcome.min && it.boundsMax == outcome.max }
             val bounds = mode.copy(boundsMin = outcome.min, boundsMax = outcome.max)
             val plane = kept?.plane ?: CutPlanes.at(bounds.boundsCenter ?: return@launch)
-            val opened = bounds.copy(plane = plane).let { it.copy(snapshots = listOf(it.current()), snapshot = 0) }
+            // The object keeps its connectors while the gizmo is closed (ModelObject::cut_connectors).
+            val opened = bounds.copy(plane = plane, connectors = kept?.connectors.orEmpty(), snapSpace = left?.snapSpace ?: CutMode.SNAP_SPACE, snapBulge = left?.snapBulge ?: CutMode.SNAP_BULGE)
+                .let { it.copy(snapshots = listOf(it.current()), snapshot = 0) }
             view.update { state -> if (state.cut?.mesh == mode.mesh && state.cut.instance == mode.instance) state.copy(cut = opened) else state }
-            cutPlanes.trySend(plane)
+            cutPlanes.trySend(opened)
         }
     }
 
@@ -642,8 +652,8 @@ class PrepareViewModel(
         }
     }
 
-    /** "Perform cut": the gizmo closes, then the object is cut (perform_cut()). */
-    fun performCut() {
+    /** "Perform cut": the gizmo closes, then the object is cut (perform_cut()); the connectors' volumes are named after [connectorName]. */
+    fun performCut(connectorName: String = "Connector") {
         val mode = view.value.cut?.takeIf { it.canPerform } ?: return
         val plane = mode.plane ?: return
         closeCut()
@@ -659,9 +669,110 @@ class PrepareViewModel(
                 placeOnCutLower = mode.placeOnCutLower,
                 flipUpper = mode.flipUpper,
                 flipLower = mode.flipLower,
+                connectors = mode.connectors,
+                snapSpace = mode.snapSpace,
+                snapBulge = mode.snapBulge,
+                connectorName = connectorName,
             ),
         )
     }
+
+    /** "Add connectors" or "Edit connectors": the connectors' window opens (set_connectors_editing(true)). */
+    fun editCutConnectors() = updateCut(snapshot = false) { if (it.canEditConnectors) it.copy(editingConnectors = true) else it }
+
+    /** "Confirm connectors": the window closes with the connectors unselected. */
+    fun confirmCutConnectors() = updateCut(snapshot = false) { it.withSelection(emptySet()).copy(editingConnectors = false) }
+
+    /** "Cancel" of the connectors' window: the connectors are gone (reset_connectors()) and the window closes. */
+    fun cancelCutConnectors() = updateCut(snapshot = false) { it.copy(connectors = emptyList()).withSelection(emptySet()).copy(editingConnectors = false) }
+
+    /** "Remove connectors" */
+    fun removeCutConnectors() = updateCut(snapshot = true) { it.copy(connectors = emptyList()).withSelection(emptySet()) }
+
+    /** "Flip cut plane" of the connectors' window. */
+    fun flipCutPlaneForConnectors() = flipCutPlane()
+
+    /**
+     * The 3D view's connector events while the connectors' window is open
+     * (gizmo_event()): a touch on the section adds one ("Add connector"), a
+     * touch on a connector selects it alone, a long press adds it to the
+     * selection or takes it out, a drag moves it ("Move connector"), and a
+     * touch elsewhere unselects them all.
+     */
+    fun cutConnectorEvent(event: CutConnectorEvent) {
+        val mode = view.value.cut?.takeIf { it.editingConnectors } ?: return
+        when (event) {
+            is CutConnectorEvent.Add -> updateCut(snapshot = true) { cut ->
+                val settings = cut.withSelection(emptySet()).connectorSettings
+                val added = CutConnector(
+                    position = event.position,
+                    radius = (settings.size ?: 2.5) * 0.5,
+                    height = settings.depth ?: 3.0,
+                    radiusTolerance = (settings.sizeTolerance ?: 0.0) * 0.5,
+                    heightTolerance = settings.depthTolerance ?: 0.1,
+                    zAngle = settings.angle ?: 0.0,
+                    type = settings.type ?: CutConnectorType.PLUG,
+                    style = settings.style ?: CutConnectorStyle.PRISM,
+                    shape = settings.shape ?: CutConnectorShape.CIRCLE,
+                )
+                cut.copy(connectors = cut.connectors + added).withSelection(setOf(cut.connectors.size))
+            }
+            is CutConnectorEvent.Select -> updateCut(snapshot = false) { cut ->
+                val selected = when {
+                    !event.toggle -> setOf(event.index)
+                    event.index in cut.selectedConnectors -> cut.selectedConnectors - event.index
+                    else -> cut.selectedConnectors + event.index
+                }
+                cut.withSelection(selected)
+            }
+            is CutConnectorEvent.Move -> updateCut(snapshot = event.finished) { cut ->
+                if (event.index !in cut.connectors.indices) return@updateCut cut
+                val moved = cut.connectors.toMutableList().also { it[event.index] = it[event.index].copy(position = event.position) }
+                cut.copy(connectors = moved).let { if (event.finished) it.withSelection(setOf(event.index)) else it }
+            }
+            CutConnectorEvent.Deselect -> if (mode.selectedConnectors.isNotEmpty()) updateCut(snapshot = false) { it.withSelection(emptySet()) }
+        }
+    }
+
+    /** Ctrl+A of the desktop: "Select all connectors". */
+    fun selectAllCutConnectors() = updateCut(snapshot = false) { it.withSelection(it.connectors.indices.toSet()) }
+
+    /** Delete of the desktop, and its right click: the selected connectors go ("Delete connector"). */
+    fun deleteCutConnectors() {
+        val mode = view.value.cut ?: return
+        if (mode.connectors.isEmpty()) return
+        updateCut(snapshot = true) { cut ->
+            cut.copy(connectors = cut.connectors.filterIndexed { index, _ -> index !in cut.selectedConnectors }).withSelection(emptySet())
+        }
+    }
+
+    /**
+     * The connectors' window sets what it adds, and the selected connectors
+     * with it (apply_selected_connectors()): a dowel is a prism, a snap round.
+     */
+    fun setCutConnectorSettings(change: (CutConnectorSettings) -> CutConnectorSettings) = updateCut(snapshot = false) { cut ->
+        val before = cut.connectorSettings
+        var settings = change(before)
+        if (settings.type != before.type && settings.type == CutConnectorType.DOWEL) settings = settings.copy(style = CutConnectorStyle.PRISM)
+        if (settings.type != before.type && settings.type == CutConnectorType.SNAP) settings = settings.copy(shape = CutConnectorShape.CIRCLE)
+        val connectors = cut.connectors.mapIndexed { index, connector ->
+            if (index !in cut.selectedConnectors) return@mapIndexed connector
+            connector.copy(
+                type = settings.type ?: connector.type,
+                style = settings.style ?: connector.style,
+                shape = settings.shape ?: connector.shape,
+                height = settings.depth?.takeIf { it > 0.0 } ?: connector.height,
+                heightTolerance = settings.depthTolerance?.takeIf { it >= 0.0 } ?: connector.heightTolerance,
+                radius = settings.size?.takeIf { it > 0.0 }?.let { it * 0.5 } ?: connector.radius,
+                radiusTolerance = settings.sizeTolerance?.takeIf { it >= 0.0 }?.let { it * 0.5 } ?: connector.radiusTolerance,
+                zAngle = settings.angle ?: connector.zAngle,
+            )
+        }
+        cut.copy(connectorSettings = settings, connectors = connectors)
+    }
+
+    /** "Bulge" and "Space" of the snaps, proportions of their radius. */
+    fun setCutSnap(space: Double, bulge: Double) = updateCut(snapshot = false) { it.copy(snapSpace = space, snapBulge = bulge) }
 
     /** set_center_pos(center, true): the plane at [center], or null where it would leave the object behind. */
     private fun movedCut(mode: CutMode, center: Vector3): Transform3? {
@@ -677,20 +788,51 @@ class PrepareViewModel(
         return CutPlanes.withCenter(plane, center)
     }
 
-    /** A change of the cut gizmo; one of the plane is described anew, and [snapshot] takes the gizmo's snapshot. */
+    /**
+     * A change of the cut gizmo; [snapshot] takes the gizmo's snapshot. A plane
+     * moved takes the connectors along onto it (put_connectors_on_cut_plane()),
+     * and a plane or connectors changed are described anew.
+     */
     private fun updateCut(snapshot: Boolean, change: (CutMode) -> CutMode) {
         val before = view.value.cut ?: return
-        view.update { state -> state.cut?.let { mode -> change(mode).let { if (snapshot) it.snapshotted() else it } }?.let { state.copy(cut = it) } ?: state }
-        val after = view.value.cut ?: return
-        if (after.plane != null && after.plane != before.plane) cutPlanes.trySend(after.plane)
+        view.update { state ->
+            state.cut?.let { mode ->
+                change(mode)
+                    .let { changed -> if (changed.plane != mode.plane) changed.copy(connectors = onPlane(changed.connectors, changed.plane)) else changed }
+                    .let { if (snapshot) it.snapshotted() else it }
+            }?.let { state.copy(cut = it) } ?: state
+        }
+        describeCut(before)
     }
 
     /** Undo and Redo while the cut gizmo is open: its snapshot at [index]. */
     private fun restoreCut(index: Int) {
         val before = view.value.cut ?: return
         view.update { state -> state.cut?.let { state.copy(cut = it.restored(index)) } ?: state }
+        describeCut(before)
+    }
+
+    /** The engine describes the plane anew once it, the connectors or the snaps changed from [before]. */
+    private fun describeCut(before: CutMode) {
         val after = view.value.cut ?: return
-        if (after.plane != null && after.plane != before.plane) cutPlanes.trySend(after.plane)
+        if (after.plane != null &&
+            (after.plane != before.plane || after.connectors != before.connectors || after.snapSpace != before.snapSpace || after.snapBulge != before.snapBulge)
+        ) {
+            cutPlanes.trySend(after)
+        }
+    }
+
+    /** put_connectors_on_cut_plane(): every connector moved along the normal of [plane] onto it. */
+    private fun onPlane(connectors: List<CutConnector>, plane: Transform3?): List<CutConnector> {
+        if (plane == null || connectors.isEmpty()) return connectors
+        val normal = CutPlanes.normal(plane)
+        val center = CutPlanes.center(plane)
+        val offset = normal.x * center.x + normal.y * center.y + normal.z * center.z
+        return connectors.map { connector ->
+            val p = connector.position
+            val distance = offset - (normal.x * p.x + normal.y * p.y + normal.z * p.z)
+            connector.copy(position = Vector3(p.x + normal.x * distance, p.y + normal.y * distance, p.z + normal.z * distance))
+        }
     }
 
     /** "Enable painted fuzzy skin for this object" of the fuzzy skin tool's warning. */

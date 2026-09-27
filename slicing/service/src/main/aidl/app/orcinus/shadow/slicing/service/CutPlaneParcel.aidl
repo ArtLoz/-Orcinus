@@ -8,4 +8,9 @@ parcelable CutPlaneParcel {
     boolean validContour;
     @nullable String contour;
     @nullable String section;
+    int[] invalidConnectors;
+    int outsideCutContour;
+    int outsideBoundingBox;
+    boolean overlap;
+    String[] connectorMeshes;
 }

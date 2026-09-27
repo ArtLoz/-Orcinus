@@ -5,6 +5,7 @@ import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.CopyPlacement
+import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
@@ -255,7 +256,13 @@ class ModelImportAndInspectionUseCasesTest {
         override suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome =
             CutObjectOutcome.Failure("not used")
 
-        override suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome = CutPlaneOutcome.Failure("not used")
+        override suspend fun describeCutPlane(
+            plane: Transform3,
+            connectors: List<CutConnector>,
+            snapSpace: Double,
+            snapBulge: Double,
+            meshPrefix: ScenePath,
+        ): CutPlaneOutcome = CutPlaneOutcome.Failure("not used")
 
         override suspend fun endCut() = Unit
 

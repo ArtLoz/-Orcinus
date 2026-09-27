@@ -22,6 +22,7 @@ import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPlaneOutcome
@@ -2997,7 +2998,13 @@ class PlateUseCasesTest {
         override suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome =
             CutObjectOutcome.Success(Vector3(-10.0, -10.0, 0.0), Vector3(10.0, 10.0, 20.0))
 
-        override suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome =
+        override suspend fun describeCutPlane(
+            plane: Transform3,
+            connectors: List<CutConnector>,
+            snapSpace: Double,
+            snapBulge: Double,
+            meshPrefix: ScenePath,
+        ): CutPlaneOutcome =
             CutPlaneOutcome.Success(CutPlaneDescription(Vector3(-10.0, -10.0, -10.0), Vector3(10.0, 10.0, 10.0), validContour = true, contour = null))
 
         override suspend fun endCut() = Unit

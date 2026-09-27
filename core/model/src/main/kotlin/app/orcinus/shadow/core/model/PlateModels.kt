@@ -609,7 +609,65 @@ data class ObjectCut(
     val placeOnCutLower: Boolean = false,
     val flipUpper: Boolean = false,
     val flipLower: Boolean = false,
+    /** The connectors the cut makes (ModelObject::cut_connectors). */
+    val connectors: List<CutConnector> = emptyList(),
+    /** m_snap_space_proportion and m_snap_bulge_proportion of the snaps. */
+    val snapSpace: Double = 0.3,
+    val snapBulge: Double = 0.15,
+    /** The name the connectors' volumes take, "<name>-<n>" (_u8L("Connector")). */
+    val connectorName: String = "Connector",
 )
+
+/** CutConnectorType of Model.hpp. */
+enum class CutConnectorType { PLUG, DOWEL, SNAP }
+
+/** CutConnectorStyle of Model.hpp. */
+enum class CutConnectorStyle { PRISM, FRUSTUM }
+
+/** CutConnectorShape of Model.hpp. */
+enum class CutConnectorShape { TRIANGLE, SQUARE, HEXAGON, CIRCLE }
+
+/**
+ * A connector of the cut (CutConnector of Model.hpp) where the gizmo placed
+ * it on the plane, in world coordinates; [zAngle] is its turn about the
+ * plane's normal, in radians.
+ */
+data class CutConnector(
+    val position: Vector3,
+    val radius: Double,
+    val height: Double,
+    val radiusTolerance: Double,
+    val heightTolerance: Double,
+    val zAngle: Double,
+    val type: CutConnectorType,
+    val style: CutConnectorStyle,
+    val shape: CutConnectorShape,
+)
+
+/** The connectors flattened as the engine reads them: eight values each (CutConnectorData). */
+fun List<CutConnector>.connectorValues(): DoubleArray = flatMap {
+    listOf(it.position.x, it.position.y, it.position.z, it.radius, it.height, it.radiusTolerance, it.heightTolerance, it.zAngle)
+}.toDoubleArray()
+
+/** ... and their type, style and shape, three each. */
+fun List<CutConnector>.connectorKinds(): IntArray = flatMap { listOf(it.type.ordinal, it.style.ordinal, it.shape.ordinal) }.toIntArray()
+
+/** The connectors [connectorValues] and [connectorKinds] flattened. */
+fun cutConnectors(values: DoubleArray, kinds: IntArray): List<CutConnector> = (0 until minOf(values.size / 8, kinds.size / 3)).map { index ->
+    val value = index * 8
+    val kind = index * 3
+    CutConnector(
+        position = Vector3(values[value], values[value + 1], values[value + 2]),
+        radius = values[value + 3],
+        height = values[value + 4],
+        radiusTolerance = values[value + 5],
+        heightTolerance = values[value + 6],
+        zAngle = values[value + 7],
+        type = CutConnectorType.entries[kinds[kind]],
+        style = CutConnectorStyle.entries[kinds[kind + 1]],
+        shape = CutConnectorShape.entries[kinds[kind + 2]],
+    )
+}
 
 /** Everything the app knows about the plate being prepared and sliced. */
 data class PlateState(

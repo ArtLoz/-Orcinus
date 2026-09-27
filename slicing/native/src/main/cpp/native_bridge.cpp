@@ -321,6 +321,30 @@ std::vector<std::int32_t> to_ints(JNIEnv* env, jintArray values)
     return result;
 }
 
+// CutConnectorData flattened: position, radius, height, radius and height
+// tolerances and the turn, eight values each; type, style and shape, three each.
+std::vector<orcinus::orca::CutConnectorData> to_connectors(JNIEnv* env, jdoubleArray values, jintArray kinds)
+{
+    const std::vector<double> numbers = to_doubles(env, values);
+    const std::vector<std::int32_t> types = to_ints(env, kinds);
+    std::vector<orcinus::orca::CutConnectorData> connectors;
+    for (std::size_t index = 0; index * 8 + 7 < numbers.size() && index * 3 + 2 < types.size(); ++index) {
+        orcinus::orca::CutConnectorData connector;
+        const double* value = &numbers[index * 8];
+        std::copy(value, value + 3, connector.position);
+        connector.radius = value[3];
+        connector.height = value[4];
+        connector.radius_tolerance = value[5];
+        connector.height_tolerance = value[6];
+        connector.z_angle = value[7];
+        connector.type = types[index * 3];
+        connector.style = types[index * 3 + 1];
+        connector.shape = types[index * 3 + 2];
+        connectors.push_back(connector);
+    }
+    return connectors;
+}
+
 std::vector<std::int64_t> to_longs(JNIEnv* env, jlongArray values)
 {
     std::vector<std::int64_t> result(static_cast<std::size_t>(env->GetArrayLength(values)));
@@ -3369,12 +3393,21 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObject(
     jbooleanArray answers,
     jint cut_instance,
     jdoubleArray cut_plane,
-    jbooleanArray cut_flags
+    jbooleanArray cut_flags,
+    jdoubleArray connector_values,
+    jintArray connector_kinds,
+    jdouble snap_space,
+    jdouble snap_bulge,
+    jstring connector_name
 )
 {
     orcinus::orca::ObjectCut cut;
     cut.instance = cut_instance;
     cut.plane = to_doubles(env, cut_plane);
+    cut.connectors = to_connectors(env, connector_values, connector_kinds);
+    cut.snap_space = snap_space;
+    cut.snap_bulge = snap_bulge;
+    cut.connector_name = to_utf8(env, connector_name);
     // keep_upper, keep_lower, keep_as_parts, place_on_cut_upper,
     // place_on_cut_lower, flip_upper, flip_lower
     const std::vector<bool> flags = to_bools(env, cut_flags);
@@ -3437,12 +3470,28 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
     JNIEnv* env,
     jobject /* this */,
     jdoubleArray plane,
+    jdoubleArray connector_values,
+    jintArray connector_kinds,
+    jdouble snap_space,
+    jdouble snap_bulge,
     jstring mesh_prefix
 )
 {
-    const orcinus::orca::CutPlane described = orcinus::orca::describe_cut_plane(to_doubles(env, plane), to_utf8(env, mesh_prefix));
+    const orcinus::orca::CutPlane described = orcinus::orca::describe_cut_plane(
+        to_doubles(env, plane),
+        to_connectors(env, connector_values, connector_kinds),
+        snap_space,
+        snap_bulge,
+        to_utf8(env, mesh_prefix)
+    );
+    const jintArray invalid = env->NewIntArray(static_cast<jsize>(described.invalid_connectors.size()));
+    if (!described.invalid_connectors.empty()) {
+        env->SetIntArrayRegion(invalid, 0, static_cast<jsize>(described.invalid_connectors.size()),
+                               reinterpret_cast<const jint*>(described.invalid_connectors.data()));
+    }
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeCutPlane");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[D[DZLjava/lang/String;Ljava/lang/String;)V");
+    const jmethodID constructor = env->GetMethodID(
+        result_class, "<init>", "(JLjava/lang/String;[D[DZLjava/lang/String;Ljava/lang/String;[IIIZ[Ljava/lang/String;)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -3452,7 +3501,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
         to_java(env, described.max, 3),
         described.valid_contour ? JNI_TRUE : JNI_FALSE,
         to_java(env, described.contour),
-        to_java(env, described.section)
+        to_java(env, described.section),
+        invalid,
+        static_cast<jint>(described.outside_cut_contour),
+        static_cast<jint>(described.outside_bounding_box),
+        described.overlap ? JNI_TRUE : JNI_FALSE,
+        to_java(env, described.connector_meshes)
     );
 }
 

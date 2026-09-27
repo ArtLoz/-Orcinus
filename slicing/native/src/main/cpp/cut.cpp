@@ -7,9 +7,11 @@
 // begin_cut() to end_cut(); the cut itself is ObjectEdit::cut of edit_object().
 
 #include <algorithm>
+#include <array>
 #include <cfloat>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -52,10 +54,172 @@ struct CutSession {
     bool open{false};
     Slic3r::Model model;
     int instance{0};
+    // GLGizmoCut3D::m_bounding_box: the copy's solid parts in the world.
+    Slic3r::BoundingBoxf3 bounding_box;
     // How many contours were written, which names each one anew so the 3D
     // view reads it again.
     std::size_t writes{0};
+    // The connector shapes written for the 3D view, by name.
+    std::map<std::string, std::string> shapes;
 };
+
+// What one clipper of the object clipper cut (MeshClipper::ClipResult): the
+// islands of the section in the plane's frame, which trafo places.
+struct ClipResult {
+    Slic3r::Transform3d trafo{Slic3r::Transform3d::Identity()};
+    Slic3r::ExPolygons islands;
+    std::vector<Slic3r::BoundingBox> boxes;
+};
+
+// ObjectClipper::is_projection_inside_cut(): the island the projection of point
+// on the plane lies in, counted over every clipper; -1 for none.
+int is_projection_inside_cut(const std::vector<ClipResult>& clippers, const Slic3r::Vec3d& point_in)
+{
+    int idx_offset = 0;
+    for (const ClipResult& result : clippers) {
+        // MeshClipper::is_projection_inside_cut()
+        const Slic3r::Vec3d point = result.trafo.inverse() * point_in;
+        const Slic3r::Point pt_2d = Slic3r::Point::new_scale(Slic3r::Vec2d(point.x(), point.y()));
+        for (int i = 0; i < int(result.islands.size()); ++i) {
+            if (result.boxes[i].contains(pt_2d) && result.islands[i].contains(pt_2d))
+                return idx_offset + i;
+        }
+        idx_offset += int(result.islands.size());
+    }
+    return -1;
+}
+
+// GLGizmoCut3D::get_connector_mesh(): the shape of a connector at unit size.
+indexed_triangle_set connector_mesh(const int type, const int style, const int shape, const double snap_space, const double snap_bulge)
+{
+    using namespace Slic3r;
+    indexed_triangle_set connector_mesh;
+
+    int   sectorCount{ 1 };
+    switch (CutConnectorShape(shape)) {
+    case CutConnectorShape::Triangle:
+        sectorCount = 3;
+        break;
+    case CutConnectorShape::Square:
+        sectorCount = 4;
+        break;
+    case CutConnectorShape::Circle:
+        sectorCount = 360;
+        break;
+    case CutConnectorShape::Hexagon:
+        sectorCount = 6;
+        break;
+    default:
+        break;
+    }
+
+    if (CutConnectorType(type) == CutConnectorType::Snap)
+        connector_mesh = its_make_snap(1.0, 1.0, float(snap_space), float(snap_bulge));
+    else if (CutConnectorStyle(style) == CutConnectorStyle::Prism)
+        connector_mesh = its_make_cylinder(1.0, 1.0, (2 * PI / sectorCount));
+    else if (CutConnectorType(type) == CutConnectorType::Plug)
+        connector_mesh = its_make_frustum(1.0, 1.0, (2 * PI / sectorCount));
+    else
+        connector_mesh = its_make_frustum_dowel(1.0, 1.0, sectorCount);
+
+    return connector_mesh;
+}
+
+// The name the shape of a connector is written under.
+std::string shape_name(const CutConnectorData& connector, const double snap_space, const double snap_bulge)
+{
+    std::string name = std::to_string(connector.type) + "-" + std::to_string(connector.style) + "-" + std::to_string(connector.shape);
+    if (Slic3r::CutConnectorType(connector.type) == Slic3r::CutConnectorType::Snap) {
+        name += "-" + std::to_string(int(std::lround(snap_space * 1000.0))) + "-" + std::to_string(int(std::lround(snap_bulge * 1000.0)));
+    }
+    return name;
+}
+
+// check_and_update_connectors_state() of the planar cut, with
+// is_conflict_for_connector() and is_outside_of_cut_contour(): which
+// connectors cannot be cut with, and why.
+void check_connectors(
+    const std::vector<CutConnectorData>& connectors,
+    const Slic3r::Transform3d& m_rotation_m,
+    const Slic3r::BoundingBoxf3& m_bounding_box,
+    const std::vector<ClipResult>& clippers,
+    const double snap_space,
+    const double snap_bulge,
+    CutPlane& result
+)
+{
+    using namespace Slic3r;
+    const auto is_outside_of_cut_contour = [&](const CutConnectorData& cur_connector, const Vec3d& cur_pos) {
+        // check if connector pos is out of clipping plane
+        if (is_projection_inside_cut(clippers, cur_pos) == -1) {
+            result.outside_cut_contour++;
+            return true;
+        }
+
+        // check if connector bottom contour is out of clipping plane
+        const CutConnectorShape shape = CutConnectorShape(cur_connector.shape);
+        const int   sectorCount = shape == CutConnectorShape::Triangle  ? 3 :
+                                  shape == CutConnectorShape::Square    ? 4 :
+                                  shape == CutConnectorShape::Circle    ? 60: // supposably, 60 points are enough for conflict detection
+                                  shape == CutConnectorShape::Hexagon   ? 6 : 1 ;
+
+        indexed_triangle_set mesh;
+        auto& vertices = mesh.vertices;
+        vertices.reserve(sectorCount + 1);
+
+        float fa = 2 * PI / sectorCount;
+        auto vec = Eigen::Vector2f(0, float(cur_connector.radius));
+        for (float angle = 0; angle < 2.f * PI; angle += fa) {
+            Vec2f p = Eigen::Rotation2Df(angle) * vec;
+            vertices.emplace_back(Vec3f(p(0), p(1), 0.f));
+        }
+        its_transform(mesh, Geometry::translation_transform(cur_pos) * m_rotation_m);
+
+        for (const Vec3f& vertex : vertices) {
+            if (is_projection_inside_cut(clippers, vertex.cast<double>()) == -1) {
+                result.outside_cut_contour++;
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    for (std::size_t idx = 0; idx < connectors.size(); ++idx) {
+        const CutConnectorData& cur_connector = connectors[idx];
+        const Vec3d cur_pos(cur_connector.position[0], cur_connector.position[1], cur_connector.position[2]);
+        bool conflict = is_outside_of_cut_contour(cur_connector, cur_pos);
+        if (!conflict) {
+            const Transform3d matrix = Geometry::translation_transform(cur_pos) * m_rotation_m *
+                                       Geometry::scale_transform(Vec3d(cur_connector.radius, cur_connector.radius, cur_connector.height));
+            const BoundingBoxf3 cur_tbb = bounding_box(
+                connector_mesh(cur_connector.type, cur_connector.style, cur_connector.shape, snap_space, snap_bulge)).transformed(matrix);
+
+            // check if connector's bounding box is inside the object's bounding box
+            if (!m_bounding_box.contains(cur_tbb)) {
+                result.outside_bounding_box++;
+                conflict = true;
+            }
+        }
+        if (!conflict) {
+            // check if connectors are overlapping
+            for (std::size_t i = 0; i < connectors.size(); ++i) {
+                if (i == idx)
+                    continue;
+                const CutConnectorData& connector = connectors[i];
+                const Vec3d pos(connector.position[0], connector.position[1], connector.position[2]);
+                if ((pos - cur_pos).norm() < connector.radius + cur_connector.radius) {
+                    result.overlap = true;
+                    conflict = true;
+                    break;
+                }
+            }
+        }
+        if (conflict) {
+            result.invalid_connectors.push_back(int(idx));
+        }
+    }
+}
 
 CutSession& session()
 {
@@ -83,6 +247,7 @@ void clip(
     const ClippingPlane& m_limiting_plane,
     const double m_contour_width,
     Slic3r::ExPolygons& islands,
+    Slic3r::Transform3d& trafo,
     indexed_triangle_set& section,
     indexed_triangle_set& contour
 )
@@ -105,6 +270,7 @@ void clip(
     Transform3d tr = Transform3d::Identity();
     tr.rotate(q);
     tr = m_trafo.get_matrix() * tr;
+    trafo = tr;
 
     {
         // Now remove whatever ended up below the limiting plane (e.g. sinking objects).
@@ -254,6 +420,7 @@ CutObject begin_cut(const PlateObject& object, const int instance, const Profile
         }
         current.instance = instance;
         current.writes = 0;
+        current.shapes.clear();
         current.open = true;
 
         // GLGizmoCut3D::bounding_box(): the convex hulls of the copy's solid
@@ -269,6 +436,7 @@ CutObject begin_cut(const PlateObject& object, const int instance, const Profile
             result.min[axis] = box.min[axis];
             result.max[axis] = box.max[axis];
         }
+        current.bounding_box = box;
         result.status = SceneStatus::success;
         return result;
     } catch (const std::exception& error) {
@@ -277,7 +445,13 @@ CutObject begin_cut(const PlateObject& object, const int instance, const Profile
     }
 }
 
-CutPlane describe_cut_plane(const std::vector<double>& plane, const std::string& mesh_prefix)
+CutPlane describe_cut_plane(
+    const std::vector<double>& plane,
+    const std::vector<CutConnectorData>& connectors,
+    const double snap_space,
+    const double snap_bulge,
+    const std::string& mesh_prefix
+)
 {
     CutPlane result;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
@@ -318,14 +492,31 @@ CutPlane describe_cut_plane(const std::vector<double>& plane, const std::string&
         const double contour_width = 0.4;
         indexed_triangle_set section;
         indexed_triangle_set contour;
+        std::vector<ClipResult> clippers;
         for (const Slic3r::ModelVolume* volume : object.volumes) {
-            Slic3r::ExPolygons islands;
+            ClipResult clipped;
             const Slic3r::Geometry::Transformation trafo = instance.get_transformation() * volume->get_transformation();
-            clip(volume->mesh().its, trafo, clipping_plane, limiting_plane, contour_width, islands, section, contour);
+            clip(volume->mesh().its, trafo, clipping_plane, limiting_plane, contour_width, clipped.islands, clipped.trafo, section, contour);
             // MeshClipper::has_valid_contour()
-            if (std::any_of(islands.begin(), islands.end(), [](const Slic3r::ExPolygon& island) { return !island.empty(); })) {
+            if (std::any_of(clipped.islands.begin(), clipped.islands.end(), [](const Slic3r::ExPolygon& island) { return !island.empty(); })) {
                 result.valid_contour = true;
             }
+            for (const Slic3r::ExPolygon& island : clipped.islands) {
+                clipped.boxes.push_back(Slic3r::get_extents(island));
+            }
+            clippers.push_back(std::move(clipped));
+        }
+
+        check_connectors(connectors, rotation_m, current.bounding_box, clippers, snap_space, snap_bulge, result);
+        for (const CutConnectorData& connector : connectors) {
+            const std::string name = shape_name(connector, snap_space, snap_bulge);
+            auto written = current.shapes.find(name);
+            if (written == current.shapes.end()) {
+                const std::string path = mesh_prefix + "-connector-" + name + ".mesh";
+                const indexed_triangle_set shape = connector_mesh(connector.type, connector.style, connector.shape, snap_space, snap_bulge);
+                written = current.shapes.emplace(name, detail::write_mesh(shape, path) ? path : std::string()).first;
+            }
+            result.connector_meshes.push_back(written->second);
         }
         const std::string name = mesh_prefix + "-" + std::to_string(current.writes++);
         if (!contour.indices.empty() && detail::write_mesh(contour, name + ".mesh")) {
@@ -341,6 +532,67 @@ CutPlane describe_cut_plane(const std::vector<double>& plane, const std::string&
         return result;
     }
 }
+
+namespace detail {
+
+void apply_cut_connectors(Slic3r::ModelObject& object, const ObjectCut& cut, const Slic3r::Transform3d& m_rotation_m, int& dowels_count)
+{
+    using namespace Slic3r;
+    using namespace Slic3r::Geometry;
+    if (cut.connectors.empty() || cut.instance < 0 || std::size_t(cut.instance) >= object.instances.size())
+        return;
+    const Vec3d instance_offset = object.instances[std::size_t(cut.instance)]->get_offset();
+    const Vec3d m_cut_normal = (m_rotation_m * Vec3d::UnitZ()).normalized();
+
+    // The gizmo keeps the connectors on the object (ModelObject::cut_connectors),
+    // each where it stands on the plane, from the copy's offset.
+    object.cut_connectors.clear();
+    for (const CutConnectorData& data : cut.connectors) {
+        const Vec3d pos = Vec3d(data.position[0], data.position[1], data.position[2]) - instance_offset;
+        object.cut_connectors.emplace_back(
+            pos, Transform3d::Identity(), float(data.radius), float(data.height), float(data.radius_tolerance), float(data.height_tolerance),
+            float(data.z_angle),
+            CutConnectorAttributes(CutConnectorType(data.type), CutConnectorStyle(data.style), CutConnectorShape(data.shape)));
+    }
+
+    // apply_connectors_in_model()
+    for (CutConnector& connector : object.cut_connectors) {
+        connector.rotation_m = m_rotation_m;
+
+        if (connector.attribs.type == CutConnectorType::Dowel) {
+            if (connector.attribs.style == CutConnectorStyle::Prism)
+                connector.height *= 2;
+            dowels_count ++;
+        }
+        else {
+            // calculate shift of the connector center regarding to the position on the cut plane
+            connector.pos += m_cut_normal * 0.5 * double(connector.height);
+        }
+    }
+
+    // apply_cut_connectors(mo, _u8L("Connector"))
+    size_t connector_id = object.cut_id.connectors_cnt();
+    for (const CutConnector& connector : object.cut_connectors) {
+        TriangleMesh mesh = TriangleMesh(connector_mesh(int(connector.attribs.type), int(connector.attribs.style), int(connector.attribs.shape),
+                                                        cut.snap_space, cut.snap_bulge));
+        // Mesh will be centered when loading.
+        ModelVolume* new_volume = object.add_volume(std::move(mesh), ModelVolumeType::NEGATIVE_VOLUME);
+
+        // Transform the new modifier to be aligned inside the instance
+        new_volume->set_transformation(translation_transform(connector.pos) * connector.rotation_m *
+            rotation_transform(-connector.z_angle * Vec3d::UnitZ()) *
+            scale_transform(Vec3f(connector.radius, connector.radius, connector.height).cast<double>()));
+
+        new_volume->cut_info = { connector.attribs.type, connector.radius_tolerance, connector.height_tolerance };
+        new_volume->name = cut.connector_name + "-" + std::to_string(++connector_id);
+    }
+    object.cut_id.increase_connectors_cnt(object.cut_connectors.size());
+
+    // delete all connectors
+    object.cut_connectors.clear();
+}
+
+}  // namespace detail
 
 void end_cut()
 {

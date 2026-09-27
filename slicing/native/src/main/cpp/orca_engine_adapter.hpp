@@ -1509,6 +1509,23 @@ enum class ObjectEdit : std::int64_t {
     cut = 9,
 };
 
+// A connector of the cut (CutConnector of Model.hpp) as the gizmo places it on
+// the plane; its type, style and shape are CutConnectorType, CutConnectorStyle
+// and CutConnectorShape.
+struct CutConnectorData {
+    // Where it stands on the plane, in world coordinates.
+    double position[3]{0.0, 0.0, 0.0};
+    double radius{1.25};
+    double height{3.0};
+    double radius_tolerance{0.0};
+    double height_tolerance{0.1};
+    // Its turn about the plane's normal, in radians.
+    double z_angle{0.0};
+    int type{0};
+    int style{0};
+    int shape{3};
+};
+
 // The cut gizmo's plane and "After cut" of its window (GLGizmoCut3D).
 struct ObjectCut {
     // The copy of the object the plane cuts (the selection's instance).
@@ -1525,6 +1542,13 @@ struct ObjectCut {
     bool place_on_cut_lower{false};
     bool flip_upper{false};
     bool flip_lower{false};
+    // The connectors the cut makes (ModelObject::cut_connectors), with the
+    // proportions of the snaps (m_snap_space_proportion and
+    // m_snap_bulge_proportion) and the name their volumes take, "<name>-<n>".
+    std::vector<CutConnectorData> connectors;
+    double snap_space{0.3};
+    double snap_bulge{0.15};
+    std::string connector_name{"Connector"};
 };
 
 // The object menu's commands that change the meshes of the object at index
@@ -1573,9 +1597,25 @@ struct CutPlane {
     // which tells a click on the plane inside the section from one outside it
     // (unproject_on_cut_plane()); empty for none.
     std::string section;
+    // check_and_update_connectors_state(): the connectors that cannot be cut
+    // with, how many lie out of the section and out of the object, and
+    // whether some overlap.
+    std::vector<int> invalid_connectors;
+    int outside_cut_contour{0};
+    int outside_bounding_box{0};
+    bool overlap{false};
+    // The shape of every connector (get_connector_mesh()), a mesh of unit size
+    // for the 3D view, "<prefix>-connector-<shape>.mesh".
+    std::vector<std::string> connector_meshes;
 };
 
-CutPlane describe_cut_plane(const std::vector<double>& plane, const std::string& mesh_prefix);
+CutPlane describe_cut_plane(
+    const std::vector<double>& plane,
+    const std::vector<CutConnectorData>& connectors,
+    double snap_space,
+    double snap_bulge,
+    const std::string& mesh_prefix
+);
 
 // Closes the cut gizmo, which lets its object go.
 void end_cut();

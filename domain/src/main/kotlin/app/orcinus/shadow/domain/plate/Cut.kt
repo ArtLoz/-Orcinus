@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ScenePath
@@ -38,10 +39,10 @@ class CutObjectUseCase(
         return inspector.beginCut(target.placed(), instance, profiles)
     }
 
-    /** What the gizmo shows of [plane], ObjectCut.plane. */
-    suspend fun describe(plane: Transform3): CutPlaneOutcome {
+    /** What the gizmo shows of [plane], ObjectCut.plane, with [connectors] on it and the snaps' proportions. */
+    suspend fun describe(plane: Transform3, connectors: List<CutConnector>, snapSpace: Double, snapBulge: Double): CutPlaneOutcome {
         val prefix = meshes ?: return CutPlaneOutcome.Failure("The cut gizmo is not open")
-        return inspector.describeCutPlane(plane, prefix)
+        return inspector.describeCutPlane(plane, connectors, snapSpace, snapBulge, prefix)
     }
 
     /** Closes the gizmo: the engine lets the object go, and the meshes it wrote are gone. */

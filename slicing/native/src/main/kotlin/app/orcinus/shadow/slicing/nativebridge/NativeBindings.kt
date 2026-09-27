@@ -732,6 +732,11 @@ internal class NativeCutPlane(
     @JvmField val validContour: Boolean,
     @JvmField val contour: String,
     @JvmField val section: String,
+    @JvmField val invalidConnectors: IntArray,
+    @JvmField val outsideCutContour: Int,
+    @JvmField val outsideBoundingBox: Int,
+    @JvmField val overlap: Boolean,
+    @JvmField val connectorMeshes: Array<String>,
 )
 
 /** Read and constructed by the native bridge; see CalibrationParams in orca_engine_adapter.hpp. */
@@ -1170,6 +1175,12 @@ internal object NativeBindings {
         cutInstance: Int,
         cutPlane: DoubleArray,
         cutFlags: BooleanArray,
+        /** ObjectCut::connectors flattened (connectorValues and connectorKinds of :core:model). */
+        connectorValues: DoubleArray,
+        connectorKinds: IntArray,
+        snapSpace: Double,
+        snapBulge: Double,
+        connectorName: String,
     ): NativeImportedModels
 
     /** begin_cut(): the cut gizmo opened on the copy at [instance] of the object, a plate of one. */
@@ -1183,7 +1194,14 @@ internal object NativeBindings {
     ): NativeCutObject
 
     /** describe_cut_plane() of the plane, column-major 4 x 4. */
-    external fun describeCutPlane(plane: DoubleArray, meshPrefix: String): NativeCutPlane
+    external fun describeCutPlane(
+        plane: DoubleArray,
+        connectorValues: DoubleArray,
+        connectorKinds: IntArray,
+        snapSpace: Double,
+        snapBulge: Double,
+        meshPrefix: String,
+    ): NativeCutPlane
 
     /** end_cut() */
     external fun endCut()

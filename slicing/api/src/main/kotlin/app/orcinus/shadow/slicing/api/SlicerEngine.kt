@@ -15,6 +15,7 @@ import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -349,10 +350,17 @@ interface PlateInspector {
 
     /**
      * What the cut gizmo shows of [plane] (ObjectCut.plane): the size of what it
-     * cuts, whether it goes through the object, and the outline of the section,
-     * written as a mesh named after [meshPrefix].
+     * cuts, whether it goes through the object, the outline of the section,
+     * which of [connectors] cannot be cut with, and their shapes, written as
+     * meshes named after [meshPrefix].
      */
-    suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome
+    suspend fun describeCutPlane(
+        plane: Transform3,
+        connectors: List<CutConnector>,
+        snapSpace: Double,
+        snapBulge: Double,
+        meshPrefix: ScenePath,
+    ): CutPlaneOutcome
 
     /** Closes the cut gizmo, which lets its object go. */
     suspend fun endCut()

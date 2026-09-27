@@ -82,6 +82,9 @@ import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.amounts
+import app.orcinus.shadow.core.model.connectorKinds
+import app.orcinus.shadow.core.model.connectorValues
+import app.orcinus.shadow.core.model.cutConnectors
 import app.orcinus.shadow.core.model.filamentUsagesOf
 
 // Both processes run the same APK, so enum names are a safe wire format.
@@ -1031,6 +1034,11 @@ internal fun ObjectCut.toParcel() = CutParcel().also {
     it.placeOnCutLower = placeOnCutLower
     it.flipUpper = flipUpper
     it.flipLower = flipLower
+    it.connectorValues = connectors.connectorValues()
+    it.connectorKinds = connectors.connectorKinds()
+    it.snapSpace = snapSpace
+    it.snapBulge = snapBulge
+    it.connectorName = connectorName
 }
 
 internal fun CutParcel.toCut() = ObjectCut(
@@ -1043,6 +1051,10 @@ internal fun CutParcel.toCut() = ObjectCut(
     placeOnCutLower = placeOnCutLower,
     flipUpper = flipUpper,
     flipLower = flipLower,
+    connectors = cutConnectors(connectorValues, connectorKinds),
+    snapSpace = snapSpace,
+    snapBulge = snapBulge,
+    connectorName = connectorName,
 )
 
 internal fun CutObjectOutcome.toParcel() = CutObjectParcel().also {
@@ -1070,11 +1082,18 @@ internal fun CutPlaneOutcome.toParcel() = CutPlaneParcel().also {
             it.validContour = plane.validContour
             it.contour = plane.contour?.value
             it.section = plane.section?.value
+            it.invalidConnectors = plane.invalidConnectors.toIntArray()
+            it.outsideCutContour = plane.outsideCutContour
+            it.outsideBoundingBox = plane.outsideBoundingBox
+            it.overlap = plane.overlap
+            it.connectorMeshes = plane.connectorMeshes.map(ScenePath::value).toTypedArray()
         }
         is CutPlaneOutcome.Failure -> {
             it.error = message
             it.min = DoubleArray(3)
             it.max = DoubleArray(3)
+            it.invalidConnectors = IntArray(0)
+            it.connectorMeshes = emptyArray()
         }
     }
 }
@@ -1087,5 +1106,10 @@ internal fun CutPlaneParcel.toOutcome(): CutPlaneOutcome = error?.let { CutPlane
             validContour = validContour,
             contour = contour?.let(::ScenePath),
             section = section?.let(::ScenePath),
+            invalidConnectors = invalidConnectors.toList(),
+            outsideCutContour = outsideCutContour,
+            outsideBoundingBox = outsideBoundingBox,
+            overlap = overlap,
+            connectorMeshes = connectorMeshes.map(::ScenePath),
         ),
     )

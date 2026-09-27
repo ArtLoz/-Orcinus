@@ -35,7 +35,47 @@ data class CutView(
     val canCut: Boolean,
     /** The section itself: a touch on the plane inside it does not turn the plane over. */
     val section: ScenePath? = null,
+    /** The object's cut connectors on the plane. */
+    val connectors: List<CutConnectorView> = emptyList(),
+    /**
+     * The connectors' window is open (m_connectors_editing): the plane and its
+     * grabbers go, the copy is clipped on the camera's side to show the
+     * section, and a touch places, picks and moves the connectors.
+     */
+    val editingConnectors: Boolean = false,
 )
+
+/**
+ * A connector as render_connectors() draws it: where it stands on the plane,
+ * its radius, depth and turn about the normal in radians, its shape at unit
+ * size, and whether it is a dowel, a prism, selected or invalid.
+ */
+data class CutConnectorView(
+    val position: Vector3,
+    val radius: Double,
+    val height: Double,
+    val zAngle: Double,
+    val mesh: ScenePath?,
+    val dowel: Boolean,
+    val prism: Boolean,
+    val selected: Boolean,
+    val invalid: Boolean,
+)
+
+/** What a finger does to the connectors while their window is open (GLGizmoCut3D::gizmo_event()). */
+sealed interface CutConnectorEvent {
+    /** A touch on the section places a connector there. */
+    data class Add(val position: Vector3) : CutConnectorEvent
+
+    /** A touch on a connector selects it alone; a long press adds it to the selection or takes it out ([toggle]). */
+    data class Select(val index: Int, val toggle: Boolean) : CutConnectorEvent
+
+    /** A connector dragged over the section; [finished] once the finger let go. */
+    data class Move(val index: Int, val position: Vector3, val finished: Boolean) : CutConnectorEvent
+
+    /** A touch elsewhere unselects them all. */
+    data object Deselect : CutConnectorEvent
+}
 
 /** The changes the cut gizmo and its window make to its plane (GLGizmoCut3D). */
 object CutPlanes {
@@ -44,6 +84,12 @@ object CutPlanes {
 
     /** m_plane_center */
     fun center(plane: Transform3): Vector3 = Vector3(plane.columns[12], plane.columns[13], plane.columns[14])
+
+    /** m_cut_normal: the rotated Z axis. */
+    fun normal(plane: Transform3): Vector3 {
+        val z = affine(plane).transformVector(Vec3.UNIT_Z).normalized()
+        return Vector3(z.x, z.y, z.z)
+    }
 
     fun withCenter(plane: Transform3, center: Vector3): Transform3 =
         Transform3(plane.columns.toMutableList().also { it[12] = center.x; it[13] = center.y; it[14] = center.z })
@@ -143,7 +189,102 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
      * scale about [dragStart], the rotation the drag began at, with the arc of
      * [angle]. [contour] is the outline of the section, drawn over everything.
      */
-    fun frame(dragged: CutGrabber?, angle: Double, dragStart: Affine3?, canCut: Boolean, contour: FloatArray?, pixelScale: Float): GizmoFrame {
+    fun frame(dragged: CutGrabber?, angle: Double, dragStart: Affine3?, canCut: Boolean, contour: FloatArray?, pixelScale: Float): GizmoFrame =
+        frame(dragged, angle, dragStart, canCut, contour, null, emptyList(), emptyMap(), editing = false, lookingForward = true, hovered = null, pixelScale)
+
+    /**
+     * on_render() with the connectors: render_connectors(), and while their
+     * window is open the section filled in dark grey with its outline, drawn
+     * into the scene, without the plane and its grabbers. [lookingForward] is
+     * is_looking_forward(), and [hovered] the connector a finger holds.
+     */
+    fun frame(
+        dragged: CutGrabber?,
+        angle: Double,
+        dragStart: Affine3?,
+        canCut: Boolean,
+        contour: FloatArray?,
+        section: FloatArray?,
+        connectors: List<CutConnectorView>,
+        meshes: Map<String, MeshData>,
+        editing: Boolean,
+        lookingForward: Boolean,
+        hovered: Int?,
+        pixelScale: Float,
+    ): GizmoFrame {
+        val sceneMeshes = connectorMeshes(connectors, meshes, editing, lookingForward, hovered)
+        if (editing) {
+            return GizmoFrame(
+                lines = emptyList(),
+                grabbers = emptyList(),
+                overlay = listOfNotNull(section?.let { GizmoFace(it, SECTION_COLOR) }, contour?.let { GizmoFace(it, CONTOUR_COLOR) }),
+                overlayDepth = true,
+                sceneMeshes = sceneMeshes,
+                emission = 0.2f,
+            )
+        }
+        return planeFrame(dragged, angle, dragStart, canCut, contour, pixelScale, sceneMeshes)
+    }
+
+    /** m_clp_normal: the normal towards the camera's side, which the connectors' window clips. */
+    fun clippingNormal(lookingForward: Boolean): Vec3 = if (lookingForward) normal else -normal
+
+    /** render_connectors() */
+    private fun connectorMeshes(
+        connectors: List<CutConnectorView>,
+        meshes: Map<String, MeshData>,
+        editing: Boolean,
+        lookingForward: Boolean,
+        hovered: Int?,
+    ): List<GizmoMesh> {
+        val clpNormal = clippingNormal(lookingForward)
+        return connectors.mapIndexedNotNull { index, connector ->
+            val key = connector.mesh?.value ?: return@mapIndexedNotNull null
+            val mesh = meshes[key] ?: return@mapIndexedNotNull null
+            var color = when {
+                connector.invalid -> CONNECTOR_ERR_COLOR
+                connector.dowel -> DOWEL_COLOR
+                else -> PLAG_COLOR
+            }
+            if (!editing) {
+                color = CONNECTOR_ERR_COLOR
+            } else if (hovered == index) {
+                color = when {
+                    connector.invalid -> HOVERED_ERR_COLOR
+                    connector.dowel -> HOVERED_DOWEL_COLOR
+                    else -> HOVERED_PLAG_COLOR
+                }
+            } else if (connector.selected) {
+                color = if (connector.dowel) SELECTED_DOWEL_COLOR else SELECTED_PLAG_COLOR
+            }
+            var height = connector.height
+            var pos = Vec3(connector.position.x, connector.position.y, connector.position.z)
+            if (connector.dowel && connector.prism) {
+                if (editing) {
+                    height = 0.05
+                    if (!lookingForward) pos += clpNormal * 0.05
+                } else {
+                    pos = if (lookingForward) pos - clpNormal * height else pos + clpNormal * height
+                    height *= 2.0
+                }
+            } else if (!lookingForward) {
+                pos += clpNormal * 0.05
+            }
+            val world = Affine3().translated(pos) * rotation *
+                Affine3.assemble(Vec3.ZERO, Vec3(0.0, 0.0, -connector.zAngle), Vec3(connector.radius, connector.radius, height))
+            GizmoMesh(key, mesh, world, color)
+        }
+    }
+
+    private fun planeFrame(
+        dragged: CutGrabber?,
+        angle: Double,
+        dragStart: Affine3?,
+        canCut: Boolean,
+        contour: FloatArray?,
+        pixelScale: Float,
+        sceneMeshes: List<GizmoMesh>,
+    ): GizmoFrame {
         val lines = ArrayList<GizmoLines>()
         val grabbers = ArrayList<GizmoGrabber>()
         val dragging = dragged != null
@@ -197,6 +338,7 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
             overlay = listOfNotNull(contour?.let { GizmoFace(it, CONTOUR_COLOR) }),
             sceneFaces = listOf(GizmoFace(planeTriangles(), if (canCut) CUT_PLANE_DEF_COLOR else CUT_PLANE_ERR_COLOR)),
             sceneFacesWorld = plane,
+            sceneMeshes = sceneMeshes,
             emission = 0.2f,
         )
     }
@@ -304,8 +446,17 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
         private val WHITE = ColorRgba(1f, 1f, 1f)
         private val CUT_PLANE_DEF_COLOR = ColorRgba(0.9f, 0.9f, 0.9f, 0.5f)
         private val CUT_PLANE_ERR_COLOR = ColorRgba(1f, 0.8f, 0.8f, 0.5f)
-        // ObjectClipper::render_cut(): the contour in white.
+        // ObjectClipper::render_cut(): the contour in white, the filled cut in dark grey.
         private val CONTOUR_COLOR = ColorRgba(1f, 1f, 1f)
+        private val SECTION_COLOR = ColorRgba(0.25f, 0.25f, 0.25f)
+        private val PLAG_COLOR = ColorRgba(1f, 1f, 0f)
+        private val DOWEL_COLOR = ColorRgba(0.5f, 0.5f, 0f)
+        private val HOVERED_PLAG_COLOR = ColorRgba(0f, 1f, 1f)
+        private val HOVERED_DOWEL_COLOR = ColorRgba(0f, 0.5f, 0.5f)
+        private val SELECTED_PLAG_COLOR = ColorRgba(0.5f, 0.5f, 0.5f)
+        private val SELECTED_DOWEL_COLOR = ColorRgba(0.25f, 0.25f, 0.25f)
+        private val CONNECTOR_ERR_COLOR = ColorRgba(1f, 0.3f, 0.3f, 0.5f)
+        private val HOVERED_ERR_COLOR = ColorRgba(1f, 0.3f, 0.3f, 1f)
         private const val CUT_PLANE_RADIUS_KOEF = 1.5
         private const val ANGLE_RESOLUTION = 64
         private const val SCALE_STEPS_COUNT = 72

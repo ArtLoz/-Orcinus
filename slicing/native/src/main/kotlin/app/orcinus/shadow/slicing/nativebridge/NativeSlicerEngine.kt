@@ -25,6 +25,7 @@ import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilament
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPlaneOutcome
@@ -127,6 +128,8 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
+import app.orcinus.shadow.core.model.connectorKinds
+import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.filamentUsagesOf
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
@@ -319,6 +322,11 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             cutInstance = cut?.instance ?: 0,
             cutPlane = cut?.plane?.columns?.toDoubleArray() ?: DoubleArray(0),
             cutFlags = cut?.flags() ?: BooleanArray(0),
+            connectorValues = cut?.connectors.orEmpty().connectorValues(),
+            connectorKinds = cut?.connectors.orEmpty().connectorKinds(),
+            snapSpace = cut?.snapSpace ?: 0.3,
+            snapBulge = cut?.snapBulge ?: 0.15,
+            connectorName = cut?.connectorName ?: "Connector",
         ).toOutcome()
     }
 
@@ -343,8 +351,21 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             }
         }
 
-    override suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome = withContext(Dispatchers.IO) {
-        val described = NativeBindings.describeCutPlane(plane.columns.toDoubleArray(), meshPrefix.value)
+    override suspend fun describeCutPlane(
+        plane: Transform3,
+        connectors: List<CutConnector>,
+        snapSpace: Double,
+        snapBulge: Double,
+        meshPrefix: ScenePath,
+    ): CutPlaneOutcome = withContext(Dispatchers.IO) {
+        val described = NativeBindings.describeCutPlane(
+            plane.columns.toDoubleArray(),
+            connectors.connectorValues(),
+            connectors.connectorKinds(),
+            snapSpace,
+            snapBulge,
+            meshPrefix.value,
+        )
         if (described.status != NativeSceneStatus.SUCCESS) {
             CutPlaneOutcome.Failure(described.message)
         } else {
@@ -355,6 +376,11 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     validContour = described.validContour,
                     contour = described.contour.takeIf(String::isNotEmpty)?.let(::ScenePath),
                     section = described.section.takeIf(String::isNotEmpty)?.let(::ScenePath),
+                    invalidConnectors = described.invalidConnectors.toList(),
+                    outsideCutContour = described.outsideCutContour,
+                    outsideBoundingBox = described.outsideBoundingBox,
+                    overlap = described.overlap,
+                    connectorMeshes = described.connectorMeshes.map(::ScenePath),
                 ),
             )
         }

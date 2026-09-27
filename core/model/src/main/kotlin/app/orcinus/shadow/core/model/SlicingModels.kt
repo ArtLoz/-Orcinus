@@ -419,6 +419,17 @@ data class CutPlaneDescription(
     val contour: ScenePath?,
     /** The section itself, which tells a touch on the plane inside it from one outside it; null for none. */
     val section: ScenePath? = null,
+    /**
+     * check_and_update_connectors_state(): the indexes of the connectors that
+     * cannot be cut with, how many lie out of the section and out of the
+     * object, and whether some overlap.
+     */
+    val invalidConnectors: List<Int> = emptyList(),
+    val outsideCutContour: Int = 0,
+    val outsideBoundingBox: Int = 0,
+    val overlap: Boolean = false,
+    /** The shape of every connector at unit size (get_connector_mesh()), for the 3D view. */
+    val connectorMeshes: List<ScenePath> = emptyList(),
 )
 
 sealed interface CutPlaneOutcome {

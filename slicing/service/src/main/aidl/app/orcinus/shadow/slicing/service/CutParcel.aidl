@@ -11,4 +11,9 @@ parcelable CutParcel {
     boolean placeOnCutLower;
     boolean flipUpper;
     boolean flipLower;
+    double[] connectorValues;
+    int[] connectorKinds;
+    double snapSpace;
+    double snapBulge;
+    String connectorName;
 }

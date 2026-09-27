@@ -46,6 +46,7 @@ import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.cutConnectors
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -164,8 +165,15 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             engine.beginCut(arrayOf(plateObject).toPlacedModels().first(), instance, profiles.toProfiles())
         }.toParcel()
 
-        override fun describeCutPlane(plane: DoubleArray, meshPrefix: String): CutPlaneParcel = runBlocking {
-            engine.describeCutPlane(Transform3(plane.toList()), ScenePath(meshPrefix))
+        override fun describeCutPlane(
+            plane: DoubleArray,
+            connectorValues: DoubleArray,
+            connectorKinds: IntArray,
+            snapSpace: Double,
+            snapBulge: Double,
+            meshPrefix: String,
+        ): CutPlaneParcel = runBlocking {
+            engine.describeCutPlane(Transform3(plane.toList()), cutConnectors(connectorValues, connectorKinds), snapSpace, snapBulge, ScenePath(meshPrefix))
         }.toParcel()
 
         override fun endCut() = runBlocking { engine.endCut() }

@@ -42,6 +42,11 @@ internal class SceneFrame(
      * above it and of the lower part below it. Null while no cut is open.
      */
     val colorClipPlane: FloatArray? = null,
+    /**
+     * The clipping plane of the objects (GLGizmosManager::get_clipping_plane()):
+     * -normal and offset, which hide the side the normal points to; null clips nothing.
+     */
+    val clippingPlane: FloatArray? = null,
 )
 
 /**
@@ -90,6 +95,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var grabberCone: GlVertexArray? = null
     private var grabberCube: GlVertexArray? = null
     private var grabberSphere: GlVertexArray? = null
+    /** The cut gizmo's connector shapes, by mesh file. */
+    private val gizmoMeshes = HashMap<String, GlVertexArray>()
     /** The build volume of the current plate while the objects are drawn. */
     private var printVolume: Box3? = null
     /** PartPlateList::m_idx_textures, made as the plates need them. */
@@ -137,6 +144,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         grabberCone = null
         grabberCube = null
         grabberSphere = null
+        gizmoMeshes.clear()
         labelTextures.clear()
         synchronized(lock) {
             bedChanged = true
@@ -340,8 +348,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         program.setFloat("z_near", frame.nearZ)
         program.setMatrix4("projection_matrix", frame.projection)
         program.setVec2("z_range", -Float.MAX_VALUE, Float.MAX_VALUE)
-        // ClippingPlane::ClipsNothing()
-        program.setVec4("clipping_plane", 0f, 0f, 1f, Float.MAX_VALUE)
+        // ClippingPlane::ClipsNothing(), or the plane the cut gizmo shows its section at.
+        val clippingPlane = frame.clippingPlane
+        if (clippingPlane != null) {
+            program.setVec4("clipping_plane", clippingPlane[0], clippingPlane[1], clippingPlane[2], clippingPlane[3])
+        } else {
+            program.setVec4("clipping_plane", 0f, 0f, 1f, Float.MAX_VALUE)
+        }
         // GLGizmoCut3D::apply_color_clip_plane_colors() for the planar cut.
         val colorClipPlane = frame.colorClipPlane
         program.setBoolean("use_color_clip_plane", colorClipPlane != null)
@@ -492,12 +505,31 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
      */
     private fun renderGizmo(programs: Programs, gizmo: GizmoFrame, frame: SceneFrame) {
         val flat = programs.flat
+        if (gizmo.sceneMeshes.isNotEmpty()) {
+            // GLGizmoCut3D::render_connectors(): in the scene's depth, as render_model() draws them.
+            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+            val light = programs.gouraudLight
+            light.use()
+            light.setFloat("emission_factor", gizmo.emission)
+            light.setMatrix4("projection_matrix", frame.projection)
+            for (placed in gizmo.sceneMeshes) {
+                val array = gizmoMeshes.getOrPut(placed.key) { meshArray(placed.mesh) }
+                light.setVec4("uniform_color", placed.color.red, placed.color.green, placed.color.blue, placed.color.alpha)
+                light.setMatrix4("view_model_matrix", (frame.view * placed.world).toFloatArray())
+                light.setMatrix3("view_normal_matrix", normalMatrix(frame.view, placed.world))
+                array.draw()
+            }
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        }
         if (gizmo.overlay.isNotEmpty()) {
-            // GLGizmoCut3D::render_clipper_cut(): over the scene, without depth, from both sides.
+            // GLGizmoCut3D::render_clipper_cut(): from both sides, over the scene
+            // without depth unless the connectors' window is open.
+            if (gizmo.overlayDepth) GLES30.glEnable(GLES30.GL_DEPTH_TEST)
             flat.use()
             flat.setMatrix4("view_model_matrix", frame.view.toFloatArray())
             flat.setMatrix4("projection_matrix", frame.projection)
             for (face in gizmo.overlay) drawFace(flat, face)
+            if (gizmo.overlayDepth) GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         }
         if (gizmo.sceneFaces.isNotEmpty()) {
             // GLGizmoCut3D::render_cut_plane(): blended, in the scene's depth, from both sides.

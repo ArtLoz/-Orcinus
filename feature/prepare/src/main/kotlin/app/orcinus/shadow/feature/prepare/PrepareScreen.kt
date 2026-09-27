@@ -85,6 +85,8 @@ import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.CutConnectorStyle
+import app.orcinus.shadow.core.model.CutConnectorType
 import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.Manipulation
@@ -128,6 +130,7 @@ import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
+import app.orcinus.shadow.render.scene.CutConnectorView
 import app.orcinus.shadow.render.scene.CutView
 import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
@@ -303,6 +306,18 @@ internal fun PrepareRoute(
             setCutToParts = viewModel::setCutToParts,
             perform = viewModel::performCut,
             cancel = viewModel::closeCut,
+            connectors = CutConnectorActions(
+                edit = viewModel::editCutConnectors,
+                confirm = viewModel::confirmCutConnectors,
+                cancel = viewModel::cancelCutConnectors,
+                removeAll = viewModel::removeCutConnectors,
+                flipPlane = viewModel::flipCutPlaneForConnectors,
+                event = viewModel::cutConnectorEvent,
+                selectAll = viewModel::selectAllCutConnectors,
+                deleteSelected = viewModel::deleteCutConnectors,
+                setSettings = viewModel::setCutConnectorSettings,
+                setSnap = viewModel::setCutSnap,
+            ),
         ),
         simplifyActions = SimplifyActions(
             setUseCount = viewModel::setSimplifyUseCount,
@@ -405,11 +420,35 @@ internal fun PrepareScreen(
                 onPaint = paintingActions.paint,
                 cut = state.cut?.let { mode ->
                     mode.plane?.let { plane ->
-                        CutView(mode.mesh, mode.instance, plane, mode.radius, mode.described?.contour, mode.canPerform, mode.described?.section)
+                        CutView(
+                            mesh = mode.mesh,
+                            instance = mode.instance,
+                            plane = plane,
+                            radius = mode.radius,
+                            contour = mode.described?.contour,
+                            canCut = mode.canPerform,
+                            section = mode.described?.section,
+                            connectors = mode.connectors.mapIndexed { index, connector ->
+                                CutConnectorView(
+                                    position = connector.position,
+                                    radius = connector.radius,
+                                    height = connector.height,
+                                    zAngle = connector.zAngle,
+                                    mesh = mode.described?.takeIf { mode.describedConnectors?.getOrNull(index)?.let { it.type == connector.type && it.style == connector.style && it.shape == connector.shape } == true }
+                                        ?.connectorMeshes?.getOrNull(index),
+                                    dowel = connector.type == CutConnectorType.DOWEL,
+                                    prism = connector.style == CutConnectorStyle.PRISM,
+                                    selected = index in mode.selectedConnectors,
+                                    invalid = index in mode.invalidConnectors,
+                                )
+                            },
+                            editingConnectors = mode.editingConnectors,
+                        )
                     }
                 },
                 onCutPlane = cutActions.setPlane,
                 onFlipCutPlane = cutActions.flip,
+                onCutConnector = cutActions.connectors.event,
                 selectedObject = state.selectedObject,
                 selectedObjects = state.selectedObjects,
                 gizmo = state.gizmo,
@@ -1357,7 +1396,7 @@ internal fun PaintingPanelFrame(title: String, done: String, onDone: () -> Unit,
 
 /** A row of a painting tool's choices, the chosen one filled. */
 @Composable
-private fun <T> PaintingChoices(items: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+internal fun <T> PaintingChoices(items: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1376,7 +1415,7 @@ private fun <T> PaintingChoices(items: List<Pair<T, String>>, selected: T, onSel
 
 /** A slider of a painting tool with its label before it and its value after it. */
 @Composable
-private fun PaintingSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, text: String, onChange: (Float) -> Unit) {
+internal fun PaintingSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, text: String, onChange: (Float) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = label,

@@ -92,6 +92,11 @@ int plate_of(const Slic3r::ModelObject& object, std::size_t instance, const Slic
 // objects left without copies removed.
 void keep_current_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config);
 
+// GLGizmoCut3D::apply_connectors_in_model() and apply_cut_connectors(): the
+// connectors of cut become negative volumes of object, turned by the plane's
+// rotation_m, before it is cut; dowels_count counts the dowels among them.
+void apply_cut_connectors(Slic3r::ModelObject& object, const ObjectCut& cut, const Slic3r::Transform3d& rotation_m, int& dowels_count);
+
 // Writes a mesh for the 3D view, in the format :render:scene reads
 // (mesh_file_magic of orca_engine_adapter.hpp).
 bool write_mesh(const indexed_triangle_set& its, const std::string& path);

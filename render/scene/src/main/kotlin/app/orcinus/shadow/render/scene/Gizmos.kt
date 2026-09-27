@@ -54,8 +54,11 @@ internal class GizmoFrame(
     /** Translucent faces drawn in object coordinates with [facesWorld]. */
     val faces: List<GizmoFace> = emptyList(),
     val facesWorld: Affine3 = Affine3(),
-    /** Drawn first, over the scene without its depth: the cut gizmo's outline of the section. */
+    /** Drawn first, over the scene without its depth unless [overlayDepth]: the cut gizmo's section and its outline. */
     val overlay: List<GizmoFace> = emptyList(),
+    val overlayDepth: Boolean = false,
+    /** Meshes drawn into the scene with its depth before the rest: the cut gizmo's connectors. */
+    val sceneMeshes: List<GizmoMesh> = emptyList(),
     /**
      * Translucent faces drawn into the scene, hidden where the objects stand
      * in front of them, from both sides, in [sceneFacesWorld]: the cut plane.
@@ -76,6 +79,9 @@ internal class GizmoLines(val segments: FloatArray, val color: ColorRgba, val wi
 internal class GizmoGrabber(val world: Affine3, val color: ColorRgba, val shape: GrabberShape = GrabberShape.CONE)
 
 internal enum class GrabberShape { CONE, CUBE, SPHERE }
+
+/** A mesh of a gizmo placed in the world; [key] names it for the GPU. */
+internal class GizmoMesh(val key: String, val mesh: MeshData, val world: Affine3, val color: ColorRgba)
 
 internal object GizmoColors {
     // ColorRGBA::X(), Y(), Z() in libslic3r/Color.hpp: GLGizmoBase::AXES_COLOR.

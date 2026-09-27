@@ -4,6 +4,10 @@ import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.CutConnector
+import app.orcinus.shadow.core.model.CutConnectorShape
+import app.orcinus.shadow.core.model.CutConnectorStyle
+import app.orcinus.shadow.core.model.CutConnectorType
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.FlatteningPlane
@@ -404,6 +408,19 @@ data class CutMode(
     /** "Flip" (m_rotate_upper and m_rotate_lower). */
     val flipUpper: Boolean = false,
     val flipLower: Boolean = false,
+    /** ModelObject::cut_connectors: where the connectors stand on the plane. */
+    val connectors: List<CutConnector> = emptyList(),
+    /** m_selected: the indexes of the selected connectors. */
+    val selectedConnectors: Set<Int> = emptySet(),
+    /** m_connectors_editing: the connectors' window is open and a touch on the section adds one. */
+    val editingConnectors: Boolean = false,
+    /** The connector the window adds and sets. */
+    val connectorSettings: CutConnectorSettings = CutConnectorSettings(),
+    /** m_snap_space_proportion and m_snap_bulge_proportion. */
+    val snapSpace: Double = SNAP_SPACE,
+    val snapBulge: Double = SNAP_BULGE,
+    /** The connectors as they stood when the engine described the plane. */
+    val describedConnectors: List<CutConnector>? = null,
     /** The gizmo's snapshots (on_save()), the one shown at [snapshot]. */
     val snapshots: List<CutSnapshot> = emptyList(),
     val snapshot: Int = 0,
@@ -434,8 +451,23 @@ data class CutMode(
             return CutPlanes.isUnrotated(plane) && CutPlanes.center(plane) == boundsCenter
         }
 
-    /** can_perform_cut() of a planar cut without connectors: something is kept. */
-    val canPerform: Boolean get() = plane != null && (keepUpper || keepLower)
+    /**
+     * can_perform_cut() of a planar cut: something is kept, the connectors'
+     * window is closed and none of them is invalid.
+     */
+    val canPerform: Boolean
+        get() = plane != null && (keepUpper || keepLower) && !editingConnectors && connectorsValid
+
+    /** m_invalid_connectors_idxs is empty, as the engine found it for these very connectors. */
+    val connectorsValid: Boolean
+        get() = connectors.isEmpty() || (describedConnectors == connectors && described?.invalidConnectors.isNullOrEmpty())
+
+    /** The invalid connectors, as far as the engine described these very ones. */
+    val invalidConnectors: Set<Int>
+        get() = if (describedConnectors == connectors) described?.invalidConnectors.orEmpty().toSet() else emptySet()
+
+    /** "Add connectors" (or "Edit connectors"): both parts kept, not cut to parts. */
+    val canEditConnectors: Boolean get() = keepUpper && keepLower && !keepAsParts
 
     /** render_build_size(): the size of the transformed bounding box. */
     val buildVolume: Vector3?
@@ -456,18 +488,90 @@ data class CutMode(
             keepLower = saved.keepLower,
             flipUpper = saved.flipUpper,
             flipLower = saved.flipLower,
+            connectors = saved.connectors,
+            editingConnectors = saved.editingConnectors,
+            selectedConnectors = emptySet(),
+            connectorSettings = connectorSettings.validated(),
             snapshot = index,
         )
     }
 
-    fun current() = CutSnapshot(plane, keepUpper, keepLower, flipUpper, flipLower)
+    fun current() = CutSnapshot(plane, keepUpper, keepLower, flipUpper, flipLower, connectors, editingConnectors)
+
+    /**
+     * init_input_window_data() and validate_connector_settings(): the window
+     * shows what the selected connectors have in common, and with none
+     * selected what it adds, anything left undefined taking its default.
+     */
+    fun withSelection(selected: Set<Int>): CutMode {
+        val chosen = selected.mapNotNull(connectors::getOrNull)
+        return copy(
+            selectedConnectors = selected,
+            connectorSettings = if (chosen.isEmpty()) connectorSettings.validated() else CutConnectorSettings.of(chosen),
+        )
+    }
+
+    companion object {
+        // GLGizmoCut3D::m_snap_space_proportion and m_snap_bulge_proportion.
+        const val SNAP_SPACE = 0.3
+        const val SNAP_BULGE = 0.15
+    }
 }
 
-/** What GLGizmoCut3D::on_save() keeps of the planar cut. */
+/**
+ * The connector GLGizmoCut3D's window adds and sets: m_connector_type,
+ * m_connector_style, m_connector_shape_id, the depth (m_connector_depth_ratio,
+ * in millimetres) and the size across (m_connector_size) with their
+ * tolerances, and the turn in radians (m_connector_angle). A value is null
+ * where the selected connectors differ (UndefFloat and Undef).
+ */
+data class CutConnectorSettings(
+    val type: CutConnectorType? = CutConnectorType.PLUG,
+    val style: CutConnectorStyle? = CutConnectorStyle.PRISM,
+    val shape: CutConnectorShape? = CutConnectorShape.CIRCLE,
+    val depth: Double? = 3.0,
+    val depthTolerance: Double? = 0.1,
+    val size: Double? = 2.5,
+    val sizeTolerance: Double? = 0.0,
+    val angle: Double? = 0.0,
+) {
+    /** validate_connector_settings() */
+    fun validated() = CutConnectorSettings(
+        type = type ?: CutConnectorType.PLUG,
+        style = style ?: CutConnectorStyle.PRISM,
+        shape = shape ?: CutConnectorShape.CIRCLE,
+        depth = depth ?: 3.0,
+        depthTolerance = depthTolerance ?: 0.1,
+        size = size ?: 2.5,
+        sizeTolerance = sizeTolerance ?: 0.0,
+        angle = angle ?: 0.0,
+    )
+
+    companion object {
+        /** init_input_window_data(): the values [connectors] share, null where they differ. */
+        fun of(connectors: List<CutConnector>): CutConnectorSettings {
+            fun <T> common(value: (CutConnector) -> T): T? = connectors.map(value).distinct().singleOrNull()
+            return CutConnectorSettings(
+                type = common { it.type },
+                style = common { it.style },
+                shape = common { it.shape },
+                depth = common { it.height },
+                depthTolerance = common { it.heightTolerance },
+                size = common { 2.0 * it.radius },
+                sizeTolerance = common { 2.0 * it.radiusTolerance },
+                angle = common { it.zAngle },
+            )
+        }
+    }
+}
+
+/** What GLGizmoCut3D::on_save() keeps of the planar cut, with the object's cut connectors. */
 data class CutSnapshot(
     val plane: Transform3?,
     val keepUpper: Boolean,
     val keepLower: Boolean,
     val flipUpper: Boolean,
     val flipLower: Boolean,
+    val connectors: List<CutConnector> = emptyList(),
+    val editingConnectors: Boolean = false,
 )
