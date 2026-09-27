@@ -5,6 +5,7 @@ import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.ui.settings.PrinterConnectionSheet
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
+import app.orcinus.shadow.domain.plate.ListHostPrintersUseCase
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -89,6 +90,7 @@ import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.EngineState
 import app.orcinus.shadow.core.model.EngineVersion
@@ -350,6 +352,7 @@ class SidebarViewModel(
     private val printerConnection: ObservePrinterConnectionUseCase,
     private val testPhysicalPrinter: TestPhysicalPrinterUseCase,
     private val browsePrintHosts: BrowsePrintHostsUseCase,
+    private val listHostPrinters: ListHostPrintersUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
     private val copySettings: CopyProcessSettingsUseCase,
     private val pasteSettings: PasteProcessSettingsUseCase,
@@ -752,6 +755,9 @@ class SidebarViewModel(
 
     /** PhysicalPrinterDialog's Browse button for Creality's firmware (CrealityDiscoveryDialog). */
     suspend fun scanCrealityPrinters(): List<CrealityHost> = browsePrintHosts.scanCreality()
+
+    /** PhysicalPrinterDialog's Refresh button: the printers of a server that serves several. */
+    suspend fun hostPrinters(printer: PhysicalPrinter): HostPrintersOutcome = listHostPrinters(printer)
 
     /** DiffPresetDialog: the presets of either side, and what the selected ones differ in. */
     suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean): PresetComparisonOutcome =
@@ -1452,6 +1458,7 @@ fun PlateSidebar(
             test = viewModel::testNetworkPrinter,
             lookup = viewModel::lookupPrintHosts,
             scanCreality = viewModel::scanCrealityPrinters,
+            printers = viewModel::hostPrinters,
         ),
     )
 }
@@ -1467,6 +1474,7 @@ internal class NetworkPrinterActions(
     val test: suspend (PhysicalPrinter) -> PrintHostTestOutcome,
     val lookup: () -> Flow<List<BonjourReply>>,
     val scanCreality: suspend () -> List<CrealityHost>,
+    val printers: suspend (PhysicalPrinter) -> HostPrintersOutcome,
 ) {
     companion object {
         val NONE = NetworkPrinterActions(
@@ -1476,6 +1484,7 @@ internal class NetworkPrinterActions(
             test = { PrintHostTestOutcome.Failure("") },
             lookup = { emptyFlow() },
             scanCreality = { emptyList() },
+            printers = { HostPrintersOutcome.Success(emptyList()) },
         )
     }
 }
@@ -1800,6 +1809,7 @@ internal fun PlateSidebarContent(
             onTest = network.test,
             lookup = network.lookup,
             scanCreality = network.scanCreality,
+            loadPrinters = network.printers,
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
         )
     }

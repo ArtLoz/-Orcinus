@@ -1,5 +1,6 @@
 package app.orcinus.shadow.network.printhost
 
+import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostType
@@ -10,6 +11,7 @@ import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import java.io.File
 import java.net.URLEncoder
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -33,11 +35,15 @@ import kotlinx.serialization.json.putJsonObject
  * OctoPrint posts to api/files/local, Moonraker to server/files/upload and then
  * to printer/print/start, and Creality's firmware (CrealityPrint) takes the file
  * at upload/<name> and starts it over its WebSocket, feeding every filament
- * from the slot of its material boxes the user chose.
+ * from the slot of its material boxes the user chose; an MKS board takes the
+ * file over http and prints it with G-code on its TCP console.
  */
 class PrintHostUploader(
     private val http: HttpClient = UrlConnectionHttpClient(),
     private val webSocket: WebSocketClient = OkHttpWebSocketClient(),
+    private val console: ConsoleClient = TcpConsole(),
+    /** MKS::start_print(): the board does not take G-code right after an upload. */
+    private val mksStartDelayMillis: Long = MKS_START_DELAY_MILLIS,
 ) {
     /**
      * [printer] is where it goes, [gcode] what is sent, [name] the name the
@@ -60,13 +66,17 @@ class PrintHostUploader(
             PrintHostType.OCTOPRINT -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
             PrintHostType.MOONRAKER -> uploadToMoonraker(printer, gcode, name, startPrint, onProgress)
             PrintHostType.CREALITY_PRINT -> uploadToCreality(printer, gcode, name, startPrint, options, onProgress)
-            PrintHostType.PRUSA_LINK -> uploadToPrusaLink(printer, gcode, name, startPrint, onProgress)
+            PrintHostType.PRUSA_LINK -> uploadToPrusaLink(printer, gcode, name, startPrint, onProgress, connect = false)
+            PrintHostType.PRUSA_CONNECT -> uploadToPrusaLink(printer, gcode, name, startPrint, onProgress, connect = true)
+            PrintHostType.MKS -> uploadToMks(printer, gcode, name, startPrint, onProgress)
             PrintHostType.DUET -> uploadToDuet(printer, gcode, name, startPrint, onProgress)
             PrintHostType.REPETIER -> uploadToRepetier(printer, gcode, name, startPrint, onProgress)
             // AstroBox took OctoPrint's API, and the same request works for it.
             PrintHostType.ASTROBOX -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
             PrintHostType.ESP3D -> uploadToEsp3d(printer, gcode, name, startPrint, onProgress)
             PrintHostType.FLASHAIR -> uploadToFlashAir(printer, gcode, name, onProgress)
+            PrintHostType.OBICO, PrintHostType.FLASHFORGE, PrintHostType.SIMPLYPRINT, PrintHostType.ELEGOO_LINK,
+            PrintHostType.PRINTER_3D_OS -> PrintHostUploadOutcome.Failure(UNSUPPORTED)
         }
     }
 
@@ -111,15 +121,21 @@ class PrintHostUploader(
                 val model = runCatching { Json.parseToJsonElement(body).jsonObject["model"]?.jsonPrimitive?.contentOrNull }.getOrNull()
                 PrintHostTestOutcome.Success(model.orEmpty())
             }
-            // PrusaLink::test_with_method_check(): PrusaLink or an OctoPrint
-            // firmware; the login goes as a key or as a digest.
-            PrintHostType.PRUSA_LINK -> versionTest(printer, listOf("PrusaLink", "OctoPrint"), login(printer))
+            // PrusaLink::test(): PrusaLink or an OctoPrint firmware; the login
+            // goes as a key or as a digest. PrusaConnect answers the same.
+            PrintHostType.PRUSA_LINK, PrintHostType.PRUSA_CONNECT ->
+                versionTest(printer, listOf("PrusaLink", "OctoPrint"), login(printer))
+            // MKS::test(): the board's console answers M105.
+            PrintHostType.MKS -> console.run(printer.host, MKS_CONSOLE_PORT, listOf(SerialMessage("M105"))).fold(
+                onSuccess = { PrintHostTestOutcome.Success("") },
+                onFailure = { PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) },
+            )
             // AstroBox::test(): OctoPrint's api/version again, with its own name.
             PrintHostType.ASTROBOX -> versionTest(printer, listOf("AstroBox"), null)
             PrintHostType.DUET -> {
                 // Duet::test(): connecting is the test.
                 duetConnect(printer)?.let { PrintHostTestOutcome.Success(it.name) }
-                    ?: PrintHostTestOutcome.Failure("Could not connect to Duet")
+                    ?: PrintHostTestOutcome.Failure(NO_ANSWER)
             }
             PrintHostType.REPETIER -> {
                 val body = http.get(makeUrl(printer.host, "printer/info"), authHeaders(printer))
@@ -155,7 +171,26 @@ class PrintHostUploader(
                     PrintHostTestOutcome.Failure("Upload not enabled on FlashAir card.")
                 }
             }
+            PrintHostType.OBICO, PrintHostType.FLASHFORGE, PrintHostType.SIMPLYPRINT, PrintHostType.ELEGOO_LINK,
+            PrintHostType.PRINTER_3D_OS -> PrintHostTestOutcome.Failure(UNSUPPORTED)
         }
+    }
+
+    /**
+     * Repetier::get_printers(): the printers of the server, by the slug the
+     * upload goes to (printhost_port), which the dialog's Refresh button lists.
+     */
+    suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome {
+        if (printer.hostType != PrintHostType.REPETIER) return HostPrintersOutcome.Success(emptyList())
+        val body = http.get(makeUrl(printer.host, "printer/list"), authHeaders(printer))
+            .getOrElse { return HostPrintersOutcome.Failure(it.message ?: NO_ANSWER) }
+        val answer = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
+            ?: return HostPrintersOutcome.Failure("Parsing of host response failed.\nMessage body: \"$body\"")
+        answer["error"]?.jsonPrimitive?.contentOrNull?.let { return HostPrintersOutcome.Failure(it) }
+        val printers = runCatching {
+            answer.getValue("data").jsonArray.map { it.jsonObject.getValue("slug").jsonPrimitive.content }
+        }.getOrElse { return HostPrintersOutcome.Failure("Enumeration of host printers failed.\nMessage body: \"$body\"") }
+        return HostPrintersOutcome.Success(printers)
     }
 
     /**
@@ -289,6 +324,8 @@ class PrintHostUploader(
      * PrusaLink::upload_inner_with_host(): PrusaLink 0.7 and newer take the
      * file with PUT into api/v1/files, older ones and OctoPrint firmwares with
      * the POST of api/files; the host says which in capabilities.upload-by-put.
+     * PrusaConnect ([connect]) posts to_print instead of print, in the
+     * language of the app (PrusaConnect::set_http_post_header_args()).
      */
     private suspend fun uploadToPrusaLink(
         printer: PhysicalPrinter,
@@ -296,12 +333,30 @@ class PrintHostUploader(
         name: String,
         startPrint: Boolean,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
+        connect: Boolean,
     ): PrintHostUploadOutcome {
         val version = http.get(makeUrl(printer.host, "api/version"), authHeaders(printer), auth = login(printer))
             .getOrElse { return failure(it) }
         val usePut = runCatching {
             Json.parseToJsonElement(version).jsonObject["capabilities"]?.jsonObject?.get("upload-by-put")?.jsonPrimitive?.content == "true"
         }.getOrDefault(false)
+        if (!usePut && connect) {
+            // post_inner() with PrusaConnect's own fields.
+            val response = http.postMultipart(
+                url = makeUrl(printer.host, "api/files/local"),
+                headers = authHeaders(printer) + ("Accept-Language" to Locale.getDefault().language.take(2)),
+                fields = buildMap {
+                    if (startPrint) put("to_print", "True")
+                    put("path", "")
+                },
+                fileField = "file",
+                fileName = name,
+                file = gcode,
+                onProgress = onProgress,
+                auth = login(printer),
+            )
+            return response.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+        }
         if (!usePut) {
             return uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
         }
@@ -323,6 +378,31 @@ class PrintHostUploader(
             auth = login(printer),
         )
         return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+    }
+
+    /**
+     * MKS::upload(): the file is the whole body of a post to upload, and the
+     * board answers err 0 when it took it; M23 and M24 on its console, a while
+     * later, print it.
+     */
+    private suspend fun uploadToMks(
+        printer: PhysicalPrinter,
+        gcode: File,
+        name: String,
+        startPrint: Boolean,
+        onProgress: ((sent: Long, total: Long) -> Unit)?,
+    ): PrintHostUploadOutcome {
+        // get_upload_url(): the address is taken as it is, behind http://.
+        val body = http.sendFile("http://${printer.host}/upload?X-Filename=" + urlEncoded(name), "POST", emptyMap(), gcode, onProgress)
+            .getOrElse { return failure(it) }
+        // get_err_code_from_body()
+        val error = runCatching { Json.parseToJsonElement(body).jsonObject["err"]?.jsonPrimitive?.intOrNull ?: 0 }
+            .getOrElse { return PrintHostUploadOutcome.Failure(UNREADABLE) }
+        if (error != 0) return PrintHostUploadOutcome.Failure("Unknown error occurred")
+        if (!startPrint) return PrintHostUploadOutcome.Success(name)
+        delay(mksStartDelayMillis)
+        val started = console.run(printer.host, MKS_CONSOLE_PORT, listOf(SerialMessage("M23 $name"), SerialMessage("M24")))
+        return started.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
     }
 
     /**
@@ -365,7 +445,8 @@ class PrintHostUploader(
 
     /** Duet::connect(): rr_connect, or the DSF host when the board does not answer it. */
     private suspend fun duetConnect(printer: PhysicalPrinter): DuetConnection? {
-        val password = printer.password.ifBlank { DUET_DEFAULT_PASSWORD }
+        // Duet::Duet(): the password is the key field's (printhost_apikey).
+        val password = printer.apiKey.ifBlank { DUET_DEFAULT_PASSWORD }
         val answer = http.get(makeUrl(printer.host, "rr_connect?password=" + urlEncoded(password) + "&time=" + timestamp()), emptyMap())
         answer.getOrNull()?.let { body ->
             return if ((body.jsonValue("err") ?: "0") == "0") DuetConnection.RR else null
@@ -488,6 +569,13 @@ class PrintHostUploader(
     internal companion object {
         private const val NO_ANSWER = "The printer did not answer"
         private const val UNREADABLE = "Could not parse server response."
+        private const val UNSUPPORTED = "The app cannot reach this kind of host yet"
+
+        /** MKS::MKS(): the port of the board's G-code console. */
+        const val MKS_CONSOLE_PORT = 8080
+
+        /** MKS::start_print()'s pause after an upload. */
+        const val MKS_START_DELAY_MILLIS = 1_500L
 
         /** Duet::get_connect_url(): the board's own default. */
         const val DUET_DEFAULT_PASSWORD = "reprap"

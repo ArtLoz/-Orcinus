@@ -62,8 +62,8 @@
     <string name="printer_host_start">Начать печать сразу</string>
     <string name="printer_host_sent">Отправлено: %1$s</string>
     <string name="printer_host_sending">Отправка на принтер: %1$d %%</string>
-    <!-- Результат кнопки «Test»: у Orca своё сообщение на каждый тип хоста. -->
-    <string name="printer_host_test_ok">Связь с принтером работает</string>
+    <!-- A host type of OrcaSlicer's list whose protocol the app has not ported yet. -->
+    <string name="printer_host_unsupported">Этот тип хоста приложение пока не поддерживает: проверка и отправка на него недоступны.</string>
     <!-- Export G-code of the desktop app's File menu. -->
     <string name="gcode_save">Сохранить G-code</string>
     <string name="gcode_saved">G-code сохранён</string>

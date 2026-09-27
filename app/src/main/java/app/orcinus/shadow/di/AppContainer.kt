@@ -9,6 +9,7 @@ import app.orcinus.shadow.core.model.AppInfo
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.ComponentId
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.LicenseId
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -71,6 +72,7 @@ import app.orcinus.shadow.domain.plate.GetSetupFilamentsUseCase
 import app.orcinus.shadow.domain.plate.GetSetupPrintersUseCase
 import app.orcinus.shadow.domain.plate.ImportConfigUseCase
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
+import app.orcinus.shadow.domain.plate.ListHostPrintersUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
@@ -269,9 +271,12 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         override suspend fun slots(printer: PhysicalPrinter): PrinterSlotsOutcome = uploader.printerSlots(printer)
 
         override suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
+
+        override suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome = uploader.printers(printer)
     }
     val printerConnection = ObservePrinterConnectionUseCase(engine)
     val testPhysicalPrinter = TestPhysicalPrinterUseCase(gcodeSender)
+    private val listHostPrinters = ListHostPrintersUseCase(gcodeSender)
     // PhysicalPrinterDialog's Browse button: the printers of the local network.
     private val browsePrintHosts = BrowsePrintHostsUseCase(
         object : PrintHostDiscovery {
@@ -489,6 +494,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         printerConnection = printerConnection,
         testPhysicalPrinter = testPhysicalPrinter,
         browsePrintHosts = browsePrintHosts,
+        listHostPrinters = listHostPrinters,
         setFlushOption = setFlushOption,
         copySettings = copyProcessSettings,
         pasteSettings = pasteProcessSettings,

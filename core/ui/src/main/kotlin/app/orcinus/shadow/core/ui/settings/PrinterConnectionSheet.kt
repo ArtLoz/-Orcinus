@@ -46,6 +46,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -60,6 +61,7 @@ import app.orcinus.shadow.core.model.PrinterConnection
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.defaultSlotFor
+import app.orcinus.shadow.core.model.withHostDefaults
 import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
@@ -92,6 +94,8 @@ fun PrinterConnectionSheet(
     lookup: () -> Flow<List<BonjourReply>> = { emptyFlow() },
     /** Its Browse button for Creality's firmware: CrealityDiscoveryDialog's scan. */
     scanCreality: suspend () -> List<CrealityHost> = { emptyList() },
+    /** The Refresh button of its printer (update_printers()). */
+    loadPrinters: suspend (PhysicalPrinter) -> HostPrintersOutcome = { HostPrintersOutcome.Success(emptyList()) },
     /** Why the printers of the local network cannot be reached, when the system says so. */
     notice: String? = null,
 ) {
@@ -128,7 +132,7 @@ fun PrinterConnectionSheet(
             if (loaded == null) {
                 if (problem == null) CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
             } else {
-                ConnectionForm(loaded, checkName, onSave, onTest, lookup, scanCreality)
+                ConnectionForm(loaded, checkName, onSave, onTest, lookup, scanCreality, loadPrinters)
             }
         }
     }
@@ -143,12 +147,14 @@ private fun ConnectionForm(
     onTest: suspend (PhysicalPrinter) -> PrintHostTestOutcome,
     lookup: () -> Flow<List<BonjourReply>>,
     scanCreality: suspend () -> List<CrealityHost>,
+    loadPrinters: suspend (PhysicalPrinter) -> HostPrintersOutcome,
 ) {
     val colors = OrcaTheme.colors
     val scope = rememberCoroutineScope()
     val copy = orcaString("Copy", context = "PresetName")
     var name by rememberSaveable { mutableStateOf(if (connection.saveNameCopySuffix) "${connection.saveName} - $copy" else connection.saveName) }
-    var settings by remember { mutableStateOf(connection.settings) }
+    // update() runs as the dialog opens: a cloud host fills in its address.
+    var settings by remember { mutableStateOf(connection.settings.withHostDefaults()) }
     var validation by remember { mutableStateOf<PresetNameValidation?>(null) }
     var checkedName by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(name) {
@@ -160,19 +166,29 @@ private fun ConnectionForm(
         checkedName = name
     }
     val current = validation.takeIf { checkedName == name }
-    // What the Test button last found out; the desktop shows it in a message box.
-    var tested: PrintHostTestOutcome? by remember { mutableStateOf(null) }
+    // What the Test button last found out, for the host it tested; the
+    // desktop shows it in a message box.
+    var tested: Pair<PrintHostType, PrintHostTestOutcome>? by remember { mutableStateOf(null) }
     var testing by remember { mutableStateOf(false) }
     val printer = PhysicalPrinter(name, settings)
     val types = PrintHostType.entries
+    // update_host_type(): the combo box lists every host, with its label translated.
+    val typeLabels = types.map { orcaString(it.label) }
     val type = printer.hostType ?: PrintHostType.OCTOPRINT
     // The desktop combo box lists every host; there are too many for a switch.
     var choosingType by remember { mutableStateOf(false) }
     // The lookup the Browse button opened.
     var browsing by remember { mutableStateOf(false) }
+    // update_printers(): what the Refresh button found, or why it found nothing.
+    var hostPrinters by remember { mutableStateOf<List<String>?>(null) }
+    var printersProblem by remember { mutableStateOf<String?>(null) }
+    var refreshing by remember { mutableStateOf(false) }
 
+    // update(), after every change of a setting.
     fun set(key: String, value: String) {
-        settings = ModelSettings(settings.values + (key to value))
+        settings = ModelSettings(settings.values + (key to value)).withHostDefaults()
+        // What Test said was about another host; the desktop's message box is gone by now.
+        if (key == "host_type" || key == "print_host") tested = null
     }
 
     Column(Modifier.padding(horizontal = 16.dp)) {
@@ -202,16 +218,24 @@ private fun ConnectionForm(
         )
         Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(orcaString("Host Type"), color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
-            OrcaComboField(text = type.label, onClick = { choosingType = true }, modifier = Modifier.width(200.dp))
+            OrcaComboField(text = orcaString(type.label), onClick = { choosingType = true }, modifier = Modifier.width(200.dp))
         }
-        Field(orcaString("Hostname, IP or URL"), printer.host) { set("print_host", it.trim()) }
+        if (!type.supported) {
+            Text(
+                text = stringResource(R.string.printer_host_unsupported),
+                color = colors.secondary,
+                style = OrcaTheme.typography.body13,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+        Field(orcaString("Hostname, IP or URL"), printer.host, enabled = type.hostEditable) { set("print_host", it.trim()) }
         // update_printhost_buttons(): Browse for a host that finds itself on
         // the network, Test once there is an address.
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(vertical = 4.dp),
         ) {
-            if (type.hasAutoDiscovery) {
+            if (type.hasAutoDiscovery && type.supported) {
                 OrcaButton(
                     text = orcaString("Browse") + " ...",
                     onClick = { browsing = true },
@@ -220,32 +244,41 @@ private fun ConnectionForm(
                 )
             }
             OrcaButton(
-                text = orcaString("Test"),
+                // update_printhost_buttons(): a cloud host logs in with it.
+                text = orcaString(if (type.isCloud) "Login/Test" else "Test"),
                 onClick = {
                     tested = null
                     testing = true
+                    val testedType = type
                     scope.launch {
-                        tested = onTest(printer)
+                        tested = testedType to onTest(printer)
                         testing = false
                     }
                 },
                 style = OrcaButtonStyle.Regular,
-                enabled = printer.host.isNotBlank() && !testing,
+                enabled = printer.host.isNotBlank() && !testing && type.supported,
                 icon = DesignR.drawable.orca_printer_host_test,
             )
         }
-        tested?.let { outcome ->
+        tested?.let { (testedType, outcome) ->
             Text(
                 text = when (outcome) {
-                    is PrintHostTestOutcome.Success -> stringResource(R.string.printer_host_test_ok)
-                    is PrintHostTestOutcome.Failure -> outcome.message
+                    // get_test_ok_msg() and get_test_failed_msg() of the host.
+                    is PrintHostTestOutcome.Success -> orcaString(testedType.testOkMessage)
+                    is PrintHostTestOutcome.Failure -> {
+                        val note = testedType.testFailedNote?.let { orcaString(it) }
+                        val gap = if (testedType == PrintHostType.FLASHAIR) "\n" else "\n\n"
+                        "${orcaString(testedType.testFailedMessage)}: ${outcome.message}" + note?.let { gap + it }.orEmpty()
+                    }
                 },
                 color = if (outcome is PrintHostTestOutcome.Success) colors.text else colors.error,
                 style = OrcaTheme.typography.body12,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         }
-        Field(orcaString("Device UI"), settings.values["print_host_webui"].orEmpty()) { set("print_host_webui", it.trim()) }
+        if (type.showsWebUi) {
+            Field(orcaString("Device UI"), settings.values["print_host_webui"].orEmpty()) { set("print_host_webui", it.trim()) }
+        }
         // update(): a host that takes a login shows the fields for it instead of the key.
         if (type.takesUserPassword) {
             Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -265,13 +298,43 @@ private fun ConnectionForm(
         if (type.takesUserPassword && printer.usesUserPassword) {
             Field(orcaString("User"), printer.user) { set("printhost_user", it) }
             Field(orcaString("Password"), printer.password) { set("printhost_password", it) }
-        } else if (type.takesPassword) {
-            Field(orcaString("Password"), printer.password) { set("printhost_password", it) }
-        } else {
+        } else if (type.showsApiKey) {
             Field(orcaString("API Key / Password"), printer.apiKey) { set("printhost_apikey", it) }
         }
-        if (type.takesPort) {
+        if (type.takesSerialNumber) {
+            Field(orcaString("Serial Number"), settings.values["flashforge_serial_number"].orEmpty()) {
+                set("flashforge_serial_number", it.trim())
+            }
+        }
+        if (type.supportsMultiplePrinters) {
             Field(orcaString("Printer"), printer.port) { set("printhost_port", it) }
+            // The Refresh button beside it, which lists the server's printers.
+            OrcaButton(
+                text = orcaString("Refresh") + " ...",
+                onClick = {
+                    printersProblem = null
+                    refreshing = true
+                    scope.launch {
+                        when (val outcome = loadPrinters(printer)) {
+                            is HostPrintersOutcome.Success -> hostPrinters = outcome.printers.takeIf { it.isNotEmpty() }
+                            is HostPrintersOutcome.Failure -> printersProblem = outcome.message
+                        }
+                        refreshing = false
+                    }
+                },
+                style = OrcaButtonStyle.Regular,
+                enabled = printer.host.isNotBlank() && !refreshing && type.supported,
+                icon = DesignR.drawable.orca_monitor_signal_strong,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            printersProblem?.let {
+                Text(
+                    text = orcaString("Connection to printers connected via the print host failed.") + "\n\n" + it,
+                    color = colors.error,
+                    style = OrcaTheme.typography.body12,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
         }
         OrcaButton(
             text = orcaString("OK"),
@@ -285,11 +348,22 @@ private fun ConnectionForm(
     if (choosingType) {
         ChoiceListSheet(
             title = orcaString("Host Type"),
-            items = types.map { it.label },
+            items = typeLabels,
             onDismiss = { choosingType = false },
             onChoose = { label ->
                 choosingType = false
-                types.firstOrNull { it.label == label }?.let { set("host_type", it.key) }
+                types.getOrNull(typeLabels.indexOf(label))?.let { set("host_type", it.key) }
+            },
+        )
+    }
+    hostPrinters?.let { printers ->
+        ChoiceListSheet(
+            title = orcaString("Printer"),
+            items = printers,
+            onDismiss = { hostPrinters = null },
+            onChoose = { slug ->
+                hostPrinters = null
+                set("printhost_port", slug)
             },
         )
     }
@@ -381,13 +455,15 @@ fun SendToPrinterSheet(
                     filaments = filaments,
                     loadSlots = loadSlots,
                     onBack = { mapping = false },
-                    onSend = { options -> onSend(host, startPrint, options) },
+                    onSend = { options -> onSend(host, startPrint && host.hostType?.startsPrint == true, options) },
                 )
                 return@Column
             }
             if (!host.canSend) {
+                // A preset whose host the app cannot reach yet says so, instead of asking for an address.
+                val unsupported = host.host.isNotBlank() && host.hostType?.supported == false
                 Text(
-                    text = stringResource(R.string.printer_host_empty),
+                    text = stringResource(if (unsupported) R.string.printer_host_unsupported else R.string.printer_host_empty),
                     color = colors.textSide,
                     style = OrcaTheme.typography.body13,
                     modifier = Modifier.padding(16.dp),
@@ -395,20 +471,25 @@ fun SendToPrinterSheet(
                 return@Column
             }
             Text(
-                text = (host.hostType?.label ?: host.settings.values["host_type"].orEmpty()) + SettingsSearch.SEPARATOR + host.host,
+                text = (host.hostType?.label?.let { orcaString(it) } ?: host.settings.values["host_type"].orEmpty()) +
+                    SettingsSearch.SEPARATOR + host.host,
                 color = colors.textSide,
                 style = OrcaTheme.typography.body13,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(R.string.printer_host_start),
-                    color = colors.text,
-                    style = OrcaTheme.typography.body14,
-                    modifier = Modifier.weight(1f),
-                )
-                OrcaSwitch(checked = startPrint, onCheckedChange = { startPrint = it })
+            // PrintHostSendDialog offers "Upload and Print" to a host that can start a print.
+            if (host.hostType?.startsPrint == true) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.printer_host_start),
+                        color = colors.text,
+                        style = OrcaTheme.typography.body14,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OrcaSwitch(checked = startPrint, onCheckedChange = { startPrint = it })
+                }
             }
+            val printNow = startPrint && host.hostType?.startsPrint == true
             OrcaButton(
                 text = stringResource(R.string.printer_host_send),
                 onClick = {
@@ -417,7 +498,7 @@ fun SendToPrinterSheet(
                     if (host.hostType == PrintHostType.CREALITY_PRINT) {
                         mapping = true
                     } else {
-                        onSend(host, startPrint, PrintOptions())
+                        onSend(host, printNow, PrintOptions())
                     }
                 },
                 modifier = Modifier
@@ -561,12 +642,13 @@ private fun Swatch(color: String) {
 }
 
 @Composable
-private fun Field(label: String, value: String, onValueChange: (String) -> Unit) {
+private fun Field(label: String, value: String, enabled: Boolean = true, onValueChange: (String) -> Unit) {
     Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
         OrcaTextField(
             value = value,
             onValueChange = onValueChange,
+            enabled = enabled,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             modifier = Modifier.width(200.dp),
         )

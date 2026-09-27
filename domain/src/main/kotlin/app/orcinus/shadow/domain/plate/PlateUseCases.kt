@@ -22,6 +22,7 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.ImportBatch
 import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.LayerGcode
@@ -1473,6 +1474,11 @@ class TestPhysicalPrinterUseCase(private val uploader: GcodeSender) {
     suspend operator fun invoke(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 }
 
+/** PhysicalPrinterDialog::update_printers(), its Refresh button: the printers of a server that serves several. */
+class ListHostPrintersUseCase(private val uploader: GcodeSender) {
+    suspend operator fun invoke(printer: PhysicalPrinter): HostPrintersOutcome = uploader.printers(printer)
+}
+
 /**
  * PhysicalPrinterDialog's Browse button, which a host that finds itself on the
  * network offers (PrintHost::has_auto_discovery()): a Creality printer is
@@ -1568,6 +1574,9 @@ interface GcodeSender {
 
     /** PrintHost::test(): whether the host at the printer's address answers. */
     suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome
+
+    /** PrintHost::get_printers(): the printers of a server that serves several. */
+    suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome
 }
 
 

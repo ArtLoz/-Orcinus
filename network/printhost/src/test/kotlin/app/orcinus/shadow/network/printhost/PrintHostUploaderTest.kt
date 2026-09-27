@@ -1,5 +1,6 @@
 package app.orcinus.shadow.network.printhost
 
+import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
@@ -82,12 +83,12 @@ class PrintHostUploaderTest {
         val http = FakeHttpClient(answer = Result.success("{}"))
 
         val outcome = runSuspend {
-            // MKS is reached over a TCP console, which the app does not speak.
-            PrintHostUploader(http).upload(printer("mks", "http://host", "k"), gcode(), "plate.gcode", startPrint = true)
+            // Obico is a cloud host with a login the app does not have.
+            PrintHostUploader(http).upload(printer("obico", "https://app.obico.io", "k"), gcode(), "plate.gcode", startPrint = true)
         }
 
         assertTrue(outcome is PrintHostUploadOutcome.Failure)
-        assertTrue(http.multipart.isEmpty())
+        assertTrue(http.multipart.isEmpty() && http.files.isEmpty() && http.gets.isEmpty())
     }
 
     @Test
@@ -303,6 +304,84 @@ class PrintHostUploaderTest {
     }
 
     @Test
+    fun `Duet takes its password from the key field`() {
+        val http = FakeHttpClient(answer = Result.success("""{"err": 0}"""), info = """{"err": 0}""")
+
+        runSuspend { PrintHostUploader(http).test(printer("duet", "192.168.1.80", "secret")) }
+
+        assertTrue(http.gets.first().startsWith("http://192.168.1.80/rr_connect?password=secret&time="))
+    }
+
+    @Test
+    fun `MKS posts the file and prints it with M23 and M24 on its console`() {
+        val http = FakeHttpClient(answer = Result.success("""{"err": 0}"""))
+        val console = FakeConsole()
+        val uploader = PrintHostUploader(http, console = console, mksStartDelayMillis = 0)
+
+        val tested = runSuspend { uploader.test(printer("mks", "192.168.1.40", "")) }
+        val outcome = runSuspend { uploader.upload(printer("mks", "192.168.1.40", ""), gcode(), "plate one.gcode", startPrint = true) }
+
+        assertTrue(tested is PrintHostTestOutcome.Success)
+        assertEquals(PrintHostUploadOutcome.Success("plate one.gcode"), outcome)
+        val sent = http.files.single()
+        assertEquals("http://192.168.1.40/upload?X-Filename=plate%20one.gcode", sent.url)
+        assertEquals("POST", sent.method)
+        assertEquals(
+            listOf(
+                FakeConsole.Run("192.168.1.40", 8080, listOf("M105")),
+                FakeConsole.Run("192.168.1.40", 8080, listOf("M23 plate one.gcode", "M24")),
+            ),
+            console.runs,
+        )
+    }
+
+    @Test
+    fun `MKS stops at an error code of the board`() {
+        val console = FakeConsole()
+        val uploader = PrintHostUploader(FakeHttpClient(answer = Result.success("""{"err": 1}""")), console = console, mksStartDelayMillis = 0)
+
+        val outcome = runSuspend { uploader.upload(printer("mks", "host", ""), gcode(), "plate.gcode", startPrint = true) }
+
+        assertTrue(outcome is PrintHostUploadOutcome.Failure)
+        assertTrue(console.runs.isEmpty())
+    }
+
+    @Test
+    fun `PrusaConnect posts to_print in the language of the app`() {
+        val http = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "2.0", "text": "PrusaLink 2.1"}""")
+
+        val outcome = runSuspend {
+            PrintHostUploader(http).upload(printer("prusaconnect", "https://connect.prusa3d.com", "key"), gcode(), "plate.gcode", startPrint = true)
+        }
+
+        assertEquals(PrintHostUploadOutcome.Success("plate.gcode"), outcome)
+        val request = http.multipart.single()
+        assertEquals("https://connect.prusa3d.com/api/files/local", request.url)
+        assertEquals("True", request.fields["to_print"])
+        assertEquals(null, request.fields["print"])
+        assertEquals(java.util.Locale.getDefault().language.take(2), request.headers["Accept-Language"])
+    }
+
+    @Test
+    fun `Repetier lists the printers of the server by their slug`() {
+        val http = FakeHttpClient(
+            answer = Result.success("{}"),
+            info = """{"data": [{"name": "Left", "slug": "Left_i3"}, {"name": "Right", "slug": "Right_i3"}]}""",
+        )
+
+        val outcome = runSuspend { PrintHostUploader(http).printers(printer("repetier", "192.168.1.90", "key")) }
+
+        assertEquals(HostPrintersOutcome.Success(listOf("Left_i3", "Right_i3")), outcome)
+        assertEquals("http://192.168.1.90/printer/list", http.gets.single())
+        // A server that says what went wrong is reported with its words.
+        val refused = FakeHttpClient(answer = Result.success("{}"), info = """{"error": "Access denied"}""")
+        assertEquals(
+            HostPrintersOutcome.Failure("Access denied"),
+            runSuspend { PrintHostUploader(refused).printers(printer("repetier", "host", "")) },
+        )
+    }
+
+    @Test
     fun `Repetier posts to the job of the printer when it is to print at once`() {
         val http = FakeHttpClient(answer = Result.success("{}"), info = """{"software": "Repetier-Server"}""")
         val printer = printer("repetier", "http://192.168.1.90", "key", mapOf("printhost_port" to "Printer1"))
@@ -454,6 +533,18 @@ class PrintHostUploaderTest {
         override suspend fun postJson(url: String, headers: Map<String, String>, body: String, auth: HttpAuth?): Result<String> {
             json += Json(url, body)
             return answer
+        }
+    }
+
+    /** The console exchanges the uploader made, all answered "ok". */
+    private class FakeConsole : ConsoleClient {
+        val runs = mutableListOf<Run>()
+
+        data class Run(val host: String, val port: Int, val messages: List<String>)
+
+        override suspend fun run(host: String, port: Int, messages: List<SerialMessage>, queueDelayMillis: Long): Result<Unit> {
+            runs += Run(host, port, messages.map { it.message })
+            return Result.success(Unit)
         }
     }
 

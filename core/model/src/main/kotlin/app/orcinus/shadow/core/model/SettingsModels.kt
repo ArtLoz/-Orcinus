@@ -498,42 +498,135 @@ data class PresetChange(
 
 /**
  * PrintHostType: the kind of a printer's host, as OrcaSlicer's host_type names
- * them. The app sends G-code to the ones the port covers; the others can be
- * set up and kept, as the desktop app keeps them.
+ * them, in the order and with the names PhysicalPrinterDialog lists them by.
+ * The app tests and sends to the ones the port covers ([supported]); the
+ * others can be chosen and kept, as the desktop app keeps them.
  */
 enum class PrintHostType(val key: String, val label: String) {
-    OCTOPRINT("octoprint", "Octo/Klipper"),
-    MOONRAKER("moonraker", "Moonraker (Klipper)"),
-
-    /** Creality's own firmware (CrealityPrint): the K2 family prints from its CFS material boxes. */
-    CREALITY_PRINT("crealityprint", "Creality Print"),
-
     /** Prusa's own host, which takes a key or a user and password (digest). */
     PRUSA_LINK("prusalink", "PrusaLink"),
+
+    /** Prusa's cloud, which takes PrusaLink's requests at connect.prusa3d.com. */
+    PRUSA_CONNECT("prusaconnect", "PrusaConnect"),
+    OCTOPRINT("octoprint", "Octo/Klipper"),
     DUET("duet", "Duet"),
-    REPETIER("repetier", "Repetier"),
-    ASTROBOX("astrobox", "AstroBox"),
-    ESP3D("esp3d", "ESP3D"),
     FLASHAIR("flashair", "FlashAir"),
+    ASTROBOX("astrobox", "AstroBox"),
+    REPETIER("repetier", "Repetier"),
+
+    /** MKS boards: the file over http, the G-code over a TCP console on port 8080. */
+    MKS("mks", "MKS"),
+    ESP3D("esp3d", "ESP3D"),
+
+    /** Creality's own firmware (CrealityPrint): the K2 family prints from its CFS material boxes. */
+    CREALITY_PRINT("crealityprint", "CrealityPrint"),
+    OBICO("obico", "Obico"),
+    FLASHFORGE("flashforge", "Flashforge"),
+    SIMPLYPRINT("simplyprint", "SimplyPrint"),
+    ELEGOO_LINK("elegoolink", "Elegoo Link"),
+    PRINTER_3D_OS("3dprinteros", "3DPrinterOS"),
+    MOONRAKER("moonraker", "Moonraker (Klipper)"),
     ;
+
+    /** Whether the app can test the host and send G-code to it. */
+    val supported: Boolean get() = this !in UNSUPPORTED
+
+    /** PrintHost::is_cloud(): a host reached through an account, whose Test button logs in. */
+    val isCloud: Boolean get() = this == OBICO || this == SIMPLYPRINT || this == PRINTER_3D_OS
 
     /** Whether the host takes a user and a password instead of a key (AuthorizationType). */
     val takesUserPassword: Boolean get() = this == PRUSA_LINK
 
-    /** Duet is reached with a password alone, which goes into rr_connect. */
-    val takesPassword: Boolean get() = this == DUET
+    /**
+     * PhysicalPrinterDialog::update(): the hosts that print on one of several
+     * printers of the server (printhost_port), which its Refresh button lists.
+     */
+    val supportsMultiplePrinters: Boolean get() = this == REPETIER || this == OBICO
 
-    /** Repetier prints on one of several printers of the server (printhost_port). */
-    val takesPort: Boolean get() = this == REPETIER
+    /** PhysicalPrinterDialog::update(): Flashforge's local API also takes the printer's serial number. */
+    val takesSerialNumber: Boolean get() = this == FLASHFORGE
+
+    /** PhysicalPrinterDialog::update(): the cloud hosts that keep their key and page themselves. */
+    val showsApiKey: Boolean get() = this != SIMPLYPRINT && this != PRINTER_3D_OS
+
+    val showsWebUi: Boolean get() = this != SIMPLYPRINT && this != PRINTER_3D_OS
+
+    /** PhysicalPrinterDialog::update(): SimplyPrint's address is its own. */
+    val hostEditable: Boolean get() = this != SIMPLYPRINT
+
+    /**
+     * get_post_upload_actions() has StartPrint: whether the send dialog offers
+     * "Upload and Print". FlashAir only stores, SimplyPrint only queues.
+     */
+    val startsPrint: Boolean get() = this != FLASHAIR && this != SIMPLYPRINT
 
     /**
      * PrintHost::has_auto_discovery(): whether PhysicalPrinterDialog offers its
-     * Browse button. OctoPrint and the hosts built on it (PrusaLink, AstroBox)
-     * look for OctoPrint's service; Creality's firmware for its K-series printers.
+     * Browse button. OctoPrint and the hosts built on it (PrusaLink,
+     * PrusaConnect, AstroBox) look for OctoPrint's service; Creality's
+     * firmware for its K-series printers.
      */
-    val hasAutoDiscovery: Boolean get() = this == OCTOPRINT || this == PRUSA_LINK || this == ASTROBOX || this == CREALITY_PRINT
+    val hasAutoDiscovery: Boolean
+        get() = this == OCTOPRINT || this == PRUSA_LINK || this == PRUSA_CONNECT || this == ASTROBOX || this == CREALITY_PRINT
+
+    /** get_test_ok_msg(): what the Test button says when the host answered, as OrcaSlicer's msgid. */
+    val testOkMessage: String
+        get() = when (this) {
+            PRUSA_LINK -> "Connection to PrusaLink is working correctly."
+            PRUSA_CONNECT -> "Connection to Prusa Connect is working correctly."
+            OCTOPRINT -> "Connection to OctoPrint is working correctly."
+            DUET -> "Connection to Duet is working correctly."
+            FLASHAIR -> "Connection to FlashAir is working correctly and upload is enabled."
+            ASTROBOX -> "Connection to AstroBox is working correctly."
+            REPETIER -> "Connection to Repetier is working correctly."
+            MKS -> "Connection to MKS is working correctly."
+            ESP3D -> "Connection to ESP3D is working correctly."
+            CREALITY_PRINT -> "Connected to CrealityPrint successfully!"
+            OBICO -> "Connected to Obico successfully!"
+            FLASHFORGE -> "Serial connection to Flashforge is working correctly."
+            SIMPLYPRINT -> "Connected to SimplyPrint successfully!"
+            ELEGOO_LINK -> "Connection to ElegooLink is working correctly."
+            PRINTER_3D_OS -> "Connection to 3DPrinterOS cloud works correctly."
+            MOONRAKER -> "Connection to Moonraker is working correctly."
+        }
+
+    /**
+     * get_test_failed_msg(): "<this>: <why>", as OrcaSlicer's msgid, and the
+     * note some hosts add below.
+     */
+    val testFailedMessage: String
+        get() = when (this) {
+            PRUSA_LINK -> "Could not connect to PrusaLink"
+            PRUSA_CONNECT -> "Could not connect to Prusa Connect"
+            OCTOPRINT -> "Could not connect to OctoPrint"
+            DUET -> "Could not connect to Duet"
+            FLASHAIR -> "Could not connect to FlashAir"
+            ASTROBOX -> "Could not connect to AstroBox"
+            REPETIER -> "Could not connect to Repetier"
+            MKS -> "Could not connect to MKS"
+            ESP3D -> "Could not connect to ESP3D"
+            CREALITY_PRINT -> "Could not connect to CrealityPrint"
+            OBICO -> "Could not connect to Obico"
+            FLASHFORGE -> "Could not connect to Flashforge via serial"
+            SIMPLYPRINT -> "Could not connect to SimplyPrint"
+            ELEGOO_LINK -> "Could not connect to ElegooLink"
+            PRINTER_3D_OS -> "Error session check"
+            MOONRAKER -> "Could not connect to Moonraker"
+        }
+
+    val testFailedNote: String?
+        get() = when (this) {
+            OCTOPRINT -> "Note: OctoPrint version 1.1.0 or higher is required."
+            FLASHAIR -> "Note: FlashAir with firmware 2.00.02 or newer and activated upload function is required."
+            ASTROBOX -> "Note: AstroBox version 1.1.0 or higher is required."
+            REPETIER -> "Note: Repetier version 0.90.0 or higher is required."
+            else -> null
+        }
 
     companion object {
+        /** The hosts the port does not cover yet: the cloud ones, Flashforge and Elegoo Link. */
+        private val UNSUPPORTED = setOf(OBICO, FLASHFORGE, SIMPLYPRINT, ELEGOO_LINK, PRINTER_3D_OS)
+
         fun of(key: String): PrintHostType? = entries.firstOrNull { it.key == key }
     }
 }
@@ -571,7 +664,52 @@ data class PhysicalPrinter(
     val port: String get() = settings.values["printhost_port"].orEmpty()
 
     /** Whether the app knows how to send G-code to it. */
-    val canSend: Boolean get() = hostType != null && host.isNotBlank()
+    val canSend: Boolean get() = hostType?.supported == true && host.isNotBlank()
+}
+
+/**
+ * PhysicalPrinterDialog::update(), which runs whenever the dialog opens and a
+ * setting changes: the address a cloud host fills in by itself is cleared once
+ * another kind of host is chosen, and PrusaConnect, Obico, SimplyPrint and
+ * 3DPrinterOS fill in their own when the field is empty (SimplyPrint always).
+ */
+fun ModelSettings.withHostDefaults(): ModelSettings {
+    val type = PrintHostType.of(values["host_type"].orEmpty()) ?: return this
+    var host = values["print_host"].orEmpty()
+    var webUi = values["print_host_webui"].orEmpty()
+    if (host in CLOUD_HOST_ADDRESSES) host = ""
+    when (type) {
+        PrintHostType.PRUSA_CONNECT -> if (host.isEmpty()) host = PRUSA_CONNECT_ADDRESS
+        PrintHostType.OBICO -> if (host.isEmpty()) host = OBICO_ADDRESS
+        PrintHostType.SIMPLYPRINT -> {
+            host = SIMPLYPRINT_PANEL
+            if (webUi.isNotEmpty()) webUi = SIMPLYPRINT_PANEL
+        }
+        PrintHostType.PRINTER_3D_OS -> if (host.isEmpty()) host = PRINTER_3D_OS_ADDRESS
+        else -> Unit
+    }
+    if (host == values["print_host"].orEmpty() && webUi == values["print_host_webui"].orEmpty()) return this
+    return ModelSettings(values + ("print_host" to host) + ("print_host_webui" to webUi))
+}
+
+private const val PRUSA_CONNECT_ADDRESS = "https://connect.prusa3d.com"
+private const val OBICO_ADDRESS = "https://app.obico.io"
+private const val SIMPLYPRINT_PANEL = "https://simplyprint.io/panel"
+
+/** C3DPrinterOS::default_host(). */
+private const val PRINTER_3D_OS_ADDRESS = "https://cloud.3dprinteros.com"
+
+private val CLOUD_HOST_ADDRESSES =
+    setOf(PRUSA_CONNECT_ADDRESS, OBICO_ADDRESS, "https://simplyprint.io", SIMPLYPRINT_PANEL, PRINTER_3D_OS_ADDRESS)
+
+/**
+ * PrintHost::get_printers(): the printers a server that serves several prints
+ * on (their printhost_port), which the dialog's Refresh button lists.
+ */
+sealed interface HostPrintersOutcome {
+    data class Success(val printers: List<String>) : HostPrintersOutcome
+
+    data class Failure(val message: String) : HostPrintersOutcome
 }
 
 /**
