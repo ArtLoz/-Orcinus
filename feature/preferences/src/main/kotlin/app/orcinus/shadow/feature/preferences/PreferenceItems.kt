@@ -16,7 +16,8 @@ internal sealed interface PreferenceItem {
 
     /**
      * create_item_combobox(): the entry's index, or with [values] the value at
-     * that index; [labels] are msgids.
+     * that index; [labels] are msgids, each followed by its untranslated
+     * suffix in [suffixes] when there are any.
      */
     data class Choice(
         override val key: String,
@@ -24,6 +25,7 @@ internal sealed interface PreferenceItem {
         override val tooltip: String,
         val labels: List<String>,
         val values: List<String>? = null,
+        val suffixes: List<String>? = null,
     ) : PreferenceItem {
         /** The entry the stored [value] selects: atoi() of it, or its position among [values]; the first otherwise. */
         fun selected(value: String): Int =
@@ -88,6 +90,18 @@ internal val PREFERENCE_PAGES = listOf(
     PreferencePage(
         "General",
         listOf(
+            PreferenceSection(
+                "Settings",
+                listOf(
+                    PreferenceItem.Choice(
+                        AppConfigKeys.USE_INCHES,
+                        "Units",
+                        "",
+                        labels = listOf("Metric", "Imperial"),
+                        suffixes = listOf(" (mm, g)", " (in, oz)"),
+                    ),
+                ),
+            ),
             PreferenceSection(
                 "Project",
                 listOf(

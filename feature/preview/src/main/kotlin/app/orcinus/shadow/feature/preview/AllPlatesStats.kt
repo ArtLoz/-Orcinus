@@ -102,7 +102,12 @@ internal fun AllPlatesItem(stats: AllPlatesStats, enabled: Boolean, onClick: () 
  * all of them.
  */
 @Composable
-internal fun AllPlatesStatsPanel(statistics: List<SliceStatistics>, filamentColors: List<Color>, modifier: Modifier = Modifier) {
+internal fun AllPlatesStatsPanel(
+    statistics: List<SliceStatistics>,
+    filamentColors: List<Color>,
+    imperial: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val colors = OrcaTheme.colors
     // The filaments of every plate, in order, each summed over the plates.
     val usages = statistics.flatMap(SliceStatistics::filaments)
@@ -127,7 +132,7 @@ internal fun AllPlatesStatsPanel(statistics: List<SliceStatistics>, filamentColo
     // The model's column alone writes its figures on one line; a Total follows the others.
     val beyondModel = columns.any { it.first != "Model" }
     fun cell(amount: FilamentAmount): String =
-        LegendFormat.spacedMeters(amount.meters) + (if (beyondModel) "\n" else "    ") + LegendFormat.compactWeight(amount.grams)
+        LegendFormat.spacedMeters(amount.meters, imperial) + (if (beyondModel) "\n" else "    ") + LegendFormat.compactWeight(amount.grams, imperial)
 
     Box(modifier.fillMaxSize().background(colors.canvas), contentAlignment = Alignment.Center) {
         Column(

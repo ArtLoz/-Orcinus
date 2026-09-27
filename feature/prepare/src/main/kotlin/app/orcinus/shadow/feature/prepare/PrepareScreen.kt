@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -90,6 +91,7 @@ import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
 import app.orcinus.shadow.core.model.FlushOption
@@ -622,6 +624,7 @@ internal fun PrepareScreen(
                     state.cut != null -> CutPanel(
                         state.cut,
                         cutActions,
+                        imperial = canvas.imperialUnits,
                         plateSize = state.plate?.geometry?.printableArea?.let { area ->
                             maxOf(area.maxOf { it.x } - area.minOf { it.x }, area.maxOf { it.y } - area.minOf { it.y })
                         } ?: 350.0,
@@ -631,8 +634,9 @@ internal fun PrepareScreen(
                     state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
-                    state.gizmo == PlateGizmo.SCALE && scale != null && size != null -> ScaleGizmoPanel(state, scale, size, scaleActions, onCloseGizmo)
-                    state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(position, onSetPosition, onCloseGizmo)
+                    state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
+                        ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo)
+                    state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(position, canvas.imperialUnits, onSetPosition, onCloseGizmo)
                     state.gizmo == PlateGizmo.ROTATE && rotation != null -> RotateGizmoPanel(state, rotation, rotationActions, onCloseGizmo)
                 }
             }
@@ -661,7 +665,7 @@ internal fun PrepareScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Notifications(state, onCancelSlicing, onDismissProblem)
+                Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem)
                 // In a wide window the slice button sits in the tab bar, as on desktop.
                 if (layout == OrcaWindowLayout.Compact) {
                     SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
@@ -908,6 +912,7 @@ private fun ObjectContextMenu(
 @Composable
 private fun Notifications(
     state: PrepareUiState,
+    imperial: Boolean,
     onCancelSlicing: () -> Unit,
     onDismissProblem: () -> Unit,
 ) {
@@ -949,15 +954,15 @@ private fun Notifications(
             onCancel = onCancelSlicing,
         )
     } else {
-        state.selectedCopy?.let { ObjectInfo(it) }
+        state.selectedCopy?.let { ObjectInfo(it, imperial) }
     }
 }
 
 @Composable
-private fun ObjectInfo(copy: SceneCopy) {
+private fun ObjectInfo(copy: SceneCopy, imperial: Boolean) {
     OrcaNotification {
         OrcaNotificationText(stringResource(R.string.object_name, copy.plateObject.displayName()), emphasized = true)
-        OrcaNotificationText(stringResource(R.string.object_size, copy.instance.inspection.dimensions.sizeText()))
+        OrcaNotificationText(stringResource(R.string.object_size, copy.instance.inspection.dimensions.sizeText(imperial)))
         OrcaNotificationText(stringResource(R.string.object_triangles, copy.instance.inspection.facetCount))
     }
 }
@@ -1511,11 +1516,12 @@ private const val GAP_AREA_MAX = 5f
 /**
  * GizmoObjectManipulation::do_render_move_window() in world coordinates: the
  * object's position per axis, applied when an input is done, and the button
- * that closes the gizmo.
+ * that closes the gizmo. [imperial] units show and take it in inches.
  */
 @Composable
 private fun MoveGizmoPanel(
     position: ObjectPosition,
+    imperial: Boolean,
     onSetPosition: (axis: Int, value: Double) -> Unit,
     onDone: () -> Unit,
 ) {
@@ -1526,10 +1532,10 @@ private fun MoveGizmoPanel(
         }
         GizmoValueRow(
             label = stringResource(R.string.gizmo_position),
-            values = listOf(position.x, position.y, position.z),
-            unit = stringResource(R.string.unit_mm),
+            values = listOf(position.x, position.y, position.z).map { it * displayKoef(imperial) },
+            unit = lengthUnit(imperial),
             labelWidth = PositionLabelWidth,
-            onValue = onSetPosition,
+            onValue = { axis, value -> onSetPosition(axis, value * inputKoef(imperial)) },
         )
         GizmoPanelFooter(onDone)
     }
@@ -1689,6 +1695,7 @@ private fun ScaleGizmoPanel(
     state: PrepareUiState,
     scale: Vector3,
     size: Vector3,
+    imperial: Boolean,
     actions: ScaleActions,
     onDone: () -> Unit,
 ) {
@@ -1708,10 +1715,10 @@ private fun ScaleGizmoPanel(
         )
         GizmoValueRow(
             label = stringResource(R.string.gizmo_size),
-            values = listOf(size.x, size.y, size.z),
-            unit = stringResource(R.string.unit_mm),
+            values = listOf(size.x, size.y, size.z).map { it * displayKoef(imperial) },
+            unit = lengthUnit(imperial),
             labelWidth = PositionLabelWidth,
-            onValue = actions.setSize,
+            onValue = { axis, value -> actions.setSize(axis, value * inputKoef(imperial)) },
             reset = GizmoReset(DesignR.drawable.orca_toolbar_reset, "", visible = false, onClick = {}),
         )
         Row(
@@ -1747,6 +1754,15 @@ private fun AxisHeaders() {
     }
 }
 
+/** m_new_unit_string: "in" or "mm". */
+@Composable
+private fun lengthUnit(imperial: Boolean): String = if (imperial) orcaString("in") else stringResource(R.string.unit_mm)
+
+/** update_buffered_value() shows millimetres times mm_to_in, and on_change() takes inches times in_to_mm. */
+internal fun displayKoef(imperial: Boolean) = if (imperial) ImperialUnits.MM_TO_IN else 1.0
+
+internal fun inputKoef(imperial: Boolean) = if (imperial) ImperialUnits.IN_TO_MM else 1.0
+
 @Composable
 private fun GizmoValueRow(
     label: String,
@@ -1772,13 +1788,16 @@ private fun GizmoValueRow(
                     .width(PositionFieldWidth),
             )
         }
+        // The unit keeps its line; "in" in other languages is longer than the column.
         Text(
             text = unit,
             color = OrcaTheme.colors.textSide,
             style = OrcaTheme.typography.body13,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier
                 .padding(start = 6.dp)
-                .width(UnitWidth),
+                .widthIn(min = UnitWidth),
         )
         if (reset != null) {
             // An invisible button keeps the rows aligned, as the window does.

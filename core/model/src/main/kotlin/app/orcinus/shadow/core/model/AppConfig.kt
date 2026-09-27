@@ -15,7 +15,20 @@ data class CanvasPreferences(
     val antialiasingSamples: Int = 4,
     /** auto_arrange: CloneDialog's "Auto arrange plate after cloning" when it opens. */
     val autoArrange: Boolean = true,
+    /**
+     * use_inches: the canvas's panels (the object manipulation, the object's
+     * info, the cut and the G-code legend) show lengths in inches and weights
+     * in ounces.
+     */
+    val imperialUnits: Boolean = false,
 )
+
+/** GizmoObjectManipulation's conversions, with which the canvas shows imperial units. */
+object ImperialUnits {
+    const val IN_TO_MM = 25.4
+    const val MM_TO_IN = 0.0393700787
+    const val OZ_TO_G = 28.34952
+}
 
 /**
  * The keys of the app configuration's "app" section that OrcaSlicer's
@@ -23,6 +36,7 @@ data class CanvasPreferences(
  * their defaults.
  */
 object AppConfigKeys {
+    const val USE_INCHES = "use_inches"
     const val NO_WARN_WHEN_MODIFIED_GCODES = "no_warn_when_modified_gcodes"
     const val DRC_BITS = "drc_bits"
     const val EXPORT_SOURCES_FULL_PATHNAMES = "export_sources_full_pathnames"
@@ -57,6 +71,7 @@ object AppConfigKeys {
 
     /** Every key the app reads once the engine has started. */
     val ALL = listOf(
+        USE_INCHES,
         NO_WARN_WHEN_MODIFIED_GCODES,
         DRC_BITS,
         EXPORT_SOURCES_FULL_PATHNAMES,
@@ -78,6 +93,9 @@ object AppConfigKeys {
         SAVE_PRESET_CHOISE,
         ENABLE_STEP_MESH_SETTING,
     )
+
+    /** get("use_inches") == "1", as the canvas asks; the Units combo box writes its index. */
+    fun imperialUnits(value: String?): Boolean = value == "1"
 
     /** AppConfig::get_bool(): "true" or "1". */
     fun bool(value: String?): Boolean = value == "true" || value == "1"

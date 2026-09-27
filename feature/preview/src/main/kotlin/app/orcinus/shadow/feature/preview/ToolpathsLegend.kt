@@ -26,6 +26,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaLegendValue
 import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaSummaryItem
 import app.orcinus.shadow.core.designsystem.component.OrcaSummaryRow
+import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.render.gcode.FilamentUsage
 import app.orcinus.shadow.render.gcode.OptionLegend
 import app.orcinus.shadow.render.gcode.ToolpathsMoveType
@@ -60,12 +61,14 @@ internal val LegendViewTypes = listOf(
  * (GCodeViewer::render_legend()): collapsed, the print's time, filament, and
  * layers; expanded, the view types, what the view colours with its time,
  * share, and filament, the move options, and the estimation. Lines of feature
- * types and options show or hide them.
+ * types and options show or hide them. [imperial] units (use_inches) write
+ * lengths in inches and weights in ounces.
  */
 @Composable
 internal fun ToolpathsSheet(
     view: ToolpathsView,
     statistics: ToolpathsStatistics,
+    imperial: Boolean,
     onViewTypeChange: (ToolpathsViewType) -> Unit,
     onRoleVisibleChange: (ToolpathsRole, Boolean) -> Unit,
     onOptionVisibleChange: (ToolpathsOption, Boolean) -> Unit,
@@ -86,8 +89,8 @@ internal fun ToolpathsSheet(
                 OrcaSummaryItem(DesignR.drawable.orca_monitor_item_prediction, LegendFormat.shortTime(totalTime), stringResource(R.string.summary_time)),
                 OrcaSummaryItem(
                     DesignR.drawable.orca_filament,
-                    LegendFormat.spacedMeters(statistics.totalUsedFilament / 1_000.0),
-                    LegendFormat.compactWeight(statistics.totalWeight),
+                    LegendFormat.spacedMeters(statistics.totalUsedFilament / 1_000.0, imperial),
+                    LegendFormat.compactWeight(statistics.totalWeight, imperial),
                 ),
                 OrcaSummaryItem(DesignR.drawable.orca_param_layer_height, view.layerZs.size.toString(), stringResource(R.string.summary_layers)),
             ),
@@ -100,13 +103,13 @@ internal fun ToolpathsSheet(
             onSelect = { onViewTypeChange(LegendViewTypes[it]) },
         )
         when (view.viewType) {
-            ToolpathsViewType.FeatureType -> FeatureTypes(view, statistics, totalTime, onRoleVisibleChange, onOptionVisibleChange)
-            ToolpathsViewType.Summary -> Summary(statistics)
-            ToolpathsViewType.ColorPrint -> ColorPrint(view, statistics)
+            ToolpathsViewType.FeatureType -> FeatureTypes(view, statistics, totalTime, imperial, onRoleVisibleChange, onOptionVisibleChange)
+            ToolpathsViewType.Summary -> Summary(statistics, imperial)
+            ToolpathsViewType.ColorPrint -> ColorPrint(view, statistics, imperial)
             ToolpathsViewType.Tool -> Unit
             else -> ColorRange(view, onOptionVisibleChange)
         }
-        Estimation(view, statistics)
+        Estimation(view, statistics, imperial)
         if (view.viewType == ToolpathsViewType.ColorPrint) {
             Options(view, onOptionVisibleChange)
         }
@@ -127,6 +130,7 @@ private fun FeatureTypes(
     view: ToolpathsView,
     statistics: ToolpathsStatistics,
     totalTime: Float,
+    imperial: Boolean,
     onRoleVisibleChange: (ToolpathsRole, Boolean) -> Unit,
     onOptionVisibleChange: (ToolpathsOption, Boolean) -> Unit,
 ) {
@@ -141,8 +145,10 @@ private fun FeatureTypes(
                 title = roleName(role.role),
                 detail = detail(role.time),
                 share = share(role.time),
-                usage = LegendFormat.meters(used.meters),
-                usageDetail = LegendFormat.compactWeight(used.grams),
+                usage = LegendFormat.meters(used.meters, imperial),
+                // used_filament_per_role() gives ounces in imperial units, which
+                // format_compact_weight() divides by oz_to_g once more; as OrcaSlicer shows them.
+                usageDetail = LegendFormat.compactWeight(if (imperial) used.grams / ImperialUnits.OZ_TO_G else used.grams, imperial),
                 visible = role.visible,
                 onToggle = { onRoleVisibleChange(role.role, !role.visible) },
             )
@@ -158,7 +164,7 @@ private fun FeatureTypes(
                     title = name,
                     detail = detail(view.travelsTime),
                     share = share(view.travelsTime),
-                    usage = LegendFormat.distance(statistics.totalTravelDistance),
+                    usage = LegendFormat.distance(statistics.totalTravelDistance, imperial),
                     usageDetail = LegendFormat.compactCount(statistics.totalTravelMoves.toLong()),
                     visible = option.visible,
                     onToggle = { onOptionVisibleChange(option.option, !option.visible) },
@@ -178,7 +184,7 @@ private fun FeatureTypes(
                     title = name,
                     detail = detail(seconds),
                     share = share(seconds),
-                    usage = distance?.let(LegendFormat::distance) ?: count,
+                    usage = distance?.let { LegendFormat.distance(it, imperial) } ?: count,
                     usageDetail = if (distance != null) count else null,
                     visible = option.visible,
                     onToggle = { onOptionVisibleChange(option.option, !option.visible) },
@@ -229,16 +235,19 @@ private fun ColorRange(view: ToolpathsView, onOptionVisibleChange: (ToolpathsOpt
 }
 
 @Composable
-private fun Summary(statistics: ToolpathsStatistics) {
+private fun Summary(statistics: ToolpathsStatistics, imperial: Boolean) {
     OrcaLegendSection(viewTypeName(ToolpathsViewType.Summary)) {
-        OrcaLegendValue(stringResource(R.string.total), "${LegendFormat.spacedMeters(statistics.totalUsedFilament / 1_000.0)} / ${LegendFormat.compactWeight(statistics.totalWeight)}")
+        OrcaLegendValue(
+            stringResource(R.string.total),
+            "${LegendFormat.spacedMeters(statistics.totalUsedFilament / 1_000.0, imperial)} / ${LegendFormat.compactWeight(statistics.totalWeight, imperial)}",
+        )
         OrcaLegendValue(stringResource(R.string.cost), LegendFormat.cost(statistics.totalCost))
         OrcaLegendValue(stringResource(R.string.total_time), LegendFormat.shortTime(statistics.time))
     }
 }
 
 @Composable
-private fun ColorPrint(view: ToolpathsView, statistics: ToolpathsStatistics) {
+private fun ColorPrint(view: ToolpathsView, statistics: ToolpathsStatistics, imperial: Boolean) {
     // The filament of each extruder: the model's, and support, flushed, or tower filament when there is any.
     val parts = listOf(
         R.string.header_model to statistics.modelFilament,
@@ -246,7 +255,7 @@ private fun ColorPrint(view: ToolpathsView, statistics: ToolpathsStatistics) {
         R.string.header_flushed to statistics.flushedFilament,
         R.string.header_tower to statistics.wipeTowerFilament,
     ).filter { (title, usage) -> title == R.string.header_model || usage.meters > 0.0 || usage.grams > 0.0 }
-    val detail = parts.map { (title, usage) -> "${stringResource(title)} ${LegendFormat.spacedMeters(usage.meters)}" }.joinToString(" · ")
+    val detail = parts.map { (title, usage) -> "${stringResource(title)} ${LegendFormat.spacedMeters(usage.meters, imperial)}" }.joinToString(" · ")
     OrcaLegendSection(viewTypeName(ToolpathsViewType.ColorPrint)) {
         view.usedExtruders.forEach { extruder ->
             val total = FilamentUsage(parts.sumOf { it.second.meters }, parts.sumOf { it.second.grams })
@@ -255,8 +264,8 @@ private fun ColorPrint(view: ToolpathsView, statistics: ToolpathsStatistics) {
                 title = (extruder + 1).toString(),
                 detail = detail,
                 share = null,
-                usage = LegendFormat.spacedMeters(total.meters),
-                usageDetail = LegendFormat.compactWeight(total.grams),
+                usage = LegendFormat.spacedMeters(total.meters, imperial),
+                usageDetail = LegendFormat.compactWeight(total.grams, imperial),
                 visible = null,
                 onToggle = null,
             )
@@ -291,11 +300,12 @@ private fun OptionItem(option: OptionLegend, name: String, onOptionVisibleChange
 }
 
 @Composable
-private fun Estimation(view: ToolpathsView, statistics: ToolpathsStatistics) {
+private fun Estimation(view: ToolpathsView, statistics: ToolpathsStatistics, imperial: Boolean) {
     val featureType = view.viewType == ToolpathsViewType.FeatureType
     OrcaLegendSection(stringResource(if (featureType) R.string.total_estimation else R.string.time_estimation)) {
         if (featureType) {
-            fun length(millimeters: Double, grams: Double) = "${LegendFormat.spacedMeters(millimeters / 1_000.0)} · ${LegendFormat.compactWeight(grams)}"
+            fun length(millimeters: Double, grams: Double) =
+                "${LegendFormat.spacedMeters(millimeters / 1_000.0, imperial)} · ${LegendFormat.compactWeight(grams, imperial)}"
             OrcaLegendValue(stringResource(R.string.total_filament), length(statistics.totalUsedFilament, statistics.totalWeight))
             // The model's filament: the total without support, flushed, and tower filament.
             val excluded = listOf(statistics.supportFilament, statistics.flushedFilament, statistics.wipeTowerFilament)

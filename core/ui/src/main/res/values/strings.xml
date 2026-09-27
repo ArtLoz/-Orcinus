@@ -8,6 +8,7 @@
     <string name="duration_minutes">%1$d мин</string>
     <string name="length_meters">%1$s м</string>
     <string name="size_millimeters">%1$s × %2$s × %3$s мм</string>
+    <string name="size_inches">%1$s × %2$s × %3$s дюйм</string>
 
     <!-- The list of an OrcaSlicer preset combo box. -->
     <string name="user_presets">Пользовательские профили</string>

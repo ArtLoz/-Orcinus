@@ -2,6 +2,7 @@ package app.orcinus.shadow.core.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
@@ -33,13 +34,17 @@ fun printTime(seconds: Long): String {
 fun filamentLength(millimeters: Double): String =
     stringResource(R.string.length_meters, String.format(Locale.ROOT, "%.2f", millimeters / 1_000.0))
 
+/** The size, in inches with [imperial] units (Plater::update_objects_info_notification()'s koef). */
 @Composable
-fun ModelDimensions.sizeText(): String = stringResource(
-    R.string.size_millimeters,
-    widthMillimeters.twoDecimals(),
-    depthMillimeters.twoDecimals(),
-    heightMillimeters.twoDecimals(),
-)
+fun ModelDimensions.sizeText(imperial: Boolean): String {
+    val koef = if (imperial) ImperialUnits.MM_TO_IN else 1.0
+    return stringResource(
+        if (imperial) R.string.size_inches else R.string.size_millimeters,
+        (widthMillimeters * koef).twoDecimals(),
+        (depthMillimeters * koef).twoDecimals(),
+        (heightMillimeters * koef).twoDecimals(),
+    )
+}
 
 @Composable
 fun PlateProblem.title(): String = when (kind) {

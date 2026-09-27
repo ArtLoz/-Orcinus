@@ -66,6 +66,7 @@ class AppPreferences(private val store: AppConfigStore) {
             antialiasingSamples = samples,
             // CloneDialog compares with "true" alone.
             autoArrange = values[AppConfigKeys.AUTO_ARRANGE] == "true",
+            imperialUnits = AppConfigKeys.imperialUnits(values[AppConfigKeys.USE_INCHES]),
         )
     }
 }

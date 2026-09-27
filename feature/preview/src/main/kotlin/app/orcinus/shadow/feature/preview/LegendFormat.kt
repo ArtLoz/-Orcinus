@@ -1,5 +1,7 @@
 package app.orcinus.shadow.feature.preview
 
+import app.orcinus.shadow.core.model.ImperialUnits.IN_TO_MM
+import app.orcinus.shadow.core.model.ImperialUnits.OZ_TO_G
 import java.util.Locale
 import kotlin.math.abs
 
@@ -7,6 +9,8 @@ import kotlin.math.abs
  * The legend's number formats, as OrcaSlicer writes them with sprintf in the
  * C locale: libslic3r's get_time_dhms() and short_time(), and the helpers of
  * GCodeViewer::render_legend(). OrcaSlicer leaves their units untranslated.
+ * With [imperial] units (use_inches) lengths are in inches and weights in
+ * ounces, as render_legend() writes them.
  */
 internal object LegendFormat {
     /** short_time(get_time_dhms(seconds)): "1d2h3m", "2h5m", "12m9s", "45s", "<1s". */
@@ -47,9 +51,12 @@ internal object LegendFormat {
         else -> "<0.1"
     }
 
-    /** format_distance(): millimetres below a metre, metres above. */
-    fun distance(millimeters: Float): String =
-        if (abs(millimeters) < 1_000f) String.format(Locale.ROOT, "%.0fmm", millimeters) else String.format(Locale.ROOT, "%.2fm", millimeters / 1_000f)
+    /** format_distance(): inches, or millimetres below a metre and metres above. */
+    fun distance(millimeters: Float, imperial: Boolean): String = when {
+        imperial -> String.format(Locale.ROOT, "%.2fin", millimeters / IN_TO_MM.toFloat())
+        abs(millimeters) < 1_000f -> String.format(Locale.ROOT, "%.0fmm", millimeters)
+        else -> String.format(Locale.ROOT, "%.2fm", millimeters / 1_000f)
+    }
 
     /** format_compact_count(): 999, 1.2K, 3M. */
     fun compactCount(value: Long): String {
@@ -70,8 +77,9 @@ internal object LegendFormat {
         }
     }
 
-    /** format_compact_weight(): grams, kilograms, or tonnes with two decimals. */
-    fun compactWeight(grams: Double): String {
+    /** format_compact_weight(): ounces, or grams, kilograms, or tonnes with two decimals. */
+    fun compactWeight(grams: Double, imperial: Boolean): String {
+        if (imperial) return String.format(Locale.ROOT, "%.2f oz", grams / OZ_TO_G)
         var scaled = abs(grams)
         var unit = "g"
         if (scaled >= 1_000_000.0) {
@@ -84,11 +92,15 @@ internal object LegendFormat {
         return (if (grams < 0.0) "-" else "") + String.format(Locale.ROOT, "%.2f", scaled) + unit
     }
 
-    /** Filament length in metres, as the Usage column writes it. */
-    fun meters(meters: Double): String = String.format(Locale.ROOT, "%.2fm", meters)
+    /** Filament length in metres or inches, as the Usage column writes it. */
+    fun meters(meters: Double, imperial: Boolean): String =
+        if (imperial) String.format(Locale.ROOT, "%.2fin", inches(meters)) else String.format(Locale.ROOT, "%.2fm", meters)
 
-    /** Filament length in metres with a spaced unit, as the totals write it. */
-    fun spacedMeters(meters: Double): String = String.format(Locale.ROOT, "%.2f m", meters)
+    /** Filament length in metres or inches with a spaced unit, as the totals write it. */
+    fun spacedMeters(meters: Double, imperial: Boolean): String =
+        if (imperial) String.format(Locale.ROOT, "%.2f in", inches(meters)) else String.format(Locale.ROOT, "%.2f m", meters)
+
+    private fun inches(meters: Double) = meters * 1_000.0 / IN_TO_MM
 
     /** A cost with two decimals. */
     fun cost(value: Double): String = String.format(Locale.ROOT, "%.2f", value)

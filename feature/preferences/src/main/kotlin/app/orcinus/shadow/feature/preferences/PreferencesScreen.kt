@@ -202,7 +202,7 @@ private fun PreferenceRow(
                 )
             }
             is PreferenceItem.Choice -> {
-                val labels = item.labels.map { orcaString(it) }
+                val labels = item.labels.mapIndexed { index, label -> orcaString(label) + item.suffixes?.get(index).orEmpty() }
                 OrcaComboBox(
                     items = labels.indices.toList(),
                     selected = item.selected(value),

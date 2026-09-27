@@ -259,6 +259,7 @@ internal fun PreviewScreen(
                 ToolpathsSheet(
                     view = view,
                     statistics = shown.statistics,
+                    imperial = canvas.imperialUnits,
                     onViewTypeChange = shown::setViewType,
                     onRoleVisibleChange = shown::setRoleVisible,
                     onOptionVisibleChange = shown::setOptionVisible,
@@ -301,6 +302,7 @@ internal fun PreviewScreen(
             if (allPlatesShown) {
                 AllPlatesStatsPanel(
                     statistics = allPlates.statistics,
+                    imperial = canvas.imperialUnits,
                     filamentColors = state.filamentColors.map { value -> parseFilamentColor(value)?.let { Color(it.red, it.green, it.blue, it.alpha) } ?: OrcaTheme.colors.accent },
                     modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
                 )

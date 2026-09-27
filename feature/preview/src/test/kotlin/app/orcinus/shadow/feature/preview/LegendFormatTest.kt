@@ -23,14 +23,22 @@ class LegendFormatTest {
         assertEquals("0", LegendFormat.percent(0f))
         assertEquals("<0.1", LegendFormat.percent(0.0005f))
         assertEquals("19.3", LegendFormat.percent(0.193f))
-        assertEquals("845mm", LegendFormat.distance(845.4f))
-        assertEquals("8.45m", LegendFormat.distance(8_450f))
+        assertEquals("845mm", LegendFormat.distance(845.4f, imperial = false))
+        assertEquals("8.45m", LegendFormat.distance(8_450f, imperial = false))
         assertEquals("362", LegendFormat.compactCount(362))
         assertEquals("1.2K", LegendFormat.compactCount(1_234))
         assertEquals("3M", LegendFormat.compactCount(3_000_000))
-        assertEquals("3.61g", LegendFormat.compactWeight(3.611))
-        assertEquals("1.50kg", LegendFormat.compactWeight(1_500.0))
-        assertEquals("0.35m", LegendFormat.meters(0.354))
+        assertEquals("3.61g", LegendFormat.compactWeight(3.611, imperial = false))
+        assertEquals("1.50kg", LegendFormat.compactWeight(1_500.0, imperial = false))
+        assertEquals("0.35m", LegendFormat.meters(0.354, imperial = false))
         assertEquals("0.20", LegendFormat.decimal(0.2f, 2))
+    }
+
+    @Test
+    fun `imperial units write inches and ounces`() {
+        assertEquals("33.28in", LegendFormat.distance(845.4f, imperial = true))
+        assertEquals("1.00 oz", LegendFormat.compactWeight(28.34952, imperial = true))
+        assertEquals("39.37in", LegendFormat.meters(1.0, imperial = true))
+        assertEquals("39.37 in", LegendFormat.spacedMeters(1.0, imperial = true))
     }
 }

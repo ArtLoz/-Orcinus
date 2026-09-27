@@ -112,7 +112,7 @@ internal class CutConnectorActions(
  * render_input_window_warning(). "Cancel" closes the gizmo from its title.
  */
 @Composable
-internal fun CutPanel(mode: CutMode, actions: CutActions, plateSize: Double = 350.0) {
+internal fun CutPanel(mode: CutMode, actions: CutActions, imperial: Boolean, plateSize: Double = 350.0) {
     if (mode.editingConnectors) return CutConnectorsPanel(mode, actions.connectors)
     val colors = OrcaTheme.colors
     val hasConnectors = mode.connectors.isNotEmpty()
@@ -127,12 +127,13 @@ internal fun CutPanel(mode: CutMode, actions: CutActions, plateSize: Double = 35
             enabled = !hasConnectors,
             onSelect = actions.setKind,
         )
-        // render_build_size()
-        val size = mode.buildVolume
+        // render_build_size(), in inches with imperial units; its sliders stay in millimetres, as they do in OrcaSlicer.
+        val koef = displayKoef(imperial)
+        val size = mode.buildVolume?.let { Vector3(it.x * koef, it.y * koef, it.z * koef) }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
             Text(orcaString("Build Volume"), color = colors.onCanvasPanel, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
             Text(
-                text = size?.let { String.format(textLocale(), "%.2f x %.2f x %.2f %s", it.x, it.y, it.z, orcaString("mm")) }.orEmpty(),
+                text = size?.let { String.format(textLocale(), "%.2f x %.2f x %.2f %s", it.x, it.y, it.z, orcaString(if (imperial) "in" else "mm")) }.orEmpty(),
                 color = colors.onCanvasPanel,
                 style = OrcaTheme.typography.body12,
             )
@@ -143,9 +144,10 @@ internal fun CutPanel(mode: CutMode, actions: CutActions, plateSize: Double = 35
             Text(orcaString("Cut position"), color = colors.onCanvasPanel, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
             Text("Z:", color = colors.onCanvasPanel, style = OrcaTheme.typography.body12, modifier = Modifier.padding(end = 4.dp))
             if (plane != null) {
+                // render_move_center_input()
                 PositionField(
-                    value = CutPlanes.center(plane).z,
-                    onValue = actions.setPosition,
+                    value = CutPlanes.center(plane).z * displayKoef(imperial),
+                    onValue = { actions.setPosition(it * inputKoef(imperial)) },
                     modifier = Modifier.width(PositionFieldWidth),
                 )
             }
