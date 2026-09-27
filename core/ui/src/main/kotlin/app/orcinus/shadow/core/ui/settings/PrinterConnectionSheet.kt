@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
@@ -43,6 +44,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaSwitch
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.BonjourReply
+import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -62,6 +65,8 @@ import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.preset.ChoiceListSheet
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -83,6 +88,12 @@ fun PrinterConnectionSheet(
     onDismiss: () -> Unit,
     /** Its Test button (PrintHost::test). */
     onTest: suspend (PhysicalPrinter) -> PrintHostTestOutcome = { PrintHostTestOutcome.Failure("") },
+    /** Its Browse button: BonjourDialog's lookup of OctoPrint's service. */
+    lookup: () -> Flow<List<BonjourReply>> = { emptyFlow() },
+    /** Its Browse button for Creality's firmware: CrealityDiscoveryDialog's scan. */
+    scanCreality: suspend () -> List<CrealityHost> = { emptyList() },
+    /** Why the printers of the local network cannot be reached, when the system says so. */
+    notice: String? = null,
 ) {
     val colors = OrcaTheme.colors
     var connection by remember { mutableStateOf<PrinterConnection?>(null) }
@@ -110,14 +121,14 @@ fun PrinterConnectionSheet(
                 style = OrcaTheme.typography.head16,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-            problem?.let {
+            listOfNotNull(problem, notice).forEach {
                 Text(it, color = colors.error, style = OrcaTheme.typography.body13, modifier = Modifier.padding(horizontal = 16.dp))
             }
             val loaded = connection
             if (loaded == null) {
                 if (problem == null) CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
             } else {
-                ConnectionForm(loaded, checkName, onSave, onTest)
+                ConnectionForm(loaded, checkName, onSave, onTest, lookup, scanCreality)
             }
         }
     }
@@ -130,6 +141,8 @@ private fun ConnectionForm(
     checkName: suspend (String) -> PresetNameOutcome,
     onSave: (ModelSettings, name: String) -> Unit,
     onTest: suspend (PhysicalPrinter) -> PrintHostTestOutcome,
+    lookup: () -> Flow<List<BonjourReply>>,
+    scanCreality: suspend () -> List<CrealityHost>,
 ) {
     val colors = OrcaTheme.colors
     val scope = rememberCoroutineScope()
@@ -155,6 +168,8 @@ private fun ConnectionForm(
     val type = printer.hostType ?: PrintHostType.OCTOPRINT
     // The desktop combo box lists every host; there are too many for a switch.
     var choosingType by remember { mutableStateOf(false) }
+    // The lookup the Browse button opened.
+    var browsing by remember { mutableStateOf(false) }
 
     fun set(key: String, value: String) {
         settings = ModelSettings(settings.values + (key to value))
@@ -190,8 +205,20 @@ private fun ConnectionForm(
             OrcaComboField(text = type.label, onClick = { choosingType = true }, modifier = Modifier.width(200.dp))
         }
         Field(orcaString("Hostname, IP or URL"), printer.host) { set("print_host", it.trim()) }
-        // update_printhost_buttons(): Test once there is an address.
-        Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        // update_printhost_buttons(): Browse for a host that finds itself on
+        // the network, Test once there is an address.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(vertical = 4.dp),
+        ) {
+            if (type.hasAutoDiscovery) {
+                OrcaButton(
+                    text = orcaString("Browse") + " ...",
+                    onClick = { browsing = true },
+                    style = OrcaButtonStyle.Regular,
+                    icon = DesignR.drawable.orca_printer_host_browser,
+                )
+            }
             OrcaButton(
                 text = orcaString("Test"),
                 onClick = {
@@ -204,18 +231,19 @@ private fun ConnectionForm(
                 },
                 style = OrcaButtonStyle.Regular,
                 enabled = printer.host.isNotBlank() && !testing,
+                icon = DesignR.drawable.orca_printer_host_test,
             )
-            tested?.let { outcome ->
-                Text(
-                    text = when (outcome) {
-                        is PrintHostTestOutcome.Success -> stringResource(R.string.printer_host_test_ok)
-                        is PrintHostTestOutcome.Failure -> outcome.message
-                    },
-                    color = if (outcome is PrintHostTestOutcome.Success) colors.text else colors.error,
-                    style = OrcaTheme.typography.body12,
-                    modifier = Modifier.padding(start = 12.dp),
-                )
-            }
+        }
+        tested?.let { outcome ->
+            Text(
+                text = when (outcome) {
+                    is PrintHostTestOutcome.Success -> stringResource(R.string.printer_host_test_ok)
+                    is PrintHostTestOutcome.Failure -> outcome.message
+                },
+                color = if (outcome is PrintHostTestOutcome.Success) colors.text else colors.error,
+                style = OrcaTheme.typography.body12,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
         }
         Field(orcaString("Device UI"), settings.values["print_host_webui"].orEmpty()) { set("print_host_webui", it.trim()) }
         // update(): a host that takes a login shows the fields for it instead of the key.
@@ -264,6 +292,28 @@ private fun ConnectionForm(
                 types.firstOrNull { it.label == label }?.let { set("host_type", it.key) }
             },
         )
+    }
+    if (browsing) {
+        // A Creality printer is found by its own scan, which the dialog gives an address of http://<ip>.
+        if (type == PrintHostType.CREALITY_PRINT) {
+            CrealityDiscoverySheet(
+                scan = scanCreality,
+                onChoose = { ip ->
+                    browsing = false
+                    set("print_host", "http://$ip")
+                },
+                onDismiss = { browsing = false },
+            )
+        } else {
+            BonjourLookupSheet(
+                lookup = lookup,
+                onChoose = { address ->
+                    browsing = false
+                    set("print_host", address)
+                },
+                onDismiss = { browsing = false },
+            )
+        }
     }
 }
 

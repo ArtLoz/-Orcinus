@@ -328,7 +328,11 @@ file the engine writes.
   `ObservePrinterConnectionUseCase` reads the printer's host from the edited
   printer preset, where `PhysicalPrinterDialog` edits it (its OK is the
   printer tab's `SettingsRequest.SaveConnection`), and the Device tab of
-  `:feature:device` shows the page of that host; `SendGcodeUseCase` is
+  `:feature:device` shows the page of that host; `BrowsePrintHostsUseCase` is
+  the dialog's Browse button, whose lookups `:network:printhost` ports to
+  the platform's sockets (`Bonjour` is Bonjour.cpp, `CrealityHostDiscovery`
+  Creality Print's cxmdns scan), since the desktop app runs them in its GUI
+  layer; `SendGcodeUseCase` is
   `PrintHost::upload`: the sliced G-code goes to the
   printer through `GcodeSender`, which `:network:printhost` implements with the
   platform's HTTP, since the desktop app's upload lives in its GUI layer.

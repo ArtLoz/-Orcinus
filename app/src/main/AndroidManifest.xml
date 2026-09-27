@@ -10,6 +10,9 @@
     <!-- Android 17 asks the user before an app reaches devices of the local
          network, such as the printers G-code is sent to. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!-- PhysicalPrinterDialog's Browse button: Wi-Fi passes the multicast replies of
+         mDNS on only while the app holds a multicast lock. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <application
         android:name=".OrcinusApplication"

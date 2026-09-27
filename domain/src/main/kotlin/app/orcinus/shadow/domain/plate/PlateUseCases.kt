@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
 import app.orcinus.shadow.core.model.ConfigExportKind
@@ -11,6 +12,7 @@ import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
+import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.EngineAvailability
@@ -123,7 +125,9 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 
 // Plate use cases run long operations in the application scope, so an import
@@ -1467,6 +1471,55 @@ class ObservePrinterConnectionUseCase(private val engine: PresetSettingsEditor) 
 /** PhysicalPrinterDialog's Test button. */
 class TestPhysicalPrinterUseCase(private val uploader: GcodeSender) {
     suspend operator fun invoke(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
+}
+
+/**
+ * PhysicalPrinterDialog's Browse button, which a host that finds itself on the
+ * network offers (PrintHost::has_auto_discovery()): a Creality printer is
+ * looked for with Creality's own scan (CrealityDiscoveryDialog), every other
+ * host with a Bonjour lookup of OctoPrint's service (BonjourDialog).
+ */
+class BrowsePrintHostsUseCase(private val discovery: PrintHostDiscovery) {
+    /**
+     * BonjourDialog::show_and_lookup(): three rounds of four seconds, asking
+     * for the TXT version and model. The flow gives the services found so far
+     * as the dialog lists them — once each, without the resin printers (the
+     * model SL1), which an FFF printer is not — and ends with the lookup.
+     */
+    fun lookup(): Flow<List<BonjourReply>> = flow {
+        val replies = sortedSetOf(BONJOUR_ORDER)
+        emit(emptyList())
+        discovery.lookup("octoprint", setOf("version", "model"), retries = 3, timeoutSeconds = 4).collect { reply ->
+            if (reply.txtData["model"] == "SL1") return@collect
+            // The dialog inserts every reply of its ordered set at the top.
+            if (replies.add(reply)) emit(replies.toList().asReversed())
+        }
+    }
+
+    /** CrealityDiscoveryDialog::run_discovery(): the K-series printers, with the model each reports. */
+    suspend fun scanCreality(): List<CrealityHost> = discovery.scanCreality()
+
+    private companion object {
+        /** BonjourReply::operator<: by the address (IPv4 before IPv6), then the full address, then the service's name. */
+        val BONJOUR_ORDER: Comparator<BonjourReply> = compareBy<BonjourReply>({ it.ip.contains(':') }, { ipv4Value(it.ip) }, { it.ip })
+            .thenBy { it.fullAddress }
+            .thenBy { it.serviceName }
+
+        fun ipv4Value(ip: String): Long =
+            ip.split('.').takeIf { it.size == 4 }?.fold(0L) { value, part -> (value shl 8) + (part.toLongOrNull() ?: 0L) } ?: 0L
+    }
+}
+
+/** What finds the printers of the local network, which the app builds from the platform's sockets. */
+interface PrintHostDiscovery {
+    /**
+     * Bonjour::lookup(): the services of [service] that answer, as they
+     * answer, over [retries] rounds of [timeoutSeconds].
+     */
+    fun lookup(service: String, txtKeys: Set<String>, retries: Int, timeoutSeconds: Int): Flow<BonjourReply>
+
+    /** CrealityHostDiscovery::scan(): the K-series printers, each asked its model. */
+    suspend fun scanCreality(): List<CrealityHost>
 }
 
 /**

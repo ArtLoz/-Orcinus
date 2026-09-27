@@ -1,11 +1,14 @@
 package app.orcinus.shadow.di
 
 import android.content.Context
+import android.net.wifi.WifiManager
 import app.orcinus.shadow.BuildConfig
 import app.orcinus.shadow.OrcaSlicerService
 import app.orcinus.shadow.R
 import app.orcinus.shadow.core.model.AppInfo
+import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.ComponentId
+import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.LicenseId
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -38,6 +41,7 @@ import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
 import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
 import app.orcinus.shadow.domain.plate.ApplySetupUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
+import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
@@ -85,6 +89,7 @@ import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlatePresets
 import app.orcinus.shadow.domain.plate.PlateThumbnailRenderer
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
+import app.orcinus.shadow.domain.plate.PrintHostDiscovery
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
@@ -135,6 +140,8 @@ import app.orcinus.shadow.feature.settings.PresetSettingsViewModel
 import app.orcinus.shadow.feature.setup.SetupStart
 import app.orcinus.shadow.feature.setup.SetupWizardViewModel
 import app.orcinus.shadow.feature.sidebar.SidebarViewModel
+import app.orcinus.shadow.network.printhost.Bonjour
+import app.orcinus.shadow.network.printhost.CrealityHostDiscovery
 import app.orcinus.shadow.network.printhost.PrintHostUploader
 import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
@@ -149,6 +156,9 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 
 /**
@@ -262,6 +272,22 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     }
     val printerConnection = ObservePrinterConnectionUseCase(engine)
     val testPhysicalPrinter = TestPhysicalPrinterUseCase(gcodeSender)
+    // PhysicalPrinterDialog's Browse button: the printers of the local network.
+    private val browsePrintHosts = BrowsePrintHostsUseCase(
+        object : PrintHostDiscovery {
+            override fun lookup(service: String, txtKeys: Set<String>, retries: Int, timeoutSeconds: Int): Flow<BonjourReply> {
+                val lookup = Bonjour(service, txtKeys = txtKeys, timeoutSeconds = timeoutSeconds, retries = retries).lookup()
+                // Wi-Fi drops the multicast replies of mDNS unless the app holds a multicast lock.
+                val wifi = applicationContext.getSystemService(WifiManager::class.java) ?: return lookup
+                val lock = wifi.createMulticastLock("Bonjour").apply { setReferenceCounted(true) }
+                return lookup
+                    .onStart { lock.acquire() }
+                    .onCompletion { if (lock.isHeld) lock.release() }
+            }
+
+            override suspend fun scanCreality(): List<CrealityHost> = CrealityHostDiscovery().scan()
+        },
+    )
     val sendGcode = SendGcodeUseCase(gcodeSender, plateRepository)
     val exportGcode = ExportGcodeUseCase(AppDocumentExport(applicationContext), plateRepository)
     private val importConfig = ImportConfigUseCase(engine, engine, configFiles, platePresets)
@@ -462,6 +488,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         deletePlateObject = deletePlateObject,
         printerConnection = printerConnection,
         testPhysicalPrinter = testPhysicalPrinter,
+        browsePrintHosts = browsePrintHosts,
         setFlushOption = setFlushOption,
         copySettings = copyProcessSettings,
         pasteSettings = pasteProcessSettings,

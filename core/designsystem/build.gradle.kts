@@ -96,6 +96,8 @@ val orcaIconNames = listOf(
     "equal", "not_equal", "question",
     // Plater's printer title: the Connection button of PhysicalPrinterDialog.
     "monitor_signal_strong",
+    // PhysicalPrinterDialog: its Browse and Test buttons.
+    "printer_host_browser", "printer_host_test",
     // ExportConfigsDialog: what it writes (Widgets/RadioBox).
     "radio_on", "radio_off", "radio_disabled",
     "height_range_layer", "height_range_modifier",

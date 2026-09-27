@@ -72,6 +72,13 @@
     <string name="printer_host_printer">Принтер: %s</string>
     <string name="printer_host_self_test">Калибровка перед печатью</string>
     <string name="printer_host_filament_mapping">Раскладка материалов по слотам:</string>
+    <!-- CrealityDiscoveryDialog: OrcaSlicer's Russian catalogue has none of its texts yet. -->
+    <string name="creality_discovery_title">Поиск принтеров Creality серии K</string>
+    <string name="creality_discovery_scanning">Поиск принтеров серии K в локальной сети… Это займёт несколько секунд.</string>
+    <string name="creality_discovery_none">Принтеры серии K не найдены. Убедитесь, что принтер в той же сети и Wi-Fi не изолирует устройства друг от друга, и нажмите «Сканировать» снова.</string>
+    <string name="creality_discovery_found">Найдено принтеров Creality: %1$d. Нажмите на нужный.</string>
+    <string name="creality_discovery_scan">Сканировать</string>
+    <string name="creality_discovery_unknown_model">(неизвестная модель серии K)</string>
     <!-- MenuFactory: the object menu of the canvas and of the object list; copies named as the toolbar names them. -->
     <string name="object_menu_add_instance">Добавить экземпляр</string>
     <string name="object_menu_remove_instance">Удалить экземпляр</string>

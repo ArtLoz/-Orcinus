@@ -1,9 +1,6 @@
 package app.orcinus.shadow.feature.preview
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -38,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -78,6 +74,7 @@ import app.orcinus.shadow.core.model.parseFilamentColor
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.filamentLength
+import app.orcinus.shadow.core.ui.network.rememberLocalNetworkAccess
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SliceButton
@@ -165,23 +162,12 @@ internal fun PreviewScreen(
     val result = state.result
     val untitled = orcaString("Untitled")
     var sending by rememberSaveable { mutableStateOf(false) }
-    val context = LocalContext.current
-    // Android 17 asks the user before an app reaches a device of the local
-    // network; a printer on Wi-Fi is one, so the sheet opens after the answer.
+    // A printer on Wi-Fi is a device of the local network, so the sheet opens
+    // once Android 17 has asked the user for it.
     var localNetworkDenied by rememberSaveable { mutableStateOf(false) }
-    val localNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        localNetworkDenied = !granted
+    val openSending = rememberLocalNetworkAccess { denied ->
+        localNetworkDenied = denied
         sending = true
-    }
-    val openSending = {
-        if (Build.VERSION.SDK_INT >= LOCAL_NETWORK_SDK &&
-            context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
-        ) {
-            localNetwork.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
-        } else {
-            localNetworkDenied = false
-            sending = true
-        }
     }
     var sent by remember { mutableStateOf<PrintHostUploadOutcome?>(null) }
     // Http::on_progress while the file travels; null when nothing is going out.
@@ -538,5 +524,3 @@ private fun PreviewWidePreview() = OrcinusTheme {
     PreviewScreen(PreviewUiState(plate = null, result = PreviewResult, canSlice = true), OrcaWindowLayout.Wide, onSlice = {})
 }
 
-/** Android 17, which guards the local network with ACCESS_LOCAL_NETWORK. */
-private const val LOCAL_NETWORK_SDK = 37

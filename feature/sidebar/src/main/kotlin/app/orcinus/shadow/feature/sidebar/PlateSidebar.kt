@@ -77,6 +77,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ColorRgba
@@ -87,6 +88,7 @@ import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
+import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.EngineState
 import app.orcinus.shadow.core.model.EngineVersion
@@ -145,6 +147,8 @@ import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
 import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.ui.displayName
+import app.orcinus.shadow.core.ui.R as UiR
+import app.orcinus.shadow.core.ui.network.rememberLocalNetworkAccess
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.plate.CloneDialog
@@ -175,6 +179,7 @@ import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddObjectPartUseCase
 import app.orcinus.shadow.domain.plate.AddPlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
+import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
 import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
 import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
@@ -228,8 +233,10 @@ import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.canDeletePlate
 import java.util.Locale
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -342,6 +349,7 @@ class SidebarViewModel(
     private val deletePlateObject: DeletePlateObjectUseCase,
     private val printerConnection: ObservePrinterConnectionUseCase,
     private val testPhysicalPrinter: TestPhysicalPrinterUseCase,
+    private val browsePrintHosts: BrowsePrintHostsUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
     private val copySettings: CopyProcessSettingsUseCase,
     private val pasteSettings: PasteProcessSettingsUseCase,
@@ -738,6 +746,12 @@ class SidebarViewModel(
     suspend fun checkPrinterName(name: String): PresetNameOutcome = settingsTabs.checkPresetName(PresetKind.PRINTER, name)
 
     suspend fun testNetworkPrinter(printer: PhysicalPrinter): PrintHostTestOutcome = testPhysicalPrinter(printer)
+
+    /** PhysicalPrinterDialog's Browse button: BonjourDialog's lookup of OctoPrint's service. */
+    fun lookupPrintHosts(): Flow<List<BonjourReply>> = browsePrintHosts.lookup()
+
+    /** PhysicalPrinterDialog's Browse button for Creality's firmware (CrealityDiscoveryDialog). */
+    suspend fun scanCrealityPrinters(): List<CrealityHost> = browsePrintHosts.scanCreality()
 
     /** DiffPresetDialog: the presets of either side, and what the selected ones differ in. */
     suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean): PresetComparisonOutcome =
@@ -1436,6 +1450,8 @@ fun PlateSidebar(
             checkName = viewModel::checkPrinterName,
             save = viewModel::savePrinterConnection,
             test = viewModel::testNetworkPrinter,
+            lookup = viewModel::lookupPrintHosts,
+            scanCreality = viewModel::scanCrealityPrinters,
         ),
     )
 }
@@ -1449,6 +1465,8 @@ internal class NetworkPrinterActions(
     val checkName: suspend (String) -> PresetNameOutcome,
     val save: (ModelSettings, String) -> Unit,
     val test: suspend (PhysicalPrinter) -> PrintHostTestOutcome,
+    val lookup: () -> Flow<List<BonjourReply>>,
+    val scanCreality: suspend () -> List<CrealityHost>,
 ) {
     companion object {
         val NONE = NetworkPrinterActions(
@@ -1456,6 +1474,8 @@ internal class NetworkPrinterActions(
             checkName = { PresetNameOutcome.Failure("") },
             save = { _, _ -> },
             test = { PrintHostTestOutcome.Failure("") },
+            lookup = { emptyFlow() },
+            scanCreality = { emptyList() },
         )
     }
 }
@@ -1487,8 +1507,14 @@ internal fun PlateSidebarContent(
     var comparing by rememberSaveable { mutableStateOf(false) }
     // Search::SearchDialog, which the search button of the panel opens.
     var searching by rememberSaveable { mutableStateOf(false) }
-    // PhysicalPrinterDialog, which the Connection button of the printer opens.
+    // PhysicalPrinterDialog, which the Connection button of the printer opens
+    // once Android 17 has asked for the local network its Test and Browse reach.
     var openNetworkPrinters by rememberSaveable { mutableStateOf(false) }
+    var localNetworkDenied by rememberSaveable { mutableStateOf(false) }
+    val openConnection = rememberLocalNetworkAccess { denied ->
+        localNetworkDenied = denied
+        openNetworkPrinters = true
+    }
     var openList by rememberSaveable { mutableStateOf<PresetList?>(null) }
     // Whether a tap on a row adds the object to the selection or picks it alone.
     var picking by rememberSaveable { mutableStateOf(false) }
@@ -1543,7 +1569,7 @@ internal fun PlateSidebarContent(
             OrcaIconButton(
                 icon = DesignR.drawable.orca_monitor_signal_strong,
                 contentDescription = orcaString("Connection"),
-                onClick = { openNetworkPrinters = true },
+                onClick = openConnection,
                 enabled = enabled,
             )
         }
@@ -1762,8 +1788,6 @@ internal fun PlateSidebarContent(
         DiffPresetDialog(comparison, onDismiss = { comparing = false })
     }
 
-    // CreatePrinterPresetDialog, which the printer list opens. It closes itself
-    // once the printer is made, so a question keeps the filled-in pages.
     if (openNetworkPrinters) {
         PrinterConnectionSheet(
             load = network.load,
@@ -1774,8 +1798,13 @@ internal fun PlateSidebarContent(
             },
             onDismiss = { openNetworkPrinters = false },
             onTest = network.test,
+            lookup = network.lookup,
+            scanCreality = network.scanCreality,
+            notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
         )
     }
+    // CreatePrinterPresetDialog, which the printer list opens. It closes itself
+    // once the printer is made, so a question keeps the filled-in pages.
     if (printers.creating) {
         CreatePrinterDialog(
             loadOptions = printers.options,

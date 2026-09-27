@@ -526,6 +526,13 @@ enum class PrintHostType(val key: String, val label: String) {
     /** Repetier prints on one of several printers of the server (printhost_port). */
     val takesPort: Boolean get() = this == REPETIER
 
+    /**
+     * PrintHost::has_auto_discovery(): whether PhysicalPrinterDialog offers its
+     * Browse button. OctoPrint and the hosts built on it (PrusaLink, AstroBox)
+     * look for OctoPrint's service; Creality's firmware for its K-series printers.
+     */
+    val hasAutoDiscovery: Boolean get() = this == OCTOPRINT || this == PRUSA_LINK || this == ASTROBOX || this == CREALITY_PRINT
+
     companion object {
         fun of(key: String): PrintHostType? = entries.firstOrNull { it.key == key }
     }
@@ -666,7 +673,6 @@ sealed interface PrinterConnectionOutcome {
     data class Failure(val message: String) : PrinterConnectionOutcome
 }
 
-/** What sending G-code to a printer did (PrintHost::upload). */
 /**
  * PhysicalPrinterDialog's Test button: whether the host at the printer's
  * address answers and is the kind of host the printer says it is
@@ -679,6 +685,52 @@ sealed interface PrintHostTestOutcome {
     data class Failure(val message: String) : PrintHostTestOutcome
 }
 
+/**
+ * BonjourReply: a service of the local network that answered a lookup — the
+ * address it answered from, the port it listens on, its name and host, and the
+ * TXT values the lookup asked for.
+ */
+data class BonjourReply(
+    val ip: String,
+    val port: Int,
+    val serviceName: String,
+    val hostname: String,
+    val txtData: Map<String, String>,
+) {
+    /** BonjourReply::path(): the TXT "path", starting with a slash, or "/" without it. */
+    val path: String
+        get() = txtData["path"].orEmpty().ifEmpty { "/" }.let { if (it.startsWith('/')) it else "/$it" }
+
+    /**
+     * The address BonjourDialog lists and the host field takes: https for port
+     * 443, the port unless it is 80 or 443, and the path unless it is "/".
+     */
+    val fullAddress: String
+        get() {
+            val proto = if (port == 443) "https://" else ""
+            val portSuffix = if (port != 443 && port != 80) ":$port" else ""
+            return proto + ip + portSuffix + path.takeIf { it != "/" }.orEmpty()
+        }
+}
+
+/** CrealityHost: a Creality K-series printer the scan of the local network found. */
+data class CrealityHost(
+    /** The IPv4 address it answered from. */
+    val ip: String,
+    /** The service type it announces itself by, "_Creality-543324280CDB19._udp.local.". */
+    val serviceName: String,
+    /** "K2-DB19": the last four digits of the service type's suffix. */
+    val hostname: String,
+    /** What http://<ip>/info says the model is, "F008"; empty when it did not answer. */
+    val modelCode: String = "",
+    /** "K2 Plus", "K2 Pro" or "K2" for a model of the K2 family; empty otherwise. */
+    val modelName: String = "",
+    val mac: String = "",
+    /** Whether the model is of the K2 family, which prints from CFS boxes. */
+    val cfsCapable: Boolean = false,
+)
+
+/** What sending G-code to a printer did (PrintHost::upload). */
 sealed interface PrintHostUploadOutcome {
     /** The file arrived; [path] is what the host called it. */
     data class Success(val path: String) : PrintHostUploadOutcome
