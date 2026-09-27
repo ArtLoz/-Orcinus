@@ -719,6 +719,7 @@ internal fun PrinterConnectionOutcome.toParcel() = PrinterConnectionParcel().als
     parcel.saveName = ""
     parcel.webUi = ""
     parcel.apiKey = ""
+    parcel.printerType = ""
     when (this) {
         is PrinterConnectionOutcome.Failure -> parcel.error = message
         is PrinterConnectionOutcome.Success -> {
@@ -729,6 +730,7 @@ internal fun PrinterConnectionOutcome.toParcel() = PrinterConnectionParcel().als
             parcel.webUi = connection.webUi
             parcel.apiKey = connection.apiKey
             parcel.bambuDeviceTab = connection.bambuDeviceTab
+            parcel.printerType = connection.printerType
         }
     }
 }
@@ -745,6 +747,7 @@ internal fun PrinterConnectionParcel.toPrinterConnectionOutcome(): PrinterConnec
             webUi = webUi.orEmpty(),
             apiKey = apiKey.orEmpty(),
             bambuDeviceTab = bambuDeviceTab,
+            printerType = printerType.orEmpty(),
         ),
     )
 }

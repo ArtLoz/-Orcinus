@@ -6,6 +6,7 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerGcodeType
 import app.orcinus.shadow.core.model.PartPlate
+import app.orcinus.shadow.core.model.ElegooOptions
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PlateDescription
@@ -116,6 +117,13 @@ class PreviewViewModel(
 
     /** CrealityPrintHostSendDialog: the slots of the printer's material boxes. */
     suspend fun printerSlots(printer: PhysicalPrinter): PrinterSlotsOutcome = sendGcode.printerSlots(printer)
+
+    /**
+     * The plate's type as a BedType value (curr_bed_type), which the Elegoo
+     * send dialog checks its plate side against; OrcaSlicer's default is the
+     * cool plate, 1.
+     */
+    fun plateBedType(): Int = ElegooOptions.bedTypeOf(plate.value.plateSettings.values["curr_bed_type"].orEmpty()) ?: 1
 
     /** FlashforgePrintHostSendDialog: the slots of the printer's material station. */
     suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = sendGcode.flashforgeSlots(printer)

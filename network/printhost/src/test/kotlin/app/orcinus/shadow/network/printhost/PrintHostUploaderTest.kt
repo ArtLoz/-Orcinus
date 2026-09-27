@@ -534,6 +534,21 @@ class PrintHostUploaderTest {
             json += Json(url, body)
             return answer
         }
+
+        override suspend fun postMultipartPart(
+            url: String,
+            headers: Map<String, String>,
+            fields: Map<String, String>,
+            fileField: String,
+            fileName: String,
+            file: File,
+            offset: Long,
+            length: Long,
+            onProgress: ((sent: Long, total: Long) -> Unit)?,
+        ): Result<String> = answer
+
+        override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
+            answer
     }
 
     /** The console exchanges the uploader made, all answered "ok". */

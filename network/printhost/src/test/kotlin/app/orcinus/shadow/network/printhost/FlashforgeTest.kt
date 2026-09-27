@@ -202,6 +202,21 @@ class FlashforgeTest {
         }
 
         override suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth?): Result<String> = Result.success(answer)
+
+        override suspend fun postMultipartPart(
+            url: String,
+            headers: Map<String, String>,
+            fields: Map<String, String>,
+            fileField: String,
+            fileName: String,
+            file: File,
+            offset: Long,
+            length: Long,
+            onProgress: ((sent: Long, total: Long) -> Unit)?,
+        ): Result<String> = Result.success(answer)
+
+        override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
+            Result.success(answer)
     }
 
     private fun <T> run(block: suspend () -> T): T {

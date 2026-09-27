@@ -110,6 +110,7 @@ internal fun PreviewRoute(
             slots = viewModel::printerSlots,
             filaments = viewModel::sentFilaments,
             flashforgeSlots = viewModel::flashforgeSlots,
+            plateBedType = viewModel::plateBedType,
         ),
         gcodeName = viewModel::gcodeName,
         onExportGcode = viewModel::exportGcode,
@@ -132,6 +133,8 @@ internal class PrinterActions(
     val filaments: () -> List<SentFilament> = { emptyList() },
     /** The slots of a Flashforge printer's material station. */
     val flashforgeSlots: suspend (PhysicalPrinter) -> FlashforgeSlotsOutcome = { FlashforgeSlotsOutcome.Failure("") },
+    /** The plate's type as a BedType value, which the Elegoo dialog checks its plate side against. */
+    val plateBedType: () -> Int = { 1 },
 ) {
     companion object {
         val NONE = PrinterActions(
@@ -372,6 +375,7 @@ internal fun PreviewScreen(
             onDismiss = { sending = false },
             loadSlots = printers.slots,
             loadFlashforgeSlots = printers.flashforgeSlots,
+            plateBedType = printers.plateBedType(),
             filaments = printers.filaments(),
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
         )

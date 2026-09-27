@@ -1,5 +1,6 @@
 package app.orcinus.shadow.network.printhost
 
+import app.orcinus.shadow.core.model.ElegooKind
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -47,8 +48,11 @@ class PrintHostUploader(
     private val mksStartDelayMillis: Long = MKS_START_DELAY_MILLIS,
     /** Flashforge's serial console waits this long before it saves the file. */
     flashforgeSaveDelayMillis: Long = Flashforge.SAVE_DELAY_MILLIS,
+    /** A Centauri is given this long before its status is asked and the print started. */
+    elegooStartDelayMillis: Long = ElegooLink.START_DELAY_MILLIS,
 ) {
     private val flashforge = Flashforge(http, console, flashforgeSaveDelayMillis)
+    private val elegoo = ElegooLink(http, webSocket, elegooStartDelayMillis)
 
     /**
      * [printer] is where it goes, [gcode] what is sent, [name] the name the
@@ -81,7 +85,13 @@ class PrintHostUploader(
             PrintHostType.ESP3D -> uploadToEsp3d(printer, gcode, name, startPrint, onProgress)
             PrintHostType.FLASHAIR -> uploadToFlashAir(printer, gcode, name, onProgress)
             PrintHostType.FLASHFORGE -> flashforge.upload(printer, gcode, name, startPrint, options.flashforge)
-            PrintHostType.OBICO, PrintHostType.SIMPLYPRINT, PrintHostType.ELEGOO_LINK,
+            // ElegooLink: OctoPrint's upload for a printer other than a Centauri.
+            PrintHostType.ELEGOO_LINK -> if (printer.elegooKind == ElegooKind.OTHER) {
+                uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
+            } else {
+                elegoo.upload(printer, gcode, name, startPrint && printer.canStartPrint, options.elegoo, onProgress)
+            }
+            PrintHostType.OBICO, PrintHostType.SIMPLYPRINT,
             PrintHostType.PRINTER_3D_OS -> PrintHostUploadOutcome.Failure(UNSUPPORTED)
         }
     }
@@ -178,10 +188,25 @@ class PrintHostUploader(
                 }
             }
             PrintHostType.FLASHFORGE -> flashforge.test(printer)
-            PrintHostType.OBICO, PrintHostType.SIMPLYPRINT, PrintHostType.ELEGOO_LINK,
+            // ElegooLink::test(): OctoPrint's test, whose version text any Elegoo firmware passes, or a Centauri's own.
+            PrintHostType.ELEGOO_LINK -> if (printer.elegooKind == ElegooKind.OTHER) {
+                versionTest(printer, listOf(""), null)
+            } else {
+                elegoo.test(printer)
+            }
+            PrintHostType.OBICO, PrintHostType.SIMPLYPRINT,
             PrintHostType.PRINTER_3D_OS -> PrintHostTestOutcome.Failure(UNSUPPORTED)
         }
     }
+
+    /**
+     * ElegooLink::get_sn() when [lookUp] is false: the serial number of a
+     * Centauri Carbon 2 the app already knows; with [lookUp], as
+     * get_print_host_webui() does, it is asked of the printer when unknown.
+     * Empty for any other printer.
+     */
+    suspend fun serialNumber(printer: PhysicalPrinter, lookUp: Boolean): String =
+        if (printer.hostType != PrintHostType.ELEGOO_LINK) "" else if (lookUp) elegoo.serialNumber(printer) else elegoo.knownSerialNumber(printer)
 
     /**
      * Flashforge::fetch_material_slots(): the slots of a Flashforge printer's

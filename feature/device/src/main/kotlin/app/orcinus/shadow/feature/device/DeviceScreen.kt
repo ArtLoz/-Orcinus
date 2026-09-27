@@ -3,11 +3,13 @@ package app.orcinus.shadow.feature.device
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Message
+import android.provider.OpenableColumns
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -30,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,13 +46,29 @@ import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.PrintHostType
+import app.orcinus.shadow.core.model.PrintHostUploadOutcome
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import app.orcinus.shadow.core.ui.R as UiR
 
 @Composable
 internal fun DeviceRoute(viewModel: DeviceViewModel) {
     LaunchedEffect(viewModel) { viewModel.reload() }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    DeviceScreen(state)
+    DeviceScreen(state, DevicePageActions(serialNumber = viewModel::serialNumber, upload = viewModel::upload))
+}
+
+/** What a printer's page may ask of the app (ElegooPrinterWebViewHandler). */
+internal class DevicePageActions(
+    val serialNumber: suspend () -> String,
+    val upload: suspend (path: String, onProgress: (Float) -> Unit) -> PrintHostUploadOutcome,
+) {
+    companion object {
+        val NONE = DevicePageActions(serialNumber = { "" }, upload = { _, _ -> PrintHostUploadOutcome.Failure("") })
+    }
 }
 
 /**
@@ -59,7 +78,7 @@ internal fun DeviceRoute(viewModel: DeviceViewModel) {
  * asks for a connection while the printer preset has none.
  */
 @Composable
-internal fun DeviceScreen(state: DeviceUiState) {
+internal fun DeviceScreen(state: DeviceUiState, page: DevicePageActions = DevicePageActions.NONE) {
     val colors = OrcaTheme.colors
     Box(
         Modifier
@@ -71,10 +90,16 @@ internal fun DeviceScreen(state: DeviceUiState) {
             state.problem != null -> Notice(state.problem)
             connection == null -> CircularProgressIndicator(color = colors.accent, modifier = Modifier.align(Alignment.Center))
             connection.bambuDeviceTab -> Notice(stringResource(R.string.device_bambu_monitor))
-            else -> LocalNetworkAccess(needed = connection.webUi.startsWith("http", ignoreCase = true)) { denied ->
+            // A page of the printer's own, or Elegoo's page that talks to the printer.
+            else -> LocalNetworkAccess(
+                needed = connection.webUi.startsWith("http", ignoreCase = true) ||
+                    connection.settings.values["print_host"].orEmpty().isNotBlank(),
+            ) { denied ->
                 Column(Modifier.fillMaxSize()) {
                     if (denied) Notice(stringResource(UiR.string.printer_host_local_network))
-                    PrinterWebView(connection.webUi, connection.apiKey)
+                    // create_printer_webview_handler(): ElegooLink's page gets its handler.
+                    val elegoo = connection.settings.values["host_type"] == PrintHostType.ELEGOO_LINK.key
+                    PrinterWebView(connection.webUi, connection.apiKey, if (elegoo) page else null)
                 }
             }
         }
@@ -123,9 +148,40 @@ private fun LocalNetworkAccess(needed: Boolean, content: @Composable (denied: Bo
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun PrinterWebView(url: String, apiKey: String) {
+private fun PrinterWebView(url: String, apiKey: String, elegoo: DevicePageActions?) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var webView by remember { mutableStateOf<WebView?>(null) }
+    val messages = remember { PageMessages() }
+    // handle_open_file_dialog_request(): the system's picker, whose document is copied for the upload.
+    var picked by remember { mutableStateOf<((String?) -> Unit)?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val answer = picked
+        picked = null
+        scope.launch { answer?.invoke(uri?.let { copyForUpload(context, it) }) }
+    }
+    val openUrl: (String) -> Unit = { link ->
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+        } catch (_: ActivityNotFoundException) {
+            // No browser: nothing opens, as wxLaunchDefaultBrowser fails.
+        }
+    }
+    messages.bridge = elegoo?.let { actions ->
+        ElegooPageBridge(
+            webView = { webView },
+            scope = scope,
+            openUrl = { link -> webView?.post { openUrl(link) } },
+            pickFile = { onPicked ->
+                webView?.post {
+                    picked = onPicked
+                    picker.launch(arrayOf("*/*"))
+                }
+            },
+            serialNumber = actions.serialNumber,
+            upload = actions.upload,
+        )
+    }
     var canGoBack by remember { mutableStateOf(false) }
     val documentStartScript = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     BackHandler(enabled = canGoBack) { webView?.goBack() }
@@ -140,9 +196,10 @@ private fun PrinterWebView(url: String, apiKey: String) {
                 // OrcaSlicer's page asking for a connection is a file of its resources.
                 settings.allowFileAccess = true
                 settings.setSupportMultipleWindows(true)
-                // globalapi.js posts to window.wx, which PrinterWebView's script
-                // message handler takes (and PrinterWebViewHandler leaves alone).
-                addJavascriptInterface(ScriptMessages, "wx")
+                // globalapi.js and Elegoo's page post to window.wx, which
+                // PrinterWebView's script message handler takes and hands to
+                // the page's handler, when the host has one.
+                addJavascriptInterface(messages, "wx")
                 webViewClient = object : WebViewClient() {
                     override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
                         canGoBack = view.canGoBack()
@@ -160,7 +217,7 @@ private fun PrinterWebView(url: String, apiKey: String) {
                         val link = view.hitTestResult.extra
                         if (!link.isNullOrEmpty()) {
                             try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                                openUrl(link)
                             } catch (_: ActivityNotFoundException) {
                                 // No browser: the link is not opened, as wxLaunchDefaultBrowser fails.
                             }
@@ -188,10 +245,31 @@ private fun PrinterWebView(url: String, apiKey: String) {
     }
 }
 
-/** PrinterWebView's script message handler "wx", which takes the pages' messages and does nothing with them. */
-private object ScriptMessages {
+/**
+ * PrinterWebView's script message handler "wx": the pages' messages go to the
+ * handler of the printer's host (PrinterWebViewHandler), and nowhere without one.
+ */
+private class PageMessages {
+    @Volatile
+    var bridge: ElegooPageBridge? = null
+
     @JavascriptInterface
-    fun postMessage(@Suppress("UNUSED_PARAMETER") message: String) = Unit
+    fun postMessage(message: String) {
+        bridge?.postMessage(message)
+    }
+}
+
+/** A copy of the picked document in the app's cache, under its own name, for the upload. */
+private suspend fun copyForUpload(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
+    val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    } ?: "upload.gcode"
+    val directory = File(context.cacheDir, "page-uploads").apply { mkdirs() }
+    val file = File(directory, name.substringAfterLast('/'))
+    runCatching {
+        context.contentResolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } } ?: return@withContext null
+        file.path
+    }.getOrNull()
 }
 
 /** PrinterWebView::SendAPIKey(): every fetch() of the page carries X-API-Key. */

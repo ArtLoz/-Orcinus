@@ -46,6 +46,26 @@ interface HttpClient {
 
     suspend fun postJson(url: String, headers: Map<String, String>, body: String, auth: HttpAuth? = null): Result<String>
 
+    /**
+     * Http::form_add_file(path, name, offset, length): a multipart post whose
+     * file is [length] bytes of [file] from [offset], as ElegooLink sends a file
+     * in pieces.
+     */
+    suspend fun postMultipartPart(
+        url: String,
+        headers: Map<String, String>,
+        fields: Map<String, String>,
+        fileField: String,
+        fileName: String,
+        file: File,
+        offset: Long,
+        length: Long,
+        onProgress: ((sent: Long, total: Long) -> Unit)? = null,
+    ): Result<String>
+
+    /** Http::set_post_body(std::string): [body] as the whole request, with [method]. */
+    suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String>
+
     suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth? = null): Result<String>
 }
 
@@ -81,6 +101,39 @@ class UrlConnectionHttpClient(
         }
     }
 
+    override suspend fun postMultipartPart(
+        url: String,
+        headers: Map<String, String>,
+        fields: Map<String, String>,
+        fileField: String,
+        fileName: String,
+        file: File,
+        offset: Long,
+        length: Long,
+        onProgress: ((sent: Long, total: Long) -> Unit)?,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val boundary = "orcinus-${UUID.randomUUID()}"
+        request(url, "POST", headers, "multipart/form-data; boundary=$boundary", streamed = true) { output ->
+            val writer = output.bufferedWriter()
+            for ((name, value) in fields) {
+                writer.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
+            }
+            writer.write(
+                "--$boundary\r\nContent-Disposition: form-data; name=\"$fileField\"; filename=\"$fileName\"\r\n" +
+                    "Content-Type: application/octet-stream\r\n\r\n",
+            )
+            writer.flush()
+            copy(file, output, onProgress, offset, length)
+            writer.write("\r\n--$boundary--\r\n")
+            writer.flush()
+        }
+    }
+
+    override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
+        withContext(Dispatchers.IO) {
+            request(url, method, headers, contentType = null) { output -> output.write(body) }
+        }
+
     override suspend fun sendFile(
         url: String,
         method: String,
@@ -107,14 +160,26 @@ class UrlConnectionHttpClient(
      * Http::on_progress: the file goes out in pieces, so the screen can say how
      * far it got, and it never sits in memory whole.
      */
-    private fun copy(file: File, output: OutputStream, onProgress: ((sent: Long, total: Long) -> Unit)?) {
-        val total = file.length()
+    private fun copy(
+        file: File,
+        output: OutputStream,
+        onProgress: ((sent: Long, total: Long) -> Unit)?,
+        offset: Long = 0,
+        length: Long = file.length(),
+    ) {
+        val total = length
         var sent = 0L
         onProgress?.invoke(0, total)
         file.inputStream().use { input ->
+            var skipped = 0L
+            while (skipped < offset) {
+                val step = input.skip(offset - skipped)
+                if (step <= 0) break
+                skipped += step
+            }
             val buffer = ByteArray(UPLOAD_BUFFER)
-            while (true) {
-                val read = input.read(buffer)
+            while (sent < total) {
+                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), total - sent).toInt())
                 if (read < 0) break
                 output.write(buffer, 0, read)
                 sent += read

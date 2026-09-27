@@ -39,6 +39,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
 import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
 import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaSwitch
@@ -46,6 +47,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.ElegooOptions
 import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
@@ -430,9 +432,14 @@ fun SendToPrinterSheet(
     notice: String? = null,
     /** The slots of a Flashforge printer's material station (Flashforge::fetch_material_slots). */
     loadFlashforgeSlots: suspend (PhysicalPrinter) -> FlashforgeSlotsOutcome = { FlashforgeSlotsOutcome.Failure("") },
+    /** The plate's type as a BedType value, which the Elegoo dialog compares its plate side with (curr_bed_type). */
+    plateBedType: Int = 1,
 ) {
     val colors = OrcaTheme.colors
     var printer by remember { mutableStateOf<PhysicalPrinter?>(null) }
+    // Preset::get_printer_type(), which ElegooPrintHostSendDialog offers its options by.
+    var printerType by remember { mutableStateOf("") }
+    var elegoo by remember { mutableStateOf(ElegooOptions()) }
     var problem by remember { mutableStateOf<String?>(null) }
     var startPrint by rememberSaveable { mutableStateOf(false) }
     // A Creality printer asks which slot feeds every filament before it prints.
@@ -444,6 +451,7 @@ fun SendToPrinterSheet(
             is PrinterConnectionOutcome.Success -> {
                 val connection = outcome.connection
                 printer = connection.printer(connection.settings.values["print_host"].orEmpty())
+                printerType = connection.printerType
             }
             is PrinterConnectionOutcome.Failure -> problem = outcome.message
         }
@@ -478,7 +486,7 @@ fun SendToPrinterSheet(
                     filaments = filaments,
                     loadSlots = loadSlots,
                     onBack = { mapping = false },
-                    onSend = { options -> onSend(host, startPrint && host.hostType?.startsPrint == true, options) },
+                    onSend = { options -> onSend(host, startPrint && host.canStartPrint, options) },
                 )
                 return@Column
             }
@@ -511,7 +519,7 @@ fun SendToPrinterSheet(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             // PrintHostSendDialog offers "Upload and Print" to a host that can start a print.
-            if (host.hostType?.startsPrint == true) {
+            if (host.canStartPrint) {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = stringResource(R.string.printer_host_start),
@@ -522,7 +530,12 @@ fun SendToPrinterSheet(
                     OrcaSwitch(checked = startPrint, onCheckedChange = { startPrint = it })
                 }
             }
-            val printNow = startPrint && host.hostType?.startsPrint == true
+            val printNow = startPrint && host.canStartPrint
+            // ElegooPrintHostSendDialog: a Centauri prints with its own options.
+            val elegooOptions = host.hostType == PrintHostType.ELEGOO_LINK && printerType in ElegooOptions.PRINTER_TYPES
+            if (elegooOptions && printNow) {
+                ElegooPrintOptions(elegoo, plateBedType) { elegoo = it }
+            }
             OrcaButton(
                 text = stringResource(R.string.printer_host_send),
                 onClick = {
@@ -534,7 +547,7 @@ fun SendToPrinterSheet(
                         // FlashforgePrintHostSendDialog, for the local API only.
                         flashforge = true
                     } else {
-                        onSend(host, printNow, PrintOptions())
+                        onSend(host, printNow, if (elegooOptions && printNow) PrintOptions(elegoo = elegoo) else PrintOptions())
                     }
                 },
                 modifier = Modifier
@@ -657,6 +670,49 @@ private fun SlotMapping(
                     onSend(PrintOptions(selfTest = selfTest, slots = picked))
                 },
                 modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * ElegooPrintHostSendDialog's options under "Upload and Print": time-lapse,
+ * heated bed leveling, the side of the build plate, and the warning when that
+ * side is not the plate type the file was sliced for.
+ */
+@Composable
+private fun ElegooPrintOptions(options: ElegooOptions, plateBedType: Int, onChange: (ElegooOptions) -> Unit) {
+    val colors = OrcaTheme.colors
+    Column(Modifier.padding(start = 32.dp, end = 16.dp)) {
+        listOf(
+            orcaString("Time-lapse") to options.timeLapse,
+            orcaString("Heated Bed Leveling") to options.heatedBedLeveling,
+        ).forEachIndexed { index, (label, checked) ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                Text(label, color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
+                OrcaSwitch(
+                    checked = checked,
+                    onCheckedChange = { value ->
+                        onChange(if (index == 0) options.copy(timeLapse = value) else options.copy(heatedBedLeveling = value))
+                    },
+                )
+            }
+        }
+        listOf(
+            ElegooOptions.BED_TYPE_PTE to orcaString("Textured Build Plate (Side A)"),
+            ElegooOptions.BED_TYPE_PC to orcaString("Smooth Build Plate (Side B)"),
+        ).forEach { (bedType, label) ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                OrcaRadioButton(selected = options.bedType == bedType, onClick = { onChange(options.copy(bedType = bedType)) })
+                Text(label, color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+        if (options.bedType != plateBedType) {
+            Text(
+                text = orcaString("The selected bed type does not match the file. Please confirm before starting the print."),
+                color = colors.error,
+                style = OrcaTheme.typography.body13,
+                modifier = Modifier.padding(vertical = 4.dp),
             )
         }
     }

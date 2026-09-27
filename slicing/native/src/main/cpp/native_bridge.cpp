@@ -1961,7 +1961,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PrinterConnection& connection)
 {
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePrinterConnection");
     const jmethodID constructor = env->GetMethodID(
-        result_class, "<init>", "(JLjava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Z)V");
+        result_class, "<init>", "(JLjava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;ZLjava/lang/String;)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1973,7 +1973,8 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PrinterConnection& connection)
         connection.save_name_copy_suffix ? JNI_TRUE : JNI_FALSE,
         to_java(env, connection.webui),
         to_java(env, connection.api_key),
-        connection.bbl_device_tab ? JNI_TRUE : JNI_FALSE
+        connection.bbl_device_tab ? JNI_TRUE : JNI_FALSE,
+        to_java(env, connection.printer_type)
     );
 }
 

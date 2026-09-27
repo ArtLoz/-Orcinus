@@ -10,4 +10,5 @@ parcelable PrinterConnectionParcel {
     String webUi;
     String apiKey;
     boolean bambuDeviceTab;
+    String printerType;
 }

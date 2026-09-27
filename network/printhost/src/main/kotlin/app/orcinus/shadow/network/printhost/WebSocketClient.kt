@@ -5,7 +5,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -20,7 +22,26 @@ import okhttp3.WebSocketListener
  */
 interface WebSocketClient {
     suspend fun exchange(url: String, messages: List<String>, expect: String? = null): Result<String?>
+
+    /**
+     * A conversation of its own, as ElegooLink holds one with its
+     * WebSocketClient: [talk] sends and receives until it is done, and the
+     * socket closes after it. A refused connection is a [WebSocketRefused].
+     */
+    suspend fun <T> converse(url: String, talk: suspend (WebSocketConversation) -> T): Result<T> =
+        Result.failure(UnsupportedOperationException("No conversation over $url"))
 }
+
+/** The two halves of a conversation over a WebSocket. */
+interface WebSocketConversation {
+    fun send(text: String)
+
+    /** The next message, or null when none came within [timeoutMillis] or the socket closed. */
+    suspend fun receive(timeoutMillis: Long): String?
+}
+
+/** The server answered the WebSocket handshake with something else than 101 (Switching Protocols). */
+class WebSocketRefused(message: String) : java.io.IOException(message)
 
 /** OkHttp's WebSocket, with the timeouts the desktop app gives the printer. */
 class OkHttpWebSocketClient(
@@ -81,7 +102,55 @@ class OkHttpWebSocketClient(
             }
         }
 
+    override suspend fun <T> converse(url: String, talk: suspend (WebSocketConversation) -> T): Result<T> =
+        withContext(Dispatchers.IO) {
+            val opened = CompletableDeferred<Unit>()
+            val incoming = Channel<String>(Channel.UNLIMITED)
+            val socket = client.newWebSocket(
+                Request.Builder().url(url).build(),
+                object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        opened.complete(Unit)
+                    }
+
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        incoming.trySend(text)
+                    }
+
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        val refused = response != null && response.code != SWITCHING_PROTOCOLS
+                        opened.completeExceptionally(if (refused) WebSocketRefused(t.message.orEmpty()) else t)
+                        incoming.close()
+                    }
+
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                        incoming.close()
+                    }
+                },
+            )
+            try {
+                withTimeout(CONNECT_TIMEOUT_SECONDS * MILLIS) { opened.await() }
+                val conversation = object : WebSocketConversation {
+                    override fun send(text: String) {
+                        socket.send(text)
+                    }
+
+                    override suspend fun receive(timeoutMillis: Long): String? =
+                        withTimeoutOrNull(timeoutMillis.coerceAtLeast(1)) { incoming.receiveCatching().getOrNull() }
+                }
+                Result.success(talk(conversation))
+            } catch (error: TimeoutCancellationException) {
+                Result.failure(java.io.IOException("The printer did not answer on $url"))
+            } catch (error: Exception) {
+                Result.failure(error)
+            } finally {
+                socket.close(NORMAL_CLOSURE, null)
+            }
+        }
+
     private companion object {
+        const val SWITCHING_PROTOCOLS = 101
+
         /**
          * ws_connect() and ws_send_and_read(): five seconds to connect, and up
          * to twenty reads of three seconds for the answer among the status the

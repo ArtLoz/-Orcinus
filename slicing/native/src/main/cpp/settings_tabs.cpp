@@ -651,6 +651,29 @@ const std::vector<std::string>& print_host_keys()
     return keys;
 }
 
+// ElegooLink's classify_printer_model(): a Centauri whose name ends in 2.
+bool elegoo_is_cc2(const std::string& printer_model)
+{
+    if (!boost::algorithm::starts_with(printer_model, "Elegoo Centauri"))
+        return false;
+    const auto last_char = printer_model.find_last_not_of(" \t\r\n");
+    return last_char != std::string::npos && printer_model[last_char] == '2';
+}
+
+// Http::get_host_header_value(): the host of an address, with its port when it
+// names one, as curl's URL parser reads it (http:// in front when there is no scheme).
+std::string host_header_value(const std::string& address)
+{
+    std::string url = address;
+    if (url.find("//") == std::string::npos)
+        url = "http://" + url;
+    std::string authority = url.substr(url.find("//") + 2);
+    authority = authority.substr(0, authority.find_first_of("/?#"));
+    if (const auto at = authority.rfind('@'); at != std::string::npos)
+        authority = authority.substr(at + 1);
+    return authority;
+}
+
 }  // namespace
 
 PrinterConnection printer_connection()
@@ -673,10 +696,14 @@ PrinterConnection printer_connection()
         }
         // A host reads more of the printer's configuration than its own keys:
         // Flashforge's serial console says which firmware it talks to
-        // (Flashforge::Flashforge()). It is only read; saving keeps the host's keys.
-        if (const Slic3r::ConfigOption* flavor = cfg.option("gcode_flavor"); flavor != nullptr) {
-            result.settings.keys.push_back("gcode_flavor");
-            result.settings.values.push_back(flavor->serialize());
+        // (Flashforge::Flashforge()), ElegooLink tells its printers apart by
+        // their model (ElegooLink::ElegooLink()). They are only read; saving
+        // keeps the host's keys.
+        for (const char* key : {"gcode_flavor", "printer_model"}) {
+            if (const Slic3r::ConfigOption* option = cfg.option(key); option != nullptr) {
+                result.settings.keys.push_back(key);
+                result.settings.values.push_back(option->serialize());
+            }
         }
 
         // PhysicalPrinterDialog::PhysicalPrinterDialog()
@@ -695,16 +722,29 @@ PrinterConnection printer_connection()
                 webui_url = "http://" + webui_url;
         }
 
+        // ElegooLink::get_print_host_webui(): a Centauri Carbon 2 shows Elegoo's own
+        // LAN page with the printer's access code and address. The app adds the
+        // serial number, which takes a request to the printer, and the rest.
+        const auto host_type = cfg.option<Slic3r::ConfigOptionEnum<Slic3r::PrintHostType>>("host_type")->value;
+        const std::string print_host = cfg.opt_string("print_host");
+        if (host_type == Slic3r::htElegooLink && !print_host.empty() && elegoo_is_cc2(cfg.opt_string("printer_model"))) {
+            std::string web_path = Slic3r::resources_dir() + "/web/elegoolink/lan_service_web/index.html";
+            std::replace(web_path.begin(), web_path.end(), '\\', '/');
+            const std::string apikey = cfg.opt_string("printhost_apikey");
+            webui_url = "file://" + web_path + "?access_code=" + (apikey.empty() ? std::string("123456") : apikey) +
+                        "&ip=" + host_header_value(print_host);
+        }
+
         // Sidebar::update_all_preset_comboboxes()
         if (webui_url.empty()) {
             webui_url = "file://" + Slic3r::resources_dir() + "/web/orca/missing_connection.html";
         } else {
-            const auto host_type = cfg.option<Slic3r::ConfigOptionEnum<Slic3r::PrintHostType>>("host_type")->value;
             if (cfg.has("printhost_apikey") && (host_type != Slic3r::htSimplyPrint))
                 result.api_key = cfg.opt_string("printhost_apikey");
         }
         result.webui = webui_url;
         result.bbl_device_tab = preset_bundle.use_bbl_device_tab();
+        result.printer_type = preset_bundle.printers.get_edited_preset().get_printer_type(&preset_bundle);
         result.status = SceneStatus::success;
     } catch (const std::exception& error) {
         result.status = SceneStatus::profile_not_found;

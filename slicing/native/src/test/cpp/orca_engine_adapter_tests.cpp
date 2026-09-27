@@ -2220,8 +2220,11 @@ TEST_CASE("The host of the printer is kept on its preset as the Connection dialo
     CHECK(none.webui.rfind("file://", 0) == 0);
     CHECK(none.api_key.empty());
     CHECK_FALSE(none.bbl_device_tab);
-    // The printer's firmware comes along for a host that reads it (Flashforge).
+    // The printer's firmware and model come along for the hosts that read them
+    // (Flashforge, ElegooLink), with the vendor model's id.
     CHECK(setting(none, "gcode_flavor") == "klipper");
+    CHECK(setting(none, "printer_model") == "Creality K2 Plus");
+    CHECK(none.printer_type == "Creality-K2-Plus");
 
     // OK: the host on the preset, saved as a user preset and selected.
     orca::ModelSettings host;

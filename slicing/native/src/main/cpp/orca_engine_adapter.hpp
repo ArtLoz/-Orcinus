@@ -1997,6 +1997,9 @@ struct PrinterConnection {
     // PresetBundle::use_bbl_device_tab(): a BambuLab printer, whose Device tab
     // is BambuLab's own monitor instead of a page.
     bool bbl_device_tab{false};
+    // Preset::get_printer_type(): the model_id of the vendor's printer model,
+    // which ElegooPrintHostSendDialog offers its print options by.
+    std::string printer_type;
 };
 
 PrinterConnection printer_connection();

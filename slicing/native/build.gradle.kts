@@ -126,9 +126,11 @@ val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
         // The models of the Calibration menu (Plater::calib_*).
         orcaResourcesDirectory.dir("calib").asFileTree.matching { include("**/*.drc", "**/*.3mf") },
         // The page the Device tab shows until the printer has a host
-        // (Sidebar::update_all_preset_comboboxes()), with what it loads.
+        // (Sidebar::update_all_preset_comboboxes()), with what it loads, and
+        // Elegoo's LAN page of a Centauri Carbon 2 (ElegooLink::get_print_host_webui()).
         orcaResourcesDirectory.dir("web").asFileTree.matching {
             include("orca/**", "data/text.js", "homepage/js/jquery-3.6.0.min.js", "homepage/js/json2.js", "homepage/js/globalapi.js", "homepage/js/home.js")
+            include("elegoolink/**")
         },
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaAssets"))

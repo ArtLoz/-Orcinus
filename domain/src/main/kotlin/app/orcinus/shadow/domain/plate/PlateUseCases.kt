@@ -1471,6 +1471,54 @@ class ObservePrinterConnectionUseCase(private val engine: PresetSettingsEditor) 
     suspend operator fun invoke(): PrinterConnectionOutcome = engine.printerConnection()
 }
 
+/**
+ * MainFrame's Device tab (PrinterWebView): the page of the printer's host,
+ * and what Elegoo's LAN page of a Centauri Carbon 2 asks of the app
+ * (ElegooPrinterWebViewHandler). The engine names that page with the printer's
+ * access code and address; ElegooLink::get_print_host_webui() adds the
+ * printer's serial number, which takes a request to the printer, the panel's
+ * id and the app's language ([language], "ru_RU").
+ */
+class DevicePageUseCase(
+    private val engine: PresetSettingsEditor,
+    private val uploader: GcodeSender,
+    private val language: () -> String,
+) {
+    suspend operator fun invoke(): PrinterConnectionOutcome {
+        val outcome = engine.printerConnection()
+        val connection = (outcome as? PrinterConnectionOutcome.Success)?.connection ?: return outcome
+        if (!connection.webUi.contains(ELEGOO_PAGE)) return outcome
+        val serial = uploader.serialNumber(connection.printer(""), lookUp = true)
+        val url = buildString {
+            append(connection.webUi)
+            if (serial.isNotEmpty()) append("&sn=").append(serial)
+            append("&id=elegoo_123456")
+            language().takeIf { it.isNotEmpty() }?.let { append("&lang=").append(it) }
+        }
+        return PrinterConnectionOutcome.Success(connection.copy(webUi = url))
+    }
+
+    /** handle_get_sn_request(): the serial number the app knows, without asking the printer. */
+    suspend fun serialNumber(): String {
+        val connection = (engine.printerConnection() as? PrinterConnectionOutcome.Success)?.connection ?: return ""
+        return uploader.serialNumber(connection.printer(""), lookUp = false)
+    }
+
+    /**
+     * handle_upload_request(): a file the page picked goes to the printer's
+     * host, only stored (PrintHostPostUploadAction::None), under its own name.
+     */
+    suspend fun upload(path: String, onProgress: (Float) -> Unit): PrintHostUploadOutcome {
+        val connection = (engine.printerConnection() as? PrinterConnectionOutcome.Success)?.connection
+            ?: return PrintHostUploadOutcome.Failure("Could not get a valid Printer Host reference")
+        return uploader.send(connection.printer(""), OutputPath(path), startPrint = false, options = PrintOptions(), onProgress = onProgress)
+    }
+
+    private companion object {
+        const val ELEGOO_PAGE = "/web/elegoolink/lan_service_web/index.html"
+    }
+}
+
 /** PhysicalPrinterDialog's Test button. */
 class TestPhysicalPrinterUseCase(private val uploader: GcodeSender) {
     suspend operator fun invoke(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
@@ -1594,6 +1642,12 @@ interface GcodeSender {
 
     /** PrintHost::get_printers(): the printers of a server that serves several. */
     suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome
+
+    /**
+     * ElegooLink::get_sn(): the serial number of a Centauri Carbon 2, the one
+     * the app knows, or with [lookUp] asked of the printer when it does not.
+     */
+    suspend fun serialNumber(printer: PhysicalPrinter, lookUp: Boolean): String
 }
 
 

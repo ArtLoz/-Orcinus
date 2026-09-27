@@ -337,6 +337,7 @@ internal fun NativePrinterConnection.toOutcome(): PrinterConnectionOutcome {
             webUi = webUi,
             apiKey = apiKey,
             bambuDeviceTab = bambuDeviceTab,
+            printerType = printerType,
         ),
     )
 }

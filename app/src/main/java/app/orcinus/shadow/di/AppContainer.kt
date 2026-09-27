@@ -46,6 +46,7 @@ import app.orcinus.shadow.domain.plate.ApplySetupUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
 import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
+import app.orcinus.shadow.domain.plate.DevicePageUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
 import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
@@ -158,6 +159,7 @@ import app.orcinus.shadow.storage.android.AppPlateCache
 import app.orcinus.shadow.storage.android.AppSceneFiles
 import app.orcinus.shadow.storage.android.ContentResolverModelFileImporter
 import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -278,8 +280,15 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         override suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 
         override suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome = uploader.printers(printer)
+
+        override suspend fun serialNumber(printer: PhysicalPrinter, lookUp: Boolean): String = uploader.serialNumber(printer, lookUp)
     }
     val printerConnection = ObservePrinterConnectionUseCase(engine)
+
+    // The Device tab's page; Elegoo's LAN page takes the app's language as OrcaSlicer's code, "ru_RU".
+    private val devicePage = DevicePageUseCase(engine, gcodeSender) {
+        Locale.getDefault().let { locale -> if (locale.country.isEmpty()) locale.language else "${locale.language}_${locale.country}" }
+    }
     val testPhysicalPrinter = TestPhysicalPrinterUseCase(gcodeSender)
     private val listHostPrinters = ListHostPrintersUseCase(gcodeSender)
     // PhysicalPrinterDialog's Browse button: the printers of the local network.
@@ -468,7 +477,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
     )
 
-    fun deviceViewModel() = DeviceViewModel(observePlate, printerConnection)
+    fun deviceViewModel() = DeviceViewModel(observePlate, devicePage)
 
     fun sidebarViewModel() = SidebarViewModel(
         observePlate = observePlate,

@@ -387,6 +387,7 @@ internal class NativePrinterConnection(
     @JvmField val webUi: String,
     @JvmField val apiKey: String,
     @JvmField val bambuDeviceTab: Boolean,
+    @JvmField val printerType: String,
 )
 
 /** Constructed by the native bridge; see CreateFilamentOptions in orca_engine_adapter.hpp. */

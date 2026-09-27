@@ -625,8 +625,8 @@ enum class PrintHostType(val key: String, val label: String) {
         }
 
     companion object {
-        /** The hosts the port does not cover yet: the cloud ones and Elegoo Link. */
-        private val UNSUPPORTED = setOf(OBICO, SIMPLYPRINT, ELEGOO_LINK, PRINTER_3D_OS)
+        /** The hosts the port does not cover yet: the cloud ones. */
+        private val UNSUPPORTED = setOf(OBICO, SIMPLYPRINT, PRINTER_3D_OS)
 
         fun of(key: String): PrintHostType? = entries.firstOrNull { it.key == key }
     }
@@ -681,6 +681,19 @@ data class PhysicalPrinter(
     val usesFlashforgeLocalApi: Boolean
         get() = hostType == PrintHostType.FLASHFORGE && serialNumber.isNotEmpty() && apiKey.isNotEmpty()
 
+    /** printer_model of the printer, which comes with the host's settings for ElegooLink. */
+    val printerModel: String get() = settings.values["printer_model"].orEmpty()
+
+    /** ElegooLink's classify_printer_model(): which of Elegoo's protocols the printer speaks. */
+    val elegooKind: ElegooKind get() = ElegooKind.of(printerModel)
+
+    /**
+     * get_post_upload_actions() has StartPrint: whether the send dialog offers
+     * "Upload and Print". A Centauri Carbon 2 only stores the file.
+     */
+    val canStartPrint: Boolean
+        get() = hostType?.startsPrint == true && !(hostType == PrintHostType.ELEGOO_LINK && elegooKind == ElegooKind.CC2)
+
     /** get_test_ok_msg(): as OrcaSlicer's msgid; Flashforge says which of its two ways answered. */
     val testOkMessage: String?
         get() = if (usesFlashforgeLocalApi) "Connected to Flashforge local API successfully." else hostType?.testOkMessage
@@ -691,6 +704,60 @@ data class PhysicalPrinter(
 
     /** Whether the app knows how to send G-code to it. */
     val canSend: Boolean get() = hostType?.supported == true && host.isNotBlank()
+}
+
+/**
+ * ElegooLink's ElegooPrinterType: a Centauri Carbon 2 (a Centauri whose model
+ * name ends in 2) has an API of its own, the other Centauri printers take the
+ * file in pieces and start it over a WebSocket, and any other Elegoo printer
+ * speaks OctoPrint's API.
+ */
+enum class ElegooKind {
+    OTHER,
+    CC,
+    CC2,
+    ;
+
+    companion object {
+        fun of(printerModel: String): ElegooKind {
+            if (!printerModel.startsWith("Elegoo Centauri")) return OTHER
+            return if (printerModel.trimEnd(' ', '\t', '\r', '\n').endsWith('2')) CC2 else CC
+        }
+    }
+}
+
+/**
+ * What ElegooPrintHostSendDialog adds to "Upload and Print" for a Centauri
+ * (printer types Elegoo-CC and Elegoo-C): record a time-lapse, level the
+ * heated bed first, and the side of the build plate, a BedType value.
+ */
+data class ElegooOptions(
+    val timeLapse: Boolean = false,
+    val heatedBedLeveling: Boolean = false,
+    val bedType: Int = BED_TYPE_PTE,
+) {
+    companion object {
+        /** BedType::btPC, the smooth side B. */
+        const val BED_TYPE_PC = 1
+
+        /** BedType::btPTE, the textured side A the dialog starts with. */
+        const val BED_TYPE_PTE = 4
+
+        /** The printer types ElegooPrintHostSendDialog::init() offers the options to. */
+        val PRINTER_TYPES = setOf("Elegoo-CC", "Elegoo-C")
+
+        /** s_keys_map_BedType: the BedType value of a curr_bed_type key. */
+        fun bedTypeOf(key: String): Int? = when (key) {
+            "Default Plate" -> 0
+            "Cool Plate" -> 1
+            "Engineering Plate" -> 2
+            "High Temp Plate" -> 3
+            "Textured PEI Plate" -> 4
+            "Textured Cool Plate" -> 5
+            "Supertack Plate" -> 6
+            else -> null
+        }
+    }
 }
 
 /** FlashforgeDiscoveredPrinter: a Flashforge printer that answered the broadcast of the local network. */
@@ -851,6 +918,8 @@ data class PrintOptions(
     val slots: List<PrinterSlot> = emptyList(),
     /** FlashforgePrintHostSendDialog's choices, for a Flashforge printer on its local API. */
     val flashforge: FlashforgeOptions? = null,
+    /** ElegooPrintHostSendDialog's choices, for a Centauri that starts the print. */
+    val elegoo: ElegooOptions? = null,
 )
 
 /**
@@ -877,6 +946,8 @@ data class PrinterConnection(
     val apiKey: String,
     /** PresetBundle::use_bbl_device_tab(): a BambuLab printer, whose Device tab is BambuLab's own monitor. */
     val bambuDeviceTab: Boolean,
+    /** Preset::get_printer_type(): the model_id of the printer's vendor model, "Elegoo-CC". */
+    val printerType: String = "",
 ) {
     /** The host as sending G-code takes it, named after [presetName]. */
     fun printer(presetName: String) = PhysicalPrinter(presetName, settings)

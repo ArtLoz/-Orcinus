@@ -302,8 +302,12 @@ lists the types without the default one and shifts them by one.
 `PhysicalPrinterDialog`: the settings of the printer's host live on the edited
 printer preset (`host_type`, `print_host`, `print_host_webui`,
 `printhost_apikey` and the rest), which the dialog edits and saves under a
-name of its own (the answer also carries the printer's `gcode_flavor`, which
-Flashforge's serial console reads; saving keeps only the host's keys) — a system preset as a copy — and selects. The same answer
+name of its own (the answer also carries the printer's `gcode_flavor` and `printer_model`,
+which Flashforge's serial console and ElegooLink read, and the vendor model's
+`model_id` (`Preset::get_printer_type()`), which the Elegoo send dialog reads;
+saving keeps only the host's keys). For a Centauri Carbon 2 on ElegooLink the
+page is Elegoo's own LAN page with the printer's access code and address; the
+app adds the serial number, which takes a request to the printer — a system preset as a copy — and selects. The same answer
 brings the page the Device tab loads (`PrintHost::get_print_host_webui()`, or
 OrcaSlicer's `web/orca/missing_connection.html` while the preset has no host),
 the API key the page's requests carry, and whether the printer is BambuLab's,
