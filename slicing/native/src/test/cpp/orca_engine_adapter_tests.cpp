@@ -4994,6 +4994,89 @@ TEST_CASE("Supports painted under an overhang print there alone, and keep the co
     CHECK(orca::end_painting().facets == closed.facets);
 }
 
+TEST_CASE("The seam stands where it is enforced", "[Adapter][Scene]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("seam.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const std::vector<double> center = matrix_of(cube);
+    const double cx = center[12];
+    const double cy = center[13];
+
+    // Where the outer walls start: the point the extruder stands at when the
+    // first extrusion of an outer wall begins.
+    const auto seam_points = [&](const std::string& name) {
+        const std::string output = output_path(name + ".gcode");
+        const orca::SliceResult sliced = orca::slice(name, plate, output, {}, k2_plus_profiles(), {}, {});
+        INFO(sliced.message);
+        REQUIRE(sliced.status == orca::SliceStatus::success);
+        std::istringstream gcode(read_file(output));
+        std::vector<std::pair<double, double>> starts;
+        double x = 0.0;
+        double y = 0.0;
+        bool outer = false;
+        bool started = false;
+        for (std::string line; std::getline(gcode, line);) {
+            if (line.rfind(";TYPE:", 0) == 0) {
+                outer = line == ";TYPE:Outer wall";
+                started = false;
+                continue;
+            }
+            if (line.rfind("G1 ", 0) != 0 && line.rfind("G0 ", 0) != 0) {
+                continue;
+            }
+            double next_x = x;
+            double next_y = y;
+            bool extrudes = false;
+            std::istringstream words(line);
+            for (std::string word; words >> word;) {
+                if (word[0] == ';') break;
+                if (word[0] == 'X') next_x = std::stod(word.substr(1));
+                if (word[0] == 'Y') next_y = std::stod(word.substr(1));
+                if (word[0] == 'E' && std::stod(word.substr(1)) > 0.0) extrudes = true;
+            }
+            if (outer && extrudes && !started) {
+                starts.emplace_back(x, y);
+                started = true;
+            }
+            x = next_x;
+            y = next_y;
+        }
+        return starts;
+    };
+    // The seam on the middle of the +X face.
+    const auto on_face = [&](const std::vector<std::pair<double, double>>& starts) {
+        return std::count_if(starts.begin(), starts.end(), [&](const std::pair<double, double>& p) {
+            return std::abs(p.first - (cx + 10.0)) < 0.6 && std::abs(p.second - cy) < 3.0;
+        });
+    };
+    CHECK(on_face(seam_points("seam-default")) == 0);
+
+    // GLGizmoSeam: a circle enforcing the seam on the +X face, seen from +X.
+    const std::string prefix = output_path("seam-paint");
+    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::seam, k2_plus_profiles(), {}, prefix).status ==
+            orca::SceneStatus::success);
+    orca::PaintStroke stroke;
+    stroke.origin[0] = cx + 100.0;
+    stroke.origin[1] = cy;
+    stroke.origin[2] = 10.0;
+    stroke.direction[0] = -1.0;
+    stroke.state = 1;  // EnforcerBlockerType::ENFORCER
+    stroke.radius = 4.0;
+    stroke.tool = orca::PaintTool::circle;
+    stroke.starts = true;
+    REQUIRE(orca::paint(stroke, prefix).states == std::vector<int>{1});
+    const orca::PaintingState closed = orca::end_painting();
+    REQUIRE(closed.status == orca::SceneStatus::success);
+    CHECK(read_file(closed.facets).find("seam=") != std::string::npos);
+
+    plate.front().painted = closed.facets;
+    // The layers within the circle start their outer wall on it.
+    CHECK(on_face(seam_points("seam-enforced")) > 10);
+}
+
 TEST_CASE("The gap fill shows the painting without its small patches, and merges them when asked", "[Adapter][Scene]")
 {
     require_engine();

@@ -481,6 +481,11 @@ class PrepareViewModel(
         view.update { state -> state.painting?.let { state.copy(painting = it.copy(overhangsOnly = only)) } ?: state }
     }
 
+    /** The seam tool's "Vertical". */
+    fun setVerticalOnly(vertical: Boolean) {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(verticalOnly = vertical)) } ?: state }
+    }
+
     /**
      * A touch of the finger; [starts] marks the first of a stroke. A touch that
      * arrives while the last one is still painted is dropped, but the start of

@@ -212,6 +212,8 @@ data class PaintingMode(
     val overhangsOnly: Boolean = false,
     /** The gap fill's area (TriangleSelectorPatch::gap_area), in square millimetres. */
     val gapArea: Double = 0.0,
+    /** The seam tool's "Vertical" (m_vertical_only): a stroke keeps to a screen column. */
+    val verticalOnly: Boolean = false,
     /** Whether the model carries the tool's kind of paint at all, which "Erase all" takes off. */
     val painted: Boolean = false,
     /** Whether the tool can undo or redo a stroke, which the Undo and Redo buttons do while it is open. */

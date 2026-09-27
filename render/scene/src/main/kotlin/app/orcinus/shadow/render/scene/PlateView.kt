@@ -234,6 +234,7 @@ fun PlateView(
             onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z), starts)
         }
         controller.setPainting(painting != null)
+        controller.setVerticalOnly(painting?.verticalOnly == true)
         // GLGizmoFdmSupports::on_opening() turns the slope on; the painting's
         // highlight angle sets it (-cos of m_highlight_by_angle_threshold_deg).
         controller.setSlope(painting?.takeIf { it.kind == PaintKind.SUPPORTS }?.let { -cos(Math.toRadians(it.overhangAngle)).toFloat() })
@@ -605,6 +606,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The support painting tool's overhang highlight, slope.normal_z; null while it is closed. */
     private var slopeNormalZ: Float? = null
 
+    /** The seam tool's "Vertical", and the screen column the stroke started in. */
+    private var verticalOnly = false
+    private var strokeX = 0f
+
+    fun setVerticalOnly(vertical: Boolean) {
+        verticalOnly = vertical
+    }
+
     fun setSlope(normalZ: Float?) {
         if (slopeNormalZ == normalZ) return
         slopeNormalZ = normalZ
@@ -632,6 +641,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
             if (objects.none { it.index == selectedIndex && it.raycast(ray) != null }) return false
             paintingStroke = true
+            strokeX = x
             onPaint(ray, true)
             return true
         }
@@ -677,8 +687,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     fun moveTo(x: Float, y: Float) {
         if (paintingStroke) {
             // The brush follows the finger, as the desktop gizmo paints while
-            // the left button is held.
-            camera.mouseRay(x.toDouble(), y.toDouble())?.let { onPaint(it, false) }
+            // the left button is held; "Vertical" keeps the finger's x where
+            // the stroke started (_mouse_position.x() = m_last_mouse_click.x()).
+            val column = if (verticalOnly) strokeX else x
+            camera.mouseRay(column.toDouble(), y.toDouble())?.let { onPaint(it, false) }
             return
         }
         val drag = drag ?: return
@@ -1049,4 +1061,10 @@ private class MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
  * it paints, and the angle from which the support tool highlights overhangs
  * (m_highlight_by_angle_threshold_deg).
  */
-data class PaintingView(val mesh: ScenePath, val kind: PaintKind, val overhangAngle: Double = 0.0)
+data class PaintingView(
+    val mesh: ScenePath,
+    val kind: PaintKind,
+    val overhangAngle: Double = 0.0,
+    /** "Vertical" (m_vertical_only): a stroke keeps to the screen column where it met the model. */
+    val verticalOnly: Boolean = false,
+)

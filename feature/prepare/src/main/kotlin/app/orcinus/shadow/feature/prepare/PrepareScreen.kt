@@ -195,6 +195,7 @@ internal fun PrepareRoute(
             setFillAngle = viewModel::setFillAngle,
             setHighlightAngle = viewModel::setHighlightAngle,
             setOverhangsOnly = viewModel::setOverhangsOnly,
+            setVerticalOnly = viewModel::setVerticalOnly,
             setGapArea = viewModel::setGapArea,
             fillGaps = viewModel::fillGaps,
             clear = viewModel::clearPainting,
@@ -310,6 +311,8 @@ internal class PaintingActions(
     /** "Highlight overhang areas" and "On highlighted overhangs only". */
     val setHighlightAngle: (Double) -> Unit,
     val setOverhangsOnly: (Boolean) -> Unit,
+    /** The seam tool's "Vertical". */
+    val setVerticalOnly: (Boolean) -> Unit,
     /** The gap fill's area and its "Perform". */
     val setGapArea: (Double) -> Unit,
     val fillGaps: () -> Unit,
@@ -318,7 +321,7 @@ internal class PaintingActions(
     val close: () -> Unit,
 ) {
     companion object {
-        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 }
 
@@ -379,7 +382,7 @@ internal fun PrepareScreen(
                 filamentColors = state.filamentColors,
                 builtWipeTower = state.builtWipeTower,
                 onMoveWipeTower = onMoveWipeTower,
-                painting = state.painting?.let { PaintingView(it.mesh, it.kind, it.highlightAngle) },
+                painting = state.painting?.let { PaintingView(it.mesh, it.kind, it.highlightAngle, it.verticalOnly) },
                 onPaint = paintingActions.paint,
                 selectedObject = state.selectedObject,
                 selectedObjects = state.selectedObjects,
@@ -525,6 +528,7 @@ internal fun PrepareScreen(
                     )
                     state.painting?.kind == PaintKind.COLOR -> PaintingPanel(state, state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
+                    state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null -> ScaleGizmoPanel(state, scale, size, scaleActions, onCloseGizmo)
                     state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(position, onSetPosition, onCloseGizmo)
@@ -949,7 +953,14 @@ private fun CanvasToolbar(
             enabled = state.canManipulate,
             selected = state.painting?.kind == PaintKind.SUPPORTS,
         )
-        gizmo(DesignR.drawable.orca_toolbar_seam, R.string.gizmo_seam_painting, null)
+        // GLGizmoSeam: the seam is enforced or blocked where it is painted.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_seam,
+            contentDescription = stringResource(R.string.gizmo_seam_painting),
+            onClick = { onTogglePainting(PaintKind.SEAM) },
+            enabled = state.canManipulate,
+            selected = state.painting?.kind == PaintKind.SEAM,
+        )
         gizmo(DesignR.drawable.orca_toolbar_fuzzy_skin_paint, R.string.gizmo_fuzzy_skin_painting, null)
         gizmo(DesignR.drawable.orca_toolbar_text, R.string.gizmo_emboss, null)
         gizmo(DesignR.drawable.orca_toolbar_measure, R.string.gizmo_measure, null)
@@ -1111,20 +1122,7 @@ private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingAction
         }
         if (painting.tool != PaintTool.GAP_FILL) {
             // Allows painting only on facets selected by "Highlight overhang areas".
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .toggleable(value = painting.overhangsOnly, role = Role.Checkbox, onValueChange = actions.setOverhangsOnly),
-            ) {
-                OrcaCheckBox(checked = painting.overhangsOnly, onCheckedChange = null)
-                Text(
-                    text = orcaString("On highlighted overhangs only"),
-                    color = OrcaTheme.colors.onCanvasPanel,
-                    style = OrcaTheme.typography.body12,
-                    modifier = Modifier.padding(start = 6.dp),
-                )
-            }
+            PaintingCheck(orcaString("On highlighted overhangs only"), painting.overhangsOnly, actions.setOverhangsOnly)
         }
         PaintingSlider(
             label = orcaString("Highlight overhang areas"),
@@ -1139,6 +1137,73 @@ private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingAction
             enabled = painting.painted,
             onClick = actions.clear,
             modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/**
+ * GLGizmoSeam's window while it is open: whether the finger enforces or
+ * blocks the seam or takes it off, the circle or the sphere with its brush
+ * size, "Vertical", "Erase all" and "Done".
+ */
+@Composable
+private fun SeamPaintingPanel(painting: PaintingMode, actions: PaintingActions) {
+    PaintingPanelFrame(stringResource(R.string.gizmo_seam_painting), orcaString("Done"), actions.close) {
+        PaintingChoices(
+            listOf(
+                PaintState.ENFORCER to orcaString("Enforce seam"),
+                PaintState.BLOCKER to orcaString("Block seam"),
+                PaintState.NONE to orcaString("Erase"),
+            ),
+            selected = painting.state,
+            onSelect = actions.setState,
+        )
+        Text(
+            text = orcaString("Tool type"),
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+        )
+        PaintingChoices(
+            listOf(
+                PaintTool.CIRCLE to orcaString("Circle"),
+                PaintTool.BRUSH to orcaString("Sphere"),
+            ),
+            selected = painting.tool,
+            onSelect = actions.setTool,
+        )
+        PaintingSlider(
+            label = orcaString("Brush size"),
+            value = painting.radius.toFloat(),
+            range = BRUSH_MIN..BRUSH_MAX,
+            text = String.format(textLocale(), "%.2f", painting.radius),
+            onChange = { actions.setRadius(it.toDouble()) },
+        )
+        PaintingCheck(orcaString("Vertical"), painting.verticalOnly, actions.setVerticalOnly)
+        OrcaButton(
+            text = orcaString("Erase all"),
+            size = OrcaButtonSize.Compact,
+            enabled = painting.painted,
+            onClick = actions.clear,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/** A check box of a painting tool, the whole row its touch target. */
+@Composable
+private fun PaintingCheck(text: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(value = checked, role = Role.Checkbox, onValueChange = onChange),
+    ) {
+        OrcaCheckBox(checked = checked, onCheckedChange = null)
+        Text(
+            text = text,
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier.padding(start = 6.dp),
         )
     }
 }
