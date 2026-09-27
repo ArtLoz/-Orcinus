@@ -16,6 +16,7 @@ import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CutGroove
+import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
@@ -176,6 +177,8 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             groove: DoubleArray,
             preview: Boolean,
             meshPrefix: String,
+            partsPlane: DoubleArray,
+            parts: BooleanArray,
         ): CutPlaneParcel = runBlocking {
             engine.describeCutPlane(
                 Transform3(plane.toList()),
@@ -184,6 +187,22 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                 snapBulge,
                 CutGroove.of(groove).takeIf { dovetail },
                 preview,
+                cutParts(partsPlane, parts),
+                ScenePath(meshPrefix),
+            )
+        }.toParcel()
+
+        override fun selectCutPart(
+            partsPlane: DoubleArray,
+            selected: BooleanArray,
+            origin: DoubleArray,
+            direction: DoubleArray,
+            meshPrefix: String,
+        ): CutPartsParcel = runBlocking {
+            engine.selectCutPart(
+                CutPartSelection(Transform3(partsPlane.toList()), selected.toList()),
+                Vector3(origin[0], origin[1], origin[2]),
+                Vector3(direction[0], direction[1], direction[2]),
                 ScenePath(meshPrefix),
             )
         }.toParcel()

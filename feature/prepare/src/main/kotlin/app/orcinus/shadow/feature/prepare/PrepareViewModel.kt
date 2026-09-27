@@ -9,6 +9,8 @@ import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPartSelection
+import app.orcinus.shadow.core.model.CutPartsOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
@@ -100,6 +102,7 @@ import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.render.scene.CutConnectorEvent
+import app.orcinus.shadow.render.scene.CutLineEvent
 import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.ObjectTransforms
 import app.orcinus.shadow.render.scene.PlateGizmo
@@ -225,12 +228,21 @@ class PrepareViewModel(
                 val plane = asked.plane ?: continue
                 if (view.value.cut == null) continue
                 val groove = asked.groove.takeIf { asked.kind == CutKind.DOVETAIL }
+                val parts = asked.partSelection.takeIf { asked.kind == CutKind.PLANAR }
                 // reset_cut_by_contours(): the dovetail's parts once nothing is dragged.
-                val outcome = cutObject.describe(plane, asked.connectors, asked.snapSpace, asked.snapBulge, groove, preview = groove != null && !asked.shaping)
+                val outcome = cutObject.describe(plane, asked.connectors, asked.snapSpace, asked.snapBulge, groove, preview = groove != null && !asked.shaping, parts = parts)
                 if (outcome !is CutPlaneOutcome.Success) continue
                 view.update { state ->
                     state.cut?.let {
-                        state.copy(cut = it.copy(described = outcome.plane, describedPlane = plane, describedConnectors = asked.connectors, describedGroove = groove))
+                        state.copy(
+                            cut = it.copy(
+                                described = outcome.plane,
+                                describedPlane = plane,
+                                describedConnectors = asked.connectors,
+                                describedGroove = groove,
+                                describedParts = parts?.selected,
+                            ),
+                        )
                     } ?: state
                 }
             }
@@ -543,9 +555,11 @@ class PrepareViewModel(
         closePainting()
         openSimplify.close()
         val left = lastCut
+        val placement = copy.instance.inspection.placement.columns
         val mode = CutMode(
             mesh = copy.id.mesh,
             instance = copy.id.instance,
+            instanceOffset = Vector3(placement[12], placement[13], placement[14]),
             keepUpper = left?.keepUpper ?: true,
             keepLower = left?.keepLower ?: true,
             keepAsParts = left?.keepAsParts ?: false,
@@ -615,10 +629,63 @@ class PrepareViewModel(
         updateCut(finished) { it.copy(plane = placed, shaping = !finished) }
     }
 
-    /** A tap on the plane outside the section: flip_cut_plane(). */
+    /** A tap on the plane outside the section: flip_cut_plane(), which turns the pieces over too (turn_over_selection()). */
     fun flipCutPlane() {
         val plane = view.value.cut?.plane ?: return
-        updateCut(snapshot = true) { it.copy(plane = CutPlanes.flipped(plane)) }
+        updateCut(snapshot = true) { it.copy(plane = CutPlanes.flipped(plane), parts = it.parts?.map { part -> part.copy(upper = !part.upper) }) }
+    }
+
+    /**
+     * A long press on the object (a right click, GLGizmoCut3D::on_mouse()): the
+     * object is split into its pieces at the plane the first time
+     * (process_contours()), and the piece the finger's ray from [origin] along
+     * [direction] meets first goes to the other part.
+     */
+    fun selectCutPart(origin: Vector3, direction: Vector3) {
+        val mode = view.value.cut?.takeIf { it.kind == CutKind.PLANAR && !it.editingConnectors } ?: return
+        val plane = mode.plane ?: return
+        val selection = mode.partSelection ?: CutPartSelection(plane, emptyList())
+        viewModelScope.launch {
+            val outcome = cutObject.selectPart(selection, origin, direction)
+            if (outcome !is CutPartsOutcome.Success) return@launch
+            // The plane moved meanwhile: its pieces are gone with it.
+            updateCut(snapshot = false) { cut ->
+                if (cut.plane != plane || cut.kind != CutKind.PLANAR) cut else cut.copy(parts = outcome.parts, partsPlane = selection.plane, keepAsParts = false)
+            }
+        }
+    }
+
+    /** "Draw cut line" (Shift + drag on the desktop): the next drag of a finger draws it. */
+    fun setCutLineDrawing(drawing: Boolean) = updateCut(snapshot = false) { it.copy(drawingLine = drawing) }
+
+    /**
+     * process_cut_line(): a finger draws the line and, once it lets go, the
+     * plane is laid across it ("Cut by line") where its centre still lies in
+     * the object's box; drawing it takes the pieces away and holds the
+     * dovetail's parts back (m_groove_editing).
+     */
+    fun cutLineEvent(event: CutLineEvent) {
+        val mode = view.value.cut ?: return
+        when (event) {
+            CutLineEvent.Start -> updateCut(snapshot = false) { it.copy(parts = null, partsPlane = null, shaping = it.kind == CutKind.DOVETAIL) }
+            is CutLineEvent.Drawn -> {
+                val boundsCenter = mode.boundsCenter
+                val candidate = boundsCenter?.let { CutPlanes.byLine(event.start, event.end, event.direction, it) }
+                if (candidate == null) {
+                    updateCut(snapshot = false) { it.copy(drawingLine = false, shaping = false) }
+                    return
+                }
+                viewModelScope.launch {
+                    val outcome = cutObject.describe(candidate, emptyList(), mode.snapSpace, mode.snapBulge)
+                    val fits = outcome is CutPlaneOutcome.Success &&
+                        CutPlanes.lineCutFits(candidate, mode.instanceOffset, outcome.plane.min, outcome.plane.max)
+                    updateCut(snapshot = fits) { cut ->
+                        val done = cut.copy(drawingLine = false, shaping = false)
+                        if (fits) done.copy(plane = candidate) else done
+                    }
+                }
+            }
+        }
     }
 
     /** "Cut position": the height of the plane's centre (render_move_center_input(Z)). */
@@ -659,9 +726,11 @@ class PrepareViewModel(
         }
     }
 
-    /** "Cut to parts": both halves kept as the parts of one object, neither placed on the cut nor flipped. */
+    /** "Cut to parts": both halves kept as the parts of one object, neither placed on the cut nor flipped; not with pieces. */
     fun setCutToParts(parts: Boolean) = updateCut(snapshot = false) {
-        if (parts) {
+        if (it.parts != null) {
+            it
+        } else if (parts) {
             it.copy(
                 keepAsParts = true,
                 keepUpper = true,
@@ -700,6 +769,7 @@ class PrepareViewModel(
                 dovetail = mode.kind == CutKind.DOVETAIL,
                 groove = mode.groove,
                 radius = mode.radius,
+                parts = mode.partSelection.takeIf { mode.kind == CutKind.PLANAR },
             ),
         )
     }
@@ -710,14 +780,17 @@ class PrepareViewModel(
     }
 
     /** "Mode": "Planar" or "Dovetail" ("Change cut mode"). */
-    fun setCutKind(kind: CutKind) = updateCut(snapshot = true) { if (it.connectors.isEmpty()) it.copy(kind = kind, shaping = false) else it }
+    fun setCutKind(kind: CutKind) = updateCut(snapshot = true) {
+        // switch_to_mode(): the pieces go (reset_cut_by_contours()).
+        if (it.connectors.isEmpty() && it.kind != kind) it.copy(kind = kind, shaping = false, parts = null, partsPlane = null) else it
+    }
 
     /**
      * The groove's inputs: its depth and width with their tolerances, the flap
      * and groove angles, the count and the gap; [finished] once a slider is let
      * go, which works the parts out again (m_is_slider_editing_done).
      */
-    fun setCutGroove(finished: Boolean, change: (CutGroove) -> CutGroove) = updateCut(snapshot = false) { cut ->
+    fun setCutGroove(finished: Boolean, change: (CutGroove) -> CutGroove) = updateCut(snapshot = finished) { cut ->
         val groove = change(cut.groove).let { it.copy(count = it.count.coerceIn(1, 100)) }
         cut.copy(groove = groove, shaping = !finished)
     }
@@ -824,6 +897,9 @@ class PrepareViewModel(
     /** "Bulge" and "Space" of the snaps, proportions of their radius. */
     fun setCutSnap(space: Double, bulge: Double) = updateCut(snapshot = false) { it.copy(snapSpace = space, snapBulge = bulge) }
 
+    /** A slider of the connectors' window let go, or its reset ("Edited: <label>", "Reset: <label>"). */
+    fun snapshotCutConnectors() = updateCut(snapshot = true) { it }
+
     /** set_center_pos(center, true): the plane at [center], or null where it would leave the object behind. */
     private fun movedCut(mode: CutMode, center: Vector3): Transform3? {
         val plane = mode.plane ?: return null
@@ -849,6 +925,8 @@ class PrepareViewModel(
             state.cut?.let { mode ->
                 change(mode)
                     .let { changed -> if (changed.plane != mode.plane) changed.copy(connectors = onPlane(changed.connectors, changed.plane)) else changed }
+                    // A plane moved or turned takes the pieces away (reset_cut_by_contours()); a flip turns them over itself.
+                    .let { changed -> if (changed.plane != mode.plane && changed.parts === mode.parts) changed.copy(parts = null, partsPlane = null) else changed }
                     .let { if (snapshot) it.snapshotted() else it }
             }?.let { state.copy(cut = it) } ?: state
         }
@@ -867,7 +945,7 @@ class PrepareViewModel(
         val after = view.value.cut ?: return
         if (after.plane != null &&
             (after.plane != before.plane || after.connectors != before.connectors || after.snapSpace != before.snapSpace || after.snapBulge != before.snapBulge ||
-                after.kind != before.kind || after.groove != before.groove || after.shaping != before.shaping)
+                after.kind != before.kind || after.groove != before.groove || after.shaping != before.shaping || after.parts != before.parts)
         ) {
             cutPlanes.trySend(after)
         }

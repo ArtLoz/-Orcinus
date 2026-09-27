@@ -744,6 +744,15 @@ internal class NativeCutPlane(
     @JvmField val previewModifiers: BooleanArray,
 )
 
+/** Constructed by the native bridge; see CutParts in orca_engine_adapter.hpp. */
+internal class NativeCutParts(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val meshes: Array<String>,
+    @JvmField val upper: BooleanArray,
+    @JvmField val modifiers: BooleanArray,
+)
+
 /** Read and constructed by the native bridge; see CalibrationParams in orca_engine_adapter.hpp. */
 internal class NativeCalibration(
     /** CalibrationMode's order. */
@@ -1190,6 +1199,9 @@ internal object NativeBindings {
         dovetail: Boolean,
         groove: DoubleArray,
         radius: Double,
+        /** The pieces of a right click: the plane they were split at, empty for none, and where each goes. */
+        partsPlane: DoubleArray,
+        parts: BooleanArray,
     ): NativeImportedModels
 
     /** begin_cut(): the cut gizmo opened on the copy at [instance] of the object, a plate of one. */
@@ -1213,7 +1225,18 @@ internal object NativeBindings {
         groove: DoubleArray,
         preview: Boolean,
         meshPrefix: String,
+        partsPlane: DoubleArray,
+        parts: BooleanArray,
     ): NativeCutPlane
+
+    /** select_cut_part(): the ray from [origin] along [direction] turns a piece over. */
+    external fun selectCutPart(
+        partsPlane: DoubleArray,
+        selected: BooleanArray,
+        origin: DoubleArray,
+        direction: DoubleArray,
+        meshPrefix: String,
+    ): NativeCutParts
 
     /** end_cut() */
     external fun endCut()

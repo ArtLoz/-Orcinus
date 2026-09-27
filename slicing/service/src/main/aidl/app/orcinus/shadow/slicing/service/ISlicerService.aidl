@@ -11,6 +11,7 @@ import app.orcinus.shadow.slicing.service.CreatePrinterOptionsParcel;
 import app.orcinus.shadow.slicing.service.CustomFilamentsParcel;
 import app.orcinus.shadow.slicing.service.CutObjectParcel;
 import app.orcinus.shadow.slicing.service.CutParcel;
+import app.orcinus.shadow.slicing.service.CutPartsParcel;
 import app.orcinus.shadow.slicing.service.CutPlaneParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
 import app.orcinus.shadow.slicing.service.FilamentPresetsParcel;
@@ -93,8 +94,12 @@ interface ISlicerService {
         boolean dovetail,
         in double[] groove,
         boolean preview,
-        String meshPrefix
+        String meshPrefix,
+        in double[] partsPlane,
+        in boolean[] parts
     );
+    /** select_cut_part(): a right click turns a piece over. */
+    CutPartsParcel selectCutPart(in double[] partsPlane, in boolean[] selected, in double[] origin, in double[] direction, String meshPrefix);
     void endCut();
     /** save_project(): the error message, null once saved. */
     @nullable String saveProject(

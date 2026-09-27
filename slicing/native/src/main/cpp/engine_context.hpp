@@ -102,6 +102,11 @@ void apply_cut_connectors(Slic3r::ModelObject& object, const ObjectCut& cut, con
 // Cut::Groove of the dovetail cut.
 Slic3r::Cut::Groove cut_groove(const CutGroove& groove);
 
+// The object of GLGizmoCut3D::PartSelection: object cut at its copy instance
+// by cut_matrix into the parts of one object, each solid part split into its
+// pieces, alone in model.
+Slic3r::ModelObject* split_cut_parts(Slic3r::Model& model, const Slic3r::ModelObject& object, int instance, const Slic3r::Transform3d& cut_matrix);
+
 // Writes a mesh for the 3D view, in the format :render:scene reads
 // (mesh_file_magic of orca_engine_adapter.hpp).
 bool write_mesh(const indexed_triangle_set& its, const std::string& path);

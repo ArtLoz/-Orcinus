@@ -3958,12 +3958,34 @@ ImportedModels edit_object(
                 Slic3r::Geometry::translation_transform(cut_center_offset) * Slic3r::Transform3d(plane.linear());
 
             using Attribute = Slic3r::ModelObjectCutAttribute;
-            // perform_cut(): the connectors join the object as its volumes first.
             const bool cut_with_groove = cut.dovetail;
+
+            // A cut by the pieces a right click turned over takes the object
+            // split at the plane they were made at (m_part_selection.model_object()).
+            Slic3r::Model part_model;
+            std::vector<Slic3r::Cut::Part> cut_parts;
+            Slic3r::ModelObject* cut_mo = object;
+            if (!cut_with_groove && !cut.parts.empty() && cut.parts_plane.size() == 16) {
+                Slic3r::Transform3d parts_plane = Slic3r::Transform3d::Identity();
+                std::copy(cut.parts_plane.begin(), cut.parts_plane.end(), parts_plane.data());
+                const Slic3r::Transform3d parts_cut_matrix =
+                    Slic3r::Geometry::translation_transform(parts_plane.translation() - object->instances[cut.instance]->get_offset()) *
+                    Slic3r::Transform3d(parts_plane.linear());
+                Slic3r::ModelObject* split = detail::split_cut_parts(part_model, *object, cut.instance, parts_cut_matrix);
+                if (split->volumes.size() == cut.parts.size()) {
+                    cut_mo = split;
+                    for (std::size_t id = 0; id < split->volumes.size(); ++id) {
+                        cut_parts.push_back({cut.parts[id] != 0, !split->volumes[id]->is_model_part()});
+                    }
+                }
+            }
+            const bool cut_by_contour = cut_mo != object;
+
+            // perform_cut(): the connectors join the object as its volumes first.
             const bool has_connectors = !cut.connectors.empty() && !cut_with_groove;
             int dowels_count = 0;
             if (has_connectors) {
-                detail::apply_cut_connectors(*object, cut, Slic3r::Transform3d(plane.linear()), dowels_count);
+                detail::apply_cut_connectors(*cut_mo, cut, Slic3r::Transform3d(plane.linear()), dowels_count);
             }
             const Slic3r::ModelObjectCutAttributes attributes =
                 Slic3r::only_if(has_connectors ? true : cut.keep_upper, Attribute::KeepUpper) |
@@ -3974,12 +3996,14 @@ ImportedModels edit_object(
                 Slic3r::only_if(cut.flip_upper, Attribute::FlipUpper) |
                 Slic3r::only_if(cut.flip_lower, Attribute::FlipLower) |
                 Slic3r::only_if(dowels_count > 0, Attribute::CreateDowels) |
-                Slic3r::only_if(!has_connectors && !cut_with_groove && object->cut_id.id().invalid(), Attribute::InvalidateCutInfo) |
+                Slic3r::only_if(!has_connectors && !cut_with_groove && cut_mo->cut_id.id().invalid(), Attribute::InvalidateCutInfo) |
                 Slic3r::only_if(keep_painting, Attribute::KeepPaint);
-            update_object_cut_id(object->cut_id, attributes, dowels_count);
+            update_object_cut_id(cut_mo->cut_id, attributes, dowels_count);
 
-            Slic3r::Cut cutter(object, cut.instance, cut_matrix, attributes);
-            const Slic3r::ModelObjectPtrs& new_objects = cut_with_groove
+            Slic3r::Cut cutter(cut_mo, cut.instance, cut_matrix, attributes);
+            const Slic3r::ModelObjectPtrs& new_objects = cut_by_contour
+                ? cutter.perform_by_contour(object, cut_parts, dowels_count)
+                : cut_with_groove
                 ? cutter.perform_with_groove(detail::cut_groove(cut.groove), Slic3r::Transform3d(plane.linear()), cut.groove.count,
                                              float(cut.groove.gap), float(cut.radius))
                 : cutter.perform_with_plane();
@@ -4017,7 +4041,7 @@ ImportedModels edit_object(
             check_objects_after_cut(new_objects, dialogs);
 
             // save cut_id to post update synchronization
-            const Slic3r::CutObjectBase cut_id = new_objects.empty() ? Slic3r::CutObjectBase() : new_objects.front()->cut_id;
+            const Slic3r::CutObjectBase cut_id = cut_mo->cut_id;
 
             // Plater::apply_cut_object_to_model(): the object leaves the plate,
             // and the parts join the end of it (load_model_objects(new_objects, false, false)).

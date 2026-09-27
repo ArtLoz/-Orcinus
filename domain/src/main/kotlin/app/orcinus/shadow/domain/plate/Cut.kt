@@ -3,9 +3,12 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPartSelection
+import app.orcinus.shadow.core.model.CutPartsOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateInspector
@@ -43,7 +46,8 @@ class CutObjectUseCase(
     /**
      * What the gizmo shows of [plane], ObjectCut.plane, with [connectors] on it
      * and the snaps' proportions, or with the dovetail cut's [groove], whose
-     * parts are worked out too while [preview].
+     * parts are worked out too while [preview]; the section leaves out the
+     * contours the pieces of a right click, [parts], join over.
      */
     suspend fun describe(
         plane: Transform3,
@@ -52,9 +56,20 @@ class CutObjectUseCase(
         snapBulge: Double,
         groove: CutGroove? = null,
         preview: Boolean = false,
+        parts: CutPartSelection? = null,
     ): CutPlaneOutcome {
         val prefix = meshes ?: return CutPlaneOutcome.Failure("The cut gizmo is not open")
-        return inspector.describeCutPlane(plane, connectors, snapSpace, snapBulge, groove, preview, prefix)
+        return inspector.describeCutPlane(plane, connectors, snapSpace, snapBulge, groove, preview, parts, prefix)
+    }
+
+    /**
+     * A right click on the object (process_contours() and toggle_selection()):
+     * its pieces split by [CutPartSelection.plane] as they go now, the one the
+     * ray from [origin] along [direction] meets first turned over.
+     */
+    suspend fun selectPart(parts: CutPartSelection, origin: Vector3, direction: Vector3): CutPartsOutcome {
+        val prefix = meshes ?: return CutPartsOutcome.Failure("The cut gizmo is not open")
+        return inspector.selectCutPart(parts, origin, direction, prefix)
     }
 
     /** Closes the gizmo: the engine lets the object go, and the meshes it wrote are gone. */

@@ -52,7 +52,13 @@ data class CutView(
     val dovetail: Boolean = false,
     val groovePlane: ScenePath? = null,
     val grooveAngle: Double = 0.0,
+    /**
+     * The pieces drawn in the object's place: the parts of the dovetail cut,
+     * or the pieces a long press split the object into (m_part_selection).
+     */
     val previewParts: List<CutPreviewPart> = emptyList(),
+    /** "Draw cut line" (Shift + drag): the next drag of a finger draws the line the plane is laid across. */
+    val drawingLine: Boolean = false,
 )
 
 /**
@@ -85,6 +91,15 @@ sealed interface CutConnectorEvent {
 
     /** A touch elsewhere unselects them all. */
     data object Deselect : CutConnectorEvent
+}
+
+/** The cut line a finger draws (GLGizmoCut3D::process_cut_line()). */
+sealed interface CutLineEvent {
+    /** The finger went down: the line begins. */
+    data object Start : CutLineEvent
+
+    /** The finger let go of the line from [start] to [end], looked at along [direction]. */
+    data class Drawn(val start: Vector3, val end: Vector3, val direction: Vector3) : CutLineEvent
 }
 
 /** The changes the cut gizmo and its window make to its plane (GLGizmoCut3D). */
@@ -132,6 +147,75 @@ object CutPlanes {
     }
 
     private fun distance(a: Vector3, b: Vector3) = sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z))
+
+    /**
+     * process_cut_line(): the plane a line from [start] to [end], looked at
+     * along [direction], lays across the object — through the line along the
+     * view, its centre the bounding box's centre [boundsCenter] brought onto
+     * it; null for a line shorter than 3 mm.
+     */
+    fun byLine(start: Vector3, end: Vector3, direction: Vector3, boundsCenter: Vector3): Transform3? {
+        val lineBeg = Vec3(start.x, start.y, start.z)
+        val lineEnd = Vec3(end.x, end.y, end.z)
+        val lineDir = lineEnd - lineBeg
+        if (lineDir.norm() < 3.0) return null
+        val dir = Vec3(direction.x, direction.y, direction.z).normalized()
+        val crossDir = lineDir.cross(dir).normalized()
+        if (!crossDir.isFinite()) return null
+        val bbCenter = Vec3(boundsCenter.x, boundsCenter.y, boundsCenter.z)
+        val newPlaneCenter = bbCenter + crossDir * crossDir.dot(lineEnd - bbCenter)
+        val m = Affine3().translated(newPlaneCenter) * rotationFromTwoVectors(Vec3.UNIT_Z, crossDir)
+        return Transform3(m.elements().toList())
+    }
+
+    /**
+     * process_cut_line()'s check of the new [plane]: the plane's centre from
+     * the copy's [instanceOffset], turned into the plane's frame and moved by
+     * the centre of the transformed bounding box [min]..[max] the engine gave
+     * for it, lies in that box.
+     */
+    fun lineCutFits(plane: Transform3, instanceOffset: Vector3, min: Vector3, max: Vector3): Boolean {
+        val m = affine(plane).withTranslation(Vec3.ZERO)
+        val center = center(plane)
+        val tbbCenter = Vec3((min.x + max.x) / 2.0, (min.y + max.y) / 2.0, (min.z + max.z) / 2.0)
+        val transCenterPos = m.inverse().transformPoint(Vec3(center.x - instanceOffset.x, center.y - instanceOffset.y, center.z - instanceOffset.z)) + tbbCenter
+        return transCenterPos.x >= min.x && transCenterPos.x <= max.x &&
+            transCenterPos.y >= min.y && transCenterPos.y <= max.y &&
+            transCenterPos.z >= min.z && transCenterPos.z <= max.z
+    }
+
+    /**
+     * Eigen's Quaterniond::setFromTwoVectors() as a rotation: the shortest
+     * turn of [from] onto [to]; opposite vectors turn half round the X axis.
+     */
+    private fun rotationFromTwoVectors(from: Vec3, to: Vec3): Affine3 {
+        val v0 = from.normalized()
+        val v1 = to.normalized()
+        val c = v1.dot(v0)
+        val w: Double
+        val axis: Vec3
+        if (c < -1.0 + 1e-12) {
+            val w2 = (1.0 + maxOf(c, -1.0)) * 0.5
+            w = sqrt(w2)
+            axis = Vec3.UNIT_X * sqrt(1.0 - w2)
+        } else {
+            val s = sqrt((1.0 + c) * 2.0)
+            axis = v0.cross(v1) * (1.0 / s)
+            w = s * 0.5
+        }
+        val x = axis.x
+        val y = axis.y
+        val z = axis.z
+        // Column-major 4 x 4 of the quaternion's rotation matrix.
+        return Affine3(
+            doubleArrayOf(
+                1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + z * w), 2.0 * (x * z - y * w), 0.0,
+                2.0 * (x * y - z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + x * w), 0.0,
+                2.0 * (x * z + y * w), 2.0 * (y * z - x * w), 1.0 - 2.0 * (x * x + y * y), 0.0,
+                0.0, 0.0, 0.0, 1.0,
+            ),
+        )
+    }
 
     internal fun affine(plane: Transform3) = Affine3(plane.columns.toDoubleArray())
 
@@ -234,7 +318,10 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
      * on_render() with the connectors: render_connectors(), and while their
      * window is open the section filled in dark grey with its outline, drawn
      * into the scene, without the plane and its grabbers. [lookingForward] is
-     * is_looking_forward(), and [hovered] the connector a finger holds.
+     * is_looking_forward(), and [hovered] the connector a finger holds. The
+     * pieces [parts] stand in the object's place (PartSelection::render()),
+     * and [line] is the cut line a finger draws (render_cut_line()), which
+     * hides the connectors.
      */
     fun frame(
         dragged: CutGrabber?,
@@ -249,9 +336,12 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
         lookingForward: Boolean,
         hovered: Int?,
         dovetail: CutDovetail? = null,
+        parts: List<Pair<CutPreviewPart, MeshData?>> = emptyList(),
+        line: Pair<Vec3, Vec3>? = null,
         pixelScale: Float,
     ): GizmoFrame {
-        val sceneMeshes = connectorMeshes(connectors, meshes, editing, lookingForward, hovered) + dovetail?.previewMeshes().orEmpty()
+        val shownConnectors = if (line != null) emptyList() else connectors
+        val sceneMeshes = connectorMeshes(shownConnectors, meshes, editing, lookingForward, hovered) + partMeshes(parts, editing, lookingForward)
         if (editing) {
             return GizmoFrame(
                 lines = emptyList(),
@@ -262,19 +352,25 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
                 emission = 0.2f,
             )
         }
-        return planeFrame(dragged, angle, dragStart, canCut, contour, pixelScale, sceneMeshes, dovetail)
+        return planeFrame(dragged, angle, dragStart, canCut, contour, pixelScale, sceneMeshes, dovetail, line)
     }
 
-    /** PartSelection::render(): the dovetail's parts in the colours of the upper and lower parts, modifiers blended. */
-    private fun CutDovetail.previewMeshes(): List<GizmoMesh> = parts.mapNotNull { (part, mesh) ->
-        mesh ?: return@mapNotNull null
-        val color = when {
-            part.modifier -> MODIFIER_COLOR
-            part.upper -> UPPER_PART_COLOR
-            else -> LOWER_PART_COLOR
+    /**
+     * PartSelection::render(): the pieces in the colours of the upper and lower
+     * parts, modifiers blended; while the connectors' window is open the solid
+     * pieces on the camera's side are left out (render(&m_cut_normal)).
+     */
+    private fun partMeshes(parts: List<Pair<CutPreviewPart, MeshData?>>, editing: Boolean, lookingForward: Boolean): List<GizmoMesh> =
+        parts.mapNotNull { (part, mesh) ->
+            mesh ?: return@mapNotNull null
+            if (!part.modifier && editing && ((lookingForward && part.upper) || (!lookingForward && !part.upper))) return@mapNotNull null
+            val color = when {
+                part.modifier -> MODIFIER_COLOR
+                part.upper -> UPPER_PART_COLOR
+                else -> LOWER_PART_COLOR
+            }
+            GizmoMesh(part.mesh.value, mesh, Affine3(), color, emission = 0f)
         }
-        GizmoMesh(part.mesh.value, mesh, Affine3(), color, emission = 0f)
-    }
 
     /** m_clp_normal: the normal towards the camera's side, which the connectors' window clips. */
     fun clippingNormal(lookingForward: Boolean): Vec3 = if (lookingForward) normal else -normal
@@ -335,6 +431,7 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
         pixelScale: Float,
         sceneMeshes: List<GizmoMesh>,
         dovetail: CutDovetail?,
+        line: Pair<Vec3, Vec3>?,
     ): GizmoFrame {
         val lines = ArrayList<GizmoLines>()
         val grabbers = ArrayList<GizmoGrabber>()
@@ -386,6 +483,8 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
             }
         }
         if (dovetail != null) dovetailGrabbers(dragged, angle, dragStart, planeColor, dovetail.grooveAngle, pixelScale, lines, grabbers)
+        // render_cut_line()
+        if (line != null) lines += GizmoLines(segments(listOf(line.first, line.second)), GRABBER_COLOR, width)
 
         return GizmoFrame(
             lines = lines,
@@ -591,7 +690,6 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
 
 /**
  * The dovetail cut as a frame draws it: the plane with its grooves as
- * GL_TRIANGLES corners in the plane's frame, the groove's angle, and the parts
- * of the cut with their meshes once loaded.
+ * GL_TRIANGLES corners in the plane's frame, and the groove's angle.
  */
-internal class CutDovetail(val planeTriangles: FloatArray?, val grooveAngle: Double, val parts: List<Pair<CutPreviewPart, MeshData?>>)
+internal class CutDovetail(val planeTriangles: FloatArray?, val grooveAngle: Double)

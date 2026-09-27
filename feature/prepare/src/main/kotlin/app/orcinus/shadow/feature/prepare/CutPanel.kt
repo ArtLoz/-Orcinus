@@ -33,9 +33,11 @@ import app.orcinus.shadow.core.model.CutConnectorType
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.render.scene.CutConnectorEvent
+import app.orcinus.shadow.render.scene.CutLineEvent
 import app.orcinus.shadow.render.scene.CutPlanes
 
 /** What the cut gizmo does while it is open (GLGizmoCut3D). */
@@ -66,6 +68,11 @@ internal class CutActions(
     val resetGroove: ((CutGroove, CutGroove) -> CutGroove) -> Unit = {},
     /** The 3D view's millimetres per desktop pixel, which the grooves take their first size from. */
     val pixelSize: (Double) -> Unit = {},
+    /** A long press on the object: the piece under the finger goes to the other part. */
+    val selectPart: (origin: Vector3, direction: Vector3) -> Unit = { _, _ -> },
+    /** "Draw cut line" on or off, and the line a finger draws while it is on. */
+    val drawLine: (Boolean) -> Unit = {},
+    val line: (CutLineEvent) -> Unit = {},
 ) {
     companion object {
         val NONE = CutActions({}, { _, _ -> }, {}, {}, {}, { _, _ -> }, { _, _ -> }, { _, _ -> }, {}, {}, {})
@@ -89,6 +96,8 @@ internal class CutConnectorActions(
     val setSettings: ((CutConnectorSettings) -> CutConnectorSettings) -> Unit,
     /** "Space" and "Bulge" of the snaps. */
     val setSnap: (space: Double, bulge: Double) -> Unit,
+    /** A slider let go, or a reset: the gizmo's snapshot of the connectors ("Edited: <label>"). */
+    val settingsDone: () -> Unit = {},
 ) {
     companion object {
         val NONE = CutConnectorActions({}, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> })
@@ -148,6 +157,14 @@ internal fun CutPanel(mode: CutMode, actions: CutActions, plateSize: Double = 35
                 tint = colors.onCanvasPanel,
             )
         }
+        // The desktop draws the cut line with Shift and a drag (m_shortcuts_cut);
+        // here the button makes the next drag of a finger draw it.
+        OrcaButton(
+            text = orcaString("Draw cut line"),
+            style = if (mode.drawingLine) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
+            size = OrcaButtonSize.Compact,
+            onClick = { actions.drawLine(!mode.drawingLine) },
+        )
         HorizontalDivider(color = colors.separator, modifier = Modifier.padding(vertical = 4.dp))
         if (dovetail) {
             CutGrooveInputs(mode, actions, plateSize)
@@ -185,7 +202,7 @@ internal fun CutPanel(mode: CutMode, actions: CutActions, plateSize: Double = 35
             onPlaceOnCut = { actions.setPlaceOnCut(false, it) },
             onFlip = { actions.setFlip(false, it) },
         )
-        CutCheck(orcaString("Cut to parts"), mode.keepAsParts, enabled = !hasConnectors && !dovetail, actions.setCutToParts)
+        CutCheck(orcaString("Cut to parts"), mode.keepAsParts, enabled = !hasConnectors && !dovetail && mode.parts == null, actions.setCutToParts)
         HorizontalDivider(color = colors.separator, modifier = Modifier.padding(vertical = 4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // "Reset cutting plane and remove connectors", of the planar cut.
@@ -322,25 +339,29 @@ private fun CutConnectorsPanel(mode: CutMode, actions: CutConnectorActions) {
             onSelect = { shape -> actions.setSettings { it.copy(shape = shape) } },
         )
         val depthMin = if (settings.type == CutConnectorType.SNAP) (settings.size ?: 1.0) else 1.0
-        CutSlider(orcaString("Depth"), settings.depth, depthMin, meanSize, orcaString("mm")) { value -> actions.setSettings { it.copy(depth = value) } }
-        CutSlider(orcaString("Tolerance"), settings.depthTolerance, 0.0, 0.5 * meanSize, orcaString("mm")) { value ->
+        val done = actions.settingsDone
+        CutSlider(orcaString("Depth"), settings.depth, depthMin, meanSize, orcaString("mm"), onFinished = done) { value -> actions.setSettings { it.copy(depth = value) } }
+        CutSlider(orcaString("Tolerance"), settings.depthTolerance, 0.0, 0.5 * meanSize, orcaString("mm"), onFinished = done) { value ->
             actions.setSettings { it.copy(depthTolerance = value) }
         }
-        CutSlider(orcaString("Size"), settings.size, 1.0, meanSize, orcaString("mm")) { value -> actions.setSettings { it.copy(size = value) } }
-        CutSlider(orcaString("Tolerance"), settings.sizeTolerance, 0.0, 0.5 * meanSize, orcaString("mm")) { value ->
+        CutSlider(orcaString("Size"), settings.size, 1.0, meanSize, orcaString("mm"), onFinished = done) { value -> actions.setSettings { it.copy(size = value) } }
+        CutSlider(orcaString("Tolerance"), settings.sizeTolerance, 0.0, 0.5 * meanSize, orcaString("mm"), onFinished = done) { value ->
             actions.setSettings { it.copy(sizeTolerance = value) }
         }
         // render_angle_input(): 0 to 180 degrees, with its reset.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) {
-                CutSlider(orcaString("Rotation"), settings.angle?.let(Math::toDegrees), 0.0, 180.0, "°", decimals = 0) { value ->
+                CutSlider(orcaString("Rotation"), settings.angle?.let(Math::toDegrees), 0.0, 180.0, "°", decimals = 0, onFinished = done) { value ->
                     actions.setSettings { it.copy(angle = Math.toRadians(value)) }
                 }
             }
             OrcaIconButton(
                 icon = DesignR.drawable.orca_toolbar_reset,
                 contentDescription = orcaString("Reset"),
-                onClick = { actions.setSettings { it.copy(angle = 0.0) } },
+                onClick = {
+                    actions.setSettings { it.copy(angle = 0.0) }
+                    done()
+                },
                 enabled = settings.angle != 0.0,
                 tint = colors.onCanvasPanel,
             )

@@ -107,6 +107,10 @@ fun PlateView(
     onFlipCutPlane: () -> Unit = {},
     /** What a finger does to the connectors while their window is open. */
     onCutConnector: (CutConnectorEvent) -> Unit = {},
+    /** A long press with the cut gizmo open (a right click): the piece under the finger goes to the other part. */
+    onCutPart: (origin: Vector3, direction: Vector3) -> Unit = { _, _ -> },
+    /** The cut line a finger draws while "Draw cut line" is on. */
+    onCutLine: (CutLineEvent) -> Unit = {},
     /** GLGizmoBase::INV_ZOOM as it changes: millimetres per desktop pixel at the camera's target. */
     onPixelSize: (Double) -> Unit = {},
     selectedObject: Int?,
@@ -243,13 +247,13 @@ fun PlateView(
         }
         controller.setCutMeshes(loaded[0], loaded[1])
     }
-    // The dovetail's plane and parts.
+    // The dovetail's plane, and the pieces shown in the object's place.
     val dovetailPaths = listOfNotNull(cut?.groovePlane?.value) + cut?.previewParts?.map { it.mesh.value }.orEmpty()
     LaunchedEffect(dovetailPaths) {
         val loaded = withContext(Dispatchers.IO) {
             dovetailPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
         }
-        controller.setCutDovetailMeshes(loaded)
+        controller.setCutPartMeshes(loaded)
     }
     // The shapes of the cut's connectors.
     val connectorMeshPaths = cut?.connectors?.mapNotNull { it.mesh?.value }?.distinct().orEmpty()
@@ -285,6 +289,12 @@ fun PlateView(
         controller.onCutPlane = { plane, finished -> onCutPlane(Transform3(plane.elements().toList()), finished) }
         controller.onFlipCutPlane = onFlipCutPlane
         controller.onCutConnector = onCutConnector
+        controller.onCutPart = { ray ->
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            val direction = ray.b - ray.a
+            onCutPart(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z))
+        }
+        controller.onCutLine = onCutLine
         controller.onPixelSize = onPixelSize
         controller.setCut(cut, cutIndex)
         controller.setPainting(painting != null)
@@ -470,10 +480,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     var onCutPlane: (Affine3, Boolean) -> Unit = { _, _ -> }
     var onFlipCutPlane: () -> Unit = {}
     var onCutConnector: (CutConnectorEvent) -> Unit = {}
+    var onCutPart: (Line3) -> Unit = {}
+    var onCutLine: (CutLineEvent) -> Unit = {}
     var onPixelSize: (Double) -> Unit = {}
     private var reportedPixel = 0.0
     private var cutConnectorMeshes: Map<String, MeshData> = emptyMap()
-    private var cutDovetailMeshes: Map<String, MeshData> = emptyMap()
+    private var cutPartMeshes: Map<String, MeshData> = emptyMap()
     private var layer: PlateLayer? = null
     private var layerBox: Box3? = null
     private var selectedIndex: Int? = null
@@ -529,6 +541,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         var position: Vec3? = null
     }
 
+    /**
+     * The cut line (m_line_beg and m_line_end), from where the finger went down
+     * to where it is, a millimetre past the near plane, and the direction the
+     * finger's ray looks along there.
+     */
+    private class CutLineDrag(index: Int, start: Affine3, val begin: Vec3) : Drag(index, start) {
+        var end: Vec3 = begin
+        var direction: Vec3 = Vec3.UNIT_Z
+    }
+
     /** The rotation gizmo's grabber of [axis], turning about the sphere [center] by [angle]. */
     private class RotateGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val center: Vec3, val sphereRadius: Double) :
         Drag(index, startWorld) {
@@ -542,7 +564,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     val moving: Boolean get() = drag != null || paintingStroke
 
     /** Whether a finger holds an object it has not moved yet, which a long press turns into its context menu. */
-    val holdsObject: Boolean get() = (drag as? ObjectDrag)?.moved == false || (drag as? CutConnectorDrag)?.moved == false
+    val holdsObject: Boolean
+        get() = (drag as? ObjectDrag)?.moved == false || (drag as? CutConnectorDrag)?.moved == false ||
+            (drag as? CutDrag)?.let { it.grabber == CutGrabber.PLANE && !it.moved } == true
+
+    /** GLGizmoCut3D::on_mouse() takes a right click on the pieces of a planar cut outside the connectors' window. */
+    private val selectsCutParts: Boolean get() = cut?.let { !it.editingConnectors && !it.dovetail && !it.drawingLine } == true
 
     /**
      * Plater::priv::on_right_click() for the object the finger holds: asks for
@@ -550,6 +577,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * when the finger holds no object.
      */
     fun openObjectMenu(x: Float, y: Float): Boolean {
+        (drag as? CutDrag)?.takeIf { it.grabber == CutGrabber.PLANE && !it.moved }?.let {
+            // A right click on the plane: the piece under it (m_part_selection.toggle_selection()).
+            drag = null
+            invalidate()
+            return selectCutPart(x, y)
+        }
         (drag as? CutConnectorDrag)?.takeIf { !it.moved }?.let { held ->
             // A connector held still joins the selection or leaves it, as a click with Shift or Alt does.
             drag = null
@@ -568,11 +601,19 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * point ([x], [y]). Returns false when the view has none.
      */
     fun openPlateMenu(x: Float, y: Float): Boolean {
-        if (cut != null) return false
+        if (cut != null) return selectCutPart(x, y)
         val open = onOpenPlateMenu ?: return false
         // A right click on a plate selects it first.
         selectPlateAt(x, y)
         open(x, y)
+        return true
+    }
+
+    /** GLGizmoCut3D::on_mouse() for a right click: the pieces, the one under the point ([x], [y]) turned over. */
+    private fun selectCutPart(x: Float, y: Float): Boolean {
+        if (!selectsCutParts) return false
+        val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
+        onCutPart(ray)
         return true
     }
 
@@ -678,8 +719,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
     }
 
-    fun setCutDovetailMeshes(meshes: Map<String, MeshData>) {
-        cutDovetailMeshes = meshes
+    fun setCutPartMeshes(meshes: Map<String, MeshData>) {
+        cutPartMeshes = meshes
         // The object gives way to its parts once they are there (toggle_model_objects_visibility()).
         showObjects(plateObjects + listOfNotNull(wipeTower))
     }
@@ -832,6 +873,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             camera.mouseRay(x.toDouble(), y.toDouble())?.let { dragCut(drag, it) }
             return
         }
+        if (drag is CutLineDrag) {
+            // process_cut_line() while the finger moves: the line follows it.
+            val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
+            drag.direction = ray.unitVector()
+            drag.end = ray.a + drag.direction
+            drag.moved = true
+            invalidate()
+            return
+        }
         if (drag is CutConnectorDrag) {
             // dragging_connector(): the connector follows the finger over the section.
             val point = camera.mouseRay(x.toDouble(), y.toDouble())?.let(::cutPlaneHit) ?: return
@@ -919,6 +969,18 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             } else {
                 onCutConnector(CutConnectorEvent.Select(drag.connector, toggle = false))
             }
+            invalidate()
+            return
+        }
+        if (drag is CutLineDrag) {
+            // process_cut_line() for the left button let go: the plane is laid across the line.
+            onCutLine(
+                CutLineEvent.Drawn(
+                    Vector3(drag.begin.x, drag.begin.y, drag.begin.z),
+                    Vector3(drag.end.x, drag.end.y, drag.end.z),
+                    Vector3(drag.direction.x, drag.direction.y, drag.direction.z),
+                ),
+            )
             invalidate()
             return
         }
@@ -1077,6 +1139,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return true
         }
         val open = cut ?: return false
+        if (open.drawingLine) {
+            // process_cut_line() for a press with Shift: the line starts under the finger.
+            val ray = camera.mouseRay(x, y) ?: return false
+            val direction = ray.unitVector()
+            drag = CutLineDrag(index, gizmo.plane, ray.a + direction).also { it.direction = direction }
+            onCutLine(CutLineEvent.Start)
+            invalidate()
+            return true
+        }
         val dovetailGrabbers = if (open.dovetail) gizmo.dovetailGrabbers(open.grooveAngle).map { (grabber, point) -> grabber to listOf(point) } else emptyList()
         val grabber = (listOf(
             CutGrabber.Z to listOf(gizmo.sphereCenter()),
@@ -1224,11 +1295,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         showObjects(plateObjects + listOfNotNull(wipeTower))
     }
 
-    /** The dovetail's parts stand in the object's place. */
+    /** The dovetail's parts, or the pieces of a right click, stand in the object's place. */
     private var shownPreview = false
 
     private fun showObjects(objects: List<SceneObject>) {
-        val preview = cut?.previewParts.orEmpty().let { parts -> parts.isNotEmpty() && parts.all { it.mesh.value in cutDovetailMeshes } }
+        val preview = cut?.previewParts.orEmpty().let { parts -> parts.isNotEmpty() && parts.all { it.mesh.value in cutPartMeshes } }
         shownPreview = cut?.previewParts.orEmpty().isNotEmpty()
         val shown = when {
             cut == null -> objects
@@ -1302,11 +1373,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 hovered = (drag as? CutConnectorDrag)?.connector,
                 dovetail = open.takeIf { it.dovetail }?.let {
                     CutDovetail(
-                        planeTriangles = it.groovePlane?.value?.let(cutDovetailMeshes::get)?.cornerPositions(),
+                        planeTriangles = it.groovePlane?.value?.let(cutPartMeshes::get)?.cornerPositions(),
                         grooveAngle = it.grooveAngle,
-                        parts = it.previewParts.map { part -> part to cutDovetailMeshes[part.mesh.value] },
                     )
                 },
+                parts = open.previewParts.map { part -> part to cutPartMeshes[part.mesh.value] },
+                line = (drag as? CutLineDrag)?.takeIf { it.moved }?.let { it.begin to it.end },
                 pixelScale = density,
             )
         }

@@ -19,4 +19,7 @@ parcelable CutParcel {
     boolean dovetail;
     double[] groove;
     double radius;
+    /** CutPartSelection: its plane, empty for none, and where each piece goes. */
+    double[] partsPlane;
+    boolean[] parts;
 }

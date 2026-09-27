@@ -9,6 +9,7 @@ import app.orcinus.shadow.core.model.CutConnectorShape
 import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
 import app.orcinus.shadow.core.model.CutGroove
+import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPreviewPart
 import app.orcinus.shadow.core.model.EngineAvailability
@@ -435,6 +436,19 @@ data class CutMode(
     val shaping: Boolean = false,
     /** The grooves as they stood when the engine described the plane; null for the planar cut. */
     val describedGroove: CutGroove? = null,
+    /**
+     * m_part_selection: the pieces a long press (a right click) split the
+     * object into at [partsPlane], each going to the upper part or the lower
+     * one; null while the halves fall as the plane has them.
+     */
+    val parts: List<CutPreviewPart>? = null,
+    val partsPlane: Transform3? = null,
+    /** Where the pieces went when the engine described the plane. */
+    val describedParts: List<Boolean>? = null,
+    /** "Draw cut line" (Shift + drag): the next drag of a finger lays the plane across its line. */
+    val drawingLine: Boolean = false,
+    /** The copy's offset, which the cut line checks its plane against. */
+    val instanceOffset: Vector3 = Vector3(0.0, 0.0, 0.0),
     /** The gizmo's snapshots (on_save()), the one shown at [snapshot]. */
     val snapshots: List<CutSnapshot> = emptyList(),
     val snapshot: Int = 0,
@@ -471,7 +485,23 @@ data class CutMode(
      */
     val canPerform: Boolean
         get() = plane != null && (keepUpper || keepLower) && !editingConnectors &&
-            if (kind == CutKind.DOVETAIL) grooveValid else connectorsValid
+            if (kind == CutKind.DOVETAIL) grooveValid else connectorsValid && !(parts != null && partsOneObject)
+
+    /** The pieces as the engine takes them: where they were made and where each goes. */
+    val partSelection: CutPartSelection?
+        get() {
+            val pieces = parts ?: return null
+            val at = partsPlane ?: return null
+            return CutPartSelection(at, pieces.map(CutPreviewPart::upper))
+        }
+
+    /** PartSelection::is_one_object(): every solid piece goes to the part the first one goes to. */
+    val partsOneObject: Boolean
+        get() {
+            val pieces = parts ?: return true
+            if (pieces.size < 2) return true
+            return pieces.all { it.modifier || it.upper == pieces.first().upper }
+        }
 
     /** has_valid_groove(), as the engine found it for this very plane and grooves. */
     val grooveValid: Boolean
@@ -479,22 +509,23 @@ data class CutMode(
 
     /** The parts the dovetail cut makes, shown in the object's place while nothing is dragged. */
     val previewParts: List<CutPreviewPart>
-        get() = if (kind == CutKind.DOVETAIL && !shaping && describedPlane == plane && describedGroove == groove) {
-            described?.previewParts.orEmpty()
-        } else {
-            emptyList()
+        get() = when {
+            kind == CutKind.DOVETAIL && !shaping && describedPlane == plane && describedGroove == groove -> described?.previewParts.orEmpty()
+            kind == CutKind.PLANAR -> parts.orEmpty()
+            else -> emptyList()
         }
 
     /** m_invalid_connectors_idxs is empty, as the engine found it for these very connectors. */
     val connectorsValid: Boolean
-        get() = connectors.isEmpty() || (describedConnectors == connectors && described?.invalidConnectors.isNullOrEmpty())
+        get() = connectors.isEmpty() || (describedConnectors == connectors && describedParts == parts?.map(CutPreviewPart::upper) && described?.invalidConnectors.isNullOrEmpty())
 
     /** The invalid connectors, as far as the engine described these very ones. */
     val invalidConnectors: Set<Int>
         get() = if (describedConnectors == connectors) described?.invalidConnectors.orEmpty().toSet() else emptySet()
 
-    /** "Add connectors" (or "Edit connectors"): both parts kept, not cut to parts. */
-    val canEditConnectors: Boolean get() = keepUpper && keepLower && !keepAsParts && kind == CutKind.PLANAR
+    /** "Add connectors" (or "Edit connectors"): both parts kept, not cut to parts, and pieces going to both. */
+    val canEditConnectors: Boolean
+        get() = keepUpper && keepLower && !keepAsParts && kind == CutKind.PLANAR && !(parts != null && partsOneObject)
 
     /** render_build_size(): the size of the transformed bounding box. */
     val buildVolume: Vector3?
@@ -503,8 +534,12 @@ data class CutMode(
     val canUndo: Boolean get() = snapshot > 0
     val canRedo: Boolean get() = snapshot < snapshots.lastIndex
 
-    /** Plater::TakeSnapshot of a GizmoAction: the gizmo as it is now, the ones undone before gone. */
-    fun snapshotted(): CutMode = copy(snapshots = snapshots.take(snapshot + 1) + current(), snapshot = snapshot + 1)
+    /**
+     * Plater::TakeSnapshot of a GizmoAction: the gizmo as it is now, the ones
+     * undone before gone; nothing when it has not changed since the last one.
+     */
+    fun snapshotted(): CutMode =
+        if (snapshots.getOrNull(snapshot) == current()) this else copy(snapshots = snapshots.take(snapshot + 1) + current(), snapshot = snapshot + 1)
 
     /** on_load() of the snapshot at [index]. */
     fun restored(index: Int): CutMode {
@@ -528,6 +563,9 @@ data class CutMode(
             ),
             selectedConnectors = emptySet(),
             connectorSettings = connectorSettings.validated(),
+            // on_load(): the pieces go (reset_cut_by_contours()).
+            parts = null,
+            partsPlane = null,
             snapshot = index,
         )
     }

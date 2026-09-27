@@ -3419,7 +3419,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObject(
     jstring connector_name,
     jboolean dovetail,
     jdoubleArray groove,
-    jdouble radius
+    jdouble radius,
+    jdoubleArray parts_plane,
+    jbooleanArray parts
 )
 {
     orcinus::orca::ObjectCut cut;
@@ -3432,6 +3434,10 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObject(
     cut.dovetail = dovetail == JNI_TRUE;
     cut.groove = to_groove(env, groove);
     cut.radius = radius;
+    cut.parts_plane = to_doubles(env, parts_plane);
+    for (const bool part : to_bools(env, parts)) {
+        cut.parts.push_back(part ? 1 : 0);
+    }
     // keep_upper, keep_lower, keep_as_parts, place_on_cut_upper,
     // place_on_cut_lower, flip_upper, flip_lower
     const std::vector<bool> flags = to_bools(env, cut_flags);
@@ -3501,9 +3507,15 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
     jboolean dovetail,
     jdoubleArray groove,
     jboolean preview,
-    jstring mesh_prefix
+    jstring mesh_prefix,
+    jdoubleArray parts_plane,
+    jbooleanArray parts
 )
 {
+    std::vector<int> selected;
+    for (const bool part : to_bools(env, parts)) {
+        selected.push_back(part ? 1 : 0);
+    }
     const orcinus::orca::CutPlane described = orcinus::orca::describe_cut_plane(
         to_doubles(env, plane),
         to_connectors(env, connector_values, connector_kinds),
@@ -3512,7 +3524,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
         dovetail == JNI_TRUE,
         to_groove(env, groove),
         preview == JNI_TRUE,
-        to_utf8(env, mesh_prefix)
+        to_utf8(env, mesh_prefix),
+        to_doubles(env, parts_plane),
+        selected
     );
     std::vector<std::string> preview_meshes;
     std::vector<bool> preview_upper;
@@ -3556,6 +3570,52 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
         to_java(env, preview_meshes),
         booleans(preview_upper),
         booleans(preview_modifiers)
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_selectCutPart(
+    JNIEnv* env,
+    jobject /* this */,
+    jdoubleArray parts_plane,
+    jbooleanArray selected,
+    jdoubleArray origin,
+    jdoubleArray direction,
+    jstring mesh_prefix
+)
+{
+    std::vector<int> flags;
+    for (const bool part : to_bools(env, selected)) {
+        flags.push_back(part ? 1 : 0);
+    }
+    const std::vector<double> ray_origin = to_doubles(env, origin);
+    const std::vector<double> ray_direction = to_doubles(env, direction);
+    const double from[3]{ray_origin.size() == 3 ? ray_origin[0] : 0.0, ray_origin.size() == 3 ? ray_origin[1] : 0.0, ray_origin.size() == 3 ? ray_origin[2] : 0.0};
+    const double along[3]{ray_direction.size() == 3 ? ray_direction[0] : 0.0, ray_direction.size() == 3 ? ray_direction[1] : 0.0,
+                          ray_direction.size() == 3 ? ray_direction[2] : 0.0};
+    const orcinus::orca::CutParts selection = orcinus::orca::select_cut_part(to_doubles(env, parts_plane), flags, from, along, to_utf8(env, mesh_prefix));
+    std::vector<std::string> meshes;
+    std::vector<jboolean> upper;
+    std::vector<jboolean> modifiers;
+    for (const auto& part : selection.parts) {
+        meshes.push_back(part.mesh);
+        upper.push_back(part.upper ? JNI_TRUE : JNI_FALSE);
+        modifiers.push_back(part.modifier ? JNI_TRUE : JNI_FALSE);
+    }
+    const jbooleanArray upper_array = env->NewBooleanArray(static_cast<jsize>(upper.size()));
+    if (!upper.empty()) env->SetBooleanArrayRegion(upper_array, 0, static_cast<jsize>(upper.size()), upper.data());
+    const jbooleanArray modifier_array = env->NewBooleanArray(static_cast<jsize>(modifiers.size()));
+    if (!modifiers.empty()) env->SetBooleanArrayRegion(modifier_array, 0, static_cast<jsize>(modifiers.size()), modifiers.data());
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeCutParts");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[Ljava/lang/String;[Z[Z)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(selection.status),
+        to_java(env, selection.message),
+        to_java(env, meshes),
+        upper_array,
+        modifier_array
     );
 }
 

@@ -446,6 +446,13 @@ sealed interface CutPlaneOutcome {
     data class Failure(val message: String) : CutPlaneOutcome
 }
 
+/** The pieces of a right click of the cut gizmo, in world coordinates, [CutPreviewPart.upper] where they go. */
+sealed interface CutPartsOutcome {
+    data class Success(val parts: List<CutPreviewPart>) : CutPartsOutcome
+
+    data class Failure(val message: String) : CutPartsOutcome
+}
+
 sealed interface CalibrationPrinterOutcome {
     data class Success(val printer: CalibrationPrinter) : CalibrationPrinterOutcome
 

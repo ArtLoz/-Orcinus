@@ -8,6 +8,8 @@ import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPartSelection
+import app.orcinus.shadow.core.model.CutPartsOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
@@ -264,8 +266,12 @@ class ModelImportAndInspectionUseCasesTest {
             snapBulge: Double,
             groove: CutGroove?,
             preview: Boolean,
+            parts: CutPartSelection?,
             meshPrefix: ScenePath,
         ): CutPlaneOutcome = CutPlaneOutcome.Failure("not used")
+
+        override suspend fun selectCutPart(parts: CutPartSelection, origin: Vector3, direction: Vector3, meshPrefix: ScenePath): CutPartsOutcome =
+            CutPartsOutcome.Failure("not used")
 
         override suspend fun endCut() = Unit
 

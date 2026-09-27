@@ -28,6 +28,8 @@ import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPartSelection
+import app.orcinus.shadow.core.model.CutPartsOutcome
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.CutPreviewPart
@@ -332,6 +334,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             dovetail = cut?.dovetail == true,
             groove = (cut?.groove ?: CutGroove()).values(),
             radius = cut?.radius ?: 0.0,
+            partsPlane = cut?.parts?.plane?.columns?.toDoubleArray() ?: DoubleArray(0),
+            parts = cut?.parts?.selected?.toBooleanArray() ?: BooleanArray(0),
         ).toOutcome()
     }
 
@@ -363,6 +367,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         snapBulge: Double,
         groove: CutGroove?,
         preview: Boolean,
+        parts: CutPartSelection?,
         meshPrefix: ScenePath,
     ): CutPlaneOutcome = withContext(Dispatchers.IO) {
         val described = NativeBindings.describeCutPlane(
@@ -375,6 +380,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             (groove ?: CutGroove()).values(),
             preview,
             meshPrefix.value,
+            parts?.plane?.columns?.toDoubleArray() ?: DoubleArray(0),
+            parts?.selected?.toBooleanArray() ?: BooleanArray(0),
         )
         if (described.status != NativeSceneStatus.SUCCESS) {
             CutPlaneOutcome.Failure(described.message)
@@ -400,6 +407,22 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             )
         }
     }
+
+    override suspend fun selectCutPart(parts: CutPartSelection, origin: Vector3, direction: Vector3, meshPrefix: ScenePath): CutPartsOutcome =
+        withContext(Dispatchers.IO) {
+            val selection = NativeBindings.selectCutPart(
+                parts.plane.columns.toDoubleArray(),
+                parts.selected.toBooleanArray(),
+                doubleArrayOf(origin.x, origin.y, origin.z),
+                doubleArrayOf(direction.x, direction.y, direction.z),
+                meshPrefix.value,
+            )
+            if (selection.status != NativeSceneStatus.SUCCESS) {
+                CutPartsOutcome.Failure(selection.message)
+            } else {
+                CutPartsOutcome.Success(selection.meshes.indices.map { index -> CutPreviewPart(ScenePath(selection.meshes[index]), selection.upper[index], selection.modifiers[index]) })
+            }
+        }
 
     override suspend fun endCut() = withContext(Dispatchers.IO) { NativeBindings.endCut() }
 

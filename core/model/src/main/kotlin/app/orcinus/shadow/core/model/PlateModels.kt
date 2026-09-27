@@ -620,7 +620,16 @@ data class ObjectCut(
     val dovetail: Boolean = false,
     val groove: CutGroove = CutGroove(),
     val radius: Double = 0.0,
+    /** The pieces a right click turned over (perform_by_contour()); null cuts the halves as they fall. */
+    val parts: CutPartSelection? = null,
 )
+
+/**
+ * GLGizmoCut3D::PartSelection as the gizmo keeps it: the object split into its
+ * pieces by [plane] (which the plane may have been flipped from since), and
+ * whether each piece goes to the upper part.
+ */
+data class CutPartSelection(val plane: Transform3, val selected: List<Boolean>)
 
 /**
  * Cut::Groove of the dovetail cut, in millimetres and radians, with how many

@@ -3677,6 +3677,87 @@ TEST_CASE("The cut gizmo cuts with a dovetail", "[Adapter][Edit]")
     }
 }
 
+TEST_CASE("The cut gizmo cuts by the pieces a right click turned over", "[Adapter][Edit]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    // Two cubes of 10 mm, 10 mm apart, in one mesh.
+    const std::string obj = device_dir + "/tmp/import/two-cubes-cut.obj";
+    write_text(obj, two_cube_obj());
+    const orca::ImportedModels imported = orca::import_model(obj, k2_plus_profiles(), {}, import_prefix("two-cubes-cut"), {});
+    INFO(imported.message);
+    REQUIRE(imported.objects.size() == 1);
+    const std::vector<orca::PlateObject> plate{plate_object_of(imported.objects.front())};
+    const auto& placement = imported.objects.front().instances.front().instance_matrix;
+    REQUIRE(placement.size() == 16);
+    const double cx = placement[12];
+    const double cy = placement[13];
+    // The plane through the middle of both cubes.
+    std::vector<double> plane(16, 0.0);
+    plane[0] = plane[5] = plane[10] = plane[15] = 1.0;
+    plane[12] = cx;
+    plane[13] = cy;
+    plane[14] = 5.0;
+    // A plug in the middle of either section.
+    orca::CutConnectorData left;
+    left.position[0] = cx - 10.0;
+    left.position[1] = cy;
+    left.position[2] = 5.0;
+    left.radius = 1.5;
+    left.height = 2.0;
+    orca::CutConnectorData right = left;
+    right.position[0] = cx + 10.0;
+
+    REQUIRE(orca::begin_cut(plate.front(), 0, k2_plus_profiles()).status == orca::SceneStatus::success);
+    const std::string prefix = output_path("pieces");
+    // A right click from above on the right cube: the pieces of both cubes,
+    // the upper piece of the right one turned over to the lower part.
+    const double origin[3]{cx + 10.0, cy, 50.0};
+    const double down[3]{0.0, 0.0, -1.0};
+    const orca::CutParts pieces = orca::select_cut_part(plane, {}, origin, down, prefix);
+    INFO(pieces.message);
+    REQUIRE(pieces.status == orca::SceneStatus::success);
+    REQUIRE(pieces.parts.size() == 4);
+    CHECK(std::count_if(pieces.parts.begin(), pieces.parts.end(), [](const auto& part) { return part.upper; }) == 1);
+    CHECK(std::none_of(pieces.parts.begin(), pieces.parts.end(), [](const auto& part) { return part.mesh.empty() || part.modifier; }));
+    std::vector<int> selected;
+    for (const auto& part : pieces.parts) {
+        selected.push_back(part.upper ? 1 : 0);
+    }
+    // The section of the right cube is left out, so its plug is out of the cut contour.
+    const orca::CutPlane described = orca::describe_cut_plane(plane, {left, right}, 0.3, 0.15, false, {}, false, prefix, plane, selected);
+    REQUIRE(described.status == orca::SceneStatus::success);
+    CHECK(described.invalid_connectors == std::vector<int>{1});
+    CHECK(described.outside_cut_contour == 1);
+    const orca::CutPlane whole = orca::describe_cut_plane(plane, {left, right}, 0.3, 0.15, false, {}, false, prefix);
+    CHECK(whole.invalid_connectors.empty());
+    // The same click again turns the piece back.
+    const orca::CutParts back = orca::select_cut_part(plane, selected, origin, down, prefix);
+    CHECK(std::count_if(back.parts.begin(), back.parts.end(), [](const auto& part) { return part.upper; }) == 2);
+    orca::end_cut();
+
+    // perform_by_contour(): the upper half of the left cube alone above, the
+    // right cube whole with the lower half of the left one below.
+    orca::ObjectCut cut;
+    cut.plane = plane;
+    cut.parts_plane = plane;
+    cut.parts = selected;
+    cut.place_on_cut_upper = false;
+    const orca::ImportedModels halves = orca::edit_object(plate, 0, orca::ObjectEdit::cut, -1, k2_plus_profiles(), import_prefix("cut-pieces"), {}, cut);
+    INFO(halves.message);
+    REQUIRE(halves.status == orca::SceneStatus::success);
+    REQUIRE(halves.objects.size() == 2);
+    std::vector<std::pair<double, double>> sizes;
+    for (const orca::ImportedObject& half : halves.objects) {
+        sizes.emplace_back(half.instances.front().size_x, half.instances.front().size_z);
+    }
+    std::sort(sizes.begin(), sizes.end());
+    CHECK(sizes[0].first == Catch::Approx(10.0).margin(0.01));
+    CHECK(sizes[0].second == Catch::Approx(5.0).margin(0.01));
+    CHECK(sizes[1].first == Catch::Approx(30.0).margin(0.01));
+    CHECK(sizes[1].second == Catch::Approx(10.0).margin(0.01));
+}
+
 TEST_CASE("An object of one shell cannot be split", "[Adapter][Edit]")
 {
     require_engine();

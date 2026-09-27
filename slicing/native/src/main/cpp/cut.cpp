@@ -51,6 +51,22 @@ public:
     const std::array<double, 4>& get_data() const { return m_data; }
 };
 
+// GLGizmoCut3D::PartSelection: the object cut by the plane it was built at
+// and split into its pieces (m_model), each with its raycaster, where it goes
+// and whether it is a modifier, and the pieces' meshes for the 3D view.
+struct PartSelection {
+    bool valid{false};
+    std::vector<double> plane;
+    Slic3r::Model model;
+    struct Part {
+        std::unique_ptr<Slic3r::AABBMesh> raycaster;
+        bool selected{true};
+        bool is_modifier{false};
+    };
+    std::vector<Part> parts;
+    std::vector<std::string> meshes;
+};
+
 // The object the gizmo is open on, alone in a model of its own.
 struct CutSession {
     bool open{false};
@@ -67,6 +83,8 @@ struct CutSession {
     // the groove's edges at, with the parts' matrices in the world.
     std::vector<std::unique_ptr<Slic3r::AABBMesh>> raycasters;
     std::vector<Slic3r::Transform3d> raycaster_matrices;
+    // The pieces of the last right click.
+    PartSelection part_selection;
 };
 
 // What one clipper of the object clipper cut (MeshClipper::ClipResult): the
@@ -454,6 +472,7 @@ void check_connectors(
     const Slic3r::Transform3d& m_rotation_m,
     const Slic3r::BoundingBoxf3& m_bounding_box,
     const std::vector<ClipResult>& clippers,
+    const std::vector<std::size_t>& ignored,
     const double snap_space,
     const double snap_bulge,
     CutPlane& result
@@ -487,7 +506,12 @@ void check_connectors(
         its_transform(mesh, Geometry::translation_transform(cur_pos) * m_rotation_m);
 
         for (const Vec3f& vertex : vertices) {
-            if (is_projection_inside_cut(clippers, vertex.cast<double>()) == -1) {
+            const int contour_idx = is_projection_inside_cut(clippers, vertex.cast<double>());
+            bool is_invalid = (contour_idx == -1);
+            if (!is_invalid) {
+                is_invalid = (std::find(ignored.begin(), ignored.end(), std::size_t(contour_idx)) != ignored.end());
+            }
+            if (is_invalid) {
                 result.outside_cut_contour++;
                 return true;
             }
@@ -550,7 +574,8 @@ Slic3r::Transform3d matrix_of(const std::vector<double>& elements)
 // MeshClipper::recalculate_triangles() of a clipper with the object
 // clipper's limiting plane: the islands of the section of its, placed by
 // trafo, the filled section added to section and the outline of each island,
-// contour_width wide, to contour, in world coordinates.
+// contour_width wide, to contour, in world coordinates; render_cut() and
+// render_contour() leave out the islands ignore_idxs names.
 void clip(
     const indexed_triangle_set& its,
     const Slic3r::Geometry::Transformation& m_trafo,
@@ -560,7 +585,8 @@ void clip(
     Slic3r::ExPolygons& islands,
     Slic3r::Transform3d& trafo,
     indexed_triangle_set& section,
-    indexed_triangle_set& contour
+    indexed_triangle_set& contour,
+    const std::vector<std::size_t>& ignore_idxs = {}
 )
 {
     using namespace Slic3r;
@@ -643,6 +669,10 @@ void clip(
 
     for (const ExPolygon& exp : expolys) {
         triangles2d.clear();
+        if (std::binary_search(ignore_idxs.begin(), ignore_idxs.end(), islands.size())) {
+            islands.push_back(exp);
+            continue;
+        }
 
         // m_fill_cut
         triangles2d = triangulate_expolygon_2f(exp, m_trafo.get_matrix().matrix().determinant() < 0.);
@@ -702,6 +732,237 @@ void clip(
     }
 }
 
+// ObjectClipper::render_cut() over every volume of the copy, the part below
+// the plate left out: the clippers of the plane through plane_center along
+// normal, with their sections and outlines. ignore_idxs counts the islands
+// over every clipper.
+std::vector<ClipResult> clip_object(
+    const Slic3r::ModelObject& object,
+    const Slic3r::ModelInstance& instance,
+    const Slic3r::Vec3d& plane_center,
+    const Slic3r::Vec3d& normal,
+    const double contour_width,
+    const std::vector<std::size_t>& ignore_idxs,
+    indexed_triangle_set& section,
+    indexed_triangle_set& contour
+)
+{
+    const ClippingPlane clipping_plane(normal, normal.dot(plane_center));
+    const ClippingPlane limiting_plane(Slic3r::Vec3d::UnitZ(), -Slic3r::SINKING_Z_THRESHOLD);
+    std::vector<std::size_t> ignore_idxs_local = ignore_idxs;
+    std::vector<ClipResult> clippers;
+    for (const Slic3r::ModelVolume* volume : object.volumes) {
+        ClipResult clipped;
+        const Slic3r::Geometry::Transformation trafo = instance.get_transformation() * volume->get_transformation();
+        clip(volume->mesh().its, trafo, clipping_plane, limiting_plane, contour_width, clipped.islands, clipped.trafo, section, contour, ignore_idxs_local);
+        for (const Slic3r::ExPolygon& island : clipped.islands) {
+            clipped.boxes.push_back(Slic3r::get_extents(island));
+        }
+        // Now update the ignore idxs. Find the first element belonging to the next clipper,
+        // and remove everything before it and decrement everything by current number of contours.
+        const std::size_t num_of_contours = clipped.islands.size();
+        ignore_idxs_local.erase(ignore_idxs_local.begin(), std::find_if(ignore_idxs_local.begin(), ignore_idxs_local.end(), [num_of_contours](std::size_t idx) { return idx >= num_of_contours; }));
+        for (std::size_t& idx : ignore_idxs_local)
+            idx -= num_of_contours;
+        clippers.push_back(std::move(clipped));
+    }
+    return clippers;
+}
+
+// ObjectClipper::point_per_contour(): a point inside every island, not in a
+// hole, in the order the islands are counted.
+std::vector<Slic3r::Vec3d> point_per_contour(const std::vector<ClipResult>& clippers)
+{
+    using namespace Slic3r;
+    std::vector<Vec3d> out;
+    for (const ClipResult& result : clippers) {
+        for (const ExPolygon& expoly : result.islands) {
+            // Now return a point lying inside the contour but not in a hole.
+            // We do this by taking a point lying close to the edge, repeating
+            // this several times for different edges and distances from them.
+            // (We prefer point not extremely close to the border.
+            bool done = false;
+            Vec2d p;
+            size_t i = 1;
+            while (i < expoly.contour.size()) {
+                const Vec2d& a = unscale(expoly.contour.points[i-1]);
+                const Vec2d& b = unscale(expoly.contour.points[i]);
+                Vec2d n = (b-a).normalized();
+                std::swap(n.x(), n.y());
+                n.x() = -1 * n.x();
+                double f = 10.;
+                while (f > 0.05) {
+                    p = (0.5*(b+a)) + f * n;
+                    if (expoly.contains(Point::new_scale(p))) {
+                        done = true;
+                        break;
+                    }
+                    f = f/10.;
+                }
+                if (done)
+                    break;
+                i += std::max(size_t(2), expoly.contour.size() / 5);
+            }
+            // If the above failed, just return the centroid, regardless of whether
+            // it is inside the contour or in a hole (we must return something).
+            Vec2d c = done ? p : unscale(expoly.contour.centroid());
+            out.emplace_back(result.trafo * Vec3d(c.x(), c.y(), 0.));
+        }
+    }
+    return out;
+}
+
+// The PartSelection constructor for a planar cut: the copy cut at plane and
+// split into its pieces, each above the plane or below it, with the pieces'
+// meshes written for the 3D view. Kept while the plane stays.
+void build_part_selection(CutSession& current, const std::vector<double>& plane, const std::string& mesh_prefix)
+{
+    using namespace Slic3r;
+    using namespace Slic3r::Geometry;
+    PartSelection& selection = current.part_selection;
+    if (selection.valid && selection.plane == plane)
+        return;
+    selection.valid = false;
+    selection.parts.clear();
+    selection.meshes.clear();
+
+    const ModelObject& object = *current.model.objects.front();
+    const Transform3d plane_matrix = matrix_of(plane);
+    const Vec3d center = plane_matrix.translation();
+    const Transform3d m_rotation_m(plane_matrix.linear());
+    const Vec3d normal = (m_rotation_m * Vec3d::UnitZ()).normalized();
+    // get_cut_matrix()
+    const Vec3d instance_offset = object.instances[std::size_t(current.instance)]->get_offset();
+    const Transform3d cut_matrix = translation_transform(center - instance_offset) * m_rotation_m;
+    const ModelObject* model_object = detail::split_cut_parts(selection.model, object, current.instance, cut_matrix);
+
+    const ModelInstance& instance = *model_object->instances[std::size_t(current.instance)];
+    for (std::size_t id = 0; id < model_object->volumes.size(); ++id) {
+        const ModelVolume* volume = model_object->volumes[id];
+        PartSelection::Part part;
+        part.raycaster = std::make_unique<AABBMesh>(volume->mesh());
+        part.is_modifier = !volume->is_model_part();
+
+        // Now check whether this part is below or above the plane.
+        Transform3d tr = (instance.get_matrix() * volume->get_matrix()).inverse();
+        Vec3f pos = (tr * center).cast<float>();
+        Vec3f norm = (tr.linear().inverse().transpose() * normal).cast<float>();
+        for (const Vec3f& v : volume->mesh().its.vertices) {
+            double p = (v - pos).dot(norm);
+            if (std::abs(p) > EPSILON) {
+                part.selected = p > 0.;
+                break;
+            }
+        }
+        selection.parts.push_back(std::move(part));
+
+        // PartSelection::render() draws the piece at the copy's offset.
+        indexed_triangle_set its = volume->mesh().its;
+        its_transform(its, translation_transform(instance.get_offset()) * volume->get_matrix());
+        const std::string path = mesh_prefix + "-" + std::to_string(current.writes) + "-piece-" + std::to_string(id) + ".mesh";
+        selection.meshes.push_back(detail::write_mesh(its, path) ? path : std::string());
+    }
+    ++current.writes;
+    selection.plane = plane;
+    selection.valid = true;
+}
+
+// The contours PartSelection::toggle_selection() leaves out, for the islands
+// the clippers of the plane through center along normal cut now: from a
+// point of every contour on the plane (m_contour_points), a ray each way
+// finds the pieces it lies in above and below the plane
+// (m_contour_to_parts); a contour between pieces going to the same part is
+// ignored.
+std::vector<std::size_t> ignored_contours(
+    const CutSession& current,
+    const std::vector<int>& selected,
+    const std::vector<ClipResult>& clippers,
+    const Slic3r::Vec3d& center,
+    const Slic3r::Vec3d& normal
+)
+{
+    using namespace Slic3r;
+    using namespace Slic3r::Geometry;
+    const PartSelection& selection = current.part_selection;
+    std::vector<std::size_t> ignored;
+    if (!selection.valid || selected.size() != selection.parts.size())
+        return ignored;
+    const ModelObject* model_object = selection.model.objects.front();
+    const std::vector<Vec3d> pts = point_per_contour(clippers);
+    for (std::size_t pt_idx = 0; pt_idx < pts.size(); ++pt_idx) {
+        const Vec3d& pt = pts[pt_idx];
+        const Vec3d dir = (center-pt).dot(normal) * normal;
+        const Vec3d contour_point = dir + pt; // the result is in world coordinates.
+
+        // Now, cast a ray from every contour point and see which volumes of the ones above
+        // the plane are hit from the inside.
+        std::vector<std::size_t> parts_above;
+        std::vector<std::size_t> parts_below;
+        for (std::size_t part_id = 0; part_id < selection.parts.size(); ++part_id) {
+            const AABBMesh& aabb = *selection.parts[part_id].raycaster;
+            const Transform3d& tr = (translation_transform(model_object->instances[std::size_t(current.instance)]->get_offset()) * translation_transform(model_object->volumes[part_id]->get_offset())).inverse();
+            for (double d : {-1., 1.}) {
+                const Vec3d dir_mesh = d * tr.linear().inverse().transpose() * normal;
+                const Vec3d src = tr * (contour_point + d*0.01 * normal);
+                AABBMesh::hit_result hit = aabb.query_ray_hit(src, dir_mesh);
+
+                if (hit.is_inside()) {
+                    // This part belongs to this point.
+                    if (d == 1.)
+                        parts_above.emplace_back(part_id);
+                    else
+                        parts_below.emplace_back(part_id);
+                }
+            }
+        }
+
+        // toggle_selection(): recalculate the contours which should be ignored.
+        for (std::size_t upper : parts_above) {
+            bool upper_sel = selected[upper] != 0;
+            if (std::find_if(parts_below.begin(), parts_below.end(), [&selected, &upper_sel](const std::size_t& i) { return (selected[i] != 0) == upper_sel; }) != parts_below.end()) {
+                ignored.emplace_back(pt_idx);
+                break;
+            }
+        }
+    }
+    return ignored;
+}
+
+// MeshRaycaster::unproject_on_mesh() without a clipping plane and with the
+// sinking limit: where the ray from point along direction (world
+// coordinates) first meets the mesh of emesh, placed by trafo, from outside.
+bool unproject_on_mesh(const Slic3r::AABBMesh& emesh, const Slic3r::Transform3d& trafo, const Slic3r::Vec3d& point_world, const Slic3r::Vec3d& direction_world, Slic3r::Vec3d& position)
+{
+    using namespace Slic3r;
+    const Transform3d inv = trafo.inverse();
+    const Vec3d point = inv * point_world;
+    const Vec3d direction = inv.linear() * direction_world;
+
+    std::vector<AABBMesh::hit_result> hits = emesh.query_ray_hits(point, direction);
+
+    if (hits.empty())
+        return false; // no intersection found
+
+    unsigned i = 0;
+
+    // Remove points that are obscured or cut by the clipping plane.
+    // Also, remove anything below the bed (sinking objects).
+    for (i=0; i<hits.size(); ++i) {
+        Vec3d transformed_hit = trafo * hits[i].position();
+        if (transformed_hit.z() >= SINKING_Z_THRESHOLD)
+            break;
+    }
+
+    if (i==hits.size() || (hits.size()-i) % 2 != 0) {
+        // All hits are either clipped, or there is an odd number of unclipped
+        // hits - meaning the nearest must be from inside the mesh.
+        return false;
+    }
+
+    position = hits[i].position();
+    return true;
+}
+
 }  // namespace
 
 CutObject begin_cut(const PlateObject& object, const int instance, const ProfileSelection& profiles)
@@ -734,6 +995,7 @@ CutObject begin_cut(const PlateObject& object, const int instance, const Profile
         current.shapes.clear();
         current.raycasters.clear();
         current.raycaster_matrices.clear();
+        current.part_selection = PartSelection();
         current.open = true;
 
         // GLGizmoCut3D::bounding_box(): the convex hulls of the copy's solid
@@ -768,7 +1030,9 @@ CutPlane describe_cut_plane(
     const bool dovetail,
     const CutGroove& groove,
     const bool preview,
-    const std::string& mesh_prefix
+    const std::string& mesh_prefix,
+    const std::vector<double>& parts_plane,
+    const std::vector<int>& parts
 )
 {
     CutPlane result;
@@ -804,30 +1068,35 @@ CutPlane describe_cut_plane(
         // axis, and ObjectClipper::render_cut() over every volume of the copy,
         // the part below the plate left out.
         const Slic3r::Vec3d normal = (rotation_m * Slic3r::Vec3d::UnitZ()).normalized();
-        const ClippingPlane clipping_plane(normal, normal.dot(plane_center));
-        const ClippingPlane limiting_plane(Slic3r::Vec3d::UnitZ(), -Slic3r::SINKING_Z_THRESHOLD);
         // GLGizmoCut3D::m_contour_width: none for the dovetail cut.
         const double contour_width = dovetail ? 0.0 : 0.4;
         indexed_triangle_set section;
         indexed_triangle_set contour;
-        std::vector<ClipResult> clippers;
-        for (const Slic3r::ModelVolume* volume : object.volumes) {
-            ClipResult clipped;
-            const Slic3r::Geometry::Transformation trafo = instance.get_transformation() * volume->get_transformation();
-            clip(volume->mesh().its, trafo, clipping_plane, limiting_plane, contour_width, clipped.islands, clipped.trafo, section, contour);
-            // MeshClipper::has_valid_contour()
+        std::vector<ClipResult> clippers = clip_object(object, instance, plane_center, normal, contour_width, {}, section, contour);
+
+        // The pieces of a right click leave out the contours they join over
+        // (m_part_selection.get_ignored_contours_ptr()).
+        std::vector<std::size_t> ignored;
+        if (!dovetail && !parts.empty() && parts_plane.size() == 16) {
+            build_part_selection(current, parts_plane, mesh_prefix);
+            ignored = ignored_contours(current, parts, clippers, plane_center, normal);
+            if (!ignored.empty()) {
+                section.clear();
+                contour.clear();
+                clippers = clip_object(object, instance, plane_center, normal, contour_width, ignored, section, contour);
+            }
+        }
+
+        // MeshClipper::has_valid_contour()
+        for (const ClipResult& clipped : clippers) {
             if (std::any_of(clipped.islands.begin(), clipped.islands.end(), [](const Slic3r::ExPolygon& island) { return !island.empty(); })) {
                 result.valid_contour = true;
             }
-            for (const Slic3r::ExPolygon& island : clipped.islands) {
-                clipped.boxes.push_back(Slic3r::get_extents(island));
-            }
-            clippers.push_back(std::move(clipped));
         }
 
         // check_and_update_connectors_state() checks the planar cut only.
         if (!dovetail) {
-            check_connectors(connectors, rotation_m, current.bounding_box, clippers, snap_space, snap_bulge, result);
+            check_connectors(connectors, rotation_m, current.bounding_box, clippers, ignored, snap_space, snap_bulge, result);
         }
         if (dovetail) {
             const Slic3r::Cut::Groove m_groove = detail::cut_groove(groove);
@@ -920,7 +1189,80 @@ CutPlane describe_cut_plane(
     }
 }
 
+CutParts select_cut_part(
+    const std::vector<double>& parts_plane,
+    const std::vector<int>& selected,
+    const double origin[3],
+    const double direction[3],
+    const std::string& mesh_prefix
+)
+{
+    using namespace Slic3r;
+    using namespace Slic3r::Geometry;
+    CutParts result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    CutSession& current = session();
+    if (!current.open || current.model.objects.empty() || parts_plane.size() != 16) {
+        result.message = "The cut gizmo is not open";
+        return result;
+    }
+    try {
+        // if (! m_part_selection.valid()) process_contours();
+        build_part_selection(current, parts_plane, mesh_prefix);
+        PartSelection& selection = current.part_selection;
+        if (selected.size() == selection.parts.size()) {
+            for (std::size_t id = 0; id < selected.size(); ++id)
+                selection.parts[id].selected = selected[id] != 0;
+        }
+
+        // PartSelection::toggle_selection()
+        const ModelObject* model_object = selection.model.objects.front();
+        const Vec3d camera_pos(origin[0], origin[1], origin[2]);
+        const Vec3d ray(direction[0], direction[1], direction[2]);
+        std::vector<std::pair<size_t, double>> hits_id_and_sqdist;
+        for (size_t id=0; id<selection.parts.size(); ++id) {
+            Transform3d tr = translation_transform(model_object->instances[std::size_t(current.instance)]->get_offset()) * translation_transform(model_object->volumes[id]->get_offset());
+            Vec3d pos;
+            if (unproject_on_mesh(*selection.parts[id].raycaster, tr, camera_pos, ray, pos)) {
+                hits_id_and_sqdist.emplace_back(id, (camera_pos - tr*pos).squaredNorm());
+            }
+        }
+        if (! hits_id_and_sqdist.empty()) {
+            size_t id = std::min_element(hits_id_and_sqdist.begin(), hits_id_and_sqdist.end(),
+                [](const std::pair<size_t, double>& a, const std::pair<size_t, double>& b) { return a.second < b.second; })->first;
+            selection.parts[id].selected = ! selection.parts[id].selected;
+        }
+
+        for (std::size_t id = 0; id < selection.parts.size(); ++id) {
+            result.parts.push_back({selection.meshes[id], selection.parts[id].selected, selection.parts[id].is_modifier});
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        return result;
+    }
+}
+
 namespace detail {
+
+Slic3r::ModelObject* split_cut_parts(Slic3r::Model& model, const Slic3r::ModelObject& object, const int instance, const Slic3r::Transform3d& cut_matrix)
+{
+    // PartSelection::add_object() of the object cut as parts.
+    Slic3r::Cut cut(&object, instance, cut_matrix);
+    model = Slic3r::Model();
+    model.add_object(*cut.perform_with_plane().front());
+    Slic3r::ModelObject* model_object = model.objects.front();
+
+    const Slic3r::ModelVolumePtrs& volumes = model_object->volumes;
+
+    // split to parts
+    for (int id = int(volumes.size())-1; id >= 0; id--)
+        if (volumes[id]->is_splittable())
+            volumes[id]->split(1, false); // No need to remap paint here, we do it later in perform_by_contour
+
+    return model_object;
+}
 
 Slic3r::Cut::Groove cut_groove(const CutGroove& groove)
 {
@@ -999,6 +1341,7 @@ void end_cut()
     CutSession& current = session();
     current.open = false;
     current.model.clear_objects();
+    current.part_selection = PartSelection();
 }
 
 }  // namespace orcinus::orca

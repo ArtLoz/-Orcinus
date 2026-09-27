@@ -314,6 +314,9 @@ internal fun PrepareRoute(
             pixelSize = viewModel::setViewPixel,
             setGroove = viewModel::setCutGroove,
             resetGroove = viewModel::resetCutGroove,
+            selectPart = viewModel::selectCutPart,
+            drawLine = viewModel::setCutLineDrawing,
+            line = viewModel::cutLineEvent,
             connectors = CutConnectorActions(
                 edit = viewModel::editCutConnectors,
                 confirm = viewModel::confirmCutConnectors,
@@ -325,6 +328,7 @@ internal fun PrepareRoute(
                 deleteSelected = viewModel::deleteCutConnectors,
                 setSettings = viewModel::setCutConnectorSettings,
                 setSnap = viewModel::setCutSnap,
+                settingsDone = viewModel::snapshotCutConnectors,
             ),
         ),
         simplifyActions = SimplifyActions(
@@ -455,12 +459,15 @@ internal fun PrepareScreen(
                             groovePlane = mode.described?.groovePlane?.takeIf { mode.describedGroove != null },
                             grooveAngle = mode.groove.angle,
                             previewParts = mode.previewParts,
+                            drawingLine = mode.drawingLine && !mode.editingConnectors,
                         )
                     }
                 },
                 onCutPlane = cutActions.setPlane,
                 onFlipCutPlane = cutActions.flip,
                 onCutConnector = cutActions.connectors.event,
+                onCutPart = cutActions.selectPart,
+                onCutLine = cutActions.line,
                 onPixelSize = cutActions.pixelSize,
                 selectedObject = state.selectedObject,
                 selectedObjects = state.selectedObjects,

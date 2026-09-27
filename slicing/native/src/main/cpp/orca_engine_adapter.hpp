@@ -1567,6 +1567,12 @@ struct ObjectCut {
     bool dovetail{false};
     CutGroove groove;
     double radius{0.0};
+    // A planar cut by the pieces a right click turned over (PartSelection):
+    // the plane the object was split into its pieces at, which the plane may
+    // have been flipped from since, and whether each piece goes to the upper
+    // part; none cuts the halves as they fall.
+    std::vector<double> parts_plane;
+    std::vector<int> parts;
 };
 
 // The object menu's commands that change the meshes of the object at index
@@ -1649,6 +1655,34 @@ CutPlane describe_cut_plane(
     bool dovetail,
     const CutGroove& groove,
     bool preview,
+    const std::string& mesh_prefix,
+    // The pieces of a right click (select_cut_part()) as they go now: the
+    // section leaves out the contours they join over, and the connectors on
+    // those contours are out of the cut contour.
+    const std::vector<double>& parts_plane = {},
+    const std::vector<int>& parts = {}
+);
+
+// GLGizmoCut3D::PartSelection: the object cut by a plane and split into its
+// pieces, in world coordinates, each going to the upper part (selected) or
+// the lower one.
+struct CutParts {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    std::vector<CutPlane::PreviewPart> parts;
+};
+
+// A right click of the cut gizmo (process_contours() and
+// PartSelection::toggle_selection()): the pieces of the object split at
+// parts_plane, which the engine keeps until another plane or end_cut(), as
+// selected sets them (as they fall from the plane where it does not fit),
+// with the piece the ray from origin along direction meets first turned over.
+// The pieces' meshes are named after mesh_prefix.
+CutParts select_cut_part(
+    const std::vector<double>& parts_plane,
+    const std::vector<int>& selected,
+    const double origin[3],
+    const double direction[3],
     const std::string& mesh_prefix
 );
 

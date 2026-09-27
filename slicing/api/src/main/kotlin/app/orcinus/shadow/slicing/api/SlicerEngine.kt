@@ -18,6 +18,8 @@ import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPartSelection
+import app.orcinus.shadow.core.model.CutPartsOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
@@ -81,6 +83,7 @@ import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 
@@ -364,8 +367,18 @@ interface PlateInspector {
         groove: CutGroove?,
         /** Whether the parts of the dovetail cut are worked out too. */
         preview: Boolean,
+        /** The pieces of a right click as they go now, whose joined contours the section leaves out. */
+        parts: CutPartSelection?,
         meshPrefix: ScenePath,
     ): CutPlaneOutcome
+
+    /**
+     * A right click of the cut gizmo (PartSelection::toggle_selection()): the
+     * pieces of the object split by [CutPartSelection.plane], set as
+     * [CutPartSelection.selected] (as they fall where it does not fit), with
+     * the piece the ray from [origin] along [direction] meets first turned over.
+     */
+    suspend fun selectCutPart(parts: CutPartSelection, origin: Vector3, direction: Vector3, meshPrefix: ScenePath): CutPartsOutcome
 
     /** Closes the cut gizmo, which lets its object go. */
     suspend fun endCut()

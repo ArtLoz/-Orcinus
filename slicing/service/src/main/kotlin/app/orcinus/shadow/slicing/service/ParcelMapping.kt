@@ -13,6 +13,8 @@ import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPartSelection
+import app.orcinus.shadow.core.model.CutPartsOutcome
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.CutPreviewPart
@@ -1044,7 +1046,13 @@ internal fun ObjectCut.toParcel() = CutParcel().also {
     it.dovetail = dovetail
     it.groove = groove.values()
     it.radius = radius
+    it.partsPlane = parts?.plane?.columns?.toDoubleArray() ?: DoubleArray(0)
+    it.parts = parts?.selected?.toBooleanArray() ?: BooleanArray(0)
 }
+
+/** CutPartSelection from its plane and flags, none for an empty plane. */
+internal fun cutParts(plane: DoubleArray, selected: BooleanArray): CutPartSelection? =
+    if (plane.size == 16) CutPartSelection(Transform3(plane.toList()), selected.toList()) else null
 
 internal fun CutParcel.toCut() = ObjectCut(
     instance = instance,
@@ -1063,6 +1071,7 @@ internal fun CutParcel.toCut() = ObjectCut(
     dovetail = dovetail,
     groove = CutGroove.of(groove),
     radius = radius,
+    parts = cutParts(partsPlane ?: DoubleArray(0), parts ?: BooleanArray(0)),
 )
 
 internal fun CutObjectOutcome.toParcel() = CutObjectParcel().also {
@@ -1113,6 +1122,25 @@ internal fun CutPlaneOutcome.toParcel() = CutPlaneParcel().also {
         }
     }
 }
+
+internal fun CutPartsOutcome.toParcel() = CutPartsParcel().also {
+    when (this) {
+        is CutPartsOutcome.Success -> {
+            it.meshes = parts.map { part -> part.mesh.value }.toTypedArray()
+            it.upper = parts.map(CutPreviewPart::upper).toBooleanArray()
+            it.modifiers = parts.map(CutPreviewPart::modifier).toBooleanArray()
+        }
+        is CutPartsOutcome.Failure -> {
+            it.error = message
+            it.meshes = emptyArray()
+            it.upper = BooleanArray(0)
+            it.modifiers = BooleanArray(0)
+        }
+    }
+}
+
+internal fun CutPartsParcel.toOutcome(): CutPartsOutcome = error?.let { CutPartsOutcome.Failure(it) }
+    ?: CutPartsOutcome.Success(meshes.indices.map { index -> CutPreviewPart(ScenePath(meshes[index]), upper[index], modifiers[index]) })
 
 internal fun CutPlaneParcel.toOutcome(): CutPlaneOutcome = error?.let { CutPlaneOutcome.Failure(it) }
     ?: CutPlaneOutcome.Success(
