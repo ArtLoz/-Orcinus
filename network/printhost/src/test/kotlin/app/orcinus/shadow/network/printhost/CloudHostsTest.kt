@@ -50,6 +50,78 @@ class CloudHostsTest {
         assertEquals("", ObicoHost.webUi("https://app.obico.io", "Voron"))
     }
 
+    @Test
+    fun `SimplyPrint's code challenge is RFC 7636's`() {
+        // RFC 7636, appendix B.
+        assertEquals("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", SimplyPrint.codeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"))
+        assertEquals("import=tmp%3Aab-1&filename=my%20cube.gcode", SimplyPrint.urlEncode(listOf("import" to "tmp:ab-1", "filename" to "my cube.gcode")))
+    }
+
+    @Test
+    fun `SimplyPrint refreshes a refused token and opens its panel to import the upload`() {
+        val credentials = File.createTempFile("simplyprint", ".json").also { it.deleteOnExit() }
+        val http = CloudHttp(
+            answers = mapOf(
+                "oauth2/Token" to """{"access_token":"new","refresh_token":"r2"}""",
+                "api/files/TempUpload" to """{"uuid":"ab-1"}""",
+            ),
+        )
+        val uploader = PrintHostUploader(http, simplyPrintCredentials = credentials)
+        val printer = PhysicalPrinter("Test", ModelSettings(mapOf("host_type" to "simplyprint", "print_host" to "https://simplyprint.io/panel")))
+
+        // Without a login there is nothing to test, and the upload says so.
+        credentials.delete()
+        assertEquals(PrintHostTestOutcome.Failure(""), run { uploader.test(printer) })
+        assertTrue(!run { uploader.isLoggedIn(printer) })
+
+        credentials.writeText("""{"access_token":"old","refresh_token":"r1"}""")
+        http.refused = "old"
+        assertTrue(run { uploader.test(printer) } is PrintHostTestOutcome.Success)
+        assertEquals(listOf("Bearer old", "Bearer new"), http.gets.map { it.second["Authorization"] })
+        assertEquals(mapOf("grant_type" to "refresh_token", "client_id" to "simplyprintorcaslicer", "refresh_token" to "r1"), http.forms.single().second)
+        assertTrue(credentials.readText().contains("\"new\""))
+
+        val outcome = run { uploader.upload(printer, gcode(), "cube.gcode", startPrint = false) }
+        assertEquals(PrintHostUploadOutcome.Success("cube.gcode", "https://simplyprint.io/panel?import=tmp%3Aab-1&filename=cube.gcode"), outcome)
+        assertEquals("https://simplyprint.io/api/files/TempUpload", http.posts.single().first)
+
+        run { uploader.logOut(printer) }
+        assertTrue(!credentials.exists())
+    }
+
+    @Test
+    fun `SimplyPrint's login waits for the browser at its callback and keeps the tokens`() {
+        val credentials = File.createTempFile("simplyprint", ".json").also { it.delete(); it.deleteOnExit() }
+        val http = CloudHttp(answers = mapOf("oauth2/Token" to """{"access_token":"a1","refresh_token":"r1"}"""))
+        val port = java.net.ServerSocket(0).use { it.localPort }
+        val simplyPrint = SimplyPrint(http, credentials, callbackPort = port)
+        var location: String? = null
+        var browser: Thread? = null
+
+        val outcome = kotlinx.coroutines.runBlocking {
+            simplyPrint.login { page ->
+                // The browser comes back with the state of the page it was sent to.
+                val state = OAuthCallbackServer.urlParam(java.net.URLDecoder.decode(page, Charsets.UTF_8), "state")
+                browser = Thread {
+                    Thread.sleep(300)
+                    val connection = java.net.URL("http://127.0.0.1:$port/callback?code=c0de&state=$state").openConnection() as java.net.HttpURLConnection
+                    connection.instanceFollowRedirects = false
+                    location = connection.getHeaderField("Location")
+                    connection.disconnect()
+                }.also { it.start() }
+            }
+        }
+        browser?.join()
+
+        assertEquals(app.orcinus.shadow.core.model.CloudLoginOutcome.Success, outcome)
+        assertEquals("https://simplyprint.io/login-success", location)
+        val exchange = http.forms.single()
+        assertEquals("https://api.simplyprint.io/oauth2/Token", exchange.first)
+        assertEquals("authorization_code", exchange.second["grant_type"])
+        assertEquals("c0de", exchange.second["code"])
+        assertTrue(simplyPrint.isLoggedIn())
+    }
+
     private fun obico(token: String, port: String = "") = PhysicalPrinter(
         name = "Test",
         settings = ModelSettings(
@@ -70,6 +142,8 @@ class CloudHostsTest {
 
         override suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth?): Result<String> {
             gets += url to headers
+            // A token the server no longer takes is answered 401.
+            if (refused != null && headers["Authorization"] == "Bearer $refused") return Result.failure(HttpStatusException(401, "", "HTTP 401"))
             return answer(url)
         }
 
@@ -111,6 +185,14 @@ class CloudHostsTest {
         ): Result<String> = answer(url)
 
         override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> = answer(url)
+
+        val forms = mutableListOf<Pair<String, Map<String, String>>>()
+        var refused: String? = null
+
+        override suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String> {
+            forms += url to fields
+            return answer(url)
+        }
     }
 
     private fun <T> run(block: suspend () -> T): T {

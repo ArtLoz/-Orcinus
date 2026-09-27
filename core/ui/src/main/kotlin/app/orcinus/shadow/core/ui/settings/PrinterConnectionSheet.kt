@@ -16,12 +16,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -46,6 +55,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSwitch
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BonjourReply
+import app.orcinus.shadow.core.model.CloudLoginOutcome
 import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.ElegooOptions
 import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
@@ -104,6 +114,11 @@ fun PrinterConnectionSheet(
     loadPrinters: suspend (PhysicalPrinter) -> HostPrintersOutcome = { HostPrintersOutcome.Success(emptyList()) },
     /** Its Browse button for Flashforge: the printers that answer the broadcast. */
     discoverFlashforge: suspend () -> FlashforgeDiscoveryOutcome = { FlashforgeDiscoveryOutcome.Failure("") },
+    /** The login of a cloud host outside the app (OAuthDialog), which gets the page to open in the browser. */
+    cloudLogin: suspend (PhysicalPrinter, (String) -> Unit) -> CloudLoginOutcome = { _, _ -> CloudLoginOutcome.Failure("") },
+    /** is_logged_in() and log_out() of such a host, for the Log Out button. */
+    cloudLoggedIn: suspend (PhysicalPrinter) -> Boolean = { false },
+    cloudLogOut: suspend (PhysicalPrinter) -> Unit = {},
     /** Why the printers of the local network cannot be reached, when the system says so. */
     notice: String? = null,
 ) {
@@ -140,7 +155,7 @@ fun PrinterConnectionSheet(
             if (loaded == null) {
                 if (problem == null) CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
             } else {
-                ConnectionForm(loaded, checkName, onSave, onTest, lookup, scanCreality, loadPrinters, discoverFlashforge)
+                ConnectionForm(loaded, checkName, onSave, onTest, lookup, scanCreality, loadPrinters, discoverFlashforge, CloudActions(cloudLogin, cloudLoggedIn, cloudLogOut))
             }
         }
     }
@@ -157,9 +172,16 @@ private fun ConnectionForm(
     scanCreality: suspend () -> List<CrealityHost>,
     loadPrinters: suspend (PhysicalPrinter) -> HostPrintersOutcome,
     discoverFlashforge: suspend () -> FlashforgeDiscoveryOutcome,
+    cloud: CloudActions,
 ) {
     val colors = OrcaTheme.colors
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    // The login outside the app the Test button started (OAuthDialog).
+    var authorizing by remember { mutableStateOf<PhysicalPrinter?>(null) }
+    // is_logged_in(), read again after a login or a log-out.
+    var loginChanges by remember { mutableIntStateOf(0) }
+    var confirmingLogOut by remember { mutableStateOf(false) }
     val copy = orcaString("Copy", context = "PresetName")
     var name by rememberSaveable { mutableStateOf(if (connection.saveNameCopySuffix) "${connection.saveName} - $copy" else connection.saveName) }
     // update() runs as the dialog opens: a cloud host fills in its address.
@@ -270,9 +292,12 @@ private fun ConnectionForm(
                     val testedPrinter = printer
                     scope.launch {
                         val outcome = onTest(testedPrinter)
-                        // A cloud host that did not answer logs in (Obico's PrinterCloudAuthDialog).
+                        // A cloud host that did not answer logs in (Obico's PrinterCloudAuthDialog,
+                        // SimplyPrint's OAuthDialog).
                         if (outcome is PrintHostTestOutcome.Failure && testedPrinter.hostType == PrintHostType.OBICO) {
                             loggingIn = testedPrinter to outcome.message
+                        } else if (outcome is PrintHostTestOutcome.Failure && testedPrinter.hostType?.logsInOutside == true) {
+                            authorizing = testedPrinter
                         } else {
                             tested = testedPrinter to outcome
                         }
@@ -283,6 +308,17 @@ private fun ConnectionForm(
                 enabled = printer.host.isNotBlank() && !testing && type.supported,
                 icon = DesignR.drawable.orca_printer_host_test,
             )
+            // update_printhost_buttons(): Log Out while the host keeps a login.
+            val loggedIn by produceState(false, type, loginChanges) {
+                value = type.logsInOutside && cloud.loggedIn(printer)
+            }
+            if (loggedIn) {
+                OrcaButton(
+                    text = orcaString("Log Out"),
+                    onClick = { confirmingLogOut = true },
+                    style = OrcaButtonStyle.Regular,
+                )
+            }
         }
         tested?.let { (testedPrinter, outcome) ->
             val testedType = testedPrinter.hostType ?: PrintHostType.OCTOPRINT
@@ -382,6 +418,42 @@ private fun ConnectionForm(
             },
         )
     }
+    authorizing?.let { loginPrinter ->
+        CloudAuthorizingSheet(
+            login = { cloud.login(loginPrinter) { url -> openInBrowser(context, url) } },
+            onDone = { outcome ->
+                authorizing = null
+                loginChanges++
+                tested = loginPrinter to when (outcome) {
+                    CloudLoginOutcome.Success -> PrintHostTestOutcome.Success("")
+                    is CloudLoginOutcome.Failure -> PrintHostTestOutcome.Failure(outcome.message)
+                }
+            },
+        )
+    }
+    if (confirmingLogOut) {
+        // print_host_logout: "Are you sure to log out?"
+        AlertDialog(
+            onDismissRequest = { confirmingLogOut = false },
+            confirmButton = {
+                OrcaButton(
+                    text = orcaString("Yes"),
+                    onClick = {
+                        confirmingLogOut = false
+                        scope.launch {
+                            cloud.logOut(printer)
+                            loginChanges++
+                        }
+                    },
+                )
+            },
+            dismissButton = { OrcaButton(orcaString("No"), onClick = { confirmingLogOut = false }, style = OrcaButtonStyle.Regular) },
+            text = { Text(orcaString("Are you sure to log out?"), style = OrcaTheme.typography.body14) },
+            containerColor = colors.window,
+            textContentColor = colors.text,
+            shape = OrcaTheme.shapes.window,
+        )
+    }
     loggingIn?.let { (loginPrinter, message) ->
         CloudLoginSheet(ObicoHost.loginUrl(loginPrinter.host)) { token ->
             loggingIn = null
@@ -431,6 +503,59 @@ private fun ConnectionForm(
                     set("print_host", address)
                 },
                 onDismiss = { browsing = false },
+            )
+        }
+    }
+}
+
+/** The login of a cloud host outside the app, with the dialog's words for it. */
+internal class CloudActions(
+    val login: suspend (PhysicalPrinter, (String) -> Unit) -> CloudLoginOutcome,
+    val loggedIn: suspend (PhysicalPrinter) -> Boolean,
+    val logOut: suspend (PhysicalPrinter) -> Unit,
+)
+
+/** wxLaunchDefaultBrowser(): the page in the browser; nothing without one. */
+fun openInBrowser(context: Context, url: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: ActivityNotFoundException) {
+    }
+}
+
+/**
+ * OAuthDialog: "Authorizing..." with Cancel while the login page is open in
+ * the browser and the app waits for it to come back; Cancel stops the wait,
+ * which the desktop reports as "User canceled.".
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CloudAuthorizingSheet(login: suspend () -> CloudLoginOutcome, onDone: (CloudLoginOutcome) -> Unit) {
+    val colors = OrcaTheme.colors
+    val done by rememberUpdatedState(onDone)
+    LaunchedEffect(Unit) { done(login()) }
+    ModalBottomSheet(
+        onDismissRequest = { done(CloudLoginOutcome.Failure("User canceled.")) },
+        containerColor = colors.window,
+        dragHandle = { OrcaSheetHandle() },
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp),
+        ) {
+            Text(orcaString("Login"), color = colors.text, style = OrcaTheme.typography.head16, modifier = Modifier.padding(vertical = 4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+                CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(20.dp))
+                Text(orcaString("Authorizing..."), color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 8.dp))
+            }
+            OrcaButton(
+                text = orcaString("Cancel"),
+                onClick = { done(CloudLoginOutcome.Failure("User canceled.")) },
+                style = OrcaButtonStyle.Regular,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
             )
         }
     }

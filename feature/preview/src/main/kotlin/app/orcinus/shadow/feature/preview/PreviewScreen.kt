@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -82,6 +83,7 @@ import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
+import app.orcinus.shadow.core.ui.settings.openInBrowser
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.scene.PlateView
@@ -169,6 +171,7 @@ internal fun PreviewScreen(
     val result = state.result
     val untitled = orcaString("Untitled")
     var sending by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     // A printer on Wi-Fi is a device of the local network, so the sheet opens
     // once Android 17 has asked the user for it.
     var localNetworkDenied by rememberSaveable { mutableStateOf(false) }
@@ -368,8 +371,11 @@ internal fun PreviewScreen(
                 progress = 0f
                 // The screen's own scope: the sheet is gone while the file travels.
                 scope.launch {
-                    sent = printers.send(printer, startPrint, options) { part -> progress = part }
+                    val outcome = printers.send(printer, startPrint, options) { part -> progress = part }
+                    sent = outcome
                     progress = null
+                    // A host that opens a page after the upload (SimplyPrint's import): the desktop opens it in the browser.
+                    (outcome as? PrintHostUploadOutcome.Success)?.openUrl?.let { openInBrowser(context, it) }
                 }
             },
             onDismiss = { sending = false },

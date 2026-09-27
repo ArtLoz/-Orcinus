@@ -549,6 +549,9 @@ class PrintHostUploaderTest {
 
         override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
             answer
+
+        override suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String> =
+            Result.success("{}")
     }
 
     /** The console exchanges the uploader made, all answered "ok". */

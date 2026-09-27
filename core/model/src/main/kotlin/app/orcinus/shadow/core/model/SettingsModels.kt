@@ -534,6 +534,13 @@ enum class PrintHostType(val key: String, val label: String) {
     /** PrintHost::is_cloud(): a host reached through an account, whose Test button logs in. */
     val isCloud: Boolean get() = this == OBICO || this == SIMPLYPRINT || this == PRINTER_3D_OS
 
+    /**
+     * The cloud hosts that log in outside the app and keep their login in a
+     * file of their own (is_logged_in(), log_out()), which the dialog's
+     * Log Out button forgets.
+     */
+    val logsInOutside: Boolean get() = this == SIMPLYPRINT || this == PRINTER_3D_OS
+
     /** Whether the host takes a user and a password instead of a key (AuthorizationType). */
     val takesUserPassword: Boolean get() = this == PRUSA_LINK
 
@@ -625,8 +632,8 @@ enum class PrintHostType(val key: String, val label: String) {
         }
 
     companion object {
-        /** The hosts the port does not cover yet: the cloud ones that log in outside the app. */
-        private val UNSUPPORTED = setOf(SIMPLYPRINT, PRINTER_3D_OS)
+        /** The hosts the port does not cover yet. */
+        private val UNSUPPORTED = setOf(PRINTER_3D_OS)
 
         fun of(key: String): PrintHostType? = entries.firstOrNull { it.key == key }
     }
@@ -1018,8 +1025,12 @@ data class CrealityHost(
 
 /** What sending G-code to a printer did (PrintHost::upload). */
 sealed interface PrintHostUploadOutcome {
-    /** The file arrived; [path] is what the host called it. */
-    data class Success(val path: String) : PrintHostUploadOutcome
+    /**
+     * The file arrived; [path] is what the host called it, and [openUrl] a
+     * page the host opens after it (SimplyPrint's import, 3DPrinterOS's quick
+     * print), which the desktop opens in the browser.
+     */
+    data class Success(val path: String, val openUrl: String? = null) : PrintHostUploadOutcome
 
     data class Failure(val message: String) : PrintHostUploadOutcome
 }

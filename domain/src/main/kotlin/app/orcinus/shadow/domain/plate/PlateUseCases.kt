@@ -4,6 +4,7 @@ import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
+import app.orcinus.shadow.core.model.CloudLoginOutcome
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
@@ -1524,6 +1525,19 @@ class TestPhysicalPrinterUseCase(private val uploader: GcodeSender) {
     suspend operator fun invoke(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 }
 
+/**
+ * The login of a cloud host outside the app (OAuthDialog), which the Test
+ * button starts when the host did not answer, and its Log Out button.
+ */
+class CloudLoginUseCase(private val uploader: GcodeSender) {
+    /** [openPage] opens the host's login page in the browser; the login is kept when it succeeds. */
+    suspend operator fun invoke(printer: PhysicalPrinter, openPage: (String) -> Unit): CloudLoginOutcome = uploader.cloudLogin(printer, openPage)
+
+    suspend fun isLoggedIn(printer: PhysicalPrinter): Boolean = uploader.isLoggedIn(printer)
+
+    suspend fun logOut(printer: PhysicalPrinter) = uploader.logOut(printer)
+}
+
 /** PhysicalPrinterDialog::update_printers(), its Refresh button: the printers of a server that serves several. */
 class ListHostPrintersUseCase(private val uploader: GcodeSender) {
     suspend operator fun invoke(printer: PhysicalPrinter): HostPrintersOutcome = uploader.printers(printer)
@@ -1648,6 +1662,15 @@ interface GcodeSender {
      * the app knows, or with [lookUp] asked of the printer when it does not.
      */
     suspend fun serialNumber(printer: PhysicalPrinter, lookUp: Boolean): String
+
+    /** A cloud host's login outside the app, which [openPage] opens the page of. */
+    suspend fun cloudLogin(printer: PhysicalPrinter, openPage: (String) -> Unit): CloudLoginOutcome
+
+    /** PrintHost::is_logged_in() */
+    suspend fun isLoggedIn(printer: PhysicalPrinter): Boolean
+
+    /** PrintHost::log_out() */
+    suspend fun logOut(printer: PhysicalPrinter)
 }
 
 

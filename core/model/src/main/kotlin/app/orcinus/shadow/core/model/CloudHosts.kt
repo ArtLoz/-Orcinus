@@ -1,5 +1,15 @@
 package app.orcinus.shadow.core.model
 
+/**
+ * What a login outside the app came to (OAuthDialog, 3DPrinterOS's
+ * TokenAuthDialog): the host keeps the login, or says why there is none.
+ */
+sealed interface CloudLoginOutcome {
+    data object Success : CloudLoginOutcome
+
+    data class Failure(val message: String) : CloudLoginOutcome
+}
+
 /** What OrcaSlicer's Obico host and PhysicalPrinterDialog build from the address of an Obico server. */
 object ObicoHost {
     /** Obico::make_url(): a path of the server, http:// in front of an address without a scheme. */

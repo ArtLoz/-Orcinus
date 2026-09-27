@@ -217,6 +217,9 @@ class FlashforgeTest {
 
         override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
             Result.success(answer)
+
+        override suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String> =
+            Result.success("{}")
     }
 
     private fun <T> run(block: suspend () -> T): T {

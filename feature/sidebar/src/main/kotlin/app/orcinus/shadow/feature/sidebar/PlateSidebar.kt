@@ -89,6 +89,7 @@ import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
+import app.orcinus.shadow.core.model.CloudLoginOutcome
 import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
@@ -184,6 +185,7 @@ import app.orcinus.shadow.domain.plate.AddPlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
 import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
+import app.orcinus.shadow.domain.plate.CloudLoginUseCase
 import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
 import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
@@ -354,6 +356,7 @@ class SidebarViewModel(
     private val testPhysicalPrinter: TestPhysicalPrinterUseCase,
     private val browsePrintHosts: BrowsePrintHostsUseCase,
     private val listHostPrinters: ListHostPrintersUseCase,
+    private val cloudLogin: CloudLoginUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
     private val copySettings: CopyProcessSettingsUseCase,
     private val pasteSettings: PasteProcessSettingsUseCase,
@@ -756,6 +759,14 @@ class SidebarViewModel(
 
     /** PhysicalPrinterDialog's Browse button for Creality's firmware (CrealityDiscoveryDialog). */
     suspend fun scanCrealityPrinters(): List<CrealityHost> = browsePrintHosts.scanCreality()
+
+    /** The Test button's login of a cloud host outside the app (OAuthDialog). */
+    suspend fun cloudLogin(printer: PhysicalPrinter, openPage: (String) -> Unit): CloudLoginOutcome = cloudLogin.invoke(printer, openPage)
+
+    suspend fun cloudLoggedIn(printer: PhysicalPrinter): Boolean = cloudLogin.isLoggedIn(printer)
+
+    /** PhysicalPrinterDialog's Log Out button. */
+    suspend fun cloudLogOut(printer: PhysicalPrinter) = cloudLogin.logOut(printer)
 
     /** PhysicalPrinterDialog's Browse button for Flashforge (Flashforge::discover_printers()). */
     suspend fun discoverFlashforge(): FlashforgeDiscoveryOutcome = browsePrintHosts.discoverFlashforge()
@@ -1464,6 +1475,9 @@ fun PlateSidebar(
             scanCreality = viewModel::scanCrealityPrinters,
             printers = viewModel::hostPrinters,
             discoverFlashforge = viewModel::discoverFlashforge,
+            cloudLogin = viewModel::cloudLogin,
+            loggedIn = viewModel::cloudLoggedIn,
+            logOut = viewModel::cloudLogOut,
         ),
     )
 }
@@ -1481,6 +1495,9 @@ internal class NetworkPrinterActions(
     val scanCreality: suspend () -> List<CrealityHost>,
     val printers: suspend (PhysicalPrinter) -> HostPrintersOutcome,
     val discoverFlashforge: suspend () -> FlashforgeDiscoveryOutcome,
+    val cloudLogin: suspend (PhysicalPrinter, (String) -> Unit) -> CloudLoginOutcome,
+    val loggedIn: suspend (PhysicalPrinter) -> Boolean,
+    val logOut: suspend (PhysicalPrinter) -> Unit,
 ) {
     companion object {
         val NONE = NetworkPrinterActions(
@@ -1492,6 +1509,9 @@ internal class NetworkPrinterActions(
             scanCreality = { emptyList() },
             printers = { HostPrintersOutcome.Success(emptyList()) },
             discoverFlashforge = { FlashforgeDiscoveryOutcome.Failure("") },
+            cloudLogin = { _, _ -> CloudLoginOutcome.Failure("") },
+            loggedIn = { false },
+            logOut = {},
         )
     }
 }
@@ -1818,6 +1838,9 @@ internal fun PlateSidebarContent(
             scanCreality = network.scanCreality,
             loadPrinters = network.printers,
             discoverFlashforge = network.discoverFlashforge,
+            cloudLogin = network.cloudLogin,
+            cloudLoggedIn = network.loggedIn,
+            cloudLogOut = network.logOut,
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
         )
     }

@@ -1,5 +1,6 @@
 package app.orcinus.shadow.network.printhost
 
+import app.orcinus.shadow.core.model.CloudLoginOutcome
 import app.orcinus.shadow.core.model.ElegooKind
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
@@ -51,7 +52,10 @@ class PrintHostUploader(
     flashforgeSaveDelayMillis: Long = Flashforge.SAVE_DELAY_MILLIS,
     /** A Centauri is given this long before its status is asked and the print started. */
     elegooStartDelayMillis: Long = ElegooLink.START_DELAY_MILLIS,
+    /** simplyprint_oauth.json: where SimplyPrint's login is kept; none keeps no login. */
+    simplyPrintCredentials: File? = null,
 ) {
+    private val simplyPrint = SimplyPrint(http, simplyPrintCredentials)
     private val flashforge = Flashforge(http, console, flashforgeSaveDelayMillis)
     private val elegoo = ElegooLink(http, webSocket, elegooStartDelayMillis)
 
@@ -93,7 +97,7 @@ class PrintHostUploader(
                 elegoo.upload(printer, gcode, name, startPrint && printer.canStartPrint, options.elegoo, onProgress)
             }
             PrintHostType.OBICO -> uploadToObico(printer, gcode, name, startPrint, onProgress)
-            PrintHostType.SIMPLYPRINT,
+            PrintHostType.SIMPLYPRINT -> simplyPrint.upload(gcode, name, onProgress)
             PrintHostType.PRINTER_3D_OS -> PrintHostUploadOutcome.Failure(UNSUPPORTED)
         }
     }
@@ -197,9 +201,29 @@ class PrintHostUploader(
                 elegoo.test(printer)
             }
             PrintHostType.OBICO -> obicoTest(printer)
-            PrintHostType.SIMPLYPRINT,
+            PrintHostType.SIMPLYPRINT -> simplyPrint.test()
             PrintHostType.PRINTER_3D_OS -> PrintHostTestOutcome.Failure(UNSUPPORTED)
         }
+    }
+
+    /**
+     * The Test button's login of a cloud host that logs in outside the app:
+     * SimplyPrint's OAuthDialog, which [openPage] opens the login page of.
+     */
+    suspend fun cloudLogin(printer: PhysicalPrinter, openPage: (String) -> Unit): CloudLoginOutcome = when (printer.hostType) {
+        PrintHostType.SIMPLYPRINT -> simplyPrint.login(openPage)
+        else -> CloudLoginOutcome.Failure("")
+    }
+
+    /** is_logged_in(): whether the cloud host keeps a login, which the dialog offers to log out of. */
+    fun isLoggedIn(printer: PhysicalPrinter): Boolean = when (printer.hostType) {
+        PrintHostType.SIMPLYPRINT -> simplyPrint.isLoggedIn()
+        else -> false
+    }
+
+    /** log_out() */
+    fun logOut(printer: PhysicalPrinter) {
+        if (printer.hostType == PrintHostType.SIMPLYPRINT) simplyPrint.logOut()
     }
 
     /**

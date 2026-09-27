@@ -10,6 +10,9 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** An answer of the host with an HTTP status that is not a success, which a host may act on (a 401 refreshes a token). */
+class HttpStatusException(val status: Int, val body: String, message: String) : IOException(message)
+
 /** The user and password a host asks for when it does not take a key (atUserPassword). */
 data class HttpAuth(val user: String, val password: String)
 
@@ -65,6 +68,9 @@ interface HttpClient {
 
     /** Http::set_post_body(std::string): [body] as the whole request, with [method]. */
     suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String>
+
+    /** Http::form_add() without a file: a multipart form of [fields] alone, as OAuth's token requests post. */
+    suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String>
 
     suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth? = null): Result<String>
 }
@@ -132,6 +138,19 @@ class UrlConnectionHttpClient(
     override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
         withContext(Dispatchers.IO) {
             request(url, method, headers, contentType = null) { output -> output.write(body) }
+        }
+
+    override suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String> =
+        withContext(Dispatchers.IO) {
+            val boundary = "orcinus-${UUID.randomUUID()}"
+            request(url, "POST", headers, "multipart/form-data; boundary=$boundary") { output ->
+                val writer = output.bufferedWriter()
+                for ((name, value) in fields) {
+                    writer.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
+                }
+                writer.write("--$boundary--\r\n")
+                writer.flush()
+            }
         }
 
     override suspend fun sendFile(
@@ -241,9 +260,15 @@ class UrlConnectionHttpClient(
             val code = connection.responseCode
             when {
                 code in 200..299 -> Answer.Ok(connection.inputStream.use { it.readBytes().decodeToString() })
-                code == HttpURLConnection.HTTP_UNAUTHORIZED ->
-                    Answer.Unauthorized(connection.getHeaderField("WWW-Authenticate").orEmpty(), detail(connection, code))
-                else -> Answer.Failed(IOException(detail(connection, code)))
+                else -> {
+                    val body = errorBody(connection)
+                    val failure = HttpStatusException(code, body, "HTTP $code" + if (body.isBlank()) "" else ": ${body.take(MAX_ERROR_LENGTH)}")
+                    if (code == HttpURLConnection.HTTP_UNAUTHORIZED) {
+                        Answer.Unauthorized(connection.getHeaderField("WWW-Authenticate").orEmpty(), failure)
+                    } else {
+                        Answer.Failed(failure)
+                    }
+                }
             }
         } catch (error: IOException) {
             Answer.Failed(error)
@@ -252,25 +277,23 @@ class UrlConnectionHttpClient(
         }
     }
 
-    private fun detail(connection: HttpURLConnection, code: Int): String {
-        val body = try {
-            connection.errorStream?.use { it.readBytes().decodeToString() }.orEmpty()
-        } catch (_: IOException) {
-            ""
-        }
-        return "HTTP $code" + if (body.isBlank()) "" else ": ${body.take(MAX_ERROR_LENGTH)}"
+    /** The body of an answer that is not a success. */
+    private fun errorBody(connection: HttpURLConnection): String = try {
+        connection.errorStream?.use { it.readBytes().decodeToString() }.orEmpty()
+    } catch (_: IOException) {
+        ""
     }
 
     private sealed interface Answer {
         data class Ok(val body: String) : Answer
 
-        data class Unauthorized(val challenge: String, val message: String) : Answer
+        data class Unauthorized(val challenge: String, val failure: HttpStatusException) : Answer
 
         data class Failed(val error: Throwable) : Answer
 
         fun result(): Result<String> = when (this) {
             is Ok -> Result.success(body)
-            is Unauthorized -> Result.failure(IOException(message))
+            is Unauthorized -> Result.failure(failure)
             is Failed -> Result.failure(error)
         }
     }

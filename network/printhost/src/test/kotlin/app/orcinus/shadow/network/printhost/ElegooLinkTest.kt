@@ -177,6 +177,9 @@ class ElegooLinkTest {
 
         override suspend fun postJson(url: String, headers: Map<String, String>, body: String, auth: HttpAuth?): Result<String> =
             Result.success("{}")
+
+        override suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String> =
+            Result.success("{}")
     }
 
     /** A WebSocket that answers every receive with the next of its [answers]. */

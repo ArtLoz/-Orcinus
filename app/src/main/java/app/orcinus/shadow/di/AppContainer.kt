@@ -7,6 +7,7 @@ import app.orcinus.shadow.OrcaSlicerService
 import app.orcinus.shadow.R
 import app.orcinus.shadow.core.model.AppInfo
 import app.orcinus.shadow.core.model.BonjourReply
+import app.orcinus.shadow.core.model.CloudLoginOutcome
 import app.orcinus.shadow.core.model.ComponentId
 import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
@@ -46,6 +47,7 @@ import app.orcinus.shadow.domain.plate.ApplySetupUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
 import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
+import app.orcinus.shadow.domain.plate.CloudLoginUseCase
 import app.orcinus.shadow.domain.plate.DevicePageUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
@@ -163,6 +165,7 @@ import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
@@ -258,7 +261,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val configFiles = AppConfigFiles(applicationContext)
     // PrintHost::upload: the sliced G-code goes to the printer over the network.
     private val gcodeSender = object : GcodeSender {
-        private val uploader = PrintHostUploader()
+        // SimplyPrint keeps its login in the app's own files, as the desktop keeps it in its data directory.
+        private val uploader = PrintHostUploader(simplyPrintCredentials = File(applicationContext.filesDir, "simplyprint_oauth.json"))
 
         override suspend fun send(
             printer: PhysicalPrinter,
@@ -282,6 +286,13 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         override suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome = uploader.printers(printer)
 
         override suspend fun serialNumber(printer: PhysicalPrinter, lookUp: Boolean): String = uploader.serialNumber(printer, lookUp)
+
+        override suspend fun cloudLogin(printer: PhysicalPrinter, openPage: (String) -> Unit): CloudLoginOutcome =
+            uploader.cloudLogin(printer, openPage)
+
+        override suspend fun isLoggedIn(printer: PhysicalPrinter): Boolean = withContext(Dispatchers.IO) { uploader.isLoggedIn(printer) }
+
+        override suspend fun logOut(printer: PhysicalPrinter) = withContext(Dispatchers.IO) { uploader.logOut(printer) }
     }
     val printerConnection = ObservePrinterConnectionUseCase(engine)
 
@@ -291,6 +302,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     }
     val testPhysicalPrinter = TestPhysicalPrinterUseCase(gcodeSender)
     private val listHostPrinters = ListHostPrintersUseCase(gcodeSender)
+    private val cloudLogin = CloudLoginUseCase(gcodeSender)
     // PhysicalPrinterDialog's Browse button: the printers of the local network.
     private val browsePrintHosts = BrowsePrintHostsUseCase(
         object : PrintHostDiscovery {
@@ -520,6 +532,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         testPhysicalPrinter = testPhysicalPrinter,
         browsePrintHosts = browsePrintHosts,
         listHostPrinters = listHostPrinters,
+        cloudLogin = cloudLogin,
         setFlushOption = setFlushOption,
         copySettings = copyProcessSettings,
         pasteSettings = pasteProcessSettings,
