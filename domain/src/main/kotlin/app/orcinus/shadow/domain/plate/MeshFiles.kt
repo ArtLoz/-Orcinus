@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.SettingsDialog
@@ -82,6 +84,7 @@ class ReplaceObjectVolumeUseCase(
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    private val stepMeshPrompt: StepMeshPrompt,
 ) {
     operator fun invoke(copy: PlateInstanceId, volume: Int, reference: ExternalDocumentReference) {
         var profiles: SlicingProfileSelection? = null
@@ -111,7 +114,7 @@ class ReplaceObjectVolumeUseCase(
                 ModelLoadOutcome.Failure("The object is not on the plate")
             } else {
                 try {
-                    inspector.replaceVolume(plate.map { it.placed() }, index, volume, source, selection, prefix)
+                    replaceVolume(inspector, stepMeshPrompt, plate.map { it.placed() }, index, volume, source, selection, prefix)
                 } catch (cancellation: CancellationException) {
                     sceneFiles.deleteImport(prefix)
                     repository.update { it.copy(editing = false) }
@@ -155,6 +158,7 @@ class ReplaceAllVolumesUseCase(
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    private val stepMeshPrompt: StepMeshPrompt,
 ) {
     operator fun invoke(copy: PlateInstanceId, folder: ExternalDocumentReference) = replaceAll(listOf(copy.mesh), folder)
 
@@ -231,7 +235,7 @@ class ReplaceAllVolumesUseCase(
         val old = plate.getOrNull(index) ?: return null
         val prefix = sceneFiles.newImportPrefix()
         val outcome = try {
-            inspector.replaceVolume(plate.map { it.placed() }, index, volume, source, profiles, prefix)
+            replaceVolume(inspector, stepMeshPrompt, plate.map { it.placed() }, index, volume, source, profiles, prefix)
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation
@@ -258,4 +262,24 @@ class ReplaceAllVolumesUseCase(
         }
         return replaced?.mesh
     }
+}
+
+/**
+ * Plater::priv::replace_volume_with_stl(): a STEP file asks StepMeshDialog
+ * first; its Cancel replaces nothing, as the desktop app returns false.
+ */
+private suspend fun replaceVolume(
+    inspector: PlateInspector,
+    stepMeshPrompt: StepMeshPrompt,
+    plate: List<PlacedModel>,
+    index: Int,
+    volume: Int,
+    source: ModelPath,
+    profiles: SlicingProfileSelection,
+    prefix: ScenePath,
+): ModelLoadOutcome {
+    val outcome = inspector.replaceVolume(plate, index, volume, source, profiles, prefix)
+    if (outcome !is ModelLoadOutcome.StepMesh) return outcome
+    val options = stepMeshPrompt.ask(source, outcome.options) ?: return ModelLoadOutcome.Success(emptyList(), outcome.notices)
+    return inspector.replaceVolume(plate, index, volume, source, profiles, prefix, options)
 }

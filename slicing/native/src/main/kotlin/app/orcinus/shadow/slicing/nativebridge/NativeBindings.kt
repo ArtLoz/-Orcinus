@@ -693,6 +693,11 @@ internal class NativeImportedModels(
     @JvmField val calibration: NativeCalibration?,
     /** A calibration's load: the plates its objects stand on; 0 for any other load. */
     @JvmField val plateCount: Int,
+    /** A STEP file waits for StepMeshDialog, which opens with these values. */
+    @JvmField val stepMesh: Boolean,
+    @JvmField val stepLinearDeflection: Double,
+    @JvmField val stepAngleDeflection: Double,
+    @JvmField val stepSplitCompound: Boolean,
 )
 
 /**
@@ -1023,6 +1028,11 @@ internal object NativeBindings {
         /** ModelLoad in orca_engine_adapter.hpp, and whether ProjectDropDialog chose it. */
         load: Long,
         chosen: Boolean,
+        /** StepMeshChoice in orca_engine_adapter.hpp. */
+        stepChosen: Boolean,
+        stepLinear: Double,
+        stepAngle: Double,
+        stepSplit: Boolean,
     ): NativeImportedModels
 
     /**
@@ -1130,7 +1140,18 @@ internal object NativeBindings {
         filamentProfiles: Array<String>,
         processProfile: String,
         outputPrefix: String,
+        stepChosen: Boolean,
+        stepLinear: Double,
+        stepAngle: Double,
+        stepSplit: Boolean,
     ): NativeImportedModels
+
+    /** step_triangle_count(): the triangles of the STEP file StepMeshDialog asks about. */
+    external fun stepTriangleCount(path: String, linear: Double, angle: Double): Long
+
+    external fun stopStepTriangleCount()
+
+    external fun releaseStepFile()
 
     /** add_primitive(): a shape of create_mesh() joins [plate] as an object named [name]. */
     external fun addPrimitive(

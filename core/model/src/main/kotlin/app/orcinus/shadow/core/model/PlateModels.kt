@@ -571,6 +571,8 @@ data class ImportBatch(
     /** How a 3MF file of the batch loads, and whether the user chose it in ProjectDropDialog. */
     val load: ModelLoad = ModelLoad.GEOMETRY,
     val chosen: Boolean = false,
+    /** StepMeshDialog's answer for the STEP file the batch loads now; null before it asked. */
+    val stepMesh: StepMeshOptions? = null,
     /**
      * The document the user picked and the name it goes by: a project opened
      * from it is saved into it again, and a plate without a name takes the
@@ -860,6 +862,8 @@ data class PlateState(
     val projectDrop: ModelPath? = null,
     /** The document of that file, which a project opened from it is saved into. */
     val projectDropBatch: ImportBatch = ImportBatch(),
+    /** StepMeshDialog, which a load or a replacement of a STEP file waits for. */
+    val stepMesh: StepMeshQuestion? = null,
     /** The project the plate is: its name and the document it is saved into. */
     val project: PlateProject = PlateProject(),
     /** A question of New Project or Open Project that waits for the user. */

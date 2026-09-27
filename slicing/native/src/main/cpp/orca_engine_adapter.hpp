@@ -1332,6 +1332,28 @@ struct PresetSettings {
 // Answers to the questions a change asked, by dialog id: true for Yes.
 using DialogAnswers = std::vector<std::pair<std::string, bool>>;
 
+// StepMeshDialog's answer for a STEP file: the deflections it is meshed with
+// and whether its compounds and compsolids split into objects; chosen is false
+// until the dialog was answered. The dialog's OK writes them into the app
+// configuration itself (through set_app_config_value()).
+struct StepMeshChoice {
+    bool chosen{false};
+    double linear_deflection{0.003};
+    double angle_deflection{0.5};
+    bool split_compound{false};
+};
+
+// StepMeshDialog::update_mesh_number_text(): the triangles of the STEP file
+// that waits for the dialog at these deflections (Step::get_triangle_num); 0
+// when the count was stopped or path is not the file that waits.
+std::int64_t step_triangle_count(const std::string& path, double linear_deflection, double angle_deflection);
+
+// StepMeshDialog::stop_task(): a count that runs stops at once.
+void stop_step_triangle_count();
+
+// The file kept for the dialog is let go (its Cancel).
+void release_step_file();
+
 // A volume of an object a model file brought, other than its own mesh.
 struct ImportedPart {
     // ModelVolume::name.
@@ -1418,6 +1440,12 @@ struct ImportedModels {
     // requested again with the answer.
     bool has_question{false};
     SettingsDialog question;
+    // A STEP file waits for StepMeshDialog, which opens with these values: the
+    // load is requested again with the user's StepMeshChoice.
+    bool step_mesh{false};
+    double step_linear_deflection{0};
+    double step_angle_deflection{0};
+    bool step_split_compound{false};
     std::vector<ImportedObject> objects;
     // edit_object(): the edited object left the plate and the objects join the
     // end of its list (load_model_objects), instead of taking its place.
@@ -1847,7 +1875,8 @@ ImportedModels replace_volume(
     std::size_t volume_index,
     const std::string& source_path,
     const ProfileSelection& profiles,
-    const std::string& output_prefix
+    const std::string& output_prefix,
+    const StepMeshChoice& step_mesh = {}
 );
 
 // ObjectList::load_shape_object() and load_mesh_object(): a shape of
@@ -1902,7 +1931,8 @@ ImportedModels import_model(
     ModelLoad load = ModelLoad::geometry,
     // load is the user's answer to ProjectDropDialog, which the app
     // configuration remembers (import_project_action).
-    bool chosen = false
+    bool chosen = false,
+    const StepMeshChoice& step_mesh = {}
 );
 
 // What a request of the settings of an object or of the plate carries, since

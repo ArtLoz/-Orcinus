@@ -100,6 +100,8 @@ class EditPlateObjectUseCase(
                     editing = false,
                     problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, outcome.message),
                 )
+                // An edit reads no STEP file.
+                is ModelLoadOutcome.StepMesh -> informed.copy(editing = false)
                 is ModelLoadOutcome.Success -> {
                     val old = state.objects.withMesh(request.mesh)
                     if (old == null || outcome.objects.isEmpty()) return@update informed.copy(editing = false)

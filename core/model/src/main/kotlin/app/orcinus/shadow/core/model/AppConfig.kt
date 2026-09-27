@@ -40,6 +40,12 @@ object AppConfigKeys {
     const val SHOW_UNSUPPORTED_PRESETS = "show_unsupported_presets"
     const val SAVE_PROJECT_CHOISE = "save_project_choise"
     const val SAVE_PRESET_CHOISE = "save_preset_choise"
+    const val ENABLE_STEP_MESH_SETTING = "enable_step_mesh_setting"
+
+    /** StepMeshDialog's values, which its OK writes (the desktop app's spelling). */
+    const val IS_SPLIT_COMPOUND = "is_split_compound"
+    const val LINEAR_DEFLETION = "linear_defletion"
+    const val ANGLE_DEFLETION = "angle_defletion"
 
     /** SETTING_PROJECT_LOAD_BEHAVIOUR's values (AppConfig.hpp). */
     const val LOAD_ALL = "load_all"
@@ -66,6 +72,7 @@ object AppConfigKeys {
         SHOW_UNSUPPORTED_PRESETS,
         SAVE_PROJECT_CHOISE,
         SAVE_PRESET_CHOISE,
+        ENABLE_STEP_MESH_SETTING,
     )
 
     /** AppConfig::get_bool(): "true" or "1". */

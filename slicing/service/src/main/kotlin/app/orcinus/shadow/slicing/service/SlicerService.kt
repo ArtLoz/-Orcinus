@@ -130,6 +130,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             answers: BooleanArray,
             load: String,
             chosen: Boolean,
+            stepMesh: DoubleArray?,
         ): ModelLoadParcel = runBlocking {
             engine.load(
                 ModelPath(source),
@@ -139,6 +140,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                 answerIds.zip(answers.toList()).toMap(),
                 ModelLoad.valueOf(load),
                 chosen,
+                stepMesh?.toStepMeshOptions(),
             )
         }.toParcel()
 
@@ -314,9 +316,17 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             source: String,
             profiles: ProfilesParcel,
             prefix: String,
+            stepMesh: DoubleArray?,
         ): ModelLoadParcel = runBlocking {
-            engine.replaceVolume(plate.toPlacedModels(), index, volume, ModelPath(source), profiles.toProfiles(), ScenePath(prefix))
+            engine.replaceVolume(plate.toPlacedModels(), index, volume, ModelPath(source), profiles.toProfiles(), ScenePath(prefix), stepMesh?.toStepMeshOptions())
         }.toParcel()
+
+        override fun stepTriangleCount(source: String, linear: Double, angle: Double): Long =
+            runBlocking { engine.stepTriangleCount(ModelPath(source), linear, angle) }
+
+        override fun stopStepTriangleCount() = runBlocking { engine.stopStepTriangleCount() }
+
+        override fun releaseStepFile() = runBlocking { engine.releaseStepFile() }
 
         override fun addPrimitive(
             plate: Array<PlacedModelParcel>,

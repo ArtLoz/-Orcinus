@@ -148,6 +148,9 @@ import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.StepMeshChoice
+import app.orcinus.shadow.core.model.StepMeshOptions
+import app.orcinus.shadow.core.model.StepMeshQuestion
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
@@ -930,6 +933,38 @@ class PlateUseCasesTest {
         val (all, allInspector) = opened(readyState(CUBE), AppConfigKeys.LOAD_ALL)
         assertEquals(ModelLoad.PROJECT, allInspector.loads.single().load)
         assertNull(all.state.value.projectDrop)
+    }
+
+    @Test
+    fun `a STEP file waits for StepMeshDialog, loads with its values and keeps them, and Cancel loads nothing`() {
+        val file = ImportedModelFile(ModelPath("/imports/part.step"), "part.step")
+        val asked = StepMeshOptions(linearDeflection = 0.003, angleDeflection = 0.5, splitCompound = false)
+        val chosen = StepMeshOptions(linearDeflection = 0.01, angleDeflection = 0.25, splitCompound = true)
+
+        val repository = FakeRepository(readyState())
+        val inspector = FakeInspector().apply { stepMeshAsked = asked }
+        val preferences = preferences()
+        val prompt = StepMeshPrompt(inspector, preferences, repository)
+        addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles(), preferences, prompt)(REFERENCE)
+        // The dialog waits with the values the engine gave, and counts the file's triangles.
+        assertEquals(StepMeshQuestion(file.path, asked), repository.state.value.stepMesh)
+        assertEquals(1234L, kotlinx.coroutines.runBlocking { prompt.triangleCount(0.01, 0.25) })
+
+        prompt.answer(StepMeshChoice(chosen, dontShowAgain = true))
+        assertNull(repository.state.value.stepMesh)
+        assertEquals(listOf(null, chosen), inspector.stepMeshes)
+        assertEquals(1, repository.state.value.objects.size)
+        // The dialog's OK keeps its values, and "Don't show again" turns it off.
+        assertEquals("false", preferences[AppConfigKeys.ENABLE_STEP_MESH_SETTING])
+
+        val cancelled = FakeRepository(readyState())
+        val cancelledInspector = FakeInspector().apply { stepMeshAsked = asked }
+        val cancelling = StepMeshPrompt(cancelledInspector, preferences(), cancelled)
+        addModel(cancelled, ModelImportOutcome.Success(file), cancelledInspector, FakeSceneFiles(), preferences(), cancelling)(REFERENCE)
+        cancelling.answer(null)
+        assertTrue(cancelled.state.value.objects.isEmpty())
+        assertFalse(cancelled.state.value.importing)
+        assertTrue(cancelledInspector.stepFileReleased)
     }
 
     @Test
@@ -2543,6 +2578,7 @@ class PlateUseCasesTest {
         inspector: FakeInspector,
         files: FakeSceneFiles,
         preferences: AppPreferences = preferences(),
+        stepMeshPrompt: StepMeshPrompt = StepMeshPrompt(inspector, preferences, repository),
     ) =
         AddModelToPlateUseCase(
             importModel = ImportModelUseCase(object : ModelFileImporter {
@@ -2557,6 +2593,7 @@ class PlateUseCasesTest {
             confirmClose = ProjectCloseConfirmation { true },
             applicationScope = scope,
             preferences = preferences,
+            stepMeshPrompt = stepMeshPrompt,
         )
 
     private fun assertIsCube(plateObject: PlateObject?) {
@@ -2681,6 +2718,7 @@ class PlateUseCasesTest {
             FakeSceneFiles(),
             repository,
             scope,
+            StepMeshPrompt(inspector, preferences(), repository),
         )
 
         replace(PlateInstanceId(CUBE.mesh), 0, REFERENCE)
@@ -2877,7 +2915,7 @@ class PlateUseCasesTest {
             override suspend fun importModel(reference: ExternalDocumentReference) = ModelImportOutcome.Success(file)
         })
 
-        ReplaceAllVolumesUseCase(importModel, folders, inspector, FakeSceneFiles(), repository, scope)(
+        ReplaceAllVolumesUseCase(importModel, folders, inspector, FakeSceneFiles(), repository, scope, StepMeshPrompt(inspector, preferences(), repository))(
             PlateInstanceId(body.mesh),
             ExternalDocumentReference("content://models"),
         )
@@ -3105,6 +3143,19 @@ class PlateUseCasesTest {
         /** What the load of a model file answers, for the answers it was given; by default one object. */
         var load: (Map<String, Boolean>) -> ModelLoadOutcome = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
 
+        /** StepMeshDialog's values a load asks with before it is answered; null for a file that does not ask. */
+        var stepMeshAsked: StepMeshOptions? = null
+        val stepMeshes = mutableListOf<StepMeshOptions?>()
+        var stepFileReleased = false
+
+        override suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double): Long = 1234
+
+        override suspend fun stopStepTriangleCount() = Unit
+
+        override suspend fun releaseStepFile() {
+            stepFileReleased = true
+        }
+
         override suspend fun load(
             source: ModelPath,
             profiles: SlicingProfileSelection,
@@ -3113,10 +3164,14 @@ class PlateUseCasesTest {
             answers: Map<String, Boolean>,
             load: ModelLoad,
             chosen: Boolean,
+            stepMesh: StepMeshOptions?,
         ): ModelLoadOutcome {
             loads += Load(source, prefix, answers, load, chosen)
+            stepMeshes += stepMesh
             this.profiles = profiles
             this.plate = plate
+            // A STEP file waits for StepMeshDialog until it is answered.
+            stepMeshAsked?.let { asked -> if (stepMesh == null) return ModelLoadOutcome.StepMesh(asked, emptyList()) }
             return load(answers)
         }
 
@@ -3301,6 +3356,7 @@ class PlateUseCasesTest {
             source: ModelPath,
             profiles: SlicingProfileSelection,
             prefix: ScenePath,
+            stepMesh: StepMeshOptions?,
         ): ModelLoadOutcome {
             replacements += Replacement(index, volume, source)
             return replacement

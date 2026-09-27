@@ -79,6 +79,7 @@ import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
@@ -345,6 +346,11 @@ internal fun ProjectPlateParcel.toProjectPlate() = ProjectPlate(
     thumbnail = thumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
 )
 
+/** StepMeshOptions as the service passes them: linear and angle deflections, and split as 1 or 0. */
+internal fun StepMeshOptions.toArray() = doubleArrayOf(linearDeflection, angleDeflection, if (splitCompound) 1.0 else 0.0)
+
+internal fun DoubleArray.toStepMeshOptions() = StepMeshOptions(this[0], this[1], this[2] != 0.0)
+
 internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.notices = notices.map { dialog -> dialog.toParcel() }.toTypedArray()
     it.appended = this is ModelLoadOutcome.Success && appended
@@ -359,6 +365,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     when (this) {
         is ModelLoadOutcome.Failure -> it.error = message
         is ModelLoadOutcome.Question -> it.question = question.toParcel()
+        is ModelLoadOutcome.StepMesh -> it.stepMesh = options.toArray()
         is ModelLoadOutcome.Success -> it.objects = objects.map { loaded ->
             LoadedObjectParcel().also { parcel ->
                 parcel.name = loaded.name
@@ -382,6 +389,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
     val shown = notices.orEmpty().map { it.toDialog() }
     error?.let { return ModelLoadOutcome.Failure(it, shown) }
     question?.let { return ModelLoadOutcome.Question(it.toDialog(), shown) }
+    stepMesh?.let { return ModelLoadOutcome.StepMesh(it.toStepMeshOptions(), shown) }
     return ModelLoadOutcome.Success(
         objects.orEmpty().map { parcel ->
             LoadedObject(

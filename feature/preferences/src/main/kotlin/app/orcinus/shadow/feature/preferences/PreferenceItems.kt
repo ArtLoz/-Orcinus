@@ -91,6 +91,11 @@ internal val PREFERENCE_PAGES = listOf(
                         ),
                     ),
                     PreferenceItem.Check(AppConfigKeys.NO_WARN_WHEN_MODIFIED_GCODES, "Don't warn when loading 3MF with modified G-code"),
+                    PreferenceItem.Check(
+                        AppConfigKeys.ENABLE_STEP_MESH_SETTING,
+                        "Show options when importing STEP file",
+                        "If enabled, a parameter settings dialog will appear during STEP file import.",
+                    ),
                     PreferenceItem.Spin(
                         AppConfigKeys.DRC_BITS,
                         "Quality level for Draco export",

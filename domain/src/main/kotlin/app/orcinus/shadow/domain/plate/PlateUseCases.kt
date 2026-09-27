@@ -583,6 +583,7 @@ class AddModelToPlateUseCase(
     private val confirmClose: ProjectCloseConfirmation,
     private val applicationScope: CoroutineScope,
     private val preferences: AppPreferences,
+    private val stepMeshPrompt: StepMeshPrompt,
 ) {
     operator fun invoke(reference: ExternalDocumentReference) {
         if (!start()) return
@@ -707,7 +708,7 @@ class AddModelToPlateUseCase(
         // Plater::load_project() resets the plate before the project loads.
         val plate = if (batch.load == ModelLoad.PROJECT) emptyList() else state.objects.map { it.placed() }
         val outcome = try {
-            inspector.load(source, profiles, plate, prefix, answers, batch.load, batch.chosen)
+            inspector.load(source, profiles, plate, prefix, answers, batch.load, batch.chosen, batch.stepMesh)
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation
@@ -715,6 +716,15 @@ class AddModelToPlateUseCase(
             ModelLoadOutcome.Failure(error.message.orEmpty())
         }
         if (outcome !is ModelLoadOutcome.Success) sceneFiles.deleteImport(prefix)
+        if (outcome is ModelLoadOutcome.StepMesh) {
+            // StepMeshDialog; its Cancel ends the whole load, as load_files() returns.
+            val options = stepMeshPrompt.ask(source, outcome.options)
+            if (options == null) {
+                repository.update { it.copy(importing = false) }
+                return
+            }
+            return load(source, batch.copy(stepMesh = options), answers, shown)
+        }
         // The presets the load selected (a project's, or more filaments for a
         // 3MF file's objects) reach the plate together with its objects, so no
         // request asks the engine for the presets before.
@@ -753,7 +763,7 @@ class AddModelToPlateUseCase(
                     val added = outcome.objects.map { it.toPlateObject(source?.value.orEmpty().substringAfterLast('/')) }
                     // load_files() selects every object it added.
                     val loaded = batch.loaded + added.allCopies()
-                    if (batch.rest.isNotEmpty()) next = batch.copy(rest = batch.rest.drop(1), loaded = loaded) else done = true
+                    if (batch.rest.isNotEmpty()) next = batch.copy(rest = batch.rest.drop(1), loaded = loaded, stepMesh = null) else done = true
                     val project = outcome.project
                     if (project != null) {
                         // Plater::load_project(): the project takes the plate's place with
@@ -817,6 +827,8 @@ class AddModelToPlateUseCase(
                         shown + notices,
                     ),
                 )
+                // load() asked StepMeshDialog before.
+                is ModelLoadOutcome.StepMesh -> informed.copy(importing = false)
                 is ModelLoadOutcome.Failure -> informed.copy(
                     importing = false,
                     problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, outcome.message),

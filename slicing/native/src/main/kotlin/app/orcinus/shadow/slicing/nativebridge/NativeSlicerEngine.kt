@@ -126,6 +126,7 @@ import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
@@ -280,6 +281,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         answers: Map<String, Boolean>,
         load: ModelLoad,
         chosen: Boolean,
+        stepMesh: StepMeshOptions?,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -297,6 +299,10 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             answers = answers.values.toBooleanArray(),
             load = load.ordinal.toLong(),
             chosen = chosen,
+            stepChosen = stepMesh != null,
+            stepLinear = stepMesh?.linearDeflection ?: 0.0,
+            stepAngle = stepMesh?.angleDeflection ?: 0.0,
+            stepSplit = stepMesh?.splitCompound ?: false,
         ).toOutcome()
     }
 
@@ -578,6 +584,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         source: ModelPath,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        stepMesh: StepMeshOptions?,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -593,8 +600,20 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             outputPrefix = prefix.value,
+            stepChosen = stepMesh != null,
+            stepLinear = stepMesh?.linearDeflection ?: 0.0,
+            stepAngle = stepMesh?.angleDeflection ?: 0.0,
+            stepSplit = stepMesh?.splitCompound ?: false,
         ).toOutcome()
     }
+
+    override suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double): Long =
+        withContext(Dispatchers.IO) { NativeBindings.stepTriangleCount(source.value, linearDeflection, angleDeflection) }
+
+    // Not on the IO dispatcher's queue behind the count it stops.
+    override suspend fun stopStepTriangleCount() = NativeBindings.stopStepTriangleCount()
+
+    override suspend fun releaseStepFile() = withContext(Dispatchers.IO) { NativeBindings.releaseStepFile() }
 
     override suspend fun addPrimitive(
         plate: List<PlacedModel>,
@@ -1727,6 +1746,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             status != NativeSceneStatus.SUCCESS ->
                 ModelLoadOutcome.Failure(message.ifBlank { "OrcaSlicer could not load the file" }, shown)
             hasQuestion -> ModelLoadOutcome.Question(question.toDialog(), shown)
+            stepMesh -> ModelLoadOutcome.StepMesh(StepMeshOptions(stepLinearDeflection, stepAngleDeflection, stepSplitCompound), shown)
             else -> ModelLoadOutcome.Success(
                 objects = objects.map { it.toLoadedObject() },
                 notices = shown,

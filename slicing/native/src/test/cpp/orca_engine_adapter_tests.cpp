@@ -3397,7 +3397,23 @@ TEST_CASE("A STEP file with several bodies becomes one object with a part for ea
     const std::string step = device_dir + "/tmp/import/two-boxes.step";
     write_two_box_step(step);
 
-    const orca::ImportedModels imported = orca::import_model(step, k2_plus_profiles(), {}, import_prefix("step"), {});
+    // With "Show options when importing STEP file" on, as by default, the load
+    // waits for StepMeshDialog with the app configuration's values, and the
+    // dialog counts the triangles of the file it loaded.
+    const orca::ImportedModels asked = orca::import_model(step, k2_plus_profiles(), {}, import_prefix("step-asked"), {});
+    INFO(asked.message);
+    REQUIRE(asked.status == orca::SceneStatus::success);
+    REQUIRE(asked.step_mesh);
+    CHECK(asked.objects.empty());
+    CHECK(asked.step_linear_deflection == Catch::Approx(0.003));
+    CHECK(asked.step_angle_deflection == Catch::Approx(0.5));
+    CHECK(orca::step_triangle_count(step, 0.003, 0.5) == 24);
+    CHECK(orca::step_triangle_count(device_dir + "/tmp/import/other.step", 0.003, 0.5) == 0);
+
+    // Its OK loads the file with the values it chose.
+    orca::StepMeshChoice choice;
+    choice.chosen = true;
+    const orca::ImportedModels imported = orca::import_model(step, k2_plus_profiles(), {}, import_prefix("step"), {}, orca::ModelLoad::geometry, false, choice);
     INFO(imported.message);
     REQUIRE(imported.status == orca::SceneStatus::success);
     REQUIRE(imported.objects.size() == 1);
@@ -3500,7 +3516,9 @@ TEST_CASE("Split to objects makes every body an object where it stood", "[Adapte
     require_engine();
     const std::string step = device_dir + "/tmp/import/split-boxes.step";
     write_two_box_step(step);
-    const orca::ImportedModels imported = orca::import_model(step, k2_plus_profiles(), {}, import_prefix("split-step"), {});
+    orca::StepMeshChoice choice;
+    choice.chosen = true;
+    const orca::ImportedModels imported = orca::import_model(step, k2_plus_profiles(), {}, import_prefix("split-step"), {}, orca::ModelLoad::geometry, false, choice);
     REQUIRE(imported.objects.size() == 1);
     const std::vector<orca::PlateObject> plate = {plate_object_of(imported.objects.front())};
 

@@ -25,6 +25,7 @@
 #include "android_log_sink.hpp"
 #include "engine_context.hpp"
 #include "project_3mf.hpp"
+#include "step_mesh.hpp"
 #include "settings_dialogs.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/BuildVolume.hpp"
@@ -3104,20 +3105,20 @@ bool is_any_amf(const std::string& path)
     return boost::algorithm::iends_with(path, ".amf") || boost::algorithm::iends_with(path, ".amf.xml");
 }
 
-// Plater::priv::load_files(): the reader of the file's type. imperial is set
-// for an AMF file in inches, whose objects are then scaled whatever their size.
-Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& dialogs, bool& imperial)
+// Plater::priv::load_files() and replace_volume_with_stl() (replacing): the
+// reader of the file's type. imperial is set for an AMF file in inches, whose
+// objects are then scaled whatever their size.
+Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& dialogs, bool& imperial, const StepMeshChoice& step_mesh,
+                              const bool replacing)
 {
     imperial = false;
     if (boost::algorithm::iends_with(path, ".stp") || boost::algorithm::iends_with(path, ".step")) {
         bool utf8 = true;
-        // The app configuration's linear_defletion and angle_defletion, which
-        // fall back to these when unset, and no split compound. The desktop app
-        // asks for them in StepMeshDialog first, since its preference "Show
-        // options when importing STEP file" is on by default; the dialog is not
-        // ported yet, so the file loads as if it were off.
-        Slic3r::Model model = Slic3r::Model::read_from_step(
-            path, Slic3r::LoadStrategy::LoadModel, nullptr, [&utf8](int is_utf8) { utf8 = is_utf8 != 0; }, nullptr, 0.003, 0.5, false);
+        // The deflections and split of the app configuration or of
+        // StepMeshDialog, which stops the load until it is answered.
+        const detail::StepMeshParameters mesh = detail::step_mesh_parameters(path, step_mesh, replacing);
+        Slic3r::Model model = Slic3r::Model::read_from_step(path, Slic3r::LoadStrategy::LoadModel, nullptr, [&utf8](int is_utf8) { utf8 = is_utf8 != 0; },
+                                                            nullptr, mesh.linear_deflection, mesh.angle_deflection, mesh.split_compound);
         if (!utf8) {
             // The desktop app warns, and Step::load() then fails the file.
             dialogs.inform("step_not_utf8",
@@ -3368,7 +3369,8 @@ ImportedModels import_model(
     const std::string& output_prefix,
     const DialogAnswers& answers,
     const ModelLoad load,
-    const bool chosen
+    const bool chosen,
+    const StepMeshChoice& step_mesh
 )
 {
     ImportedModels result;
@@ -3400,7 +3402,7 @@ ImportedModels import_model(
         if (type_3mf) {
             imported = detail::read_3mf(source_path, load == ModelLoad::project, config, dialogs, archive);
         } else {
-            imported = read_model_file(source_path, dialogs, imperial);
+            imported = read_model_file(source_path, dialogs, imperial, step_mesh, false);
             for (Slic3r::ModelObject* object : imported.objects) {
                 if (object->name.empty()) {
                     object->name = file_name;
@@ -3522,6 +3524,14 @@ ImportedModels import_model(
     } catch (const detail::QuestionPending& pending) {
         result.has_question = true;
         result.question = pending.dialog;
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const detail::StepMeshPending& pending) {
+        result.step_mesh = true;
+        result.step_linear_deflection = pending.linear_deflection;
+        result.step_angle_deflection = pending.angle_deflection;
+        result.step_split_compound = pending.split_compound;
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;
         return result;
@@ -4095,6 +4105,14 @@ ImportedModels edit_object(
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;
         return result;
+    } catch (const detail::StepMeshPending& pending) {
+        result.step_mesh = true;
+        result.step_linear_deflection = pending.linear_deflection;
+        result.step_angle_deflection = pending.angle_deflection;
+        result.step_split_compound = pending.split_compound;
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
     } catch (const std::exception& error) {
         result.message = error.what();
         result.notices = dialogs.take_notices();
@@ -4362,7 +4380,8 @@ ImportedModels replace_volume(
     std::size_t volume_index,
     const std::string& source_path,
     const ProfileSelection& profiles,
-    const std::string& output_prefix
+    const std::string& output_prefix,
+    const StepMeshChoice& step_mesh
 )
 {
     using namespace Slic3r;
@@ -4393,12 +4412,14 @@ ImportedModels replace_volume(
         Model new_model;
         try {
             bool imperial = false;
-            new_model = read_model_file(source_path, dialogs, imperial);
+            new_model = read_model_file(source_path, dialogs, imperial, step_mesh, true);
             for (ModelObject* model_object : new_model.objects) {
                 if (model_object->instances.empty()) model_object->add_instance();
                 model_object->center_around_origin();
                 model_object->ensure_on_bed();
             }
+        } catch (const detail::StepMeshPending&) {
+            throw;
         } catch (const std::exception&) {
             // error while loading
             result.message = "The file could not be read";

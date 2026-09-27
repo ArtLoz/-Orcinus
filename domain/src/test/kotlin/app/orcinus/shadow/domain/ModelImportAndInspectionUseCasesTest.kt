@@ -50,6 +50,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SimplifyOutcome
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
@@ -243,7 +244,14 @@ class ModelImportAndInspectionUseCasesTest {
             answers: Map<String, Boolean>,
             load: ModelLoad,
             chosen: Boolean,
+            stepMesh: StepMeshOptions?,
         ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double) = 0L
+
+        override suspend fun stopStepTriangleCount() = Unit
+
+        override suspend fun releaseStepFile() = Unit
 
         override suspend fun edit(
             plate: List<PlacedModel>,
@@ -329,6 +337,7 @@ class ModelImportAndInspectionUseCasesTest {
             source: ModelPath,
             profiles: SlicingProfileSelection,
             prefix: ScenePath,
+            stepMesh: StepMeshOptions?,
         ) = ModelLoadOutcome.Failure("not used")
 
         override suspend fun simplifyVolume(

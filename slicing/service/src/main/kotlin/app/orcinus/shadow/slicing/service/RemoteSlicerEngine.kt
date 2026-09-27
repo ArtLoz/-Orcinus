@@ -89,6 +89,7 @@ import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
@@ -203,6 +204,7 @@ class RemoteSlicerEngine(
         answers: Map<String, Boolean>,
         load: ModelLoad,
         chosen: Boolean,
+        stepMesh: StepMeshOptions?,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         load(
             source.value,
@@ -213,6 +215,7 @@ class RemoteSlicerEngine(
             answers.values.toBooleanArray(),
             load.name,
             chosen,
+            stepMesh?.toArray(),
         ).toModelLoadOutcome()
     }
 
@@ -377,9 +380,17 @@ class RemoteSlicerEngine(
         source: ModelPath,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        stepMesh: StepMeshOptions?,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
-        replaceVolume(plate.toParcels(), index, volume, source.value, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+        replaceVolume(plate.toParcels(), index, volume, source.value, profiles.toParcel(), prefix.value, stepMesh?.toArray()).toModelLoadOutcome()
     }
+
+    override suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double): Long =
+        remote({ 0L }) { stepTriangleCount(source.value, linearDeflection, angleDeflection) }
+
+    override suspend fun stopStepTriangleCount() = remote({}) { stopStepTriangleCount() }
+
+    override suspend fun releaseStepFile() = remote({}) { releaseStepFile() }
 
     override suspend fun addPrimitive(
         plate: List<PlacedModel>,

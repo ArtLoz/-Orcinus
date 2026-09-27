@@ -69,7 +69,8 @@ interface ISlicerService {
         in String[] answerIds,
         in boolean[] answers,
         String load,
-        boolean chosen
+        boolean chosen,
+        in @nullable double[] stepMesh
     );
     /** edit_object(): edit is the ObjectEdit's name; volume -1 edits the whole object. */
     ModelLoadParcel edit(
@@ -155,8 +156,13 @@ interface ISlicerService {
         int volume,
         String source,
         in ProfilesParcel profiles,
-        String prefix
+        String prefix,
+        in @nullable double[] stepMesh
     );
+    /** StepMeshDialog: the triangles of the STEP file it asks about; stopping runs beside the count. */
+    long stepTriangleCount(String source, double linear, double angle);
+    oneway void stopStepTriangleCount();
+    void releaseStepFile();
     /** add_primitive(): a shape of create_mesh() as an object of its own. */
     ModelLoadParcel addPrimitive(
         in PlacedModelParcel[] plate,

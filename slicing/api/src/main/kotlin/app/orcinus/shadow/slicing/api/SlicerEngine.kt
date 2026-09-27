@@ -80,6 +80,7 @@ import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
@@ -165,6 +166,8 @@ interface PlateInspector {
         answers: Map<String, Boolean> = emptyMap(),
         load: ModelLoad = ModelLoad.GEOMETRY,
         chosen: Boolean = false,
+        /** StepMeshDialog's answer for a STEP file that asked; null before it asked. */
+        stepMesh: StepMeshOptions? = null,
     ): ModelLoadOutcome
 
     /**
@@ -246,7 +249,21 @@ interface PlateInspector {
         source: ModelPath,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        stepMesh: StepMeshOptions? = null,
     ): ModelLoadOutcome
+
+    /**
+     * StepMeshDialog::update_mesh_number_text(): the triangles the STEP file
+     * [source] that waits for the dialog makes at these deflections; 0 when
+     * the count was stopped.
+     */
+    suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double): Long
+
+    /** StepMeshDialog::stop_task(): a running count stops at once. */
+    suspend fun stopStepTriangleCount()
+
+    /** The STEP file kept for the dialog is let go. */
+    suspend fun releaseStepFile()
 
     /**
      * ObjectList::load_shape_object(): a [shape] of create_mesh() joins [plate]

@@ -100,7 +100,8 @@ class CalibrateUseCase(
                         problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, outcome.message),
                         plateNotices = state.plateNotices + outcome.notices,
                     )
-                    is ModelLoadOutcome.Question -> state.copy(importing = false)
+                    // A calibration loads OrcaSlicer's own models, which ask nothing.
+                    is ModelLoadOutcome.Question, is ModelLoadOutcome.StepMesh -> state.copy(importing = false)
                 }
             }
             if (presets != null) platePresets.apply(selection, presets)

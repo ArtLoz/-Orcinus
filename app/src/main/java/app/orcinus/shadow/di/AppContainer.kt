@@ -135,6 +135,7 @@ import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.SliceAllPlatesUseCase
 import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
+import app.orcinus.shadow.domain.plate.StepMeshPrompt
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.plate.UpdateFlushVolumesUseCase
@@ -247,6 +248,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     /** SavePresetDialog's check of a name, which the project's questions ask too. */
     suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome = engine.checkPresetName(kind, name)
 
+    // StepMeshDialog, which a load or a replacement of a STEP file waits for.
+    val stepMeshPrompt = StepMeshPrompt(engine, appPreferences, plateRepository)
+
     val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
         inspector = engine,
@@ -258,6 +262,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         confirmClose = projectLifecycle,
         applicationScope = applicationScope,
         preferences = appPreferences,
+        stepMeshPrompt = stepMeshPrompt,
     )
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
@@ -414,6 +419,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sceneFiles,
         plateRepository,
         applicationScope,
+        stepMeshPrompt,
     )
     private val copyProcessSettings = CopyProcessSettingsUseCase(plateRepository)
     private val pasteProcessSettings = PasteProcessSettingsUseCase(engine, plateRepository, settingsTabs, applicationScope)
@@ -424,6 +430,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sceneFiles,
         plateRepository,
         applicationScope,
+        stepMeshPrompt,
     )
     val dismissPlateNotice = DismissPlateNoticeUseCase(plateRepository)
     private val dismissPlateProblem = DismissPlateProblemUseCase(plateRepository)

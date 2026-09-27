@@ -265,8 +265,23 @@ sealed interface ModelLoadOutcome {
     /** The load asks [question] before it adds anything; it is requested again with the answer. */
     data class Question(val question: SettingsDialog, override val notices: List<SettingsDialog>) : ModelLoadOutcome
 
+    /**
+     * A STEP file waits for StepMeshDialog, which opens with [options]; the load
+     * is requested again with the user's choice.
+     */
+    data class StepMesh(val options: StepMeshOptions, override val notices: List<SettingsDialog>) : ModelLoadOutcome
+
     data class Failure(val message: String, override val notices: List<SettingsDialog> = emptyList()) : ModelLoadOutcome
 }
+
+/** StepMeshDialog's values: the deflections a STEP file is meshed with, and whether its compounds and compsolids split into objects. */
+data class StepMeshOptions(val linearDeflection: Double, val angleDeflection: Double, val splitCompound: Boolean)
+
+/** StepMeshDialog's OK: its values, and "Don't show again". */
+data class StepMeshChoice(val options: StepMeshOptions, val dontShowAgain: Boolean = false)
+
+/** StepMeshDialog open on the STEP file [source], with [options] to begin with. */
+data class StepMeshQuestion(val source: ModelPath, val options: StepMeshOptions)
 
 /**
  * How a 3MF file loads (LoadType of the desktop app's Plater): its objects

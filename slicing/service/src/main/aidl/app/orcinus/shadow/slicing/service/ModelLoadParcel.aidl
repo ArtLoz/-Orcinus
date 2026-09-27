@@ -24,4 +24,6 @@ parcelable ModelLoadParcel {
     @nullable CalibrationParcel calibration;
     /** A calibration's load: the plates its objects stand on. */
     int plateCount;
+    /** A STEP file waits for StepMeshDialog: its linear and angle deflections and split (1 or 0). */
+    @nullable double[] stepMesh;
 }

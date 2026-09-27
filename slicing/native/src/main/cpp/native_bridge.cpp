@@ -3066,7 +3066,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsDialog;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
         "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;"
-        "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;I)V"
+        "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;I"
+        "ZDDZ)V"
     );
     const jobjectArray plates = to_java_objects(
         env,
@@ -3090,8 +3091,41 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         imported.presets_changed ? JNI_TRUE : JNI_FALSE,
         to_java(env, imported.project_info),
         to_java(env, imported.calibration),
-        static_cast<jint>(imported.plate_count)
+        static_cast<jint>(imported.plate_count),
+        imported.step_mesh ? JNI_TRUE : JNI_FALSE,
+        static_cast<jdouble>(imported.step_linear_deflection),
+        static_cast<jdouble>(imported.step_angle_deflection),
+        imported.step_split_compound ? JNI_TRUE : JNI_FALSE
     );
+}
+
+// StepMeshDialog's answer as the bridge passes it.
+static orcinus::orca::StepMeshChoice to_step_mesh(jboolean chosen, jdouble linear, jdouble angle, jboolean split)
+{
+    orcinus::orca::StepMeshChoice choice;
+    choice.chosen = chosen == JNI_TRUE;
+    choice.linear_deflection = linear;
+    choice.angle_deflection = angle;
+    choice.split_compound = split == JNI_TRUE;
+    return choice;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_stepTriangleCount(JNIEnv* env, jobject /* this */, jstring path, jdouble linear, jdouble angle)
+{
+    return static_cast<jlong>(orcinus::orca::step_triangle_count(to_utf8(env, path), linear, angle));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_stopStepTriangleCount(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::stop_step_triangle_count();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_releaseStepFile(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::release_step_file();
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
@@ -3259,7 +3293,11 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_replaceVolume(
     jstring filament_profile,
     jobjectArray filament_profiles,
     jstring process_profile,
-    jstring output_prefix
+    jstring output_prefix,
+    jboolean step_chosen,
+    jdouble step_linear,
+    jdouble step_angle,
+    jboolean step_split
 )
 {
     return to_java(
@@ -3270,7 +3308,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_replaceVolume(
             static_cast<std::size_t>(volume),
             to_utf8(env, source_path),
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
-            to_utf8(env, output_prefix)
+            to_utf8(env, output_prefix),
+            to_step_mesh(step_chosen, step_linear, step_angle, step_split)
         )
     );
 }
@@ -3428,7 +3467,11 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
     jobjectArray answer_ids,
     jbooleanArray answers,
     jlong load,
-    jboolean chosen
+    jboolean chosen,
+    jboolean step_chosen,
+    jdouble step_linear,
+    jdouble step_angle,
+    jboolean step_split
 )
 {
     return to_java(
@@ -3440,7 +3483,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
             to_utf8(env, output_prefix),
             to_answers(env, answer_ids, answers),
             static_cast<orcinus::orca::ModelLoad>(load),
-            chosen == JNI_TRUE
+            chosen == JNI_TRUE,
+            to_step_mesh(step_chosen, step_linear, step_angle, step_split)
         )
     );
 }

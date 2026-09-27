@@ -53,11 +53,13 @@ import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.ProjectPrompt
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.ProjectDropSheet
 import app.orcinus.shadow.core.ui.plate.ProjectPresetChangesDialog
 import app.orcinus.shadow.core.ui.plate.ProjectSaveChangesDialog
 import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.ui.plate.StepMeshDialog
 import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import app.orcinus.shadow.di.AppContainer
@@ -69,6 +71,7 @@ import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
+import app.orcinus.shadow.domain.plate.StepMeshPrompt
 import app.orcinus.shadow.feature.about.navigation.AboutNavKey
 import app.orcinus.shadow.feature.about.navigation.aboutEntries
 import app.orcinus.shadow.feature.device.navigation.DeviceNavKey
@@ -104,6 +107,7 @@ class AppShellViewModel(
     private val addModelToPlate: AddModelToPlateUseCase,
     private val projectLifecycle: ProjectLifecycleUseCase,
     private val presetNames: suspend (PresetKind, String) -> PresetNameOutcome,
+    private val stepMeshPrompt: StepMeshPrompt,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -132,6 +136,11 @@ class AppShellViewModel(
     fun answerPresetChanges(answer: PresetChangesAnswer?, remember: Boolean) = projectLifecycle.answerPresetChanges(answer, remember)
 
     suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome = presetNames(kind, name)
+
+    /** StepMeshDialog's answer, null for Cancel, and its count of triangles. */
+    fun answerStepMesh(choice: StepMeshChoice?) = stepMeshPrompt.answer(choice)
+
+    suspend fun stepTriangleCount(linear: Double, angle: Double): Long = stepMeshPrompt.triangleCount(linear, angle)
 }
 
 /** The workspace: OrcaSlicer's tabs and sidebar. Pages such as About open over it. */
@@ -159,6 +168,7 @@ fun OrcinusApp(
             container.addModelToPlate,
             container.projectLifecycle,
             container::checkPresetName,
+            container.stepMeshPrompt,
         )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
@@ -254,9 +264,11 @@ private fun Workspace(
     val question = plate.plateQuestion?.question
     val projectDrop = plate.projectDrop
     val projectPrompt = plate.projectPrompt
+    val stepMesh = plate.stepMesh
     when {
         notice != null -> SettingsNoticeDialog(notice, onDismiss = shell::dismissNotice)
         question != null -> SettingsQuestionDialog(question, onAnswer = shell::answer)
+        stepMesh != null -> StepMeshDialog(stepMesh, countTriangles = shell::stepTriangleCount, onAnswer = shell::answerStepMesh)
         projectPrompt is ProjectPrompt.SaveChanges -> ProjectSaveChangesDialog(onAnswer = shell::answerSaveChanges)
         projectPrompt is ProjectPrompt.PresetChanges ->
             ProjectPresetChangesDialog(projectPrompt, checkName = shell::checkPresetName, onAnswer = shell::answerPresetChanges)
