@@ -79,6 +79,7 @@ import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ProjectContent
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsScope
@@ -127,6 +128,7 @@ import app.orcinus.shadow.storage.api.ConfigFiles
 import app.orcinus.shadow.storage.api.DocumentExport
 import app.orcinus.shadow.storage.api.GcodeOutputs
 import app.orcinus.shadow.storage.api.PlateCache
+import app.orcinus.shadow.storage.api.ProjectBackup
 import app.orcinus.shadow.storage.api.SceneFiles
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -630,6 +632,26 @@ class AddModelToPlateUseCase(
         }
     }
 
+    /**
+     * Plater::load_project() of a backup with its origin (LoadStrategy::Restore):
+     * the project loads under the name of the document it came from, or as
+     * "Untitled" when it had none, and stays unsaved. The app has just
+     * started, so no project before asks anything.
+     */
+    suspend fun restoreProject(backup: ProjectBackup) {
+        if (!start()) return
+        val document = backup.origin.document
+        val batch = ImportBatch(
+            load = ModelLoad.PROJECT,
+            chosen = true,
+            document = document,
+            // The project's name is its document's without ".3mf" (projectNameOf).
+            displayName = backup.origin.name?.takeIf { document != null }?.let { "$it.3mf" },
+            restore = true,
+        )
+        load(backup.file, batch, emptyMap(), emptyList())
+    }
+
     /** Plater::load_project(): the questions of the project before, then the load. */
     private suspend fun openProject(path: ModelPath, picked: ImportBatch, chosen: Boolean = false) {
         if (!confirmClose.confirm(newProject = false)) {
@@ -762,8 +784,10 @@ class AddModelToPlateUseCase(
             )
             when (outcome) {
                 is ModelLoadOutcome.Success -> {
-                    // ModelObject::input_file: the document the objects came from.
-                    val added = outcome.objects.map { it.toPlateObject(source?.value.orEmpty().substringAfterLast('/')) }
+                    // ModelObject::input_file: the document the objects came from; a
+                    // restored backup's objects come from its origin (load_files()'s real_filename).
+                    val inputName = batch.displayName?.takeIf { batch.restore } ?: source?.value.orEmpty().substringAfterLast('/')
+                    val added = outcome.objects.map { it.toPlateObject(inputName) }
                     // load_files() selects every object it added.
                     val loaded = batch.loaded + added.allCopies()
                     if (batch.rest.isNotEmpty()) next = batch.copy(rest = batch.rest.drop(1), loaded = loaded, stepMesh = null) else done = true
@@ -797,7 +821,10 @@ class AddModelToPlateUseCase(
                                     name = batch.displayName?.let(::projectNameOf),
                                     document = batch.document,
                                     info = project.info,
-                                ),
+                                ).let { opened ->
+                                    // dirty_state.update_from_undo_redo_stack(true): a restored project is unsaved.
+                                    if (batch.restore) opened.copy(baseline = ProjectContent()) else opened
+                                },
                             )
                         }
                     } else {

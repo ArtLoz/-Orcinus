@@ -68,6 +68,27 @@ fun ProjectSaveChangesDialog(onAnswer: (save: Boolean?, remember: Boolean) -> Un
 }
 
 /**
+ * EVT_RESTORE_PROJECT's message box (wxYES_NO | wxYES_DEFAULT): Yes restores
+ * the backup an earlier run left; No, or closing the box, deletes it.
+ */
+@Composable
+fun ProjectRestoreDialog(onAnswer: (restore: Boolean) -> Unit) {
+    val colors = OrcaTheme.colors
+    AlertDialog(
+        onDismissRequest = { onAnswer(false) },
+        properties = DialogProperties(dismissOnClickOutside = false),
+        title = { Text(orcaString("Restore"), style = OrcaTheme.typography.head16) },
+        text = { Text(orcaString("Previous unsaved project detected, do you want to restore it?"), style = OrcaTheme.typography.body14) },
+        confirmButton = { OrcaButton(orcaString("Yes"), onClick = { onAnswer(true) }) },
+        dismissButton = { OrcaButton(orcaString("No"), onClick = { onAnswer(false) }, style = OrcaButtonStyle.Regular) },
+        containerColor = colors.window,
+        titleContentColor = colors.text,
+        textContentColor = colors.text,
+        shape = OrcaTheme.shapes.window,
+    )
+}
+
+/**
  * UnsavedChangesDialog for a project (no dependent presets): every preset with
  * unsaved changes and its changes; Transfer keeps them for a new project,
  * Save saves them (SavePresetDialog asks the names of the presets that cannot

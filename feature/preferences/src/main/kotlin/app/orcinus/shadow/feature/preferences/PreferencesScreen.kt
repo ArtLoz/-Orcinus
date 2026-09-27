@@ -113,7 +113,7 @@ internal fun PreferencesScreen(
             label = orcaString(item.title),
             tooltip = when (item) {
                 // The delay field's tooltip, which the desktop field shows under the pointer, follows the checkbox's.
-                is PreferenceItem.AutoReslice -> listOf(OrcaText(item.tooltip), OrcaText(PARAGRAPH), OrcaText(item.delayTooltip))
+                is PreferenceItem.CheckSeconds -> listOf(OrcaText(item.tooltip), OrcaText(PARAGRAPH), OrcaText(item.secondsTooltip))
                 // An item without a tooltip shows its title (create_item_label()).
                 else -> listOf(OrcaText(item.tooltip.ifEmpty { item.title }))
             },
@@ -193,10 +193,10 @@ private fun PreferenceRow(
                 onCheckedChange = { onChange(item.key, if (it) "true" else "false") },
                 enabled = enabled,
             )
-            is PreferenceItem.AutoReslice -> {
+            is PreferenceItem.CheckSeconds -> {
                 val checked = AppConfigKeys.bool(value)
-                // The field shows "0" while no delay is set.
-                SecondsField(values[item.delayKey].orEmpty().ifEmpty { "0" }, enabled && checked) { onChange(item.delayKey, it) }
+                // The field shows "0" while no seconds are set.
+                SecondsField(values[item.secondsKey].orEmpty().ifEmpty { "0" }, enabled && checked) { onChange(item.secondsKey, it) }
                 Spacer(Modifier.width(12.dp))
                 OrcaSwitch(
                     checked = checked,
@@ -267,7 +267,7 @@ private fun DecimalField(item: PreferenceItem.Decimal, value: String, enabled: B
 }
 
 /**
- * create_item_auto_reslice()'s field: digits only (wxFILTER_DIGITS), written
+ * The seconds of create_item_auto_reslice() and create_item_backup(): digits only (wxFILTER_DIGITS), written
  * when it is done or loses the focus as a whole number of seconds, 0 for text
  * that is none; "sec" beside it.
  */

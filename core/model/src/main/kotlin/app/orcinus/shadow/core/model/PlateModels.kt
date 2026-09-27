@@ -580,6 +580,11 @@ data class ImportBatch(
      */
     val document: ExternalDocumentReference? = null,
     val displayName: String? = null,
+    /**
+     * LoadStrategy::Restore: the file is the project's backup, which loads
+     * under the name of [document] and stays unsaved.
+     */
+    val restore: Boolean = false,
 )
 
 /**
@@ -621,6 +626,9 @@ data class ProjectContent(
 sealed interface ProjectPrompt {
     /** "The current project has unsaved changes, save it before continue?" */
     data object SaveChanges : ProjectPrompt
+
+    /** EVT_RESTORE_PROJECT: "Previous unsaved project detected, do you want to restore it?" */
+    data object RestoreBackup : ProjectPrompt
 
     /** Save Project asks for a document, as its file dialog does. */
     data object SaveAs : ProjectPrompt

@@ -72,6 +72,8 @@ object AppConfigKeys {
     const val SAVE_PROJECT_CHOISE = "save_project_choise"
     const val SAVE_PRESET_CHOISE = "save_preset_choise"
     const val ENABLE_STEP_MESH_SETTING = "enable_step_mesh_setting"
+    const val BACKUP_SWITCH = "backup_switch"
+    const val BACKUP_INTERVAL = "backup_interval"
 
     /** StepMeshDialog's values, which its OK writes (the desktop app's spelling). */
     const val IS_SPLIT_COMPOUND = "is_split_compound"
@@ -112,7 +114,17 @@ object AppConfigKeys {
         SAVE_PROJECT_CHOISE,
         SAVE_PRESET_CHOISE,
         ENABLE_STEP_MESH_SETTING,
+        BACKUP_SWITCH,
+        BACKUP_INTERVAL,
     )
+
+    /**
+     * MainFrame's set_backup_interval(): the seconds between backups while
+     * backup_switch is "true"; 0, no backups, otherwise or for a value that is
+     * not a number.
+     */
+    fun backupInterval(switch: String?, interval: String?): Long =
+        if (switch == "true") interval?.trim()?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L else 0L
 
     /** GLCanvas3D::_get_effective_fps_cap(): std::stoi() of the value within 0 and 240, 0 for none. */
     fun fpsCap(value: String?): Int {

@@ -49,16 +49,17 @@ internal sealed interface PreferenceItem {
     ) : PreferenceItem
 
     /**
-     * create_item_auto_reslice(): the checkbox of [key] and beside it the
-     * seconds of [delayKey], a whole number the field takes only while the
-     * box is ticked; [delayTooltip] is the field's own tooltip.
+     * create_item_auto_reslice() and create_item_backup(): the checkbox of
+     * [key] and beside it the seconds of [secondsKey], a whole number the
+     * field takes only while the box is ticked; [secondsTooltip] is the
+     * field's own tooltip.
      */
-    data class AutoReslice(
+    data class CheckSeconds(
         override val key: String,
-        val delayKey: String,
+        val secondsKey: String,
         override val title: String,
         override val tooltip: String,
-        val delayTooltip: String,
+        val secondsTooltip: String,
     ) : PreferenceItem
 
     /** create_item_button() of "Clear my choice on...": the button empties the remembered choice. */
@@ -122,6 +123,13 @@ internal val PREFERENCE_PAGES = listOf(
                             AppConfigKeys.LOAD_GEOMETRY_ONLY,
                         ),
                     ),
+                    PreferenceItem.CheckSeconds(
+                        AppConfigKeys.BACKUP_SWITCH,
+                        AppConfigKeys.BACKUP_INTERVAL,
+                        "Auto backup",
+                        "Backup your project periodically to help with restoring from an occasional crash.",
+                        "The period of backup in seconds.",
+                    ),
                     PreferenceItem.Check(AppConfigKeys.NO_WARN_WHEN_MODIFIED_GCODES, "Don't warn when loading 3MF with modified G-code"),
                     PreferenceItem.Check(
                         AppConfigKeys.ENABLE_STEP_MESH_SETTING,
@@ -183,7 +191,7 @@ internal val PREFERENCE_PAGES = listOf(
             PreferenceSection(
                 "Slicing",
                 listOf(
-                    PreferenceItem.AutoReslice(
+                    PreferenceItem.CheckSeconds(
                         AppConfigKeys.AUTO_SLICE_AFTER_CHANGE,
                         AppConfigKeys.AUTO_SLICE_CHANGE_DELAY_SECONDS,
                         "Auto slice after changes",

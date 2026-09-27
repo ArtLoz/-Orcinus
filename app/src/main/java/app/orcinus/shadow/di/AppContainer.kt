@@ -101,6 +101,7 @@ import app.orcinus.shadow.domain.plate.PlateThumbnailRenderer
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.PrintHostDiscovery
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
+import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveLayerRangeUseCase
@@ -165,6 +166,7 @@ import app.orcinus.shadow.storage.android.AppDocumentExport
 import app.orcinus.shadow.storage.android.AppDocumentFolders
 import app.orcinus.shadow.storage.android.AppGcodeOutputs
 import app.orcinus.shadow.storage.android.AppPlateCache
+import app.orcinus.shadow.storage.android.AppProjectBackupFiles
 import app.orcinus.shadow.storage.android.AppSceneFiles
 import app.orcinus.shadow.storage.android.ContentResolverModelFileImporter
 import java.io.File
@@ -227,6 +229,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         wipeTowerUpdates.start()
         // Meshes go once neither the plate, its undo/redo stack nor the clipboard needs them.
         applicationScope.launch { ObjectMeshRetention(plateRepository, sceneFiles).run() }
+        // "Auto backup", and the restore of a project an earlier run left.
+        projectBackup.start()
     }
 
     val observePlate = ObservePlateUseCase(plateRepository)
@@ -279,6 +283,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
     private val cancelPlateSlicing = CancelPlateSlicingUseCase(CancelSliceUseCase(engine), plateRepository, applicationScope)
     val autoSlice = AutoSliceUseCase(appPreferences, slicePlate, cancelPlateSlicing, plateRepository, applicationScope)
+    val projectBackup = ProjectBackupUseCase(
+        engine,
+        AppProjectBackupFiles(applicationContext),
+        appPreferences,
+        plateRepository,
+        restore = addModelToPlate::restoreProject,
+        applicationScope = applicationScope,
+    )
     // Sidebar: the filaments the plate prints with.
     private val plateFilaments = PlateFilamentsUseCase(engine, platePresets, flushVolumes, plateRepository, applicationScope)
     private val selectPlateObject = SelectPlateObjectUseCase(plateRepository)

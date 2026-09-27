@@ -184,6 +184,7 @@ import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
+import app.orcinus.shadow.storage.api.BackupOrigin
 import app.orcinus.shadow.storage.api.CachedPlate
 import app.orcinus.shadow.storage.api.ConfigFiles
 import app.orcinus.shadow.storage.api.DocumentExport
@@ -191,6 +192,8 @@ import app.orcinus.shadow.storage.api.DocumentFolders
 import app.orcinus.shadow.storage.api.GcodeOutputs
 import app.orcinus.shadow.storage.api.ModelFileImporter
 import app.orcinus.shadow.storage.api.PlateCache
+import app.orcinus.shadow.storage.api.ProjectBackup
+import app.orcinus.shadow.storage.api.ProjectBackupFiles
 import app.orcinus.shadow.storage.api.SceneFiles
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
@@ -874,6 +877,46 @@ class PlateUseCasesTest {
         assertNull(engine.request)
         Thread.sleep(700)
         assertNotNull(engine.request)
+    }
+
+    @Test
+    fun `a backup an earlier run left is offered, restored or deleted, and a changed project is backed up until it is saved`() {
+        val backup = ProjectBackup(ModelPath("/backup/.3mf"), BackupOrigin(ExternalDocumentReference("content://projects/benchy.3mf"), "benchy"))
+
+        // No: the backup goes.
+        val declined = FakeBackupFiles(backup)
+        val repository = FakeRepository(readyState())
+        val restored = mutableListOf<ProjectBackup>()
+        ProjectBackupUseCase(FakeInspector(), declined, preferences(AppConfigKeys.BACKUP_SWITCH to "false"), repository, { restored += it }, scope).apply {
+            start()
+            assertEquals(ProjectPrompt.RestoreBackup, repository.state.value.projectPrompt)
+            answerRestore(false)
+        }
+        assertNull(repository.state.value.projectPrompt)
+        assertTrue(declined.removedAll)
+        assertTrue(restored.isEmpty())
+
+        // Yes: the backup opens with its origin.
+        val accepted = FakeBackupFiles(backup)
+        ProjectBackupUseCase(FakeInspector(), accepted, preferences(AppConfigKeys.BACKUP_SWITCH to "false"), FakeRepository(readyState()), { restored += it }, scope)
+            .apply { start() }
+            .answerRestore(true)
+        assertEquals(listOf(backup), restored)
+        assertFalse(accepted.removedAll)
+
+        // Every second a changed project is written as the backup, with its document; saved, it leaves none.
+        val files = FakeBackupFiles(null)
+        val document = ExternalDocumentReference("content://projects/cube.3mf")
+        val changed = FakeRepository(readyState(CUBE).copy(project = PlateProject(name = "cube", document = document)))
+        ProjectBackupUseCase(FakeInspector(), files, preferences(AppConfigKeys.BACKUP_SWITCH to "true", AppConfigKeys.BACKUP_INTERVAL to "1"), changed, {}, scope).start()
+        assertTrue(files.commits.isEmpty())
+        Thread.sleep(1_500)
+        assertEquals(listOf(BackupOrigin(document, "cube")), files.commits)
+        // Nothing changed since: no second backup.
+        Thread.sleep(1_100)
+        assertEquals(1, files.commits.size)
+        changed.update { it.copy(project = it.projectBaseline()) }
+        assertTrue(files.removedProject)
     }
 
     @Test
@@ -3532,6 +3575,30 @@ class PlateUseCasesTest {
 
         override fun deleteToolpathsExcept(keep: Collection<ScenePath>) {
             keptToolpaths = keep.singleOrNull()
+        }
+    }
+
+    /** The backup folder: [backup] left by an earlier run, and what the use case did with it. */
+    private class FakeBackupFiles(private val backup: ProjectBackup?) : ProjectBackupFiles {
+        val commits = mutableListOf<BackupOrigin>()
+        var removedProject = false
+        var removedAll = false
+
+        override fun pendingFile() = ScenePath("/backup/.3mf.part")
+
+        override fun commit(origin: BackupOrigin): Boolean {
+            commits += origin
+            return true
+        }
+
+        override fun read() = backup
+
+        override fun removeProject() {
+            removedProject = true
+        }
+
+        override fun removeAll() {
+            removedAll = true
         }
     }
 

@@ -57,6 +57,7 @@ import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.ProjectDropSheet
 import app.orcinus.shadow.core.ui.plate.ProjectPresetChangesDialog
+import app.orcinus.shadow.core.ui.plate.ProjectRestoreDialog
 import app.orcinus.shadow.core.ui.plate.ProjectSaveChangesDialog
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.StepMeshDialog
@@ -68,6 +69,7 @@ import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
 import app.orcinus.shadow.domain.plate.AutoSliceUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
@@ -110,6 +112,7 @@ class AppShellViewModel(
     private val presetNames: suspend (PresetKind, String) -> PresetNameOutcome,
     private val stepMeshPrompt: StepMeshPrompt,
     private val autoSlice: AutoSliceUseCase,
+    private val projectBackup: ProjectBackupUseCase,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -136,6 +139,9 @@ class AppShellViewModel(
     fun saveProjectTo(document: ExternalDocumentReference?) = projectLifecycle.saveTo(document)
 
     fun answerPresetChanges(answer: PresetChangesAnswer?, remember: Boolean) = projectLifecycle.answerPresetChanges(answer, remember)
+
+    /** "Previous unsaved project detected, do you want to restore it?" */
+    fun answerRestore(yes: Boolean) = projectBackup.answerRestore(yes)
 
     suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome = presetNames(kind, name)
 
@@ -175,6 +181,7 @@ fun OrcinusApp(
             container::checkPresetName,
             container.stepMeshPrompt,
             container.autoSlice,
+            container.projectBackup,
         )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
@@ -276,6 +283,7 @@ private fun Workspace(
         question != null -> SettingsQuestionDialog(question, onAnswer = shell::answer)
         stepMesh != null -> StepMeshDialog(stepMesh, countTriangles = shell::stepTriangleCount, onAnswer = shell::answerStepMesh)
         projectPrompt is ProjectPrompt.SaveChanges -> ProjectSaveChangesDialog(onAnswer = shell::answerSaveChanges)
+        projectPrompt is ProjectPrompt.RestoreBackup -> ProjectRestoreDialog(onAnswer = shell::answerRestore)
         projectPrompt is ProjectPrompt.PresetChanges ->
             ProjectPresetChangesDialog(projectPrompt, checkName = shell::checkPresetName, onAnswer = shell::answerPresetChanges)
         projectDrop != null -> ProjectDropSheet(projectDrop.value.substringAfterLast('/'), onChoose = shell::openProjectAs)
