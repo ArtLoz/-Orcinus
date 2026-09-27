@@ -41,6 +41,19 @@ internal sealed interface PreferenceItem {
         val unit: String,
     ) : PreferenceItem
 
+    /**
+     * create_item_auto_reslice(): the checkbox of [key] and beside it the
+     * seconds of [delayKey], a whole number the field takes only while the
+     * box is ticked; [delayTooltip] is the field's own tooltip.
+     */
+    data class AutoReslice(
+        override val key: String,
+        val delayKey: String,
+        override val title: String,
+        override val tooltip: String,
+        val delayTooltip: String,
+    ) : PreferenceItem
+
     /** create_item_button() of "Clear my choice on...": the button empties the remembered choice. */
     data class Clear(override val key: String, override val title: String, override val tooltip: String) : PreferenceItem
 
@@ -151,6 +164,13 @@ internal val PREFERENCE_PAGES = listOf(
             PreferenceSection(
                 "Slicing",
                 listOf(
+                    PreferenceItem.AutoReslice(
+                        AppConfigKeys.AUTO_SLICE_AFTER_CHANGE,
+                        AppConfigKeys.AUTO_SLICE_CHANGE_DELAY_SECONDS,
+                        "Auto slice after changes",
+                        "If enabled, OrcaSlicer will re-slice automatically whenever slicing-related settings change.",
+                        "Delay in seconds before auto slicing starts, allowing multiple edits to be grouped. Use 0 to slice immediately.",
+                    ),
                     PreferenceItem.Check(
                         AppConfigKeys.ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING,
                         "Remove mixed temperature restriction",

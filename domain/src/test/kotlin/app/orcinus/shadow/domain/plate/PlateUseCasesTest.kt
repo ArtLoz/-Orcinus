@@ -198,6 +198,7 @@ import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
@@ -815,6 +816,64 @@ class PlateUseCasesTest {
 
         assertEquals(job, engine.cancelled)
         assertTrue(repository.state.value.slicing?.cancelling == true)
+    }
+
+    @Test
+    fun `a change of the settings slices the plate again while Preview is shown and the item is on`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val engine = FakeEngine()
+        val autoSlice = autoSlice(engine, repository, delay = "0")
+
+        // Prepare is shown.
+        autoSlice.onConfigChange()
+        assertNull(engine.request)
+
+        autoSlice.setPreviewShown(true)
+        autoSlice.onConfigChange()
+        assertNotNull(repository.state.value.result)
+
+        // Plater::reslice() restarts nothing whose G-code still applies.
+        engine.request = null
+        autoSlice.onConfigChange()
+        assertNull(engine.request)
+
+        val off = FakeRepository(readyState(CUBE))
+        val offEngine = FakeEngine()
+        AutoSliceUseCase(preferences(), slicePlate(offEngine, off), CancelPlateSlicingUseCase(CancelSliceUseCase(offEngine), off, scope), off, scope)
+            .apply { setPreviewShown(true) }
+            .onConfigChange()
+        assertNull(offEngine.request)
+    }
+
+    @Test
+    fun `a running slice is cancelled for a change and the plate sliced again once it stopped`() {
+        val job = SliceJobId("job-1")
+        val repository = FakeRepository(readyState(CUBE).copy(slicing = PlateSlicing(job)))
+        val engine = FakeEngine()
+        val autoSlice = autoSlice(engine, repository, delay = "0").apply { setPreviewShown(true) }
+
+        autoSlice.onConfigChange()
+        assertEquals(job, engine.cancelled)
+        assertNull(engine.request)
+
+        // on_process_completed() of the cancelled slice.
+        repository.update { it.copy(slicing = null) }
+        assertNotNull(engine.request)
+    }
+
+    @Test
+    fun `the delay starts again with every change`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val engine = FakeEngine()
+        val autoSlice = autoSlice(engine, repository, delay = "1").apply { setPreviewShown(true) }
+
+        autoSlice.onConfigChange()
+        Thread.sleep(700)
+        autoSlice.onConfigChange()
+        Thread.sleep(700)
+        assertNull(engine.request)
+        Thread.sleep(700)
+        assertNotNull(engine.request)
     }
 
     @Test
@@ -2557,6 +2616,15 @@ class PlateUseCasesTest {
             placePlateObjects(inspector, repository),
             PresetSettingsTabs(NoSettingsEditor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope),
         )
+
+    /** "Auto slice after changes" on, with [delay] seconds. */
+    private fun autoSlice(engine: FakeEngine, repository: PlateRepository, delay: String) = AutoSliceUseCase(
+        preferences(AppConfigKeys.AUTO_SLICE_AFTER_CHANGE to "true", AppConfigKeys.AUTO_SLICE_CHANGE_DELAY_SECONDS to delay),
+        slicePlate(engine, repository),
+        CancelPlateSlicingUseCase(CancelSliceUseCase(engine), repository, scope),
+        repository,
+        scope,
+    )
 
     private fun slicePlate(
         engine: FakeEngine,

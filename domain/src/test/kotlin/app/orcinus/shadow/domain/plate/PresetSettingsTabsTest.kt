@@ -113,6 +113,24 @@ class PresetSettingsTabsTest {
     }
 
     @Test
+    fun `a change of the values is a change of the config, a tab only described is not`() {
+        val repository = FakeRepository(READY)
+        val editor = FakeEditor { call ->
+            when (call.request) {
+                is SettingsRequest.Change -> PresetSettingsOutcome.Success(MODIFIED, emptyList())
+                else -> PresetSettingsOutcome.Success(STANDARD, emptyList())
+            }
+        }
+        var changes = 0
+        val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope, onConfigChange = { changes++ })
+        runSuspend { tabs.refresh() }
+        assertEquals(0, changes)
+
+        tabs.request(PresetKind.PRINT, SettingsRequest.Change("layer_height", "0"))
+        assertEquals(1, changes)
+    }
+
+    @Test
     fun `a change updates the fields, keeps its notices, discards the sliced G-code, and relabels the process list`() {
         val repository = FakeRepository(READY.copy(result = RESULT))
         val notice = dialog("too_small_layer_height", question = false)

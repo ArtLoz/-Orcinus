@@ -65,6 +65,7 @@ import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import app.orcinus.shadow.di.AppContainer
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
+import app.orcinus.shadow.domain.plate.AutoSliceUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
@@ -108,6 +109,7 @@ class AppShellViewModel(
     private val projectLifecycle: ProjectLifecycleUseCase,
     private val presetNames: suspend (PresetKind, String) -> PresetNameOutcome,
     private val stepMeshPrompt: StepMeshPrompt,
+    private val autoSlice: AutoSliceUseCase,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -141,6 +143,9 @@ class AppShellViewModel(
     fun answerStepMesh(choice: StepMeshChoice?) = stepMeshPrompt.answer(choice)
 
     suspend fun stepTriangleCount(linear: Double, angle: Double): Long = stepMeshPrompt.triangleCount(linear, angle)
+
+    /** Whether the workspace shows Preview, which "Auto slice after changes" asks. */
+    fun showingPreview(shown: Boolean) = autoSlice.setPreviewShown(shown)
 }
 
 /** The workspace: OrcaSlicer's tabs and sidebar. Pages such as About open over it. */
@@ -169,6 +174,7 @@ fun OrcinusApp(
             container.projectLifecycle,
             container::checkPresetName,
             container.stepMeshPrompt,
+            container.autoSlice,
         )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
@@ -308,6 +314,10 @@ private fun Workspace(
             backStack.showTab(PreviewNavKey)
         }
     }
+
+    // Plater::priv::is_preview_shown()
+    val shownTab = backStack.lastOrNull()
+    LaunchedEffect(shownTab) { shell.showingPreview(shownTab == PreviewNavKey) }
 
     val destinations = listOf(PrepareNavKey, PreviewNavKey, DeviceNavKey)
     val tabs = listOf(

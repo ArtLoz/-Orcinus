@@ -51,6 +51,11 @@ class PresetSettingsTabs(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
     /**
+     * Plater::on_config_change(), which Tab::update() calls after a change of
+     * the values or of the preset a tab edits (auto slice after changes).
+     */
+    private val onConfigChange: () -> Unit = {},
+    /**
      * Sidebar::on_filament_count_change(): the filament slots follow the
      * extruder count of the printer. The plate is built after this class, so it
      * is reached through a provider.
@@ -221,11 +226,13 @@ class PresetSettingsTabs(
 
     private suspend fun apply(kind: PresetKind, outcome: PresetSettingsOutcome.Success) {
         var before: PresetSettings? = null
+        var valuesChanged = false
         repository.update { state ->
             before = state.tab(kind).settings
             // Tab::on_value_change() of an object, a part, a range or the plate: "Change Option".
             val changed = state.withModelSettings(kind, outcome.settings.modelSettings)
             val model = changed.objects != state.objects || changed.plateSettings != state.plateSettings
+            valuesChanged = model || changesSlicing(state.tab(kind).settings, outcome.settings)
             (if (model) state.recorded() else state)
                 .withTab(kind) {
                     copy(settings = outcome.settings, page = outcome.settings.activePage, changing = false, notices = notices + outcome.notices)
@@ -243,6 +250,8 @@ class PresetSettingsTabs(
                 }
             }
         }
+        // A tab only described for the first time changes nothing.
+        if (valuesChanged || (previous != null && previous.preset != outcome.settings.preset)) onConfigChange()
     }
 
     /** The same preset with other values slices differently. */

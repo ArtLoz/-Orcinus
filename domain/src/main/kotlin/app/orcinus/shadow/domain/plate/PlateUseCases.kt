@@ -213,6 +213,8 @@ class PlatePresets(
     private val repository: PlateRepository,
     private val placePlateObjects: PlacePlateObjectsUseCase,
     private val settingsTabs: PresetSettingsTabs,
+    /** Plater::on_config_change() after another preset is selected (auto slice after changes). */
+    private val onConfigChange: () -> Unit = {},
 ) : PresetsApplier {
     /** Applies [outcome] of a change that started from the selection [before]. */
     override suspend fun apply(before: SlicingProfileSelection?, outcome: PresetsOutcome) {
@@ -246,6 +248,7 @@ class PlatePresets(
             placePlateObjects(PlateManipulation.UpdatePrintVolume)
         }
         settingsTabs.refresh()
+        if (before != profiles) onConfigChange()
     }
 }
 

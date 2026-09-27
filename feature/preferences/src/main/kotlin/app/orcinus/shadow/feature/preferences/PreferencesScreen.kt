@@ -96,12 +96,12 @@ internal fun PreferencesScreen(
             for (section in PREFERENCE_PAGES[page].sections) {
                 item(key = "section:${section.title}") { SectionTitle(orcaString(section.title)) }
                 items(section.items, key = { it.key }) { item ->
-                    PreferenceRow(item, values[item.key].orEmpty(), enabled, onTooltip = { tooltip = item }) { value ->
+                    PreferenceRow(item, values, enabled, onTooltip = { tooltip = item }) { key, value ->
                         // create_item_checkbox(): turning the restriction off asks first.
-                        if (item.key == AppConfigKeys.ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING && value == "true") {
+                        if (key == AppConfigKeys.ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING && value == "true") {
                             confirmingMixedTemperatures = true
                         } else {
-                            onSet(item.key, value)
+                            onSet(key, value)
                         }
                     }
                 }
@@ -111,8 +111,12 @@ internal fun PreferencesScreen(
     tooltip?.let { item ->
         SettingTooltipDialog(
             label = orcaString(item.title),
-            // An item without a tooltip shows its title (create_item_label()).
-            tooltip = listOf(OrcaText(item.tooltip.ifEmpty { item.title })),
+            tooltip = when (item) {
+                // The delay field's tooltip, which the desktop field shows under the pointer, follows the checkbox's.
+                is PreferenceItem.AutoReslice -> listOf(OrcaText(item.tooltip), OrcaText(PARAGRAPH), OrcaText(item.delayTooltip))
+                // An item without a tooltip shows its title (create_item_label()).
+                else -> listOf(OrcaText(item.tooltip.ifEmpty { item.title }))
+            },
             onDismiss = { tooltip = null },
         )
     }
@@ -152,10 +156,17 @@ private fun SectionTitle(title: String) {
     }
 }
 
-/** An item: its label, which shows the tooltip, and its control. */
+/** An item: its label, which shows the tooltip, and its control, which writes the key it names. */
 @Composable
-private fun PreferenceRow(item: PreferenceItem, value: String, enabled: Boolean, onTooltip: () -> Unit, onChange: (String) -> Unit) {
+private fun PreferenceRow(
+    item: PreferenceItem,
+    values: Map<String, String>,
+    enabled: Boolean,
+    onTooltip: () -> Unit,
+    onChange: (key: String, value: String) -> Unit,
+) {
     val colors = OrcaTheme.colors
+    val value = values[item.key].orEmpty()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -176,16 +187,27 @@ private fun PreferenceRow(item: PreferenceItem, value: String, enabled: Boolean,
         when (item) {
             is PreferenceItem.Check -> OrcaSwitch(
                 checked = AppConfigKeys.bool(value),
-                onCheckedChange = { onChange(if (it) "true" else "false") },
+                onCheckedChange = { onChange(item.key, if (it) "true" else "false") },
                 enabled = enabled,
             )
+            is PreferenceItem.AutoReslice -> {
+                val checked = AppConfigKeys.bool(value)
+                // The field shows "0" while no delay is set.
+                SecondsField(values[item.delayKey].orEmpty().ifEmpty { "0" }, enabled && checked) { onChange(item.delayKey, it) }
+                Spacer(Modifier.width(12.dp))
+                OrcaSwitch(
+                    checked = checked,
+                    onCheckedChange = { onChange(item.key, if (it) "true" else "false") },
+                    enabled = enabled,
+                )
+            }
             is PreferenceItem.Choice -> {
                 val labels = item.labels.map { orcaString(it) }
                 OrcaComboBox(
                     items = labels.indices.toList(),
                     selected = item.selected(value),
                     label = { labels[it] },
-                    onSelect = { onChange(item.valueOf(it)) },
+                    onSelect = { onChange(item.key, item.valueOf(it)) },
                     enabled = enabled,
                     modifier = Modifier.width(CONTROL_WIDTH),
                 )
@@ -193,7 +215,7 @@ private fun PreferenceRow(item: PreferenceItem, value: String, enabled: Boolean,
             is PreferenceItem.Spin -> OrcaSpinInput(
                 // stoi() of the value, which SpinInput shows within its range.
                 value = (value.toIntOrNull() ?: 0).coerceIn(item.range),
-                onValueChange = { onChange(it.toString()) },
+                onValueChange = { onChange(item.key, it.toString()) },
                 range = item.range,
                 decreaseDescription = stringResource(R.string.preferences_decrease),
                 increaseDescription = stringResource(R.string.preferences_increase),
@@ -201,10 +223,10 @@ private fun PreferenceRow(item: PreferenceItem, value: String, enabled: Boolean,
                 enabled = enabled,
                 modifier = Modifier.width(CONTROL_WIDTH),
             )
-            is PreferenceItem.Decimal -> DecimalField(item, value, enabled, onChange)
+            is PreferenceItem.Decimal -> DecimalField(item, value, enabled) { onChange(item.key, it) }
             is PreferenceItem.Clear -> OrcaButton(
                 text = orcaString("Clear"),
-                onClick = { onChange("") },
+                onClick = { onChange(item.key, "") },
                 enabled = enabled,
                 style = OrcaButtonStyle.Regular,
             )
@@ -236,6 +258,37 @@ private fun DecimalField(item: PreferenceItem.Decimal, value: String, enabled: B
             .width(CONTROL_WIDTH)
             .onFocusChanged { state ->
                 if (focused && !state.isFocused) commit()
+                focused = state.isFocused
+            },
+    )
+}
+
+/**
+ * create_item_auto_reslice()'s field: digits only (wxFILTER_DIGITS), written
+ * when it is done or loses the focus as a whole number of seconds, 0 for text
+ * that is none; "sec" beside it.
+ */
+@Composable
+private fun SecondsField(value: String, enabled: Boolean, onChange: (String) -> Unit) {
+    val focusManager = LocalFocusManager.current
+    var text by remember(value) { mutableStateOf(value) }
+    var focused by remember { mutableStateOf(false) }
+    OrcaTextField(
+        value = text,
+        onValueChange = { typed -> text = typed.filter(Char::isDigit) },
+        unit = orcaString("sec"),
+        enabled = enabled,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+        modifier = Modifier
+            .width(SECONDS_WIDTH)
+            .onFocusChanged { state ->
+                if (focused && !state.isFocused) {
+                    // wxString::ToLong(), and "%ld" of what it read.
+                    val seconds = text.toLongOrNull() ?: 0L
+                    text = seconds.toString()
+                    onChange(text)
+                }
                 focused = state.isFocused
             },
     )
@@ -283,4 +336,8 @@ private fun MixedTemperatureDialog(onEnable: () -> Unit, onDismiss: () -> Unit) 
 }
 
 private val CONTROL_WIDTH = 150.dp
+private val SECONDS_WIDTH = 97.dp
+
+/** The break between the two tooltips of an item. */
+private const val PARAGRAPH = "\n\n"
 private const val MIXED_TEMPERATURE_WIKI = "https://wiki.bambulab.com/en/filament-acc/filament/h2d-filament-config-limit"

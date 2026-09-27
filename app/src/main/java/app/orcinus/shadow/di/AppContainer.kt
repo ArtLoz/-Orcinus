@@ -46,6 +46,7 @@ import app.orcinus.shadow.domain.plate.AddPlateUseCase
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
 import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
 import app.orcinus.shadow.domain.plate.ApplySetupUseCase
+import app.orcinus.shadow.domain.plate.AutoSliceUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
 import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
@@ -198,8 +199,18 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope)
     // Sidebar::auto_calc_flushing_volumes(), which filament, printer and settings changes ask for.
     private val flushVolumes = UpdateFlushVolumesUseCase(engine, plateRepository)
-    private val settingsTabs = PresetSettingsTabs(engine, engine, flushVolumes, plateRepository, applicationScope) { platePresets }
-    private val platePresets: PlatePresets = PlatePresets(engine, sceneFiles, plateCache, plateRepository, placePlateObjects, settingsTabs)
+    // Plater::on_config_change() asks "Auto slice after changes", which is built with the slice below.
+    private val settingsTabs = PresetSettingsTabs(
+        engine,
+        engine,
+        flushVolumes,
+        plateRepository,
+        applicationScope,
+        platePresets = { platePresets },
+        onConfigChange = { autoSlice.onConfigChange() },
+    )
+    private val platePresets: PlatePresets =
+        PlatePresets(engine, sceneFiles, plateCache, plateRepository, placePlateObjects, settingsTabs) { autoSlice.onConfigChange() }
     private val selectPreset = SelectPresetUseCase(engine, platePresets, flushVolumes, settingsTabs, plateRepository, applicationScope)
     private val applySetup = ApplySetupUseCase(engine, platePresets, plateRepository, applicationScope)
 
@@ -267,6 +278,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
     private val cancelPlateSlicing = CancelPlateSlicingUseCase(CancelSliceUseCase(engine), plateRepository, applicationScope)
+    val autoSlice = AutoSliceUseCase(appPreferences, slicePlate, cancelPlateSlicing, plateRepository, applicationScope)
     // Sidebar: the filaments the plate prints with.
     private val plateFilaments = PlateFilamentsUseCase(engine, platePresets, flushVolumes, plateRepository, applicationScope)
     private val selectPlateObject = SelectPlateObjectUseCase(plateRepository)

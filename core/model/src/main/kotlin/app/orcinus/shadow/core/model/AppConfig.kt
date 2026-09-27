@@ -30,6 +30,8 @@ object AppConfigKeys {
     const val AUTO_CALCULATE_FLUSH = "auto_calculate_flush"
     const val AUTO_ARRANGE = "auto_arrange"
     const val ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING = "enable_high_low_temp_mixed_printing"
+    const val AUTO_SLICE_AFTER_CHANGE = "auto_slice_after_change"
+    const val AUTO_SLICE_CHANGE_DELAY_SECONDS = "auto_slice_change_delay_seconds"
     const val CAMERA_ORBIT_MULT = "camera_orbit_mult"
     const val OPENGL_ANTIALIASING_SAMPLES = "opengl_antialiasing_samples"
     const val DEVELOPER_MODE = "developer_mode"
@@ -62,6 +64,8 @@ object AppConfigKeys {
         AUTO_CALCULATE_FLUSH,
         AUTO_ARRANGE,
         ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING,
+        AUTO_SLICE_AFTER_CHANGE,
+        AUTO_SLICE_CHANGE_DELAY_SECONDS,
         CAMERA_ORBIT_MULT,
         OPENGL_ANTIALIASING_SAMPLES,
         DEVELOPER_MODE,
@@ -83,4 +87,16 @@ object AppConfigKeys {
 
     /** OpenGLManager::create_wxglcanvas(): 0, 2, 4, 8 or 16 samples, 4 for anything else. */
     fun antialiasingSamples(value: String?): Int = value?.takeIf { it in setOf("0", "2", "4", "8", "16") }?.toInt() ?: 4
+
+    /**
+     * Plater::priv::auto_slice_delay_seconds(): std::stol() of the value (leading
+     * blanks, a sign and the digits after them), 0 for none or one out of range,
+     * kept within 0 and the seconds a timer of int milliseconds can wait.
+     */
+    fun autoSliceDelaySeconds(value: String?): Int {
+        val seconds = STOL.find(value.orEmpty())?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+        return seconds.coerceIn(0L, Int.MAX_VALUE / 1000L).toInt()
+    }
+
+    private val STOL = Regex("""^\s*([+-]?\d+)""")
 }
