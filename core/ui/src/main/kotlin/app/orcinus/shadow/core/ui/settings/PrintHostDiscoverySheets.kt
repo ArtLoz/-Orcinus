@@ -33,6 +33,8 @@ import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.FlashforgeDiscoveredPrinter
+import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
 import kotlinx.coroutines.delay
@@ -127,6 +129,39 @@ internal fun CrealityDiscoverySheet(scan: suspend () -> List<CrealityHost>, onCh
             }
             val details = "${orcaString("Hostname")}: ${host.hostname}$DETAILS_SEPARATOR${orcaString("IP")}: ${host.ip}"
             DiscoveredRow(model, details) { onChoose(host.ip) }
+        }
+    }
+}
+
+/**
+ * The Browse button of a Flashforge printer: the printers that answered the
+ * broadcast (Flashforge::discover_printers()), in the list the desktop's
+ * "Discovered Printers" choice shows — name, address and serial number. A tap
+ * takes the address and the serial number; nothing found is the error the
+ * desktop shows.
+ */
+@Composable
+internal fun FlashforgeDiscoverySheet(
+    discover: suspend () -> FlashforgeDiscoveryOutcome,
+    onChoose: (FlashforgeDiscoveredPrinter) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var outcome by remember { mutableStateOf<FlashforgeDiscoveryOutcome?>(null) }
+    LaunchedEffect(Unit) { outcome = discover() }
+    val found = (outcome as? FlashforgeDiscoveryOutcome.Success)?.printers.orEmpty()
+    DiscoverySheet(
+        title = orcaString("Discovered Printers"),
+        status = when (val answer = outcome) {
+            null -> orcaString("Searching for devices") + "..."
+            is FlashforgeDiscoveryOutcome.Failure -> answer.message.ifEmpty { orcaString("No Flashforge printers were discovered on the local network.") }
+            is FlashforgeDiscoveryOutcome.Success -> orcaString("Select a Flashforge printer")
+        },
+        busy = outcome == null,
+        onDismiss = onDismiss,
+    ) {
+        items(found, key = { it.ipAddress }) { printer ->
+            // "%1% (%2%) [%3%]" of the desktop's list.
+            DiscoveredRow(printer.name, "(${printer.ipAddress}) [${printer.serialNumber}]") { onChoose(printer) }
         }
     }
 }

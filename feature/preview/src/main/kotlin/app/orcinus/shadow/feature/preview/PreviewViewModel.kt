@@ -6,6 +6,7 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerGcodeType
 import app.orcinus.shadow.core.model.PartPlate
+import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateSliceResult
@@ -17,7 +18,7 @@ import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.plateOrigins
-import app.orcinus.shadow.core.ui.settings.SentFilament
+import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.domain.plate.AllPlatesStats
 import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
@@ -116,12 +117,25 @@ class PreviewViewModel(
     /** CrealityPrintHostSendDialog: the slots of the printer's material boxes. */
     suspend fun printerSlots(printer: PhysicalPrinter): PrinterSlotsOutcome = sendGcode.printerSlots(printer)
 
+    /** FlashforgePrintHostSendDialog: the slots of the printer's material station. */
+    suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = sendGcode.flashforgeSlots(printer)
 
-    /** The filaments of the plate, as the send dialog matches them to the printer's slots. */
+    /**
+     * The filaments of the plate, as the send dialogs match them to the
+     * printer's slots, each marked with whether the slice prints with it
+     * (its statistics number the filaments from 1).
+     */
     fun sentFilaments(): List<SentFilament> {
-        val presets = plate.value.presets ?: return emptyList()
+        val state = plate.value
+        val presets = state.presets ?: return emptyList()
+        val used = state.result?.statistics?.filaments?.map { it.filament - 1 }?.toSet()
         return presets.filamentColors.mapIndexed { index, color ->
-            SentFilament(color = color, type = presets.filamentTypes.getOrElse(index) { "" })
+            SentFilament(
+                color = color,
+                type = presets.filamentTypes.getOrElse(index) { "" },
+                tool = index,
+                used = used == null || index in used,
+            )
         }
     }
 

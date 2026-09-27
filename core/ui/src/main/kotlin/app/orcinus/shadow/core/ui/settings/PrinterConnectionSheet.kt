@@ -46,6 +46,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
+import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.OrcaText
@@ -60,6 +62,7 @@ import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.PrinterConnection
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
+import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.core.model.defaultSlotFor
 import app.orcinus.shadow.core.model.withHostDefaults
 import app.orcinus.shadow.core.ui.R
@@ -96,6 +99,8 @@ fun PrinterConnectionSheet(
     scanCreality: suspend () -> List<CrealityHost> = { emptyList() },
     /** The Refresh button of its printer (update_printers()). */
     loadPrinters: suspend (PhysicalPrinter) -> HostPrintersOutcome = { HostPrintersOutcome.Success(emptyList()) },
+    /** Its Browse button for Flashforge: the printers that answer the broadcast. */
+    discoverFlashforge: suspend () -> FlashforgeDiscoveryOutcome = { FlashforgeDiscoveryOutcome.Failure("") },
     /** Why the printers of the local network cannot be reached, when the system says so. */
     notice: String? = null,
 ) {
@@ -132,7 +137,7 @@ fun PrinterConnectionSheet(
             if (loaded == null) {
                 if (problem == null) CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
             } else {
-                ConnectionForm(loaded, checkName, onSave, onTest, lookup, scanCreality, loadPrinters)
+                ConnectionForm(loaded, checkName, onSave, onTest, lookup, scanCreality, loadPrinters, discoverFlashforge)
             }
         }
     }
@@ -148,6 +153,7 @@ private fun ConnectionForm(
     lookup: () -> Flow<List<BonjourReply>>,
     scanCreality: suspend () -> List<CrealityHost>,
     loadPrinters: suspend (PhysicalPrinter) -> HostPrintersOutcome,
+    discoverFlashforge: suspend () -> FlashforgeDiscoveryOutcome,
 ) {
     val colors = OrcaTheme.colors
     val scope = rememberCoroutineScope()
@@ -166,9 +172,9 @@ private fun ConnectionForm(
         checkedName = name
     }
     val current = validation.takeIf { checkedName == name }
-    // What the Test button last found out, for the host it tested; the
+    // What the Test button last found out, for the printer it tested; the
     // desktop shows it in a message box.
-    var tested: Pair<PrintHostType, PrintHostTestOutcome>? by remember { mutableStateOf(null) }
+    var tested: Pair<PhysicalPrinter, PrintHostTestOutcome>? by remember { mutableStateOf(null) }
     var testing by remember { mutableStateOf(false) }
     val printer = PhysicalPrinter(name, settings)
     val types = PrintHostType.entries
@@ -249,9 +255,9 @@ private fun ConnectionForm(
                 onClick = {
                     tested = null
                     testing = true
-                    val testedType = type
+                    val testedPrinter = printer
                     scope.launch {
-                        tested = testedType to onTest(printer)
+                        tested = testedPrinter to onTest(testedPrinter)
                         testing = false
                     }
                 },
@@ -260,15 +266,17 @@ private fun ConnectionForm(
                 icon = DesignR.drawable.orca_printer_host_test,
             )
         }
-        tested?.let { (testedType, outcome) ->
+        tested?.let { (testedPrinter, outcome) ->
+            val testedType = testedPrinter.hostType ?: PrintHostType.OCTOPRINT
             Text(
                 text = when (outcome) {
                     // get_test_ok_msg() and get_test_failed_msg() of the host.
-                    is PrintHostTestOutcome.Success -> orcaString(testedType.testOkMessage)
+                    is PrintHostTestOutcome.Success -> orcaString(testedPrinter.testOkMessage ?: testedType.testOkMessage)
                     is PrintHostTestOutcome.Failure -> {
                         val note = testedType.testFailedNote?.let { orcaString(it) }
                         val gap = if (testedType == PrintHostType.FLASHAIR) "\n" else "\n\n"
-                        "${orcaString(testedType.testFailedMessage)}: ${outcome.message}" + note?.let { gap + it }.orEmpty()
+                        "${orcaString(testedPrinter.testFailedMessage ?: testedType.testFailedMessage)}: ${outcome.message}" +
+                            note?.let { gap + it }.orEmpty()
                     }
                 },
                 color = if (outcome is PrintHostTestOutcome.Success) colors.text else colors.error,
@@ -369,7 +377,18 @@ private fun ConnectionForm(
     }
     if (browsing) {
         // A Creality printer is found by its own scan, which the dialog gives an address of http://<ip>.
-        if (type == PrintHostType.CREALITY_PRINT) {
+        if (type == PrintHostType.FLASHFORGE) {
+            // A Flashforge printer answers a broadcast of its own and brings its serial number.
+            FlashforgeDiscoverySheet(
+                discover = discoverFlashforge,
+                onChoose = { found ->
+                    browsing = false
+                    set("print_host", found.ipAddress)
+                    set("flashforge_serial_number", found.serialNumber)
+                },
+                onDismiss = { browsing = false },
+            )
+        } else if (type == PrintHostType.CREALITY_PRINT) {
             CrealityDiscoverySheet(
                 scan = scanCreality,
                 onChoose = { ip ->
@@ -409,6 +428,8 @@ fun SendToPrinterSheet(
     filaments: List<SentFilament> = emptyList(),
     /** Why the printers of the local network cannot be reached, when the system says so. */
     notice: String? = null,
+    /** The slots of a Flashforge printer's material station (Flashforge::fetch_material_slots). */
+    loadFlashforgeSlots: suspend (PhysicalPrinter) -> FlashforgeSlotsOutcome = { FlashforgeSlotsOutcome.Failure("") },
 ) {
     val colors = OrcaTheme.colors
     var printer by remember { mutableStateOf<PhysicalPrinter?>(null) }
@@ -416,6 +437,8 @@ fun SendToPrinterSheet(
     var startPrint by rememberSaveable { mutableStateOf(false) }
     // A Creality printer asks which slot feeds every filament before it prints.
     var mapping by remember { mutableStateOf(false) }
+    // So does a Flashforge printer on its local API, with the options of its dialog.
+    var flashforge by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         when (val outcome = load()) {
             is PrinterConnectionOutcome.Success -> {
@@ -459,6 +482,16 @@ fun SendToPrinterSheet(
                 )
                 return@Column
             }
+            if (flashforge) {
+                FlashforgeSendPage(
+                    printer = host,
+                    filaments = filaments,
+                    loadSlots = loadFlashforgeSlots,
+                    onBack = { flashforge = false },
+                    onSend = { options -> onSend(host, startPrint, PrintOptions(flashforge = options)) },
+                )
+                return@Column
+            }
             if (!host.canSend) {
                 // A preset whose host the app cannot reach yet says so, instead of asking for an address.
                 val unsupported = host.host.isNotBlank() && host.hostType?.supported == false
@@ -497,6 +530,9 @@ fun SendToPrinterSheet(
                     // which slot of its boxes feeds every filament.
                     if (host.hostType == PrintHostType.CREALITY_PRINT) {
                         mapping = true
+                    } else if (host.usesFlashforgeLocalApi) {
+                        // FlashforgePrintHostSendDialog, for the local API only.
+                        flashforge = true
                     } else {
                         onSend(host, printNow, PrintOptions())
                     }
@@ -508,9 +544,6 @@ fun SendToPrinterSheet(
         }
     }
 }
-
-/** A filament of the plate as the send dialog lists it: its colour and its type. */
-data class SentFilament(val color: String, val type: String)
 
 /**
  * CrealityPrintHostSendDialog: the printer's material boxes are read, and every

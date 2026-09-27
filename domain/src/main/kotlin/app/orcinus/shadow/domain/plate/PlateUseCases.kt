@@ -20,6 +20,8 @@ import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.EngineState
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
+import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
+import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.HostPrintersOutcome
@@ -1505,6 +1507,9 @@ class BrowsePrintHostsUseCase(private val discovery: PrintHostDiscovery) {
     /** CrealityDiscoveryDialog::run_discovery(): the K-series printers, with the model each reports. */
     suspend fun scanCreality(): List<CrealityHost> = discovery.scanCreality()
 
+    /** Flashforge::discover_printers(): the Flashforge printers that answer the broadcast. */
+    suspend fun discoverFlashforge(): FlashforgeDiscoveryOutcome = discovery.discoverFlashforge()
+
     private companion object {
         /** BonjourReply::operator<: by the address (IPv4 before IPv6), then the full address, then the service's name. */
         val BONJOUR_ORDER: Comparator<BonjourReply> = compareBy<BonjourReply>({ it.ip.contains(':') }, { ipv4Value(it.ip) }, { it.ip })
@@ -1526,6 +1531,9 @@ interface PrintHostDiscovery {
 
     /** CrealityHostDiscovery::scan(): the K-series printers, each asked its model. */
     suspend fun scanCreality(): List<CrealityHost>
+
+    /** Flashforge::discover_printers(). */
+    suspend fun discoverFlashforge(): FlashforgeDiscoveryOutcome
 }
 
 /**
@@ -1556,6 +1564,12 @@ class SendGcodeUseCase(
      */
     suspend fun printerSlots(printer: PhysicalPrinter): PrinterSlotsOutcome = uploader.slots(printer)
 
+    /**
+     * Plater::send_gcode_legacy() for a Flashforge printer on its local API:
+     * the slots of its material station, read before the dialog opens.
+     */
+    suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = uploader.flashforgeSlots(printer)
+
     /** PhysicalPrinterDialog's Test button: whether the host answers and is what it says it is. */
     suspend fun testPrinter(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 }
@@ -1571,6 +1585,9 @@ interface GcodeSender {
     ): PrintHostUploadOutcome
 
     suspend fun slots(printer: PhysicalPrinter): PrinterSlotsOutcome
+
+    /** Flashforge::fetch_material_slots(). */
+    suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome
 
     /** PrintHost::test(): whether the host at the printer's address answers. */
     suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome

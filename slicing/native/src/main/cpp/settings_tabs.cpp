@@ -671,6 +671,13 @@ PrinterConnection printer_connection()
                 result.settings.values.push_back(option->serialize());
             }
         }
+        // A host reads more of the printer's configuration than its own keys:
+        // Flashforge's serial console says which firmware it talks to
+        // (Flashforge::Flashforge()). It is only read; saving keeps the host's keys.
+        if (const Slic3r::ConfigOption* flavor = cfg.option("gcode_flavor"); flavor != nullptr) {
+            result.settings.keys.push_back("gcode_flavor");
+            result.settings.values.push_back(flavor->serialize());
+        }
 
         // PhysicalPrinterDialog::PhysicalPrinterDialog()
         const Slic3r::Preset& sel_preset = preset_bundle.printers.get_selected_preset();

@@ -1,5 +1,6 @@
 package app.orcinus.shadow.network.printhost
 
+import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
@@ -44,7 +45,11 @@ class PrintHostUploader(
     private val console: ConsoleClient = TcpConsole(),
     /** MKS::start_print(): the board does not take G-code right after an upload. */
     private val mksStartDelayMillis: Long = MKS_START_DELAY_MILLIS,
+    /** Flashforge's serial console waits this long before it saves the file. */
+    flashforgeSaveDelayMillis: Long = Flashforge.SAVE_DELAY_MILLIS,
 ) {
+    private val flashforge = Flashforge(http, console, flashforgeSaveDelayMillis)
+
     /**
      * [printer] is where it goes, [gcode] what is sent, [name] the name the
      * host stores it under, and [startPrint] whether printing starts at once.
@@ -75,7 +80,8 @@ class PrintHostUploader(
             PrintHostType.ASTROBOX -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
             PrintHostType.ESP3D -> uploadToEsp3d(printer, gcode, name, startPrint, onProgress)
             PrintHostType.FLASHAIR -> uploadToFlashAir(printer, gcode, name, onProgress)
-            PrintHostType.OBICO, PrintHostType.FLASHFORGE, PrintHostType.SIMPLYPRINT, PrintHostType.ELEGOO_LINK,
+            PrintHostType.FLASHFORGE -> flashforge.upload(printer, gcode, name, startPrint, options.flashforge)
+            PrintHostType.OBICO, PrintHostType.SIMPLYPRINT, PrintHostType.ELEGOO_LINK,
             PrintHostType.PRINTER_3D_OS -> PrintHostUploadOutcome.Failure(UNSUPPORTED)
         }
     }
@@ -171,10 +177,17 @@ class PrintHostUploader(
                     PrintHostTestOutcome.Failure("Upload not enabled on FlashAir card.")
                 }
             }
-            PrintHostType.OBICO, PrintHostType.FLASHFORGE, PrintHostType.SIMPLYPRINT, PrintHostType.ELEGOO_LINK,
+            PrintHostType.FLASHFORGE -> flashforge.test(printer)
+            PrintHostType.OBICO, PrintHostType.SIMPLYPRINT, PrintHostType.ELEGOO_LINK,
             PrintHostType.PRINTER_3D_OS -> PrintHostTestOutcome.Failure(UNSUPPORTED)
         }
     }
+
+    /**
+     * Flashforge::fetch_material_slots(): the slots of a Flashforge printer's
+     * material station, which the send dialog maps the filaments to.
+     */
+    suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = flashforge.materialSlots(printer)
 
     /**
      * Repetier::get_printers(): the printers of the server, by the slug the

@@ -56,7 +56,9 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
+import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
@@ -80,7 +82,6 @@ import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
-import app.orcinus.shadow.core.ui.settings.SentFilament
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.scene.PlateView
@@ -108,6 +109,7 @@ internal fun PreviewRoute(
             send = viewModel::send,
             slots = viewModel::printerSlots,
             filaments = viewModel::sentFilaments,
+            flashforgeSlots = viewModel::flashforgeSlots,
         ),
         gcodeName = viewModel::gcodeName,
         onExportGcode = viewModel::exportGcode,
@@ -128,6 +130,8 @@ internal class PrinterActions(
     /** The slots of a printer's material boxes, and the plate's filaments they are matched to. */
     val slots: suspend (PhysicalPrinter) -> PrinterSlotsOutcome = { PrinterSlotsOutcome.Success(emptyList()) },
     val filaments: () -> List<SentFilament> = { emptyList() },
+    /** The slots of a Flashforge printer's material station. */
+    val flashforgeSlots: suspend (PhysicalPrinter) -> FlashforgeSlotsOutcome = { FlashforgeSlotsOutcome.Failure("") },
 ) {
     companion object {
         val NONE = PrinterActions(
@@ -367,6 +371,7 @@ internal fun PreviewScreen(
             },
             onDismiss = { sending = false },
             loadSlots = printers.slots,
+            loadFlashforgeSlots = printers.flashforgeSlots,
             filaments = printers.filaments(),
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
         )

@@ -2220,11 +2220,14 @@ TEST_CASE("The host of the printer is kept on its preset as the Connection dialo
     CHECK(none.webui.rfind("file://", 0) == 0);
     CHECK(none.api_key.empty());
     CHECK_FALSE(none.bbl_device_tab);
+    // The printer's firmware comes along for a host that reads it (Flashforge).
+    CHECK(setting(none, "gcode_flavor") == "klipper");
 
     // OK: the host on the preset, saved as a user preset and selected.
     orca::ModelSettings host;
-    host.keys = {"host_type", "print_host", "printhost_apikey"};
-    host.values = {"crealityprint", "192.168.1.50", "abcdef"};
+    // gcode_flavor comes back with the host's keys, but only the host's keys are saved.
+    host.keys = {"host_type", "print_host", "printhost_apikey", "gcode_flavor"};
+    host.values = {"crealityprint", "192.168.1.50", "abcdef", "marlin"};
     const orca::PresetSettings saved = orca::save_printer_connection(host, "Orcinus test printer");
     INFO(saved.message);
     REQUIRE(saved.status == orca::SceneStatus::success);
@@ -2239,6 +2242,7 @@ TEST_CASE("The host of the printer is kept on its preset as the Connection dialo
     // PrintHost::get_print_host_webui(): the host with http:// in front.
     CHECK(set.webui == "http://192.168.1.50");
     CHECK(set.api_key == "abcdef");
+    CHECK(setting(set, "gcode_flavor") == "klipper");
 
     // The test leaves the profiles as it found them.
     REQUIRE(orca::delete_preset(orca::PresetKind::printer, {{"delete_preset", true}}).status == orca::SceneStatus::success);

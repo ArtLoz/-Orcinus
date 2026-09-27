@@ -90,6 +90,7 @@ import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.EngineState
@@ -755,6 +756,9 @@ class SidebarViewModel(
 
     /** PhysicalPrinterDialog's Browse button for Creality's firmware (CrealityDiscoveryDialog). */
     suspend fun scanCrealityPrinters(): List<CrealityHost> = browsePrintHosts.scanCreality()
+
+    /** PhysicalPrinterDialog's Browse button for Flashforge (Flashforge::discover_printers()). */
+    suspend fun discoverFlashforge(): FlashforgeDiscoveryOutcome = browsePrintHosts.discoverFlashforge()
 
     /** PhysicalPrinterDialog's Refresh button: the printers of a server that serves several. */
     suspend fun hostPrinters(printer: PhysicalPrinter): HostPrintersOutcome = listHostPrinters(printer)
@@ -1459,6 +1463,7 @@ fun PlateSidebar(
             lookup = viewModel::lookupPrintHosts,
             scanCreality = viewModel::scanCrealityPrinters,
             printers = viewModel::hostPrinters,
+            discoverFlashforge = viewModel::discoverFlashforge,
         ),
     )
 }
@@ -1475,6 +1480,7 @@ internal class NetworkPrinterActions(
     val lookup: () -> Flow<List<BonjourReply>>,
     val scanCreality: suspend () -> List<CrealityHost>,
     val printers: suspend (PhysicalPrinter) -> HostPrintersOutcome,
+    val discoverFlashforge: suspend () -> FlashforgeDiscoveryOutcome,
 ) {
     companion object {
         val NONE = NetworkPrinterActions(
@@ -1485,6 +1491,7 @@ internal class NetworkPrinterActions(
             lookup = { emptyFlow() },
             scanCreality = { emptyList() },
             printers = { HostPrintersOutcome.Success(emptyList()) },
+            discoverFlashforge = { FlashforgeDiscoveryOutcome.Failure("") },
         )
     }
 }
@@ -1810,6 +1817,7 @@ internal fun PlateSidebarContent(
             lookup = network.lookup,
             scanCreality = network.scanCreality,
             loadPrinters = network.printers,
+            discoverFlashforge = network.discoverFlashforge,
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
         )
     }

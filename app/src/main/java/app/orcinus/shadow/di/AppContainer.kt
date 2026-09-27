@@ -9,6 +9,8 @@ import app.orcinus.shadow.core.model.AppInfo
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.ComponentId
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
+import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.LicenseId
 import app.orcinus.shadow.core.model.OutputPath
@@ -144,6 +146,7 @@ import app.orcinus.shadow.feature.setup.SetupWizardViewModel
 import app.orcinus.shadow.feature.sidebar.SidebarViewModel
 import app.orcinus.shadow.network.printhost.Bonjour
 import app.orcinus.shadow.network.printhost.CrealityHostDiscovery
+import app.orcinus.shadow.network.printhost.FlashforgeDiscovery
 import app.orcinus.shadow.network.printhost.PrintHostUploader
 import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
@@ -270,6 +273,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
         override suspend fun slots(printer: PhysicalPrinter): PrinterSlotsOutcome = uploader.printerSlots(printer)
 
+        override suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = uploader.flashforgeSlots(printer)
+
         override suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 
         override suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome = uploader.printers(printer)
@@ -291,6 +296,17 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             }
 
             override suspend fun scanCreality(): List<CrealityHost> = CrealityHostDiscovery().scan()
+
+            override suspend fun discoverFlashforge(): FlashforgeDiscoveryOutcome {
+                // Wi-Fi drops broadcast answers as it drops multicast ones, unless the app holds the lock.
+                val lock = applicationContext.getSystemService(WifiManager::class.java)?.createMulticastLock("Flashforge")
+                lock?.acquire()
+                return try {
+                    FlashforgeDiscovery().discover()
+                } finally {
+                    if (lock?.isHeld == true) lock.release()
+                }
+            }
         },
     )
     val sendGcode = SendGcodeUseCase(gcodeSender, plateRepository)

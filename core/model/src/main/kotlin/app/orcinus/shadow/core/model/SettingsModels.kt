@@ -564,10 +564,11 @@ enum class PrintHostType(val key: String, val label: String) {
      * PrintHost::has_auto_discovery(): whether PhysicalPrinterDialog offers its
      * Browse button. OctoPrint and the hosts built on it (PrusaLink,
      * PrusaConnect, AstroBox) look for OctoPrint's service; Creality's
-     * firmware for its K-series printers.
+     * firmware for its K-series printers, Flashforge for its own.
      */
     val hasAutoDiscovery: Boolean
-        get() = this == OCTOPRINT || this == PRUSA_LINK || this == PRUSA_CONNECT || this == ASTROBOX || this == CREALITY_PRINT
+        get() = this == OCTOPRINT || this == PRUSA_LINK || this == PRUSA_CONNECT || this == ASTROBOX || this == CREALITY_PRINT ||
+            this == FLASHFORGE
 
     /** get_test_ok_msg(): what the Test button says when the host answered, as OrcaSlicer's msgid. */
     val testOkMessage: String
@@ -624,8 +625,8 @@ enum class PrintHostType(val key: String, val label: String) {
         }
 
     companion object {
-        /** The hosts the port does not cover yet: the cloud ones, Flashforge and Elegoo Link. */
-        private val UNSUPPORTED = setOf(OBICO, FLASHFORGE, SIMPLYPRINT, ELEGOO_LINK, PRINTER_3D_OS)
+        /** The hosts the port does not cover yet: the cloud ones and Elegoo Link. */
+        private val UNSUPPORTED = setOf(OBICO, SIMPLYPRINT, ELEGOO_LINK, PRINTER_3D_OS)
 
         fun of(key: String): PrintHostType? = entries.firstOrNull { it.key == key }
     }
@@ -663,9 +664,83 @@ data class PhysicalPrinter(
     /** printhost_port: the printer of a server that serves several (Repetier). */
     val port: String get() = settings.values["printhost_port"].orEmpty()
 
+    /** flashforge_serial_number: what Flashforge's local API knows the printer by. */
+    val serialNumber: String get() = settings.values["flashforge_serial_number"].orEmpty()
+
+    /**
+     * The printer's gcode_flavor, which comes with the host's settings because
+     * Flashforge's serial console tells a Klipper firmware from the older one.
+     */
+    val gcodeFlavor: String get() = settings.values["gcode_flavor"].orEmpty()
+
+    /**
+     * Flashforge's local API instead of its serial console: the printer has a
+     * serial number and a check code (printhost_apikey), as Flashforge::test()
+     * and Plater::send_gcode_legacy() decide.
+     */
+    val usesFlashforgeLocalApi: Boolean
+        get() = hostType == PrintHostType.FLASHFORGE && serialNumber.isNotEmpty() && apiKey.isNotEmpty()
+
+    /** get_test_ok_msg(): as OrcaSlicer's msgid; Flashforge says which of its two ways answered. */
+    val testOkMessage: String?
+        get() = if (usesFlashforgeLocalApi) "Connected to Flashforge local API successfully." else hostType?.testOkMessage
+
+    /** get_test_failed_msg()'s first part, as OrcaSlicer's msgid. */
+    val testFailedMessage: String?
+        get() = if (usesFlashforgeLocalApi) "Could not connect to Flashforge local API" else hostType?.testFailedMessage
+
     /** Whether the app knows how to send G-code to it. */
     val canSend: Boolean get() = hostType?.supported == true && host.isNotBlank()
 }
+
+/** FlashforgeDiscoveredPrinter: a Flashforge printer that answered the broadcast of the local network. */
+data class FlashforgeDiscoveredPrinter(val name: String, val serialNumber: String, val ipAddress: String)
+
+sealed interface FlashforgeDiscoveryOutcome {
+    data class Success(val printers: List<FlashforgeDiscoveredPrinter>) : FlashforgeDiscoveryOutcome
+
+    data class Failure(val message: String) : FlashforgeDiscoveryOutcome
+}
+
+/**
+ * FlashforgeMaterialSlot: a slot of the printer's material station (IFS), as
+ * its local API reports it; slots are numbered from 1.
+ */
+data class FlashforgeMaterialSlot(
+    val slotId: Int,
+    val hasFilament: Boolean,
+    val materialName: String,
+    val materialColor: String,
+)
+
+/** Flashforge::fetch_material_slots(): the station's slots, and whether the printer reports a station at all. */
+sealed interface FlashforgeSlotsOutcome {
+    data class Success(val slots: List<FlashforgeMaterialSlot>, val supportsMaterialStation: Boolean) : FlashforgeSlotsOutcome
+
+    data class Failure(val message: String) : FlashforgeSlotsOutcome
+}
+
+/** A filament of the print fed from a slot of the material station (FlashforgePrintHostSendDialog::extendedInfo()). */
+data class FlashforgeMapping(
+    /** The filament's index, the G-code's tool. */
+    val toolId: Int,
+    val slotId: Int,
+    val materialName: String,
+    val toolMaterialColor: String,
+    val slotMaterialColor: String,
+)
+
+/**
+ * What FlashforgePrintHostSendDialog adds for the local API: level the bed
+ * first, record a time-lapse, print from the material station (IFS) with the
+ * slot every filament is fed from.
+ */
+data class FlashforgeOptions(
+    val levelingBeforePrint: Boolean = false,
+    val timeLapseVideo: Boolean = false,
+    val useMaterialStation: Boolean = false,
+    val mappings: List<FlashforgeMapping> = emptyList(),
+)
 
 /**
  * PhysicalPrinterDialog::update(), which runs whenever the dialog opens and a
@@ -774,6 +849,8 @@ sealed interface PrinterSlotsOutcome {
 data class PrintOptions(
     val selfTest: Boolean = false,
     val slots: List<PrinterSlot> = emptyList(),
+    /** FlashforgePrintHostSendDialog's choices, for a Flashforge printer on its local API. */
+    val flashforge: FlashforgeOptions? = null,
 )
 
 /**
