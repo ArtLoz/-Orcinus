@@ -56,19 +56,14 @@
     <string name="filament_no_presets">У этого материала нет профилей</string>
     <!-- ExportConfigsDialog: у выбранного вида экспорта нет ни одного пользовательского профиля. -->
     <string name="config_export_empty">Нечего экспортировать: пользовательских профилей такого вида нет</string>
-    <!-- PhysicalPrinterDialog: the printers the app sends G-code to. -->
-    <string name="printer_host_title">Принтеры по сети</string>
-    <string name="printer_host_empty">Пока нет ни одного принтера</string>
-    <string name="printer_host_add">Добавить принтер</string>
-    <string name="printer_host_name">Название</string>
+    <!-- Sending G-code: the printer preset has no host yet; the desktop app offers no sending then. -->
+    <string name="printer_host_empty">У профиля принтера не указан адрес. Задайте его кнопкой «Подключение» у принтера на боковой панели.</string>
     <string name="printer_host_send">Отправить на принтер</string>
     <string name="printer_host_start">Начать печать сразу</string>
     <string name="printer_host_sent">Отправлено: %1$s</string>
     <string name="printer_host_sending">Отправка на принтер: %1$d %%</string>
     <!-- Результат кнопки «Test»: у Orca своё сообщение на каждый тип хоста. -->
     <string name="printer_host_test_ok">Связь с принтером работает</string>
-    <!-- PhysicalPrinter::preset_names: в каталоге Orca такой строки нет. -->
-    <string name="printer_host_preset">Профиль принтера</string>
     <!-- Export G-code of the desktop app's File menu. -->
     <string name="gcode_save">Сохранить G-code</string>
     <string name="gcode_saved">G-code сохранён</string>

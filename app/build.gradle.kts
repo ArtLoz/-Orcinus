@@ -131,6 +131,7 @@ dependencies {
     implementation(project(":domain"))
     implementation(project(":feature:about"))
     implementation(project(":feature:prepare"))
+    implementation(project(":feature:device"))
     implementation(project(":feature:preview"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:setup"))

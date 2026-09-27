@@ -1,0 +1,526 @@
+package app.orcinus.shadow.core.ui.settings
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import app.orcinus.shadow.core.designsystem.component.OrcaButton
+import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
+import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
+import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
+import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaSwitch
+import app.orcinus.shadow.core.designsystem.component.OrcaTextField
+import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.PhysicalPrinter
+import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.PresetNameCheck
+import app.orcinus.shadow.core.model.PresetNameOutcome
+import app.orcinus.shadow.core.model.PresetNameValidation
+import app.orcinus.shadow.core.model.PrintHostTestOutcome
+import app.orcinus.shadow.core.model.PrintHostType
+import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.PrinterConnection
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
+import app.orcinus.shadow.core.model.PrinterSlotsOutcome
+import app.orcinus.shadow.core.model.defaultSlotFor
+import app.orcinus.shadow.core.ui.R
+import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.orca.orcaText
+import app.orcinus.shadow.core.ui.preset.ChoiceListSheet
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * OrcaSlicer's PhysicalPrinterDialog, which the Connection button of the
+ * sidebar's printer opens. Its settings are the host's on the edited printer
+ * preset (m_config is that preset's configuration), and OK saves the preset
+ * under the name the dialog asks for (Tab::save_preset()): a system preset is
+ * saved as a copy of its own, "<name> - Copy". The desktop dialog lays out the
+ * whole "Print Host upload" group; a phone shows the fields the hosts the app
+ * sends to take — the kind of host, its address and page, its key or login.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PrinterConnectionSheet(
+    load: suspend () -> PrinterConnectionOutcome,
+    /** PhysicalPrinterDialog::update_preset_input(), as SavePresetDialog checks a name. */
+    checkName: suspend (String) -> PresetNameOutcome,
+    onSave: (ModelSettings, name: String) -> Unit,
+    onDismiss: () -> Unit,
+    /** Its Test button (PrintHost::test). */
+    onTest: suspend (PhysicalPrinter) -> PrintHostTestOutcome = { PrintHostTestOutcome.Failure("") },
+) {
+    val colors = OrcaTheme.colors
+    var connection by remember { mutableStateOf<PrinterConnection?>(null) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        when (val outcome = load()) {
+            is PrinterConnectionOutcome.Success -> connection = outcome.connection
+            is PrinterConnectionOutcome.Failure -> problem = outcome.message
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.window,
+        dragHandle = { OrcaSheetHandle() },
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text(
+                text = orcaString("Physical Printer"),
+                color = colors.text,
+                style = OrcaTheme.typography.head16,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            problem?.let {
+                Text(it, color = colors.error, style = OrcaTheme.typography.body13, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+            val loaded = connection
+            if (loaded == null) {
+                if (problem == null) CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
+            } else {
+                ConnectionForm(loaded, checkName, onSave, onTest)
+            }
+        }
+    }
+}
+
+/** The dialog's name of the preset and its "Print Host upload" group, with OK. */
+@Composable
+private fun ConnectionForm(
+    connection: PrinterConnection,
+    checkName: suspend (String) -> PresetNameOutcome,
+    onSave: (ModelSettings, name: String) -> Unit,
+    onTest: suspend (PhysicalPrinter) -> PrintHostTestOutcome,
+) {
+    val colors = OrcaTheme.colors
+    val scope = rememberCoroutineScope()
+    val copy = orcaString("Copy", context = "PresetName")
+    var name by rememberSaveable { mutableStateOf(if (connection.saveNameCopySuffix) "${connection.saveName} - $copy" else connection.saveName) }
+    var settings by remember { mutableStateOf(connection.settings) }
+    var validation by remember { mutableStateOf<PresetNameValidation?>(null) }
+    var checkedName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(name) {
+        delay(NAME_CHECK_DELAY_MILLIS)
+        validation = when (val outcome = checkName(name)) {
+            is PresetNameOutcome.Success -> outcome.validation
+            is PresetNameOutcome.Failure -> PresetNameValidation(PresetNameCheck.INVALID, listOf(OrcaText(outcome.message)))
+        }
+        checkedName = name
+    }
+    val current = validation.takeIf { checkedName == name }
+    // What the Test button last found out; the desktop shows it in a message box.
+    var tested: PrintHostTestOutcome? by remember { mutableStateOf(null) }
+    var testing by remember { mutableStateOf(false) }
+    val printer = PhysicalPrinter(name, settings)
+    val types = PrintHostType.entries
+    val type = printer.hostType ?: PrintHostType.OCTOPRINT
+    // The desktop combo box lists every host; there are too many for a switch.
+    var choosingType by remember { mutableStateOf(false) }
+
+    fun set(key: String, value: String) {
+        settings = ModelSettings(settings.values + (key to value))
+    }
+
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Text(
+            orcaText(OrcaText("Save %s as", listOf(PresetKind.PRINTER.tabTitle), translateArgs = true)),
+            color = colors.text,
+            style = OrcaTheme.typography.body14,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        OrcaTextField(
+            value = name,
+            onValueChange = { name = it },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+        )
+        current?.info?.takeIf { it.isNotEmpty() }?.let { info ->
+            // m_valid_label, in the dialog's orange.
+            Text(orcaText(info), color = colors.secondary, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 4.dp))
+        }
+        Text(
+            orcaString("Print Host upload"),
+            color = colors.textLabel,
+            style = OrcaTheme.typography.body13,
+            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+        )
+        Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(orcaString("Host Type"), color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
+            OrcaComboField(text = type.label, onClick = { choosingType = true }, modifier = Modifier.width(200.dp))
+        }
+        Field(orcaString("Hostname, IP or URL"), printer.host) { set("print_host", it.trim()) }
+        // update_printhost_buttons(): Test once there is an address.
+        Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            OrcaButton(
+                text = orcaString("Test"),
+                onClick = {
+                    tested = null
+                    testing = true
+                    scope.launch {
+                        tested = onTest(printer)
+                        testing = false
+                    }
+                },
+                style = OrcaButtonStyle.Regular,
+                enabled = printer.host.isNotBlank() && !testing,
+            )
+            tested?.let { outcome ->
+                Text(
+                    text = when (outcome) {
+                        is PrintHostTestOutcome.Success -> stringResource(R.string.printer_host_test_ok)
+                        is PrintHostTestOutcome.Failure -> outcome.message
+                    },
+                    color = if (outcome is PrintHostTestOutcome.Success) colors.text else colors.error,
+                    style = OrcaTheme.typography.body12,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
+            }
+        }
+        Field(orcaString("Device UI"), settings.values["print_host_webui"].orEmpty()) { set("print_host_webui", it.trim()) }
+        // update(): a host that takes a login shows the fields for it instead of the key.
+        if (type.takesUserPassword) {
+            Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = orcaString("Authorization Type"),
+                    color = colors.text,
+                    style = OrcaTheme.typography.body14,
+                    modifier = Modifier.weight(1f),
+                )
+                OrcaSegmentedSwitch(
+                    options = listOf(orcaString("API key"), orcaString("HTTP digest")),
+                    selectedIndex = if (printer.usesUserPassword) 1 else 0,
+                    onSelect = { set("printhost_authorization_type", if (it == 1) "user" else "key") },
+                )
+            }
+        }
+        if (type.takesUserPassword && printer.usesUserPassword) {
+            Field(orcaString("User"), printer.user) { set("printhost_user", it) }
+            Field(orcaString("Password"), printer.password) { set("printhost_password", it) }
+        } else if (type.takesPassword) {
+            Field(orcaString("Password"), printer.password) { set("printhost_password", it) }
+        } else {
+            Field(orcaString("API Key / Password"), printer.apiKey) { set("printhost_apikey", it) }
+        }
+        if (type.takesPort) {
+            Field(orcaString("Printer"), printer.port) { set("printhost_port", it) }
+        }
+        OrcaButton(
+            text = orcaString("OK"),
+            onClick = { onSave(settings, name) },
+            enabled = current != null && current.check != PresetNameCheck.INVALID,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+        )
+    }
+    if (choosingType) {
+        ChoiceListSheet(
+            title = orcaString("Host Type"),
+            items = types.map { it.label },
+            onDismiss = { choosingType = false },
+            onChoose = { label ->
+                choosingType = false
+                types.firstOrNull { it.label == label }?.let { set("host_type", it.key) }
+            },
+        )
+    }
+}
+
+/**
+ * Plater::send_gcode_legacy(): the G-code of the plate goes to the host of the
+ * printer preset, with a switch for starting the print at once
+ * (PrintHostPostUploadAction::StartPrint). A preset without a host has
+ * nothing to send to; its host is set up with the Connection button.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SendToPrinterSheet(
+    load: suspend () -> PrinterConnectionOutcome,
+    onSend: (PhysicalPrinter, startPrint: Boolean, options: PrintOptions) -> Unit,
+    onDismiss: () -> Unit,
+    /** The slots of a printer's material boxes (CrealityPrint::query_boxes_info). */
+    loadSlots: suspend (PhysicalPrinter) -> PrinterSlotsOutcome = { PrinterSlotsOutcome.Success(emptyList()) },
+    /** The filaments of the plate, which the slots are matched to. */
+    filaments: List<SentFilament> = emptyList(),
+    /** Why the printers of the local network cannot be reached, when the system says so. */
+    notice: String? = null,
+) {
+    val colors = OrcaTheme.colors
+    var printer by remember { mutableStateOf<PhysicalPrinter?>(null) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    var startPrint by rememberSaveable { mutableStateOf(false) }
+    // A Creality printer asks which slot feeds every filament before it prints.
+    var mapping by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        when (val outcome = load()) {
+            is PrinterConnectionOutcome.Success -> {
+                val connection = outcome.connection
+                printer = connection.printer(connection.settings.values["print_host"].orEmpty())
+            }
+            is PrinterConnectionOutcome.Failure -> problem = outcome.message
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.window,
+        dragHandle = { OrcaSheetHandle() },
+    ) {
+        Column(Modifier.navigationBarsPadding()) {
+            Text(
+                text = orcaString("Send G-code to printer host"),
+                color = colors.text,
+                style = OrcaTheme.typography.head16,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            problem?.let {
+                Text(it, color = colors.error, style = OrcaTheme.typography.body13, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+            notice?.let {
+                Text(it, color = colors.error, style = OrcaTheme.typography.body13, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+            val host = printer
+            if (host == null) {
+                if (problem == null) CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
+                return@Column
+            }
+            if (mapping) {
+                SlotMapping(
+                    printer = host,
+                    filaments = filaments,
+                    loadSlots = loadSlots,
+                    onBack = { mapping = false },
+                    onSend = { options -> onSend(host, startPrint, options) },
+                )
+                return@Column
+            }
+            if (!host.canSend) {
+                Text(
+                    text = stringResource(R.string.printer_host_empty),
+                    color = colors.textSide,
+                    style = OrcaTheme.typography.body13,
+                    modifier = Modifier.padding(16.dp),
+                )
+                return@Column
+            }
+            Text(
+                text = (host.hostType?.label ?: host.settings.values["host_type"].orEmpty()) + SettingsSearch.SEPARATOR + host.host,
+                color = colors.textSide,
+                style = OrcaTheme.typography.body13,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.printer_host_start),
+                    color = colors.text,
+                    style = OrcaTheme.typography.body14,
+                    modifier = Modifier.weight(1f),
+                )
+                OrcaSwitch(checked = startPrint, onCheckedChange = { startPrint = it })
+            }
+            OrcaButton(
+                text = stringResource(R.string.printer_host_send),
+                onClick = {
+                    // CrealityPrintHostSendDialog: a Creality printer is told
+                    // which slot of its boxes feeds every filament.
+                    if (host.hostType == PrintHostType.CREALITY_PRINT) {
+                        mapping = true
+                    } else {
+                        onSend(host, startPrint, PrintOptions())
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            )
+        }
+    }
+}
+
+/** A filament of the plate as the send dialog lists it: its colour and its type. */
+data class SentFilament(val color: String, val type: String)
+
+/**
+ * CrealityPrintHostSendDialog: the printer's material boxes are read, and every
+ * filament of the plate is fed from the slot the desktop dialog would choose
+ * (the same type and colour in a CFS box first), which the user may change,
+ * with the switch that has the printer calibrate first (enableSelfTest). A
+ * filament fed from the spool holder prints alone, so the other rows lock.
+ * When the printer does not report its boxes, the print is sent without a
+ * mapping, as the desktop dialog does. OrcaSlicer's Russian catalogue has no
+ * words for the dialog's three labels, so they are the app's own: shown in
+ * English among the Russian sheet, the calibration switch went unnoticed.
+ */
+@Composable
+private fun SlotMapping(
+    printer: PhysicalPrinter,
+    filaments: List<SentFilament>,
+    loadSlots: suspend (PhysicalPrinter) -> PrinterSlotsOutcome,
+    onBack: () -> Unit,
+    onSend: (PrintOptions) -> Unit,
+) {
+    val colors = OrcaTheme.colors
+    var outcome by remember(printer) { mutableStateOf<PrinterSlotsOutcome?>(null) }
+    var selfTest by rememberSaveable { mutableStateOf(false) }
+    var chosen by remember(printer) { mutableStateOf<List<Int>>(emptyList()) }
+    LaunchedEffect(printer) {
+        val answer = loadSlots(printer)
+        outcome = answer
+        if (answer is PrinterSlotsOutcome.Success) {
+            chosen = filaments.mapIndexed { index, filament -> defaultSlotFor(index, filament.color, filament.type, answer.slots) }
+        }
+    }
+    val slots = (outcome as? PrinterSlotsOutcome.Success)?.slots.orEmpty()
+    // The row that feeds from the spool holder locks the others.
+    val spoolHolderRow = chosen.indexOfFirst { slots.getOrNull(it)?.isSpoolHolder == true }
+
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Text(
+            text = stringResource(R.string.printer_host_printer, printer.name),
+            color = colors.text,
+            style = OrcaTheme.typography.body14,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+            Text(
+                text = stringResource(R.string.printer_host_self_test),
+                color = colors.text,
+                style = OrcaTheme.typography.body14,
+                modifier = Modifier.weight(1f),
+            )
+            OrcaSwitch(checked = selfTest, onCheckedChange = { selfTest = it })
+        }
+        when (val answer = outcome) {
+            null -> CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
+            is PrinterSlotsOutcome.Failure -> Text(answer.message, color = colors.error, style = OrcaTheme.typography.body13)
+            is PrinterSlotsOutcome.Success -> if (slots.isNotEmpty() && filaments.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.printer_host_filament_mapping),
+                    color = colors.textLabel,
+                    style = OrcaTheme.typography.body13,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                )
+                filaments.forEachIndexed { index, filament ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                        Swatch(filament.color)
+                        Text(
+                            text = "${index + 1} (${filament.type.ifEmpty { "?" }})",
+                            color = colors.text,
+                            style = OrcaTheme.typography.body13,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .width(88.dp),
+                        )
+                        Text("→", color = colors.textSide, style = OrcaTheme.typography.body13, modifier = Modifier.padding(end = 8.dp))
+                        val selected = chosen.getOrElse(index) { 0 }.coerceIn(0, slots.lastIndex)
+                        OrcaComboBox(
+                            items = slots.indices.toList(),
+                            selected = selected,
+                            label = { slots[it].label },
+                            onSelect = { pick -> chosen = chosen.mapIndexed { at, value -> if (at == index) pick else value } },
+                            enabled = spoolHolderRow < 0 || spoolHolderRow == index,
+                            leading = { Swatch(slots[selected].color); Spacer(Modifier.width(8.dp)) },
+                            itemLeading = { Swatch(slots[it].color) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+        ) {
+            OrcaButton(
+                text = orcaString("Cancel"),
+                style = OrcaButtonStyle.Regular,
+                onClick = onBack,
+                modifier = Modifier.weight(1f),
+            )
+            OrcaButton(
+                text = stringResource(R.string.printer_host_send),
+                enabled = outcome != null,
+                onClick = {
+                    val picked = if (spoolHolderRow >= 0) {
+                        // The spool holder prints the one filament alone.
+                        listOf(slots[chosen[spoolHolderRow]])
+                    } else {
+                        chosen.mapNotNull(slots::getOrNull)
+                    }
+                    onSend(PrintOptions(selfTest = selfTest, slots = picked))
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/** A colour square, as the desktop dialog draws a filament or a slot. */
+@Composable
+private fun Swatch(color: String) {
+    val parsed = color.removePrefix("#").take(6).toLongOrNull(16)?.let { Color(0xFF000000L or it) } ?: OrcaTheme.colors.border
+    Box(
+        Modifier
+            .size(16.dp)
+            .background(parsed)
+            .border(1.dp, OrcaTheme.colors.border),
+    )
+}
+
+@Composable
+private fun Field(label: String, value: String, onValueChange: (String) -> Unit) {
+    Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
+        OrcaTextField(
+            value = value,
+            onValueChange = onValueChange,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier.width(200.dp),
+        )
+    }
+}
+
+private const val NAME_CHECK_DELAY_MILLIS = 150L

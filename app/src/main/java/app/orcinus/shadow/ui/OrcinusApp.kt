@@ -1,26 +1,7 @@
 package app.orcinus.shadow.ui
 
-import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
-import app.orcinus.shadow.domain.plate.SliceActionUseCase
-import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
-import app.orcinus.shadow.core.model.SliceMode
-import app.orcinus.shadow.core.ui.plate.SliceButton
-import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
-import app.orcinus.shadow.core.model.PresetNameOutcome
-import app.orcinus.shadow.core.model.PresetChangesAnswer
-import app.orcinus.shadow.core.model.ProjectPrompt
-import app.orcinus.shadow.core.model.ExternalDocumentReference
-import app.orcinus.shadow.core.ui.plate.ProjectSaveChangesDialog
-import app.orcinus.shadow.core.ui.plate.ProjectPresetChangesDialog
-import app.orcinus.shadow.core.ui.orca.orcaString
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import app.orcinus.shadow.core.model.ModelLoad
-import app.orcinus.shadow.core.ui.plate.ProjectDropSheet
-import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
-import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
-import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
-import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.togetherWith
@@ -33,8 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,23 +44,44 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTabBar
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarLayout
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
+import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.PlateState
-import app.orcinus.shadow.core.model.SearchOption
-import app.orcinus.shadow.di.AppContainer
-import app.orcinus.shadow.domain.plate.ObservePlateUseCase
-import app.orcinus.shadow.domain.plate.StartEngineUseCase
+import app.orcinus.shadow.core.model.PresetChangesAnswer
 import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.PresetNameOutcome
+import app.orcinus.shadow.core.model.ProjectPrompt
+import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.plate.ProjectDropSheet
+import app.orcinus.shadow.core.ui.plate.ProjectPresetChangesDialog
+import app.orcinus.shadow.core.ui.plate.ProjectSaveChangesDialog
+import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
+import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
+import app.orcinus.shadow.di.AppContainer
+import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
+import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
+import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
+import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
+import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.StartEngineUseCase
 import app.orcinus.shadow.feature.about.navigation.AboutNavKey
 import app.orcinus.shadow.feature.about.navigation.aboutEntries
+import app.orcinus.shadow.feature.device.navigation.DeviceNavKey
+import app.orcinus.shadow.feature.device.navigation.deviceEntry
 import app.orcinus.shadow.feature.prepare.R as PrepareR
 import app.orcinus.shadow.feature.prepare.navigation.PrepareNavKey
 import app.orcinus.shadow.feature.prepare.navigation.prepareEntry
 import app.orcinus.shadow.feature.preview.R as PreviewR
 import app.orcinus.shadow.feature.preview.navigation.PreviewNavKey
 import app.orcinus.shadow.feature.preview.navigation.previewEntry
-import app.orcinus.shadow.feature.setup.SetupStart
 import app.orcinus.shadow.feature.settings.navigation.PresetSettingsNavKey
 import app.orcinus.shadow.feature.settings.navigation.presetSettingsEntry
+import app.orcinus.shadow.feature.setup.SetupStart
 import app.orcinus.shadow.feature.setup.navigation.SetupNavKey
 import app.orcinus.shadow.feature.setup.navigation.setupEntry
 import app.orcinus.shadow.feature.sidebar.PlateSidebar
@@ -287,10 +289,12 @@ private fun Workspace(
         }
     }
 
-    val destinations = listOf(PrepareNavKey, PreviewNavKey)
+    val destinations = listOf(PrepareNavKey, PreviewNavKey, DeviceNavKey)
     val tabs = listOf(
         OrcaTab(stringResource(PrepareR.string.prepare_title), DesignR.drawable.orca_tab_3d_active),
         OrcaTab(stringResource(PreviewR.string.preview_title), DesignR.drawable.orca_tab_preview_active),
+        // MainFrame::show_device(): the Device tab, after the preview.
+        OrcaTab(orcaString("Device"), DesignR.drawable.orca_tab_monitor_active),
     )
 
     OrcaSidebarLayout(
@@ -363,6 +367,7 @@ private fun Workspace(
                     onOpenSidebar = { sidebarVisible = true },
                 )
                 previewEntry(createViewModel = container::previewViewModel, onSliceRequested = onSliceRequested)
+                deviceEntry(createViewModel = container::deviceViewModel)
             },
         )
     }

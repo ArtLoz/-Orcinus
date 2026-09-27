@@ -1,39 +1,34 @@
 package app.orcinus.shadow.feature.preview
 
 import androidx.lifecycle.ViewModel
-import app.orcinus.shadow.domain.plate.AllPlatesStats
-import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
-import app.orcinus.shadow.domain.plate.allPlatesStats
-import app.orcinus.shadow.domain.plate.SliceActionUseCase
-import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
-import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
-import app.orcinus.shadow.core.model.SliceMode
-import app.orcinus.shadow.core.model.PartPlate
-import app.orcinus.shadow.core.model.Point2
-import app.orcinus.shadow.core.model.plateOrigins
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.LayerGcode
+import app.orcinus.shadow.core.model.LayerGcodeType
+import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
-import app.orcinus.shadow.core.model.PrintHostTestOutcome
-import app.orcinus.shadow.core.model.PresetNamesOutcome
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
+import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.ui.settings.SentFilament
-import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.AllPlatesStats
 import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
-import app.orcinus.shadow.core.model.LayerGcode
-import app.orcinus.shadow.core.model.LayerGcodeType
-import app.orcinus.shadow.domain.plate.PrinterPresetNamesUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
-import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
-import app.orcinus.shadow.domain.plate.SavePhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
+import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
 import app.orcinus.shadow.domain.plate.SendGcodeUseCase
+import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
+import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.allPlatesStats
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -75,10 +70,7 @@ class PreviewViewModel(
     private val setSliceMode: SetSliceModeUseCase,
     private val selectSlicedPlate: SelectSlicedPlateUseCase,
     private val showAllPlatesStats: ShowAllPlatesStatsUseCase,
-    private val physicalPrinters: ObservePhysicalPrintersUseCase,
-    private val savePhysicalPrinter: SavePhysicalPrinterUseCase,
-    private val deletePhysicalPrinter: DeletePhysicalPrinterUseCase,
-    private val printerPresetNames: PrinterPresetNamesUseCase,
+    private val printerConnection: ObservePrinterConnectionUseCase,
     private val sendGcode: SendGcodeUseCase,
     private val exportGcode: ExportGcodeUseCase,
     private val editLayerGcodes: EditLayerGcodesUseCase,
@@ -110,13 +102,8 @@ class PreviewViewModel(
 
     fun deleteLayerGcode(printZ: Double) = editLayerGcodes.delete(printZ)
 
-    /** PhysicalPrinterDialog: the printers the sliced G-code can be sent to. */
-    suspend fun printers(): PhysicalPrintersOutcome = physicalPrinters()
-
-    suspend fun savePrinter(printer: PhysicalPrinter, renamedFrom: String?): PhysicalPrintersOutcome =
-        savePhysicalPrinter(printer, renamedFrom)
-
-    suspend fun deletePrinter(name: String): PhysicalPrintersOutcome = deletePhysicalPrinter(name)
+    /** Plater::send_gcode_legacy(): the host of the printer preset the G-code goes to. */
+    suspend fun printerHost(): PrinterConnectionOutcome = printerConnection()
 
     /** PrintHost::upload: the G-code of the last slice goes to the printer. */
     suspend fun send(
@@ -129,11 +116,6 @@ class PreviewViewModel(
     /** CrealityPrintHostSendDialog: the slots of the printer's material boxes. */
     suspend fun printerSlots(printer: PhysicalPrinter): PrinterSlotsOutcome = sendGcode.printerSlots(printer)
 
-    /** PhysicalPrinterDialog's preset combo box: the printer presets a printer can be bound to. */
-    suspend fun printerPresets(): List<String> = (printerPresetNames() as? PresetNamesOutcome.Success)?.names.orEmpty()
-
-    /** PhysicalPrinterDialog's Test button: whether the printer's host answers. */
-    suspend fun testPrinter(printer: PhysicalPrinter): PrintHostTestOutcome = sendGcode.testPrinter(printer)
 
     /** The filaments of the plate, as the send dialog matches them to the printer's slots. */
     fun sentFilaments(): List<SentFilament> {

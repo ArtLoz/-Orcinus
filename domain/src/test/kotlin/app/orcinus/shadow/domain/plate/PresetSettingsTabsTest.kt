@@ -28,8 +28,7 @@ import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
-import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
@@ -554,12 +553,9 @@ class PresetSettingsTabsTest {
 
         override suspend fun searchCatalog() = SearchCatalogOutcome.Failure("no catalogue")
 
-        override suspend fun physicalPrinters() = PhysicalPrintersOutcome.Failure("no printers")
+        override suspend fun printerConnection() = PrinterConnectionOutcome.Failure("no printer")
 
-        override suspend fun savePhysicalPrinter(printer: PhysicalPrinter, renamedFrom: String?) =
-            PhysicalPrintersOutcome.Failure("no printers")
-
-        override suspend fun deletePhysicalPrinter(name: String) = PhysicalPrintersOutcome.Failure("no printers")
+        override suspend fun savePrinterConnection(settings: ModelSettings, name: String) = PresetSettingsOutcome.Failure("no printer")
 
         override suspend fun importPresets(paths: List<String>, answers: Map<String, ConfigOverwriteAnswer>) =
             ConfigTransferOutcome.Failure("no import")

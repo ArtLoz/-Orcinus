@@ -43,7 +43,6 @@ import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.PendingPlateQuestion
 import app.orcinus.shadow.core.model.PendingPresetChange
 import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateHistory
@@ -69,6 +68,7 @@ import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
@@ -1456,33 +1456,17 @@ class ExportGcodeUseCase(
 }
 
 /**
- * PhysicalPrinterDialog: the printers the app can send G-code to, which the
- * engine keeps as OrcaSlicer keeps them.
+ * The printer's host as the edited printer preset holds it, which
+ * PhysicalPrinterDialog edits, sending G-code goes to and the Device tab shows
+ * the page of.
  */
-class ObservePhysicalPrintersUseCase(private val engine: PresetSettingsEditor) {
-    suspend operator fun invoke(): PhysicalPrintersOutcome = engine.physicalPrinters()
+class ObservePrinterConnectionUseCase(private val engine: PresetSettingsEditor) {
+    suspend operator fun invoke(): PrinterConnectionOutcome = engine.printerConnection()
 }
 
-class SavePhysicalPrinterUseCase(private val engine: PresetSettingsEditor) {
-    suspend operator fun invoke(printer: PhysicalPrinter, renamedFrom: String? = null): PhysicalPrintersOutcome =
-        engine.savePhysicalPrinter(printer, renamedFrom)
-}
-
-/** PhysicalPrinterDialog's Test button, for the list the sidebar opens. */
+/** PhysicalPrinterDialog's Test button. */
 class TestPhysicalPrinterUseCase(private val uploader: GcodeSender) {
     suspend operator fun invoke(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
-}
-
-/**
- * PhysicalPrinterDialog's preset combo box: the printer presets a printer of
- * the network can be bound to (Tab::compatible_widget_create lists the same).
- */
-class PrinterPresetNamesUseCase(private val engine: PresetSettingsEditor) {
-    suspend operator fun invoke(): PresetNamesOutcome = engine.compatiblePresetChoices(PresetKind.PRINT, "compatible_printers")
-}
-
-class DeletePhysicalPrinterUseCase(private val engine: PresetSettingsEditor) {
-    suspend operator fun invoke(name: String): PhysicalPrintersOutcome = engine.deletePhysicalPrinter(name)
 }
 
 /**

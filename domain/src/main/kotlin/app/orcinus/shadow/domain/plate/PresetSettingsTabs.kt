@@ -184,6 +184,7 @@ class PresetSettingsTabs(
             is SettingsRequest.EditCustomGcode -> editor.editCustomGcode(kind, page, request.key, request.gcode, answers)
             is SettingsRequest.SetRammingParameters -> editor.setRammingParameters(kind, page, request.parameters, answers)
             is SettingsRequest.Save -> editor.savePreset(kind, request.name)
+            is SettingsRequest.SaveConnection -> editor.savePrinterConnection(request.settings, request.name)
             SettingsRequest.Delete -> editor.deletePreset(kind, answers)
         }
         when (outcome) {
@@ -196,6 +197,7 @@ class PresetSettingsTabs(
             }
             is PresetSettingsOutcome.Success -> {
                 apply(kind, outcome)
+                if (request is SettingsRequest.SaveConnection) repository.update { it.copy(connectionSaves = it.connectionSaves + 1) }
                 // Tab::on_value_change(): the long retractions change how much a
                 // filament change flushes.
                 if (request is SettingsRequest.Change && request.id.substringBefore('#') in LONG_RETRACTION_KEYS) {

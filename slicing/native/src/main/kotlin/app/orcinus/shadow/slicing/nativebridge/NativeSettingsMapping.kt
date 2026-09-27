@@ -1,9 +1,20 @@
 package app.orcinus.shadow.slicing.nativebridge
 
+import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.BedShapeKind
+import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.DialogIcon
-import app.orcinus.shadow.core.model.PresetCreationOutcome
+import app.orcinus.shadow.core.model.GcodePlaceholder
+import app.orcinus.shadow.core.model.GcodePlaceholderInfo
+import app.orcinus.shadow.core.model.GcodePlaceholderType
+import app.orcinus.shadow.core.model.GcodePlaceholders
+import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetChange
+import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNameCheck
 import app.orcinus.shadow.core.model.PresetNameOutcome
@@ -11,6 +22,10 @@ import app.orcinus.shadow.core.model.PresetNameValidation
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettings
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
+import app.orcinus.shadow.core.model.PrinterConnection
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
+import app.orcinus.shadow.core.model.SearchCatalogOutcome
+import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingChoice
 import app.orcinus.shadow.core.model.SettingControl
 import app.orcinus.shadow.core.model.SettingDefinition
@@ -23,21 +38,6 @@ import app.orcinus.shadow.core.model.SettingsLine
 import app.orcinus.shadow.core.model.SettingsLineOption
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SettingsPage
-import app.orcinus.shadow.core.model.BedShape
-import app.orcinus.shadow.core.model.BedShapeKind
-import app.orcinus.shadow.core.model.BedShapeOutcome
-import app.orcinus.shadow.core.model.Point2
-import app.orcinus.shadow.core.model.ConfigTransferOutcome
-import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
-import app.orcinus.shadow.core.model.PresetChange
-import app.orcinus.shadow.core.model.SearchCatalogOutcome
-import app.orcinus.shadow.core.model.GcodePlaceholder
-import app.orcinus.shadow.core.model.GcodePlaceholderInfo
-import app.orcinus.shadow.core.model.GcodePlaceholderType
-import app.orcinus.shadow.core.model.GcodePlaceholders
-import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
-import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsTab
 import app.orcinus.shadow.core.model.SettingsTabOutcome
 
@@ -324,20 +324,19 @@ internal fun NativeConfigTransfer.toOutcome(): ConfigTransferOutcome {
     return ConfigTransferOutcome.Success(names.toList())
 }
 
-/** PhysicalPrinters in orca_engine_adapter.hpp. */
-internal fun NativePhysicalPrinters.toOutcome(): PhysicalPrintersOutcome {
+/** PrinterConnection in orca_engine_adapter.hpp. */
+internal fun NativePrinterConnection.toOutcome(): PrinterConnectionOutcome {
     if (status != NativeSceneStatus.SUCCESS) {
-        return PhysicalPrintersOutcome.Failure(message.ifBlank { "OrcaSlicer could not list the printers" })
+        return PrinterConnectionOutcome.Failure(message.ifBlank { "OrcaSlicer could not read the printer's host" })
     }
-    return PhysicalPrintersOutcome.Success(
-        printers.map { printer ->
-            PhysicalPrinter(
-                name = printer.name,
-                presetNames = printer.presetNames.toList(),
-                settings = ModelSettings(
-                    printer.keys.indices.filter { it < printer.values.size }.associate { printer.keys[it] to printer.values[it] },
-                ),
-            )
-        },
+    return PrinterConnectionOutcome.Success(
+        PrinterConnection(
+            settings = ModelSettings(keys.indices.filter { it < values.size }.associate { keys[it] to values[it] }),
+            saveName = saveName,
+            saveNameCopySuffix = saveNameCopySuffix,
+            webUi = webUi,
+            apiKey = apiKey,
+            bambuDeviceTab = bambuDeviceTab,
+        ),
     )
 }

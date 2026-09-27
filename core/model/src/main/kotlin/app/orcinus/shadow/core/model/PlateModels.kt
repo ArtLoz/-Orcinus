@@ -837,6 +837,11 @@ data class PlateState(
     val changingPresets: Boolean = false,
     /** OrcaSlicer's settings tabs for the selected presets, by the preset they edit. */
     val settingsTabs: Map<PresetKind, SettingsTabState> = PresetKind.entries.associateWith { SettingsTabState(it) },
+    /**
+     * How many times PhysicalPrinterDialog saved the printer's host, which the
+     * Device tab loads its page again after (Sidebar::update_all_preset_comboboxes()).
+     */
+    val connectionSaves: Int = 0,
     /** The plate is the one the app drew last, not one this engine described. */
     val plateFromCache: Boolean = false,
     /** A preset choice that waits for what happens to the unsaved changes of the edited preset. */

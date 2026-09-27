@@ -56,8 +56,6 @@ import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintingOutcome
-import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
@@ -71,6 +69,7 @@ import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
@@ -808,14 +807,13 @@ class RemoteSlicerEngine(
     override suspend fun setFilamentColor(index: Int, color: String): PresetsOutcome =
         remote(PresetsOutcome::Failure) { setFilamentColor(index, color).toPresetsOutcome() }
 
-    override suspend fun physicalPrinters(): PhysicalPrintersOutcome =
-        remote(PhysicalPrintersOutcome::Failure) { physicalPrinters().toPhysicalPrintersOutcome() }
+    override suspend fun printerConnection(): PrinterConnectionOutcome =
+        remote(PrinterConnectionOutcome::Failure) { printerConnection().toPrinterConnectionOutcome() }
 
-    override suspend fun savePhysicalPrinter(printer: PhysicalPrinter, renamedFrom: String?): PhysicalPrintersOutcome =
-        remote(PhysicalPrintersOutcome::Failure) { savePhysicalPrinter(printer.toParcel(), renamedFrom).toPhysicalPrintersOutcome() }
-
-    override suspend fun deletePhysicalPrinter(name: String): PhysicalPrintersOutcome =
-        remote(PhysicalPrintersOutcome::Failure) { deletePhysicalPrinter(name).toPhysicalPrintersOutcome() }
+    override suspend fun savePrinterConnection(settings: ModelSettings, name: String): PresetSettingsOutcome =
+        remote(PresetSettingsOutcome::Failure) {
+            savePrinterConnection(settings.values.keys.toTypedArray(), settings.values.values.toTypedArray(), name).toPresetSettingsOutcome()
+        }
 
     override suspend fun importPresets(paths: List<String>, answers: Map<String, ConfigOverwriteAnswer>): ConfigTransferOutcome =
         remote(ConfigTransferOutcome::Failure) {

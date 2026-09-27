@@ -325,9 +325,11 @@ file the engine writes.
   append_options), and `:core:ui` matches the query against the translated
   texts, since the app holds OrcaSlicer's catalogue — `FuzzyMatch` ports
   `fts_fuzzy_match.h` and `SettingsSearch` ports `OptionsSearcher::search`.
-  `ObservePhysicalPrintersUseCase`, `SavePhysicalPrinterUseCase` and
-  `DeletePhysicalPrinterUseCase` are `PhysicalPrinterDialog`, and
-  `SendGcodeUseCase` is `PrintHost::upload`: the sliced G-code goes to the
+  `ObservePrinterConnectionUseCase` reads the printer's host from the edited
+  printer preset, where `PhysicalPrinterDialog` edits it (its OK is the
+  printer tab's `SettingsRequest.SaveConnection`), and the Device tab of
+  `:feature:device` shows the page of that host; `SendGcodeUseCase` is
+  `PrintHost::upload`: the sliced G-code goes to the
   printer through `GcodeSender`, which `:network:printhost` implements with the
   platform's HTTP, since the desktop app's upload lives in its GUI layer.
   `ExportGcodeUseCase` is the File menu's Export G-code: the sliced file is

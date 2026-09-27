@@ -1974,32 +1974,37 @@ struct PresetNames {
 
 PresetNames compatible_preset_choices(PresetKind kind, const std::string& key);
 
-// A printer the app can send G-code to (PhysicalPrinter): its name, the printer
-// presets it prints with, and the settings of its host as the desktop app's
-// PhysicalPrinterDialog holds them (host_type, print_host, printhost_apikey
-// and the rest of PhysicalPrinter::print_host_options()).
-struct PhysicalPrinterState {
-    std::string name;
-    std::vector<std::string> preset_names;
-    ModelSettings settings;
-};
-
-struct PhysicalPrinters {
+// The printer's host as the edited printer preset holds it, which the
+// sidebar's Connection button edits (PhysicalPrinterDialog, whose m_config is
+// that preset's configuration), sending G-code goes to
+// (Plater::send_gcode_legacy()) and the Device tab shows the page of.
+struct PrinterConnection {
     SceneStatus status{SceneStatus::engine_not_ready};
     std::string message;
-    std::vector<PhysicalPrinterState> printers;
+    // host_type, print_host, print_host_webui, printhost_apikey and the rest of
+    // the host's settings of the edited printer preset.
+    ModelSettings settings;
+    // The name the dialog offers to save the preset under: "Untitled" for the
+    // default preset, the name of a system preset with " - Copy" after it
+    // (save_name_copy_suffix), which the app translates, or the user preset's own.
+    std::string save_name;
+    bool save_name_copy_suffix{false};
+    // Sidebar::update_all_preset_comboboxes(): the page the Device tab loads,
+    // PrintHost::get_print_host_webui() or, without a host, OrcaSlicer's page
+    // that asks for one, and the API key the page's requests carry.
+    std::string webui;
+    std::string api_key;
+    // PresetBundle::use_bbl_device_tab(): a BambuLab printer, whose Device tab
+    // is BambuLab's own monitor instead of a page.
+    bool bbl_device_tab{false};
 };
 
-// PhysicalPrinterCollection: the printers the user set up, in its order.
-PhysicalPrinters physical_printers();
+PrinterConnection printer_connection();
 
-// PhysicalPrinterCollection::save_printer(): a printer of that name is
-// replaced, and one that is not there yet is added. renamed_from is the name it
-// had before, as the dialog renames a printer.
-PhysicalPrinters save_physical_printer(const PhysicalPrinterState& printer, const std::string& renamed_from);
-
-// PhysicalPrinterCollection::delete_printer()
-PhysicalPrinters delete_physical_printer(const std::string& name);
+// PhysicalPrinterDialog::OnOK(): the host's settings on the edited printer
+// preset, which is then saved as name (Tab::save_preset() with the dialog's
+// name) and selected.
+PresetSettings save_printer_connection(const ModelSettings& settings, const std::string& name);
 
 // The presets a configuration file brought in, or the files an export wrote
 // (MainFrame::load_config_file and export_config).

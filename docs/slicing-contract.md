@@ -298,12 +298,17 @@ id removes every one of them (`TabPrintModel::reset_model_config`). The
 bed type of the plate is named by its key, where the desktop app's combo box
 lists the types without the default one and shifts them by one.
 
-`physicalPrinters`, `savePhysicalPrinter` and `deletePhysicalPrinter` are
-OrcaSlicer's `PhysicalPrinterDialog`: the printers the app can send G-code to,
-each with the presets it prints with and the settings of its host. The engine
-loads them from the data directory itself, because this build of OrcaSlicer
-never loads them. Sending the G-code is not part of the contract: it goes over
-the network from the app.
+`printerConnection` and `savePrinterConnection` are OrcaSlicer's
+`PhysicalPrinterDialog`: the settings of the printer's host live on the edited
+printer preset (`host_type`, `print_host`, `print_host_webui`,
+`printhost_apikey` and the rest), which the dialog edits and saves under a
+name of its own — a system preset as a copy — and selects. The same answer
+brings the page the Device tab loads (`PrintHost::get_print_host_webui()`, or
+OrcaSlicer's `web/orca/missing_connection.html` while the preset has no host),
+the API key the page's requests carry, and whether the printer is BambuLab's,
+whose Device tab is BambuLab's own monitor. Sending the G-code is not part of
+the contract: it goes over the network from the app, to the preset's host
+(`Plater::send_gcode_legacy()`).
 
 `importPresets` and `exportPresets` are the Import Configs and Export Preset
 Bundle of the desktop app's File menu: the user presets of OrcaSlicer's

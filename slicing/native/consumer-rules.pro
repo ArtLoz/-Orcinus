@@ -44,8 +44,7 @@
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeGcodePlaceholders { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeGcodePlaceholderInfo { <init>(...); }
 # Physical printers and the configuration files of the File menu.
--keep class app.orcinus.shadow.slicing.nativebridge.NativePhysicalPrinter { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePhysicalPrinters { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativePrinterConnection { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeConfigTransfer { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeConfigExportOptions { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeCreateFilamentOptions { <init>(...); }

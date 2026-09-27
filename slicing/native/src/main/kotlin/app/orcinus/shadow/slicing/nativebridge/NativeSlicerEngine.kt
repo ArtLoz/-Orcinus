@@ -81,8 +81,6 @@ import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintedSurface
 import app.orcinus.shadow.core.model.PaintingOutcome
-import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
@@ -105,6 +103,7 @@ import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
 import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
@@ -1430,24 +1429,14 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         NativeBindings.setFilamentColor(index.toLong(), color).toOutcome()
     }
 
-    override suspend fun physicalPrinters(): PhysicalPrintersOutcome = whenReady(PhysicalPrintersOutcome::Failure) {
-        NativeBindings.physicalPrinters().toOutcome()
+    override suspend fun printerConnection(): PrinterConnectionOutcome = whenReady(PrinterConnectionOutcome::Failure) {
+        NativeBindings.printerConnection().toOutcome()
     }
 
-    override suspend fun savePhysicalPrinter(printer: PhysicalPrinter, renamedFrom: String?): PhysicalPrintersOutcome =
-        whenReady(PhysicalPrintersOutcome::Failure) {
-            NativeBindings.savePhysicalPrinter(
-                name = printer.name,
-                presetNames = printer.presetNames.toTypedArray(),
-                keys = printer.settings.keys(),
-                values = printer.settings.values(),
-                renamedFrom = renamedFrom,
-            ).toOutcome()
+    override suspend fun savePrinterConnection(settings: ModelSettings, name: String): PresetSettingsOutcome =
+        whenReady(PresetSettingsOutcome::Failure) {
+            NativeBindings.savePrinterConnection(settings.keys(), settings.values(), name).toOutcome()
         }
-
-    override suspend fun deletePhysicalPrinter(name: String): PhysicalPrintersOutcome = whenReady(PhysicalPrintersOutcome::Failure) {
-        NativeBindings.deletePhysicalPrinter(name).toOutcome()
-    }
 
     override suspend fun importPresets(paths: List<String>, answers: Map<String, ConfigOverwriteAnswer>): ConfigTransferOutcome =
         whenReady(ConfigTransferOutcome::Failure) {

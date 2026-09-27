@@ -1,43 +1,43 @@
 package app.orcinus.shadow.slicing.service
 
+import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.BedShapeKind
+import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.ConfigExportEntry
+import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
+import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CustomFilament
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.DialogIcon
-import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FilamentPresetList
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
-import app.orcinus.shadow.core.model.ModelSettings
-import app.orcinus.shadow.core.model.BedShape
-import app.orcinus.shadow.core.model.BedShapeKind
-import app.orcinus.shadow.core.model.BedShapeOutcome
-import app.orcinus.shadow.core.model.Point2
-import app.orcinus.shadow.core.model.ConfigTransferOutcome
-import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
-import app.orcinus.shadow.core.model.PresetChange
-import app.orcinus.shadow.core.model.PresetComparisonOutcome
-import app.orcinus.shadow.core.model.ConfigExportEntry
-import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
-import app.orcinus.shadow.core.model.PresetKindComparison
-import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.GcodePlaceholder
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholderType
 import app.orcinus.shadow.core.model.GcodePlaceholders
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
-import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetChange
+import app.orcinus.shadow.core.model.PresetComparisonOutcome
+import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.PresetKindComparison
 import app.orcinus.shadow.core.model.PresetNameCheck
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNameValidation
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettings
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
+import app.orcinus.shadow.core.model.PrinterConnection
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
+import app.orcinus.shadow.core.model.SearchCatalogOutcome
+import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingChoice
 import app.orcinus.shadow.core.model.SettingControl
 import app.orcinus.shadow.core.model.SettingDefinition
@@ -712,32 +712,39 @@ internal fun ConfigTransferParcel.toConfigTransferOutcome(): ConfigTransferOutco
     return ConfigTransferOutcome.Success(names.orEmpty().toList())
 }
 
-/** PhysicalPrinterCollection: the printers the app can send G-code to. */
-internal fun PhysicalPrinter.toParcel() = PhysicalPrinterParcel().also {
-    it.name = name
-    it.presetNames = presetNames.toTypedArray()
-    it.keys = settings.values.keys.toTypedArray()
-    it.values = settings.values.values.toTypedArray()
-}
-
-internal fun PhysicalPrinterParcel.toPhysicalPrinter(): PhysicalPrinter {
-    val keys = keys.orEmpty()
-    val values = values.orEmpty()
-    return PhysicalPrinter(
-        name = name,
-        presetNames = presetNames.orEmpty().toList(),
-        settings = ModelSettings(keys.indices.filter { it < values.size }.associate { keys[it] to values[it] }),
-    )
-}
-
-internal fun PhysicalPrintersOutcome.toParcel() = PhysicalPrintersParcel().also { parcel ->
+/** The printer's host on the edited printer preset (PhysicalPrinterDialog). */
+internal fun PrinterConnectionOutcome.toParcel() = PrinterConnectionParcel().also { parcel ->
+    parcel.keys = emptyArray()
+    parcel.values = emptyArray()
+    parcel.saveName = ""
+    parcel.webUi = ""
+    parcel.apiKey = ""
     when (this) {
-        is PhysicalPrintersOutcome.Failure -> parcel.error = message
-        is PhysicalPrintersOutcome.Success -> parcel.printers = printers.map { it.toParcel() }.toTypedArray()
+        is PrinterConnectionOutcome.Failure -> parcel.error = message
+        is PrinterConnectionOutcome.Success -> {
+            parcel.keys = connection.settings.values.keys.toTypedArray()
+            parcel.values = connection.settings.values.values.toTypedArray()
+            parcel.saveName = connection.saveName
+            parcel.saveNameCopySuffix = connection.saveNameCopySuffix
+            parcel.webUi = connection.webUi
+            parcel.apiKey = connection.apiKey
+            parcel.bambuDeviceTab = connection.bambuDeviceTab
+        }
     }
 }
 
-internal fun PhysicalPrintersParcel.toPhysicalPrintersOutcome(): PhysicalPrintersOutcome {
-    error?.let { return PhysicalPrintersOutcome.Failure(it) }
-    return PhysicalPrintersOutcome.Success(printers.orEmpty().map { it.toPhysicalPrinter() })
+internal fun PrinterConnectionParcel.toPrinterConnectionOutcome(): PrinterConnectionOutcome {
+    error?.let { return PrinterConnectionOutcome.Failure(it) }
+    val keys = keys.orEmpty()
+    val values = values.orEmpty()
+    return PrinterConnectionOutcome.Success(
+        PrinterConnection(
+            settings = ModelSettings(keys.indices.filter { it < values.size }.associate { keys[it] to values[it] }),
+            saveName = saveName.orEmpty(),
+            saveNameCopySuffix = saveNameCopySuffix,
+            webUi = webUi.orEmpty(),
+            apiKey = apiKey.orEmpty(),
+            bambuDeviceTab = bambuDeviceTab,
+        ),
+    )
 }

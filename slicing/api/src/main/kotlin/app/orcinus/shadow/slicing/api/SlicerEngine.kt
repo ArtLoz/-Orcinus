@@ -49,8 +49,6 @@ import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintingOutcome
-import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
@@ -64,6 +62,7 @@ import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
@@ -682,13 +681,11 @@ interface PresetSettingsEditor {
     /** The presets the list of compatible presets offers. */
     suspend fun compatiblePresetChoices(kind: PresetKind, key: String): PresetNamesOutcome
 
-    /** PhysicalPrinterCollection: the printers the app can send G-code to. */
-    suspend fun physicalPrinters(): PhysicalPrintersOutcome
+    /** The printer's host as the edited printer preset holds it (PhysicalPrinterDialog's m_config). */
+    suspend fun printerConnection(): PrinterConnectionOutcome
 
-    /** PhysicalPrinterCollection::save_printer(): [renamedFrom] is the name it had before. */
-    suspend fun savePhysicalPrinter(printer: PhysicalPrinter, renamedFrom: String? = null): PhysicalPrintersOutcome
-
-    suspend fun deletePhysicalPrinter(name: String): PhysicalPrintersOutcome
+    /** PhysicalPrinterDialog::OnOK(): the host's [settings] on the edited printer preset, saved as [name] and selected. */
+    suspend fun savePrinterConnection(settings: ModelSettings, name: String): PresetSettingsOutcome
 
     /**
      * PresetBundle::import_presets(): the user presets the files hold, which

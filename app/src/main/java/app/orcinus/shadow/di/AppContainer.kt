@@ -47,7 +47,6 @@ import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
 import app.orcinus.shadow.domain.plate.CustomFilamentsUseCase
 import app.orcinus.shadow.domain.plate.CustomPrinterUseCase
 import app.orcinus.shadow.domain.plate.CutObjectUseCase
-import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DescribeCalibrationPrinterUseCase
@@ -72,8 +71,8 @@ import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObjectMeshRetention
-import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PaintObjectUseCase
 import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
@@ -87,7 +86,6 @@ import app.orcinus.shadow.domain.plate.PlatePresets
 import app.orcinus.shadow.domain.plate.PlateThumbnailRenderer
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
-import app.orcinus.shadow.domain.plate.PrinterPresetNamesUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveLayerRangeUseCase
@@ -98,7 +96,6 @@ import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.RenderThumbnailsUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
-import app.orcinus.shadow.domain.plate.SavePhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
@@ -131,6 +128,7 @@ import app.orcinus.shadow.domain.plate.WipeTowerUpdates
 import app.orcinus.shadow.feature.about.NoticeViewModel
 import app.orcinus.shadow.feature.about.ThirdPartyViewModel
 import app.orcinus.shadow.feature.about.navigation.AboutViewModelFactory
+import app.orcinus.shadow.feature.device.DeviceViewModel
 import app.orcinus.shadow.feature.prepare.PrepareViewModel
 import app.orcinus.shadow.feature.preview.PreviewViewModel
 import app.orcinus.shadow.feature.settings.PresetSettingsViewModel
@@ -262,10 +260,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
         override suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
     }
-    val physicalPrinters = ObservePhysicalPrintersUseCase(engine)
-    val savePhysicalPrinter = SavePhysicalPrinterUseCase(engine)
-    val deletePhysicalPrinter = DeletePhysicalPrinterUseCase(engine)
-    val printerPresetNames = PrinterPresetNamesUseCase(engine)
+    val printerConnection = ObservePrinterConnectionUseCase(engine)
     val testPhysicalPrinter = TestPhysicalPrinterUseCase(gcodeSender)
     val sendGcode = SendGcodeUseCase(gcodeSender, plateRepository)
     val exportGcode = ExportGcodeUseCase(AppDocumentExport(applicationContext), plateRepository)
@@ -420,14 +415,13 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         setSliceMode = setSliceMode,
         selectSlicedPlate = SelectSlicedPlateUseCase(selectPlate, slicePlate, plateRepository, applicationScope),
         showAllPlatesStats = ShowAllPlatesStatsUseCase(sliceAllPlates, plateRepository),
-        physicalPrinters = physicalPrinters,
-        savePhysicalPrinter = savePhysicalPrinter,
-        deletePhysicalPrinter = deletePhysicalPrinter,
-        printerPresetNames = printerPresetNames,
+        printerConnection = printerConnection,
         sendGcode = sendGcode,
         exportGcode = exportGcode,
         editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
     )
+
+    fun deviceViewModel() = DeviceViewModel(observePlate, printerConnection)
 
     fun sidebarViewModel() = SidebarViewModel(
         observePlate = observePlate,
@@ -466,11 +460,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         renamePlateItem = renamePlateItem,
         editPlateObject = editPlateObject,
         deletePlateObject = deletePlateObject,
-        physicalPrinters = physicalPrinters,
-        savePhysicalPrinter = savePhysicalPrinter,
-        deletePhysicalPrinter = deletePhysicalPrinter,
+        printerConnection = printerConnection,
         testPhysicalPrinter = testPhysicalPrinter,
-        printerPresetNames = printerPresetNames,
         setFlushOption = setFlushOption,
         copySettings = copyProcessSettings,
         pasteSettings = pasteProcessSettings,

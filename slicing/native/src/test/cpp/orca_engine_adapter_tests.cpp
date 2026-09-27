@@ -2198,56 +2198,51 @@ TEST_CASE("The condition of compatible presets is edited only while none is list
     REQUIRE(orca::reset_settings(filament, page, {}, {}, {}).status == orca::SceneStatus::success);
 }
 
-TEST_CASE("A printer to send G-code to is kept as the physical printer dialog keeps it", "[Adapter][Settings]")
+TEST_CASE("The host of the printer is kept on its preset as the Connection dialog keeps it", "[Adapter][Settings]")
 {
     require_engine();
     REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
-    const std::string name = "Orcinus test host";
-
-    const auto setting = [](const orca::PhysicalPrinterState& printer, const std::string& key) {
-        const auto found = std::find(printer.settings.keys.begin(), printer.settings.keys.end(), key);
-        return found == printer.settings.keys.end() ? std::string("<unset>")
-                                                    : printer.settings.values[std::size_t(found - printer.settings.keys.begin())];
-    };
-    const auto find = [&name](const orca::PhysicalPrinters& printers) {
-        return std::find_if(printers.printers.begin(), printers.printers.end(),
-                            [&name](const orca::PhysicalPrinterState& printer) { return printer.name == name; });
+    const auto setting = [](const orca::PrinterConnection& connection, const std::string& key) {
+        const auto found = std::find(connection.settings.keys.begin(), connection.settings.keys.end(), key);
+        return found == connection.settings.keys.end() ? std::string("<unset>")
+                                                       : connection.settings.values[std::size_t(found - connection.settings.keys.begin())];
     };
 
-    orca::PhysicalPrinterState printer;
-    printer.name = name;
-    printer.preset_names = {"Creality K2 Plus 0.4 nozzle"};
-    printer.settings.keys = {"host_type", "print_host", "printhost_apikey"};
-    printer.settings.values = {"octoprint", "http://192.168.1.50", "abcdef"};
+    // A system preset without a host: the dialog offers a copy of it, and the
+    // Device tab asks for a connection.
+    const orca::PrinterConnection none = orca::printer_connection();
+    INFO(none.message);
+    REQUIRE(none.status == orca::SceneStatus::success);
+    CHECK(none.save_name == "Creality K2 Plus 0.4 nozzle");
+    CHECK(none.save_name_copy_suffix);
+    CHECK(setting(none, "print_host").empty());
+    CHECK(none.webui.find("/web/orca/missing_connection.html") != std::string::npos);
+    CHECK(none.webui.rfind("file://", 0) == 0);
+    CHECK(none.api_key.empty());
+    CHECK_FALSE(none.bbl_device_tab);
 
-    const orca::PhysicalPrinters saved = orca::save_physical_printer(printer, {});
+    // OK: the host on the preset, saved as a user preset and selected.
+    orca::ModelSettings host;
+    host.keys = {"host_type", "print_host", "printhost_apikey"};
+    host.values = {"crealityprint", "192.168.1.50", "abcdef"};
+    const orca::PresetSettings saved = orca::save_printer_connection(host, "Orcinus test printer");
     INFO(saved.message);
     REQUIRE(saved.status == orca::SceneStatus::success);
-    auto stored = find(saved);
-    REQUIRE(stored != saved.printers.end());
-    CHECK(setting(*stored, "host_type") == "octoprint");
-    CHECK(setting(*stored, "print_host") == "http://192.168.1.50");
-    CHECK(setting(*stored, "printhost_apikey") == "abcdef");
-    CHECK(stored->preset_names == std::vector<std::string>{"Creality K2 Plus 0.4 nozzle"});
+    CHECK(saved.preset == "Orcinus test printer");
 
-    // The printer is there for the next request, as the collection keeps it.
-    const orca::PhysicalPrinters listed = orca::physical_printers();
-    REQUIRE(listed.status == orca::SceneStatus::success);
-    REQUIRE(find(listed) != listed.printers.end());
+    const orca::PrinterConnection set = orca::printer_connection();
+    REQUIRE(set.status == orca::SceneStatus::success);
+    CHECK(setting(set, "host_type") == "crealityprint");
+    CHECK(setting(set, "print_host") == "192.168.1.50");
+    CHECK(set.save_name == "Orcinus test printer");
+    CHECK_FALSE(set.save_name_copy_suffix);
+    // PrintHost::get_print_host_webui(): the host with http:// in front.
+    CHECK(set.webui == "http://192.168.1.50");
+    CHECK(set.api_key == "abcdef");
 
-    // Saving under the same name changes the printer instead of adding one.
-    printer.settings.values = {"moonraker", "http://192.168.1.60", "abcdef"};
-    const orca::PhysicalPrinters changed = orca::save_physical_printer(printer, {});
-    REQUIRE(changed.status == orca::SceneStatus::success);
-    stored = find(changed);
-    REQUIRE(stored != changed.printers.end());
-    CHECK(setting(*stored, "host_type") == "moonraker");
-    CHECK(std::count_if(changed.printers.begin(), changed.printers.end(),
-                        [&name](const orca::PhysicalPrinterState& one) { return one.name == name; }) == 1);
-
-    const orca::PhysicalPrinters deleted = orca::delete_physical_printer(name);
-    REQUIRE(deleted.status == orca::SceneStatus::success);
-    CHECK(find(deleted) == deleted.printers.end());
+    // The test leaves the profiles as it found them.
+    REQUIRE(orca::delete_preset(orca::PresetKind::printer, {{"delete_preset", true}}).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
 }
 
 TEST_CASE("A user preset is exported to files and imported back", "[Adapter][Settings]")

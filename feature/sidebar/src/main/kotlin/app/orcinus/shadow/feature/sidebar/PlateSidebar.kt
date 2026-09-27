@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.sidebar
 
 import android.content.res.Configuration
+import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
+import app.orcinus.shadow.core.ui.settings.PrinterConnectionSheet
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -105,7 +108,6 @@ import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PendingPresetChange
 import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateInstanceId
@@ -156,7 +158,6 @@ import app.orcinus.shadow.core.ui.settings.CreatePrinterDialog
 import app.orcinus.shadow.core.ui.settings.CustomPrinterActions
 import app.orcinus.shadow.core.ui.settings.DiffPresetDialog
 import app.orcinus.shadow.core.ui.settings.ExportConfigsDialog
-import app.orcinus.shadow.core.ui.settings.PhysicalPrintersSheet
 import app.orcinus.shadow.core.ui.settings.PresetChangeActions
 import app.orcinus.shadow.core.ui.settings.PresetChangeDialog
 import app.orcinus.shadow.core.ui.settings.PresetComparisonActions
@@ -180,7 +181,6 @@ import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
 import app.orcinus.shadow.domain.plate.CustomPrinterUseCase
-import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DescribeCalibrationPrinterUseCase
@@ -192,7 +192,6 @@ import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
 import app.orcinus.shadow.domain.plate.ImportConfigUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
-import app.orcinus.shadow.domain.plate.ObservePhysicalPrintersUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
@@ -202,7 +201,6 @@ import app.orcinus.shadow.domain.plate.PlateFilamentsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
-import app.orcinus.shadow.domain.plate.PrinterPresetNamesUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveLayerRangeUseCase
@@ -212,7 +210,6 @@ import app.orcinus.shadow.domain.plate.RenamePlateItemUseCase
 import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
-import app.orcinus.shadow.domain.plate.SavePhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
@@ -343,11 +340,8 @@ class SidebarViewModel(
     private val copyToClipboard: CopyToClipboardUseCase,
     private val pasteFromClipboard: PasteFromClipboardUseCase,
     private val deletePlateObject: DeletePlateObjectUseCase,
-    private val physicalPrinters: ObservePhysicalPrintersUseCase,
-    private val savePhysicalPrinter: SavePhysicalPrinterUseCase,
-    private val deletePhysicalPrinter: DeletePhysicalPrinterUseCase,
+    private val printerConnection: ObservePrinterConnectionUseCase,
     private val testPhysicalPrinter: TestPhysicalPrinterUseCase,
-    private val printerPresetNames: PrinterPresetNamesUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
     private val copySettings: CopyProcessSettingsUseCase,
     private val pasteSettings: PasteProcessSettingsUseCase,
@@ -732,21 +726,18 @@ class SidebarViewModel(
     suspend fun searchCatalog(): SearchCatalogOutcome = settingsTabs.searchCatalog()
 
     /**
-     * The Connection button of the sidebar's printer title
-     * (Plater's m_printer_connect): the printers of the network the app sends
-     * G-code to.
+     * The Connection button of the sidebar's printer title (Plater's
+     * m_printer_connect): the printer's host on its edited preset.
      */
-    suspend fun networkPrinters(): PhysicalPrintersOutcome = physicalPrinters()
+    suspend fun printerConnection(): PrinterConnectionOutcome = printerConnection.invoke()
 
-    suspend fun saveNetworkPrinter(printer: PhysicalPrinter, renamedFrom: String?): PhysicalPrintersOutcome =
-        savePhysicalPrinter(printer, renamedFrom)
+    /** PhysicalPrinterDialog's OK: the host on the edited printer preset, which is saved as [name]. */
+    fun savePrinterConnection(settings: ModelSettings, name: String) =
+        settingsTabs.request(PresetKind.PRINTER, SettingsRequest.SaveConnection(settings, name))
 
-    suspend fun deleteNetworkPrinter(name: String): PhysicalPrintersOutcome = deletePhysicalPrinter(name)
+    suspend fun checkPrinterName(name: String): PresetNameOutcome = settingsTabs.checkPresetName(PresetKind.PRINTER, name)
 
     suspend fun testNetworkPrinter(printer: PhysicalPrinter): PrintHostTestOutcome = testPhysicalPrinter(printer)
-
-    suspend fun networkPrinterPresets(): List<String> =
-        (printerPresetNames() as? PresetNamesOutcome.Success)?.names.orEmpty()
 
     /** DiffPresetDialog: the presets of either side, and what the selected ones differ in. */
     suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean): PresetComparisonOutcome =
@@ -1441,33 +1432,30 @@ fun PlateSidebar(
             close = viewModel::closeCreatePrinter,
         ),
         network = NetworkPrinterActions(
-            load = viewModel::networkPrinters,
-            save = viewModel::saveNetworkPrinter,
-            delete = viewModel::deleteNetworkPrinter,
+            load = viewModel::printerConnection,
+            checkName = viewModel::checkPrinterName,
+            save = viewModel::savePrinterConnection,
             test = viewModel::testNetworkPrinter,
-            presets = viewModel::networkPrinterPresets,
         ),
     )
 }
 
 /**
- * PhysicalPrinterDialog as the sidebar opens it: the printers of the network
- * the app sends G-code to.
+ * PhysicalPrinterDialog as the sidebar opens it: the printer's host on its
+ * edited preset, and the preset saved with it.
  */
 internal class NetworkPrinterActions(
-    val load: suspend () -> PhysicalPrintersOutcome,
-    val save: suspend (PhysicalPrinter, String?) -> PhysicalPrintersOutcome,
-    val delete: suspend (String) -> PhysicalPrintersOutcome,
+    val load: suspend () -> PrinterConnectionOutcome,
+    val checkName: suspend (String) -> PresetNameOutcome,
+    val save: (ModelSettings, String) -> Unit,
     val test: suspend (PhysicalPrinter) -> PrintHostTestOutcome,
-    val presets: suspend () -> List<String>,
 ) {
     companion object {
         val NONE = NetworkPrinterActions(
-            load = { PhysicalPrintersOutcome.Failure("") },
-            save = { _, _ -> PhysicalPrintersOutcome.Failure("") },
-            delete = { PhysicalPrintersOutcome.Failure("") },
+            load = { PrinterConnectionOutcome.Failure("") },
+            checkName = { PresetNameOutcome.Failure("") },
+            save = { _, _ -> },
             test = { PrintHostTestOutcome.Failure("") },
-            presets = { emptyList() },
         )
     }
 }
@@ -1777,13 +1765,15 @@ internal fun PlateSidebarContent(
     // CreatePrinterPresetDialog, which the printer list opens. It closes itself
     // once the printer is made, so a question keeps the filled-in pages.
     if (openNetworkPrinters) {
-        PhysicalPrintersSheet(
+        PrinterConnectionSheet(
             load = network.load,
-            onSave = network.save,
-            onDelete = network.delete,
+            checkName = network.checkName,
+            onSave = { settings, name ->
+                openNetworkPrinters = false
+                network.save(settings, name)
+            },
             onDismiss = { openNetworkPrinters = false },
             onTest = network.test,
-            loadPresets = network.presets,
         )
     }
     if (printers.creating) {

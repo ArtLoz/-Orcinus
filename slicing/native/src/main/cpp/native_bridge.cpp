@@ -1956,31 +1956,25 @@ jobject to_java(JNIEnv* env, const orcinus::orca::ConfigTransfer& transfer)
     );
 }
 
-// NativePhysicalPrinters
-jobject to_java(JNIEnv* env, const orcinus::orca::PhysicalPrinters& printers)
+// NativePrinterConnection
+jobject to_java(JNIEnv* env, const orcinus::orca::PrinterConnection& connection)
 {
-    const jobjectArray items = to_java_objects(
-        env,
-        "app/orcinus/shadow/slicing/nativebridge/NativePhysicalPrinter",
-        printers.printers,
-        [](JNIEnv* item_env, const orcinus::orca::PhysicalPrinterState& printer) {
-            const jclass item_class = item_env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePhysicalPrinter");
-            const jmethodID constructor =
-                item_env->GetMethodID(item_class, "<init>", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)V");
-            return item_env->NewObject(
-                item_class,
-                constructor,
-                to_java(item_env, printer.name),
-                to_java(item_env, printer.preset_names),
-                to_java(item_env, printer.settings.keys),
-                to_java(item_env, printer.settings.values)
-            );
-        }
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePrinterConnection");
+    const jmethodID constructor = env->GetMethodID(
+        result_class, "<init>", "(JLjava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Z)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(connection.status),
+        to_java(env, connection.message),
+        to_java(env, connection.settings.keys),
+        to_java(env, connection.settings.values),
+        to_java(env, connection.save_name),
+        connection.save_name_copy_suffix ? JNI_TRUE : JNI_FALSE,
+        to_java(env, connection.webui),
+        to_java(env, connection.api_key),
+        connection.bbl_device_tab ? JNI_TRUE : JNI_FALSE
     );
-    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePhysicalPrinters");
-    const jmethodID constructor =
-        env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativePhysicalPrinter;)V");
-    return env->NewObject(result_class, constructor, static_cast<jlong>(printers.status), to_java(env, printers.message), items);
 }
 
 // NativeDirtyPreset
@@ -2079,33 +2073,21 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setFilamentColor(JNI
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_physicalPrinters(JNIEnv* env, jobject /* this */)
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_printerConnection(JNIEnv* env, jobject /* this */)
 {
-    return to_java(env, orcinus::orca::physical_printers());
+    return to_java(env, orcinus::orca::printer_connection());
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_savePhysicalPrinter(
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_savePrinterConnection(
     JNIEnv* env,
     jobject /* this */,
-    jstring name,
-    jobjectArray preset_names,
     jobjectArray keys,
     jobjectArray values,
-    jstring renamed_from
+    jstring name
 )
 {
-    orcinus::orca::PhysicalPrinterState printer;
-    printer.name = to_utf8(env, name);
-    printer.preset_names = to_strings(env, preset_names);
-    printer.settings = to_model_settings(env, keys, values);
-    return to_java(env, orcinus::orca::save_physical_printer(printer, renamed_from != nullptr ? to_utf8(env, renamed_from) : std::string()));
-}
-
-extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_deletePhysicalPrinter(JNIEnv* env, jobject /* this */, jstring name)
-{
-    return to_java(env, orcinus::orca::delete_physical_printer(to_utf8(env, name)));
+    return to_java(env, orcinus::orca::save_printer_connection(to_model_settings(env, keys, values), to_utf8(env, name)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL

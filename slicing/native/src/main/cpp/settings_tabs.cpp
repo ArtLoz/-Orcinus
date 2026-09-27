@@ -651,41 +651,11 @@ const std::vector<std::string>& print_host_keys()
     return keys;
 }
 
-// The printers as the app takes them, with the settings the dialog holds.
-PhysicalPrinters describe_physical_printers(Slic3r::PresetBundle& bundle)
-{
-    PhysicalPrinters result;
-    for (const Slic3r::PhysicalPrinter& printer : bundle.physical_printers) {
-        PhysicalPrinterState& described = result.printers.emplace_back();
-        described.name = printer.name;
-        described.preset_names.assign(printer.preset_names.begin(), printer.preset_names.end());
-        for (const std::string& key : print_host_keys()) {
-            if (const Slic3r::ConfigOption* option = printer.config.option(key); option != nullptr) {
-                described.settings.keys.push_back(key);
-                described.settings.values.push_back(option->serialize());
-            }
-        }
-    }
-    result.status = SceneStatus::success;
-    return result;
-}
-
 }  // namespace
 
-PhysicalPrinters physical_printers()
+PrinterConnection printer_connection()
 {
-    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
-    if (engine().bundle == nullptr) {
-        PhysicalPrinters result;
-        result.message = "OrcaSlicer profiles are not loaded";
-        return result;
-    }
-    return describe_physical_printers(*engine().bundle);
-}
-
-PhysicalPrinters save_physical_printer(const PhysicalPrinterState& printer, const std::string& renamed_from)
-{
-    PhysicalPrinters result;
+    PrinterConnection result;
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
     if (engine().bundle == nullptr) {
         result.message = "OrcaSlicer profiles are not loaded";
@@ -693,57 +663,71 @@ PhysicalPrinters save_physical_printer(const PhysicalPrinterState& printer, cons
     }
     try {
         follow_config(engine());
-        Slic3r::PresetBundle& bundle = *engine().bundle;
-        if (printer.name.empty()) {
-            result.status = SceneStatus::profile_not_found;
-            result.message = "The printer needs a name";
-            return result;
+        Slic3r::PresetBundle& preset_bundle = *engine().bundle;
+        Slic3r::DynamicPrintConfig& cfg = preset_bundle.printers.get_edited_preset().config;
+        for (const std::string& key : print_host_keys()) {
+            if (const Slic3r::ConfigOption* option = cfg.option(key); option != nullptr) {
+                result.settings.keys.push_back(key);
+                result.settings.values.push_back(option->serialize());
+            }
         }
-        // PhysicalPrinterDialog::OnOK(): the printer keeps the settings of its
-        // host and the presets it prints with.
-        const std::string& existing = renamed_from.empty() ? printer.name : renamed_from;
-        const Slic3r::PhysicalPrinter* found = bundle.physical_printers.find_printer(existing, false);
-        Slic3r::PhysicalPrinter saved = found != nullptr
-            ? *found
-            : Slic3r::PhysicalPrinter(printer.name, bundle.physical_printers.default_config());
-        saved.set_name(printer.name);
-        saved.config.apply_only(model_config(printer.settings), printer.settings.keys, true);
-        saved.preset_names.clear();
-        for (const std::string& preset : printer.preset_names) {
-            saved.preset_names.insert(preset);
+
+        // PhysicalPrinterDialog::PhysicalPrinterDialog()
+        const Slic3r::Preset& sel_preset = preset_bundle.printers.get_selected_preset();
+        result.save_name = sel_preset.is_default ? "Untitled" : sel_preset.name;
+        result.save_name_copy_suffix = !sel_preset.is_default && sel_preset.is_system;
+
+        // PrintHost::get_print_host_webui()
+        std::string webui_url = cfg.opt_string("print_host_webui");
+        if (webui_url.empty())
+            webui_url = cfg.opt_string("print_host");
+        if (!webui_url.empty()) {
+            const bool has_http_scheme = boost::algorithm::istarts_with(webui_url, "http");
+            const bool has_file_scheme = boost::algorithm::istarts_with(webui_url, "file:");
+            if (!has_http_scheme && !has_file_scheme)
+                webui_url = "http://" + webui_url;
         }
-        if (saved.preset_names.empty()) {
-            saved.preset_names.insert(bundle.printers.get_selected_preset_name());
+
+        // Sidebar::update_all_preset_comboboxes()
+        if (webui_url.empty()) {
+            webui_url = "file://" + Slic3r::resources_dir() + "/web/orca/missing_connection.html";
+        } else {
+            const auto host_type = cfg.option<Slic3r::ConfigOptionEnum<Slic3r::PrintHostType>>("host_type")->value;
+            if (cfg.has("printhost_apikey") && (host_type != Slic3r::htSimplyPrint))
+                result.api_key = cfg.opt_string("printhost_apikey");
         }
-        saved.update_preset_names_in_config();
-        // The directory the collection writes into, which load_printers() set.
-        std::filesystem::create_directories(std::filesystem::path(Slic3r::data_dir()) / "physical_printer");
-        bundle.physical_printers.save_printer(saved, found != nullptr ? existing : std::string());
-        result = describe_physical_printers(bundle);
+        result.webui = webui_url;
+        result.bbl_device_tab = preset_bundle.use_bbl_device_tab();
+        result.status = SceneStatus::success;
     } catch (const std::exception& error) {
-        result.status = SceneStatus::write_failed;
+        result.status = SceneStatus::profile_not_found;
         result.message = error.what();
     }
     return result;
 }
 
-PhysicalPrinters delete_physical_printer(const std::string& name)
+PresetSettings save_printer_connection(const ModelSettings& settings, const std::string& name)
 {
-    PhysicalPrinters result;
-    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
-    if (engine().bundle == nullptr) {
-        result.message = "OrcaSlicer profiles are not loaded";
-        return result;
+    {
+        const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+        if (engine().bundle == nullptr) {
+            return settings_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+        }
+        try {
+            follow_config(engine());
+            // The dialog edits the edited printer preset's own configuration.
+            std::vector<std::string> keys;
+            for (const std::string& key : settings.keys) {
+                if (std::find(print_host_keys().begin(), print_host_keys().end(), key) != print_host_keys().end())
+                    keys.push_back(key);
+            }
+            engine().bundle->printers.get_edited_preset().config.apply_only(model_config(settings), keys, true);
+        } catch (const std::exception& error) {
+            return settings_failure(SceneStatus::write_failed, error.what());
+        }
     }
-    try {
-        follow_config(engine());
-        engine().bundle->physical_printers.delete_printer(name);
-        result = describe_physical_printers(*engine().bundle);
-    } catch (const std::exception& error) {
-        result.status = SceneStatus::write_failed;
-        result.message = error.what();
-    }
-    return result;
+    // PhysicalPrinterDialog::OnOK(): get_tab(TYPE_PRINTER)->save_preset("", false, false, true, m_preset_name)
+    return save_preset(PresetKind::printer, name);
 }
 
 namespace {

@@ -376,18 +376,17 @@ internal class NativePresetSettings(
 )
 
 /** Constructed by the native bridge; see PresetNames in orca_engine_adapter.hpp. */
-/** Constructed by the native bridge; see PhysicalPrinterState in orca_engine_adapter.hpp. */
-internal class NativePhysicalPrinter(
-    @JvmField val name: String,
-    @JvmField val presetNames: Array<String>,
-    @JvmField val keys: Array<String>,
-    @JvmField val values: Array<String>,
-)
-
-internal class NativePhysicalPrinters(
+/** Constructed by the native bridge; see PrinterConnection in orca_engine_adapter.hpp. */
+internal class NativePrinterConnection(
     @JvmField val status: Long,
     @JvmField val message: String,
-    @JvmField val printers: Array<NativePhysicalPrinter>,
+    @JvmField val keys: Array<String>,
+    @JvmField val values: Array<String>,
+    @JvmField val saveName: String,
+    @JvmField val saveNameCopySuffix: Boolean,
+    @JvmField val webUi: String,
+    @JvmField val apiKey: String,
+    @JvmField val bambuDeviceTab: Boolean,
 )
 
 /** Constructed by the native bridge; see CreateFilamentOptions in orca_engine_adapter.hpp. */
@@ -1419,18 +1418,11 @@ internal object NativeBindings {
         answers: BooleanArray,
     ): NativePresetSettings
 
-    /** PhysicalPrinterCollection: the printers the app can send G-code to. */
-    external fun physicalPrinters(): NativePhysicalPrinters
+    /** printer_connection() */
+    external fun printerConnection(): NativePrinterConnection
 
-    external fun savePhysicalPrinter(
-        name: String,
-        presetNames: Array<String>,
-        keys: Array<String>,
-        values: Array<String>,
-        renamedFrom: String?,
-    ): NativePhysicalPrinters
-
-    external fun deletePhysicalPrinter(name: String): NativePhysicalPrinters
+    /** save_printer_connection() */
+    external fun savePrinterConnection(keys: Array<String>, values: Array<String>, name: String): NativePresetSettings
 
     /**
      * PresetBundle::import_presets(): the user presets the files hold, with

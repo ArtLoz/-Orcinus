@@ -198,7 +198,6 @@ class PrintHostUploaderTest {
 
     private fun printer(hostType: String, host: String, key: String, extra: Map<String, String> = emptyMap()) = PhysicalPrinter(
         name = "Test",
-        presetNames = listOf("Creality K2 Plus 0.4 nozzle"),
         settings = ModelSettings(mapOf("host_type" to hostType, "print_host" to host, "printhost_apikey" to key) + extra),
     )
 

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MainFrame::show_device(): a BambuLab printer's Device tab is BambuLab's MonitorPanel, which runs on its network plugin. -->
+    <string name="device_bambu_monitor">У принтеров BambuLab на этой вкладке монитор самой BambuLab: он работает через сетевой модуль BambuLab, которого в приложении нет.</string>
+</resources>

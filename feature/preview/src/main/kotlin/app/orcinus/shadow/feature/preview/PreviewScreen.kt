@@ -1,11 +1,6 @@
 package app.orcinus.shadow.feature.preview
 
 import android.Manifest
-import app.orcinus.shadow.domain.plate.AllPlatesSliceState
-import app.orcinus.shadow.core.ui.plate.SliceButton
-import app.orcinus.shadow.core.model.SliceMode
-import app.orcinus.shadow.core.ui.plate.PlateStrip
-import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -29,8 +24,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,11 +43,13 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvas
 import app.orcinus.shadow.core.designsystem.component.OrcaInfoItem
 import app.orcinus.shadow.core.designsystem.component.OrcaInfoPanel
+import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -60,36 +57,38 @@ import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ExternalDocumentReference
-import app.orcinus.shadow.core.model.parseFilamentColor
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
-import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceJobId
+import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.parseFilamentColor
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.filamentLength
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.plate.PlateStrip
+import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
 import app.orcinus.shadow.core.ui.settings.SentFilament
+import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.scene.PlateView
-import kotlinx.coroutines.launch
-import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun PreviewRoute(
@@ -108,13 +107,9 @@ internal fun PreviewRoute(
         onSliceModeChange = viewModel::chooseSliceMode,
         onShowAllPlates = viewModel::showAllPlates,
         printers = PrinterActions(
-            load = viewModel::printers,
-            save = viewModel::savePrinter,
-            delete = viewModel::deletePrinter,
+            load = viewModel::printerHost,
             send = viewModel::send,
             slots = viewModel::printerSlots,
-            test = viewModel::testPrinter,
-            presets = viewModel::printerPresets,
             filaments = viewModel::sentFilaments,
         ),
         gcodeName = viewModel::gcodeName,
@@ -129,25 +124,17 @@ internal fun PreviewRoute(
     )
 }
 
-/** What the send sheet needs of the app: the printers, and what to do with them. */
+/** What the send sheet needs of the app: the printer preset's host, and what to do with it. */
 internal class PrinterActions(
-    val load: suspend () -> PhysicalPrintersOutcome,
-    val save: suspend (PhysicalPrinter, String?) -> PhysicalPrintersOutcome,
-    val delete: suspend (String) -> PhysicalPrintersOutcome,
+    val load: suspend () -> PrinterConnectionOutcome,
     val send: suspend (PhysicalPrinter, Boolean, PrintOptions, (Float) -> Unit) -> PrintHostUploadOutcome,
     /** The slots of a printer's material boxes, and the plate's filaments they are matched to. */
     val slots: suspend (PhysicalPrinter) -> PrinterSlotsOutcome = { PrinterSlotsOutcome.Success(emptyList()) },
-    /** PhysicalPrinterDialog's Test button (PrintHost::test). */
-    val test: suspend (PhysicalPrinter) -> PrintHostTestOutcome = { PrintHostTestOutcome.Failure("") },
-    /** The printer presets a printer can be bound to. */
-    val presets: suspend () -> List<String> = { emptyList() },
     val filaments: () -> List<SentFilament> = { emptyList() },
 ) {
     companion object {
         val NONE = PrinterActions(
-            load = { PhysicalPrintersOutcome.Failure("") },
-            save = { _, _ -> PhysicalPrintersOutcome.Failure("") },
-            delete = { PhysicalPrintersOutcome.Failure("") },
+            load = { PrinterConnectionOutcome.Failure("") },
             send = { _, _, _, _ -> PrintHostUploadOutcome.Failure("") },
         )
     }
@@ -383,8 +370,6 @@ internal fun PreviewScreen(
     if (sending) {
         SendToPrinterSheet(
             load = printers.load,
-            onSave = printers.save,
-            onDelete = printers.delete,
             onSend = { printer, startPrint, options ->
                 sending = false
                 progress = 0f
@@ -396,8 +381,6 @@ internal fun PreviewScreen(
             },
             onDismiss = { sending = false },
             loadSlots = printers.slots,
-            onTest = printers.test,
-            loadPresets = printers.presets,
             filaments = printers.filaments(),
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
         )

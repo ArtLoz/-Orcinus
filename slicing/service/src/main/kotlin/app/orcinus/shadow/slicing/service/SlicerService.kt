@@ -24,6 +24,7 @@ import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintKind
@@ -643,13 +644,11 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         override fun setFilamentColor(index: Int, color: String): PresetsParcel =
             runBlocking { engine.setFilamentColor(index, color) }.toParcel()
 
-        override fun physicalPrinters(): PhysicalPrintersParcel = runBlocking { engine.physicalPrinters() }.toParcel()
+        override fun printerConnection(): PrinterConnectionParcel = runBlocking { engine.printerConnection() }.toParcel()
 
-        override fun savePhysicalPrinter(printer: PhysicalPrinterParcel, renamedFrom: String?): PhysicalPrintersParcel =
-            runBlocking { engine.savePhysicalPrinter(printer.toPhysicalPrinter(), renamedFrom) }.toParcel()
-
-        override fun deletePhysicalPrinter(name: String): PhysicalPrintersParcel =
-            runBlocking { engine.deletePhysicalPrinter(name) }.toParcel()
+        override fun savePrinterConnection(keys: Array<String>, values: Array<String>, name: String): PresetSettingsParcel =
+            runBlocking { engine.savePrinterConnection(ModelSettings(keys.indices.filter { it < values.size }.associate { keys[it] to values[it] }), name) }
+                .toParcel()
 
         override fun importPresets(paths: Array<String>, answerPresets: Array<String>, answers: LongArray): ConfigTransferParcel =
             runBlocking {

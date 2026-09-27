@@ -532,13 +532,12 @@ enum class PrintHostType(val key: String, val label: String) {
 }
 
 /**
- * A printer the app can send G-code to (PhysicalPrinter): its name, the printer
- * presets it prints with, and the settings of its host as
- * PhysicalPrinterDialog holds them.
+ * A printer the app sends G-code to: the name the send dialog shows it by, and
+ * the settings of its host as the printer preset holds them (host_type,
+ * print_host, printhost_apikey and the rest, which PhysicalPrinterDialog edits).
  */
 data class PhysicalPrinter(
     val name: String,
-    val presetNames: List<String> = emptyList(),
     val settings: ModelSettings = ModelSettings(),
 ) {
     /** host_type of the printer; null when it is one the app cannot send to. */
@@ -632,10 +631,39 @@ data class PrintOptions(
     val slots: List<PrinterSlot> = emptyList(),
 )
 
-sealed interface PhysicalPrintersOutcome {
-    data class Success(val printers: List<PhysicalPrinter>) : PhysicalPrintersOutcome
+/**
+ * The printer's host as the edited printer preset holds it, which the
+ * sidebar's Connection button edits (PhysicalPrinterDialog), sending G-code
+ * goes to (Plater::send_gcode_legacy()) and the Device tab shows the page of.
+ */
+data class PrinterConnection(
+    /** host_type, print_host, print_host_webui, printhost_apikey and the rest. */
+    val settings: ModelSettings,
+    /**
+     * The name the dialog saves the preset under: the user preset's own,
+     * "Untitled" for the default one, or a system preset's with the
+     * translated " - Copy" after it when [saveNameCopySuffix].
+     */
+    val saveName: String,
+    val saveNameCopySuffix: Boolean,
+    /**
+     * Sidebar::update_all_preset_comboboxes(): the page the Device tab loads —
+     * the host's page (PrintHost::get_print_host_webui()) or OrcaSlicer's page
+     * that asks for a connection — and the API key its requests carry.
+     */
+    val webUi: String,
+    val apiKey: String,
+    /** PresetBundle::use_bbl_device_tab(): a BambuLab printer, whose Device tab is BambuLab's own monitor. */
+    val bambuDeviceTab: Boolean,
+) {
+    /** The host as sending G-code takes it, named after [presetName]. */
+    fun printer(presetName: String) = PhysicalPrinter(presetName, settings)
+}
 
-    data class Failure(val message: String) : PhysicalPrintersOutcome
+sealed interface PrinterConnectionOutcome {
+    data class Success(val connection: PrinterConnection) : PrinterConnectionOutcome
+
+    data class Failure(val message: String) : PrinterConnectionOutcome
 }
 
 /** What sending G-code to a printer did (PrintHost::upload). */
@@ -933,6 +961,12 @@ sealed interface SettingsRequest {
 
     /** SavePresetDialog's OK. */
     data class Save(val name: String) : SettingsRequest
+
+    /**
+     * PhysicalPrinterDialog's OK, of the printer tab: the host's [settings] on
+     * the edited printer preset, which is saved as [name].
+     */
+    data class SaveConnection(val settings: ModelSettings, val name: String) : SettingsRequest
 
     data object Delete : SettingsRequest
 }

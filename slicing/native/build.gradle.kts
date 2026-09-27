@@ -125,6 +125,11 @@ val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
         orcaResourcesDirectory.dir("handy_models").asFileTree.matching { include("*.drc", "*.3mf") },
         // The models of the Calibration menu (Plater::calib_*).
         orcaResourcesDirectory.dir("calib").asFileTree.matching { include("**/*.drc", "**/*.3mf") },
+        // The page the Device tab shows until the printer has a host
+        // (Sidebar::update_all_preset_comboboxes()), with what it loads.
+        orcaResourcesDirectory.dir("web").asFileTree.matching {
+            include("orca/**", "data/text.js", "homepage/js/jquery-3.6.0.min.js", "homepage/js/json2.js", "homepage/js/globalapi.js", "homepage/js/home.js")
+        },
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaAssets"))
 }

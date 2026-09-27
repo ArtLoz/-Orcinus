@@ -87,8 +87,7 @@ import app.orcinus.shadow.core.model.PaintedMesh
 import app.orcinus.shadow.core.model.PaintedSurface
 import app.orcinus.shadow.core.model.PaintingOutcome
 import app.orcinus.shadow.core.model.PartPlate
-import app.orcinus.shadow.core.model.PhysicalPrinter
-import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
+import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PlacedInstance
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateClipboard
@@ -3463,12 +3462,9 @@ class PlateUseCasesTest {
 
         override suspend fun searchCatalog() = SearchCatalogOutcome.Failure("no catalogue")
 
-        override suspend fun physicalPrinters() = PhysicalPrintersOutcome.Failure("no printers")
+        override suspend fun printerConnection() = PrinterConnectionOutcome.Failure("no printer")
 
-        override suspend fun savePhysicalPrinter(printer: PhysicalPrinter, renamedFrom: String?) =
-            PhysicalPrintersOutcome.Failure("no printers")
-
-        override suspend fun deletePhysicalPrinter(name: String) = PhysicalPrintersOutcome.Failure("no printers")
+        override suspend fun savePrinterConnection(settings: ModelSettings, name: String) = PresetSettingsOutcome.Failure("no printer")
 
         override suspend fun importPresets(paths: List<String>, answers: Map<String, ConfigOverwriteAnswer>) =
             ConfigTransferOutcome.Failure("no import")

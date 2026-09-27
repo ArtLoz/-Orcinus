@@ -34,10 +34,9 @@ import app.orcinus.shadow.slicing.service.WipeTowerParcel;
 import app.orcinus.shadow.slicing.service.PresetNameParcel;
 import app.orcinus.shadow.slicing.service.PresetNamesParcel;
 import app.orcinus.shadow.slicing.service.PresetSettingsParcel;
+import app.orcinus.shadow.slicing.service.PrinterConnectionParcel;
 import app.orcinus.shadow.slicing.service.SimplifyParcel;
 import app.orcinus.shadow.slicing.service.ModelSettingsOutcomeParcel;
-import app.orcinus.shadow.slicing.service.PhysicalPrinterParcel;
-import app.orcinus.shadow.slicing.service.PhysicalPrintersParcel;
 import app.orcinus.shadow.slicing.service.PresetComparisonParcel;
 import app.orcinus.shadow.slicing.service.PresetsParcel;
 import app.orcinus.shadow.slicing.service.ProjectPlateParcel;
@@ -346,10 +345,9 @@ interface ISlicerService {
     PresetSettingsParcel setSettingOverride(String kind, String page, String id, boolean enabled, in String[] answerIds, in boolean[] answers);
     PresetSettingsParcel setCompatiblePresets(String kind, String page, String key, in String[] presets, in String[] answerIds, in boolean[] answers);
     PresetNamesParcel compatiblePresetChoices(String kind, String key);
-    /** PhysicalPrinterDialog: the printers the app can send G-code to. */
-    PhysicalPrintersParcel physicalPrinters();
-    PhysicalPrintersParcel savePhysicalPrinter(in PhysicalPrinterParcel printer, @nullable String renamedFrom);
-    PhysicalPrintersParcel deletePhysicalPrinter(String name);
+    /** PhysicalPrinterDialog: the printer's host on the edited printer preset, and its OK. */
+    PrinterConnectionParcel printerConnection();
+    PresetSettingsParcel savePrinterConnection(in String[] keys, in String[] values, String name);
     /** Import Configs and Export Preset Bundle of the desktop app's File menu. */
     ConfigTransferParcel importPresets(in String[] paths, in String[] answerPresets, in long[] answers);
     /** CreateFilamentPresetDialog: the vendors, types and presets it offers. */
