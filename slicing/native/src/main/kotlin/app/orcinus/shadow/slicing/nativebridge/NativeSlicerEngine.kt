@@ -26,9 +26,11 @@ import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilament
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.CutConnector
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPlaneOutcome
+import app.orcinus.shadow.core.model.CutPreviewPart
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
@@ -327,6 +329,9 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             snapSpace = cut?.snapSpace ?: 0.3,
             snapBulge = cut?.snapBulge ?: 0.15,
             connectorName = cut?.connectorName ?: "Connector",
+            dovetail = cut?.dovetail == true,
+            groove = (cut?.groove ?: CutGroove()).values(),
+            radius = cut?.radius ?: 0.0,
         ).toOutcome()
     }
 
@@ -356,6 +361,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         connectors: List<CutConnector>,
         snapSpace: Double,
         snapBulge: Double,
+        groove: CutGroove?,
+        preview: Boolean,
         meshPrefix: ScenePath,
     ): CutPlaneOutcome = withContext(Dispatchers.IO) {
         val described = NativeBindings.describeCutPlane(
@@ -364,6 +371,9 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             connectors.connectorKinds(),
             snapSpace,
             snapBulge,
+            groove != null,
+            (groove ?: CutGroove()).values(),
+            preview,
             meshPrefix.value,
         )
         if (described.status != NativeSceneStatus.SUCCESS) {
@@ -381,6 +391,11 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     outsideBoundingBox = described.outsideBoundingBox,
                     overlap = described.overlap,
                     connectorMeshes = described.connectorMeshes.map(::ScenePath),
+                    groovePlane = described.groovePlane.takeIf(String::isNotEmpty)?.let(::ScenePath),
+                    validGroove = described.validGroove,
+                    previewParts = described.previewMeshes.indices.map { index ->
+                        CutPreviewPart(ScenePath(described.previewMeshes[index]), described.previewUpper[index], described.previewModifiers[index])
+                    },
                 ),
             )
         }

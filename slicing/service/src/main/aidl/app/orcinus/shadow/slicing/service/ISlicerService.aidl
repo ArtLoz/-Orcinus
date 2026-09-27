@@ -90,6 +90,9 @@ interface ISlicerService {
         in int[] connectorKinds,
         double snapSpace,
         double snapBulge,
+        boolean dovetail,
+        in double[] groove,
+        boolean preview,
         String meshPrefix
     );
     void endCut();

@@ -7,6 +7,7 @@ import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
 import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
@@ -194,6 +195,9 @@ class PrepareViewModel(
 
     /** The cut gizmo as it was left, which it opens with again (the gizmo's members outlive it). */
     private var lastCut: CutMode? = null
+
+    /** GLGizmoBase::INV_ZOOM of the 3D view: millimetres per desktop pixel at its target. */
+    private var viewPixel = 0.1
     private var openingCut: Job? = null
     private var closingCut: Job? = null
 
@@ -220,10 +224,14 @@ class PrepareViewModel(
             for (asked in cutPlanes) {
                 val plane = asked.plane ?: continue
                 if (view.value.cut == null) continue
-                val outcome = cutObject.describe(plane, asked.connectors, asked.snapSpace, asked.snapBulge)
+                val groove = asked.groove.takeIf { asked.kind == CutKind.DOVETAIL }
+                // reset_cut_by_contours(): the dovetail's parts once nothing is dragged.
+                val outcome = cutObject.describe(plane, asked.connectors, asked.snapSpace, asked.snapBulge, groove, preview = groove != null && !asked.shaping)
                 if (outcome !is CutPlaneOutcome.Success) continue
                 view.update { state ->
-                    state.cut?.let { state.copy(cut = it.copy(described = outcome.plane, describedPlane = plane, describedConnectors = asked.connectors)) } ?: state
+                    state.cut?.let {
+                        state.copy(cut = it.copy(described = outcome.plane, describedPlane = plane, describedConnectors = asked.connectors, describedGroove = groove))
+                    } ?: state
                 }
             }
         }
@@ -556,7 +564,23 @@ class PrepareViewModel(
                 return@launch
             }
             val kept = left?.takeIf { it.mesh == mode.mesh && it.instance == mode.instance && it.boundsMin == outcome.min && it.boundsMax == outcome.max }
-            val bounds = mode.copy(boundsMin = outcome.min, boundsMax = outcome.max)
+            // update_bb(): a new box gives the grooves their first size, half the
+            // mean grabber size (32 desktop pixels) deep and four times as wide.
+            val depth = maxOf(1.0, 0.5 * 32.0 * viewPixel)
+            val grooveInit = CutGroove(depth = depth, width = 4.0 * depth, flapsAngle = Math.PI / 3.0, angle = 0.0)
+            val groove = kept?.groove ?: (left?.groove ?: CutGroove()).copy(
+                depth = grooveInit.depth,
+                width = grooveInit.width,
+                flapsAngle = grooveInit.flapsAngle,
+                angle = grooveInit.angle,
+            )
+            val bounds = mode.copy(
+                boundsMin = outcome.min,
+                boundsMax = outcome.max,
+                kind = left?.kind ?: CutKind.PLANAR,
+                groove = groove,
+                grooveInit = kept?.grooveInit ?: grooveInit,
+            )
             val plane = kept?.plane ?: CutPlanes.at(bounds.boundsCenter ?: return@launch)
             // The object keeps its connectors while the gizmo is closed (ModelObject::cut_connectors).
             val opened = bounds.copy(plane = plane, connectors = kept?.connectors.orEmpty(), snapSpace = left?.snapSpace ?: CutMode.SNAP_SPACE, snapBulge = left?.snapBulge ?: CutMode.SNAP_BULGE)
@@ -588,7 +612,7 @@ class PrepareViewModel(
         val mode = view.value.cut ?: return
         val current = mode.plane ?: return
         val placed = if (CutPlanes.sameRotation(plane, current)) movedCut(mode, CutPlanes.center(plane)) ?: current else plane
-        updateCut(finished) { it.copy(plane = placed) }
+        updateCut(finished) { it.copy(plane = placed, shaping = !finished) }
     }
 
     /** A tap on the plane outside the section: flip_cut_plane(). */
@@ -673,8 +697,34 @@ class PrepareViewModel(
                 snapSpace = mode.snapSpace,
                 snapBulge = mode.snapBulge,
                 connectorName = connectorName,
+                dovetail = mode.kind == CutKind.DOVETAIL,
+                groove = mode.groove,
+                radius = mode.radius,
             ),
         )
+    }
+
+    /** The 3D view's millimetres per desktop pixel, which the grooves take their first size from. */
+    fun setViewPixel(pixel: Double) {
+        viewPixel = pixel
+    }
+
+    /** "Mode": "Planar" or "Dovetail" ("Change cut mode"). */
+    fun setCutKind(kind: CutKind) = updateCut(snapshot = true) { if (it.connectors.isEmpty()) it.copy(kind = kind, shaping = false) else it }
+
+    /**
+     * The groove's inputs: its depth and width with their tolerances, the flap
+     * and groove angles, the count and the gap; [finished] once a slider is let
+     * go, which works the parts out again (m_is_slider_editing_done).
+     */
+    fun setCutGroove(finished: Boolean, change: (CutGroove) -> CutGroove) = updateCut(snapshot = false) { cut ->
+        val groove = change(cut.groove).let { it.copy(count = it.count.coerceIn(1, 100)) }
+        cut.copy(groove = groove, shaping = !finished)
+    }
+
+    /** A reset of the groove's inputs, which brings back what the gizmo started with ("Reset: <label>"). */
+    fun resetCutGroove(change: (current: CutGroove, init: CutGroove) -> CutGroove) = updateCut(snapshot = true) { cut ->
+        cut.copy(groove = change(cut.groove, cut.grooveInit), shaping = false)
     }
 
     /** "Add connectors" or "Edit connectors": the connectors' window opens (set_connectors_editing(true)). */
@@ -816,7 +866,8 @@ class PrepareViewModel(
     private fun describeCut(before: CutMode) {
         val after = view.value.cut ?: return
         if (after.plane != null &&
-            (after.plane != before.plane || after.connectors != before.connectors || after.snapSpace != before.snapSpace || after.snapBulge != before.snapBulge)
+            (after.plane != before.plane || after.connectors != before.connectors || after.snapSpace != before.snapSpace || after.snapBulge != before.snapBulge ||
+                after.kind != before.kind || after.groove != before.groove || after.shaping != before.shaping)
         ) {
             cutPlanes.trySend(after)
         }

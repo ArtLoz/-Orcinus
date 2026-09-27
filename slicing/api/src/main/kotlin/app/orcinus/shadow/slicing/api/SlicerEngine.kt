@@ -16,6 +16,7 @@ import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.CutConnector
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -359,6 +360,10 @@ interface PlateInspector {
         connectors: List<CutConnector>,
         snapSpace: Double,
         snapBulge: Double,
+        /** The dovetail cut's grooves; null for the planar cut. */
+        groove: CutGroove?,
+        /** Whether the parts of the dovetail cut are worked out too. */
+        preview: Boolean,
         meshPrefix: ScenePath,
     ): CutPlaneOutcome
 

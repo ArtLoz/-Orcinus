@@ -15,6 +15,7 @@ import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterRequest
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
@@ -171,9 +172,20 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             connectorKinds: IntArray,
             snapSpace: Double,
             snapBulge: Double,
+            dovetail: Boolean,
+            groove: DoubleArray,
+            preview: Boolean,
             meshPrefix: String,
         ): CutPlaneParcel = runBlocking {
-            engine.describeCutPlane(Transform3(plane.toList()), cutConnectors(connectorValues, connectorKinds), snapSpace, snapBulge, ScenePath(meshPrefix))
+            engine.describeCutPlane(
+                Transform3(plane.toList()),
+                cutConnectors(connectorValues, connectorKinds),
+                snapSpace,
+                snapBulge,
+                CutGroove.of(groove).takeIf { dovetail },
+                preview,
+                ScenePath(meshPrefix),
+            )
         }.toParcel()
 
         override fun endCut() = runBlocking { engine.endCut() }

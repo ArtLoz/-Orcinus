@@ -12,9 +12,11 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "libslic3r/AABBMesh.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/ExPolygon.hpp"
@@ -61,6 +63,10 @@ struct CutSession {
     std::size_t writes{0};
     // The connector shapes written for the 3D view, by name.
     std::map<std::string, std::string> shapes;
+    // The raycasters of the copy's solid parts, which has_valid_groove() casts
+    // the groove's edges at, with the parts' matrices in the world.
+    std::vector<std::unique_ptr<Slic3r::AABBMesh>> raycasters;
+    std::vector<Slic3r::Transform3d> raycaster_matrices;
 };
 
 // What one clipper of the object clipper cut (MeshClipper::ClipResult): the
@@ -87,6 +93,311 @@ int is_projection_inside_cut(const std::vector<ClipResult>& clippers, const Slic
         idx_offset += int(result.islands.size());
     }
     return -1;
+}
+
+// GLGizmoCut3D::its_make_groove_plane(): the plane of a dovetail cut, with a
+// slot per groove, in the plane's frame; groove_vertices are the ends of the
+// slot's edges, which has_valid_groove() checks against the object.
+indexed_triangle_set its_make_groove_plane(
+    const Slic3r::Cut::Groove& m_groove,
+    const float m_radius,
+    const int m_groove_count,
+    const float m_groove_gap,
+    std::vector<Slic3r::Vec3d>& m_groove_vertices
+)
+{
+    using namespace Slic3r;
+    const auto offset_indices = [](const std::vector<Vec3i32>& base_indices, size_t vo) {
+        std::vector<Vec3i32> offset;
+        int                  vo_int = static_cast<int>(vo);
+        for (const auto& tri : base_indices) {
+            offset.push_back({tri[0] + vo_int, tri[1] + vo_int, tri[2] + vo_int});
+        }
+        return offset;
+    };
+
+    // This function generates a dovetail slot in a wall, viewed from above (top-down).
+    // The slot has a wide "mouth" (closest to the wall surface) and a narrow "neck" (deepest into the wall).
+    // The flaps are the tapered sides connecting the mouth to the neck.
+
+    const float flap_taper_width  = is_approx(m_groove.flaps_angle, 0.f) ? m_groove.depth : (m_groove.depth / sin(m_groove.flaps_angle));
+    const float total_flap_taper_width = 2.f * flap_taper_width * cos(m_groove.flaps_angle);
+
+    const float slot_neck_half_width = 0.5f * (m_groove.width);
+    const float slot_mouth_half_width = 0.5f * (m_groove.width + total_flap_taper_width);
+
+    const float cut_plane_radius = 1.5f * float(m_radius);
+    const float cut_plane_length = 1.5f * cut_plane_radius;
+
+    const float plane_half_width    = 0.5f * cut_plane_radius;  // x
+    const float plane_half_height   = 0.5f * cut_plane_length;  // y
+
+    const float slot_half_depth   = 0.5f * m_groove.depth;    // z
+    float slot_front_z          = slot_half_depth;
+    float slot_back_z           = -slot_half_depth;
+
+    const float flap_taper_offset = plane_half_height * tan(m_groove.angle);
+
+    float slot_mouth_outer_x = slot_neck_half_width + flap_taper_offset; // upper_x extension
+    float slot_neck_outer_x = slot_mouth_half_width + flap_taper_offset; // lower_x extension
+    float slot_outer_x_max   = std::max(slot_neck_outer_x, slot_mouth_outer_x);  // max x extension
+
+    float slot_neck_inner_x = slot_neck_half_width - flap_taper_offset; // upper_x narrowing
+    float slot_mouth_inner_x = slot_mouth_half_width - flap_taper_offset; // lower_x narrowing
+
+    const float wall_thickness = 0.02f; // 0.02f * (float)get_grabber_mean_size(m_bounding_box);   // cut_plane_thiknes
+
+    int   groove_count    = m_groove_count;
+    float groove_gap = m_groove_gap;
+
+    indexed_triangle_set mesh;
+
+    // handle multiple dovetails/grooves
+    m_groove_vertices.clear();
+    m_groove_vertices.reserve(8 * groove_count);
+    for (int i = 0; i < groove_count; ++i) {
+        bool is_first_groove = i == 0; // when a groove is not the last groove, then limit the extent of the right plane so that it doesnt overlap the next groove
+        bool is_last_groove  = i == groove_count - 1; // do the same in reverse if a groove is not the first groove
+        size_t vertex_index_offset      = mesh.vertices.size();
+
+        // Calculate the x-axis offset for this dovetail
+        float groove_offset_factor_start = -.5 * ((groove_count - 1));
+        float  groove_offset_factor   = groove_offset_factor_start + i;
+        // Recalculate x with offset (only X-axis offset)
+        float offset_x = groove_offset_factor * (groove_gap + (2 * slot_outer_x_max));
+
+        // Vertices of the groove used to detection if groove is valid (not used in mesh)
+        {
+            m_groove_vertices.emplace_back(Vec3f(-slot_neck_outer_x + offset_x, -plane_half_height, slot_front_z).cast<double>());
+            m_groove_vertices.emplace_back(Vec3f(-slot_mouth_inner_x + offset_x, plane_half_height, slot_front_z).cast<double>());
+            m_groove_vertices.emplace_back(Vec3f(-slot_mouth_outer_x + offset_x, -plane_half_height, slot_back_z).cast<double>());
+            m_groove_vertices.emplace_back(Vec3f(-slot_neck_outer_x + offset_x, plane_half_height, slot_back_z).cast<double>());
+            m_groove_vertices.emplace_back(Vec3f(slot_neck_outer_x + offset_x, -plane_half_height, slot_front_z).cast<double>());
+            m_groove_vertices.emplace_back(Vec3f(slot_mouth_inner_x + offset_x, plane_half_height, slot_front_z).cast<double>());
+            m_groove_vertices.emplace_back(Vec3f(slot_mouth_outer_x + offset_x, -plane_half_height, slot_back_z).cast<double>());
+            m_groove_vertices.emplace_back(Vec3f(slot_neck_outer_x + offset_x, plane_half_height, slot_back_z).cast<double>());
+        }
+
+        //                                     ___
+        // Case: Groove is open (Top&bottom: __\ /__ )
+        if (slot_neck_half_width > flap_taper_offset && slot_mouth_half_width > flap_taper_offset) {
+            auto get_vertices = [plane_half_width, plane_half_height]
+                (float slot_front_z, float slot_back_z, float slot_neck_inner_x, float slot_mouth_inner_x, float slot_mouth_outer_x, float slot_neck_outer_x,
+                float slot_outer_x_max, bool is_first_groove, bool is_last_groove, float groove_gap, float offset_x)
+                {
+
+                return std::vector<stl_vertex>({
+                    // front left part vertices
+                    {is_first_groove ? -plane_half_width + offset_x : -(groove_gap / 2.f) - slot_outer_x_max + offset_x,    -plane_half_height, slot_front_z},    // *__/ \__
+                    {is_first_groove ? -plane_half_width + offset_x : -(groove_gap / 2.f) - slot_outer_x_max + offset_x,    plane_half_height,  slot_front_z},    // *__/ \__
+                    {-slot_neck_inner_x + offset_x,     plane_half_height,      slot_front_z},   // __*/ \__
+                    {-slot_mouth_outer_x + offset_x,    -plane_half_height,     slot_front_z},   // __/* \__
+                    // back part vertices
+                    {-slot_neck_outer_x + offset_x,     -plane_half_height,     slot_back_z},   // __*/ \__
+                    {-slot_mouth_inner_x + offset_x,    plane_half_height,      slot_back_z},   // __/* \__
+                    {slot_mouth_inner_x + offset_x,     plane_half_height,      slot_back_z},   // __/ *\__
+                    {slot_neck_outer_x + offset_x,      -plane_half_height,     slot_back_z},   // __/ \*__
+                    // front right part vertices
+                    {slot_mouth_outer_x + offset_x,     -plane_half_height,     slot_front_z},   // __/ \*__
+                    {slot_neck_inner_x + offset_x,      plane_half_height,      slot_front_z},   // __/ *\__
+                    {is_last_groove ? plane_half_width + offset_x : (groove_gap / 2.f) + slot_outer_x_max + offset_x,       plane_half_height,  slot_front_z},      // __/ \__*
+                    {is_last_groove ? plane_half_width + offset_x : (groove_gap / 2.f) + slot_outer_x_max + offset_x,       -plane_half_height, slot_front_z}});    // __/ \__*
+            };
+
+            std::vector<stl_vertex> vertices = get_vertices(slot_front_z, slot_back_z, slot_neck_inner_x, slot_mouth_inner_x, slot_mouth_outer_x, slot_neck_outer_x, slot_outer_x_max,
+                                                            is_first_groove, is_last_groove, groove_gap, offset_x);
+            mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
+
+            // Back face
+            slot_front_z        -= wall_thickness;
+            slot_back_z         -= wall_thickness;
+
+            const float slot_back_face_x_offset = wall_thickness / tan(0.5f * m_groove.flaps_angle);
+            slot_neck_inner_x   += slot_back_face_x_offset;
+            slot_mouth_inner_x  += slot_back_face_x_offset;
+            slot_mouth_outer_x  += slot_back_face_x_offset;
+            slot_neck_outer_x   += slot_back_face_x_offset;
+
+            vertices = get_vertices(slot_front_z, slot_back_z, slot_neck_inner_x, slot_mouth_inner_x, slot_mouth_outer_x, slot_neck_outer_x,
+                                    slot_outer_x_max, is_first_groove,
+                                    is_last_groove, groove_gap, offset_x);
+            mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
+
+            std::vector<Vec3i32> base_indices;
+
+            base_indices  = {
+                // above view
+                {5,4,7}, {5,7,6},       // lower part
+                {3,4,5}, {3,5,2},       // left side
+                {9,6,8}, {8,6,7},       // right side
+                {1,0,2}, {2,0,3},       // upper left part
+                {9,8,10}, {10,8,11},    // upper right part
+                // under view
+                {20,21,22}, {20,22,23}, // upper right part
+                {12,13,14}, {12,14,15}, // upper left part
+                {18,21,20}, {18,20,19}, // right side
+                {16,15,14}, {16,14,17}, // left side
+                {16,17,18}, {16,18,19}, // lower part
+                // left edge
+                {1,13,0}, {0,13,12},
+                // front edge
+                {0,12,3}, {3,12,15}, {3,15,4}, {4,15,16}, {4,16,7}, {7,16,19}, {7,19,20}, {7,20,8}, {8,20,11}, {11,20,23},
+                // right edge
+                {11,23,10}, {10,23,22},
+                // back edge
+                {1,13,2}, {2,13,14}, {2,14,17}, {2,17,5}, {5,17,6}, {6,17,18}, {6,18,9}, {9,18,21}, {9,21,10}, {10,21,22}
+            };
+
+            std::vector<Vec3i32> indices = offset_indices(base_indices, vertex_index_offset);
+            mesh.indices.insert(mesh.indices.end(), indices.begin(), indices.end());
+        }
+
+        //                                         __
+        // CASE: Groove is closed (Top&Bottom: ___/  \___)
+        else if (slot_neck_half_width < flap_taper_offset && slot_mouth_half_width < flap_taper_offset) {
+            float slot_neck_apex_y = slot_neck_half_width / tan(m_groove.angle);
+            float slot_mouth_apex_y = slot_mouth_half_width / tan(m_groove.angle);
+
+            auto get_vertices = [plane_half_width, plane_half_height]
+            (float slot_front_z, float slot_back_z, float slot_neck_apex_y, float slot_mouth_apex_y, float slot_mouth_outer_x, float slot_neck_outer_x,
+             float slot_outer_x_max, bool is_first_groove, bool is_last_groove, float groove_gap, float offset_x)
+            {
+                return std::vector<stl_vertex>({
+                    // front part vertices
+                    {is_first_groove ? -plane_half_width + offset_x : -(groove_gap / 2.f) - slot_outer_x_max + offset_x,  -plane_half_height,     slot_front_z},   // *__/\__
+                    {is_first_groove ? -plane_half_width + offset_x : -(groove_gap / 2.f) - slot_outer_x_max + offset_x,  plane_half_height,      slot_front_z},   // *__/\__
+                    {is_last_groove ? plane_half_width + offset_x : (groove_gap / 2.f) + slot_outer_x_max + offset_x,     plane_half_height,      slot_front_z},   // __/\__*
+                    {is_last_groove ? plane_half_width + offset_x : (groove_gap / 2.f) + slot_outer_x_max + offset_x,     -plane_half_height,     slot_front_z},   // __/\__*
+                    {slot_mouth_outer_x + offset_x,     -plane_half_height,     slot_front_z},    // __*/\__
+                    {offset_x,                          slot_neck_apex_y,       slot_front_z},    // __/*\__
+                    {-slot_mouth_outer_x + offset_x,    -plane_half_height,     slot_front_z},    // __/\*__
+                    // back part vertices
+                    {-slot_neck_outer_x + offset_x,     -plane_half_height,     slot_back_z},    // __*/\__
+                    {offset_x,                          slot_mouth_apex_y,      slot_back_z},    // __/*\__
+                    {slot_neck_outer_x + offset_x,      -plane_half_height,     slot_back_z}});  // __/\*__
+            };
+
+            std::vector<stl_vertex> vertices = get_vertices(slot_front_z, slot_back_z, slot_neck_apex_y, slot_mouth_apex_y,
+                                                            slot_mouth_outer_x, slot_neck_outer_x, slot_outer_x_max,
+                                                            is_first_groove, is_last_groove, groove_gap, offset_x);
+            mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
+
+            // Back face
+            slot_front_z        -= wall_thickness;
+            slot_back_z         -= wall_thickness;
+            slot_neck_apex_y    += wall_thickness;
+            slot_mouth_apex_y   += wall_thickness;
+
+            const float slot_back_face_x_offset = wall_thickness / tan(0.5f * m_groove.flaps_angle);
+            slot_mouth_outer_x  += slot_back_face_x_offset;
+            slot_neck_outer_x   += slot_back_face_x_offset;
+
+            vertices = get_vertices(slot_front_z, slot_back_z, slot_neck_apex_y, slot_mouth_apex_y, slot_mouth_outer_x, slot_neck_outer_x,
+                                    slot_outer_x_max, is_first_groove,
+                                    is_last_groove, groove_gap, offset_x);
+            mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
+
+            std::vector<Vec3i32> base_indices = {
+                // above view
+                {8,7,9},                // lower part
+                {5,8,6}, {6,8,7},       // left side
+                {4,9,8}, {4,8,5},       // right side
+                {1,0,6}, {1,6,5},{1,5,2},
+                {2,5,4}, {2,4,3},       // upper part
+                // under view
+                {10,11,16}, {16,11,15},
+                {15,11,12}, {15,12,14}, {14,12,13},   // upper part
+                {18,15,14}, {14,18,19}, // right side
+                {17,16,15}, {17,15,18}, // left side
+                {17,18,19},             // lower part
+                // left edge
+                {1,11,0}, {0,11,10},
+                // front edge
+                {0,10,6}, {6,10,16}, {6,17,16}, {6,7,17}, {7,17,19}, {7,19,9}, {4,14,19}, {4,19,9}, {4,14,13}, {4,13,3},
+                // right edge
+                {3,13,12}, {3,12,2},
+                // back edge
+                {2,12,11}, {2,11,1}
+            };
+            std::vector<Vec3i32> indices      = offset_indices(base_indices, vertex_index_offset);
+
+            mesh.indices.insert(mesh.indices.end(), indices.begin(), indices.end());
+        }
+
+        // Case: Groove is closed from the roof (TOP&Bottom: __/\__ )
+        else {
+            float slot_neck_apex_y = slot_neck_half_width / tan(m_groove.angle);
+
+            std::vector<stl_vertex> vertices = {
+                // front part vertices
+                {is_first_groove ? -plane_half_width + offset_x : -(groove_gap / 2.f) - slot_outer_x_max + offset_x,  -plane_half_height,     slot_front_z},
+                {is_first_groove ? -plane_half_width + offset_x : -(groove_gap / 2.f) - slot_outer_x_max + offset_x,  plane_half_height,      slot_front_z},
+                {is_last_groove ? plane_half_width + offset_x : (groove_gap / 2.f) + slot_outer_x_max + offset_x,     plane_half_height,      slot_front_z},
+                {is_last_groove ? plane_half_width + offset_x : (groove_gap / 2.f) + slot_outer_x_max + offset_x,     -plane_half_height,     slot_front_z},
+                {slot_mouth_outer_x + offset_x,     -plane_half_height,     slot_front_z},
+                {offset_x,                          slot_neck_apex_y,       slot_front_z},
+                {-slot_mouth_outer_x + offset_x,    -plane_half_height,     slot_front_z},
+                // back part vertices
+                {-slot_neck_outer_x + offset_x,     -plane_half_height,     slot_back_z},
+                {-slot_mouth_inner_x + offset_x,    plane_half_height,      slot_back_z},
+                {slot_mouth_inner_x + offset_x,     plane_half_height,      slot_back_z},
+                {slot_neck_outer_x + offset_x,      -plane_half_height,     slot_back_z}};
+            mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
+
+            // Back face
+            slot_front_z        -= wall_thickness;
+            slot_back_z         -= wall_thickness;
+
+            const float slot_back_face_x_offset = wall_thickness / tan(0.5f * m_groove.flaps_angle);
+            slot_mouth_inner_x  += slot_back_face_x_offset;
+            slot_mouth_outer_x  += slot_back_face_x_offset;
+            slot_neck_outer_x   += slot_back_face_x_offset;
+
+            vertices = {
+                // upper part vertices
+                {is_first_groove ? -plane_half_width + offset_x : -(groove_gap / 2.f) - slot_outer_x_max + offset_x,  -plane_half_height, slot_front_z},
+                {is_first_groove ? -plane_half_width + offset_x : -(groove_gap / 2.f) - slot_outer_x_max + offset_x,  plane_half_height,  slot_front_z},
+                {is_last_groove ? plane_half_width + offset_x : (groove_gap / 2.f) + slot_outer_x_max + offset_x,     plane_half_height,  slot_front_z},
+                {is_last_groove ? plane_half_width + offset_x : (groove_gap / 2.f) + slot_outer_x_max + offset_x,     -plane_half_height, slot_front_z},
+                {slot_mouth_outer_x + offset_x,         -plane_half_height,     slot_front_z},
+                {slot_back_face_x_offset + offset_x,    slot_neck_apex_y,       slot_front_z},
+                {-slot_back_face_x_offset + offset_x,   slot_neck_apex_y,       slot_front_z},
+                {-slot_mouth_outer_x + offset_x,        -plane_half_height,     slot_front_z},
+                // lower part vertices
+                {-slot_neck_outer_x + offset_x,         -plane_half_height,     slot_back_z},
+                {-slot_mouth_inner_x + offset_x,        plane_half_height,      slot_back_z},
+                {slot_mouth_inner_x + offset_x,         plane_half_height,      slot_back_z},
+                {slot_neck_outer_x + offset_x,          -plane_half_height,     slot_back_z}};
+            mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
+
+            // Indices for this dovetail
+            std::vector<Vec3i32> base_indices = {
+                // above view
+                {8,7,10}, {8,10,9},     // lower part
+                {5,8,7}, {5,7,6},       // left side
+                {4,10,9}, {4,9,5},      // right side
+                {1,0,6}, {1,6,5},{1,5,2}, {2,5,4}, {2,4,3},   // upper part
+                // under view
+                {11,12,18}, {18,12,17}, {17,12,16}, {16,12,13}, {16,13,15}, {15,13,14},   // upper part
+                {21,16,15}, {21,15,22}, // right side
+                {19,18,17}, {19,17,20}, // left side
+                {19,20,21}, {19,21,22}, // lower part
+                // left edge
+                {1,12,11}, {1,11,0},
+                // front edge
+                {0,11,18}, {0,18,6}, {7,19,18}, {7,18,6}, {7,19,22}, {7,22,10}, {10,22,15}, {10,15,4}, {4,15,14}, {4,14,3},
+                // right edge
+                {3,14,13}, {3,14,2},
+                // back edge
+                {2,13,12}, {2,12,1}, {5,16,21}, {5,21,9}, {9,21,20}, {9,20,8}, {5,17,20}, {5,20,8}
+            };
+            std::vector<Vec3i32> indices      = offset_indices(base_indices, vertex_index_offset);
+
+            mesh.indices.insert(mesh.indices.end(), indices.begin(), indices.end());
+        }
+    }
+
+    return mesh;
 }
 
 // GLGizmoCut3D::get_connector_mesh(): the shape of a connector at unit size.
@@ -421,6 +732,8 @@ CutObject begin_cut(const PlateObject& object, const int instance, const Profile
         current.instance = instance;
         current.writes = 0;
         current.shapes.clear();
+        current.raycasters.clear();
+        current.raycaster_matrices.clear();
         current.open = true;
 
         // GLGizmoCut3D::bounding_box(): the convex hulls of the copy's solid
@@ -430,6 +743,8 @@ CutObject begin_cut(const PlateObject& object, const int instance, const Profile
         for (const Slic3r::ModelVolume* volume : loaded.volumes) {
             if (volume->is_model_part()) {
                 box.merge(volume->get_convex_hull().transformed_bounding_box(instance_matrix * volume->get_matrix()));
+                current.raycasters.push_back(std::make_unique<Slic3r::AABBMesh>(volume->mesh()));
+                current.raycaster_matrices.push_back(instance_matrix * volume->get_matrix());
             }
         }
         for (int axis = 0; axis < 3; ++axis) {
@@ -450,6 +765,9 @@ CutPlane describe_cut_plane(
     const std::vector<CutConnectorData>& connectors,
     const double snap_space,
     const double snap_bulge,
+    const bool dovetail,
+    const CutGroove& groove,
+    const bool preview,
     const std::string& mesh_prefix
 )
 {
@@ -488,8 +806,8 @@ CutPlane describe_cut_plane(
         const Slic3r::Vec3d normal = (rotation_m * Slic3r::Vec3d::UnitZ()).normalized();
         const ClippingPlane clipping_plane(normal, normal.dot(plane_center));
         const ClippingPlane limiting_plane(Slic3r::Vec3d::UnitZ(), -Slic3r::SINKING_Z_THRESHOLD);
-        // GLGizmoCut3D::m_contour_width of the planar cut.
-        const double contour_width = 0.4;
+        // GLGizmoCut3D::m_contour_width: none for the dovetail cut.
+        const double contour_width = dovetail ? 0.0 : 0.4;
         indexed_triangle_set section;
         indexed_triangle_set contour;
         std::vector<ClipResult> clippers;
@@ -507,7 +825,76 @@ CutPlane describe_cut_plane(
             clippers.push_back(std::move(clipped));
         }
 
-        check_connectors(connectors, rotation_m, current.bounding_box, clippers, snap_space, snap_bulge, result);
+        // check_and_update_connectors_state() checks the planar cut only.
+        if (!dovetail) {
+            check_connectors(connectors, rotation_m, current.bounding_box, clippers, snap_space, snap_bulge, result);
+        }
+        if (dovetail) {
+            const Slic3r::Cut::Groove m_groove = detail::cut_groove(groove);
+            const float m_radius = float(current.bounding_box.radius());
+            std::vector<Slic3r::Vec3d> m_groove_vertices;
+            const indexed_triangle_set groove_mesh = its_make_groove_plane(m_groove, m_radius, groove.count, float(groove.gap), m_groove_vertices);
+            const std::string groove_path = mesh_prefix + "-" + std::to_string(current.writes) + "-groove.mesh";
+            if (detail::write_mesh(groove_mesh, groove_path)) {
+                result.groove_plane = groove_path;
+            }
+
+            // has_valid_groove()
+            const auto has_valid_groove = [&]() {
+                const float flaps_width = -2.f * m_groove.depth / tan(m_groove.flaps_angle);
+                if (flaps_width > m_groove.width)
+                    return false;
+                if (current.raycasters.empty())
+                    return false;
+
+                const Slic3r::Transform3d cp_matrix = Slic3r::Geometry::translation_transform(plane_center) * rotation_m;
+
+                for (size_t id = 0; id < m_groove_vertices.size(); id += 2) {
+                    const Slic3r::Vec3d beg = cp_matrix * m_groove_vertices[id];
+                    const Slic3r::Vec3d end = cp_matrix * m_groove_vertices[id + 1];
+
+                    bool intersection = false;
+                    for (std::size_t volume = 0; volume < current.raycasters.size(); ++volume) {
+                        // MeshRaycaster::intersects_line()
+                        const Slic3r::Transform3d trafo_inv = current.raycaster_matrices[volume].inverse();
+                        const Slic3r::Vec3d to = trafo_inv * end;
+                        const Slic3r::Vec3d point = trafo_inv * beg;
+                        const Slic3r::Vec3d direction = (to - point).normalized();
+                        if (!current.raycasters[volume]->query_ray_hits(point, direction).empty() ||
+                            !current.raycasters[volume]->query_ray_hits(point, -direction).empty()) {
+                            intersection = true;
+                            break;
+                        }
+                    }
+                    if (!intersection)
+                        return false;
+                }
+
+                return true;
+            };
+            result.valid_groove = has_valid_groove();
+
+            // process_contours(): the parts of the cut with the groove, which the
+            // gizmo shows in the object's place.
+            if (preview && result.valid_groove) {
+                const Slic3r::Vec3d instance_offset = instance.get_offset();
+                const Slic3r::Transform3d cut_matrix = Slic3r::Geometry::translation_transform(plane_center - instance_offset) * rotation_m;
+                Slic3r::Cut cut(&object, current.instance, cut_matrix);
+                const Slic3r::ModelObjectPtrs& new_objects = cut.perform_with_groove(m_groove, rotation_m, groove.count, float(groove.gap), m_radius, true);
+                if (!new_objects.empty()) {
+                    const Slic3r::ModelObject& parts = *new_objects.front();
+                    for (std::size_t id = 0; id < parts.volumes.size(); ++id) {
+                        const Slic3r::ModelVolume& volume = *parts.volumes[id];
+                        indexed_triangle_set its = volume.mesh().its;
+                        its_transform(its, Slic3r::Geometry::translation_transform(instance_offset) * volume.get_matrix());
+                        const std::string path = mesh_prefix + "-" + std::to_string(current.writes) + "-part-" + std::to_string(id) + ".mesh";
+                        if (detail::write_mesh(its, path)) {
+                            result.preview_parts.push_back({path, volume.is_from_upper(), !volume.is_model_part()});
+                        }
+                    }
+                }
+            }
+        }
         for (const CutConnectorData& connector : connectors) {
             const std::string name = shape_name(connector, snap_space, snap_bulge);
             auto written = current.shapes.find(name);
@@ -534,6 +921,18 @@ CutPlane describe_cut_plane(
 }
 
 namespace detail {
+
+Slic3r::Cut::Groove cut_groove(const CutGroove& groove)
+{
+    Slic3r::Cut::Groove result;
+    result.depth = float(groove.depth);
+    result.width = float(groove.width);
+    result.flaps_angle = float(groove.flaps_angle);
+    result.angle = float(groove.angle);
+    result.depth_tolerance = float(groove.depth_tolerance);
+    result.width_tolerance = float(groove.width_tolerance);
+    return result;
+}
 
 void apply_cut_connectors(Slic3r::ModelObject& object, const ObjectCut& cut, const Slic3r::Transform3d& m_rotation_m, int& dowels_count)
 {

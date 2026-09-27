@@ -22,6 +22,7 @@ import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.CutConnector
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
@@ -242,6 +243,8 @@ class RemoteSlicerEngine(
         connectors: List<CutConnector>,
         snapSpace: Double,
         snapBulge: Double,
+        groove: CutGroove?,
+        preview: Boolean,
         meshPrefix: ScenePath,
     ): CutPlaneOutcome = remote({ CutPlaneOutcome.Failure(it) }) {
         describeCutPlane(
@@ -250,6 +253,9 @@ class RemoteSlicerEngine(
             connectors.connectorKinds(),
             snapSpace,
             snapBulge,
+            groove != null,
+            (groove ?: CutGroove()).values(),
+            preview,
             meshPrefix.value,
         ).toOutcome()
     }

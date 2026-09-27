@@ -430,7 +430,15 @@ data class CutPlaneDescription(
     val overlap: Boolean = false,
     /** The shape of every connector at unit size (get_connector_mesh()), for the 3D view. */
     val connectorMeshes: List<ScenePath> = emptyList(),
+    /** The dovetail cut: the plane with its grooves in the plane's frame, and has_valid_groove(). */
+    val groovePlane: ScenePath? = null,
+    val validGroove: Boolean = true,
+    /** The parts the dovetail cut makes, in world coordinates, shown in the object's place. */
+    val previewParts: List<CutPreviewPart> = emptyList(),
 )
+
+/** A part of the dovetail cut as the gizmo previews it (PartSelection::Part). */
+data class CutPreviewPart(val mesh: ScenePath, val upper: Boolean, val modifier: Boolean)
 
 sealed interface CutPlaneOutcome {
     data class Success(val plane: CutPlaneDescription) : CutPlaneOutcome

@@ -180,13 +180,19 @@ the gizmo's connectors (CutConnector: where each stands on the plane, its
 size, depth, tolerances, turn, type, style and shape), and the answer says
 which of them cannot be cut with — out of the section, out of the object or
 overlapping (check_and_update_connectors_state()) — with the shape of each at
-unit size for the 3D view (get_connector_mesh()). The cut itself is
+unit size for the 3D view (get_connector_mesh()). For the dovetail cut it
+carries the grooves (Cut::Groove with their count and gap) instead, and the
+answer brings the plane with its grooves (its_make_groove_plane()), whether
+they meet the object (has_valid_groove()), and, once nothing is dragged, the
+parts the cut makes (perform_with_groove() kept as parts), which the 3D view
+shows in the object's place. The cut itself is
 `edit(..., ObjectEdit.CUT, cut = ObjectCut(...))`: the connectors join the
 object as negative volumes (apply_connectors_in_model() and
 apply_cut_connectors(), named after the translated name the app gives), then
 Cut::perform_with_plane() with the attributes of perform_cut(), plugs and
 snaps becoming parts of the lower half and holes in the upper one, dowels
-objects of their own; the parts it keeps are loaded at the end of
+objects of their own, or Cut::perform_with_groove() for the dovetail cut;
+the parts it keeps are loaded at the end of
 the plate as load_model_objects() loads them, with the question whether to
 repair the edges the cut left open.
 

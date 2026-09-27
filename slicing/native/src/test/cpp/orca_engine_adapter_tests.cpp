@@ -3499,7 +3499,7 @@ TEST_CASE("The cut gizmo describes its plane and cuts the object with it", "[Ada
     // The plane through the middle: half the cube on either side of it, and
     // the outline of the section to draw.
     const std::string prefix = output_path("cut-contour");
-    const orca::CutPlane middle = orca::describe_cut_plane(plane_at(10.0), {}, 0.3, 0.15, prefix);
+    const orca::CutPlane middle = orca::describe_cut_plane(plane_at(10.0), {}, 0.3, 0.15, false, {}, false, prefix);
     REQUIRE(middle.status == orca::SceneStatus::success);
     CHECK(middle.min[2] == Catch::Approx(-10.0));
     CHECK(middle.max[2] == Catch::Approx(10.0));
@@ -3508,11 +3508,11 @@ TEST_CASE("The cut gizmo describes its plane and cuts the object with it", "[Ada
     CHECK_FALSE(middle.contour.empty());
     CHECK_FALSE(middle.section.empty());
     // Above the cube the plane cuts nothing ("Cut plane is placed out of object").
-    const orca::CutPlane above = orca::describe_cut_plane(plane_at(30.0), {}, 0.3, 0.15, prefix);
+    const orca::CutPlane above = orca::describe_cut_plane(plane_at(30.0), {}, 0.3, 0.15, false, {}, false, prefix);
     CHECK_FALSE(above.valid_contour);
     CHECK(above.contour.empty());
     orca::end_cut();
-    CHECK(orca::describe_cut_plane(plane_at(10.0), {}, 0.3, 0.15, prefix).status != orca::SceneStatus::success);
+    CHECK(orca::describe_cut_plane(plane_at(10.0), {}, 0.3, 0.15, false, {}, false, prefix).status != orca::SceneStatus::success);
 
     // "Perform cut" 5 mm above the plate: the halves are objects of their own
     // on the plate, the upper one 15 mm tall and the lower one 5 mm.
@@ -3574,21 +3574,21 @@ TEST_CASE("The cut gizmo checks its connectors and cuts with them", "[Adapter][E
 
     REQUIRE(orca::begin_cut(plate.front(), 0, k2_plus_profiles()).status == orca::SceneStatus::success);
     const std::string prefix = output_path("connectors-plane");
-    const orca::CutPlane valid = orca::describe_cut_plane(plane, {plug}, 0.3, 0.15, prefix);
+    const orca::CutPlane valid = orca::describe_cut_plane(plane, {plug}, 0.3, 0.15, false, {}, false, prefix);
     REQUIRE(valid.status == orca::SceneStatus::success);
     CHECK(valid.invalid_connectors.empty());
     REQUIRE(valid.connector_meshes.size() == 1);
     CHECK_FALSE(valid.connector_meshes.front().empty());
     // "1 connector is out of cut contour"
-    const orca::CutPlane off = orca::describe_cut_plane(plane, {plug, outside}, 0.3, 0.15, prefix);
+    const orca::CutPlane off = orca::describe_cut_plane(plane, {plug, outside}, 0.3, 0.15, false, {}, false, prefix);
     CHECK(off.invalid_connectors == std::vector<int>{1});
     CHECK(off.outside_cut_contour == 1);
     // "Some connectors are overlapped"
-    const orca::CutPlane overlapped = orca::describe_cut_plane(plane, {plug, overlapping}, 0.3, 0.15, prefix);
+    const orca::CutPlane overlapped = orca::describe_cut_plane(plane, {plug, overlapping}, 0.3, 0.15, false, {}, false, prefix);
     CHECK(overlapped.invalid_connectors == std::vector<int>{0, 1});
     CHECK(overlapped.overlap);
     // "1 connector is out of object"
-    const orca::CutPlane too_deep = orca::describe_cut_plane(plane, {deep}, 0.3, 0.15, prefix);
+    const orca::CutPlane too_deep = orca::describe_cut_plane(plane, {deep}, 0.3, 0.15, false, {}, false, prefix);
     CHECK(too_deep.outside_bounding_box == 1);
     orca::end_cut();
 
@@ -3621,6 +3621,60 @@ TEST_CASE("The cut gizmo checks its connectors and cuts with them", "[Adapter][E
     CHECK(std::count_if(doweled.objects.begin(), doweled.objects.end(), [](const orca::ImportedObject& object) {
         return object.name.find("-Dowel-Connector-1") != std::string::npos;
     }) == 1);
+}
+
+TEST_CASE("The cut gizmo cuts with a dovetail", "[Adapter][Edit]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("dovetail.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const std::vector<double> placement = matrix_of(cube);
+    const auto plane_at = [&](const double z) {
+        std::vector<double> plane(16, 0.0);
+        plane[0] = plane[5] = plane[10] = plane[15] = 1.0;
+        plane[12] = placement[12];
+        plane[13] = placement[13];
+        plane[14] = z;
+        return plane;
+    };
+    // A groove 2 mm deep and 8 mm wide, its flaps at 60 degrees.
+    orca::CutGroove groove;
+    groove.depth = 2.0;
+    groove.width = 8.0;
+    groove.flaps_angle = M_PI / 3.0;
+
+    REQUIRE(orca::begin_cut(plate.front(), 0, k2_plus_profiles()).status == orca::SceneStatus::success);
+    const std::string prefix = output_path("dovetail-plane");
+    const orca::CutPlane middle = orca::describe_cut_plane(plane_at(10.0), {}, 0.3, 0.15, true, groove, true, prefix);
+    REQUIRE(middle.status == orca::SceneStatus::success);
+    CHECK(middle.valid_groove);
+    CHECK_FALSE(middle.groove_plane.empty());
+    // No outline for the dovetail cut (m_contour_width 0).
+    CHECK(middle.contour.empty());
+    // process_contours(): the parts either side of the groove.
+    CHECK(std::any_of(middle.preview_parts.begin(), middle.preview_parts.end(), [](const auto& part) { return part.upper; }));
+    CHECK(std::any_of(middle.preview_parts.begin(), middle.preview_parts.end(), [](const auto& part) { return !part.upper; }));
+    // Over the cube the groove meets nothing ("Cut plane with groove is invalid").
+    const orca::CutPlane above = orca::describe_cut_plane(plane_at(40.0), {}, 0.3, 0.15, true, groove, true, prefix);
+    CHECK_FALSE(above.valid_groove);
+    CHECK(above.preview_parts.empty());
+    orca::end_cut();
+
+    orca::ObjectCut cut;
+    cut.plane = plane_at(10.0);
+    cut.dovetail = true;
+    cut.groove = groove;
+    cut.radius = std::sqrt(3.0) * 10.0;
+    const orca::ImportedModels halves = orca::edit_object(plate, 0, orca::ObjectEdit::cut, -1, k2_plus_profiles(), import_prefix("cut-dovetail"), {}, cut);
+    INFO(halves.message);
+    REQUIRE(halves.status == orca::SceneStatus::success);
+    REQUIRE(halves.objects.size() == 2);
+    // The tongue of one half fills the groove of the other: neither is 10 mm.
+    for (const orca::ImportedObject& half : halves.objects) {
+        CHECK(half.instances.front().size_z != Catch::Approx(10.0).margin(0.5));
+    }
 }
 
 TEST_CASE("An object of one shell cannot be split", "[Adapter][Edit]")

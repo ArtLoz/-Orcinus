@@ -1526,6 +1526,19 @@ struct CutConnectorData {
     int shape{3};
 };
 
+// Cut::Groove of the dovetail cut, in millimetres and radians, with how many
+// grooves there are and the gap between them (m_groove_count, m_groove_gap).
+struct CutGroove {
+    double depth{0.0};
+    double width{0.0};
+    double flaps_angle{0.0};
+    double angle{0.0};
+    double depth_tolerance{0.1};
+    double width_tolerance{0.1};
+    int count{1};
+    double gap{10.0};
+};
+
 // The cut gizmo's plane and "After cut" of its window (GLGizmoCut3D).
 struct ObjectCut {
     // The copy of the object the plane cuts (the selection's instance).
@@ -1549,6 +1562,11 @@ struct ObjectCut {
     double snap_space{0.3};
     double snap_bulge{0.15};
     std::string connector_name{"Connector"};
+    // CutMode::cutTongueAndGroove: the plane carries grooves; m_radius, the
+    // radius of the copy's bounding box, sizes them.
+    bool dovetail{false};
+    CutGroove groove;
+    double radius{0.0};
 };
 
 // The object menu's commands that change the meshes of the object at index
@@ -1607,6 +1625,18 @@ struct CutPlane {
     // The shape of every connector (get_connector_mesh()), a mesh of unit size
     // for the 3D view, "<prefix>-connector-<shape>.mesh".
     std::vector<std::string> connector_meshes;
+    // The dovetail cut: the plane with its grooves (its_make_groove_plane()) in
+    // the plane's frame, "<prefix>-<n>-groove.mesh", and has_valid_groove().
+    std::string groove_plane;
+    bool valid_groove{true};
+    // The parts the dovetail cut makes (PartSelection of process_contours()),
+    // in world coordinates, which the 3D view shows in the object's place.
+    struct PreviewPart {
+        std::string mesh;
+        bool upper{true};
+        bool modifier{false};
+    };
+    std::vector<PreviewPart> preview_parts;
 };
 
 CutPlane describe_cut_plane(
@@ -1614,6 +1644,11 @@ CutPlane describe_cut_plane(
     const std::vector<CutConnectorData>& connectors,
     double snap_space,
     double snap_bulge,
+    // The dovetail cut and its grooves; its parts are worked out while
+    // preview asks for them (not while the plane or the grooves change).
+    bool dovetail,
+    const CutGroove& groove,
+    bool preview,
     const std::string& mesh_prefix
 );
 

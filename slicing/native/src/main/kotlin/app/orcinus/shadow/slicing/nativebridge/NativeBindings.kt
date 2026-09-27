@@ -737,6 +737,11 @@ internal class NativeCutPlane(
     @JvmField val outsideBoundingBox: Int,
     @JvmField val overlap: Boolean,
     @JvmField val connectorMeshes: Array<String>,
+    @JvmField val groovePlane: String,
+    @JvmField val validGroove: Boolean,
+    @JvmField val previewMeshes: Array<String>,
+    @JvmField val previewUpper: BooleanArray,
+    @JvmField val previewModifiers: BooleanArray,
 )
 
 /** Read and constructed by the native bridge; see CalibrationParams in orca_engine_adapter.hpp. */
@@ -1181,6 +1186,10 @@ internal object NativeBindings {
         snapSpace: Double,
         snapBulge: Double,
         connectorName: String,
+        /** The dovetail cut: its grooves flattened (CutGroove.values) and m_radius. */
+        dovetail: Boolean,
+        groove: DoubleArray,
+        radius: Double,
     ): NativeImportedModels
 
     /** begin_cut(): the cut gizmo opened on the copy at [instance] of the object, a plate of one. */
@@ -1200,6 +1209,9 @@ internal object NativeBindings {
         connectorKinds: IntArray,
         snapSpace: Double,
         snapBulge: Double,
+        dovetail: Boolean,
+        groove: DoubleArray,
+        preview: Boolean,
         meshPrefix: String,
     ): NativeCutPlane
 

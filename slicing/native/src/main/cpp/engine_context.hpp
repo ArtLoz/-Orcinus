@@ -8,6 +8,8 @@
 #include "libslic3r/TriangleMesh.hpp"
 #include "orca_engine_adapter.hpp"
 
+#include "libslic3r/CutUtils.hpp"
+
 namespace Slic3r {
 class AppConfig;
 class Model;
@@ -96,6 +98,9 @@ void keep_current_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& 
 // connectors of cut become negative volumes of object, turned by the plane's
 // rotation_m, before it is cut; dowels_count counts the dowels among them.
 void apply_cut_connectors(Slic3r::ModelObject& object, const ObjectCut& cut, const Slic3r::Transform3d& rotation_m, int& dowels_count);
+
+// Cut::Groove of the dovetail cut.
+Slic3r::Cut::Groove cut_groove(const CutGroove& groove);
 
 // Writes a mesh for the 3D view, in the format :render:scene reads
 // (mesh_file_magic of orca_engine_adapter.hpp).

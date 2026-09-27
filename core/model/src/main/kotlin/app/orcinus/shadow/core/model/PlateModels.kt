@@ -616,7 +616,48 @@ data class ObjectCut(
     val snapBulge: Double = 0.15,
     /** The name the connectors' volumes take, "<name>-<n>" (_u8L("Connector")). */
     val connectorName: String = "Connector",
+    /** CutMode::cutTongueAndGroove: the plane carries [groove]; [radius] is m_radius, which sizes it. */
+    val dovetail: Boolean = false,
+    val groove: CutGroove = CutGroove(),
+    val radius: Double = 0.0,
 )
+
+/**
+ * Cut::Groove of the dovetail cut, in millimetres and radians, with how many
+ * grooves there are and the gap between them (m_groove_count, m_groove_gap).
+ */
+data class CutGroove(
+    val depth: Double = 0.0,
+    val width: Double = 0.0,
+    val flapsAngle: Double = 0.0,
+    val angle: Double = 0.0,
+    val depthTolerance: Double = 0.1,
+    val widthTolerance: Double = 0.1,
+    val count: Int = 1,
+    val gap: Double = 10.0,
+) {
+    /** Cut::calculate_groove_width(): how wide a groove stands out on a plane sized by [radius] (m_radius). */
+    fun outerWidth(radius: Double): Double {
+        val flapWidth = if (kotlin.math.abs(flapsAngle) < 1e-9) depth else depth / kotlin.math.sin(flapsAngle)
+        val totalFlapWidth = 2.0 * flapWidth * kotlin.math.cos(flapsAngle)
+        val slotNeckHalfWidth = 0.5 * width
+        val slotMouthHalfWidth = 0.5 * (width + totalFlapWidth)
+        val planeHalfHeight = 0.5 * (1.5 * (1.5 * radius))
+        val flapTaperOffset = planeHalfHeight * kotlin.math.tan(angle)
+        return 2.0 * maxOf(slotMouthHalfWidth + flapTaperOffset, slotNeckHalfWidth + flapTaperOffset)
+    }
+
+    /** Flattened as the engine reads it (CutGroove of orca_engine_adapter.hpp). */
+    fun values(): DoubleArray = doubleArrayOf(depth, width, flapsAngle, angle, depthTolerance, widthTolerance, count.toDouble(), gap)
+
+    companion object {
+        fun of(values: DoubleArray): CutGroove = if (values.size < 8) {
+            CutGroove()
+        } else {
+            CutGroove(values[0], values[1], values[2], values[3], values[4], values[5], values[6].toInt(), values[7])
+        }
+    }
+}
 
 /** CutConnectorType of Model.hpp. */
 enum class CutConnectorType { PLUG, DOWEL, SNAP }

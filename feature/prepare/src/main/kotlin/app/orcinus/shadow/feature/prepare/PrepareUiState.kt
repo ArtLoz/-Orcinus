@@ -8,7 +8,9 @@ import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
 import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutPlaneDescription
+import app.orcinus.shadow.core.model.CutPreviewPart
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.ObjectPartId
@@ -421,6 +423,18 @@ data class CutMode(
     val snapBulge: Double = SNAP_BULGE,
     /** The connectors as they stood when the engine described the plane. */
     val describedConnectors: List<CutConnector>? = null,
+    /** m_mode: "Planar" or "Dovetail". */
+    val kind: CutKind = CutKind.PLANAR,
+    /** m_groove with m_groove_count and m_groove_gap, and their initial values, which the resets bring back. */
+    val groove: CutGroove = CutGroove(),
+    val grooveInit: CutGroove = CutGroove(),
+    /**
+     * The plane or the grooves are being dragged (m_dragging, m_groove_editing):
+     * the dovetail cut's parts are not worked out meanwhile.
+     */
+    val shaping: Boolean = false,
+    /** The grooves as they stood when the engine described the plane; null for the planar cut. */
+    val describedGroove: CutGroove? = null,
     /** The gizmo's snapshots (on_save()), the one shown at [snapshot]. */
     val snapshots: List<CutSnapshot> = emptyList(),
     val snapshot: Int = 0,
@@ -456,7 +470,20 @@ data class CutMode(
      * window is closed and none of them is invalid.
      */
     val canPerform: Boolean
-        get() = plane != null && (keepUpper || keepLower) && !editingConnectors && connectorsValid
+        get() = plane != null && (keepUpper || keepLower) && !editingConnectors &&
+            if (kind == CutKind.DOVETAIL) grooveValid else connectorsValid
+
+    /** has_valid_groove(), as the engine found it for this very plane and grooves. */
+    val grooveValid: Boolean
+        get() = describedPlane == plane && describedGroove == groove && described?.validGroove == true
+
+    /** The parts the dovetail cut makes, shown in the object's place while nothing is dragged. */
+    val previewParts: List<CutPreviewPart>
+        get() = if (kind == CutKind.DOVETAIL && !shaping && describedPlane == plane && describedGroove == groove) {
+            described?.previewParts.orEmpty()
+        } else {
+            emptyList()
+        }
 
     /** m_invalid_connectors_idxs is empty, as the engine found it for these very connectors. */
     val connectorsValid: Boolean
@@ -467,7 +494,7 @@ data class CutMode(
         get() = if (describedConnectors == connectors) described?.invalidConnectors.orEmpty().toSet() else emptySet()
 
     /** "Add connectors" (or "Edit connectors"): both parts kept, not cut to parts. */
-    val canEditConnectors: Boolean get() = keepUpper && keepLower && !keepAsParts
+    val canEditConnectors: Boolean get() = keepUpper && keepLower && !keepAsParts && kind == CutKind.PLANAR
 
     /** render_build_size(): the size of the transformed bounding box. */
     val buildVolume: Vector3?
@@ -490,13 +517,22 @@ data class CutMode(
             flipLower = saved.flipLower,
             connectors = saved.connectors,
             editingConnectors = saved.editingConnectors,
+            kind = saved.kind,
+            groove = groove.copy(
+                depth = saved.groove.depth,
+                width = saved.groove.width,
+                flapsAngle = saved.groove.flapsAngle,
+                angle = saved.groove.angle,
+                depthTolerance = saved.groove.depthTolerance,
+                widthTolerance = saved.groove.widthTolerance,
+            ),
             selectedConnectors = emptySet(),
             connectorSettings = connectorSettings.validated(),
             snapshot = index,
         )
     }
 
-    fun current() = CutSnapshot(plane, keepUpper, keepLower, flipUpper, flipLower, connectors, editingConnectors)
+    fun current() = CutSnapshot(plane, keepUpper, keepLower, flipUpper, flipLower, connectors, editingConnectors, kind, groove)
 
     /**
      * init_input_window_data() and validate_connector_settings(): the window
@@ -574,4 +610,9 @@ data class CutSnapshot(
     val flipLower: Boolean,
     val connectors: List<CutConnector> = emptyList(),
     val editingConnectors: Boolean = false,
+    val kind: CutKind = CutKind.PLANAR,
+    val groove: CutGroove = CutGroove(),
 )
+
+/** GLGizmoCut3D::CutMode: a plane, or a plane with dovetail grooves. */
+enum class CutKind { PLANAR, DOVETAIL }

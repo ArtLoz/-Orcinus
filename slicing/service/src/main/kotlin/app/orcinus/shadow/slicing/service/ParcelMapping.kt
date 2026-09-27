@@ -11,9 +11,11 @@ import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPlaneOutcome
+import app.orcinus.shadow.core.model.CutPreviewPart
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
@@ -1039,6 +1041,9 @@ internal fun ObjectCut.toParcel() = CutParcel().also {
     it.snapSpace = snapSpace
     it.snapBulge = snapBulge
     it.connectorName = connectorName
+    it.dovetail = dovetail
+    it.groove = groove.values()
+    it.radius = radius
 }
 
 internal fun CutParcel.toCut() = ObjectCut(
@@ -1055,6 +1060,9 @@ internal fun CutParcel.toCut() = ObjectCut(
     snapSpace = snapSpace,
     snapBulge = snapBulge,
     connectorName = connectorName,
+    dovetail = dovetail,
+    groove = CutGroove.of(groove),
+    radius = radius,
 )
 
 internal fun CutObjectOutcome.toParcel() = CutObjectParcel().also {
@@ -1087,6 +1095,11 @@ internal fun CutPlaneOutcome.toParcel() = CutPlaneParcel().also {
             it.outsideBoundingBox = plane.outsideBoundingBox
             it.overlap = plane.overlap
             it.connectorMeshes = plane.connectorMeshes.map(ScenePath::value).toTypedArray()
+            it.groovePlane = plane.groovePlane?.value
+            it.validGroove = plane.validGroove
+            it.previewMeshes = plane.previewParts.map { part -> part.mesh.value }.toTypedArray()
+            it.previewUpper = plane.previewParts.map(CutPreviewPart::upper).toBooleanArray()
+            it.previewModifiers = plane.previewParts.map(CutPreviewPart::modifier).toBooleanArray()
         }
         is CutPlaneOutcome.Failure -> {
             it.error = message
@@ -1094,6 +1107,9 @@ internal fun CutPlaneOutcome.toParcel() = CutPlaneParcel().also {
             it.max = DoubleArray(3)
             it.invalidConnectors = IntArray(0)
             it.connectorMeshes = emptyArray()
+            it.previewMeshes = emptyArray()
+            it.previewUpper = BooleanArray(0)
+            it.previewModifiers = BooleanArray(0)
         }
     }
 }
@@ -1111,5 +1127,8 @@ internal fun CutPlaneParcel.toOutcome(): CutPlaneOutcome = error?.let { CutPlane
             outsideBoundingBox = outsideBoundingBox,
             overlap = overlap,
             connectorMeshes = connectorMeshes.map(::ScenePath),
+            groovePlane = groovePlane?.let(::ScenePath),
+            validGroove = validGroove,
+            previewParts = previewMeshes.indices.map { index -> CutPreviewPart(ScenePath(previewMeshes[index]), previewUpper[index], previewModifiers[index]) },
         ),
     )

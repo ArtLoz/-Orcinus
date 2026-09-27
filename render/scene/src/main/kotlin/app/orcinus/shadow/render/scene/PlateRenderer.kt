@@ -42,6 +42,8 @@ internal class SceneFrame(
      * above it and of the lower part below it. Null while no cut is open.
      */
     val colorClipPlane: FloatArray? = null,
+    /** The colours above and below the colour clip plane (set_color_clip_plane_colors()). */
+    val colorClipColors: List<FloatArray> = listOf(floatArrayOf(0f, 1f, 1f, 1f), floatArrayOf(1f, 0f, 1f, 1f)),
     /**
      * The clipping plane of the objects (GLGizmosManager::get_clipping_plane()):
      * -normal and offset, which hide the side the normal points to; null clips nothing.
@@ -360,8 +362,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         program.setBoolean("use_color_clip_plane", colorClipPlane != null)
         if (colorClipPlane != null) {
             program.setVec4("color_clip_plane", colorClipPlane[0], colorClipPlane[1], colorClipPlane[2], colorClipPlane[3])
-            program.setVec4("uniform_color_clip_plane_1", UPPER_PART_COLOR[0], UPPER_PART_COLOR[1], UPPER_PART_COLOR[2], UPPER_PART_COLOR[3])
-            program.setVec4("uniform_color_clip_plane_2", LOWER_PART_COLOR[0], LOWER_PART_COLOR[1], LOWER_PART_COLOR[2], LOWER_PART_COLOR[3])
+            val (upper, lower) = frame.colorClipColors
+            program.setVec4("uniform_color_clip_plane_1", upper[0], upper[1], upper[2], upper[3])
+            program.setVec4("uniform_color_clip_plane_2", lower[0], lower[1], lower[2], lower[3])
         }
         program.setBoolean("is_outline", false)
         program.setBoolean("slope.actived", false)
@@ -514,10 +517,18 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             light.setMatrix4("projection_matrix", frame.projection)
             for (placed in gizmo.sceneMeshes) {
                 val array = gizmoMeshes.getOrPut(placed.key) { meshArray(placed.mesh) }
+                light.setFloat("emission_factor", placed.emission ?: gizmo.emission)
                 light.setVec4("uniform_color", placed.color.red, placed.color.green, placed.color.blue, placed.color.alpha)
                 light.setMatrix4("view_model_matrix", (frame.view * placed.world).toFloatArray())
                 light.setMatrix3("view_normal_matrix", normalMatrix(frame.view, placed.world))
+                // PartSelection::render(): a modifier blended.
+                val blend = placed.color.alpha < 1f
+                if (blend) {
+                    GLES30.glEnable(GLES30.GL_BLEND)
+                    GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                }
                 array.draw()
+                if (blend) GLES30.glDisable(GLES30.GL_BLEND)
             }
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         }

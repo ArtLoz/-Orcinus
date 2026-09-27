@@ -107,6 +107,8 @@ fun PlateView(
     onFlipCutPlane: () -> Unit = {},
     /** What a finger does to the connectors while their window is open. */
     onCutConnector: (CutConnectorEvent) -> Unit = {},
+    /** GLGizmoBase::INV_ZOOM as it changes: millimetres per desktop pixel at the camera's target. */
+    onPixelSize: (Double) -> Unit = {},
     selectedObject: Int?,
     /** Every selected object, which the scene draws as selected; the tools work on a single one. */
     selectedObjects: Set<Int> = setOfNotNull(selectedObject),
@@ -241,6 +243,14 @@ fun PlateView(
         }
         controller.setCutMeshes(loaded[0], loaded[1])
     }
+    // The dovetail's plane and parts.
+    val dovetailPaths = listOfNotNull(cut?.groovePlane?.value) + cut?.previewParts?.map { it.mesh.value }.orEmpty()
+    LaunchedEffect(dovetailPaths) {
+        val loaded = withContext(Dispatchers.IO) {
+            dovetailPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
+        }
+        controller.setCutDovetailMeshes(loaded)
+    }
     // The shapes of the cut's connectors.
     val connectorMeshPaths = cut?.connectors?.mapNotNull { it.mesh?.value }?.distinct().orEmpty()
     LaunchedEffect(connectorMeshPaths) {
@@ -275,6 +285,7 @@ fun PlateView(
         controller.onCutPlane = { plane, finished -> onCutPlane(Transform3(plane.elements().toList()), finished) }
         controller.onFlipCutPlane = onFlipCutPlane
         controller.onCutConnector = onCutConnector
+        controller.onPixelSize = onPixelSize
         controller.setCut(cut, cutIndex)
         controller.setPainting(painting != null)
         controller.setVerticalOnly(painting?.verticalOnly == true)
@@ -459,7 +470,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     var onCutPlane: (Affine3, Boolean) -> Unit = { _, _ -> }
     var onFlipCutPlane: () -> Unit = {}
     var onCutConnector: (CutConnectorEvent) -> Unit = {}
+    var onPixelSize: (Double) -> Unit = {}
+    private var reportedPixel = 0.0
     private var cutConnectorMeshes: Map<String, MeshData> = emptyMap()
+    private var cutDovetailMeshes: Map<String, MeshData> = emptyMap()
     private var layer: PlateLayer? = null
     private var layerBox: Box3? = null
     private var selectedIndex: Int? = null
@@ -657,9 +671,17 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (opened) {
             if (drag is CutDrag || cut != null) drag = null
             showObjects(plateObjects + listOfNotNull(wipeTower))
+        } else if (cut?.previewParts.orEmpty().isNotEmpty() != this.shownPreview) {
+            showObjects(plateObjects + listOfNotNull(wipeTower))
         } else {
             invalidate()
         }
+    }
+
+    fun setCutDovetailMeshes(meshes: Map<String, MeshData>) {
+        cutDovetailMeshes = meshes
+        // The object gives way to its parts once they are there (toggle_model_objects_visibility()).
+        showObjects(plateObjects + listOfNotNull(wipeTower))
     }
 
     fun setCutConnectorMeshes(meshes: Map<String, MeshData>) {
@@ -1054,21 +1076,29 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             invalidate()
             return true
         }
-        val grabber = listOf(
+        val open = cut ?: return false
+        val dovetailGrabbers = if (open.dovetail) gizmo.dovetailGrabbers(open.grooveAngle).map { (grabber, point) -> grabber to listOf(point) } else emptyList()
+        val grabber = (listOf(
             CutGrabber.Z to listOf(gizmo.sphereCenter()),
             CutGrabber.X to gizmo.coneCenters(CutGrabber.X),
             CutGrabber.Y to gizmo.coneCenters(CutGrabber.Y),
-        ).flatMap { (grabber, points) -> points.mapNotNull { point -> camera.project(point)?.let { grabber to (point to it) } } }
+        ) + dovetailGrabbers).flatMap { (grabber, points) -> points.mapNotNull { point -> camera.project(point)?.let { grabber to (point to it) } } }
             .map { (grabber, projected) -> Triple(grabber, projected.first, hypot(projected.second.first - x, projected.second.second - y)) }
             .filter { it.third <= radius }
             .minByOrNull { it.third }
         if (grabber != null) {
-            drag = CutDrag(index, grabber.first, gizmo.plane, grabber.second)
+            // on_mouse(): a move along the plane starts from the point of the plane under the finger.
+            val start = if (grabber.first == CutGrabber.X_MOVE || grabber.first == CutGrabber.Y_MOVE) {
+                camera.mouseRay(x, y)?.let(gizmo::planePoint) ?: grabber.second
+            } else {
+                grabber.second
+            }
+            drag = CutDrag(index, grabber.first, gizmo.plane, start)
             invalidate()
             return true
         }
         val ray = camera.mouseRay(x, y) ?: return false
-        val hit = gizmo.planeHit(ray) ?: return false
+        val hit = gizmo.planeHit(ray, open.dovetail) ?: return false
         drag = CutDrag(index, CutGrabber.PLANE, gizmo.plane, hit)
         invalidate()
         return true
@@ -1090,10 +1120,19 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 if (!projection.isFinite()) return
                 drag.startPlane.withTranslation(gizmo.center + gizmo.normal * projection)
             }
-            CutGrabber.X, CutGrabber.Y -> {
+            CutGrabber.X, CutGrabber.Y, CutGrabber.Z_ROTATION -> {
                 val (rotation, angle) = gizmo.dragRotation(drag.grabber, gizmo.rotation, ray)
                 drag.angle = angle
                 rotation.withTranslation(gizmo.center)
+            }
+            CutGrabber.X_MOVE, CutGrabber.Y_MOVE -> {
+                // dragging_grabber_move() along the plane's own X or Y axis.
+                val axis = gizmo.rotation.transformVector(if (drag.grabber == CutGrabber.X_MOVE) Vec3.UNIT_X else Vec3(0.0, 1.0, 0.0)).normalized()
+                val direction = ray.unitVector()
+                val intersection = ray.a + direction * (drag.startPoint - ray.a).dot(direction)
+                val projection = (intersection - drag.startPoint).dot(axis)
+                if (!projection.isFinite()) return
+                drag.startPlane.withTranslation(gizmo.center + axis * projection)
             }
         }
         drag.moved = true
@@ -1185,14 +1224,28 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         showObjects(plateObjects + listOfNotNull(wipeTower))
     }
 
+    /** The dovetail's parts stand in the object's place. */
+    private var shownPreview = false
+
     private fun showObjects(objects: List<SceneObject>) {
-        val shown = if (cut != null) objects.filter { it.index == cutIndex } else objects
+        val preview = cut?.previewParts.orEmpty().let { parts -> parts.isNotEmpty() && parts.all { it.mesh.value in cutDovetailMeshes } }
+        shownPreview = cut?.previewParts.orEmpty().isNotEmpty()
+        val shown = when {
+            cut == null -> objects
+            preview -> emptyList()
+            else -> objects.filter { it.index == cutIndex }
+        }
         this.objects = shown
         renderer.setObjects(shown)
         invalidate()
     }
 
     private fun invalidate() {
+        // GLGizmoBase::INV_ZOOM, for what the gizmos size by it.
+        if (camera.zoom > 0.0 && pixel() != reportedPixel) {
+            reportedPixel = pixel()
+            onPixelSize(reportedPixel)
+        }
         val bed = bed
         if (bed != null && framedBed !== bed && camera.viewportWidth > 1) {
             resetView()
@@ -1215,6 +1268,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 selectedIndexes = selectedIndexes,
                 gizmo = gizmoFrame(),
                 slopeNormalZ = slopeNormalZ,
+                // apply_color_clip_plane_colors(): the dovetail cut shows no parts' colours on the object.
+                colorClipColors = if (cut?.dovetail == true) listOf(CUT_PLANE_DEF_COLOR, CUT_PLANE_DEF_COLOR) else listOf(UPPER_PART, LOWER_PART),
                 colorClipPlane = cutGizmo()?.let { gizmo ->
                     // update_clipper(): set_color_clip_plane(normal, normal . centre).
                     floatArrayOf(-gizmo.normal.x.toFloat(), -gizmo.normal.y.toFloat(), -gizmo.normal.z.toFloat(), gizmo.normal.dot(gizmo.center).toFloat())
@@ -1245,6 +1300,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 editing = open.editingConnectors,
                 lookingForward = lookingForward(gizmo),
                 hovered = (drag as? CutConnectorDrag)?.connector,
+                dovetail = open.takeIf { it.dovetail }?.let {
+                    CutDovetail(
+                        planeTriangles = it.groovePlane?.value?.let(cutDovetailMeshes::get)?.cornerPositions(),
+                        grooveAngle = it.grooveAngle,
+                        parts = it.previewParts.map { part -> part to cutDovetailMeshes[part.mesh.value] },
+                    )
+                },
                 pixelScale = density,
             )
         }
@@ -1285,6 +1347,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         // libslic3r.h and Model.hpp
         const val EPSILON = 1e-4
         const val SINKING_Z_THRESHOLD = -0.001
+        // GLGizmoCut.cpp: UPPER_PART_COLOR, LOWER_PART_COLOR and CUT_PLANE_DEF_COLOR.
+        val UPPER_PART = floatArrayOf(0f, 1f, 1f, 1f)
+        val LOWER_PART = floatArrayOf(1f, 0f, 1f, 1f)
+        val CUT_PLANE_DEF_COLOR = floatArrayOf(0.9f, 0.9f, 0.9f, 0.5f)
 
         fun distanceToSegment(x: Double, y: Double, a: Pair<Double, Double>, b: Pair<Double, Double>): Double {
             val dx = b.first - a.first

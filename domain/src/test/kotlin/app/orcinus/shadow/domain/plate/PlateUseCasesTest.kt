@@ -23,6 +23,7 @@ import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.CutConnector
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPlaneOutcome
@@ -3003,6 +3004,8 @@ class PlateUseCasesTest {
             connectors: List<CutConnector>,
             snapSpace: Double,
             snapBulge: Double,
+            groove: CutGroove?,
+            preview: Boolean,
             meshPrefix: ScenePath,
         ): CutPlaneOutcome =
             CutPlaneOutcome.Success(CutPlaneDescription(Vector3(-10.0, -10.0, -10.0), Vector3(10.0, 10.0, 10.0), validContour = true, contour = null))

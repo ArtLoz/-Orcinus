@@ -3959,9 +3959,12 @@ ImportedModels edit_object(
 
             using Attribute = Slic3r::ModelObjectCutAttribute;
             // perform_cut(): the connectors join the object as its volumes first.
-            const bool has_connectors = !cut.connectors.empty();
+            const bool cut_with_groove = cut.dovetail;
+            const bool has_connectors = !cut.connectors.empty() && !cut_with_groove;
             int dowels_count = 0;
-            detail::apply_cut_connectors(*object, cut, Slic3r::Transform3d(plane.linear()), dowels_count);
+            if (has_connectors) {
+                detail::apply_cut_connectors(*object, cut, Slic3r::Transform3d(plane.linear()), dowels_count);
+            }
             const Slic3r::ModelObjectCutAttributes attributes =
                 Slic3r::only_if(has_connectors ? true : cut.keep_upper, Attribute::KeepUpper) |
                 Slic3r::only_if(has_connectors ? true : cut.keep_lower, Attribute::KeepLower) |
@@ -3971,12 +3974,15 @@ ImportedModels edit_object(
                 Slic3r::only_if(cut.flip_upper, Attribute::FlipUpper) |
                 Slic3r::only_if(cut.flip_lower, Attribute::FlipLower) |
                 Slic3r::only_if(dowels_count > 0, Attribute::CreateDowels) |
-                Slic3r::only_if(!has_connectors && object->cut_id.id().invalid(), Attribute::InvalidateCutInfo) |
+                Slic3r::only_if(!has_connectors && !cut_with_groove && object->cut_id.id().invalid(), Attribute::InvalidateCutInfo) |
                 Slic3r::only_if(keep_painting, Attribute::KeepPaint);
             update_object_cut_id(object->cut_id, attributes, dowels_count);
 
             Slic3r::Cut cutter(object, cut.instance, cut_matrix, attributes);
-            const Slic3r::ModelObjectPtrs& new_objects = cutter.perform_with_plane();
+            const Slic3r::ModelObjectPtrs& new_objects = cut_with_groove
+                ? cutter.perform_with_groove(detail::cut_groove(cut.groove), Slic3r::Transform3d(plane.linear()), cut.groove.count,
+                                             float(cut.groove.gap), float(cut.radius))
+                : cutter.perform_with_plane();
 
             // fix_non_manifold_edges: asked once, and every volume the cut left
             // open repaired when the user agrees.

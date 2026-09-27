@@ -1,6 +1,7 @@
 package app.orcinus.shadow.render.scene
 
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.CutPreviewPart
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
@@ -43,6 +44,15 @@ data class CutView(
      * section, and a touch places, picks and moves the connectors.
      */
     val editingConnectors: Boolean = false,
+    /**
+     * The dovetail cut: the plane with its grooves (in the plane's frame), the
+     * groove's angle, which shows the grabber moving the plane along its Y
+     * axis, and the parts the cut makes, drawn in the object's place.
+     */
+    val dovetail: Boolean = false,
+    val groovePlane: ScenePath? = null,
+    val grooveAngle: Double = 0.0,
+    val previewParts: List<CutPreviewPart> = emptyList(),
 )
 
 /**
@@ -128,8 +138,12 @@ object CutPlanes {
     private const val EPSILON = 1e-9
 }
 
-/** The grabbers of GLGizmoCut3D's plane (GrabberID): X and Y turn it, Z and the plane itself move it. */
-internal enum class CutGrabber { X, Y, Z, PLANE }
+/**
+ * The grabbers of GLGizmoCut3D's plane (GrabberID): X and Y turn it, Z and the
+ * plane itself move it; for the dovetail cut Z_ROTATION turns it about its
+ * normal and X_MOVE and Y_MOVE move it along its own axes.
+ */
+internal enum class CutGrabber { X, Y, Z, PLANE, Z_ROTATION, X_MOVE, Y_MOVE }
 
 /**
  * GLGizmoCut3D's plane and grabbers in world coordinates: [plane] places them,
@@ -169,16 +183,40 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
 
     /**
      * Where [ray] meets the plane's square (its_make_frustum_dowel with four
-     * sectors: corners at 45 degrees); null past its edges.
+     * sectors: corners at 45 degrees), or the rectangle of the dovetail
+     * plane; null past its edges.
      */
-    fun planeHit(ray: Line3): Vec3? {
+    fun planeHit(ray: Line3, dovetail: Boolean = false): Vec3? {
+        val point = planePoint(ray) ?: return null
+        val local = plane.inverse().transformPoint(point)
+        val halfX = if (dovetail) 0.5 * planeRadius else planeRadius / sqrt(2.0)
+        val halfY = if (dovetail) 0.5 * 1.5 * planeRadius else planeRadius / sqrt(2.0)
+        if (abs(local.x) > halfX || abs(local.y) > halfY) return null
+        return point
+    }
+
+    /** unproject_on_cut_plane() without the contours: where [ray] meets the plane. */
+    fun planePoint(ray: Line3): Vec3? {
         val toPlane = plane.inverse()
         val local = Line3(toPlane.transformPoint(ray.a), toPlane.transformPoint(ray.b))
         if (abs((local.b - local.a).z) < 1e-12) return null
         val point = local.intersectPlane(0.0)
-        val half = planeRadius / sqrt(2.0)
-        if (!point.isFinite() || abs(point.x) > half || abs(point.y) > half) return null
-        return plane.transformPoint(point)
+        return if (point.isFinite()) plane.transformPoint(point) else null
+    }
+
+    /** The dovetail's grabbers (render_cut_plane_grabbers()): where a finger takes them. */
+    fun dovetailGrabbers(grooveAngle: Double): List<Pair<CutGrabber, Vec3>> {
+        val size = halfSize(false)
+        val xyConnection = 0.75 * connectionLength
+        return buildList {
+            add(CutGrabber.Z_ROTATION to plane.transformPoint(Vec3(0.0, -1.75 * connectionLength, 0.0)))
+            add(CutGrabber.X_MOVE to plane.transformPoint(Vec3(xyConnection, 0.0, 0.0)))
+            add(CutGrabber.X_MOVE to plane.transformPoint(Vec3(size + xyConnection, 0.0, 0.0)))
+            if (grooveAngle > 0.0) {
+                add(CutGrabber.Y_MOVE to plane.transformPoint(Vec3(0.0, xyConnection, 0.0)))
+                add(CutGrabber.Y_MOVE to plane.transformPoint(Vec3(0.0, size + xyConnection, 0.0)))
+            }
+        }
     }
 
     /**
@@ -190,7 +228,7 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
      * [angle]. [contour] is the outline of the section, drawn over everything.
      */
     fun frame(dragged: CutGrabber?, angle: Double, dragStart: Affine3?, canCut: Boolean, contour: FloatArray?, pixelScale: Float): GizmoFrame =
-        frame(dragged, angle, dragStart, canCut, contour, null, emptyList(), emptyMap(), editing = false, lookingForward = true, hovered = null, pixelScale)
+        frame(dragged, angle, dragStart, canCut, contour, null, emptyList(), emptyMap(), editing = false, lookingForward = true, hovered = null, pixelScale = pixelScale)
 
     /**
      * on_render() with the connectors: render_connectors(), and while their
@@ -210,9 +248,10 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
         editing: Boolean,
         lookingForward: Boolean,
         hovered: Int?,
+        dovetail: CutDovetail? = null,
         pixelScale: Float,
     ): GizmoFrame {
-        val sceneMeshes = connectorMeshes(connectors, meshes, editing, lookingForward, hovered)
+        val sceneMeshes = connectorMeshes(connectors, meshes, editing, lookingForward, hovered) + dovetail?.previewMeshes().orEmpty()
         if (editing) {
             return GizmoFrame(
                 lines = emptyList(),
@@ -223,7 +262,18 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
                 emission = 0.2f,
             )
         }
-        return planeFrame(dragged, angle, dragStart, canCut, contour, pixelScale, sceneMeshes)
+        return planeFrame(dragged, angle, dragStart, canCut, contour, pixelScale, sceneMeshes, dovetail)
+    }
+
+    /** PartSelection::render(): the dovetail's parts in the colours of the upper and lower parts, modifiers blended. */
+    private fun CutDovetail.previewMeshes(): List<GizmoMesh> = parts.mapNotNull { (part, mesh) ->
+        mesh ?: return@mapNotNull null
+        val color = when {
+            part.modifier -> MODIFIER_COLOR
+            part.upper -> UPPER_PART_COLOR
+            else -> LOWER_PART_COLOR
+        }
+        GizmoMesh(part.mesh.value, mesh, Affine3(), color, emission = 0f)
     }
 
     /** m_clp_normal: the normal towards the camera's side, which the connectors' window clips. */
@@ -284,16 +334,20 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
         contour: FloatArray?,
         pixelScale: Float,
         sceneMeshes: List<GizmoMesh>,
+        dovetail: CutDovetail?,
     ): GizmoFrame {
         val lines = ArrayList<GizmoLines>()
         val grabbers = ArrayList<GizmoGrabber>()
         val dragging = dragged != null
         val connectionEnd = sphereCenter()
         val width = 1f * pixelScale
+        // render_cut_plane(): the dovetail's plane a little more transparent.
+        val planeColor = (if (canCut) CUT_PLANE_DEF_COLOR else CUT_PLANE_ERR_COLOR)
+            .let { if (dovetail != null) ColorRgba(it.red, it.green, it.blue, it.alpha - 0.1f) else it }
 
-        // The plane itself hides the rest while it is dragged.
+        // The plane itself hides the rest while it is dragged, and so do the dovetail's own grabbers.
         val noXyDragging = dragged == CutGrabber.PLANE
-        if (!noXyDragging) {
+        if (!noXyDragging && dragged != CutGrabber.Z_ROTATION && dragged != CutGrabber.X_MOVE && dragged != CutGrabber.Y_MOVE) {
             lines += GizmoLines(segments(listOf(center, connectionEnd)), GRABBER_COLOR, width)
             val color = when (dragged) {
                 CutGrabber.Y -> GizmoColors.AXES[1]
@@ -331,16 +385,61 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
                 grabbers += GizmoGrabber(plane * Affine3.assemble(position, turn, coneScale), color)
             }
         }
+        if (dovetail != null) dovetailGrabbers(dragged, angle, dragStart, planeColor, dovetail.grooveAngle, pixelScale, lines, grabbers)
 
         return GizmoFrame(
             lines = lines,
             grabbers = grabbers,
             overlay = listOfNotNull(contour?.let { GizmoFace(it, CONTOUR_COLOR) }),
-            sceneFaces = listOf(GizmoFace(planeTriangles(), if (canCut) CUT_PLANE_DEF_COLOR else CUT_PLANE_ERR_COLOR)),
+            sceneFaces = listOf(GizmoFace(dovetail?.planeTriangles ?: planeTriangles(), planeColor)),
             sceneFacesWorld = plane,
             sceneMeshes = sceneMeshes,
             emission = 0.2f,
         )
+    }
+
+    /** render_cut_plane_grabbers() of the dovetail cut: the turn about the normal and the moves along X and Y. */
+    private fun dovetailGrabbers(
+        dragged: CutGrabber?,
+        angle: Double,
+        dragStart: Affine3?,
+        planeColor: ColorRgba,
+        grooveAngle: Double,
+        pixelScale: Float,
+        lines: MutableList<GizmoLines>,
+        grabbers: MutableList<GizmoGrabber>,
+    ) {
+        val dragging = dragged != null
+        val noXyGrabber = !dragging
+        val width = 1f * pixelScale
+        if (noXyGrabber || dragged == CutGrabber.Z_ROTATION) {
+            val size = 0.75 * halfSize(dragging)
+            val color = GizmoColors.AXES[2]
+            val shift = -1.75 * connectionLength
+            val sphereColor = if (dragged == CutGrabber.Z_ROTATION) color else planeColor
+            grabbers += GizmoGrabber(plane * Affine3.assemble(Vec3(0.0, shift, 0.0), Vec3.ZERO, Vec3(size, size, size)), sphereColor, GrabberShape.SPHERE)
+            if (dragged == CutGrabber.Z_ROTATION) {
+                val coneScale = Vec3(0.75 * size, 0.75 * size, 1.8 * size)
+                lines += rotationSnapping(CutGrabber.Z_ROTATION, dragStart ?: rotation, angle, color, pixelScale)
+                lines += GizmoLines(segments(listOf(center, plane.transformPoint(Vec3(0.0, shift, 0.0)))), GRABBER_COLOR, width)
+                grabbers += GizmoGrabber(plane * Affine3.assemble(Vec3(1.25 * size, shift, 0.0), Vec3(0.0, 0.5 * PI, 0.0), coneScale), color)
+                grabbers += GizmoGrabber(plane * Affine3.assemble(Vec3(-1.25 * size, shift, 0.0), Vec3(0.0, -0.5 * PI, 0.0), coneScale), color)
+            }
+        }
+        val xyConnection = 0.75 * connectionLength
+        for (grabber in listOf(CutGrabber.X_MOVE, CutGrabber.Y_MOVE)) {
+            val alongX = grabber == CutGrabber.X_MOVE
+            if (!alongX && grooveAngle <= 0.0) continue
+            if (!(noXyGrabber || dragged == grabber)) continue
+            val size = halfSize(dragging)
+            val color = if (dragged == grabber) GizmoColors.AXES[if (alongX) 0 else 1] else planeColor
+            val axis = if (alongX) Vec3.UNIT_X else Vec3(0.0, 1.0, 0.0)
+            lines += GizmoLines(segments(listOf(center, plane.transformPoint(axis * xyConnection))), GRABBER_COLOR, width)
+            grabbers += GizmoGrabber(plane * Affine3.assemble(axis * xyConnection, Vec3.ZERO, Vec3(size, size, size)), color, GrabberShape.CUBE)
+            val coneScale = Vec3(0.5 * size, 0.5 * size, 1.8 * size)
+            val turn = if (alongX) Vec3(0.0, 0.5 * PI, 0.0) else Vec3(-0.5 * PI, 0.0, 0.0)
+            grabbers += GizmoGrabber(plane * Affine3.assemble(axis * (size + xyConnection), turn, coneScale), color)
+        }
     }
 
     /**
@@ -363,7 +462,11 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
         }
         if (abs(theta - 2.0 * PI) < 1e-9) theta = 0.0
         if (grabber != CutGrabber.Y) theta += 0.5 * PI
-        val turn = if (grabber == CutGrabber.X) Vec3(theta, 0.0, 0.0) else Vec3(0.0, theta, 0.0)
+        val turn = when (grabber) {
+            CutGrabber.X -> Vec3(theta, 0.0, 0.0)
+            CutGrabber.Y -> Vec3(0.0, theta, 0.0)
+            else -> Vec3(0.0, 0.0, theta)
+        }
         var angle = theta
         while (angle > 2.0 * PI) angle -= 2.0 * PI
         if (angle < 0.0) angle += 2.0 * PI
@@ -446,6 +549,9 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
         private val WHITE = ColorRgba(1f, 1f, 1f)
         private val CUT_PLANE_DEF_COLOR = ColorRgba(0.9f, 0.9f, 0.9f, 0.5f)
         private val CUT_PLANE_ERR_COLOR = ColorRgba(1f, 0.8f, 0.8f, 0.5f)
+        private val UPPER_PART_COLOR = ColorRgba(0f, 1f, 1f)
+        private val LOWER_PART_COLOR = ColorRgba(1f, 0f, 1f)
+        private val MODIFIER_COLOR = ColorRgba(0.75f, 0.75f, 0.75f, 0.5f)
         // ObjectClipper::render_cut(): the contour in white, the filled cut in dark grey.
         private val CONTOUR_COLOR = ColorRgba(1f, 1f, 1f)
         private val SECTION_COLOR = ColorRgba(0.25f, 0.25f, 0.25f)
@@ -471,12 +577,21 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
         private val LOCAL_PLANES = mapOf(
             CutGrabber.X to rotation(0.0, 0.0, 0.5 * PI) * rotation(0.0, -0.5 * PI, 0.0),
             CutGrabber.Y to rotation(0.0, 0.5 * PI, 0.0) * rotation(0.0, 0.0, 0.5 * PI),
+            CutGrabber.Z_ROTATION to Affine3(),
         )
 
         // render_rotation_snapping(): where the scale of X and of Y lies.
         private val SNAPPING_FRAMES = mapOf(
             CutGrabber.X to rotation(0.0, 0.5 * PI, 0.0) * rotation(0.0, 0.0, -PI),
             CutGrabber.Y to rotation(0.0, 0.0, -0.5 * PI) * rotation(0.0, -0.5 * PI, 0.0),
+            CutGrabber.Z_ROTATION to rotation(0.0, 0.0, -0.5 * PI),
         )
     }
 }
+
+/**
+ * The dovetail cut as a frame draws it: the plane with its grooves as
+ * GL_TRIANGLES corners in the plane's frame, the groove's angle, and the parts
+ * of the cut with their meshes once loaded.
+ */
+internal class CutDovetail(val planeTriangles: FloatArray?, val grooveAngle: Double, val parts: List<Pair<CutPreviewPart, MeshData?>>)

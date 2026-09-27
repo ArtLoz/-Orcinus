@@ -30,6 +30,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.CutConnectorShape
 import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
+import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.ui.orca.orcaString
@@ -57,6 +58,14 @@ internal class CutActions(
     val perform: (connectorName: String) -> Unit,
     val cancel: () -> Unit,
     val connectors: CutConnectorActions = CutConnectorActions.NONE,
+    /** "Mode" */
+    val setKind: (CutKind) -> Unit = {},
+    /** The groove's inputs; finished once a slider is let go. */
+    val setGroove: (finished: Boolean, change: (CutGroove) -> CutGroove) -> Unit = { _, _ -> },
+    /** The resets of the groove's inputs, from the current and the initial grooves. */
+    val resetGroove: ((CutGroove, CutGroove) -> CutGroove) -> Unit = {},
+    /** The 3D view's millimetres per desktop pixel, which the grooves take their first size from. */
+    val pixelSize: (Double) -> Unit = {},
 ) {
     companion object {
         val NONE = CutActions({}, { _, _ -> }, {}, {}, {}, { _, _ -> }, { _, _ -> }, { _, _ -> }, {}, {}, {})
@@ -94,12 +103,21 @@ internal class CutConnectorActions(
  * render_input_window_warning(). "Cancel" closes the gizmo from its title.
  */
 @Composable
-internal fun CutPanel(mode: CutMode, actions: CutActions) {
+internal fun CutPanel(mode: CutMode, actions: CutActions, plateSize: Double = 350.0) {
     if (mode.editingConnectors) return CutConnectorsPanel(mode, actions.connectors)
     val colors = OrcaTheme.colors
     val hasConnectors = mode.connectors.isNotEmpty()
+    val dovetail = mode.kind == CutKind.DOVETAIL
     val connectorName = orcaString("Connector")
     PaintingPanelFrame(orcaString("Cut"), orcaString("Cancel"), actions.cancel) {
+        // render_cut_mode_combo(), which connectors keep on the planar cut.
+        CutCombo(
+            label = orcaString("Mode"),
+            items = listOf(CutKind.PLANAR to orcaString("Planar"), CutKind.DOVETAIL to orcaString("Dovetail")),
+            selected = mode.kind,
+            enabled = !hasConnectors,
+            onSelect = actions.setKind,
+        )
         // render_build_size()
         val size = mode.buildVolume
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
@@ -131,12 +149,16 @@ internal fun CutPanel(mode: CutMode, actions: CutActions) {
             )
         }
         HorizontalDivider(color = colors.separator, modifier = Modifier.padding(vertical = 4.dp))
-        OrcaButton(
-            text = orcaString(if (hasConnectors) "Edit connectors" else "Add connectors"),
-            size = OrcaButtonSize.Compact,
-            enabled = mode.canEditConnectors,
-            onClick = actions.connectors.edit,
-        )
+        if (dovetail) {
+            CutGrooveInputs(mode, actions, plateSize)
+        } else {
+            OrcaButton(
+                text = orcaString(if (hasConnectors) "Edit connectors" else "Add connectors"),
+                size = OrcaButtonSize.Compact,
+                enabled = mode.canEditConnectors,
+                onClick = actions.connectors.edit,
+            )
+        }
         HorizontalDivider(color = colors.separator, modifier = Modifier.padding(vertical = 4.dp))
         Text(orcaString("After cut") + ": ", color = colors.onCanvasPanel, style = OrcaTheme.typography.body12)
         CutPartLine(
@@ -163,19 +185,21 @@ internal fun CutPanel(mode: CutMode, actions: CutActions) {
             onPlaceOnCut = { actions.setPlaceOnCut(false, it) },
             onFlip = { actions.setFlip(false, it) },
         )
-        CutCheck(orcaString("Cut to parts"), mode.keepAsParts, enabled = !hasConnectors, actions.setCutToParts)
+        CutCheck(orcaString("Cut to parts"), mode.keepAsParts, enabled = !hasConnectors && !dovetail, actions.setCutToParts)
         HorizontalDivider(color = colors.separator, modifier = Modifier.padding(vertical = 4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // "Reset cutting plane and remove connectors"
-            OrcaButton(
-                text = orcaString("Reset"),
-                size = OrcaButtonSize.Compact,
-                enabled = !mode.planeAtStart || hasConnectors,
-                onClick = {
-                    actions.resetPlane()
-                    if (hasConnectors) actions.connectors.removeAll()
-                },
-            )
+            // "Reset cutting plane and remove connectors", of the planar cut.
+            if (!dovetail) {
+                OrcaButton(
+                    text = orcaString("Reset"),
+                    size = OrcaButtonSize.Compact,
+                    enabled = !mode.planeAtStart || hasConnectors,
+                    onClick = {
+                        actions.resetPlane()
+                        if (hasConnectors) actions.connectors.removeAll()
+                    },
+                )
+            }
             Spacer(Modifier.weight(1f))
             OrcaButton(
                 text = orcaString("Perform cut"),
@@ -220,7 +244,11 @@ private fun CutWarnings(mode: CutMode) {
             add(text)
         }
         if (!mode.keepUpper && !mode.keepLower) add(orcaString("Warning") + ": " + orcaString("Select at least one object to keep after cutting."))
-        if (described?.validContour == false) add(orcaString("Warning") + ": " + orcaString("Cut plane is placed out of object"))
+        if (described?.validContour == false) {
+            add(orcaString("Warning") + ": " + orcaString("Cut plane is placed out of object"))
+        } else if (mode.kind == CutKind.DOVETAIL && mode.describedPlane == mode.plane && mode.describedGroove == mode.groove && described?.validGroove == false) {
+            add(orcaString("Warning") + ": " + orcaString("Cut plane with groove is invalid"))
+        }
     }
     for (warning in warnings) {
         Text(
@@ -349,6 +377,107 @@ private fun CutConnectorsPanel(mode: CutMode, actions: CutConnectorActions) {
     }
 }
 
+/**
+ * The dovetail cut's inputs of render_cut_plane_input_window(): "Groove" with
+ * its depth and width and their tolerances, the flap and groove angles, then
+ * "Multiple" with the count, the gap between the grooves and their spacing,
+ * each with its reset.
+ */
+@Composable
+private fun CutGrooveInputs(mode: CutMode, actions: CutActions, plateSize: Double) {
+    val colors = OrcaTheme.colors
+    val groove = mode.groove
+    val init = mode.grooveInit
+    val meanSize = mode.boundsMin?.let { min ->
+        val max = mode.boundsMax ?: min
+        ((max.x - min.x) + (max.y - min.y) + (max.z - min.z)) / 9.0
+    } ?: 10.0
+    val mm = orcaString("mm")
+    Text(orcaString("Groove") + ": ", color = ORANGE_LIGHT, style = OrcaTheme.typography.body12)
+    // render_groove_two_float_input(): the tolerance up to 30 % of the value, 1.5 mm at most.
+    CutResettable(enabled = !(groove.depth == init.depth && groove.depthTolerance == 0.1), onReset = {
+        actions.resetGroove { current, first -> current.copy(depth = first.depth, depthTolerance = 0.1) }
+    }) {
+        CutSlider(orcaString("Depth"), groove.depth, 1.0, meanSize, mm, onFinished = { actions.setGroove(true) { it } }) { value ->
+            actions.setGroove(false) { it.copy(depth = value) }
+        }
+    }
+    CutSlider(orcaString("Tolerance"), groove.depthTolerance, 0.0, minOf(minOf(0.3 * groove.depth, 1.5), 0.5 * meanSize), mm,
+        onFinished = { actions.setGroove(true) { it } }) { value -> actions.setGroove(false) { it.copy(depthTolerance = value) } }
+    CutResettable(enabled = !(groove.width == init.width && groove.widthTolerance == 0.1), onReset = {
+        actions.resetGroove { current, first -> current.copy(width = first.width, widthTolerance = 0.1) }
+    }) {
+        CutSlider(orcaString("Width"), groove.width, 1.0, meanSize, mm, onFinished = { actions.setGroove(true) { it } }) { value ->
+            actions.setGroove(false) { it.copy(width = value) }
+        }
+    }
+    CutSlider(orcaString("Tolerance"), groove.widthTolerance, 0.0, minOf(minOf(0.3 * groove.width, 1.5), 0.5 * meanSize), mm,
+        onFinished = { actions.setGroove(true) { it } }) { value -> actions.setGroove(false) { it.copy(widthTolerance = value) } }
+    // render_groove_angle_input()
+    CutResettable(enabled = groove.flapsAngle != init.flapsAngle, onReset = {
+        actions.resetGroove { current, first -> current.copy(flapsAngle = first.flapsAngle) }
+    }) {
+        CutSlider(orcaString("Flap Angle"), Math.toDegrees(groove.flapsAngle), 30.0, 120.0, "°", decimals = 0,
+            onFinished = { actions.setGroove(true) { it } }) { value -> actions.setGroove(false) { it.copy(flapsAngle = Math.toRadians(value)) } }
+    }
+    CutResettable(enabled = groove.angle != init.angle, onReset = {
+        actions.resetGroove { current, first -> current.copy(angle = first.angle) }
+    }) {
+        CutSlider(orcaString("Groove Angle"), Math.toDegrees(groove.angle), 0.0, 15.0, "°", decimals = 0,
+            onFinished = { actions.setGroove(true) { it } }) { value -> actions.setGroove(false) { it.copy(angle = Math.toRadians(value)) } }
+    }
+    Text(orcaString("Multiple") + ": ", color = ORANGE_LIGHT, style = OrcaTheme.typography.body12, modifier = Modifier.padding(top = 4.dp))
+    // render_groove_int_input(): 1 to 100, a step of one.
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(orcaString("Count"), color = colors.onCanvasPanel, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
+        OrcaButton(text = "−", size = OrcaButtonSize.Compact, enabled = groove.count > 1, onClick = {
+            actions.setGroove(true) { it.copy(count = it.count - 1) }
+        })
+        Text(groove.count.toString(), color = colors.onCanvasPanel, style = OrcaTheme.typography.body12)
+        OrcaButton(text = "+", size = OrcaButtonSize.Compact, enabled = groove.count < 100, onClick = {
+            actions.setGroove(true) { it.copy(count = it.count + 1) }
+        })
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_toolbar_reset,
+            contentDescription = orcaString("Reset"),
+            onClick = { actions.resetGroove { current, first -> current.copy(count = first.count) } },
+            enabled = groove.count != init.count,
+            tint = colors.onCanvasPanel,
+        )
+    }
+    // render_groove_float_input(): up to the plate over the gaps between the grooves.
+    val gapMax = plateSize / maxOf(groove.count - 1, 1)
+    CutResettable(enabled = groove.count != 1 && groove.gap != init.gap, onReset = {
+        actions.resetGroove { current, first -> current.copy(gap = first.gap) }
+    }) {
+        CutSlider(orcaString("Gap"), groove.gap, 1.0, gapMax, mm, enabled = groove.count != 1,
+            onFinished = { actions.setGroove(true) { it } }) { value -> actions.setGroove(false) { it.copy(gap = value) } }
+    }
+    Row {
+        Text(orcaString("Spacing"), color = colors.textDimmed, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
+        Text(
+            String.format(textLocale(), "%.2f", groove.gap + groove.outerWidth(mode.radius)) + mm,
+            color = colors.textDimmed,
+            style = OrcaTheme.typography.body12,
+        )
+    }
+}
+
+/** An input of the cut window with its reset button (render_reset_button()). */
+@Composable
+private fun CutResettable(enabled: Boolean, onReset: () -> Unit, content: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) { content() }
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_toolbar_reset,
+            contentDescription = orcaString("Reset"),
+            onClick = onReset,
+            enabled = enabled,
+            tint = OrcaTheme.colors.onCanvasPanel,
+        )
+    }
+}
+
 /** render_combo() of the connectors' window; nothing shows while the selected connectors differ. */
 @Composable
 private fun <T> CutCombo(label: String, items: List<Pair<T, String>>, selected: T?, enabled: Boolean, onSelect: (T) -> Unit) {
@@ -367,7 +496,17 @@ private fun <T> CutCombo(label: String, items: List<Pair<T, String>>, selected: 
 
 /** A slider of the connectors' window with its value; an undefined value (UndefFloat) shows none. */
 @Composable
-private fun CutSlider(label: String, value: Double?, min: Double, max: Double, unit: String, decimals: Int = 2, onChange: (Double) -> Unit) {
+private fun CutSlider(
+    label: String,
+    value: Double?,
+    min: Double,
+    max: Double,
+    unit: String,
+    decimals: Int = 2,
+    enabled: Boolean = true,
+    onFinished: () -> Unit = {},
+    onChange: (Double) -> Unit,
+) {
     val top = maxOf(max, min + 0.01)
     PaintingSlider(
         label = label,
@@ -375,6 +514,8 @@ private fun CutSlider(label: String, value: Double?, min: Double, max: Double, u
         range = min.toFloat()..top.toFloat(),
         text = value?.let { String.format(textLocale(), "%.${decimals}f %s", it, unit) } ?: " ",
         onChange = { onChange(it.toDouble()) },
+        enabled = enabled,
+        onFinished = onFinished,
     )
 }
 
@@ -441,6 +582,9 @@ private fun CutCheck(text: String, checked: Boolean, enabled: Boolean, onChange:
         )
     }
 }
+
+// ImGuiWrapper::COL_ORANGE_LIGHT: ColorRGBA::ORANGE().
+private val ORANGE_LIGHT = Color(0.923f, 0.504f, 0.264f)
 
 // UPPER_PART_COLOR and LOWER_PART_COLOR of GLGizmoCut.cpp: ColorRGBA::CYAN() and MAGENTA().
 private val UPPER_PART_COLOR = Color(0f, 1f, 1f)

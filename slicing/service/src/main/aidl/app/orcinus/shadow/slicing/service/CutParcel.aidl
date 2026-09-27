@@ -16,4 +16,7 @@ parcelable CutParcel {
     double snapSpace;
     double snapBulge;
     String connectorName;
+    boolean dovetail;
+    double[] groove;
+    double radius;
 }

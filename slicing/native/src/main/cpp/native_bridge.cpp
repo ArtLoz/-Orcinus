@@ -345,6 +345,24 @@ std::vector<orcinus::orca::CutConnectorData> to_connectors(JNIEnv* env, jdoubleA
     return connectors;
 }
 
+// CutGroove flattened: depth, width, flaps angle, angle, the two tolerances, count and gap.
+orcinus::orca::CutGroove to_groove(JNIEnv* env, jdoubleArray values)
+{
+    const std::vector<double> numbers = to_doubles(env, values);
+    orcinus::orca::CutGroove groove;
+    if (numbers.size() == 8) {
+        groove.depth = numbers[0];
+        groove.width = numbers[1];
+        groove.flaps_angle = numbers[2];
+        groove.angle = numbers[3];
+        groove.depth_tolerance = numbers[4];
+        groove.width_tolerance = numbers[5];
+        groove.count = static_cast<int>(numbers[6]);
+        groove.gap = numbers[7];
+    }
+    return groove;
+}
+
 std::vector<std::int64_t> to_longs(JNIEnv* env, jlongArray values)
 {
     std::vector<std::int64_t> result(static_cast<std::size_t>(env->GetArrayLength(values)));
@@ -3398,7 +3416,10 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObject(
     jintArray connector_kinds,
     jdouble snap_space,
     jdouble snap_bulge,
-    jstring connector_name
+    jstring connector_name,
+    jboolean dovetail,
+    jdoubleArray groove,
+    jdouble radius
 )
 {
     orcinus::orca::ObjectCut cut;
@@ -3408,6 +3429,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObject(
     cut.snap_space = snap_space;
     cut.snap_bulge = snap_bulge;
     cut.connector_name = to_utf8(env, connector_name);
+    cut.dovetail = dovetail == JNI_TRUE;
+    cut.groove = to_groove(env, groove);
+    cut.radius = radius;
     // keep_upper, keep_lower, keep_as_parts, place_on_cut_upper,
     // place_on_cut_lower, flip_upper, flip_lower
     const std::vector<bool> flags = to_bools(env, cut_flags);
@@ -3474,6 +3498,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
     jintArray connector_kinds,
     jdouble snap_space,
     jdouble snap_bulge,
+    jboolean dovetail,
+    jdoubleArray groove,
+    jboolean preview,
     jstring mesh_prefix
 )
 {
@@ -3482,8 +3509,25 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
         to_connectors(env, connector_values, connector_kinds),
         snap_space,
         snap_bulge,
+        dovetail == JNI_TRUE,
+        to_groove(env, groove),
+        preview == JNI_TRUE,
         to_utf8(env, mesh_prefix)
     );
+    std::vector<std::string> preview_meshes;
+    std::vector<bool> preview_upper;
+    std::vector<bool> preview_modifiers;
+    for (const auto& part : described.preview_parts) {
+        preview_meshes.push_back(part.mesh);
+        preview_upper.push_back(part.upper);
+        preview_modifiers.push_back(part.modifier);
+    }
+    const auto booleans = [env](const std::vector<bool>& values) {
+        const jbooleanArray array = env->NewBooleanArray(static_cast<jsize>(values.size()));
+        std::vector<jboolean> flags(values.begin(), values.end());
+        if (!flags.empty()) env->SetBooleanArrayRegion(array, 0, static_cast<jsize>(flags.size()), flags.data());
+        return array;
+    };
     const jintArray invalid = env->NewIntArray(static_cast<jsize>(described.invalid_connectors.size()));
     if (!described.invalid_connectors.empty()) {
         env->SetIntArrayRegion(invalid, 0, static_cast<jsize>(described.invalid_connectors.size()),
@@ -3491,7 +3535,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
     }
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeCutPlane");
     const jmethodID constructor = env->GetMethodID(
-        result_class, "<init>", "(JLjava/lang/String;[D[DZLjava/lang/String;Ljava/lang/String;[IIIZ[Ljava/lang/String;)V");
+        result_class, "<init>", "(JLjava/lang/String;[D[DZLjava/lang/String;Ljava/lang/String;[IIIZ[Ljava/lang/String;Ljava/lang/String;Z[Ljava/lang/String;[Z[Z)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -3506,7 +3550,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
         static_cast<jint>(described.outside_cut_contour),
         static_cast<jint>(described.outside_bounding_box),
         described.overlap ? JNI_TRUE : JNI_FALSE,
-        to_java(env, described.connector_meshes)
+        to_java(env, described.connector_meshes),
+        to_java(env, described.groove_plane),
+        described.valid_groove ? JNI_TRUE : JNI_FALSE,
+        to_java(env, preview_meshes),
+        booleans(preview_upper),
+        booleans(preview_modifiers)
     );
 }
 

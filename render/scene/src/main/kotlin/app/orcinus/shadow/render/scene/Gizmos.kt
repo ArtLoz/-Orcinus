@@ -80,8 +80,8 @@ internal class GizmoGrabber(val world: Affine3, val color: ColorRgba, val shape:
 
 internal enum class GrabberShape { CONE, CUBE, SPHERE }
 
-/** A mesh of a gizmo placed in the world; [key] names it for the GPU. */
-internal class GizmoMesh(val key: String, val mesh: MeshData, val world: Affine3, val color: ColorRgba)
+/** A mesh of a gizmo placed in the world; [key] names it for the GPU. [emission] null takes the frame's. */
+internal class GizmoMesh(val key: String, val mesh: MeshData, val world: Affine3, val color: ColorRgba, val emission: Float? = null)
 
 internal object GizmoColors {
     // ColorRGBA::X(), Y(), Z() in libslic3r/Color.hpp: GLGizmoBase::AXES_COLOR.

@@ -17,15 +17,18 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -42,6 +45,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
@@ -306,6 +310,10 @@ internal fun PrepareRoute(
             setCutToParts = viewModel::setCutToParts,
             perform = viewModel::performCut,
             cancel = viewModel::closeCut,
+            setKind = viewModel::setCutKind,
+            pixelSize = viewModel::setViewPixel,
+            setGroove = viewModel::setCutGroove,
+            resetGroove = viewModel::resetCutGroove,
             connectors = CutConnectorActions(
                 edit = viewModel::editCutConnectors,
                 confirm = viewModel::confirmCutConnectors,
@@ -443,12 +451,17 @@ internal fun PrepareScreen(
                                 )
                             },
                             editingConnectors = mode.editingConnectors,
+                            dovetail = mode.kind == CutKind.DOVETAIL,
+                            groovePlane = mode.described?.groovePlane?.takeIf { mode.describedGroove != null },
+                            grooveAngle = mode.groove.angle,
+                            previewParts = mode.previewParts,
                         )
                     }
                 },
                 onCutPlane = cutActions.setPlane,
                 onFlipCutPlane = cutActions.flip,
                 onCutConnector = cutActions.connectors.event,
+                onPixelSize = cutActions.pixelSize,
                 selectedObject = state.selectedObject,
                 selectedObjects = state.selectedObjects,
                 gizmo = state.gizmo,
@@ -592,7 +605,13 @@ internal fun PrepareScreen(
                         state.simplify,
                         simplifyActions,
                     )
-                    state.cut != null -> CutPanel(state.cut, cutActions)
+                    state.cut != null -> CutPanel(
+                        state.cut,
+                        cutActions,
+                        plateSize = state.plate?.geometry?.printableArea?.let { area ->
+                            maxOf(area.maxOf { it.x } - area.minOf { it.x }, area.maxOf { it.y } - area.minOf { it.y })
+                        } ?: 350.0,
+                    )
                     state.painting?.kind == PaintKind.COLOR -> PaintingPanel(state, state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
@@ -1390,9 +1409,20 @@ internal fun PaintingPanelFrame(title: String, done: String, onDone: () -> Unit,
                 onClick = onDone,
             )
         }
-        if (expanded) content()
+        if (expanded) {
+            // A window taller than the phone's canvas scrolls, as ImGui's
+            // window would grow past it, so its buttons stay in reach.
+            Column(
+                Modifier
+                    .heightIn(max = (LocalConfiguration.current.screenHeightDp * TOOL_WINDOW_HEIGHT).dp)
+                    .verticalScroll(rememberScrollState()),
+            ) { content() }
+        }
     }
 }
+
+/** How much of the screen's height a tool's window takes at most before it scrolls. */
+private const val TOOL_WINDOW_HEIGHT = 0.6f
 
 /** A row of a painting tool's choices, the chosen one filled. */
 @Composable
@@ -1415,18 +1445,28 @@ internal fun <T> PaintingChoices(items: List<Pair<T, String>>, selected: T, onSe
 
 /** A slider of a painting tool with its label before it and its value after it. */
 @Composable
-internal fun PaintingSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, text: String, onChange: (Float) -> Unit) {
+internal fun PaintingSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    text: String,
+    onChange: (Float) -> Unit,
+    enabled: Boolean = true,
+    onFinished: () -> Unit = {},
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = label,
-            color = OrcaTheme.colors.onCanvasPanel,
+            color = if (enabled) OrcaTheme.colors.onCanvasPanel else OrcaTheme.colors.textDimmed,
             style = OrcaTheme.typography.body12,
             modifier = Modifier.padding(end = 8.dp),
         )
         Slider(
             value = value,
             onValueChange = onChange,
+            onValueChangeFinished = onFinished,
             valueRange = range,
+            enabled = enabled,
             modifier = Modifier.weight(1f),
         )
         Text(

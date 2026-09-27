@@ -13,4 +13,9 @@ parcelable CutPlaneParcel {
     int outsideBoundingBox;
     boolean overlap;
     String[] connectorMeshes;
+    @nullable String groovePlane;
+    boolean validGroove;
+    String[] previewMeshes;
+    boolean[] previewUpper;
+    boolean[] previewModifiers;
 }
