@@ -59,6 +59,7 @@ import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
+import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
@@ -113,6 +114,7 @@ internal fun PreviewRoute(
             filaments = viewModel::sentFilaments,
             flashforgeSlots = viewModel::flashforgeSlots,
             plateBedType = viewModel::plateBedType,
+            printer3dOsLists = viewModel::printer3dOsLists,
         ),
         gcodeName = viewModel::gcodeName,
         onExportGcode = viewModel::exportGcode,
@@ -137,6 +139,8 @@ internal class PrinterActions(
     val flashforgeSlots: suspend (PhysicalPrinter) -> FlashforgeSlotsOutcome = { FlashforgeSlotsOutcome.Failure("") },
     /** The plate's type as a BedType value, which the Elegoo dialog checks its plate side against. */
     val plateBedType: () -> Int = { 1 },
+    /** 3DPrinterOS's session check and the cloud's projects and printer types. */
+    val printer3dOsLists: suspend (PhysicalPrinter) -> Printer3dOsListsOutcome = { Printer3dOsListsOutcome.Failure("") },
 ) {
     companion object {
         val NONE = PrinterActions(
@@ -374,13 +378,15 @@ internal fun PreviewScreen(
                     val outcome = printers.send(printer, startPrint, options) { part -> progress = part }
                     sent = outcome
                     progress = null
-                    // A host that opens a page after the upload (SimplyPrint's import): the desktop opens it in the browser.
+                    // A host that opens a page after the upload (SimplyPrint's import, 3DPrinterOS's quick print):
+                    // the desktop opens it in the browser.
                     (outcome as? PrintHostUploadOutcome.Success)?.openUrl?.let { openInBrowser(context, it) }
                 }
             },
             onDismiss = { sending = false },
             loadSlots = printers.slots,
             loadFlashforgeSlots = printers.flashforgeSlots,
+            loadPrinter3dOsLists = printers.printer3dOsLists,
             plateBedType = printers.plateBedType(),
             filaments = printers.filaments(),
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,

@@ -58,7 +58,9 @@ file the engine writes.
   while no printer is set up (`GUI_App::config_wizard_startup()`), holds the
   tab bar's slice action, and opens Preview when a slice finishes; features
   never reference each other. `OrcaSlicerService` hosts `NativeSlicerEngine` in
-  the `:slicer` process (`foregroundServiceType="specialUse"`).
+  the `:slicer` process (`foregroundServiceType="specialUse"`);
+  `NetworkWorkService` keeps the UI process in the foreground while an upload
+  or a cloud login runs (`foregroundServiceType="dataSync"`).
 - `:feature:sidebar` is OrcaSlicer's sidebar (printer with its nozzle diameter,
   material, process), shared by Prepare and Preview, so the shell places it
   through `OrcaSidebarLayout`. Each field opens the list of its OrcaSlicer
@@ -335,7 +337,11 @@ file the engine writes.
   layer; `SendGcodeUseCase` is
   `PrintHost::upload`: the sliced G-code goes to the
   printer through `GcodeSender`, which `:network:printhost` implements with the
-  platform's HTTP, since the desktop app's upload lives in its GUI layer.
+  platform's HTTP, since the desktop app's upload lives in its GUI layer. The
+  app runs an upload and a cloud login that waits in the browser under
+  `NetworkWork`: its `NetworkWorkService` (a dataSync foreground service)
+  keeps the network after the app's screen is left, which Android 15 and later
+  cut for a background app.
   `ExportGcodeUseCase` is the File menu's Export G-code: the sliced file is
   copied into a document of the user's own (`DocumentExport`), since the app
   keeps its G-code in its own directory.

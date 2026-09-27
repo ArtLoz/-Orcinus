@@ -15,6 +15,7 @@ import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.SliceMode
@@ -127,6 +128,8 @@ class PreviewViewModel(
 
     /** FlashforgePrintHostSendDialog: the slots of the printer's material station. */
     suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = sendGcode.flashforgeSlots(printer)
+
+    suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome = sendGcode.printer3dOsLists(printer)
 
     /**
      * The filaments of the plate, as the send dialogs match them to the

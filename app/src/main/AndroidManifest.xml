@@ -13,6 +13,10 @@
     <!-- PhysicalPrinterDialog's Browse button: Wi-Fi passes the multicast replies of
          mDNS on only while the app holds a multicast lock. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- NetworkWorkService: a cloud login waiting behind the browser and an upload
+         keep the network after the app's screen is left. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".OrcinusApplication"
@@ -32,6 +36,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".NetworkWorkService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- OrcaSlicer runs in its own process: a native crash does not close the UI. -->
         <service

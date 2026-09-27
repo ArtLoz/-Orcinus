@@ -7,8 +7,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.UUID
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /** An answer of the host with an HTTP status that is not a success, which a host may act on (a 401 refreshes a token). */
 class HttpStatusException(val status: Int, val body: String, message: String) : IOException(message)
@@ -89,9 +91,9 @@ class UrlConnectionHttpClient(
         file: File,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
         auth: HttpAuth?,
-    ): Result<String> = withContext(Dispatchers.IO) {
+    ): Result<String> = cancellable { aborter ->
         val boundary = "orcinus-${UUID.randomUUID()}"
-        request(url, "POST", headers, "multipart/form-data; boundary=$boundary", streamed = true, auth = auth) { output ->
+        request(url, "POST", headers, "multipart/form-data; boundary=$boundary", streamed = true, auth = auth, aborter = aborter) { output ->
             val writer = output.bufferedWriter()
             for ((name, value) in fields) {
                 writer.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
@@ -117,9 +119,9 @@ class UrlConnectionHttpClient(
         offset: Long,
         length: Long,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
-    ): Result<String> = withContext(Dispatchers.IO) {
+    ): Result<String> = cancellable { aborter ->
         val boundary = "orcinus-${UUID.randomUUID()}"
-        request(url, "POST", headers, "multipart/form-data; boundary=$boundary", streamed = true) { output ->
+        request(url, "POST", headers, "multipart/form-data; boundary=$boundary", streamed = true, aborter = aborter) { output ->
             val writer = output.bufferedWriter()
             for ((name, value) in fields) {
                 writer.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
@@ -136,14 +138,14 @@ class UrlConnectionHttpClient(
     }
 
     override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
-        withContext(Dispatchers.IO) {
-            request(url, method, headers, contentType = null) { output -> output.write(body) }
+        cancellable { aborter ->
+            request(url, method, headers, contentType = null, aborter = aborter) { output -> output.write(body) }
         }
 
     override suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String> =
-        withContext(Dispatchers.IO) {
+        cancellable { aborter ->
             val boundary = "orcinus-${UUID.randomUUID()}"
-            request(url, "POST", headers, "multipart/form-data; boundary=$boundary") { output ->
+            request(url, "POST", headers, "multipart/form-data; boundary=$boundary", aborter = aborter) { output ->
                 val writer = output.bufferedWriter()
                 for ((name, value) in fields) {
                     writer.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
@@ -160,19 +162,53 @@ class UrlConnectionHttpClient(
         file: File,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
         auth: HttpAuth?,
-    ): Result<String> = withContext(Dispatchers.IO) {
-        request(url, method, headers, contentType = null, streamed = true, auth = auth) { output ->
+    ): Result<String> = cancellable { aborter ->
+        request(url, method, headers, contentType = null, streamed = true, auth = auth, aborter = aborter) { output ->
             copy(file, output, onProgress)
         }
     }
 
     override suspend fun postJson(url: String, headers: Map<String, String>, body: String, auth: HttpAuth?): Result<String> =
-        withContext(Dispatchers.IO) {
-            request(url, "POST", headers, "application/json", auth = auth) { output -> output.write(body.toByteArray()) }
+        cancellable { aborter ->
+            request(url, "POST", headers, "application/json", auth = auth, aborter = aborter) { output -> output.write(body.toByteArray()) }
         }
 
-    override suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth?): Result<String> = withContext(Dispatchers.IO) {
-        request(url, "GET", headers, contentType = null, auth = auth, writeBody = null)
+    override suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth?): Result<String> = cancellable { aborter ->
+        request(url, "GET", headers, contentType = null, auth = auth, aborter = aborter, writeBody = null)
+    }
+
+    /**
+     * Http::cancel(): a request whose coroutine is cancelled is aborted, its
+     * connection closed under the read or write it blocks in — a login that
+     * waits on a long answer, an upload — instead of running on unseen.
+     */
+    private suspend fun cancellable(work: (Aborter) -> Result<String>): Result<String> = coroutineScope {
+        val aborter = Aborter()
+        val running = async(Dispatchers.IO) { work(aborter) }
+        try {
+            running.await()
+        } catch (cancelled: CancellationException) {
+            aborter.abort()
+            throw cancelled
+        }
+    }
+
+    /** The connection a cancelled request closes. */
+    private class Aborter {
+        @Volatile private var connection: HttpURLConnection? = null
+
+        @Volatile var aborted = false
+            private set
+
+        fun opened(connection: HttpURLConnection) {
+            this.connection = connection
+            if (aborted) connection.disconnect()
+        }
+
+        fun abort() {
+            aborted = true
+            connection?.disconnect()
+        }
     }
 
     /**
@@ -215,16 +251,17 @@ class UrlConnectionHttpClient(
         /** Whether the body is a file, which is sent in pieces instead of buffered. */
         streamed: Boolean = false,
         auth: HttpAuth? = null,
+        aborter: Aborter,
         writeBody: ((OutputStream) -> Unit)?,
     ): Result<String> {
-        val answer = perform(url, method, headers, contentType, streamed, writeBody)
+        val answer = perform(url, method, headers, contentType, streamed, aborter, writeBody)
         // Http::auth_digest: a host that asks for digest is answered with the
         // second request that carries the computed response.
         val challenge = (answer as? Answer.Unauthorized)?.challenge
         if (auth != null && challenge != null && challenge.startsWith("Digest ", ignoreCase = true)) {
             val header = digestHeader(challenge, method, URL(url).path, auth)
                 ?: return Result.failure(IOException("The host asked for an authorization the app cannot give"))
-            return perform(url, method, headers + ("Authorization" to header), contentType, streamed, writeBody).result()
+            return perform(url, method, headers + ("Authorization" to header), contentType, streamed, aborter, writeBody).result()
         }
         return answer.result()
     }
@@ -235,8 +272,10 @@ class UrlConnectionHttpClient(
         headers: Map<String, String>,
         contentType: String?,
         streamed: Boolean,
+        aborter: Aborter,
         writeBody: ((OutputStream) -> Unit)?,
     ): Answer {
+        if (aborter.aborted) return Answer.Failed(IOException("Canceled"))
         val connection = try {
             (URL(url).openConnection() as HttpURLConnection)
         } catch (error: IOException) {
@@ -244,6 +283,7 @@ class UrlConnectionHttpClient(
         } catch (error: IllegalArgumentException) {
             return Answer.Failed(error)
         }
+        aborter.opened(connection)
         return try {
             connection.requestMethod = method
             connection.connectTimeout = connectTimeoutMillis

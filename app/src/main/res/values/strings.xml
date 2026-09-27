@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Orcinus</string>
+    <string name="network_notification_channel">Связь с принтерами и облаком</string>
+    <string name="network_notification_login">Вход в %1$s: ожидание браузера</string>
+    <string name="network_notification_send">Отправка на %1$s</string>
 </resources>

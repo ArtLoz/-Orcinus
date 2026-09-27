@@ -72,6 +72,7 @@ import app.orcinus.shadow.core.model.PresetNameValidation
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostType
 import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnection
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
@@ -217,6 +218,8 @@ private fun ConnectionForm(
 
     // A cloud host whose Test asks for a login first (PrinterCloudAuthDialog), with what the test said.
     var loggingIn by remember { mutableStateOf<Pair<PhysicalPrinter, String>?>(null) }
+    // 3DPrinterOS's question before its login, with what the test said.
+    var proceeding by remember { mutableStateOf<Pair<PhysicalPrinter, String>?>(null) }
 
     // m_on_change: update() when the kind of host or of its login changes,
     // update_ports() when the printer of an Obico account does.
@@ -260,14 +263,6 @@ private fun ConnectionForm(
             Text(orcaString("Host Type"), color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
             OrcaComboField(text = orcaString(type.label), onClick = { choosingType = true }, modifier = Modifier.width(200.dp))
         }
-        if (!type.supported) {
-            Text(
-                text = stringResource(R.string.printer_host_unsupported),
-                color = colors.secondary,
-                style = OrcaTheme.typography.body13,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-        }
         Field(orcaString("Hostname, IP or URL"), printer.host, enabled = type.hostEditable) { set("print_host", it.trim()) }
         // update_printhost_buttons(): Browse for a host that finds itself on
         // the network, Test once there is an address.
@@ -275,7 +270,7 @@ private fun ConnectionForm(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(vertical = 4.dp),
         ) {
-            if (type.hasAutoDiscovery && type.supported) {
+            if (type.hasAutoDiscovery) {
                 OrcaButton(
                     text = orcaString("Browse") + " ...",
                     onClick = { browsing = true },
@@ -293,9 +288,11 @@ private fun ConnectionForm(
                     scope.launch {
                         val outcome = onTest(testedPrinter)
                         // A cloud host that did not answer logs in (Obico's PrinterCloudAuthDialog,
-                        // SimplyPrint's OAuthDialog).
+                        // SimplyPrint's OAuthDialog); 3DPrinterOS asks first.
                         if (outcome is PrintHostTestOutcome.Failure && testedPrinter.hostType == PrintHostType.OBICO) {
                             loggingIn = testedPrinter to outcome.message
+                        } else if (outcome is PrintHostTestOutcome.Failure && testedPrinter.hostType == PrintHostType.PRINTER_3D_OS) {
+                            proceeding = testedPrinter to outcome.message
                         } else if (outcome is PrintHostTestOutcome.Failure && testedPrinter.hostType?.logsInOutside == true) {
                             authorizing = testedPrinter
                         } else {
@@ -305,7 +302,7 @@ private fun ConnectionForm(
                     }
                 },
                 style = OrcaButtonStyle.Regular,
-                enabled = printer.host.isNotBlank() && !testing && type.supported,
+                enabled = printer.host.isNotBlank() && !testing,
                 icon = DesignR.drawable.orca_printer_host_test,
             )
             // update_printhost_buttons(): Log Out while the host keeps a login.
@@ -325,7 +322,13 @@ private fun ConnectionForm(
             Text(
                 text = when (outcome) {
                     // get_test_ok_msg() and get_test_failed_msg() of the host.
-                    is PrintHostTestOutcome.Success -> orcaString(testedPrinter.testOkMessage ?: testedType.testOkMessage)
+                    is PrintHostTestOutcome.Success -> orcaString(testedPrinter.testOkMessage ?: testedType.testOkMessage) +
+                        // 3DPrinterOS names the account of the session it had before the test.
+                        if (testedType == PrintHostType.PRINTER_3D_OS && outcome.description.isNotEmpty()) {
+                            orcaString(" Logined as user: ") + outcome.description
+                        } else {
+                            ""
+                        }
                     is PrintHostTestOutcome.Failure -> {
                         val note = testedType.testFailedNote?.let { orcaString(it) }
                         val gap = if (testedType == PrintHostType.FLASHAIR) "\n" else "\n\n"
@@ -385,7 +388,7 @@ private fun ConnectionForm(
                     }
                 },
                 style = OrcaButtonStyle.Regular,
-                enabled = printer.host.isNotBlank() && !refreshing && type.supported,
+                enabled = printer.host.isNotBlank() && !refreshing,
                 icon = DesignR.drawable.orca_monitor_signal_strong,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
@@ -419,7 +422,11 @@ private fun ConnectionForm(
         )
     }
     authorizing?.let { loginPrinter ->
+        val tokenAuth = loginPrinter.hostType == PrintHostType.PRINTER_3D_OS
         CloudAuthorizingSheet(
+            // TokenAuthDialog is titled 3DPrinterOS; a cancelled one leaves login() nothing to read.
+            title = if (tokenAuth) "3DPrinterOS" else orcaString("Login"),
+            canceled = if (tokenAuth) "Could not parse server response." else "User canceled.",
             login = { cloud.login(loginPrinter) { url -> openInBrowser(context, url) } },
             onDone = { outcome ->
                 authorizing = null
@@ -450,6 +457,40 @@ private fun ConnectionForm(
             dismissButton = { OrcaButton(orcaString("No"), onClick = { confirmingLogOut = false }, style = OrcaButtonStyle.Regular) },
             text = { Text(orcaString("Are you sure to log out?"), style = OrcaTheme.typography.body14) },
             containerColor = colors.window,
+            textContentColor = colors.text,
+            shape = OrcaTheme.shapes.window,
+        )
+    }
+    proceeding?.let { (loginPrinter, message) ->
+        // "Valid session not detected. Proceed with login to 3DPrinterOS?"; No keeps what the test said.
+        AlertDialog(
+            onDismissRequest = {
+                proceeding = null
+                tested = loginPrinter to PrintHostTestOutcome.Failure(message)
+            },
+            confirmButton = {
+                OrcaButton(
+                    text = orcaString("Yes"),
+                    onClick = {
+                        proceeding = null
+                        authorizing = loginPrinter
+                    },
+                )
+            },
+            dismissButton = {
+                OrcaButton(
+                    text = orcaString("No"),
+                    onClick = {
+                        proceeding = null
+                        tested = loginPrinter to PrintHostTestOutcome.Failure(message)
+                    },
+                    style = OrcaButtonStyle.Regular,
+                )
+            },
+            title = { Text(orcaString("Proceed"), style = OrcaTheme.typography.head16) },
+            text = { Text(orcaString("Valid session not detected. Proceed with login to 3DPrinterOS?"), style = OrcaTheme.typography.body14) },
+            containerColor = colors.window,
+            titleContentColor = colors.text,
             textContentColor = colors.text,
             shape = OrcaTheme.shapes.window,
         )
@@ -530,12 +571,17 @@ fun openInBrowser(context: Context, url: String) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CloudAuthorizingSheet(login: suspend () -> CloudLoginOutcome, onDone: (CloudLoginOutcome) -> Unit) {
+private fun CloudAuthorizingSheet(
+    title: String,
+    canceled: String,
+    login: suspend () -> CloudLoginOutcome,
+    onDone: (CloudLoginOutcome) -> Unit,
+) {
     val colors = OrcaTheme.colors
     val done by rememberUpdatedState(onDone)
     LaunchedEffect(Unit) { done(login()) }
     ModalBottomSheet(
-        onDismissRequest = { done(CloudLoginOutcome.Failure("User canceled.")) },
+        onDismissRequest = { done(CloudLoginOutcome.Failure(canceled)) },
         containerColor = colors.window,
         dragHandle = { OrcaSheetHandle() },
     ) {
@@ -544,14 +590,14 @@ private fun CloudAuthorizingSheet(login: suspend () -> CloudLoginOutcome, onDone
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp),
         ) {
-            Text(orcaString("Login"), color = colors.text, style = OrcaTheme.typography.head16, modifier = Modifier.padding(vertical = 4.dp))
+            Text(title, color = colors.text, style = OrcaTheme.typography.head16, modifier = Modifier.padding(vertical = 4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
                 CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(20.dp))
                 Text(orcaString("Authorizing..."), color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 8.dp))
             }
             OrcaButton(
                 text = orcaString("Cancel"),
-                onClick = { done(CloudLoginOutcome.Failure("User canceled.")) },
+                onClick = { done(CloudLoginOutcome.Failure(canceled)) },
                 style = OrcaButtonStyle.Regular,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -583,6 +629,8 @@ fun SendToPrinterSheet(
     loadFlashforgeSlots: suspend (PhysicalPrinter) -> FlashforgeSlotsOutcome = { FlashforgeSlotsOutcome.Failure("") },
     /** The plate's type as a BedType value, which the Elegoo dialog compares its plate side with (curr_bed_type). */
     plateBedType: Int = 1,
+    /** 3DPrinterOS's session check and the cloud's projects and printer types. */
+    loadPrinter3dOsLists: suspend (PhysicalPrinter) -> Printer3dOsListsOutcome = { Printer3dOsListsOutcome.Failure("") },
 ) {
     val colors = OrcaTheme.colors
     var printer by remember { mutableStateOf<PhysicalPrinter?>(null) }
@@ -595,6 +643,8 @@ fun SendToPrinterSheet(
     var mapping by remember { mutableStateOf(false) }
     // So does a Flashforge printer on its local API, with the options of its dialog.
     var flashforge by remember { mutableStateOf(false) }
+    // 3DPrinterOS asks for the cloud's project and printer type.
+    var cloudOptions by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         when (val outcome = load()) {
             is PrinterConnectionOutcome.Success -> {
@@ -649,11 +699,18 @@ fun SendToPrinterSheet(
                 )
                 return@Column
             }
+            if (cloudOptions) {
+                Printer3dOsSendPage(
+                    printer = host,
+                    loadLists = loadPrinter3dOsLists,
+                    onBack = { cloudOptions = false },
+                    onSend = { choice -> onSend(host, startPrint && host.canStartPrint, PrintOptions(printer3dOs = choice)) },
+                )
+                return@Column
+            }
             if (!host.canSend) {
-                // A preset whose host the app cannot reach yet says so, instead of asking for an address.
-                val unsupported = host.host.isNotBlank() && host.hostType?.supported == false
                 Text(
-                    text = stringResource(if (unsupported) R.string.printer_host_unsupported else R.string.printer_host_empty),
+                    text = stringResource(R.string.printer_host_empty),
                     color = colors.textSide,
                     style = OrcaTheme.typography.body13,
                     modifier = Modifier.padding(16.dp),
@@ -695,6 +752,9 @@ fun SendToPrinterSheet(
                     } else if (host.usesFlashforgeLocalApi) {
                         // FlashforgePrintHostSendDialog, for the local API only.
                         flashforge = true
+                    } else if (host.hostType == PrintHostType.PRINTER_3D_OS) {
+                        // UploadOptionsDialog, which C3DPrinterOS::upload() opens.
+                        cloudOptions = true
                     } else {
                         onSend(host, printNow, if (elegooOptions && printNow) PrintOptions(elegoo = elegoo) else PrintOptions())
                     }

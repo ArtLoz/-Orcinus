@@ -10,6 +10,7 @@ import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostType
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterSlot
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import java.io.File
@@ -54,8 +55,13 @@ class PrintHostUploader(
     elegooStartDelayMillis: Long = ElegooLink.START_DELAY_MILLIS,
     /** simplyprint_oauth.json: where SimplyPrint's login is kept; none keeps no login. */
     simplyPrintCredentials: File? = null,
+    /** 3dprinteros_api_cred.json: where 3DPrinterOS's session is kept. */
+    printer3dOsCredentials: File? = null,
+    /** TokenAuthDialog's pause before it asks the cloud for the session again. */
+    printer3dOsRetryMillis: Long = C3DPrinterOS.RETRY_DELAY_MILLIS,
 ) {
     private val simplyPrint = SimplyPrint(http, simplyPrintCredentials)
+    private val printer3dOs = C3DPrinterOS(http, printer3dOsCredentials, printer3dOsRetryMillis)
     private val flashforge = Flashforge(http, console, flashforgeSaveDelayMillis)
     private val elegoo = ElegooLink(http, webSocket, elegooStartDelayMillis)
 
@@ -98,7 +104,7 @@ class PrintHostUploader(
             }
             PrintHostType.OBICO -> uploadToObico(printer, gcode, name, startPrint, onProgress)
             PrintHostType.SIMPLYPRINT -> simplyPrint.upload(gcode, name, onProgress)
-            PrintHostType.PRINTER_3D_OS -> PrintHostUploadOutcome.Failure(UNSUPPORTED)
+            PrintHostType.PRINTER_3D_OS -> printer3dOs.upload(printer, gcode, name, startPrint, options.printer3dOs, onProgress)
         }
     }
 
@@ -202,7 +208,7 @@ class PrintHostUploader(
             }
             PrintHostType.OBICO -> obicoTest(printer)
             PrintHostType.SIMPLYPRINT -> simplyPrint.test()
-            PrintHostType.PRINTER_3D_OS -> PrintHostTestOutcome.Failure(UNSUPPORTED)
+            PrintHostType.PRINTER_3D_OS -> printer3dOs.test(printer)
         }
     }
 
@@ -212,18 +218,24 @@ class PrintHostUploader(
      */
     suspend fun cloudLogin(printer: PhysicalPrinter, openPage: (String) -> Unit): CloudLoginOutcome = when (printer.hostType) {
         PrintHostType.SIMPLYPRINT -> simplyPrint.login(openPage)
+        PrintHostType.PRINTER_3D_OS -> printer3dOs.login(printer, openPage)
         else -> CloudLoginOutcome.Failure("")
     }
+
+    /** 3DPrinterOS's session check and the lists of its UploadOptionsDialog. */
+    suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome = printer3dOs.lists(printer)
 
     /** is_logged_in(): whether the cloud host keeps a login, which the dialog offers to log out of. */
     fun isLoggedIn(printer: PhysicalPrinter): Boolean = when (printer.hostType) {
         PrintHostType.SIMPLYPRINT -> simplyPrint.isLoggedIn()
+        PrintHostType.PRINTER_3D_OS -> printer3dOs.isLoggedIn()
         else -> false
     }
 
     /** log_out() */
     fun logOut(printer: PhysicalPrinter) {
         if (printer.hostType == PrintHostType.SIMPLYPRINT) simplyPrint.logOut()
+        if (printer.hostType == PrintHostType.PRINTER_3D_OS) printer3dOs.logOut()
     }
 
     /**
@@ -696,7 +708,6 @@ class PrintHostUploader(
     internal companion object {
         private const val NO_ANSWER = "The printer did not answer"
         private const val UNREADABLE = "Could not parse server response."
-        private const val UNSUPPORTED = "The app cannot reach this kind of host yet"
 
         /** MKS::MKS(): the port of the board's G-code console. */
         const val MKS_CONSOLE_PORT = 8080

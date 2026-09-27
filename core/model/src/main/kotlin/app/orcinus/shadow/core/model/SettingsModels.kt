@@ -499,8 +499,6 @@ data class PresetChange(
 /**
  * PrintHostType: the kind of a printer's host, as OrcaSlicer's host_type names
  * them, in the order and with the names PhysicalPrinterDialog lists them by.
- * The app tests and sends to the ones the port covers ([supported]); the
- * others can be chosen and kept, as the desktop app keeps them.
  */
 enum class PrintHostType(val key: String, val label: String) {
     /** Prusa's own host, which takes a key or a user and password (digest). */
@@ -527,9 +525,6 @@ enum class PrintHostType(val key: String, val label: String) {
     PRINTER_3D_OS("3dprinteros", "3DPrinterOS"),
     MOONRAKER("moonraker", "Moonraker (Klipper)"),
     ;
-
-    /** Whether the app can test the host and send G-code to it. */
-    val supported: Boolean get() = this !in UNSUPPORTED
 
     /** PrintHost::is_cloud(): a host reached through an account, whose Test button logs in. */
     val isCloud: Boolean get() = this == OBICO || this == SIMPLYPRINT || this == PRINTER_3D_OS
@@ -632,9 +627,6 @@ enum class PrintHostType(val key: String, val label: String) {
         }
 
     companion object {
-        /** The hosts the port does not cover yet. */
-        private val UNSUPPORTED = setOf(PRINTER_3D_OS)
-
         fun of(key: String): PrintHostType? = entries.firstOrNull { it.key == key }
     }
 }
@@ -688,7 +680,7 @@ data class PhysicalPrinter(
     val usesFlashforgeLocalApi: Boolean
         get() = hostType == PrintHostType.FLASHFORGE && serialNumber.isNotEmpty() && apiKey.isNotEmpty()
 
-    /** printer_model of the printer, which comes with the host's settings for ElegooLink. */
+    /** printer_model of the printer, which comes with the host's settings for ElegooLink and 3DPrinterOS. */
     val printerModel: String get() = settings.values["printer_model"].orEmpty()
 
     /** ElegooLink's classify_printer_model(): which of Elegoo's protocols the printer speaks. */
@@ -710,7 +702,7 @@ data class PhysicalPrinter(
         get() = if (usesFlashforgeLocalApi) "Could not connect to Flashforge local API" else hostType?.testFailedMessage
 
     /** Whether the app knows how to send G-code to it. */
-    val canSend: Boolean get() = hostType?.supported == true && host.isNotBlank()
+    val canSend: Boolean get() = hostType != null && host.isNotBlank()
 }
 
 /**
@@ -927,6 +919,8 @@ data class PrintOptions(
     val flashforge: FlashforgeOptions? = null,
     /** ElegooPrintHostSendDialog's choices, for a Centauri that starts the print. */
     val elegoo: ElegooOptions? = null,
+    /** UploadOptionsDialog's choices, which a 3DPrinterOS upload needs. */
+    val printer3dOs: Printer3dOsChoice? = null,
 )
 
 /**

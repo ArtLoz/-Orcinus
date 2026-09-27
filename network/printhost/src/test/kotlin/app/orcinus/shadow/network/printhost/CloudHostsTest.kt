@@ -1,11 +1,15 @@
 package app.orcinus.shadow.network.printhost
 
+import app.orcinus.shadow.core.model.CloudProject
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObicoHost
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
+import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.Printer3dOsChoice
+import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import java.io.File
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
@@ -122,6 +126,106 @@ class CloudHostsTest {
         assertTrue(simplyPrint.isLoggedIn())
     }
 
+    @Test
+    fun `3DPrinterOS logs in with a token the browser confirms and keeps the session`() {
+        val credentials = File.createTempFile("3dprinteros", ".json").also { it.delete(); it.deleteOnExit() }
+        val http = CloudHttp(answers = mapOf("generate_login_token" to """{"result":true,"message":"t0k"}""", "check_session" to """{"result":true}"""))
+        // The cloud has no session for the token until the browser confirms it.
+        http.queued["login_with_token"] = ArrayDeque(
+            listOf("""{"result":true,"message":"wait"}""", """{"result":true,"message":{"session":"s1","email":"me@example.com"}}"""),
+        )
+        val uploader = PrintHostUploader(http, printer3dOsCredentials = credentials, printer3dOsRetryMillis = 0)
+        val printer = printer3dOs()
+        val pages = mutableListOf<String>()
+
+        assertEquals(app.orcinus.shadow.core.model.CloudLoginOutcome.Success, run { uploader.cloudLogin(printer) { pages += it } })
+        assertEquals(listOf("https://cloud.3dprinteros.com/noauth/apiglobal_login_with_token/t0k"), pages)
+        assertEquals(
+            listOf(
+                "https://cloud.3dprinteros.com/apiglobal/generate_login_token" to "app_type=plugin&app_name=OrcaSlicer",
+                "https://cloud.3dprinteros.com/apiglobal/login_with_token" to "token=t0k",
+                "https://cloud.3dprinteros.com/apiglobal/login_with_token" to "token=t0k",
+            ),
+            http.sent,
+        )
+        assertTrue(run { uploader.isLoggedIn(printer) })
+
+        // The test sends the session kept and names the account.
+        http.sent.clear()
+        assertEquals(PrintHostTestOutcome.Success("me@example.com"), run { uploader.test(printer) })
+        assertEquals("session=s1", http.sent.single().second)
+
+        run { uploader.logOut(printer) }
+        assertTrue(!credentials.exists())
+    }
+
+    @Test
+    fun `3DPrinterOS gives up on a token after ten answers without a session`() {
+        val http = CloudHttp(
+            answers = mapOf("generate_login_token" to """{"result":true,"message":"t0k"}""", "login_with_token" to """{"result":true,"message":"wait"}"""),
+        )
+        val credentials = File.createTempFile("3dprinteros", ".json").also { it.delete(); it.deleteOnExit() }
+        val uploader = PrintHostUploader(http, printer3dOsCredentials = credentials, printer3dOsRetryMillis = 0)
+
+        // TokenAuthDialog stops at its tenth answer, which login() cannot read a session from.
+        val outcome = run { uploader.cloudLogin(printer3dOs()) {} }
+        assertEquals(app.orcinus.shadow.core.model.CloudLoginOutcome.Failure("Could not parse server response."), outcome)
+        assertEquals(10, http.sent.count { it.first.endsWith("login_with_token") })
+        assertTrue(!credentials.exists())
+    }
+
+    @Test
+    fun `3DPrinterOS uploads into the project and printer type chosen and opens its quick print`() {
+        val credentials = File.createTempFile("3dprinteros", ".json").also { it.deleteOnExit() }
+        credentials.writeText("""{"session":"s1","email":"me@example.com"}""")
+        val http = CloudHttp(
+            answers = mapOf(
+                "check_session" to """{"result":true}""",
+                "get_projects" to """{"result":true,"message":[{"id":"5","name":"Box"}]}""",
+                "get_printer_types" to """{"result":true,"message":[{"id":"9","description":"Creality K2 Plus"},{"id":"10","description":"Creality K1"}]}""",
+                "apiglobal/upload" to """{"result":true,"message":{"file_id":"77"}}""",
+            ),
+        )
+        val uploader = PrintHostUploader(http, printer3dOsCredentials = credentials)
+        val printer = printer3dOs(model = "Creality K1")
+
+        val lists = run { uploader.printer3dOsLists(printer) } as Printer3dOsListsOutcome.Success
+        assertEquals("session=s1&description=Creality%20K1&software_version=OrcaSlicer", http.sent.last().second)
+        assertEquals(listOf(CloudProject("5", "Box")), lists.projects)
+        // Several types: the one of the model is chosen, and the dialog still asks to check it.
+        assertEquals(1, lists.initialPrinterType(printer.printerModel))
+        assertTrue(lists.asksForPrinterType)
+        assertEquals(Printer3dOsChoice("5", "Box", "10"), lists.choice("Box", lists.printerTypes[1]))
+        assertEquals(Printer3dOsChoice("", "Shelf", "9"), lists.choice("Shelf", lists.printerTypes[0]))
+
+        http.sent.clear()
+        val outcome = run {
+            uploader.upload(printer, gcode(), "cube.gcode", startPrint = true, PrintOptions(printer3dOs = lists.choice("Shelf", lists.printerTypes[0])))
+        }
+        assertEquals(PrintHostUploadOutcome.Success("cube.gcode", "https://cloud.3dprinteros.com/quickprint?file_id=77"), outcome)
+        assertEquals(
+            mapOf(
+                "session" to "s1",
+                "upload_type_id" to "7",
+                "upload_soft_name" to "OrcaSlicer",
+                "zip" to "false",
+                "project_name" to "Shelf",
+                "project_color" to "grey",
+            ),
+            http.posts.single().second,
+        )
+        assertEquals(
+            "https://cloud.3dprinteros.com/apiglobal/file_update" to
+                "session=s1&updates[77][ptype]=9&updates[77][gtype]=OrcaSlicer&updates[77][zip]=false",
+            http.sent.single(),
+        )
+    }
+
+    private fun printer3dOs(model: String = "") = PhysicalPrinter(
+        name = "Test",
+        settings = ModelSettings(mapOf("host_type" to "3dprinteros", "print_host" to "https://cloud.3dprinteros.com", "printer_model" to model)),
+    )
+
     private fun obico(token: String, port: String = "") = PhysicalPrinter(
         name = "Test",
         settings = ModelSettings(
@@ -184,7 +288,15 @@ class CloudHostsTest {
             onProgress: ((sent: Long, total: Long) -> Unit)?,
         ): Result<String> = answer(url)
 
-        override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> = answer(url)
+        /** The forms 3DPrinterOS posted, and the answers its endpoints give in turn before the usual one. */
+        val sent = mutableListOf<Pair<String, String>>()
+        val queued = mutableMapOf<String, ArrayDeque<String>>()
+
+        override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> {
+            sent += url to body.decodeToString()
+            queued.entries.firstOrNull { url.endsWith(it.key) }?.value?.removeFirstOrNull()?.let { return Result.success(it) }
+            return answer(url)
+        }
 
         val forms = mutableListOf<Pair<String, Map<String, String>>>()
         var refused: String? = null

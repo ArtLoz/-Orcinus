@@ -74,6 +74,7 @@ import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ProfileId
@@ -1632,6 +1633,12 @@ class SendGcodeUseCase(
      */
     suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = uploader.flashforgeSlots(printer)
 
+    /**
+     * C3DPrinterOS::upload() before its UploadOptionsDialog: the session is
+     * checked, and the cloud's projects and printer types are read.
+     */
+    suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome = uploader.printer3dOsLists(printer)
+
     /** PhysicalPrinterDialog's Test button: whether the host answers and is what it says it is. */
     suspend fun testPrinter(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 }
@@ -1650,6 +1657,9 @@ interface GcodeSender {
 
     /** Flashforge::fetch_material_slots(). */
     suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome
+
+    /** 3DPrinterOS's session check, projects and printer types. */
+    suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome
 
     /** PrintHost::test(): whether the host at the printer's address answers. */
     suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome

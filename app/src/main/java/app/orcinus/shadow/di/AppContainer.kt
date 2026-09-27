@@ -3,6 +3,7 @@ package app.orcinus.shadow.di
 import android.content.Context
 import android.net.wifi.WifiManager
 import app.orcinus.shadow.BuildConfig
+import app.orcinus.shadow.NetworkWork
 import app.orcinus.shadow.OrcaSlicerService
 import app.orcinus.shadow.R
 import app.orcinus.shadow.core.model.AppInfo
@@ -21,6 +22,7 @@ import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
+import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.data.notices.AboutLibrariesNoticeCatalog
 import app.orcinus.shadow.data.plate.InMemoryPlateRepository
@@ -259,10 +261,16 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val selectObjectPart = SelectObjectPartUseCase(plateRepository)
     private val setBedShape = SetBedShapeUseCase(settingsTabs, engine, platePresets)
     private val configFiles = AppConfigFiles(applicationContext)
+    // An upload and a login in the browser go on after the app's screen is left.
+    private val networkWork = NetworkWork(applicationContext)
+
     // PrintHost::upload: the sliced G-code goes to the printer over the network.
     private val gcodeSender = object : GcodeSender {
-        // SimplyPrint keeps its login in the app's own files, as the desktop keeps it in its data directory.
-        private val uploader = PrintHostUploader(simplyPrintCredentials = File(applicationContext.filesDir, "simplyprint_oauth.json"))
+        // SimplyPrint and 3DPrinterOS keep their logins in the app's own files, as the desktop keeps them in its data directory.
+        private val uploader = PrintHostUploader(
+            simplyPrintCredentials = File(applicationContext.filesDir, "simplyprint_oauth.json"),
+            printer3dOsCredentials = File(applicationContext.filesDir, "3dprinteros_api_cred.json"),
+        )
 
         override suspend fun send(
             printer: PhysicalPrinter,
@@ -272,8 +280,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             onProgress: (Float) -> Unit,
         ): PrintHostUploadOutcome {
             val file = File(gcode.value)
-            return uploader.upload(printer, file, file.name, startPrint, options) { sent, total ->
-                if (total > 0) onProgress(sent.toFloat() / total)
+            return networkWork.keep(applicationContext.getString(R.string.network_notification_send, printer.name)) {
+                uploader.upload(printer, file, file.name, startPrint, options) { sent, total ->
+                    if (total > 0) onProgress(sent.toFloat() / total)
+                }
             }
         }
 
@@ -281,14 +291,20 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
         override suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = uploader.flashforgeSlots(printer)
 
+        override suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome = uploader.printer3dOsLists(printer)
+
         override suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 
         override suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome = uploader.printers(printer)
 
         override suspend fun serialNumber(printer: PhysicalPrinter, lookUp: Boolean): String = uploader.serialNumber(printer, lookUp)
 
-        override suspend fun cloudLogin(printer: PhysicalPrinter, openPage: (String) -> Unit): CloudLoginOutcome =
-            uploader.cloudLogin(printer, openPage)
+        override suspend fun cloudLogin(printer: PhysicalPrinter, openPage: (String) -> Unit): CloudLoginOutcome {
+            val host = printer.hostType?.label.orEmpty()
+            return networkWork.keep(applicationContext.getString(R.string.network_notification_login, host)) {
+                uploader.cloudLogin(printer, openPage)
+            }
+        }
 
         override suspend fun isLoggedIn(printer: PhysicalPrinter): Boolean = withContext(Dispatchers.IO) { uploader.isLoggedIn(printer) }
 

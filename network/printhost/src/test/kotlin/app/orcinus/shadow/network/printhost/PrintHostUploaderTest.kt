@@ -79,19 +79,6 @@ class PrintHostUploaderTest {
     }
 
     @Test
-    fun `a printer the app cannot send to is refused before anything is sent`() {
-        val http = FakeHttpClient(answer = Result.success("{}"))
-
-        val outcome = runSuspend {
-            // 3DPrinterOS is a cloud host whose login the app does not have.
-            PrintHostUploader(http).upload(printer("3dprinteros", "https://cloud.3dprinteros.com", "k"), gcode(), "plate.gcode", startPrint = true)
-        }
-
-        assertTrue(outcome is PrintHostUploadOutcome.Failure)
-        assertTrue(http.multipart.isEmpty() && http.files.isEmpty() && http.gets.isEmpty())
-    }
-
-    @Test
     fun `a K2 takes the file without a folder and prints every filament from the slot chosen for it`() {
         val http = FakeHttpClient(answer = Result.success("{}"), info = """{"model": "F008"}""")
         val socket = FakeWebSocket()
