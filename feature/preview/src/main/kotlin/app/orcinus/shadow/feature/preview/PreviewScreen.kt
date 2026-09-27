@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -88,6 +89,7 @@ import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
 import app.orcinus.shadow.core.ui.settings.openInBrowser
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
+import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateView
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -298,6 +300,8 @@ internal fun PreviewScreen(
                     orbitSpeed = canvas.orbitSpeed,
                     freeCamera = canvas.freeCamera,
                     zoomToFingers = canvas.zoomToMouse,
+                    // The FPS overlay beside the sidebar button; the layer slider takes the top right corner.
+                    graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopStart, PaddingValues(start = 58.dp, top = 19.dp)),
                     antialiasingSamples = canvas.antialiasingSamples,
                 )
             }

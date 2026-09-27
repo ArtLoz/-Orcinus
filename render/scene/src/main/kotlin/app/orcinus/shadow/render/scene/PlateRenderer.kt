@@ -3,6 +3,7 @@ package app.orcinus.shadow.render.scene
 import android.content.res.AssetManager
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
+import app.orcinus.shadow.render.scene.gl.GlOffscreenFrame
 import app.orcinus.shadow.render.scene.gl.GlProgram
 import app.orcinus.shadow.render.scene.gl.GlTexture
 import app.orcinus.shadow.render.scene.gl.GlVertexArray
@@ -105,6 +106,32 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private val labelTextures = HashMap<Int, GlTexture>()
     private val lineWidthRange = FloatArray(2)
 
+    /** opengl_fxaa_enabled: the frame goes through GLCanvas3D::_render_fxaa_pass(). */
+    @Volatile
+    var fxaa = false
+
+    /** When the last frame started (System.nanoTime), which the FPS cap paces from. */
+    @Volatile
+    var lastFrameStart = 0L
+        private set
+
+    /** GLCanvas3D::m_render_stats: hears the frames per second each time they are measured. */
+    @Volatile
+    var onFps: ((Int) -> Unit)? = null
+
+    // RenderStats: the start of the second being measured and its frames.
+    private var measuringStart = 0L
+    private var fpsOut = -1
+    private var fpsRunning = 0
+
+    private var viewportWidth = 0
+    private var viewportHeight = 0
+    /** The samples of the surface's buffer, which the frame drawn for FXAA takes too. */
+    private var surfaceSamples = 0
+    private var offscreen: GlOffscreenFrame? = null
+    /** GLCanvas3D::m_background: the quad over the whole view that the FXAA pass draws. */
+    private var screenQuad: GlVertexArray? = null
+
     fun setBed(bed: SceneBed?) = synchronized(lock) {
         pendingBed = bed
         bedChanged = true
@@ -148,6 +175,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         grabberSphere = null
         gizmoMeshes.clear()
         labelTextures.clear()
+        offscreen = null
+        screenQuad = null
+        val samples = IntArray(2)
+        GLES30.glGetIntegerv(GLES30.GL_SAMPLES, samples, 0)
+        GLES30.glGetIntegerv(GLES30.GL_MAX_SAMPLES, samples, 1)
+        surfaceSamples = minOf(samples[0], samples[1])
         synchronized(lock) {
             bedChanged = true
             objectsChanged = true
@@ -157,9 +190,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
     override fun onSurfaceChanged(unused: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
+        viewportWidth = width
+        viewportHeight = height
     }
 
     override fun onDrawFrame(unused: GL10?) {
+        lastFrameStart = System.nanoTime()
         uploadChanges()
         val frame = frame
         val programs = programs
@@ -168,6 +204,69 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             return
         }
+        // FXAA reads the whole frame, so it is drawn off screen first; OpenGL ES
+        // cannot copy the surface's multisampled buffer as desktop OpenGL does.
+        val target = if (fxaa) offscreenFrame() else null
+        target?.bind()
+        renderScene(programs, frame)
+        if (target != null) {
+            target.resolve()
+            renderFxaa(programs.fxaa, target)
+        }
+        measureFps()
+    }
+
+    /** The frame drawn off screen at the view's size, made again when the view changes size. */
+    private fun offscreenFrame(): GlOffscreenFrame? {
+        val current = offscreen
+        if (current != null && current.width == viewportWidth && current.height == viewportHeight) return current.takeIf { it.complete }
+        current?.release()
+        if (viewportWidth <= 0 || viewportHeight <= 0) return null
+        val made = GlOffscreenFrame(viewportWidth, viewportHeight, surfaceSamples)
+        offscreen = made
+        return made.takeIf { it.complete }
+    }
+
+    /** GLCanvas3D::_render_fxaa_pass(): the frame drawn over the view through the fxaa shader. */
+    private fun renderFxaa(program: GlProgram, target: GlOffscreenFrame) {
+        val quad = screenQuad ?: GlVertexArray(
+            GlVertexArray.floatBuffer(
+                floatArrayOf(
+                    -1f, -1f, 0f, 0f, 0f, 1f, -1f, 0f, 1f, 0f, 1f, 1f, 0f, 1f, 1f,
+                    -1f, -1f, 0f, 0f, 0f, 1f, 1f, 0f, 1f, 1f, -1f, 1f, 0f, 0f, 1f,
+                ),
+            ),
+            listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2),
+            GLES30.GL_TRIANGLES,
+        ).also { screenQuad = it }
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        program.use()
+        program.setMatrix4("view_model_matrix", IDENTITY)
+        program.setMatrix4("projection_matrix", IDENTITY)
+        program.setInt("uniform_texture", 0)
+        program.setVec2("inv_tex_size", 1f / target.width, 1f / target.height)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target.texture)
+        quad.draw()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+    }
+
+    /** RenderStats::get_fps_and_reset_if_needed() and increment_fps_counter(), in their order. */
+    private fun measureFps() {
+        val now = System.nanoTime()
+        val elapsedMs = (now - measuringStart) / 1_000_000L
+        if (elapsedMs > 1_000 || fpsOut == -1) {
+            measuringStart = now
+            fpsOut = if (elapsedMs > 0) (1_000.0 * fpsRunning / elapsedMs).toInt() else 0
+            fpsRunning = 0
+            onFps?.invoke(fpsOut)
+        }
+        ++fpsRunning
+    }
+
+    private fun renderScene(programs: Programs, frame: SceneFrame) {
 
         // GLCanvas3D::_render_background() draws one colour for the 3D view.
         GLES30.glClearColor(frame.background[0], frame.background[1], frame.background[2], frame.background[3])
@@ -619,6 +718,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
     private class Programs(assets: AssetManager) {
         val flat = GlProgram(assets, "flat")
+        val fxaa = GlProgram(assets, "fxaa")
         val gouraud = GlProgram(assets, "gouraud")
         val gouraudLight = GlProgram(assets, "gouraud_light")
         val hotbed = GlProgram(assets, "hotbed")
@@ -660,6 +760,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     private companion object {
+        // Transform3d::Identity(), column-major.
+        val IDENTITY = floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f)
         // UPPER_PART_COLOR and LOWER_PART_COLOR of GLGizmoCut.cpp: ColorRGBA::CYAN() and MAGENTA().
         val UPPER_PART_COLOR = floatArrayOf(0f, 1f, 1f, 1f)
         val LOWER_PART_COLOR = floatArrayOf(1f, 0f, 1f, 1f)

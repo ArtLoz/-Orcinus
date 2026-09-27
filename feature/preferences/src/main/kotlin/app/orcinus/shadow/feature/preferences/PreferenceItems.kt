@@ -34,13 +34,18 @@ internal sealed interface PreferenceItem {
         fun valueOf(index: Int): String = values?.get(index) ?: index.toString()
     }
 
-    /** create_item_spinctrl(): a whole number kept within [range] (SpinInput clamps what it shows too), with [unit] beside it. */
+    /**
+     * create_item_spinctrl(): a whole number kept within [range] (SpinInput
+     * clamps what it shows too), with [unit] beside it and its second title
+     * [note], which the row writes under the title.
+     */
     data class Spin(
         override val key: String,
         override val title: String,
         override val tooltip: String,
         val range: IntRange,
         val unit: String,
+        val note: String = "",
     ) : PreferenceItem
 
     /**
@@ -239,6 +244,32 @@ internal val PREFERENCE_PAGES = listOf(
                             "Requires application restart.",
                         labels = listOf("Disabled", "2x", "4x", "8x", "16x"),
                         values = listOf("0", "2", "4", "8", "16"),
+                    ),
+                    PreferenceItem.Check(
+                        AppConfigKeys.OPENGL_FXAA_ENABLED,
+                        "FXAA post-processing",
+                        "Applies Fast Approximate Anti-Aliasing as a screen-space pass.\n" +
+                            "Useful for disabling or reducing the MSAA setting to improve performance.\n\n" +
+                            "Takes effect immediately.",
+                    ),
+                ),
+            ),
+            PreferenceSection(
+                "FPS",
+                listOf(
+                    PreferenceItem.Spin(
+                        AppConfigKeys.OPENGL_FPS_CAP,
+                        "FPS cap",
+                        "Limits viewport frame rate to reduce GPU load and power usage.\n" +
+                            "Set to 0 for unlimited frame rate.",
+                        range = 0..AppConfigKeys.MAX_FPS_CAP,
+                        unit = "FPS",
+                        note = "(0 = unlimited)",
+                    ),
+                    PreferenceItem.Check(
+                        AppConfigKeys.OPENGL_SHOW_FPS_OVERLAY,
+                        "Show FPS overlay",
+                        "Displays current viewport FPS in the top-right corner.",
                     ),
                 ),
             ),

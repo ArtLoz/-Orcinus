@@ -25,6 +25,12 @@ data class CanvasPreferences(
     val freeCamera: Boolean = false,
     /** zoom_to_mouse: a pinch zooms towards the fingers rather than the view's centre. */
     val zoomToMouse: Boolean = false,
+    /** opengl_fxaa_enabled: the frame goes through FXAA. */
+    val fxaa: Boolean = false,
+    /** opengl_fps_cap: at most this many frames a second; 0 for no limit. */
+    val fpsCap: Int = 0,
+    /** opengl_show_fps_overlay: the frames per second in a corner of the view. */
+    val fpsOverlay: Boolean = false,
 )
 
 /** GizmoObjectManipulation's conversions, with which the canvas shows imperial units. */
@@ -54,6 +60,9 @@ object AppConfigKeys {
     const val ZOOM_TO_MOUSE = "zoom_to_mouse"
     const val USE_FREE_CAMERA = "use_free_camera"
     const val OPENGL_ANTIALIASING_SAMPLES = "opengl_antialiasing_samples"
+    const val OPENGL_FXAA_ENABLED = "opengl_fxaa_enabled"
+    const val OPENGL_FPS_CAP = "opengl_fps_cap"
+    const val OPENGL_SHOW_FPS_OVERLAY = "opengl_show_fps_overlay"
     const val DEVELOPER_MODE = "developer_mode"
     const val KEEP_PAINTING = "keep_painting"
     const val LOG_SEVERITY_LEVEL = "log_severity_level"
@@ -91,6 +100,9 @@ object AppConfigKeys {
         ZOOM_TO_MOUSE,
         USE_FREE_CAMERA,
         OPENGL_ANTIALIASING_SAMPLES,
+        OPENGL_FXAA_ENABLED,
+        OPENGL_FPS_CAP,
+        OPENGL_SHOW_FPS_OVERLAY,
         DEVELOPER_MODE,
         KEEP_PAINTING,
         LOG_SEVERITY_LEVEL,
@@ -101,6 +113,14 @@ object AppConfigKeys {
         SAVE_PRESET_CHOISE,
         ENABLE_STEP_MESH_SETTING,
     )
+
+    /** GLCanvas3D::_get_effective_fps_cap(): std::stoi() of the value within 0 and 240, 0 for none. */
+    fun fpsCap(value: String?): Int {
+        val cap = STOL.find(value.orEmpty())?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        return cap.coerceIn(0, MAX_FPS_CAP)
+    }
+
+    const val MAX_FPS_CAP = 240
 
     /** get("use_inches") == "1", as the canvas asks; the Units combo box writes its index. */
     fun imperialUnits(value: String?): Boolean = value == "1"

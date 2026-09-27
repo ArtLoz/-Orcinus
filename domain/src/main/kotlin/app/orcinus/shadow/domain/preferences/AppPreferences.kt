@@ -70,6 +70,9 @@ class AppPreferences(private val store: AppConfigStore) {
             freeCamera = AppConfigKeys.bool(values[AppConfigKeys.USE_FREE_CAMERA]),
             // GLCanvas3D::on_mouse_wheel() compares with "true" alone.
             zoomToMouse = values[AppConfigKeys.ZOOM_TO_MOUSE] == "true",
+            fxaa = AppConfigKeys.bool(values[AppConfigKeys.OPENGL_FXAA_ENABLED]),
+            fpsCap = AppConfigKeys.fpsCap(values[AppConfigKeys.OPENGL_FPS_CAP]),
+            fpsOverlay = AppConfigKeys.bool(values[AppConfigKeys.OPENGL_SHOW_FPS_OVERLAY]),
         )
     }
 }

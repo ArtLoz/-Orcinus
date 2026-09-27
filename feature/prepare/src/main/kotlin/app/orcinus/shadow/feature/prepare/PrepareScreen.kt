@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -141,6 +142,7 @@ import app.orcinus.shadow.render.scene.CutConnectorView
 import app.orcinus.shadow.render.scene.CutView
 import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
+import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateView
 import java.util.Locale
 import kotlin.math.pow
@@ -495,6 +497,8 @@ internal fun PrepareScreen(
                 orbitSpeed = canvas.orbitSpeed,
                 freeCamera = canvas.freeCamera,
                 zoomToFingers = canvas.zoomToMouse,
+                // The FPS overlay under the canvas toolbar, which takes the top right corner.
+                graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopEnd, PaddingValues(top = 62.dp, end = 10.dp)),
                 antialiasingSamples = canvas.antialiasingSamples,
             )
         }

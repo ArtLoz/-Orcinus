@@ -174,15 +174,18 @@ private fun PreferenceRow(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = orcaString(item.title),
-            color = colors.text,
-            style = OrcaTheme.typography.body14,
-            modifier = Modifier
+        Column(
+            Modifier
                 .weight(1f)
                 .clickable(role = Role.Button, onClick = onTooltip)
                 .padding(vertical = 8.dp),
-        )
+        ) {
+            Text(text = orcaString(item.title), color = colors.text, style = OrcaTheme.typography.body14)
+            // create_item_spinctrl()'s second title, beside the input on the desktop.
+            if (item is PreferenceItem.Spin && item.note.isNotEmpty()) {
+                Text(text = orcaString(item.note), color = colors.textSide, style = OrcaTheme.typography.body12)
+            }
+        }
         Spacer(Modifier.width(12.dp))
         when (item) {
             is PreferenceItem.Check -> OrcaSwitch(

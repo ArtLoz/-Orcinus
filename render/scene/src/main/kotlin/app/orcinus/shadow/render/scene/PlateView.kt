@@ -5,18 +5,25 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
 import android.os.SystemClock
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -55,13 +62,18 @@ import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Line3
 import app.orcinus.shadow.render.scene.math.Vec3
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -148,6 +160,8 @@ fun PlateView(
     zoomToFingers: Boolean = false,
     /** The Preferences' multisampling (opengl_antialiasing_samples); unsupported counts fall back to none. */
     antialiasingSamples: Int = 4,
+    /** The Preferences' graphics: FXAA, the FPS cap and the FPS overlay. */
+    graphics: PlateGraphics = PlateGraphics(),
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -158,6 +172,9 @@ fun PlateView(
         val surface = remember { PlateSurfaceView(context, antialiasingSamples) }
         val controller = surface.controller
         LaunchedEffect(orbitSpeed) { controller.orbitSpeed = orbitSpeed }
+        LaunchedEffect(graphics.fxaa) { controller.setFxaa(graphics.fxaa) }
+        LaunchedEffect(graphics.fpsCap) { surface.fpsCap = graphics.fpsCap }
+        val fps by controller.fps.collectAsState()
         LaunchedEffect(freeCamera, zoomToFingers) {
             controller.freeCamera = freeCamera
             controller.zoomToFingers = zoomToFingers
@@ -348,11 +365,40 @@ fun PlateView(
                     .semantics { this.contentDescription = contentDescription }
                     .pointerInput(surface) { detectPlateGestures(controller, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
             )
+            // GLCanvas3D::_render_fps_overlay(): nothing until the first second is measured.
+            if (graphics.fpsOverlay && fps >= 0) {
+                BasicText(
+                    text = "FPS: $fps",
+                    style = OrcaTheme.typography.body12.copy(color = Color.White),
+                    modifier = Modifier
+                        .align(graphics.fpsAlignment)
+                        .padding(graphics.fpsPadding)
+                        .background(Color.Black.copy(alpha = FPS_BACKGROUND_ALPHA), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                )
+            }
         }
     }
 }
 
 private val DEFAULT_FILAMENT_COLOR = ColorRgba(0xF2 / 255f, 0x75 / 255f, 0x4E / 255f)
+
+/** ImGui::SetNextWindowBgAlpha(0.35f) of the FPS overlay. */
+private const val FPS_BACKGROUND_ALPHA = 0.35f
+
+/**
+ * The Preferences' graphics (the Graphics tab): [fxaa] (opengl_fxaa_enabled),
+ * [fpsCap] (opengl_fps_cap, 0 for none) and [fpsOverlay]
+ * (opengl_show_fps_overlay), which the page places at [fpsAlignment] with
+ * [fpsPadding], clear of its own controls.
+ */
+data class PlateGraphics(
+    val fxaa: Boolean = false,
+    val fpsCap: Int = 0,
+    val fpsOverlay: Boolean = false,
+    val fpsAlignment: Alignment = Alignment.TopEnd,
+    val fpsPadding: PaddingValues = PaddingValues(10.dp),
+)
 
 /** Gestures that start this close to the start edge are left to the app's drawer and the system. */
 private val GESTURE_EDGE = 20.dp
@@ -1050,6 +1096,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** camera_orbit_mult of the Preferences. */
     var orbitSpeed = 1.0
 
+    /** GLCanvas3D::m_render_stats: the frames per second, -1 before the first measure. */
+    private val fpsState = MutableStateFlow(-1)
+    val fps: StateFlow<Int> = fpsState.asStateFlow()
+
+    init {
+        renderer.onFps = { value -> fpsState.value = value }
+    }
+
+    /** opengl_fxaa_enabled, which takes effect at once. */
+    fun setFxaa(enabled: Boolean) {
+        if (renderer.fxaa == enabled) return
+        renderer.fxaa = enabled
+        invalidate()
+    }
+
     /** use_free_camera and zoom_to_mouse of the Preferences. */
     var freeCamera = false
     var zoomToFingers = false
@@ -1489,6 +1550,31 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 internal class PlateSurfaceView(context: Context, samples: Int) : GLSurfaceView(context) {
     private val renderer = PlateRenderer(context.assets)
     val controller = PlateViewController(this, renderer)
+
+    /** opengl_fps_cap: frames at most this often; 0 for no limit. */
+    @Volatile
+    var fpsCap = 0
+    private val frameScheduled = AtomicBoolean(false)
+
+    /**
+     * GLCanvas3D::on_idle() with an FPS cap: a frame asked for sooner than the
+     * cap allows after the last one started waits for the rest of the interval.
+     */
+    override fun requestRender() {
+        val cap = fpsCap
+        if (cap <= 0) return super.requestRender()
+        val minFrameTime = 1_000_000_000L / cap
+        val elapsed = System.nanoTime() - renderer.lastFrameStart
+        if (elapsed >= minFrameTime) return super.requestRender()
+        if (!frameScheduled.compareAndSet(false, true)) return
+        val waitMs = maxOf(1L, ceil((minFrameTime - elapsed) / 1_000_000.0).toLong())
+        postDelayed({
+            frameScheduled.set(false)
+            renderNow()
+        }, waitMs)
+    }
+
+    private fun renderNow() = super.requestRender()
 
     init {
         setEGLContextClientVersion(3)
