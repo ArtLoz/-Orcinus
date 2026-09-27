@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.api
 
+import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.CalibrationParams
@@ -510,6 +511,18 @@ interface PlateInspector {
         profiles: SlicingProfileSelection,
         placement: Transform3,
     ): FlatteningPlanesOutcome
+}
+
+/**
+ * OrcaSlicer's Preferences: the "app" section of the app configuration, which
+ * the engine keeps and saves with the presets (OrcaSlicer.conf).
+ */
+interface AppConfigStore {
+    /** AppConfig::get() of every key, its default where it was never set. */
+    suspend fun appConfigValues(keys: List<String>): AppConfigOutcome
+
+    /** AppConfig::set() and save(): the value the key has afterwards. */
+    suspend fun setAppConfigValue(key: String, value: String): AppConfigOutcome
 }
 
 /**

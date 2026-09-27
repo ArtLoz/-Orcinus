@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.nativebridge
 
+import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeKind
 import app.orcinus.shadow.core.model.BedShapeOutcome
@@ -218,6 +219,14 @@ internal fun NativePresetNameValidation.toOutcome(): PresetNameOutcome {
             info = info.map { it.toText() },
         ),
     )
+}
+
+/** The values of [keys], in their order. */
+internal fun NativeAppConfigValues.toOutcome(keys: List<String>): AppConfigOutcome {
+    if (status != NativeSceneStatus.SUCCESS) {
+        return AppConfigOutcome.Failure(message.ifBlank { "OrcaSlicer could not read its app configuration" })
+    }
+    return AppConfigOutcome.Success(keys.zip(values).toMap())
 }
 
 internal fun NativePresetNames.toOutcome(): PresetNamesOutcome {

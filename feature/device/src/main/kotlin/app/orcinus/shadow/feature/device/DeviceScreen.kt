@@ -58,6 +58,9 @@ import app.orcinus.shadow.core.ui.R as UiR
 internal fun DeviceRoute(viewModel: DeviceViewModel) {
     LaunchedEffect(viewModel) { viewModel.reload() }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val developerMode by viewModel.developerMode.collectAsStateWithLifecycle()
+    // wxWebView::EnableAccessToDevTools(): Android lets every WebView of the app be inspected at once.
+    LaunchedEffect(developerMode) { WebView.setWebContentsDebuggingEnabled(developerMode) }
     DeviceScreen(state, DevicePageActions(serialNumber = viewModel::serialNumber, upload = viewModel::upload))
 }
 

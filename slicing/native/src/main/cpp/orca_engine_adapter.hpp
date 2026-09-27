@@ -2449,4 +2449,19 @@ PresetSettings save_preset(PresetKind kind, const std::string& name);
 // preset is selected.
 PresetSettings delete_preset(PresetKind kind, const DialogAnswers& answers);
 
+// PreferencesDialog: values of the app configuration's "app" section, in the
+// order of the keys, as AppConfig::get() gives them (its defaults for keys
+// never set, empty for keys without one).
+struct AppConfigValues {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<std::string> values;
+};
+
+AppConfigValues app_config_values(const std::vector<std::string>& keys);
+
+// An item of PreferencesDialog: AppConfig::set() and save(), which reports the
+// value the key has after it. A new log level applies at once.
+AppConfigValues set_app_config_value(const std::string& key, const std::string& value);
+
 }  // namespace orcinus::orca

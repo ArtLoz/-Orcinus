@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.CutId
 import app.orcinus.shadow.core.model.CutInfo
@@ -172,6 +173,8 @@ import app.orcinus.shadow.domain.PlaceModelUseCase
 import app.orcinus.shadow.domain.PlaceModelsUseCase
 import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.domain.placed
+import app.orcinus.shadow.domain.preferences.AppPreferences
+import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -2424,7 +2427,15 @@ class PlateUseCasesTest {
         files,
         cache,
         repository,
+        AppPreferences(DefaultAppConfig),
     )
+
+    /** An app configuration that keeps nothing: every key reads empty, as AppConfig gives a key without a default. */
+    private object DefaultAppConfig : AppConfigStore {
+        override suspend fun appConfigValues(keys: List<String>) = AppConfigOutcome.Success(keys.associateWith { "" })
+
+        override suspend fun setAppConfigValue(key: String, value: String) = AppConfigOutcome.Success(mapOf(key to value))
+    }
 
     private fun settingsTabs(repository: PlateRepository) = PresetSettingsTabs(NoSettingsEditor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
 

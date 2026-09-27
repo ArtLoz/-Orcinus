@@ -53,6 +53,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
@@ -97,9 +98,11 @@ internal fun PreviewRoute(
     onSliceRequested: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val canvas by viewModel.canvas.collectAsStateWithLifecycle()
     PreviewScreen(
         state = state,
         layout = currentOrcaWindowLayout(),
+        canvas = canvas,
         onSelectPlate = viewModel::selectPlate,
         onSlice = {
             onSliceRequested()
@@ -171,6 +174,7 @@ internal fun PreviewScreen(
     onSelectPlate: (Int) -> Unit = {},
     onSliceModeChange: (SliceMode) -> Unit = {},
     onShowAllPlates: () -> Unit = {},
+    canvas: CanvasPreferences = CanvasPreferences(),
 ) {
     val result = state.result
     val untitled = orcaString("Untitled")
@@ -290,6 +294,8 @@ internal fun PreviewScreen(
                     currentPlate = state.currentPlate,
                     followCurrentPlate = true,
                     plateNames = state.plateNames.map { it.ifEmpty { untitled } },
+                    orbitSpeed = canvas.orbitSpeed,
+                    antialiasingSamples = canvas.antialiasingSamples,
                 )
             }
             if (allPlatesShown) {

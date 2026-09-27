@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.RemoteException
+import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.CalibrationParams
@@ -96,6 +97,7 @@ import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
+import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -118,7 +120,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor {
+) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -935,6 +937,12 @@ class RemoteSlicerEngine(
         remote(PresetSettingsOutcome::Failure) {
             deletePreset(kind.name, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetSettingsOutcome()
         }
+
+    override suspend fun appConfigValues(keys: List<String>): AppConfigOutcome =
+        remote(AppConfigOutcome::Failure) { appConfigValues(keys.toTypedArray()).toAppConfigOutcome() }
+
+    override suspend fun setAppConfigValue(key: String, value: String): AppConfigOutcome =
+        remote(AppConfigOutcome::Failure) { setAppConfigValue(key, value).toAppConfigOutcome() }
 
     private suspend fun <T> remote(failure: (String) -> T, call: ISlicerService.() -> T): T = withContext(Dispatchers.IO) {
         try {

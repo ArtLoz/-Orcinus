@@ -73,7 +73,7 @@ namespace {
 namespace fs = boost::filesystem;
 using detail::engine;
 
-// Warning, the level Orca's desktop app uses by default.
+// Warning, until the app configuration names its own level (log_severity_level).
 constexpr unsigned int orca_log_level = 2;
 
 std::unique_ptr<EngineInitialization> initialization;
@@ -1480,6 +1480,8 @@ EngineInitialization initialize(const EngineDirectories& directories)
                 BOOST_LOG_TRIVIAL(error) << "Unable to load the app configuration: " << error;
             }
         }
+        // GUI_App::init_app_config(): the log level of the Preferences.
+        Slic3r::set_logging_level(Slic3r::level_string_to_boost(config->get("log_severity_level")));
         const std::size_t vendor_bundles = install_vendor_bundles(*config);
 
         // GUI_App::load_language(): a modified preset's label starts with the
@@ -1606,6 +1608,9 @@ SliceResult slice(
             return failure(SliceStatus::cancelled, {});
         }
 
+        // Plater::priv::update(): the Preferences' "Remove mixed temperature
+        // restriction" lets filaments of very different temperatures print together.
+        print.set_check_multi_filaments_compatibility(engine().config->get("enable_high_low_temp_mixed_printing") == "false");
         print.apply(model, config);
         Slic3r::StringObjectException warning;
         const Slic3r::StringObjectException error = print.validate(&warning);
@@ -3107,9 +3112,10 @@ Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& 
     if (boost::algorithm::iends_with(path, ".stp") || boost::algorithm::iends_with(path, ".step")) {
         bool utf8 = true;
         // The app configuration's linear_defletion and angle_defletion, which
-        // fall back to these when unset, and no split compound; StepMeshDialog
-        // only shows when the preference "Show options when importing STEP
-        // file" is on, which is off by default.
+        // fall back to these when unset, and no split compound. The desktop app
+        // asks for them in StepMeshDialog first, since its preference "Show
+        // options when importing STEP file" is on by default; the dialog is not
+        // ported yet, so the file loads as if it were off.
         Slic3r::Model model = Slic3r::Model::read_from_step(
             path, Slic3r::LoadStrategy::LoadModel, nullptr, [&utf8](int is_utf8) { utf8 = is_utf8 != 0; }, nullptr, 0.003, 0.5, false);
         if (!utf8) {

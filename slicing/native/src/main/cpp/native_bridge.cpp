@@ -2819,6 +2819,25 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_savePreset(JNIEnv* e
     return to_java(env, orcinus::orca::save_preset(static_cast<orcinus::orca::PresetKind>(kind), to_utf8(env, name)));
 }
 
+jobject to_java(JNIEnv* env, const orcinus::orca::AppConfigValues& values)
+{
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeAppConfigValues");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[Ljava/lang/String;)V");
+    return env->NewObject(result_class, constructor, static_cast<jlong>(values.status), to_java(env, values.message), to_java(env, values.values));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_appConfigValues(JNIEnv* env, jobject /* this */, jobjectArray keys)
+{
+    return to_java(env, orcinus::orca::app_config_values(to_strings(env, keys)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setAppConfigValue(JNIEnv* env, jobject /* this */, jstring key, jstring value)
+{
+    return to_java(env, orcinus::orca::set_app_config_value(to_utf8(env, key), to_utf8(env, value)));
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_deletePreset(
     JNIEnv* env,

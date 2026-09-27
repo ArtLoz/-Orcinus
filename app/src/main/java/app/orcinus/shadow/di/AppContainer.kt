@@ -139,10 +139,13 @@ import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.plate.UpdateFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.WipeTowerUpdates
+import app.orcinus.shadow.domain.preferences.AppPreferences
+import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import app.orcinus.shadow.feature.about.NoticeViewModel
 import app.orcinus.shadow.feature.about.ThirdPartyViewModel
 import app.orcinus.shadow.feature.about.navigation.AboutViewModelFactory
 import app.orcinus.shadow.feature.device.DeviceViewModel
+import app.orcinus.shadow.feature.preferences.PreferencesViewModel
 import app.orcinus.shadow.feature.prepare.PrepareViewModel
 import app.orcinus.shadow.feature.preview.PreviewViewModel
 import app.orcinus.shadow.feature.settings.PresetSettingsViewModel
@@ -184,6 +187,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val engine = RemoteSlicerEngine(applicationContext, OrcaSlicerService::class.java)
+
+    // OrcaSlicer's Preferences, which the engine keeps in its app configuration.
+    private val appPreferences = AppPreferences(engine)
     private val plateRepository = InMemoryPlateRepository()
     private val sceneFiles = AppSceneFiles(applicationContext)
     private val plateCache = AppPlateCache(applicationContext)
@@ -212,7 +218,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     }
 
     val observePlate = ObservePlateUseCase(plateRepository)
-    val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, platePresets, sceneFiles, plateCache, plateRepository)
+    val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, platePresets, sceneFiles, plateCache, plateRepository, appPreferences)
     // The desktop app renders the G-code thumbnails with its 3D view's
     // renderer; the app's renderer draws them offscreen before it slices.
     private val thumbnailRenderer = ThumbnailRenderer(applicationContext)
@@ -313,7 +319,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     val printerConnection = ObservePrinterConnectionUseCase(engine)
 
     // The Device tab's page; Elegoo's LAN page takes the app's language as OrcaSlicer's code, "ru_RU".
-    private val devicePage = DevicePageUseCase(engine, gcodeSender) {
+    private val devicePage = DevicePageUseCase(engine, gcodeSender, appPreferences) {
         Locale.getDefault().let { locale -> if (locale.country.isEmpty()) locale.language else "${locale.language}_${locale.country}" }
     }
     val testPhysicalPrinter = TestPhysicalPrinterUseCase(gcodeSender)
@@ -490,6 +496,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             movePlateToFront = MovePlateToFrontUseCase(plateRepository),
             plateJobs = plateJobs,
             setPlateSettings = SetPlateSettingsUseCase(plateRepository),
+            preferences = appPreferences,
         )
     }
 
@@ -503,9 +510,12 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sendGcode = sendGcode,
         exportGcode = exportGcode,
         editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
+        preferences = appPreferences,
     )
 
-    fun deviceViewModel() = DeviceViewModel(observePlate, devicePage)
+    fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)
+
+    fun preferencesViewModel() = PreferencesViewModel(appPreferences, SetPreferenceUseCase(appPreferences, settingsTabs, applicationScope))
 
     fun sidebarViewModel() = SidebarViewModel(
         observePlate = observePlate,
@@ -569,6 +579,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         lockPlate = lockPlate,
         renamePlate = renamePlate,
         addPrimitive = addPrimitive,
+        preferences = appPreferences,
     )
 
     fun presetSettingsViewModel(kind: PresetKind) = PresetSettingsViewModel(

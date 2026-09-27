@@ -34,6 +34,7 @@
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingsDialog { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePresetSettings { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePresetNameValidation { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeAppConfigValues { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeDirtyPreset { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeDirtyPresets { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeCalibrationPrinter { <init>(...); }

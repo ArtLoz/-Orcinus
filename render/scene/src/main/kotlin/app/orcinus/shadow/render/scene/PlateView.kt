@@ -14,6 +14,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -139,198 +140,207 @@ fun PlateView(
     followCurrentPlate: Boolean = false,
     /** What the view writes over every plate (PartPlate::generate_plate_name_texture). */
     plateNames: List<String> = emptyList(),
+    /** The Preferences' orbit speed multiplier (camera_orbit_mult). */
+    orbitSpeed: Double = 1.0,
+    /** The Preferences' multisampling (opengl_antialiasing_samples); unsupported counts fall back to none. */
+    antialiasingSamples: Int = 4,
 ) {
-    val context = LocalContext.current
-    val density = LocalDensity.current.density
-    val colors = OrcaTheme.colors
-    val surface = remember { PlateSurfaceView(context) }
-    val controller = surface.controller
+    // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
+    // surface, so another count builds the view anew.
+    key(antialiasingSamples) {
+        val context = LocalContext.current
+        val density = LocalDensity.current.density
+        val colors = OrcaTheme.colors
+        val surface = remember { PlateSurfaceView(context, antialiasingSamples) }
+        val controller = surface.controller
+        LaunchedEffect(orbitSpeed) { controller.orbitSpeed = orbitSpeed }
 
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> surface.onResume()
-                Lifecycle.Event.ON_PAUSE -> surface.onPause()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) surface.onResume()
-        onDispose {
-            lifecycle.removeObserver(observer)
-            surface.onPause()
-        }
-    }
-
-    LaunchedEffect(colors.canvas, colors.isDark, density) {
-        controller.setAppearance(colors.canvas, colors.isDark, density)
-    }
-
-    val bed by produceState<SceneBed?>(null, plate) {
-        value = plate?.let { description ->
-            withContext(Dispatchers.IO) { runCatching { SceneLoader.loadBed(description) }.getOrNull() }
-        }
-    }
-    LaunchedEffect(bed) { controller.setBed(bed) }
-    LaunchedEffect(plateOrigins, currentPlate, plateNames) { controller.setPlates(plateOrigins, currentPlate, followCurrentPlate, plateNames) }
-    LaunchedEffect(layer) { controller.setLayer(layer) }
-
-    val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
-    val meshes = remember { MeshCache() }
-    // The tower stands on the current plate, where wipe_tower_x and wipe_tower_y of the plate put it.
-    val towerOrigin = plateOrigins.getOrElse(currentPlate) { Point2(0.0, 0.0) }
-    LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin) {
-        val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin) } }
-        controller.setWipeTower(tower)
-    }
-    val paintedByTool = painting?.takeIf { it.kind != PaintKind.COLOR }?.mesh
-    LaunchedEffect(objects, color, filamentColors, wireframes, paintedByTool) {
-        val loaded = withContext(Dispatchers.IO) {
-            meshes.retain(
-                objects.flatMapTo(HashSet()) { plateObject ->
-                    listOf(plateObject.mesh.value) +
-                        plateObject.parts.map { part -> part.mesh.value } +
-                        plateObject.paintedMeshes.map { painted -> painted.mesh.value }
-                },
-            )
-            // The scene draws every copy of every object, numbered in the
-            // plate's order, as the app's selection counts them.
-            var index = 0
-            objects.flatMap { plateObject ->
-                plateObject.instances.flatMap { instance ->
-                    // The copy itself is picked and moved; its parts carry its
-                    // own index, so they are picked and moved with it.
-                    val copyIndex = index++
-                    // GLVolumeCollection::update_colors_by_extruder(): every
-                    // volume is drawn in the colour of the filament it prints
-                    // with; a part without one of its own takes its object's.
-                    val objectColor = filamentColors.getOrNull(plateObject.extruderNumber - 1) ?: color
-                    // GLGizmoPainterBase: a painting tool of another kind than
-                    // colour draws the model parts of its object itself, the
-                    // facets it has not painted in the neutral colour.
-                    val byTool = plateObject.mesh == paintedByTool
-                    val copy = runCatching { SceneLoader.loadObject(copyIndex, plateObject, instance, objectColor, meshes) }.getOrNull()
-                        ?.let { it.withWireframe(instance.inspection.mesh in wireframes) }
-                        ?.let { if (byTool) it.paintedByTool(GizmoColors.NEUTRAL) else it }
-                    val parts = plateObject.parts.mapNotNull { part ->
-                        val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
-                        val partColor = filamentColors.getOrNull(extruder - 1) ?: color
-                        runCatching { SceneLoader.loadPart(copyIndex, part, instance, partColor, meshes) }.getOrNull()
-                            ?.let { it.withWireframe(part.mesh in wireframes) }
-                            ?.let { if (byTool && part.type == VolumeType.PART) it.paintedByTool(GizmoColors.NEUTRAL) else it }
-                    }
-                    // The colours the object is painted with, over its surface, or
-                    // the paint of the open painting tool of another kind.
-                    val painted = plateObject.paintedMeshes.mapNotNull { mesh ->
-                        val paint = when (mesh.kind) {
-                            PaintKind.COLOR -> filamentColors.getOrNull(mesh.state - 1) ?: color
-                            else -> if (mesh.state == PaintState.BLOCKER) GizmoColors.BLOCKERS else GizmoColors.ENFORCERS
-                        }
-                        runCatching { SceneLoader.loadPaintedMesh(copyIndex, mesh, instance, paint, meshes) }.getOrNull()
-                            ?.let { if (byTool) it.paintedByTool(paint) else it }
-                    }
-                    listOfNotNull(copy) + parts + painted
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        DisposableEffect(lifecycle) {
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> surface.onResume()
+                    Lifecycle.Event.ON_PAUSE -> surface.onPause()
+                    else -> Unit
                 }
             }
-        }
-        controller.setObjects(loaded)
-    }
-
-    // GLGizmoCut3D: the outline and the section of the plane, which the
-    // engine writes for every position of it.
-    LaunchedEffect(cut?.contour, cut?.section) {
-        val contour = cut?.contour
-        val section = cut?.section
-        val loaded = withContext(Dispatchers.IO) {
-            listOf(contour, section).map { path -> path?.let { runCatching { MeshFiles.read(java.io.File(it.value)).cornerPositions() }.getOrNull() } }
-        }
-        controller.setCutMeshes(loaded[0], loaded[1])
-    }
-    // The dovetail's plane, and the pieces shown in the object's place.
-    val dovetailPaths = listOfNotNull(cut?.groovePlane?.value) + cut?.previewParts?.map { it.mesh.value }.orEmpty()
-    LaunchedEffect(dovetailPaths) {
-        val loaded = withContext(Dispatchers.IO) {
-            dovetailPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
-        }
-        controller.setCutPartMeshes(loaded)
-    }
-    // The shapes of the cut's connectors.
-    val connectorMeshPaths = cut?.connectors?.mapNotNull { it.mesh?.value }?.distinct().orEmpty()
-    LaunchedEffect(connectorMeshPaths) {
-        val loaded = withContext(Dispatchers.IO) {
-            connectorMeshPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
-        }
-        controller.setCutConnectorMeshes(loaded)
-    }
-    // The copy the cut gizmo is open on, numbered as the scene numbers the copies.
-    val cutIndex = cut?.let { open ->
-        var index = 0
-        var found: Int? = null
-        for (plateObject in objects) {
-            for (instance in plateObject.instances.indices) {
-                if (plateObject.mesh == open.mesh && instance == open.instance) found = index
-                index++
+            lifecycle.addObserver(observer)
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) surface.onResume()
+            onDispose {
+                lifecycle.removeObserver(observer)
+                surface.onPause()
             }
         }
-        found
-    }
 
-    val haptics = LocalHapticFeedback.current
-    SideEffect {
-        controller.onSelectObject = onSelectObject
-        controller.onSelectPlate = onSelectPlate
-        controller.onPlaceObject = onPlaceObject
-        controller.onMoveWipeTower = onMoveWipeTower
-        controller.onPaint = { ray, starts ->
-            val direction = ray.b - ray.a
-            onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z), starts)
+        LaunchedEffect(colors.canvas, colors.isDark, density) {
+            controller.setAppearance(colors.canvas, colors.isDark, density)
         }
-        controller.onCutPlane = { plane, finished -> onCutPlane(Transform3(plane.elements().toList()), finished) }
-        controller.onFlipCutPlane = onFlipCutPlane
-        controller.onCutConnector = onCutConnector
-        controller.onCutPart = { ray ->
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            val direction = ray.b - ray.a
-            onCutPart(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z))
+
+        val bed by produceState<SceneBed?>(null, plate) {
+            value = plate?.let { description ->
+                withContext(Dispatchers.IO) { runCatching { SceneLoader.loadBed(description) }.getOrNull() }
+            }
         }
-        controller.onCutLine = onCutLine
-        controller.onPixelSize = onPixelSize
-        controller.setCut(cut, cutIndex)
-        controller.setPainting(painting != null)
-        controller.setVerticalOnly(painting?.verticalOnly == true)
-        // GLGizmoFdmSupports::on_opening() turns the slope on; the painting's
-        // highlight angle sets it (-cos of m_highlight_by_angle_threshold_deg).
-        controller.setSlope(painting?.takeIf { it.kind == PaintKind.SUPPORTS }?.let { -cos(Math.toRadians(it.overhangAngle)).toFloat() })
-        controller.onOpenObjectMenu = { index, x, y ->
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            onOpenObjectMenu(index, Offset(x, y))
+        LaunchedEffect(bed) { controller.setBed(bed) }
+        LaunchedEffect(plateOrigins, currentPlate, plateNames) { controller.setPlates(plateOrigins, currentPlate, followCurrentPlate, plateNames) }
+        LaunchedEffect(layer) { controller.setLayer(layer) }
+
+        val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
+        val meshes = remember { MeshCache() }
+        // The tower stands on the current plate, where wipe_tower_x and wipe_tower_y of the plate put it.
+        val towerOrigin = plateOrigins.getOrElse(currentPlate) { Point2(0.0, 0.0) }
+        LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin) {
+            val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin) } }
+            controller.setWipeTower(tower)
         }
-        controller.onOpenPlateMenu = onOpenPlateMenu?.let { open ->
-            { x, y ->
+        val paintedByTool = painting?.takeIf { it.kind != PaintKind.COLOR }?.mesh
+        LaunchedEffect(objects, color, filamentColors, wireframes, paintedByTool) {
+            val loaded = withContext(Dispatchers.IO) {
+                meshes.retain(
+                    objects.flatMapTo(HashSet()) { plateObject ->
+                        listOf(plateObject.mesh.value) +
+                            plateObject.parts.map { part -> part.mesh.value } +
+                            plateObject.paintedMeshes.map { painted -> painted.mesh.value }
+                    },
+                )
+                // The scene draws every copy of every object, numbered in the
+                // plate's order, as the app's selection counts them.
+                var index = 0
+                objects.flatMap { plateObject ->
+                    plateObject.instances.flatMap { instance ->
+                        // The copy itself is picked and moved; its parts carry its
+                        // own index, so they are picked and moved with it.
+                        val copyIndex = index++
+                        // GLVolumeCollection::update_colors_by_extruder(): every
+                        // volume is drawn in the colour of the filament it prints
+                        // with; a part without one of its own takes its object's.
+                        val objectColor = filamentColors.getOrNull(plateObject.extruderNumber - 1) ?: color
+                        // GLGizmoPainterBase: a painting tool of another kind than
+                        // colour draws the model parts of its object itself, the
+                        // facets it has not painted in the neutral colour.
+                        val byTool = plateObject.mesh == paintedByTool
+                        val copy = runCatching { SceneLoader.loadObject(copyIndex, plateObject, instance, objectColor, meshes) }.getOrNull()
+                            ?.let { it.withWireframe(instance.inspection.mesh in wireframes) }
+                            ?.let { if (byTool) it.paintedByTool(GizmoColors.NEUTRAL) else it }
+                        val parts = plateObject.parts.mapNotNull { part ->
+                            val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
+                            val partColor = filamentColors.getOrNull(extruder - 1) ?: color
+                            runCatching { SceneLoader.loadPart(copyIndex, part, instance, partColor, meshes) }.getOrNull()
+                                ?.let { it.withWireframe(part.mesh in wireframes) }
+                                ?.let { if (byTool && part.type == VolumeType.PART) it.paintedByTool(GizmoColors.NEUTRAL) else it }
+                        }
+                        // The colours the object is painted with, over its surface, or
+                        // the paint of the open painting tool of another kind.
+                        val painted = plateObject.paintedMeshes.mapNotNull { mesh ->
+                            val paint = when (mesh.kind) {
+                                PaintKind.COLOR -> filamentColors.getOrNull(mesh.state - 1) ?: color
+                                else -> if (mesh.state == PaintState.BLOCKER) GizmoColors.BLOCKERS else GizmoColors.ENFORCERS
+                            }
+                            runCatching { SceneLoader.loadPaintedMesh(copyIndex, mesh, instance, paint, meshes) }.getOrNull()
+                                ?.let { if (byTool) it.paintedByTool(paint) else it }
+                        }
+                        listOfNotNull(copy) + parts + painted
+                    }
+                }
+            }
+            controller.setObjects(loaded)
+        }
+
+        // GLGizmoCut3D: the outline and the section of the plane, which the
+        // engine writes for every position of it.
+        LaunchedEffect(cut?.contour, cut?.section) {
+            val contour = cut?.contour
+            val section = cut?.section
+            val loaded = withContext(Dispatchers.IO) {
+                listOf(contour, section).map { path -> path?.let { runCatching { MeshFiles.read(java.io.File(it.value)).cornerPositions() }.getOrNull() } }
+            }
+            controller.setCutMeshes(loaded[0], loaded[1])
+        }
+        // The dovetail's plane, and the pieces shown in the object's place.
+        val dovetailPaths = listOfNotNull(cut?.groovePlane?.value) + cut?.previewParts?.map { it.mesh.value }.orEmpty()
+        LaunchedEffect(dovetailPaths) {
+            val loaded = withContext(Dispatchers.IO) {
+                dovetailPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
+            }
+            controller.setCutPartMeshes(loaded)
+        }
+        // The shapes of the cut's connectors.
+        val connectorMeshPaths = cut?.connectors?.mapNotNull { it.mesh?.value }?.distinct().orEmpty()
+        LaunchedEffect(connectorMeshPaths) {
+            val loaded = withContext(Dispatchers.IO) {
+                connectorMeshPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
+            }
+            controller.setCutConnectorMeshes(loaded)
+        }
+        // The copy the cut gizmo is open on, numbered as the scene numbers the copies.
+        val cutIndex = cut?.let { open ->
+            var index = 0
+            var found: Int? = null
+            for (plateObject in objects) {
+                for (instance in plateObject.instances.indices) {
+                    if (plateObject.mesh == open.mesh && instance == open.instance) found = index
+                    index++
+                }
+            }
+            found
+        }
+
+        val haptics = LocalHapticFeedback.current
+        SideEffect {
+            controller.onSelectObject = onSelectObject
+            controller.onSelectPlate = onSelectPlate
+            controller.onPlaceObject = onPlaceObject
+            controller.onMoveWipeTower = onMoveWipeTower
+            controller.onPaint = { ray, starts ->
+                val direction = ray.b - ray.a
+                onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z), starts)
+            }
+            controller.onCutPlane = { plane, finished -> onCutPlane(Transform3(plane.elements().toList()), finished) }
+            controller.onFlipCutPlane = onFlipCutPlane
+            controller.onCutConnector = onCutConnector
+            controller.onCutPart = { ray ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                open(Offset(x, y))
+                val direction = ray.b - ray.a
+                onCutPart(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z))
             }
+            controller.onCutLine = onCutLine
+            controller.onPixelSize = onPixelSize
+            controller.setCut(cut, cutIndex)
+            controller.setPainting(painting != null)
+            controller.setVerticalOnly(painting?.verticalOnly == true)
+            // GLGizmoFdmSupports::on_opening() turns the slope on; the painting's
+            // highlight angle sets it (-cos of m_highlight_by_angle_threshold_deg).
+            controller.setSlope(painting?.takeIf { it.kind == PaintKind.SUPPORTS }?.let { -cos(Math.toRadians(it.overhangAngle)).toFloat() })
+            controller.onOpenObjectMenu = { index, x, y ->
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onOpenObjectMenu(index, Offset(x, y))
+            }
+            controller.onOpenPlateMenu = onOpenPlateMenu?.let { open ->
+                { x, y ->
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    open(Offset(x, y))
+                }
+            }
+            controller.setSelection(selectedObject)
+            controller.setSelected(selectedObjects)
+            controller.setGizmo(gizmo)
+            controller.setFlatteningPlanes(flatteningPlanes)
+            controller.setEditable(editable)
         }
-        controller.setSelection(selectedObject)
-        controller.setSelected(selectedObjects)
-        controller.setGizmo(gizmo)
-        controller.setFlatteningPlanes(flatteningPlanes)
-        controller.setEditable(editable)
-    }
 
-    val touchSlop = LocalViewConfiguration.current.touchSlop
-    val doubleTapTimeout = LocalViewConfiguration.current.doubleTapTimeoutMillis
-    val longPressTimeout = LocalViewConfiguration.current.longPressTimeoutMillis
-    val edgePx = with(LocalDensity.current) { GESTURE_EDGE.toPx() }
-    Box(modifier) {
-        AndroidView(factory = { surface }, modifier = Modifier.fillMaxSize())
-        Box(
-            Modifier
-                .fillMaxSize()
-                .semantics { this.contentDescription = contentDescription }
-                .pointerInput(surface) { detectPlateGestures(controller, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
-        )
+        val touchSlop = LocalViewConfiguration.current.touchSlop
+        val doubleTapTimeout = LocalViewConfiguration.current.doubleTapTimeoutMillis
+        val longPressTimeout = LocalViewConfiguration.current.longPressTimeoutMillis
+        val edgePx = with(LocalDensity.current) { GESTURE_EDGE.toPx() }
+        Box(modifier) {
+            AndroidView(factory = { surface }, modifier = Modifier.fillMaxSize())
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .semantics { this.contentDescription = contentDescription }
+                    .pointerInput(surface) { detectPlateGestures(controller, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
+            )
+        }
     }
 }
 
@@ -1029,9 +1039,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** GLCanvas3D::deselect_all() after a click on empty space. */
     fun clearSelection() = select(null)
 
+    /** camera_orbit_mult of the Preferences. */
+    var orbitSpeed = 1.0
+
     /** GLCanvas3D::on_mouse() rotation: desktop pixels map to device-independent pixels. */
     fun rotate(dx: Float, dy: Float) {
-        val factor = Math.PI * TRACKBALL_SIZE / 180.0 / density
+        val factor = Math.PI * TRACKBALL_SIZE / 180.0 / density * orbitSpeed
         // Rotate around the objects on the plate or the toolpaths, or the plate when it is empty.
         val rotationTarget = (objectsBox() ?: layerBox)?.center() ?: currentPlateBox()?.center() ?: camera.target
         camera.rotateOnSphereWithTarget(dx * factor, dy * factor, true, rotationTarget)
@@ -1434,15 +1447,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     }
 }
 
-/** A GLSurfaceView with OpenGL ES 3.0, a depth buffer, and 4x multisampling where available, drawn on demand. */
+/** A GLSurfaceView with OpenGL ES 3.0, a depth buffer, and [samples] of multisampling where available, drawn on demand. */
 @SuppressLint("ViewConstructor")
-internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
+internal class PlateSurfaceView(context: Context, samples: Int) : GLSurfaceView(context) {
     private val renderer = PlateRenderer(context.assets)
     val controller = PlateViewController(this, renderer)
 
     init {
         setEGLContextClientVersion(3)
-        setEGLConfigChooser(MultisampleConfigChooser())
+        setEGLConfigChooser(MultisampleConfigChooser(samples))
         holder.setFormat(PixelFormat.RGBA_8888)
         preserveEGLContextOnPause = true
         setRenderer(renderer)
@@ -1461,10 +1474,14 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     }
 }
 
-/** RGBA 8888 with a 24-bit depth buffer, preferring 4 samples like OrcaSlicer's multisampled canvas. */
-private class MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
+/**
+ * RGBA 8888 with a 24-bit depth buffer and [samples] of multisampling, as
+ * OrcaSlicer's canvas asks for them; without multisampling where the device
+ * cannot (OpenGLManager::can_multisample()).
+ */
+private class MultisampleConfigChooser(private val samples: Int) : GLSurfaceView.EGLConfigChooser {
     override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig =
-        choose(egl, display, samples = 4) ?: choose(egl, display, samples = 0)
+        (if (samples > 0) choose(egl, display, samples) else null) ?: choose(egl, display, samples = 0)
             ?: error("No OpenGL ES 3.0 configuration with a depth buffer")
 
     private fun choose(egl: EGL10, display: EGLDisplay, samples: Int): EGLConfig? {

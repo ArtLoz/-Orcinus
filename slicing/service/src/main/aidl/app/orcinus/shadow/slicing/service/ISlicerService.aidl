@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.AppConfigParcel;
 import app.orcinus.shadow.slicing.service.CalibrationParcel;
 import app.orcinus.shadow.slicing.service.CalibrationPrinterParcel;
 import app.orcinus.shadow.slicing.service.DirtyPresetsParcel;
@@ -421,6 +422,10 @@ interface ISlicerService {
     PresetNameParcel checkPresetName(String kind, String name);
     PresetSettingsParcel savePreset(String kind, String name);
     PresetSettingsParcel deletePreset(String kind, in String[] answerIds, in boolean[] answers);
+
+    /** PreferencesDialog: the app configuration's values of the keys. */
+    AppConfigParcel appConfigValues(in String[] keys);
+    AppConfigParcel setAppConfigValue(String key, String value);
 
     /** Returns at once; the result arrives through the callback. */
     void slice(in SliceRequestParcel request, ISliceCallback callback);

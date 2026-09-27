@@ -290,6 +290,27 @@ TEST_CASE("Finishing the Setup Wizard installs the chosen printers and selects t
     CHECK(orca::apply_setup({"No Such Printer"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::profile_not_found);
 }
 
+TEST_CASE("The Preferences read and write the app configuration with its defaults", "[Adapter][Preferences]")
+{
+    require_engine();
+
+    // AppConfig::set_defaults(): a key never set reads its default, one without a default reads empty.
+    const orca::AppConfigValues defaults = orca::app_config_values({"remember_printer_config", "camera_orbit_mult", "no_warn_when_modified_gcodes"});
+    REQUIRE(defaults.status == orca::SceneStatus::success);
+    REQUIRE(defaults.values.size() == 3);
+    CHECK(defaults.values[0] == "true");
+    CHECK(defaults.values[1] == "1.0");
+    CHECK(defaults.values[2].empty());
+
+    // A value is written into OrcaSlicer.conf at once, and read back.
+    const std::string before = orca::app_config_values({"auto_arrange"}).values.front();
+    CHECK(orca::set_app_config_value("auto_arrange", "false").values == std::vector<std::string>{"false"});
+    CHECK(orca::app_config_values({"auto_arrange"}).values == std::vector<std::string>{"false"});
+    // AppConfig::save() writes "true" and "false" as JSON booleans.
+    CHECK(read_file(data_dir + "/OrcaSlicer.conf").find("\"auto_arrange\": false") != std::string::npos);
+    orca::set_app_config_value("auto_arrange", before);
+}
+
 TEST_CASE("The sidebar selects presets as the desktop app does", "[Adapter][Presets]")
 {
     require_engine();

@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.service
 
+import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeKind
 import app.orcinus.shadow.core.model.BedShapeOutcome
@@ -335,6 +336,21 @@ internal fun PresetNameOutcome.toParcel() = PresetNameParcel().also {
 internal fun PresetNameParcel.toPresetNameOutcome(): PresetNameOutcome {
     error?.let { return PresetNameOutcome.Failure(it) }
     return PresetNameOutcome.Success(PresetNameValidation(PresetNameCheck.valueOf(checkNotNull(check)), info.toTexts()))
+}
+
+internal fun AppConfigOutcome.toParcel() = AppConfigParcel().also {
+    when (this) {
+        is AppConfigOutcome.Failure -> it.error = message
+        is AppConfigOutcome.Success -> {
+            it.keys = values.keys.toTypedArray()
+            it.values = values.values.toTypedArray()
+        }
+    }
+}
+
+internal fun AppConfigParcel.toAppConfigOutcome(): AppConfigOutcome {
+    error?.let { return AppConfigOutcome.Failure(it) }
+    return AppConfigOutcome.Success(keys.orEmpty().zip(values.orEmpty()).toMap())
 }
 
 internal fun PresetNamesOutcome.toParcel() = PresetNamesParcel().also {

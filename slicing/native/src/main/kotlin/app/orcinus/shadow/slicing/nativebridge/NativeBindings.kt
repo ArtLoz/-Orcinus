@@ -1577,4 +1577,15 @@ internal object NativeBindings {
     external fun savePreset(kind: Long, name: String): NativePresetSettings
 
     external fun deletePreset(kind: Long, answerIds: Array<String>, answers: BooleanArray): NativePresetSettings
+
+    external fun appConfigValues(keys: Array<String>): NativeAppConfigValues
+
+    external fun setAppConfigValue(key: String, value: String): NativeAppConfigValues
 }
+
+/** Constructed by the native bridge; see AppConfigValues in orca_engine_adapter.hpp. */
+internal class NativeAppConfigValues(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val values: Array<String>,
+)

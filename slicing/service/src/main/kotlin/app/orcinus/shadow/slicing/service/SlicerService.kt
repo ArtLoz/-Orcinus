@@ -50,6 +50,7 @@ import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.cutConnectors
+import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -72,7 +73,7 @@ import kotlinx.coroutines.runBlocking
  * notification, so slicing continues when the app leaves the screen. It stops
  * itself when the job ends.
  */
-abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor {
+abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -857,6 +858,10 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun deletePreset(kind: String, answerIds: Array<String>, answers: BooleanArray): PresetSettingsParcel =
             runBlocking { engine.deletePreset(PresetKind.valueOf(kind), answersOf(answerIds, answers)) }.toParcel()
+
+        override fun appConfigValues(keys: Array<String>): AppConfigParcel = runBlocking { engine.appConfigValues(keys.toList()) }.toParcel()
+
+        override fun setAppConfigValue(key: String, value: String): AppConfigParcel = runBlocking { engine.setAppConfigValue(key, value) }.toParcel()
 
         override fun slice(request: SliceRequestParcel, callback: ISliceCallback) {
             startJob(request.toSliceRequest(), callback)

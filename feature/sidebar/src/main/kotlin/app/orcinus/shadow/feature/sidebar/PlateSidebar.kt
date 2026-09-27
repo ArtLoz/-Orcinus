@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.sidebar
 
 import android.content.res.Configuration
+import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.ui.settings.PrinterConnectionSheet
@@ -237,6 +238,7 @@ import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
 import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.canDeletePlate
+import app.orcinus.shadow.domain.preferences.AppPreferences
 import java.util.Locale
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -377,7 +379,11 @@ class SidebarViewModel(
     private val lockPlate: LockPlateUseCase,
     private val renamePlate: RenamePlateUseCase,
     private val addPrimitive: AddPrimitiveUseCase,
+    preferences: AppPreferences,
 ) : ViewModel() {
+    /** What the Preferences change on the clone dialog. */
+    val canvas: StateFlow<CanvasPreferences> = preferences.canvas
+
     /** A plate item of the object list: nothing stays selected and the plate becomes current (ObjectList::selection_changed). */
     fun choosePlate(index: Int) {
         selectPlateObject(null)
@@ -1239,6 +1245,8 @@ fun PlateSidebar(
     onOpenSettings: (PresetKind) -> Unit,
     onOpenSetting: (SearchOption) -> Unit = {},
     onOpenAbout: () -> Unit,
+    /** OrcaSlicer's Preferences, which its top menu opens. */
+    onOpenPreferences: () -> Unit = {},
     /** A tool of the canvas opened from the sidebar: a drawer over the canvas gets out of its way. */
     onShowCanvas: () -> Unit = {},
     /** A calibration starts its project: the 3D view shows it (Plater::new_project selects tp3DEditor). */
@@ -1246,6 +1254,7 @@ fun PlateSidebar(
 ) {
     val viewModel = viewModel { createViewModel() }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val canvas by viewModel.canvas.collectAsStateWithLifecycle()
     // "Export as one STL/DRC" and "Replace 3D file": the object waits for the
     // document the user picks, as the desktop app waits for its file dialog.
     var meshExport by rememberSaveable { mutableStateOf<Pair<String, MeshFormat>?>(null) }
@@ -1411,6 +1420,8 @@ fun PlateSidebar(
         onOpenSetting = onOpenSetting,
         searchCatalog = viewModel::searchCatalog,
         onOpenAbout = onOpenAbout,
+        onOpenPreferences = onOpenPreferences,
+        autoArrange = canvas.autoArrange,
         onImportConfig = { configPicker.launch(arrayOf("*/*")) },
         onExportConfig = { exporting = true },
         project = ProjectActions(
@@ -1529,6 +1540,9 @@ internal fun PlateSidebarContent(
     onOpenSetting: (SearchOption) -> Unit = {},
     searchCatalog: suspend () -> SearchCatalogOutcome = { SearchCatalogOutcome.Failure("") },
     onOpenAbout: () -> Unit,
+    onOpenPreferences: () -> Unit = {},
+    /** The Preferences' "Auto arrange plate after cloning", which the clone dialog starts with. */
+    autoArrange: Boolean = true,
     onImportConfig: () -> Unit,
     onExportConfig: () -> Unit,
     settings: SettingsActions,
@@ -1814,6 +1828,8 @@ internal fun PlateSidebarContent(
         // Import Configs and Export Preset Bundle of the desktop app's File menu.
         SidebarAction(DesignR.drawable.orca_add, stringResource(R.string.config_import), onImportConfig)
         SidebarAction(DesignR.drawable.orca_save, stringResource(R.string.config_export), onExportConfig)
+        // The top menu's Preferences (MainFrame's ConfigMenuPreferences).
+        SidebarAction(DesignR.drawable.orca_cog, orcaString("Preferences"), onOpenPreferences)
         SidebarAction(DesignR.drawable.orca_help, stringResource(R.string.about), onOpenAbout)
         }
     }
@@ -1941,7 +1957,7 @@ internal fun PlateSidebarContent(
     }
     cloning?.let { mesh ->
         CloneDialog(
-            autoArrange = true,
+            autoArrange = autoArrange,
             onDismiss = { cloning = null },
             onFill = {
                 cloning = null

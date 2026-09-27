@@ -3,6 +3,7 @@ package app.orcinus.shadow.feature.prepare
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
 import app.orcinus.shadow.core.model.CutConnectorStyle
@@ -102,6 +103,7 @@ import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.render.scene.CutConnectorEvent
 import app.orcinus.shadow.render.scene.CutLineEvent
 import app.orcinus.shadow.render.scene.CutPlanes
@@ -177,8 +179,12 @@ class PrepareViewModel(
     private val movePlateToFront: MovePlateToFrontUseCase,
     private val plateJobs: PlateJobsUseCase,
     private val setPlateSettings: SetPlateSettingsUseCase,
+    preferences: AppPreferences,
 ) : ViewModel() {
     private val plate = observePlate()
+
+    /** What the Preferences change on the canvas and the clone dialog. */
+    val canvas: StateFlow<CanvasPreferences> = preferences.canvas
 
     /** A stroke is being painted; the next one waits for the engine to answer. */
     private var painting = false

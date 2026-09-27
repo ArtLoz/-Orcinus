@@ -89,6 +89,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
 import app.orcinus.shadow.core.model.FlushOption
@@ -151,6 +152,7 @@ internal fun PrepareRoute(
     onOpenSidebar: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val canvas by viewModel.canvas.collectAsStateWithLifecycle()
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.addModel(it.toString()) }
     }
@@ -299,6 +301,7 @@ internal fun PrepareRoute(
         onUndo = viewModel::undo,
         onRedo = viewModel::redo,
         onDismissProblem = viewModel::dismissProblem,
+        canvas = canvas,
         cutActions = CutActions(
             toggle = viewModel::toggleCut,
             setPlane = viewModel::setCutPlane,
@@ -409,6 +412,7 @@ internal fun PrepareScreen(
     simplifyActions: SimplifyActions = SimplifyActions.NONE,
     plateActions: PlateActions = PlateActions.NONE,
     cutActions: CutActions = CutActions.NONE,
+    canvas: CanvasPreferences = CanvasPreferences(),
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         var objectMenu by remember { mutableStateOf<ObjectMenu?>(null) }
@@ -486,6 +490,8 @@ internal fun PrepareScreen(
                 currentPlate = state.currentPlate,
                 onSelectPlate = plateActions.select,
                 plateNames = state.plateNames.map { it.ifEmpty { untitled } },
+                orbitSpeed = canvas.orbitSpeed,
+                antialiasingSamples = canvas.antialiasingSamples,
             )
         }
         plateMenu?.let { position ->
@@ -506,7 +512,7 @@ internal fun PrepareScreen(
         }
         cloning?.let { index ->
             CloneDialog(
-                autoArrange = true,
+                autoArrange = canvas.autoArrange,
                 onDismiss = { cloning = null },
                 onFill = {
                     cloning = null

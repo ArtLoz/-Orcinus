@@ -61,6 +61,11 @@ file the engine writes.
   the `:slicer` process (`foregroundServiceType="specialUse"`);
   `NetworkWorkService` keeps the UI process in the foreground while an upload
   or a cloud login runs (`foregroundServiceType="dataSync"`).
+- `:feature:preferences` is OrcaSlicer's Preferences (PreferencesDialog), a
+  page over the workspace. The values live where the desktop app keeps them,
+  in the "app" section of the engine's AppConfig (OrcaSlicer.conf), which the
+  engine reads and writes through `AppConfigStore`; `AppPreferences` in
+  `:domain` holds the values the app uses once the engine has started.
 - `:feature:sidebar` is OrcaSlicer's sidebar (printer with its nozzle diameter,
   material, process), shared by Prepare and Preview, so the shell places it
   through `OrcaSidebarLayout`. Each field opens the list of its OrcaSlicer

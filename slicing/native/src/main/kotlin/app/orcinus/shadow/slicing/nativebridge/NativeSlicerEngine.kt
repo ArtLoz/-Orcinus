@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.nativebridge
 
 import android.content.Context
+import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
@@ -136,6 +137,7 @@ import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.filamentUsagesOf
+import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -151,7 +153,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** OrcaSlicer engine running in this process through the JNI bridge. */
-class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor {
+class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore {
     private val applicationContext = context.applicationContext
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
@@ -1629,6 +1631,14 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         whenReady(PresetSettingsOutcome::Failure) {
             NativeBindings.deletePreset(kind.native, answers.answerIds(), answers.answerFlags()).toOutcome()
         }
+
+    override suspend fun appConfigValues(keys: List<String>): AppConfigOutcome = whenReady(AppConfigOutcome::Failure) {
+        NativeBindings.appConfigValues(keys.toTypedArray()).toOutcome(keys)
+    }
+
+    override suspend fun setAppConfigValue(key: String, value: String): AppConfigOutcome = whenReady(AppConfigOutcome::Failure) {
+        NativeBindings.setAppConfigValue(key, value).toOutcome(listOf(key))
+    }
 
     /** Runs [block] on the IO dispatcher once the engine is ready, or reports why it is not. */
     private suspend fun <T> whenReady(failure: (String) -> T, block: () -> T): T = withContext(Dispatchers.IO) {

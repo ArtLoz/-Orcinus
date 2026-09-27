@@ -2,6 +2,7 @@ package app.orcinus.shadow.feature.preview
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerGcodeType
@@ -32,6 +33,7 @@ import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.allPlatesStats
+import app.orcinus.shadow.domain.preferences.AppPreferences
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -77,8 +79,12 @@ class PreviewViewModel(
     private val sendGcode: SendGcodeUseCase,
     private val exportGcode: ExportGcodeUseCase,
     private val editLayerGcodes: EditLayerGcodesUseCase,
+    preferences: AppPreferences,
 ) : ViewModel() {
     private val plate = observePlate()
+
+    /** What the Preferences change on the canvas. */
+    val canvas: StateFlow<CanvasPreferences> = preferences.canvas
     val state: StateFlow<PreviewUiState> = observePlate()
         .map(PlateState::toPreviewUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toPreviewUiState())

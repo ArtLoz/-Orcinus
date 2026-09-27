@@ -2,16 +2,20 @@ package app.orcinus.shadow.feature.device
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrinterConnection
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.domain.plate.DevicePageUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.preferences.AppPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** What the Device tab shows: the printer's host as its preset holds it, or why it cannot. */
@@ -29,9 +33,15 @@ data class DeviceUiState(
 class DeviceViewModel(
     observePlate: ObservePlateUseCase,
     private val devicePage: DevicePageUseCase,
+    preferences: AppPreferences,
 ) : ViewModel() {
     private val view = MutableStateFlow(DeviceUiState())
     val state: StateFlow<DeviceUiState> = view.asStateFlow()
+
+    /** PrinterWebView::update_mode(): the page's developer tools follow the Preferences' Developer mode. */
+    val developerMode: StateFlow<Boolean> = preferences.values
+        .map { AppConfigKeys.bool(it[AppConfigKeys.DEVELOPER_MODE]) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
         viewModelScope.launch {

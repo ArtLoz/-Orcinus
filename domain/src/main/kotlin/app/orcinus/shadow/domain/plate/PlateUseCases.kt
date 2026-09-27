@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.BuildVolumeFit
@@ -117,6 +118,7 @@ import app.orcinus.shadow.domain.PlaceModelsUseCase
 import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.domain.SliceProgressObserver
 import app.orcinus.shadow.domain.placed
+import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.source
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
@@ -147,9 +149,9 @@ class ObservePlateUseCase(private val repository: PlateRepository) {
 /**
  * Prepares the engine and the plate once per process; later calls return at
  * once. Object meshes and toolpaths left by an earlier process are deleted,
- * since its plate is gone. The engine reports the presets its app configuration
- * remembers and describes the plate of the selected printer, unless the Setup
- * Wizard has yet to install one.
+ * since its plate is gone. The engine reports the Preferences and the presets
+ * its app configuration remembers and describes the plate of the selected
+ * printer, unless the Setup Wizard has yet to install one.
  */
 class StartEngineUseCase(
     private val getEngineStatus: GetEngineStatusUseCase,
@@ -158,6 +160,7 @@ class StartEngineUseCase(
     private val sceneFiles: SceneFiles,
     private val plateCache: PlateCache,
     private val repository: PlateRepository,
+    private val preferences: AppPreferences,
 ) {
     suspend operator fun invoke() {
         val state = repository.state.value
@@ -185,6 +188,7 @@ class StartEngineUseCase(
             )
         }
         if (!status.ready) return
+        preferences.load()
         platePresets.apply(before = null, outcome = presetManager.presets())
     }
 }
@@ -1479,11 +1483,13 @@ class ObservePrinterConnectionUseCase(private val engine: PresetSettingsEditor) 
  * (ElegooPrinterWebViewHandler). The engine names that page with the printer's
  * access code and address; ElegooLink::get_print_host_webui() adds the
  * printer's serial number, which takes a request to the printer, the panel's
- * id and the app's language ([language], "ru_RU").
+ * id, the app's language ([language], "ru_RU") and, in developer mode, the
+ * page's own developer switch.
  */
 class DevicePageUseCase(
     private val engine: PresetSettingsEditor,
     private val uploader: GcodeSender,
+    private val preferences: AppPreferences,
     private val language: () -> String,
 ) {
     suspend operator fun invoke(): PrinterConnectionOutcome {
@@ -1496,6 +1502,7 @@ class DevicePageUseCase(
             if (serial.isNotEmpty()) append("&sn=").append(serial)
             append("&id=elegoo_123456")
             language().takeIf { it.isNotEmpty() }?.let { append("&lang=").append(it) }
+            if (preferences.bool(AppConfigKeys.DEVELOPER_MODE)) append("&dev=true")
         }
         return PrinterConnectionOutcome.Success(connection.copy(webUi = url))
     }

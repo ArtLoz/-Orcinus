@@ -73,6 +73,8 @@ import app.orcinus.shadow.feature.about.navigation.AboutNavKey
 import app.orcinus.shadow.feature.about.navigation.aboutEntries
 import app.orcinus.shadow.feature.device.navigation.DeviceNavKey
 import app.orcinus.shadow.feature.device.navigation.deviceEntry
+import app.orcinus.shadow.feature.preferences.navigation.PreferencesNavKey
+import app.orcinus.shadow.feature.preferences.navigation.preferencesEntry
 import app.orcinus.shadow.feature.prepare.R as PrepareR
 import app.orcinus.shadow.feature.prepare.navigation.PrepareNavKey
 import app.orcinus.shadow.feature.prepare.navigation.prepareEntry
@@ -193,6 +195,7 @@ fun OrcinusApp(
                         backStack.add(PresetSettingsNavKey(option.kind, option.id, option.page.firstOrNull()?.msgid))
                     },
                     onOpenAbout = { backStack.add(AboutNavKey) },
+                    onOpenPreferences = { backStack.add(PreferencesNavKey) },
                 )
             }
             setupEntry(
@@ -208,6 +211,10 @@ fun OrcinusApp(
                     backStack.removeLastOrNull()
                     backStack.add(PresetSettingsNavKey(option.kind, option.id, option.page.firstOrNull()?.msgid))
                 },
+            )
+            preferencesEntry(
+                createViewModel = container::preferencesViewModel,
+                onBack = { backStack.removeLastOrNull() },
             )
             aboutEntries(
                 appInfo = container.appInfo,
@@ -237,6 +244,7 @@ private fun Workspace(
     onOpenSettings: (PresetKind) -> Unit,
     onOpenSetting: (SearchOption) -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenPreferences: () -> Unit,
 ) {
     val plate by shell.plate.collectAsStateWithLifecycle()
     val backStack = rememberNavBackStack(PrepareNavKey)
@@ -339,6 +347,10 @@ private fun Workspace(
                     // The drawer of a phone is closed when the page comes back.
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
                     onOpenAbout()
+                },
+                onOpenPreferences = {
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    onOpenPreferences()
                 },
                 onShowCanvas = {
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
