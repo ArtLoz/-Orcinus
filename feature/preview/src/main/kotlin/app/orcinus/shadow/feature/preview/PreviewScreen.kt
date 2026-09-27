@@ -296,6 +296,8 @@ internal fun PreviewScreen(
                     followCurrentPlate = true,
                     plateNames = state.plateNames.map { it.ifEmpty { untitled } },
                     orbitSpeed = canvas.orbitSpeed,
+                    freeCamera = canvas.freeCamera,
+                    zoomToFingers = canvas.zoomToMouse,
                     antialiasingSamples = canvas.antialiasingSamples,
                 )
             }

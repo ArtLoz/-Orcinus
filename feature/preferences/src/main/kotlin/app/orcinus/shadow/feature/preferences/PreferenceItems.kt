@@ -202,6 +202,16 @@ internal val PREFERENCE_PAGES = listOf(
                         min = 0.05,
                         max = 2.0,
                     ),
+                    PreferenceItem.Check(
+                        AppConfigKeys.ZOOM_TO_MOUSE,
+                        "Zoom to mouse position",
+                        "Zoom in towards the mouse pointer's position in the 3D view, rather than the 2D window center.",
+                    ),
+                    PreferenceItem.Check(
+                        AppConfigKeys.USE_FREE_CAMERA,
+                        "Use free camera",
+                        "If enabled, use free camera. If not enabled, use constrained camera.",
+                    ),
                 ),
             ),
             PreferenceSection(

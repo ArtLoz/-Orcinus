@@ -92,6 +92,28 @@ class OrcaCameraTest {
     }
 
     @Test
+    fun theFreeCameraRollsAboutItsTargetAndRecoveringLevelsItAgain() {
+        val camera = OrcaCamera()
+        camera.selectPlateView()
+        val target = camera.target
+        val distance = (camera.position() - target).norm()
+
+        // A turn about the view's forward axis tilts the right vector off the plate.
+        camera.rotateLocalAroundTarget(Vec3(0.3, 0.2, 0.0))
+        camera.rotateLocalAroundTarget(Vec3(0.0, 0.0, 0.0))
+        assertVec(target, camera.target)
+        assertEquals(distance, (camera.position() - camera.target).norm(), 1e-9)
+        assertTrue(kotlin.math.abs(camera.dirRight().z) > 1e-3)
+
+        // Camera::recover_from_free_camera(): same eye and target, right vector level again.
+        val eye = camera.position()
+        camera.recoverFromFreeCamera()
+        assertEquals(0.0, camera.dirRight().z, 1e-9)
+        assertVec(eye, camera.position())
+        assertVec(target, camera.target)
+    }
+
+    @Test
     fun zoomStaysWithinTheSceneLimits() {
         val camera = OrcaCamera()
         camera.setViewport(1000, 1000)

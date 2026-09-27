@@ -21,6 +21,10 @@ data class CanvasPreferences(
      * in ounces.
      */
     val imperialUnits: Boolean = false,
+    /** use_free_camera: the view turns freely, not about the vertical. */
+    val freeCamera: Boolean = false,
+    /** zoom_to_mouse: a pinch zooms towards the fingers rather than the view's centre. */
+    val zoomToMouse: Boolean = false,
 )
 
 /** GizmoObjectManipulation's conversions, with which the canvas shows imperial units. */
@@ -47,6 +51,8 @@ object AppConfigKeys {
     const val AUTO_SLICE_AFTER_CHANGE = "auto_slice_after_change"
     const val AUTO_SLICE_CHANGE_DELAY_SECONDS = "auto_slice_change_delay_seconds"
     const val CAMERA_ORBIT_MULT = "camera_orbit_mult"
+    const val ZOOM_TO_MOUSE = "zoom_to_mouse"
+    const val USE_FREE_CAMERA = "use_free_camera"
     const val OPENGL_ANTIALIASING_SAMPLES = "opengl_antialiasing_samples"
     const val DEVELOPER_MODE = "developer_mode"
     const val KEEP_PAINTING = "keep_painting"
@@ -82,6 +88,8 @@ object AppConfigKeys {
         AUTO_SLICE_AFTER_CHANGE,
         AUTO_SLICE_CHANGE_DELAY_SECONDS,
         CAMERA_ORBIT_MULT,
+        ZOOM_TO_MOUSE,
+        USE_FREE_CAMERA,
         OPENGL_ANTIALIASING_SAMPLES,
         DEVELOPER_MODE,
         KEEP_PAINTING,

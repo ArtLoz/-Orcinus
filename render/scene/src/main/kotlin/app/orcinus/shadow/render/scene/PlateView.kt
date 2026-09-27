@@ -142,6 +142,10 @@ fun PlateView(
     plateNames: List<String> = emptyList(),
     /** The Preferences' orbit speed multiplier (camera_orbit_mult). */
     orbitSpeed: Double = 1.0,
+    /** The Preferences' "Use free camera" (use_free_camera): the finger turns the view freely, not about the vertical. */
+    freeCamera: Boolean = false,
+    /** The Preferences' "Zoom to mouse position" (zoom_to_mouse): a pinch zooms towards the fingers, not the view's centre. */
+    zoomToFingers: Boolean = false,
     /** The Preferences' multisampling (opengl_antialiasing_samples); unsupported counts fall back to none. */
     antialiasingSamples: Int = 4,
 ) {
@@ -154,6 +158,10 @@ fun PlateView(
         val surface = remember { PlateSurfaceView(context, antialiasingSamples) }
         val controller = surface.controller
         LaunchedEffect(orbitSpeed) { controller.orbitSpeed = orbitSpeed }
+        LaunchedEffect(freeCamera, zoomToFingers) {
+            controller.freeCamera = freeCamera
+            controller.zoomToFingers = zoomToFingers
+        }
 
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         DisposableEffect(lifecycle) {
@@ -1042,12 +1050,31 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** camera_orbit_mult of the Preferences. */
     var orbitSpeed = 1.0
 
+    /** use_free_camera and zoom_to_mouse of the Preferences. */
+    var freeCamera = false
+    var zoomToFingers = false
+
     /** GLCanvas3D::on_mouse() rotation: desktop pixels map to device-independent pixels. */
     fun rotate(dx: Float, dy: Float) {
         val factor = Math.PI * TRACKBALL_SIZE / 180.0 / density * orbitSpeed
-        // Rotate around the objects on the plate or the toolpaths, or the plate when it is empty.
-        val rotationTarget = (objectsBox() ?: layerBox)?.center() ?: currentPlateBox()?.center() ?: camera.target
-        camera.rotateOnSphereWithTarget(dx * factor, dy * factor, true, rotationTarget)
+        val rotX = dx * factor
+        val rotY = dy * factor
+        when {
+            // The painting gizmos turn about the painted object, past the limits, whatever the camera.
+            painting -> {
+                val box = objects.firstOrNull { it.index == selectedIndex }?.bounds ?: objectsBox()
+                camera.rotateOnSphereWithTarget(rotX, rotY, false, box?.center() ?: Vec3.ZERO)
+            }
+            // Virtual track ball (similar to the 3DConnexion mouse).
+            freeCamera -> camera.rotateLocalAroundTarget(Vec3(rotY, rotX, 0.0))
+            else -> {
+                // The constrained camera keeps its right vector parallel to the plate.
+                camera.recoverFromFreeCamera()
+                // Rotate around the objects on the plate or the toolpaths, or the plate when it is empty.
+                val rotationTarget = (objectsBox() ?: layerBox)?.center() ?: currentPlateBox()?.center() ?: camera.target
+                camera.rotateOnSphereWithTarget(rotX, rotY, true, rotationTarget)
+            }
+        }
         invalidate()
     }
 
@@ -1058,13 +1085,23 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * one pixel spans 1 / zoom millimetres.
      */
     fun pan(dx: Float, dy: Float) {
+        // A constrained camera is levelled before it pans.
+        if (!freeCamera) camera.recoverFromFreeCamera()
         val scale = 1.0 / camera.zoom
         camera.setTarget(camera.target - camera.dirRight() * (dx * scale) + camera.dirUp() * (dy * scale))
         invalidate()
     }
 
-    /** Zooms around a point, as GLCanvas3D::on_mouse_wheel() with "zoom to mouse". */
+    /**
+     * GLCanvas3D::on_mouse_wheel(): zooms around the view's centre, or with
+     * "Zoom to mouse position" around the point between the fingers.
+     */
     fun zoom(factor: Float, focusX: Float, focusY: Float) {
+        if (!zoomToFingers) {
+            camera.setZoom(camera.zoom * factor)
+            invalidate()
+            return
+        }
         val scale = 1.0 / camera.zoom
         val displacement = camera.dirRight() * ((focusX - camera.viewportWidth / 2.0) * scale) -
             camera.dirUp() * ((focusY - camera.viewportHeight / 2.0) * scale)

@@ -6,6 +6,7 @@ import app.orcinus.shadow.render.scene.math.Line3
 import app.orcinus.shadow.render.scene.math.Matrix4
 import app.orcinus.shadow.render.scene.math.Quaternion
 import app.orcinus.shadow.render.scene.math.Vec3
+import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.cos
 import kotlin.math.max
@@ -132,6 +133,23 @@ internal class OrcaCamera {
         val rotZ = Quaternion.angleAxis(deltaAzimuthRad, Vec3.UNIT_Z)
         viewRotation = (viewRotation * (rotZ * Quaternion.angleAxis(deltaZenit, rotZ.conjugate().rotate(dirRight())))).normalized()
         viewMatrix = Affine3.fromPositionOrientation(viewRotation.rotate(-rotationTarget) + translation, viewRotation)
+    }
+
+    /** Camera::rotate_local_around_target(): the free camera's virtual track ball. */
+    fun rotateLocalAroundTarget(rotationRad: Vec3) {
+        val angle = rotationRad.norm()
+        if (abs(angle) > EPSILON) {
+            val translation = viewMatrix.translation() + viewRotation.rotate(target)
+            val axis = viewRotation.conjugate().rotate(rotationRad.normalized())
+            viewRotation = (viewRotation * Quaternion.angleAxis(angle, axis)).normalized()
+            viewMatrix = Affine3.fromPositionOrientation(viewRotation.rotate(-target) + translation, viewRotation)
+            updateZenit()
+        }
+    }
+
+    /** Camera::recover_from_free_camera(): the right vector back parallel to the plate. */
+    fun recoverFromFreeCamera() {
+        if (abs(dirRight().z) > EPSILON) lookAt(position(), target, Vec3.UNIT_Z)
     }
 
     /** Computes the projection matrix with the frustum's z range tightened around [box]. */
