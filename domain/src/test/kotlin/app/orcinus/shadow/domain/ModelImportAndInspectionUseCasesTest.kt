@@ -186,6 +186,10 @@ class ModelImportAndInspectionUseCasesTest {
         override suspend fun redoPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
 
         override suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
+
+        override suspend fun setGapFill(gapArea: Double?, meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
+
+        override suspend fun fillGaps(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
         override suspend fun describeFlushVolumes(
             plate: List<PlacedModel>,
             profiles: SlicingProfileSelection,

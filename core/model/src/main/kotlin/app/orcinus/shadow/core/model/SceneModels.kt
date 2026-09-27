@@ -352,6 +352,9 @@ enum class PaintTool {
 
     /** A round brush that paints what the camera sees under it, through the model. */
     CIRCLE,
+
+    /** The gap fill, which paints no strokes: the small patches of the painting merge into the state around them. */
+    GAP_FILL,
 }
 
 /** EnforcerBlockerType: the states a stroke paints; a filament's number paints colour. */

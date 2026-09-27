@@ -4994,6 +4994,47 @@ TEST_CASE("Supports painted under an overhang print there alone, and keep the co
     CHECK(orca::end_painting().facets == closed.facets);
 }
 
+TEST_CASE("The gap fill shows the painting without its small patches, and merges them when asked", "[Adapter][Scene]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("gaps.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const std::string prefix = output_path("gaps");
+    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::supports, k2_plus_profiles(), {}, prefix).status ==
+            orca::SceneStatus::success);
+
+    // A dab of about 3 mm² enforcing supports on the top of the cube.
+    orca::PaintStroke dab;
+    const std::vector<double> center = matrix_of(cube);
+    dab.origin[0] = center[12];
+    dab.origin[1] = center[13];
+    dab.origin[2] = 100.0;
+    dab.direction[2] = -1.0;
+    dab.state = 1;
+    dab.radius = 1.0;
+    dab.starts = true;
+    REQUIRE(orca::paint(dab, prefix).states == std::vector<int>{1});
+
+    // TriangleSelectorPatch's filter state: patches under the gap area are
+    // shown in the state around them; none is under 0 mm².
+    CHECK(orca::set_gap_fill(0.0, prefix).states == std::vector<int>{1});
+    CHECK(orca::set_gap_fill(5.0, prefix).states.empty());
+    // "Perform" merges the dab, which the tool's Undo brings back.
+    const orca::PaintingState filled = orca::fill_gaps(prefix);
+    REQUIRE(filled.status == orca::SceneStatus::success);
+    CHECK(filled.can_undo);
+    CHECK(orca::set_gap_fill(-1.0, prefix).states.empty());
+    REQUIRE(orca::undo_painting(prefix).states == std::vector<int>{1});
+    // A stroke of the gap fill paints nothing.
+    orca::PaintStroke gap = dab;
+    gap.tool = orca::PaintTool::gap_fill;
+    gap.origin[0] += 5.0;
+    CHECK(orca::paint(gap, prefix).states == std::vector<int>{1});
+    REQUIRE(orca::end_painting().status == orca::SceneStatus::success);
+}
+
 TEST_CASE("The Input Shaping and Cornering dialogs read the printer's firmware and its input shapers", "[Adapter][Calibration]")
 {
     require_engine();

@@ -30,6 +30,12 @@ internal class SceneFrame(
     val selectedIndexes: Set<Int> = emptySet(),
     /** The active gizmo on the selected object. */
     val gizmo: GizmoFrame?,
+    /**
+     * The support painting tool's overhang highlight (slope.normal_z of
+     * GLGizmoPainterBase::render_triangles): facets whose world normal points
+     * further down are tinted; null while it is closed.
+     */
+    val slopeNormalZ: Float? = null,
 )
 
 /**
@@ -411,9 +417,14 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         }
         val color = VolumeColors.render(
             sceneObject.color,
-            selected = sceneObject.index in frame.selectedIndexes,
+            selected = sceneObject.index in frame.selectedIndexes && !sceneObject.paintedByTool,
             printable = sceneObject.printable,
         )
+        // GLGizmoPainterBase::render_triangles(): the slope of the object the
+        // support painting tool draws.
+        val slope = frame.slopeNormalZ?.takeIf { sceneObject.paintedByTool }
+        program.setBoolean("slope.actived", slope != null)
+        if (slope != null) program.setFloat("slope.normal_z", slope)
         program.setVec4("uniform_color", color.red, color.green, color.blue, color.alpha)
         program.setMatrix4("volume_world_matrix", sceneObject.world.toFloatArray())
         program.setMatrix4("view_model_matrix", (frame.view * sceneObject.world).toFloatArray())

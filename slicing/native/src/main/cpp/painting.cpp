@@ -10,6 +10,8 @@
 #include <cstdint>
 #include <fstream>
 #include <iterator>
+#include <queue>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -271,6 +273,154 @@ Slic3r::EnforcerBlockerType state_of(const int state)
 }
 
 /**
+ * TriangleSelectorPatch of GLGizmoPainterBase.cpp without its drawing: the
+ * painting split into patches of one state that touch each other, each with
+ * its area and the states around it, which the gap fill merges into the
+ * state around them.
+ */
+class PatchSelector : public Slic3r::TriangleSelector {
+public:
+    using TriangleSelector::TriangleSelector;
+
+    // TrianglePatch
+    struct Patch {
+        std::vector<int> facet_indices;
+        std::set<Slic3r::EnforcerBlockerType> neighbor_types;
+        Slic3r::EnforcerBlockerType type{Slic3r::EnforcerBlockerType::NONE};
+        double area{0.0};
+    };
+
+    // TriangleSelectorPatch::GapAreaMax: patches are measured up to it.
+    static constexpr double GapAreaMax = 5.0;
+
+    // TrianglePatch::is_fragment()
+    static bool is_fragment(const Patch& patch, const double gap_area) { return patch.area < gap_area; }
+
+    // TriangleSelectorPatch::update_triangles_per_patch()
+    std::vector<Patch> patches() const
+    {
+        std::vector<Patch> result;
+        auto [neighbors, neighbors_propagated] = this->precompute_all_neighbors();
+        std::vector<bool> visited(m_triangles.size(), false);
+
+        auto get_all_touching_triangles = [this](int facet_idx, const Slic3r::Vec3i32& neighbors, const Slic3r::Vec3i32& neighbors_propagated) -> std::vector<int> {
+            assert(facet_idx != -1 && facet_idx < int(m_triangles.size()));
+            assert(this->verify_triangle_neighbors(m_triangles[facet_idx], neighbors));
+            std::vector<int> touching_triangles;
+            Slic3r::Vec3i32 vertices = { m_triangles[facet_idx].verts_idxs[0], m_triangles[facet_idx].verts_idxs[1], m_triangles[facet_idx].verts_idxs[2] };
+            append_touching_subtriangles(neighbors(0), vertices(1), vertices(0), touching_triangles);
+            append_touching_subtriangles(neighbors(1), vertices(2), vertices(1), touching_triangles);
+            append_touching_subtriangles(neighbors(2), vertices(0), vertices(2), touching_triangles);
+
+            for (int neighbor_idx : neighbors_propagated)
+                if (neighbor_idx != -1 && !m_triangles[neighbor_idx].is_split())
+                    touching_triangles.emplace_back(neighbor_idx);
+
+            return touching_triangles;
+        };
+
+        // calc_fragment_area(): summed up to max_limit_area.
+        auto calc_fragment_area = [this](const Patch& patch, double max_limit_area) {
+            double total_area = 0.0;
+            for (const int facet : patch.facet_indices) {
+                const std::array<int, 3>& v = m_triangles[facet].verts_idxs;
+                const Slic3r::Vec3f v0 = m_vertices[v[0]].v;
+                const Slic3r::Vec3f v1 = m_vertices[v[1]].v;
+                const Slic3r::Vec3f v2 = m_vertices[v[2]].v;
+                total_area += std::abs((v0 - v1).cross(v0 - v2).norm()) / 2;
+                if (total_area >= max_limit_area)
+                    break;
+            }
+            return total_area;
+        };
+
+        std::size_t start_facet_idx = 0;
+        while (true) {
+            for (; start_facet_idx < visited.size(); start_facet_idx++) {
+                if (!visited[start_facet_idx] && m_triangles[start_facet_idx].valid() && !m_triangles[start_facet_idx].is_split())
+                    break;
+            }
+
+            if (start_facet_idx >= m_triangles.size())
+                break;
+
+            Slic3r::EnforcerBlockerType start_facet_state = m_triangles[start_facet_idx].get_state();
+            Patch patch;
+            std::queue<int> facet_queue;
+            facet_queue.push(int(start_facet_idx));
+            while (!facet_queue.empty()) {
+                int current_facet = facet_queue.front();
+                facet_queue.pop();
+                assert(!m_triangles[current_facet].is_split());
+
+                if (!visited[current_facet]) {
+                    patch.facet_indices.push_back(current_facet);
+
+                    std::vector<int> touching_triangles = get_all_touching_triangles(current_facet, neighbors[current_facet], neighbors_propagated[current_facet]);
+                    for (const int tr_idx : touching_triangles) {
+                        if (tr_idx < 0)
+                            continue;
+
+                        if (m_triangles[tr_idx].get_state() != start_facet_state) {
+                            patch.neighbor_types.insert(m_triangles[tr_idx].get_state());
+                            continue;
+                        }
+
+                        // should check visited state after color for neight types
+                        if (visited[tr_idx])
+                            continue;
+
+                        assert(!m_triangles[tr_idx].is_split());
+                        facet_queue.push(tr_idx);
+                    }
+                }
+
+                visited[current_facet] = true;
+            }
+
+            patch.area = calc_fragment_area(patch, GapAreaMax);
+            patch.type = start_facet_state;
+            result.emplace_back(std::move(patch));
+        }
+        return result;
+    }
+
+    // TriangleSelectorPatch::update_selector_triangles()
+    void merge_fragments(const double gap_area)
+    {
+        for (const Patch& patch : patches()) {
+            if (!is_fragment(patch, gap_area) || patch.neighbor_types.empty())
+                continue;
+
+            Slic3r::EnforcerBlockerType type = *patch.neighbor_types.begin();
+            for (int facet_idx : patch.facet_indices) {
+                m_triangles[facet_idx].set_state(type);
+            }
+        }
+    }
+
+    // TriangleSelectorPatch::render() in the gap fill's filter state: every
+    // patch in its own state, a fragment in the state of its first neighbour.
+    void get_gap_filled_facets(const double gap_area, std::vector<indexed_triangle_set>& per_state) const
+    {
+        per_state.assign(std::size_t(Slic3r::EnforcerBlockerType::ExtruderMax) + 1, indexed_triangle_set());
+        for (const Patch& patch : patches()) {
+            const Slic3r::EnforcerBlockerType type =
+                is_fragment(patch, gap_area) && !patch.neighbor_types.empty() ? *patch.neighbor_types.begin() : patch.type;
+            indexed_triangle_set& out = per_state[std::size_t(type)];
+            for (const int facet : patch.facet_indices) {
+                const std::array<int, 3>& v = m_triangles[facet].verts_idxs;
+                const int first = int(out.vertices.size());
+                for (int corner = 0; corner < 3; ++corner) {
+                    out.vertices.emplace_back(m_vertices[v[corner]].v);
+                }
+                out.indices.emplace_back(first, first + 1, first + 2);
+            }
+        }
+    }
+};
+
+/**
  * The painting session, which lives while the tool is open, as the desktop
  * gizmo keeps its selectors while it is shown.
  */
@@ -288,7 +438,10 @@ struct Session {
     // the triangle under the finger.
     Slic3r::TriangleMesh mesh;
     std::unique_ptr<Slic3r::AABBMesh> tree;
-    std::unique_ptr<Slic3r::TriangleSelector> selector;
+    std::unique_ptr<PatchSelector> selector;
+    // The gap fill tool's area while it is chosen (TriangleSelectorPatch's
+    // filter state), negative otherwise.
+    double gap_area{-1.0};
     // Where the volume stands in the world, which the cursor needs.
     Slic3r::Transform3d world{Slic3r::Transform3d::Identity()};
     // The gizmo's own undo/redo stack: the painting before each stroke, and
@@ -320,7 +473,11 @@ void write_painted_meshes(const std::string& mesh_prefix, PaintingState& result)
     result.can_undo = !session().undo.empty();
     result.can_redo = !session().redo.empty();
     std::vector<indexed_triangle_set> per_state;
-    session().selector->get_facets(per_state);
+    if (session().gap_area >= 0.0) {
+        session().selector->get_gap_filled_facets(session().gap_area, per_state);
+    } else {
+        session().selector->get_facets(per_state);
+    }
     const std::size_t write = session().writes++;
     for (std::size_t state = 1; state < per_state.size(); ++state) {
         if (per_state[state].indices.empty()) {
@@ -414,7 +571,8 @@ PaintingState begin_painting(
         Session& current = session();
         current.mesh = volume.mesh();
         current.tree = std::make_unique<Slic3r::AABBMesh>(current.mesh);
-        current.selector = std::make_unique<Slic3r::TriangleSelector>(current.mesh);
+        current.selector = std::make_unique<PatchSelector>(current.mesh);
+        current.gap_area = -1.0;
         current.world = loaded.instances.empty()
             ? volume.get_matrix()
             : loaded.instances.front()->get_transformation().get_matrix() * volume.get_matrix();
@@ -546,6 +704,9 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
             );
             current.selector->seed_fill_apply_on_triangles(state);
             break;
+        case PaintTool::gap_fill:
+            // The gap fill paints no strokes (GLGizmoPainterBase::gizmo_event()).
+            break;
         case PaintTool::bucket:
             current.selector->bucket_fill_select_triangles(
                 position,
@@ -631,6 +792,54 @@ PaintingState clear_painting(const std::string& mesh_prefix)
         current.stroke_pending = false;
         current.has_last = false;
         current.selector->reset();
+        result.status = SceneStatus::success;
+        write_painted_meshes(mesh_prefix, result);
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
+PaintingState set_gap_fill(const double gap_area, const std::string& mesh_prefix)
+{
+    PaintingState result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    Session& current = session();
+    if (!current.open || current.selector == nullptr) {
+        result.message = "No painting session is open";
+        return result;
+    }
+    try {
+        current.gap_area = gap_area;
+        result.status = SceneStatus::success;
+        write_painted_meshes(mesh_prefix, result);
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
+PaintingState fill_gaps(const std::string& mesh_prefix)
+{
+    PaintingState result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    Session& current = session();
+    if (!current.open || current.selector == nullptr || current.gap_area < 0.0) {
+        result.message = "The gap fill is not chosen";
+        return result;
+    }
+    try {
+        // Plater::TakeSnapshot(... "Reset selection", GizmoAction), which the
+        // gizmo's stack keeps here.
+        current.undo.push_back(current.selector->serialize());
+        current.redo.clear();
+        current.stroke_pending = false;
+        current.has_last = false;
+        current.selector->merge_fragments(current.gap_area);
         result.status = SceneStatus::success;
         write_painted_meshes(mesh_prefix, result);
         return result;

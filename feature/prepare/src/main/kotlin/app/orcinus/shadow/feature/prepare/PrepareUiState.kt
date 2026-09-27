@@ -202,6 +202,16 @@ data class PaintingMode(
     val tool: PaintTool = PaintTool.BRUSH,
     /** The angle the smart fill keeps to (m_smart_fill_angle), in degrees. */
     val fillAngle: Double = 30.0,
+    /**
+     * "Highlight overhang areas" (m_highlight_by_angle_threshold_deg): facets
+     * overhanging more than this angle below the horizontal are highlighted,
+     * in degrees; 0 highlights none.
+     */
+    val highlightAngle: Double = 0.0,
+    /** "On highlighted overhangs only" (m_paint_on_overhangs_only). */
+    val overhangsOnly: Boolean = false,
+    /** The gap fill's area (TriangleSelectorPatch::gap_area), in square millimetres. */
+    val gapArea: Double = 0.0,
     /** Whether the model carries the tool's kind of paint at all, which "Erase all" takes off. */
     val painted: Boolean = false,
     /** Whether the tool can undo or redo a stroke, which the Undo and Redo buttons do while it is open. */

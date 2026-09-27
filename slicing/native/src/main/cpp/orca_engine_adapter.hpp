@@ -719,6 +719,9 @@ enum class PaintTool : std::int64_t {
     // A round brush that paints what the camera sees under it, through the
     // model (CursorType::CIRCLE).
     circle = 3,
+    // The gap fill (ToolType::GAP_FILL), which paints no strokes: set_gap_fill()
+    // and fill_gaps() work it.
+    gap_fill = 4,
 };
 
 // One touch of the finger on a model being painted.
@@ -794,6 +797,18 @@ PaintingState redo_painting(const std::string& mesh_prefix);
 // "Erase all": the painting of the session's kind is taken off the volume
 // (TriangleSelector::reset()), which Undo brings back.
 PaintingState clear_painting(const std::string& mesh_prefix);
+
+// The gap fill tool (TriangleSelectorPatch::set_filter_state() and
+// gap_area): while it is chosen, with a gap area of 0 or more in square
+// millimetres, the meshes show the painting as the gap fill would leave it,
+// every patch smaller than the area in the state around it; a negative area
+// leaves the tool, and the meshes show the painting as it is.
+PaintingState set_gap_fill(double gap_area, const std::string& mesh_prefix);
+
+// "Perform" of the gap fill (TriangleSelectorPatch::update_selector_triangles):
+// the patches smaller than the gap area take the state around them, which Undo
+// brings back.
+PaintingState fill_gaps(const std::string& mesh_prefix);
 
 // Closes the session and reports the painted facets of every kind, the
 // session's kind as it was painted.

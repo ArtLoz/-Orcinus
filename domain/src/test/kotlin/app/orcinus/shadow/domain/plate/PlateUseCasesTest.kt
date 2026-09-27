@@ -2844,6 +2844,17 @@ class PlateUseCasesTest {
         override suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome =
             PaintingOutcome.Success(PaintedSurface(canUndo = true))
 
+        /** The gap fill's areas, null when the tool was left. */
+        val gapAreas = mutableListOf<Double?>()
+
+        override suspend fun setGapFill(gapArea: Double?, meshPrefix: ScenePath): PaintingOutcome {
+            gapAreas += gapArea
+            return PaintingOutcome.Success(painted(meshPrefix))
+        }
+
+        override suspend fun fillGaps(meshPrefix: ScenePath): PaintingOutcome =
+            PaintingOutcome.Success(PaintedSurface(canUndo = true))
+
         private fun painted(meshPrefix: ScenePath) = PaintedSurface(
             hit = true,
             states = listOf(2),

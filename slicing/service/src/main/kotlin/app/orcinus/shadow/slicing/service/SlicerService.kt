@@ -444,6 +444,12 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun clearPainting(meshPrefix: String): PaintingParcel = runBlocking { engine.clearPainting(ScenePath(meshPrefix)) }.toParcel()
 
+        override fun setGapFill(gapArea: Double, meshPrefix: String): PaintingParcel = runBlocking {
+            engine.setGapFill(gapArea.takeIf { it >= 0.0 }, ScenePath(meshPrefix))
+        }.toParcel()
+
+        override fun fillGaps(meshPrefix: String): PaintingParcel = runBlocking { engine.fillGaps(ScenePath(meshPrefix)) }.toParcel()
+
         override fun endPainting(): PaintingParcel = runBlocking { engine.endPainting() }.toParcel()
 
         override fun describeWipeTower(

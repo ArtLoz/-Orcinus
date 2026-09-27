@@ -90,6 +90,7 @@ import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -165,6 +166,12 @@ class PrepareViewModel(
     /** The painting tool closing, which the next one waits for. */
     private var closingPainting: Job? = null
 
+    /**
+     * The gap areas the gap fill shows the painting with, null leaving it;
+     * a slider sends many, so only the last one waiting is shown.
+     */
+    private val gapAreas = Channel<Double?>(Channel.CONFLATED)
+
     /** What each painting tool was left with, which it opens with again, as the desktop gizmos keep it. */
     private val paintingTools = mutableMapOf<PaintKind, PaintingMode>()
     private val view = MutableStateFlow(PrepareViewState())
@@ -184,6 +191,11 @@ class PrepareViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), plate.value.toPrepareUiState(PrepareViewState()))
 
     init {
+        viewModelScope.launch {
+            for (area in gapAreas) {
+                if (view.value.painting != null) paintObject.setGapFill(area).also(::showStrokes)
+            }
+        }
         // "Simplify Model" opens the gizmo from the canvas and from the object
         // list; it closes once the plate no longer has the volume.
         viewModelScope.launch {
@@ -318,7 +330,8 @@ class PrepareViewModel(
         }
         val mesh = state.value.sceneCopies.getOrNull(state.value.selectedObject ?: -1)?.plateObject?.mesh ?: return
         openSimplify.close()
-        val mode = paintingTools[kind]?.copy(mesh = mesh, painted = false, canUndo = false, canRedo = false) ?: PaintingMode(
+        // GLGizmoFdmSupports::on_shutdown() left the highlight at 0.
+        val mode = paintingTools[kind]?.copy(mesh = mesh, painted = false, canUndo = false, canRedo = false, highlightAngle = 0.0) ?: PaintingMode(
             mesh = mesh,
             kind = kind,
             // GLGizmoFdmSupports paints with the circle, the colour tool with the sphere.
@@ -329,6 +342,7 @@ class PrepareViewModel(
         viewModelScope.launch {
             closing?.join()
             paintObject.begin(mesh, kind).also(::showStrokes)
+            if (mode.tool == PaintTool.GAP_FILL) paintObject.setGapFill(mode.gapArea).also(::showStrokes)
         }
     }
 
@@ -431,8 +445,40 @@ class PrepareViewModel(
         view.update { state -> state.painting?.let { state.copy(painting = it.copy(radius = radius)) } ?: state }
     }
 
+    /**
+     * GLGizmoFdmSupports::tool_changed(): the gap fill shows the painting as
+     * it would leave it while it is chosen (the selectors' filter state).
+     */
     fun setPaintTool(tool: PaintTool) {
+        val before = view.value.painting ?: return
         view.update { state -> state.painting?.let { state.copy(painting = it.copy(tool = tool)) } ?: state }
+        when {
+            tool == PaintTool.GAP_FILL && before.tool != PaintTool.GAP_FILL -> gapAreas.trySend(before.gapArea)
+            tool != PaintTool.GAP_FILL && before.tool == PaintTool.GAP_FILL -> gapAreas.trySend(null)
+        }
+    }
+
+    /** "Gap area" of the gap fill, which the painting shows the gap fill with at once. */
+    fun setGapArea(area: Double) {
+        val mode = view.value.painting ?: return
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(gapArea = area)) } ?: state }
+        if (mode.tool == PaintTool.GAP_FILL) gapAreas.trySend(area)
+    }
+
+    /** "Perform" of the gap fill, which the tool's Undo brings back. */
+    fun fillGaps() {
+        if (view.value.painting?.tool != PaintTool.GAP_FILL) return
+        viewModelScope.launch { paintObject.fillGaps().also(::showStrokes) }
+    }
+
+    /** "Highlight overhang areas", which the 3D view tints the object with. */
+    fun setHighlightAngle(angle: Double) {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(highlightAngle = angle)) } ?: state }
+    }
+
+    /** "On highlighted overhangs only". */
+    fun setOverhangsOnly(only: Boolean) {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(overhangsOnly = only)) } ?: state }
     }
 
     /**
@@ -443,6 +489,8 @@ class PrepareViewModel(
      */
     fun paint(origin: Vector3, direction: Vector3, starts: Boolean = false) {
         val mode = view.value.painting ?: return
+        // The gap fill paints no strokes.
+        if (mode.tool == PaintTool.GAP_FILL) return
         if (starts) strokeStarts = true
         if (painting) return
         painting = true
@@ -458,6 +506,7 @@ class PrepareViewModel(
                         radius = mode.radius,
                         tool = mode.tool,
                         angle = mode.fillAngle,
+                        overhangAngle = if (mode.overhangsOnly) mode.highlightAngle else 0.0,
                         startsStroke = first,
                     ),
                 ).also(::showStrokes)

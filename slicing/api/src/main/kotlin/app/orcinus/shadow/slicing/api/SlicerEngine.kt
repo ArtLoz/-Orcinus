@@ -416,6 +416,16 @@ interface PlateInspector {
     /** "Erase all": the painting tool's kind of paint comes off the model, which its Undo brings back. */
     suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome
 
+    /**
+     * The gap fill tool (TriangleSelectorPatch's filter state): while [gapArea]
+     * is set, in square millimetres, the painted meshes show the painting as
+     * the gap fill would leave it; null leaves the tool.
+     */
+    suspend fun setGapFill(gapArea: Double?, meshPrefix: ScenePath): PaintingOutcome
+
+    /** "Perform" of the gap fill: the patches under the gap area take the state around them, which Undo brings back. */
+    suspend fun fillGaps(meshPrefix: ScenePath): PaintingOutcome
+
     /** Closes the tool and reports the painted facets to keep with the object. */
     suspend fun endPainting(): PaintingOutcome
 

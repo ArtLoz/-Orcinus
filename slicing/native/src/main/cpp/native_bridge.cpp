@@ -1339,6 +1339,18 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_clearPainting(JNIEnv
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setGapFill(JNIEnv* env, jobject /* this */, jdouble gap_area, jstring mesh_prefix)
+{
+    return to_java(env, orcinus::orca::set_gap_fill(gap_area, to_utf8(env, mesh_prefix)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_fillGaps(JNIEnv* env, jobject /* this */, jstring mesh_prefix)
+{
+    return to_java(env, orcinus::orca::fill_gaps(to_utf8(env, mesh_prefix)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endPainting(JNIEnv* env, jobject /* this */)
 {
     return to_java(env, orcinus::orca::end_painting());

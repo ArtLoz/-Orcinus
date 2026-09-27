@@ -38,6 +38,8 @@
     <string name="painting_brush">Кисть</string>
     <string name="painting_eraser">Стереть</string>
     <string name="painting_done">Готово</string>
+    <string name="painting_collapse">Свернуть панель</string>
+    <string name="painting_expand">Развернуть панель</string>
     <string name="painting_tool_brush">Кисть</string>
     <string name="painting_tool_fill">Заливка</string>
     <string name="painting_tool_bucket">Вся грань</string>

@@ -46,6 +46,7 @@ import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.extruderNumber
 import app.orcinus.shadow.core.model.mesh
@@ -57,6 +58,7 @@ import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -92,8 +94,8 @@ fun PlateView(
     builtWipeTower: ScenePath? = null,
     /** GLCanvas3D::WipeTowerInfo::apply_wipe_tower(): the tower was dragged to that corner. */
     onMoveWipeTower: (x: Double, y: Double) -> Unit = { _, _ -> },
-    /** A painting tool is open: a finger paints instead of moving the object. */
-    painting: Boolean = false,
+    /** The painting tool open on an object: a finger on it paints instead of moving it. */
+    painting: PaintingView? = null,
     /** A stroke of the finger, as a ray in world coordinates. */
     /** [starts] is true for the first touch of a stroke. */
     onPaint: (origin: Vector3, direction: Vector3, starts: Boolean) -> Unit = { _, _, _ -> },
@@ -168,7 +170,8 @@ fun PlateView(
         val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin) } }
         controller.setWipeTower(tower)
     }
-    LaunchedEffect(objects, color, filamentColors, wireframes) {
+    val paintedByTool = painting?.takeIf { it.kind != PaintKind.COLOR }?.mesh
+    LaunchedEffect(objects, color, filamentColors, wireframes, paintedByTool) {
         val loaded = withContext(Dispatchers.IO) {
             meshes.retain(
                 objects.flatMapTo(HashSet()) { plateObject ->
@@ -189,13 +192,19 @@ fun PlateView(
                     // volume is drawn in the colour of the filament it prints
                     // with; a part without one of its own takes its object's.
                     val objectColor = filamentColors.getOrNull(plateObject.extruderNumber - 1) ?: color
+                    // GLGizmoPainterBase: a painting tool of another kind than
+                    // colour draws the model parts of its object itself, the
+                    // facets it has not painted in the neutral colour.
+                    val byTool = plateObject.mesh == paintedByTool
                     val copy = runCatching { SceneLoader.loadObject(copyIndex, plateObject, instance, objectColor, meshes) }.getOrNull()
                         ?.let { it.withWireframe(instance.inspection.mesh in wireframes) }
+                        ?.let { if (byTool) it.paintedByTool(GizmoColors.NEUTRAL) else it }
                     val parts = plateObject.parts.mapNotNull { part ->
                         val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
                         val partColor = filamentColors.getOrNull(extruder - 1) ?: color
                         runCatching { SceneLoader.loadPart(copyIndex, part, instance, partColor, meshes) }.getOrNull()
                             ?.let { it.withWireframe(part.mesh in wireframes) }
+                            ?.let { if (byTool && part.type == VolumeType.PART) it.paintedByTool(GizmoColors.NEUTRAL) else it }
                     }
                     // The colours the object is painted with, over its surface, or
                     // the paint of the open painting tool of another kind.
@@ -205,6 +214,7 @@ fun PlateView(
                             else -> if (mesh.state == PaintState.BLOCKER) GizmoColors.BLOCKERS else GizmoColors.ENFORCERS
                         }
                         runCatching { SceneLoader.loadPaintedMesh(copyIndex, mesh, instance, paint, meshes) }.getOrNull()
+                            ?.let { if (byTool) it.paintedByTool(paint) else it }
                     }
                     listOfNotNull(copy) + parts + painted
                 }
@@ -223,7 +233,10 @@ fun PlateView(
             val direction = ray.b - ray.a
             onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z), starts)
         }
-        controller.setPainting(painting)
+        controller.setPainting(painting != null)
+        // GLGizmoFdmSupports::on_opening() turns the slope on; the painting's
+        // highlight angle sets it (-cos of m_highlight_by_angle_threshold_deg).
+        controller.setSlope(painting?.takeIf { it.kind == PaintKind.SUPPORTS }?.let { -cos(Math.toRadians(it.overhangAngle)).toFloat() })
         controller.onOpenObjectMenu = { index, x, y ->
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             onOpenObjectMenu(index, Offset(x, y))
@@ -589,6 +602,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    /** The support painting tool's overhang highlight, slope.normal_z; null while it is closed. */
+    private var slopeNormalZ: Float? = null
+
+    fun setSlope(normalZ: Float?) {
+        if (slopeNormalZ == normalZ) return
+        slopeNormalZ = normalZ
+        invalidate()
+    }
+
     fun setEditable(editable: Boolean) {
         this.editable = editable
     }
@@ -912,6 +934,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 selectedIndex = selectedIndex,
                 selectedIndexes = selectedIndexes,
                 gizmo = gizmoFrame(),
+                slopeNormalZ = slopeNormalZ,
             ),
         )
         surface.requestRender()
@@ -1020,3 +1043,10 @@ private class MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
         const val EGL_OPENGL_ES3_BIT = 0x40
     }
 }
+
+/**
+ * A painting tool open on the object [mesh] names (GLGizmoPainterBase): what
+ * it paints, and the angle from which the support tool highlights overhangs
+ * (m_highlight_by_angle_threshold_deg).
+ */
+data class PaintingView(val mesh: ScenePath, val kind: PaintKind, val overhangAngle: Double = 0.0)

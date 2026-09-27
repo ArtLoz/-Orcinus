@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -125,6 +127,7 @@ import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
+import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateView
 import java.util.Locale
@@ -190,6 +193,10 @@ internal fun PrepareRoute(
             setRadius = viewModel::setBrushRadius,
             setTool = viewModel::setPaintTool,
             setFillAngle = viewModel::setFillAngle,
+            setHighlightAngle = viewModel::setHighlightAngle,
+            setOverhangsOnly = viewModel::setOverhangsOnly,
+            setGapArea = viewModel::setGapArea,
+            fillGaps = viewModel::fillGaps,
             clear = viewModel::clearPainting,
             close = viewModel::closePainting,
         ),
@@ -300,12 +307,18 @@ internal class PaintingActions(
     val setRadius: (Double) -> Unit,
     val setTool: (PaintTool) -> Unit,
     val setFillAngle: (Double) -> Unit,
+    /** "Highlight overhang areas" and "On highlighted overhangs only". */
+    val setHighlightAngle: (Double) -> Unit,
+    val setOverhangsOnly: (Boolean) -> Unit,
+    /** The gap fill's area and its "Perform". */
+    val setGapArea: (Double) -> Unit,
+    val fillGaps: () -> Unit,
     /** "Erase all". */
     val clear: () -> Unit,
     val close: () -> Unit,
 ) {
     companion object {
-        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {})
+        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 }
 
@@ -366,7 +379,7 @@ internal fun PrepareScreen(
                 filamentColors = state.filamentColors,
                 builtWipeTower = state.builtWipeTower,
                 onMoveWipeTower = onMoveWipeTower,
-                painting = state.painting != null,
+                painting = state.painting?.let { PaintingView(it.mesh, it.kind, it.highlightAngle) },
                 onPaint = paintingActions.paint,
                 selectedObject = state.selectedObject,
                 selectedObjects = state.selectedObjects,
@@ -955,20 +968,7 @@ private fun CanvasToolbar(
  */
 @Composable
 private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions: PaintingActions) {
-    OrcaGizmoPanel {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = stringResource(R.string.gizmo_color_painting),
-                color = OrcaTheme.colors.onCanvasPanel,
-                style = OrcaTheme.typography.head14,
-                modifier = Modifier.weight(1f),
-            )
-            OrcaButton(
-                text = stringResource(R.string.painting_done),
-                size = OrcaButtonSize.Compact,
-                onClick = actions.close,
-            )
-        }
+    PaintingPanelFrame(stringResource(R.string.gizmo_color_painting), stringResource(R.string.painting_done), actions.close) {
         Text(
             text = stringResource(R.string.painting_filament),
             color = OrcaTheme.colors.onCanvasPanel,
@@ -1047,25 +1047,14 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
 /**
  * GLGizmoFdmSupports' window while it is open: whether the finger enforces or
  * blocks supports or takes them off (the left and right mouse buttons and
- * Shift of the desktop, as buttons a thumb reaches), the tool — circle, sphere
- * or smart fill — with its brush size or fill angle, "Erase all" and "Done".
+ * Shift of the desktop, as buttons a thumb reaches), the tool — circle,
+ * sphere, smart fill or gap fill — with its brush size, fill angle or gap
+ * area and "Perform", painting on highlighted overhangs only, the overhang
+ * highlight, "Erase all" and "Done".
  */
 @Composable
 private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingActions) {
-    OrcaGizmoPanel {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = stringResource(R.string.gizmo_support_painting),
-                color = OrcaTheme.colors.onCanvasPanel,
-                style = OrcaTheme.typography.head14,
-                modifier = Modifier.weight(1f),
-            )
-            OrcaButton(
-                text = orcaString("Done"),
-                size = OrcaButtonSize.Compact,
-                onClick = actions.close,
-            )
-        }
+    PaintingPanelFrame(stringResource(R.string.gizmo_support_painting), orcaString("Done"), actions.close) {
         PaintingChoices(
             listOf(
                 PaintState.ENFORCER to orcaString("Enforce supports"),
@@ -1085,11 +1074,25 @@ private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingAction
                 PaintTool.CIRCLE to orcaString("Circle"),
                 PaintTool.BRUSH to orcaString("Sphere"),
                 PaintTool.FILL to orcaString("Fill"),
+                PaintTool.GAP_FILL to orcaString("Gap Fill"),
             ),
             selected = painting.tool,
             onSelect = actions.setTool,
         )
-        if (painting.tool == PaintTool.FILL) {
+        if (painting.tool == PaintTool.GAP_FILL) {
+            PaintingSlider(
+                label = orcaString("Gap area"),
+                value = painting.gapArea.toFloat(),
+                range = GAP_AREA_MIN..GAP_AREA_MAX,
+                text = String.format(textLocale(), "%.2f", painting.gapArea),
+                onChange = { actions.setGapArea(it.toDouble()) },
+            )
+            OrcaButton(
+                text = orcaString("Perform"),
+                size = OrcaButtonSize.Compact,
+                onClick = actions.fillGaps,
+            )
+        } else if (painting.tool == PaintTool.FILL) {
             PaintingSlider(
                 label = orcaString("Smart fill angle"),
                 value = painting.fillAngle.toFloat(),
@@ -1106,6 +1109,30 @@ private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingAction
                 onChange = { actions.setRadius(it.toDouble()) },
             )
         }
+        if (painting.tool != PaintTool.GAP_FILL) {
+            // Allows painting only on facets selected by "Highlight overhang areas".
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(value = painting.overhangsOnly, role = Role.Checkbox, onValueChange = actions.setOverhangsOnly),
+            ) {
+                OrcaCheckBox(checked = painting.overhangsOnly, onCheckedChange = null)
+                Text(
+                    text = orcaString("On highlighted overhangs only"),
+                    color = OrcaTheme.colors.onCanvasPanel,
+                    style = OrcaTheme.typography.body12,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+        PaintingSlider(
+            label = orcaString("Highlight overhang areas"),
+            value = painting.highlightAngle.toFloat(),
+            range = 0f..90f,
+            text = String.format(textLocale(), "%.0f", painting.highlightAngle),
+            onChange = { actions.setHighlightAngle(it.toDouble()) },
+        )
         OrcaButton(
             text = orcaString("Erase all"),
             size = OrcaButtonSize.Compact,
@@ -1113,6 +1140,39 @@ private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingAction
             onClick = actions.clear,
             modifier = Modifier.padding(top = 4.dp),
         )
+    }
+}
+
+/**
+ * The window of a painting tool: its title with "Done", and its controls,
+ * which fold away into the title row so the finger reaches the model under
+ * them; the desktop window stands beside the model instead.
+ */
+@Composable
+private fun PaintingPanelFrame(title: String, done: String, onDone: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(true) }
+    OrcaGizmoPanel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                color = OrcaTheme.colors.onCanvasPanel,
+                style = OrcaTheme.typography.head14,
+                modifier = Modifier.weight(1f),
+            )
+            OrcaIconButton(
+                icon = DesignR.drawable.orca_drop_down,
+                contentDescription = stringResource(if (expanded) R.string.painting_collapse else R.string.painting_expand),
+                onClick = { expanded = !expanded },
+                tint = OrcaTheme.colors.onCanvasPanel,
+                modifier = Modifier.rotate(if (expanded) 180f else 0f),
+            )
+            OrcaButton(
+                text = done,
+                size = OrcaButtonSize.Compact,
+                onClick = onDone,
+            )
+        }
+        if (expanded) content()
     }
 }
 
@@ -1167,6 +1227,10 @@ private const val BRUSH_MAX = 8.0f
 /** GLGizmoPainterBase::SmartFillAngleMin and SmartFillAngleMax. */
 private const val SMART_FILL_ANGLE_MIN = 0f
 private const val SMART_FILL_ANGLE_MAX = 90f
+
+/** TriangleSelectorPatch::GapAreaMin and GapAreaMax. */
+private const val GAP_AREA_MIN = 0f
+private const val GAP_AREA_MAX = 5f
 
 /**
  * GizmoObjectManipulation::do_render_move_window() in world coordinates: the

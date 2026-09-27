@@ -78,6 +78,15 @@ class PaintObjectUseCase(
     /** "Erase all": the tool's kind of paint comes off the object, which the tool's Undo brings back. */
     suspend fun clear(): PaintingOutcome = step { prefix -> inspector.clearPainting(prefix) }
 
+    /**
+     * The gap fill tool with its gap area, in square millimetres: the object
+     * shows its paint as the gap fill would leave it; null leaves the tool.
+     */
+    suspend fun setGapFill(gapArea: Double?): PaintingOutcome = step { prefix -> inspector.setGapFill(gapArea, prefix) }
+
+    /** "Perform" of the gap fill, which the tool's Undo brings back. */
+    suspend fun fillGaps(): PaintingOutcome = step { prefix -> inspector.fillGaps(prefix) }
+
     private suspend fun step(action: suspend (ScenePath) -> PaintingOutcome): PaintingOutcome {
         val prefix = meshPrefix ?: return PaintingOutcome.Failure("The painting tool is not open")
         val outcome = action(prefix)

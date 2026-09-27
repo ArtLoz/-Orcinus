@@ -837,6 +837,14 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         painting(NativeBindings.clearPainting(meshPrefix.value))
     }
 
+    override suspend fun setGapFill(gapArea: Double?, meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        painting(NativeBindings.setGapFill(gapArea ?: -1.0, meshPrefix.value))
+    }
+
+    override suspend fun fillGaps(meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        painting(NativeBindings.fillGaps(meshPrefix.value))
+    }
+
     override suspend fun endPainting(): PaintingOutcome = withContext(Dispatchers.IO) {
         painting(NativeBindings.endPainting())
     }

@@ -1,8 +1,8 @@
 package app.orcinus.shadow.render.scene
 
 import android.graphics.Bitmap
-import app.orcinus.shadow.core.model.BuildVolumeFit
 import android.graphics.BitmapFactory
+import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.PaintedMesh
@@ -110,14 +110,24 @@ internal class SceneObject(
     val wireframe: Boolean = false,
     /** GLVolume::partly_inside: the copy lies across the current plate's boundary. */
     val partlyInside: Boolean = false,
+    /**
+     * Drawn as an open painting tool draws the object it paints
+     * (GLGizmoPainterBase::render_triangles): in its own colours, not the
+     * selection's, with the overhangs the support tool highlights.
+     */
+    val paintedByTool: Boolean = false,
 ) {
     val bounds = mesh.bounds.transformed(world)
 
     fun withWorld(world: Affine3) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside)
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool)
 
     fun withWireframe(wireframe: Boolean) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside)
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool)
+
+    /** The object as the painting tool draws it, in [color]. */
+    fun paintedByTool(color: ColorRgba) =
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, true)
 
     /** The bounding sphere's centre in world coordinates. */
     fun sphereCenter(): Vec3 = world.transformPoint(sphereCenter)

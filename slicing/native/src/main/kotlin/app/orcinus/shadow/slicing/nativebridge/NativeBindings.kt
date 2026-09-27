@@ -919,6 +919,12 @@ internal object NativeBindings {
     /** "Erase all" of the painting tool. */
     external fun clearPainting(meshPrefix: String): NativePainting
 
+    /** The gap fill tool with its gap area; a negative area leaves it. */
+    external fun setGapFill(gapArea: Double, meshPrefix: String): NativePainting
+
+    /** "Perform" of the gap fill. */
+    external fun fillGaps(meshPrefix: String): NativePainting
+
     external fun endPainting(): NativePainting
 
     external fun cancel(jobId: String): Boolean
