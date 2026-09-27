@@ -34,6 +34,15 @@
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingsDialog { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePresetSettings { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePresetNameValidation { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeDirtyPreset { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeDirtyPresets { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeCalibrationPrinter { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeCutObject { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeCutPlane { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeCutParts { <init>(...); }
+# The bridge builds these and also reads them back by field name.
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeCalibration { <init>(...); <fields>; }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeProjectPlate { <init>(...); <fields>; }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePresetNames { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePresetComparison { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePresetKindComparison { <init>(...); }
