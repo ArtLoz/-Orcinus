@@ -242,7 +242,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     val sliceAction = SliceActionUseCase(slicePlate, sliceAllPlates, plateRepository)
     val setSliceMode = SetSliceModeUseCase(plateRepository)
     private val saveProject = SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope)
-    val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope)
+    val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope, appPreferences)
 
     /** SavePresetDialog's check of a name, which the project's questions ask too. */
     suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome = engine.checkPresetName(kind, name)
@@ -257,6 +257,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         platePresets = platePresets,
         confirmClose = projectLifecycle,
         applicationScope = applicationScope,
+        preferences = appPreferences,
     )
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
@@ -515,7 +516,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)
 
-    fun preferencesViewModel() = PreferencesViewModel(appPreferences, SetPreferenceUseCase(appPreferences, settingsTabs, applicationScope))
+    fun preferencesViewModel() = PreferencesViewModel(appPreferences, SetPreferenceUseCase(appPreferences, settingsTabs, engine, platePresets, plateRepository, applicationScope))
 
     fun sidebarViewModel() = SidebarViewModel(
         observePlate = observePlate,

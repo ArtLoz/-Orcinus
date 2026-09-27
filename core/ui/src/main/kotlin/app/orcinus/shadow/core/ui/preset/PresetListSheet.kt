@@ -48,6 +48,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.PresetGroup
 import app.orcinus.shadow.core.model.PresetListItem
 import app.orcinus.shadow.core.ui.R
+import app.orcinus.shadow.core.ui.orca.orcaString
 
 /** An entry under the list: what it can do besides choosing a preset. */
 @Composable
@@ -74,7 +75,7 @@ private sealed interface SheetRow {
         override val key get() = "group:$group"
     }
 
-    data class Subgroup(val group: PresetGroup, val name: String) : SheetRow {
+    data class Subgroup(val group: PresetGroup, val name: String, val msgid: Boolean) : SheetRow {
         override val key get() = "subgroup:$group:$name"
     }
 
@@ -130,9 +131,11 @@ fun PresetListSheet(
                         is SheetRow.Group -> Text(
                             text = stringResource(
                                 when (row.group) {
+                                    PresetGroup.PROJECT -> R.string.project_presets
                                     PresetGroup.USER -> R.string.user_presets
                                     PresetGroup.BUNDLE -> R.string.bundle_presets
                                     PresetGroup.SYSTEM -> R.string.system_presets
+                                    PresetGroup.UNSUPPORTED -> R.string.unsupported_presets
                                 },
                             ),
                             color = colors.accent,
@@ -143,7 +146,7 @@ fun PresetListSheet(
                                 .semantics { heading() },
                         )
                         is SheetRow.Subgroup -> Text(
-                            text = row.name.ifEmpty { stringResource(R.string.unspecified) },
+                            text = if (row.msgid) orcaString(row.name) else row.name.ifEmpty { stringResource(R.string.unspecified) },
                             color = colors.textSide,
                             style = OrcaTheme.typography.head12,
                             modifier = Modifier
@@ -151,7 +154,8 @@ fun PresetListSheet(
                                 .background(colors.sidebarBackground)
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                         )
-                        is SheetRow.Entry -> PresetRow(row.item, onClick = { onChoose(row.item) })
+                        // An unsupported preset is listed but cannot be chosen (DD_ITEM_STYLE_DISABLED).
+                        is SheetRow.Entry -> PresetRow(row.item, enabled = row.item.group != PresetGroup.UNSUPPORTED, onClick = { onChoose(row.item) })
                     }
                 }
             }
@@ -162,20 +166,20 @@ fun PresetListSheet(
 }
 
 @Composable
-private fun PresetRow(item: PresetListItem, onClick: () -> Unit) {
+private fun PresetRow(item: PresetListItem, enabled: Boolean, onClick: () -> Unit) {
     val colors = OrcaTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(if (item.selected) colors.accentSelected else colors.window)
-            .orcaSelectable(selected = item.selected, role = Role.RadioButton, onClick = onClick)
+            .orcaSelectable(selected = item.selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             item.label,
-            color = colors.text,
+            color = if (enabled) colors.text else colors.textDisabled,
             style = if (item.selected) OrcaTheme.typography.head14 else OrcaTheme.typography.body14,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -196,7 +200,8 @@ private fun sheetRows(items: List<PresetListItem>, search: String): List<SheetRo
     val shown = items.filter { query.isEmpty() || it.label.contains(query, ignoreCase = true) || it.name.contains(query, ignoreCase = true) }
     return shown.groupBy(PresetListItem::group).flatMap { (group, entries) ->
         listOf<SheetRow>(SheetRow.Group(group)) + entries.groupBy(PresetListItem::subgroup).flatMap { (subgroup, members) ->
-            val header = if (subgroup.isEmpty() && group != PresetGroup.BUNDLE) emptyList() else listOf(SheetRow.Subgroup(group, subgroup))
+            val msgid = members.first().subgroupMsgid
+            val header = if (subgroup.isEmpty() && group != PresetGroup.BUNDLE) emptyList() else listOf(SheetRow.Subgroup(group, subgroup, msgid))
             header + members.map(SheetRow::Entry)
         }
     }

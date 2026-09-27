@@ -147,6 +147,7 @@ internal class NativePresetItem(
     /** PresetGroup. */
     @JvmField val group: Long,
     @JvmField val subgroup: String,
+    @JvmField val subgroupMsgid: Boolean,
     @JvmField val selected: Boolean,
 )
 
@@ -789,6 +790,8 @@ internal object NativeSceneStatus {
 internal object NativePresetGroup {
     const val USER = 0L
     const val BUNDLE = 1L
+    const val PROJECT = 3L
+    const val UNSUPPORTED = 4L
 }
 
 /** PresetChoice in orca_engine_adapter.hpp. */

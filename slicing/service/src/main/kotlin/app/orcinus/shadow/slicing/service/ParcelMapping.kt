@@ -901,12 +901,13 @@ internal fun List<PresetListItem>.toParcels(): Array<PresetItemParcel> = Array(s
         it.label = item.label
         it.group = item.group.name
         it.subgroup = item.subgroup
+        it.subgroupMsgid = item.subgroupMsgid
         it.selected = item.selected
     }
 }
 
 internal fun Array<PresetItemParcel>?.toItems(): List<PresetListItem> =
-    orEmpty().map { PresetListItem(it.name, it.label, PresetGroup.valueOf(it.group), it.subgroup, it.selected) }
+    orEmpty().map { PresetListItem(it.name, it.label, PresetGroup.valueOf(it.group), it.subgroup, it.selected, it.subgroupMsgid) }
 
 internal fun PresetChoice.parcelKind(): String = when (this) {
     is PresetChoice.Printer -> "Printer"

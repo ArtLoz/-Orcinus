@@ -567,10 +567,10 @@ class ApplySetupUseCase(
  * as it was and reports the problem.
  *
  * A 3MF file opens as the desktop app's Plater::open_3mf_file() opens it with
- * its default "Load behaviour" (ask when relevant): onto an empty plate as a
- * project, and otherwise as the user chooses in ProjectDropDialog ([openAs]).
- * A project takes the plate's place with its objects, settings and presets,
- * and Undo starts afresh from it.
+ * the Preferences' "Load behaviour": as a project, as geometry only, or as the
+ * user chooses in ProjectDropDialog ([openAs]) — always, or by default only
+ * when the plate already has objects. A project takes the plate's place with
+ * its objects, settings and presets, and Undo starts afresh from it.
  */
 class AddModelToPlateUseCase(
     private val importModel: ImportModelUseCase,
@@ -582,6 +582,7 @@ class AddModelToPlateUseCase(
     private val platePresets: PresetsApplier,
     private val confirmClose: ProjectCloseConfirmation,
     private val applicationScope: CoroutineScope,
+    private val preferences: AppPreferences,
 ) {
     operator fun invoke(reference: ExternalDocumentReference) {
         if (!start()) return
@@ -591,11 +592,18 @@ class AddModelToPlateUseCase(
                 is ModelImportOutcome.Success -> {
                     val path = imported.model.path
                     val picked = ImportBatch(document = reference, displayName = imported.model.displayName)
-                    when {
-                        !path.value.endsWith(".3mf", ignoreCase = true) -> load(path, picked, emptyMap(), emptyList())
-                        // determine_load_type(): a plate without objects opens the project.
-                        repository.state.value.objects.isEmpty() -> openProject(path, picked)
-                        else -> repository.update { it.copy(projectDrop = path, projectDropBatch = picked) }
+                    if (!path.value.endsWith(".3mf", ignoreCase = true)) {
+                        load(path, picked, emptyMap(), emptyList())
+                        return@launch
+                    }
+                    // open_3mf_file(): "Ask When Relevant" asks only over a plate with objects.
+                    val setting = preferences[AppConfigKeys.PROJECT_LOAD_BEHAVIOUR]
+                    val relevant = repository.state.value.objects.isNotEmpty() && setting == AppConfigKeys.ASK_WHEN_RELEVANT
+                    // determine_load_type()
+                    when (if (relevant) AppConfigKeys.ALWAYS_ASK else setting) {
+                        AppConfigKeys.LOAD_GEOMETRY_ONLY -> load(path, picked, emptyMap(), emptyList())
+                        AppConfigKeys.ALWAYS_ASK -> repository.update { it.copy(projectDrop = path, projectDropBatch = picked) }
+                        else -> openProject(path, picked)
                     }
                 }
             }

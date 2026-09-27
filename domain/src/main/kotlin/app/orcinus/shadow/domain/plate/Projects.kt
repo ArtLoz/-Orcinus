@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.Point2
@@ -24,6 +25,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.domain.placed
+import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -155,14 +157,22 @@ class ProjectLifecycleUseCase(
     private val settingsEditor: PresetSettingsEditor,
     private val platePresets: PresetsApplier,
     private val applicationScope: CoroutineScope,
+    private val preferences: AppPreferences,
 ) : ProjectCloseConfirmation {
-    private var saveChanges: CompletableDeferred<Boolean?>? = null
+    private var saveChanges: CompletableDeferred<Reply<Boolean>?>? = null
     private var saveAs: CompletableDeferred<ExternalDocumentReference?>? = null
-    private var presetChanges: CompletableDeferred<PresetChangesAnswer?>? = null
+    private var presetChanges: CompletableDeferred<Reply<PresetChangesAnswer>?>? = null
 
-    /** "The current project has unsaved changes, save it before continue?": Yes, No, or null for Cancel. */
-    fun answerSaveChanges(save: Boolean?) {
-        saveChanges?.complete(save)
+    /** An answer, and whether "Remember my choice." was ticked. */
+    private data class Reply<T>(val answer: T, val remember: Boolean)
+
+    /**
+     * "The current project has unsaved changes, save it before continue?": Yes,
+     * No, or null for Cancel; [remember] keeps Yes or No for the next time
+     * (save_project_choise).
+     */
+    fun answerSaveChanges(save: Boolean?, remember: Boolean = false) {
+        saveChanges?.complete(save?.let { Reply(it, remember) })
     }
 
     /** The document Save Project writes; null cancels. */
@@ -170,9 +180,9 @@ class ProjectLifecycleUseCase(
         saveAs?.complete(document)
     }
 
-    /** UnsavedChangesDialog's answer; null for Cancel. */
-    fun answerPresetChanges(answer: PresetChangesAnswer?) {
-        presetChanges?.complete(answer)
+    /** UnsavedChangesDialog's answer, null for Cancel; [remember] keeps the action (save_preset_choise). */
+    fun answerPresetChanges(answer: PresetChangesAnswer?, remember: Boolean = false) {
+        presetChanges?.complete(answer?.let { Reply(it, remember) })
     }
 
     /**
@@ -233,18 +243,36 @@ class ProjectLifecycleUseCase(
         // Plater::close_with_confirm()
         var saved = false
         if (!state.projectUpToDate) {
-            when (ask(ProjectPrompt.SaveChanges) { saveChanges = it }) {
-                null -> return false
-                true -> {
-                    val document = state.project.document ?: ask(ProjectPrompt.SaveAs) { saveAs = it } ?: return false
-                    if (!saveProject.save(document)) return false
-                    saved = true
-                }
-                false -> Unit
+            // The choice "Remember my choice." kept answers without asking.
+            val remembered = preferences[AppConfigKeys.SAVE_PROJECT_CHOISE]
+            val reply = if (remembered.isEmpty()) ask<Reply<Boolean>>(ProjectPrompt.SaveChanges) { saveChanges = it } ?: return false else Reply(remembered == "yes", false)
+            if (reply.remember) preferences.set(AppConfigKeys.SAVE_PROJECT_CHOISE, if (reply.answer) "yes" else "no")
+            if (reply.answer) {
+                val document = state.project.document ?: ask(ProjectPrompt.SaveAs) { saveAs = it }
+                saved = document != null && saveProject.save(document)
+                // A save that did not happen stays here; with a remembered Yes the project goes on unsaved, as with No.
+                if (!saved && remembered.isEmpty()) return false
             }
         }
         // Its second check: the presets.
         return if (newProject) keepPresetChanges(saved) else saved || savePresetChanges()
+    }
+
+    /**
+     * UnsavedChangesDialog::ShowModal(): the remembered action (save_preset_choise)
+     * answers without the dialog when the dialog offers it — the desktop app's
+     * check tests the action's bit against the buttons, and Save always passes.
+     */
+    private fun rememberedPresetAction(buttons: Int): Int? {
+        val action = preferences[AppConfigKeys.SAVE_PRESET_CHOISE].toIntOrNull() ?: return null
+        return action.takeIf { action in 0..30 && ((1 shl action) and (buttons or DONT_SAVE)) != 0 }
+    }
+
+    /** UnsavedChangesDialog with "Remember my choice.": the action is kept once the dialog was answered. */
+    private suspend fun askPresetChanges(prompt: ProjectPrompt.PresetChanges): PresetChangesAnswer? {
+        val reply = ask<Reply<PresetChangesAnswer>>(prompt) { presetChanges = it } ?: return null
+        if (reply.remember) preferences.set(AppConfigKeys.SAVE_PRESET_CHOISE, actionOf(reply.answer).toString())
+        return reply.answer
     }
 
     /**
@@ -266,7 +294,17 @@ class ProjectLifecycleUseCase(
             ),
         )
         val prompt = ProjectPrompt.PresetChanges(OrcaText("Creating a new project"), header, dirty, transfer = true, save = !saved)
-        return when (val answer = ask(prompt) { presetChanges = it }) {
+        // A remembered action answers alone. The desktop app collects the names
+        // of the presets to save only when Save is clicked, so a remembered Save
+        // saves nothing and, as Discard, loses the changes.
+        when (rememberedPresetAction(KEEP or if (saved) 0 else SAVE)) {
+            ACTION_TRANSFER -> return true
+            ACTION_DISCARD, ACTION_SAVE -> {
+                resetModifications()
+                return true
+            }
+        }
+        return when (val answer = askPresetChanges(prompt)) {
             null -> false
             PresetChangesAnswer.Transfer -> true
             PresetChangesAnswer.Discard -> {
@@ -289,7 +327,10 @@ class ProjectLifecycleUseCase(
     private suspend fun savePresetChanges(): Boolean {
         val dirty = dirtyPresets() ?: return true
         val prompt = ProjectPrompt.PresetChanges(OrcaText("Load project"), listOf(OrcaText("Some presets are modified.")), dirty, transfer = false, save = true)
-        return when (val answer = ask(prompt) { presetChanges = it }) {
+        // A remembered action answers alone and, as a remembered Save names no
+        // preset, saves nothing: the project brings its own.
+        if (rememberedPresetAction(SAVE) != null) return true
+        return when (val answer = askPresetChanges(prompt)) {
             null -> false
             PresetChangesAnswer.Transfer, PresetChangesAnswer.Discard -> true
             is PresetChangesAnswer.Save -> {
@@ -333,6 +374,20 @@ class ProjectLifecycleUseCase(
     private companion object {
         /** The project config's own values the plate keeps, which a new project keeps. */
         val PROJECT_CONFIG_KEYS = setOf("flush_volumes_matrix", "flush_multiplier")
+
+        // UnsavedChangesDialog's ActionButtons and Action, as save_preset_choise keeps an action.
+        const val KEEP = 2
+        const val SAVE = 4
+        const val DONT_SAVE = 8
+        const val ACTION_TRANSFER = 1
+        const val ACTION_DISCARD = 2
+        const val ACTION_SAVE = 3
+
+        fun actionOf(answer: PresetChangesAnswer): Int = when (answer) {
+            PresetChangesAnswer.Transfer -> ACTION_TRANSFER
+            PresetChangesAnswer.Discard -> ACTION_DISCARD
+            is PresetChangesAnswer.Save -> ACTION_SAVE
+        }
     }
 }
 

@@ -124,7 +124,7 @@ jobjectArray to_java_objects(JNIEnv* env, const char* class_name, const std::vec
 jobject to_java(JNIEnv* env, const orcinus::orca::PresetItem& item)
 {
     const jclass item_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePresetItem");
-    const jmethodID constructor = env->GetMethodID(item_class, "<init>", "(Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Z)V");
+    const jmethodID constructor = env->GetMethodID(item_class, "<init>", "(Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;ZZ)V");
     return env->NewObject(
         item_class,
         constructor,
@@ -132,6 +132,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetItem& item)
         to_java(env, item.label),
         static_cast<jlong>(item.group),
         to_java(env, item.subgroup),
+        item.subgroup_msgid ? JNI_TRUE : JNI_FALSE,
         item.selected ? JNI_TRUE : JNI_FALSE
     );
 }

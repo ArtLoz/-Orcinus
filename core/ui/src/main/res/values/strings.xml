@@ -13,6 +13,8 @@
     <string name="user_presets">Пользовательские профили</string>
     <string name="bundle_presets">Профили пакетов</string>
     <string name="system_presets">Системные профили</string>
+    <string name="project_presets">Профили внутри проекта</string>
+    <string name="unsupported_presets">Профили других принтеров</string>
     <string name="unspecified">Неизвестные</string>
     <string name="search">Поиск</string>
     <string name="clear_search">Очистить поиск</string>

@@ -10,6 +10,7 @@
 #include <set>
 #include <sstream>
 #include <unordered_set>
+#include <boost/algorithm/string/predicate.hpp>
 
 #include "engine_context.hpp"
 #include "libslic3r/AppConfig.hpp"
@@ -106,23 +107,65 @@ std::vector<ComboEntries::const_iterator> sorted_by(const ComboEntries& entries,
     return list;
 }
 
+// The submenu of an entry: its text, and whether that is a msgid.
+struct Subgroup {
+    std::string text;
+    bool msgid{false};
+};
+
 void append_items(std::vector<PresetItem>& items, const std::vector<ComboEntries::const_iterator>& list, const PresetGroup group,
-                  const std::string& selected, const std::function<std::string(const ComboEntry&)>& subgroup)
+                  const std::string& selected, const std::function<Subgroup(const ComboEntry&)>& subgroup)
 {
     for (const auto entry : list) {
         PresetItem& item = items.emplace_back();
         item.name = entry->first;
         item.label = entry->second.label;
         item.group = group;
-        item.subgroup = subgroup(entry->second);
+        const Subgroup of = subgroup(entry->second);
+        item.subgroup = of.text;
+        item.subgroup_msgid = of.msgid;
         item.selected = entry->first == selected;
     }
 }
 
-// PlaterPresetComboBox::update() for the printer or the first filament, with the
-// desktop app's default preferences: unsupported presets hidden
-// (show_unsupported_presets) and user filaments not grouped (group_filament_presets).
-// Android opens no projects, so no project presets are listed.
+std::vector<ComboEntries::const_iterator> in_order(const ComboEntries& entries)
+{
+    std::vector<ComboEntries::const_iterator> list;
+    for (auto entry = entries.begin(); entry != entries.end(); ++entry) {
+        list.push_back(entry);
+    }
+    return list;
+}
+
+// add_presets() of PlaterPresetComboBox::update(): the filaments of "System
+// presets" and "Unsupported presets" in the order of Bambu's own first, then
+// by vendor and type.
+void sort_filaments(std::vector<ComboEntries::const_iterator>& list)
+{
+    static const std::vector<std::string> filament_orders = {"Bambu PLA Basic", "Bambu PLA Matte", "Bambu PETG HF", "Bambu ABS", "Bambu PLA Silk", "Bambu PLA-CF",
+                                                             "Bambu PLA Galaxy", "Bambu PLA Metal", "Bambu PLA Marble", "Bambu PETG-CF", "Bambu PETG Translucent", "Bambu ABS-GF"};
+    static const std::vector<std::string> first_vendors = {"", "Bambu", "Generic"};
+    static const std::vector<std::string> first_types = {"PLA", "PETG", "ABS", "TPU"};
+    const auto position = [](const std::vector<std::string>& order, const std::string& value) {
+        return std::find(order.begin(), order.end(), value) - order.begin();
+    };
+    std::stable_sort(list.begin(), list.end(), [&position](const auto l, const auto r) {
+        if (const auto l_order = position(filament_orders, l->first), r_order = position(filament_orders, r->first); l_order != r_order) {
+            return l_order < r_order;
+        }
+        if (const auto l_vendor = position(first_vendors, l->second.vendor), r_vendor = position(first_vendors, r->second.vendor); l_vendor != r_vendor) {
+            return l_vendor < r_vendor;
+        }
+        if (const auto l_type = position(first_types, l->second.type), r_type = position(first_types, r->second.type); l_type != r_type) {
+            return l_type < r_type;
+        }
+        return l->first < r->first;
+    });
+}
+
+// PlaterPresetComboBox::update() for the printer or the first filament, with
+// the Preferences' "Group user filament presets" (group_filament_presets) and
+// "Show unsupported presets" (show_unsupported_presets).
 std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const Slic3r::Preset::Type type)
 {
     const bool is_filament = type == Slic3r::Preset::TYPE_FILAMENT;
@@ -131,9 +174,11 @@ std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const S
         return {};
     }
 
+    ComboEntries project_presets;
     ComboEntries user_presets;
     ComboEntries bundle_presets;
     ComboEntries system_presets;
+    ComboEntries unsupported_presets;
     std::unordered_set<std::string> system_printer_models;
     std::string selected_user_preset;
     std::string selected_bundle_preset;
@@ -165,7 +210,10 @@ std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const S
         }
 
         if (!preset.is_compatible) {
-            // Unsupported presets.
+            // Unsupported presets, but not the templates.
+            if (!boost::algorithm::ends_with(name, " template")) {
+                unsupported_presets.emplace(name, entry);
+            }
             continue;
         }
         if (preset.is_default || preset.is_system) {
@@ -183,7 +231,10 @@ std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const S
                 selected_system_preset = name;
             }
         } else if (preset.is_project_embedded) {
-            continue;
+            project_presets.emplace(name, entry);
+            if (is_selected) {
+                selected_user_preset = name;
+            }
         } else if (preset.is_from_bundle()) {
             bundle_presets.emplace(name, entry);
             if (is_selected) {
@@ -198,37 +249,43 @@ std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const S
     }
 
     std::vector<PresetItem> items;
-    const auto no_subgroup = [](const ComboEntry&) { return std::string(); };
-    append_items(items, sorted_by(user_presets, [](const ComboEntry& entry) { return entry.label; }), PresetGroup::user, selected_user_preset, no_subgroup);
-    append_items(items, sorted_by(bundle_presets, [](const ComboEntry& entry) { return entry.bundle; }), PresetGroup::bundle, selected_bundle_preset,
-                 [](const ComboEntry& entry) { return entry.bundle; });
+    const auto msgid = [](const std::string& text) { return [text](const ComboEntry&) { return Subgroup{text, true}; }; };
+    // "Project-inside presets" in a "Project" submenu, as the map orders them.
+    append_items(items, in_order(project_presets), PresetGroup::project, selected_user_preset, msgid("Project"));
 
-    std::vector<ComboEntries::const_iterator> system_list;
-    for (auto entry = system_presets.begin(); entry != system_presets.end(); ++entry) {
-        system_list.push_back(entry);
-    }
-    if (is_filament) {
-        static const std::vector<std::string> filament_orders = {"Bambu PLA Basic", "Bambu PLA Matte", "Bambu PETG HF", "Bambu ABS", "Bambu PLA Silk", "Bambu PLA-CF",
-                                                                 "Bambu PLA Galaxy", "Bambu PLA Metal", "Bambu PLA Marble", "Bambu PETG-CF", "Bambu PETG Translucent", "Bambu ABS-GF"};
-        static const std::vector<std::string> first_vendors = {"", "Bambu", "Generic"};
-        static const std::vector<std::string> first_types = {"PLA", "PETG", "ABS", "TPU"};
-        const auto position = [](const std::vector<std::string>& order, const std::string& value) {
-            return std::find(order.begin(), order.end(), value) - order.begin();
-        };
-        std::stable_sort(system_list.begin(), system_list.end(), [&position](const auto l, const auto r) {
-            if (const auto l_order = position(filament_orders, l->first), r_order = position(filament_orders, r->first); l_order != r_order) {
-                return l_order < r_order;
-            }
-            if (const auto l_vendor = position(first_vendors, l->second.vendor), r_vendor = position(first_vendors, r->second.vendor); l_vendor != r_vendor) {
-                return l_vendor < r_vendor;
-            }
-            if (const auto l_type = position(first_types, l->second.type), r_type = position(first_types, r->second.type); l_type != r_type) {
-                return l_type < r_type;
-            }
-            return l->first < r->first;
+    // "User presets": the user filaments grouped as the Preferences choose
+    // ("0" all under "Custom", "2" by type, "3" by vendor, "Unspecified" for a
+    // filament without one), the printers and ungrouped filaments by their label.
+    const std::string grouping = is_filament ? engine().config->get("group_filament_presets") : std::string();
+    if (grouping == "0") {
+        append_items(items, in_order(user_presets), PresetGroup::user, selected_user_preset, msgid("Custom"));
+    } else if (grouping == "2" || grouping == "3") {
+        const auto key = [grouping](const ComboEntry& entry) { return grouping == "2" ? entry.type : entry.vendor; };
+        append_items(items, sorted_by(user_presets, key), PresetGroup::user, selected_user_preset, [key](const ComboEntry& entry) {
+            const std::string text = key(entry);
+            return text.empty() ? Subgroup{"Unspecified", true} : Subgroup{text};
         });
+    } else {
+        append_items(items, sorted_by(user_presets, [](const ComboEntry& entry) { return entry.label; }), PresetGroup::user, selected_user_preset,
+                     [](const ComboEntry&) { return Subgroup{}; });
     }
-    append_items(items, system_list, PresetGroup::system, selected_system_preset, [](const ComboEntry& entry) { return entry.vendor; });
+    append_items(items, sorted_by(bundle_presets, [](const ComboEntry& entry) { return entry.bundle; }), PresetGroup::bundle, selected_bundle_preset,
+                 [](const ComboEntry& entry) { return Subgroup{entry.bundle}; });
+
+    std::vector<ComboEntries::const_iterator> system_list = in_order(system_presets);
+    if (is_filament) {
+        sort_filaments(system_list);
+    }
+    append_items(items, system_list, PresetGroup::system, selected_system_preset, [](const ComboEntry& entry) { return Subgroup{entry.vendor}; });
+
+    // "Unsupported presets" in an "Unsupported" submenu, which nothing is selected from.
+    if (engine().config->get_bool("show_unsupported_presets")) {
+        std::vector<ComboEntries::const_iterator> unsupported_list = in_order(unsupported_presets);
+        if (is_filament) {
+            sort_filaments(unsupported_list);
+        }
+        append_items(items, unsupported_list, PresetGroup::unsupported, {}, msgid("Unsupported"));
+    }
     return items;
 }
 
@@ -266,16 +323,9 @@ std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::Pr
     }
 
     std::vector<PresetItem> items;
-    const auto in_order = [](const ComboEntries& entries) {
-        std::vector<ComboEntries::const_iterator> list;
-        for (auto entry = entries.begin(); entry != entries.end(); ++entry) {
-            list.push_back(entry);
-        }
-        return list;
-    };
-    const auto no_subgroup = [](const ComboEntry&) { return std::string(); };
+    const auto no_subgroup = [](const ComboEntry&) { return Subgroup{}; };
     append_items(items, in_order(user_presets), PresetGroup::user, selected, no_subgroup);
-    append_items(items, in_order(bundle_presets), PresetGroup::bundle, selected, [](const ComboEntry& entry) { return entry.bundle; });
+    append_items(items, in_order(bundle_presets), PresetGroup::bundle, selected, [](const ComboEntry& entry) { return Subgroup{entry.bundle}; });
     append_items(items, in_order(system_presets), PresetGroup::system, selected, no_subgroup);
     return items;
 }

@@ -2,11 +2,13 @@ package app.orcinus.shadow.core.ui.plate
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -16,10 +18,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
+import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.PresetChangesAnswer
 import app.orcinus.shadow.core.model.PresetKind
@@ -32,21 +36,28 @@ import app.orcinus.shadow.core.ui.settings.SavePresetDialog
 
 /**
  * Plater::close_with_confirm()'s message box before a new project or another
- * one: Yes saves the project first, No goes on without it, Cancel stays.
+ * one: Yes saves the project first, No goes on without it, Cancel stays; with
+ * "Remember my choice." (show_dsa_button) Yes or No is kept for the next time.
  */
 @Composable
-fun ProjectSaveChangesDialog(onAnswer: (Boolean?) -> Unit) {
+fun ProjectSaveChangesDialog(onAnswer: (save: Boolean?, remember: Boolean) -> Unit) {
     val colors = OrcaTheme.colors
+    var remember by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
-        onDismissRequest = { onAnswer(null) },
+        onDismissRequest = { onAnswer(null, false) },
         properties = DialogProperties(dismissOnClickOutside = false),
         title = { Text(orcaString("Save"), style = OrcaTheme.typography.head16) },
-        text = { Text(orcaString("The current project has unsaved changes, save it before continue?"), style = OrcaTheme.typography.body14) },
+        text = {
+            Column {
+                Text(orcaString("The current project has unsaved changes, save it before continue?"), style = OrcaTheme.typography.body14)
+                RememberChoice(remember) { remember = it }
+            }
+        },
         confirmButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OrcaButton(orcaString("Yes"), onClick = { onAnswer(true) })
-                OrcaButton(orcaString("No"), onClick = { onAnswer(false) }, style = OrcaButtonStyle.Regular)
-                OrcaButton(orcaString("Cancel"), onClick = { onAnswer(null) }, style = OrcaButtonStyle.Regular)
+                OrcaButton(orcaString("Yes"), onClick = { onAnswer(true, remember) })
+                OrcaButton(orcaString("No"), onClick = { onAnswer(false, remember) }, style = OrcaButtonStyle.Regular)
+                OrcaButton(orcaString("Cancel"), onClick = { onAnswer(null, false) }, style = OrcaButtonStyle.Regular)
             }
         },
         containerColor = colors.window,
@@ -60,21 +71,23 @@ fun ProjectSaveChangesDialog(onAnswer: (Boolean?) -> Unit) {
  * UnsavedChangesDialog for a project (no dependent presets): every preset with
  * unsaved changes and its changes; Transfer keeps them for a new project,
  * Save saves them (SavePresetDialog asks the names of the presets that cannot
- * be overwritten, one after another on a phone), Discard lets them go.
+ * be overwritten, one after another on a phone), Discard lets them go. A
+ * project asks it with REMEMBER_CHOISE: "Remember my choice." keeps the action.
  */
 @Composable
 fun ProjectPresetChangesDialog(
     prompt: ProjectPrompt.PresetChanges,
     checkName: suspend (PresetKind, String) -> PresetNameOutcome,
-    onAnswer: (PresetChangesAnswer?) -> Unit,
+    onAnswer: (answer: PresetChangesAnswer?, remember: Boolean) -> Unit,
 ) {
     val colors = OrcaTheme.colors
     // SavePresetDialog for the presets that need a name, in their order.
     val naming = prompt.presets.filterNot { it.canOverwrite }
     var saving by rememberSaveable { mutableStateOf(false) }
     var names by rememberSaveable { mutableStateOf(mapOf<PresetKind, String>()) }
+    var remember by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
-        onDismissRequest = { onAnswer(null) },
+        onDismissRequest = { onAnswer(null, false) },
         properties = DialogProperties(dismissOnClickOutside = false),
         title = { Text(orcaText(prompt.caption), style = OrcaTheme.typography.head16) },
         text = {
@@ -104,22 +117,23 @@ fun ProjectPresetChangesDialog(
                         items(preset.changes) { PresetChangeRow(it) }
                     }
                 }
+                RememberChoice(remember) { remember = it }
             }
         },
         confirmButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (prompt.transfer) {
-                    OrcaButton(orcaString("Transfer"), onClick = { onAnswer(PresetChangesAnswer.Transfer) }, style = OrcaButtonStyle.Regular)
+                    OrcaButton(orcaString("Transfer"), onClick = { onAnswer(PresetChangesAnswer.Transfer, remember) }, style = OrcaButtonStyle.Regular)
                 }
                 if (prompt.save) {
                     OrcaButton(
                         orcaString("Save"),
-                        onClick = { if (naming.isEmpty()) onAnswer(PresetChangesAnswer.Save(emptyMap())) else saving = true },
+                        onClick = { if (naming.isEmpty()) onAnswer(PresetChangesAnswer.Save(emptyMap()), remember) else saving = true },
                         style = OrcaButtonStyle.Regular,
                     )
                 }
-                OrcaButton(orcaString("Discard"), onClick = { onAnswer(PresetChangesAnswer.Discard) })
-                OrcaButton(orcaString("Cancel"), onClick = { onAnswer(null) }, style = OrcaButtonStyle.Regular)
+                OrcaButton(orcaString("Discard"), onClick = { onAnswer(PresetChangesAnswer.Discard, remember) })
+                OrcaButton(orcaString("Cancel"), onClick = { onAnswer(null, false) }, style = OrcaButtonStyle.Regular)
             }
         },
         containerColor = colors.window,
@@ -139,7 +153,7 @@ fun ProjectPresetChangesDialog(
                 names = chosen
                 if (naming.all { it.kind in chosen }) {
                     saving = false
-                    onAnswer(PresetChangesAnswer.Save(chosen))
+                    onAnswer(PresetChangesAnswer.Save(chosen), remember)
                 }
             },
             onDismiss = {
@@ -148,6 +162,20 @@ fun ProjectPresetChangesDialog(
                 names = emptyMap()
             },
         )
+    }
+}
+
+/** "Remember my choice." under a question (MessageDialog's DSA check box). */
+@Composable
+private fun RememberChoice(checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .toggleable(value = checked, role = Role.Checkbox, onValueChange = onChange),
+    ) {
+        OrcaCheckBox(checked = checked, onCheckedChange = null)
+        Text(orcaString("Remember my choice."), color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body13, modifier = Modifier.padding(start = 8.dp))
     }
 }
 

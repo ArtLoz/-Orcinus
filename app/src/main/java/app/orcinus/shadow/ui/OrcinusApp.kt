@@ -125,11 +125,11 @@ class AppShellViewModel(
     fun openProjectAs(load: ModelLoad?) = addModelToPlate.openAs(load)
 
     /** The questions of New Project and Open Project (Plater::close_with_confirm and the presets' check). */
-    fun answerSaveChanges(save: Boolean?) = projectLifecycle.answerSaveChanges(save)
+    fun answerSaveChanges(save: Boolean?, remember: Boolean) = projectLifecycle.answerSaveChanges(save, remember)
 
     fun saveProjectTo(document: ExternalDocumentReference?) = projectLifecycle.saveTo(document)
 
-    fun answerPresetChanges(answer: PresetChangesAnswer?) = projectLifecycle.answerPresetChanges(answer)
+    fun answerPresetChanges(answer: PresetChangesAnswer?, remember: Boolean) = projectLifecycle.answerPresetChanges(answer, remember)
 
     suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome = presetNames(kind, name)
 }

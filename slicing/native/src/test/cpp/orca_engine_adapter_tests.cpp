@@ -311,6 +311,56 @@ TEST_CASE("The Preferences read and write the app configuration with its default
     orca::set_app_config_value("auto_arrange", before);
 }
 
+TEST_CASE("The Preferences group user filaments and show unsupported presets", "[Adapter][Preferences]")
+{
+    require_engine();
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
+    const std::string name = "Orcinus grouping test PLA";
+    REQUIRE(orca::save_preset(orca::PresetKind::filament, name).status == orca::SceneStatus::success);
+    const auto user_item = [&name]() {
+        const orca::PresetState state = orca::describe_presets();
+        const auto found = std::find_if(state.filaments.begin(), state.filaments.end(), [&name](const orca::PresetItem& item) { return item.name == name; });
+        REQUIRE(found != state.filaments.end());
+        return *found;
+    };
+
+    // PlaterPresetComboBox::update(): "1" (the default) lists user filaments
+    // without a submenu, "0" all under "Custom", "2" by type, "3" by vendor.
+    orca::set_app_config_value("group_filament_presets", "1");
+    CHECK(user_item().group == orca::PresetGroup::user);
+    CHECK(user_item().subgroup.empty());
+    orca::set_app_config_value("group_filament_presets", "0");
+    CHECK(user_item().subgroup == "Custom");
+    CHECK(user_item().subgroup_msgid);
+    orca::set_app_config_value("group_filament_presets", "2");
+    CHECK(user_item().subgroup == "PLA");
+    CHECK_FALSE(user_item().subgroup_msgid);
+    orca::set_app_config_value("group_filament_presets", "3");
+    CHECK(user_item().subgroup == "Generic");
+    orca::set_app_config_value("group_filament_presets", "1");
+
+    // Unsupported presets are listed only with the preference, last, in an
+    // "Unsupported" submenu the app translates, none of them selected.
+    const auto unsupported = [](const orca::PresetState& state) {
+        return std::count_if(state.filaments.begin(), state.filaments.end(), [](const orca::PresetItem& item) {
+            return item.group == orca::PresetGroup::unsupported;
+        });
+    };
+    CHECK(unsupported(orca::describe_presets()) == 0);
+    orca::set_app_config_value("show_unsupported_presets", "true");
+    const orca::PresetState shown = orca::describe_presets();
+    const auto first = std::find_if(shown.filaments.begin(), shown.filaments.end(), [](const orca::PresetItem& item) {
+        return item.group == orca::PresetGroup::unsupported;
+    });
+    CHECK(std::all_of(first, shown.filaments.end(), [](const orca::PresetItem& item) {
+        return item.group == orca::PresetGroup::unsupported && item.subgroup == "Unsupported" && item.subgroup_msgid && !item.selected;
+    }));
+    orca::set_app_config_value("show_unsupported_presets", "false");
+
+    REQUIRE(orca::delete_preset(orca::PresetKind::filament, {{"delete_preset", true}}).status == orca::SceneStatus::success);
+}
+
 TEST_CASE("The sidebar selects presets as the desktop app does", "[Adapter][Presets]")
 {
     require_engine();

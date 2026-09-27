@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.CutId
@@ -263,6 +264,7 @@ class PlateUseCasesTest {
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
             scope,
+            preferences(),
         )
 
         CalibrateUseCase(lifecycle, inspector, FakePresetManager(), PresetsApplier { _, _ -> }, FakeSceneFiles(), repository, scope)(params)
@@ -295,6 +297,7 @@ class PlateUseCasesTest {
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
             scope,
+            preferences(),
         )
 
         CalibrateUseCase(lifecycle, inspector, FakePresetManager(), PresetsApplier { _, _ -> }, FakeSceneFiles(), repository, scope)(params)
@@ -322,6 +325,7 @@ class PlateUseCasesTest {
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
             scope,
+            preferences(),
         )
 
         CalibrateUseCase(lifecycle, inspector, FakePresetManager(), PresetsApplier { _, _ -> }, FakeSceneFiles(), repository, scope)(test)
@@ -347,6 +351,7 @@ class PlateUseCasesTest {
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
             scope,
+            preferences(),
         )
 
         CalibrateUseCase(lifecycle, inspector, FakePresetManager(), PresetsApplier { _, _ -> }, FakeSceneFiles(), repository, scope)(params)
@@ -901,6 +906,63 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `the Preferences' load behaviour decides how a 3MF file opens`() {
+        val file = ImportedModelFile(ModelPath("/imports/p.3mf"), "p.3mf")
+        fun opened(plate: PlateState, behaviour: String): Pair<FakeRepository, FakeInspector> {
+            val repository = FakeRepository(plate)
+            val inspector = FakeInspector()
+            inspector.load = { ModelLoadOutcome.Success(listOf(LOADED), emptyList(), project = LoadedProject(listOf(ProjectPlate()))) }
+            addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles(), preferences(AppConfigKeys.PROJECT_LOAD_BEHAVIOUR to behaviour))(REFERENCE)
+            return repository to inspector
+        }
+
+        // Load Geometry Only: the objects join the plate, nothing is asked.
+        val (_, geometry) = opened(readyState(CUBE), AppConfigKeys.LOAD_GEOMETRY_ONLY)
+        assertEquals(ModelLoad.GEOMETRY, geometry.loads.single().load)
+        assertFalse(geometry.loads.single().chosen)
+
+        // Always Ask: ProjectDropDialog even over an empty plate.
+        val (asked, askedInspector) = opened(readyState(), AppConfigKeys.ALWAYS_ASK)
+        assertEquals(file.path, asked.state.value.projectDrop)
+        assertTrue(askedInspector.loads.isEmpty())
+
+        // Load All: the project takes the place of a plate with objects without asking.
+        val (all, allInspector) = opened(readyState(CUBE), AppConfigKeys.LOAD_ALL)
+        assertEquals(ModelLoad.PROJECT, allInspector.loads.single().load)
+        assertNull(all.state.value.projectDrop)
+    }
+
+    @Test
+    fun `a remembered choice answers the question about an unsaved project, and ticking the box remembers one`() {
+        val changed = readyState(CUBE).let { it.copy(history = PlateHistory(undo = listOf(it.snapshot()))) }
+        fun lifecycle(repository: FakeRepository, preferences: AppPreferences) = ProjectLifecycleUseCase(
+            repository,
+            SaveProjectUseCase(FakeInspector(), { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            FakePresetManager(),
+            NoSettingsEditor,
+            PresetsApplier { _, _ -> },
+            scope,
+            preferences,
+        )
+
+        // "no" remembered: the new project starts without the question.
+        val remembered = FakeRepository(changed)
+        lifecycle(remembered, preferences(AppConfigKeys.SAVE_PROJECT_CHOISE to "no")).newProject()
+        assertNull(remembered.state.value.projectPrompt)
+        assertTrue(remembered.state.value.objects.isEmpty())
+
+        // No with "Remember my choice." ticked keeps "no" for the next time.
+        val asking = FakeRepository(changed)
+        val preferences = preferences()
+        lifecycle(asking, preferences).run {
+            newProject()
+            answerSaveChanges(false, remember = true)
+        }
+        assertEquals("no", preferences[AppConfigKeys.SAVE_PROJECT_CHOISE])
+        assertTrue(asking.state.value.objects.isEmpty())
+    }
+
+    @Test
     fun `a saved project goes by its document's name, and Save writes that document again`() {
         val repository = FakeRepository(readyState(CUBE).copy(layerGcodes = listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT))))
         val inspector = FakeInspector()
@@ -940,6 +1002,7 @@ class PlateUseCasesTest {
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
             scope,
+            preferences(),
         )
         val changed = readyState(CUBE).let { it.copy(history = PlateHistory(undo = listOf(it.snapshot()))) }
 
@@ -2427,15 +2490,21 @@ class PlateUseCasesTest {
         files,
         cache,
         repository,
-        AppPreferences(DefaultAppConfig),
+        preferences(),
     )
 
-    /** An app configuration that keeps nothing: every key reads empty, as AppConfig gives a key without a default. */
-    private object DefaultAppConfig : AppConfigStore {
-        override suspend fun appConfigValues(keys: List<String>) = AppConfigOutcome.Success(keys.associateWith { "" })
+    /** An app configuration with AppConfig::set_defaults()'s values the app reads, and [values] over them. */
+    private class FakeAppConfig(values: Map<String, String>) : AppConfigStore {
+        val values = mutableMapOf(AppConfigKeys.PROJECT_LOAD_BEHAVIOUR to AppConfigKeys.ASK_WHEN_RELEVANT) + values
+
+        override suspend fun appConfigValues(keys: List<String>) = AppConfigOutcome.Success(keys.associateWith { values[it].orEmpty() })
 
         override suspend fun setAppConfigValue(key: String, value: String) = AppConfigOutcome.Success(mapOf(key to value))
     }
+
+    /** The Preferences as the engine reports them once it has started. */
+    private fun preferences(vararg values: Pair<String, String>) =
+        AppPreferences(FakeAppConfig(values.toMap())).also { kotlinx.coroutines.runBlocking { it.load() } }
 
     private fun settingsTabs(repository: PlateRepository) = PresetSettingsTabs(NoSettingsEditor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
 
@@ -2468,7 +2537,13 @@ class PlateUseCasesTest {
         applicationScope = scope,
     )
 
-    private fun addModel(repository: PlateRepository, imported: ModelImportOutcome, inspector: FakeInspector, files: FakeSceneFiles) =
+    private fun addModel(
+        repository: PlateRepository,
+        imported: ModelImportOutcome,
+        inspector: FakeInspector,
+        files: FakeSceneFiles,
+        preferences: AppPreferences = preferences(),
+    ) =
         AddModelToPlateUseCase(
             importModel = ImportModelUseCase(object : ModelFileImporter {
                 override suspend fun importModel(reference: ExternalDocumentReference) = imported
@@ -2481,6 +2556,7 @@ class PlateUseCasesTest {
             platePresets = PresetsApplier { _, _ -> },
             confirmClose = ProjectCloseConfirmation { true },
             applicationScope = scope,
+            preferences = preferences,
         )
 
     private fun assertIsCube(plateObject: PlateObject?) {

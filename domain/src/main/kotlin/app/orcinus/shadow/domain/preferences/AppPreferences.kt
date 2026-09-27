@@ -3,8 +3,11 @@ package app.orcinus.shadow.domain.preferences
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.domain.plate.PlateRepository
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
+import app.orcinus.shadow.domain.plate.PresetsApplier
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.PresetManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -70,12 +73,17 @@ class AppPreferences(private val store: AppConfigStore) {
 /**
  * An item of PreferencesDialog: the value is written at once, as the dialog's
  * controls write it, with what their handlers do besides
- * (create_item_checkbox): Developer mode switches the settings mode
- * (GUI_App::update_mode()), so the preset tabs are described again.
+ * (create_item_checkbox, create_item_combobox): Developer mode switches the
+ * settings mode (GUI_App::update_mode()), so the preset tabs are described
+ * again; the grouping of user filaments and the unsupported presets change the
+ * sidebar's lists (Sidebar::update_presets()).
  */
 class SetPreferenceUseCase(
     private val preferences: AppPreferences,
     private val settingsTabs: PresetSettingsTabs,
+    private val presetManager: PresetManager,
+    private val platePresets: PresetsApplier,
+    private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
     /** Writes [value] in the application's scope, which outlives the page; [onFailure] hears why it was not written. */
@@ -85,7 +93,11 @@ class SetPreferenceUseCase(
                 onFailure(it)
                 return@launch
             }
-            if (key == AppConfigKeys.DEVELOPER_MODE) settingsTabs.refresh()
+            when (key) {
+                AppConfigKeys.DEVELOPER_MODE -> settingsTabs.refresh()
+                AppConfigKeys.GROUP_FILAMENT_PRESETS, AppConfigKeys.SHOW_UNSUPPORTED_PRESETS ->
+                    platePresets.apply(repository.state.value.profiles, presetManager.presets())
+            }
         }
     }
 }

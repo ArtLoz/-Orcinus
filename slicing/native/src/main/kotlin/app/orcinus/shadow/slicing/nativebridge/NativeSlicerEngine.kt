@@ -1687,9 +1687,12 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         group = when (group) {
             NativePresetGroup.USER -> PresetGroup.USER
             NativePresetGroup.BUNDLE -> PresetGroup.BUNDLE
+            NativePresetGroup.PROJECT -> PresetGroup.PROJECT
+            NativePresetGroup.UNSUPPORTED -> PresetGroup.UNSUPPORTED
             else -> PresetGroup.SYSTEM
         },
         subgroup = subgroup,
+        subgroupMsgid = subgroupMsgid,
         selected = selected,
     )
 

@@ -6,5 +6,6 @@ parcelable PresetItemParcel {
     String label;
     String group;
     String subgroup;
+    boolean subgroupMsgid;
     boolean selected;
 }

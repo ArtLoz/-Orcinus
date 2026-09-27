@@ -202,6 +202,12 @@ private fun PreferenceRow(item: PreferenceItem, value: String, enabled: Boolean,
                 modifier = Modifier.width(CONTROL_WIDTH),
             )
             is PreferenceItem.Decimal -> DecimalField(item, value, enabled, onChange)
+            is PreferenceItem.Clear -> OrcaButton(
+                text = orcaString("Clear"),
+                onClick = { onChange("") },
+                enabled = enabled,
+                style = OrcaButtonStyle.Regular,
+            )
         }
     }
 }

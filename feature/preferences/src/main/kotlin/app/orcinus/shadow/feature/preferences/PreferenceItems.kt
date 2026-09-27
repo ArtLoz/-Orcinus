@@ -41,6 +41,9 @@ internal sealed interface PreferenceItem {
         val unit: String,
     ) : PreferenceItem
 
+    /** create_item_button() of "Clear my choice on...": the button empties the remembered choice. */
+    data class Clear(override val key: String, override val title: String, override val tooltip: String) : PreferenceItem
+
     /** create_camera_orbit_mult_input(): a number kept within [min]..[max], written with two decimals. */
     data class Decimal(
         override val key: String,
@@ -75,6 +78,18 @@ internal val PREFERENCE_PAGES = listOf(
             PreferenceSection(
                 "Project",
                 listOf(
+                    PreferenceItem.Choice(
+                        AppConfigKeys.PROJECT_LOAD_BEHAVIOUR,
+                        "Load behaviour",
+                        "Should printer/filament/process settings be loaded when opening a 3MF file?",
+                        labels = listOf("Load All", "Ask When Relevant", "Always Ask", "Load Geometry Only"),
+                        values = listOf(
+                            AppConfigKeys.LOAD_ALL,
+                            AppConfigKeys.ASK_WHEN_RELEVANT,
+                            AppConfigKeys.ALWAYS_ASK,
+                            AppConfigKeys.LOAD_GEOMETRY_ONLY,
+                        ),
+                    ),
                     PreferenceItem.Check(AppConfigKeys.NO_WARN_WHEN_MODIFIED_GCODES, "Don't warn when loading 3MF with modified G-code"),
                     PreferenceItem.Spin(
                         AppConfigKeys.DRC_BITS,
@@ -101,6 +116,12 @@ internal val PREFERENCE_PAGES = listOf(
                         AppConfigKeys.REMEMBER_PRINTER_CONFIG,
                         "Remember printer configuration",
                         "If enabled, Orca will remember and switch filament/process configuration for each printer automatically.",
+                    ),
+                    PreferenceItem.Choice(
+                        AppConfigKeys.GROUP_FILAMENT_PRESETS,
+                        "Group user filament presets",
+                        "Group user filament presets based on selection",
+                        labels = listOf("All", "None", "By type", "By vendor"),
                     ),
                 ),
             ),
@@ -144,6 +165,13 @@ internal val PREFERENCE_PAGES = listOf(
                     ),
                 ),
             ),
+            PreferenceSection(
+                "Clear my choice on...",
+                listOf(
+                    PreferenceItem.Clear(AppConfigKeys.SAVE_PROJECT_CHOISE, "Unsaved projects", "Clear my choice on the unsaved projects."),
+                    PreferenceItem.Clear(AppConfigKeys.SAVE_PRESET_CHOISE, "Unsaved presets", "Clear my choice on the unsaved presets."),
+                ),
+            ),
         ),
     ),
     PreferencePage(
@@ -170,7 +198,17 @@ internal val PREFERENCE_PAGES = listOf(
     PreferencePage(
         "Developer",
         listOf(
-            PreferenceSection("Settings", listOf(PreferenceItem.Check(AppConfigKeys.DEVELOPER_MODE, "Developer mode"))),
+            PreferenceSection(
+                "Settings",
+                listOf(
+                    PreferenceItem.Check(AppConfigKeys.DEVELOPER_MODE, "Developer mode"),
+                    PreferenceItem.Check(
+                        AppConfigKeys.SHOW_UNSUPPORTED_PRESETS,
+                        "Show unsupported presets",
+                        "Show incompatible/unsupported presets in the printer and filament dropdown lists. These presets cannot be selected.",
+                    ),
+                ),
+            ),
             PreferenceSection(
                 "Experimental Features",
                 listOf(

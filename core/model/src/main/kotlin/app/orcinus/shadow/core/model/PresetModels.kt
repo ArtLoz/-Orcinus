@@ -10,6 +10,12 @@ enum class PresetGroup {
 
     /** "System presets" */
     SYSTEM,
+
+    /** "Project-inside presets": the presets an opened project brought. */
+    PROJECT,
+
+    /** "Unsupported presets": incompatible with the printer; listed, not selectable. */
+    UNSUPPORTED,
 }
 
 /** An entry of a preset combo box of OrcaSlicer's sidebar, in the combo box's order. */
@@ -22,6 +28,8 @@ data class PresetListItem(
     /** The submenu: the vendor of a system filament, the bundle of a bundle preset; empty for none. */
     val subgroup: String,
     val selected: Boolean,
+    /** The submenu is one of OrcaSlicer's msgids ("Custom", "Unspecified", "Project", "Unsupported"). */
+    val subgroupMsgid: Boolean = false,
 )
 
 /** The presets OrcaSlicer's sidebar offers, for the selection its app configuration remembers. */

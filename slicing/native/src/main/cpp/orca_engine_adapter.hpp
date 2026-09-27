@@ -884,6 +884,11 @@ enum class PresetGroup : std::int64_t {
     bundle = 1,
     // "System presets"
     system = 2,
+    // "Project-inside presets": the presets an opened project brought.
+    project = 3,
+    // "Unsupported presets": presets incompatible with the printer, shown
+    // (and not selectable) with the Preferences' "Show unsupported presets".
+    unsupported = 4,
 };
 
 // An entry of a preset combo box of the desktop app's sidebar, in the combo
@@ -895,8 +900,12 @@ struct PresetItem {
     // The text the combo box shows.
     std::string label;
     PresetGroup group{PresetGroup::system};
-    // The submenu: the filament vendor of a system filament, the bundle of a bundle preset.
+    // The submenu: the filament vendor of a system filament, the bundle of a
+    // bundle preset, the grouping of user filaments the Preferences choose.
     std::string subgroup;
+    // The submenu is one of OrcaSlicer's msgids ("Custom", "Unspecified",
+    // "Project", "Unsupported"), which the app translates.
+    bool subgroup_msgid{false};
     bool selected{false};
 };
 

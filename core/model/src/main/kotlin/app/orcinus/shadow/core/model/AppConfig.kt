@@ -35,6 +35,17 @@ object AppConfigKeys {
     const val DEVELOPER_MODE = "developer_mode"
     const val KEEP_PAINTING = "keep_painting"
     const val LOG_SEVERITY_LEVEL = "log_severity_level"
+    const val PROJECT_LOAD_BEHAVIOUR = "project_load_behaviour"
+    const val GROUP_FILAMENT_PRESETS = "group_filament_presets"
+    const val SHOW_UNSUPPORTED_PRESETS = "show_unsupported_presets"
+    const val SAVE_PROJECT_CHOISE = "save_project_choise"
+    const val SAVE_PRESET_CHOISE = "save_preset_choise"
+
+    /** SETTING_PROJECT_LOAD_BEHAVIOUR's values (AppConfig.hpp). */
+    const val LOAD_ALL = "load_all"
+    const val ASK_WHEN_RELEVANT = "ask_when_relevant"
+    const val ALWAYS_ASK = "always_ask"
+    const val LOAD_GEOMETRY_ONLY = "load_geometry_only"
 
     /** Every key the app reads once the engine has started. */
     val ALL = listOf(
@@ -50,6 +61,11 @@ object AppConfigKeys {
         DEVELOPER_MODE,
         KEEP_PAINTING,
         LOG_SEVERITY_LEVEL,
+        PROJECT_LOAD_BEHAVIOUR,
+        GROUP_FILAMENT_PRESETS,
+        SHOW_UNSUPPORTED_PRESETS,
+        SAVE_PROJECT_CHOISE,
+        SAVE_PRESET_CHOISE,
     )
 
     /** AppConfig::get_bool(): "true" or "1". */
