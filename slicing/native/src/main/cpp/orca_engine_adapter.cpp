@@ -29,6 +29,7 @@
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/ClipperUtils.hpp"
+#include "libslic3r/CutUtils.hpp"
 #include "libslic3r/ExPolygon.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Format/STL.hpp"
@@ -3513,6 +3514,29 @@ ImportedModels import_model(
 
 namespace {
 
+// update_object_cut_id() of GLGizmoCut.cpp: an object whose cut keeps all of
+// it remembers the cut, with how many objects came of it.
+void update_object_cut_id(Slic3r::CutObjectBase& cut_id, Slic3r::ModelObjectCutAttributes attributes, const int dowels_count)
+{
+    // we don't save cut information, if result will not contains all parts of initial object
+    if (!attributes.has(Slic3r::ModelObjectCutAttribute::KeepUpper) ||
+        !attributes.has(Slic3r::ModelObjectCutAttribute::KeepLower) ||
+        attributes.has(Slic3r::ModelObjectCutAttribute::InvalidateCutInfo))
+        return;
+
+    if (cut_id.id().invalid())
+        cut_id.init();
+    // increase check sum, if it's needed
+    {
+        int cut_obj_cnt = -1;
+        if (attributes.has(Slic3r::ModelObjectCutAttribute::KeepUpper))    cut_obj_cnt++;
+        if (attributes.has(Slic3r::ModelObjectCutAttribute::KeepLower))    cut_obj_cnt++;
+        if (attributes.has(Slic3r::ModelObjectCutAttribute::CreateDowels)) cut_obj_cnt+= dowels_count;
+        if (cut_obj_cnt > 0)
+            cut_id.increase_check_sum(size_t(cut_obj_cnt));
+    }
+}
+
 // Plater::clear_before_change_mesh(): a mesh about to change loses its custom
 // supports, seams and painting, which would make no sense on it, and the
 // notification says so.
@@ -3630,7 +3654,8 @@ ImportedModels edit_object(
     int volume_index,
     const ProfileSelection& profiles,
     const std::string& output_prefix,
-    const DialogAnswers& answers
+    const DialogAnswers& answers,
+    const ObjectCut& cut
 )
 {
     ImportedModels result;
@@ -3878,6 +3903,79 @@ ImportedModels edit_object(
             // remove selected objects
             model.delete_object(object);
             edited.push_back(new_object);
+            result.appended = true;
+            break;
+        }
+        case ObjectEdit::cut: {
+            // GLGizmoCut3D::perform_cut() with a plane; the app keeps to can_perform_cut().
+            if (cut.instance < 0 || std::size_t(cut.instance) >= object->instances.size() || cut.plane.size() != 16) {
+                result.message = "The object has no such copy to cut";
+                return result;
+            }
+            Slic3r::Transform3d plane = Slic3r::Transform3d::Identity();
+            std::copy(cut.plane.begin(), cut.plane.end(), plane.data());
+            // get_cut_matrix(): the plane's centre from the copy's offset.
+            const Slic3r::Vec3d cut_center_offset = plane.translation() - object->instances[cut.instance]->get_offset();
+            const Slic3r::Transform3d cut_matrix =
+                Slic3r::Geometry::translation_transform(cut_center_offset) * Slic3r::Transform3d(plane.linear());
+
+            using Attribute = Slic3r::ModelObjectCutAttribute;
+            const bool has_connectors = !object->cut_connectors.empty();
+            const Slic3r::ModelObjectCutAttributes attributes =
+                Slic3r::only_if(has_connectors ? true : cut.keep_upper, Attribute::KeepUpper) |
+                Slic3r::only_if(has_connectors ? true : cut.keep_lower, Attribute::KeepLower) |
+                Slic3r::only_if(has_connectors ? false : cut.keep_as_parts, Attribute::KeepAsParts) |
+                Slic3r::only_if(cut.place_on_cut_upper, Attribute::PlaceOnCutUpper) |
+                Slic3r::only_if(cut.place_on_cut_lower, Attribute::PlaceOnCutLower) |
+                Slic3r::only_if(cut.flip_upper, Attribute::FlipUpper) |
+                Slic3r::only_if(cut.flip_lower, Attribute::FlipLower) |
+                Slic3r::only_if(!has_connectors && object->cut_id.id().invalid(), Attribute::InvalidateCutInfo) |
+                Slic3r::only_if(keep_painting, Attribute::KeepPaint);
+            update_object_cut_id(object->cut_id, attributes, 0);
+
+            Slic3r::Cut cutter(object, cut.instance, cut_matrix, attributes);
+            const Slic3r::ModelObjectPtrs& new_objects = cutter.perform_with_plane();
+
+            // fix_non_manifold_edges: asked once, and every volume the cut left
+            // open repaired when the user agrees.
+            bool asked = false;
+            bool repair = false;
+            for (Slic3r::ModelObject* part : new_objects) {
+                for (std::size_t volume = 0; volume < part->volumes.size(); ++volume) {
+                    if (Slic3r::its_num_open_edges(part->volumes[volume]->mesh().its) == 0) {
+                        continue;
+                    }
+                    if (!asked) {
+                        asked = true;
+                        repair = dialogs.ask(
+                            "cut_repair",
+                            {detail::ui_text("Non-manifold edges be caused by cut tool, do you want to fix it now?")},
+                            {},
+                            detail::ui_text("Yes"),
+                            detail::ui_text("Cancel")
+                        );
+                    }
+                    if (!repair) {
+                        break;
+                    }
+                    try {
+                        fix_model_with_cgal(*part, int(volume), keep_painting);
+                    } catch (const std::exception&) {
+                        // fix_and_update_progress() only logs what failed.
+                    }
+                }
+            }
+
+            // Plater::apply_cut_object_to_model(): the object leaves the plate,
+            // and the parts join the end of it (load_model_objects(new_objects, false, false)).
+            model.delete_object(object);
+            for (const Slic3r::ModelObject* part : new_objects) {
+                Slic3r::ModelObject* joined = model.add_object(*part);
+                joined->sort_volumes(true);
+                offer_to_scale_down(*joined, bed_size, dialogs, edited.size());
+                joined->ensure_on_bed(false);
+                edited.push_back(joined);
+            }
             result.appended = true;
             break;
         }

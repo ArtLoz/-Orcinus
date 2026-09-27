@@ -43,6 +43,15 @@ internal fun triangleEdges(mesh: MeshData): FloatArray {
     return edges
 }
 
+/** The corners of [this] as GL_TRIANGLES points: x, y, z per corner. */
+internal fun MeshData.cornerPositions(): FloatArray {
+    val positions = FloatArray(cornerCount * 3)
+    for (corner in 0 until cornerCount) {
+        for (axis in 0 until 3) positions[corner * 3 + axis] = vertices.get(corner * MeshFiles.FLOATS_PER_CORNER + axis)
+    }
+    return positions
+}
+
 internal object MeshFiles {
     private val MAGIC = byteArrayOf('O'.code.toByte(), 'M'.code.toByte(), 'S'.code.toByte(), 'H'.code.toByte())
     private const val VERSION = 1

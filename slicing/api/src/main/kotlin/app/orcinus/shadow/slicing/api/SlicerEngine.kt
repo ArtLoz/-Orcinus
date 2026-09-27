@@ -15,6 +15,8 @@ import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
@@ -36,6 +38,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PaintKind
@@ -333,7 +336,26 @@ interface PlateInspector {
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
         answers: Map<String, Boolean> = emptyMap(),
+        /** What [ObjectEdit.CUT] cuts with. */
+        cut: ObjectCut? = null,
     ): ModelLoadOutcome
+
+    /**
+     * GLGizmoCut3D opened on the copy at [instance] of [plateObject]: the
+     * engine keeps the object until [endCut], as the gizmo's clippers keep its
+     * meshes, and reports the bounding box its plane starts in the centre of.
+     */
+    suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome
+
+    /**
+     * What the cut gizmo shows of [plane] (ObjectCut.plane): the size of what it
+     * cuts, whether it goes through the object, and the outline of the section,
+     * written as a mesh named after [meshPrefix].
+     */
+    suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome
+
+    /** Closes the cut gizmo, which lets its object go. */
+    suspend fun endCut()
 
     /**
      * Commits [manipulation] of [plateObject], with its parts, from [previous]

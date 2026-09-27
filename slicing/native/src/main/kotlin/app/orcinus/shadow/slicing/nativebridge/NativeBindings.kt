@@ -715,6 +715,25 @@ internal class NativeCalibrationPrinter(
     @JvmField val shaperTypes: Array<String>,
 )
 
+/** Constructed by the native bridge; see CutObject in orca_engine_adapter.hpp. */
+internal class NativeCutObject(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val min: DoubleArray,
+    @JvmField val max: DoubleArray,
+)
+
+/** Constructed by the native bridge; see CutPlane in orca_engine_adapter.hpp. */
+internal class NativeCutPlane(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val min: DoubleArray,
+    @JvmField val max: DoubleArray,
+    @JvmField val validContour: Boolean,
+    @JvmField val contour: String,
+    @JvmField val section: String,
+)
+
 /** Read and constructed by the native bridge; see CalibrationParams in orca_engine_adapter.hpp. */
 internal class NativeCalibration(
     /** CalibrationMode's order. */
@@ -1147,7 +1166,27 @@ internal object NativeBindings {
         outputPrefix: String,
         answerIds: Array<String>,
         answers: BooleanArray,
+        /** ObjectCut of ObjectEdit::cut: the copy, the plane column by column, and its seven flags in order. */
+        cutInstance: Int,
+        cutPlane: DoubleArray,
+        cutFlags: BooleanArray,
     ): NativeImportedModels
+
+    /** begin_cut(): the cut gizmo opened on the copy at [instance] of the object, a plate of one. */
+    external fun beginCut(
+        plateObject: NativePlate,
+        instance: Int,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): NativeCutObject
+
+    /** describe_cut_plane() of the plane, column-major 4 x 4. */
+    external fun describeCutPlane(plane: DoubleArray, meshPrefix: String): NativeCutPlane
+
+    /** end_cut() */
+    external fun endCut()
 
     /**
      * Commits [manipulation] (Manipulation in orca_engine_adapter.hpp) of the

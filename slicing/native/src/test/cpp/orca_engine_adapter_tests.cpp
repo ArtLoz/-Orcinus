@@ -3471,6 +3471,79 @@ TEST_CASE("Split to objects makes every body an object where it stood", "[Adapte
     }
 }
 
+TEST_CASE("The cut gizmo describes its plane and cuts the object with it", "[Adapter][Edit]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("cut.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const std::vector<double> placement = matrix_of(cube);
+    // A horizontal plane through the cube's axis at the height z.
+    const auto plane_at = [&](const double z) {
+        std::vector<double> plane(16, 0.0);
+        plane[0] = plane[5] = plane[10] = plane[15] = 1.0;
+        plane[12] = placement[12];
+        plane[13] = placement[13];
+        plane[14] = z;
+        return plane;
+    };
+
+    // GLGizmoCut3D::bounding_box(): the cube of 20 mm on the plate.
+    const orca::CutObject bounds = orca::begin_cut(plate.front(), 0, k2_plus_profiles());
+    INFO(bounds.message);
+    REQUIRE(bounds.status == orca::SceneStatus::success);
+    CHECK(bounds.max[2] - bounds.min[2] == Catch::Approx(20.0));
+    CHECK(bounds.min[2] == Catch::Approx(0.0).margin(1e-6));
+
+    // The plane through the middle: half the cube on either side of it, and
+    // the outline of the section to draw.
+    const std::string prefix = output_path("cut-contour");
+    const orca::CutPlane middle = orca::describe_cut_plane(plane_at(10.0), prefix);
+    REQUIRE(middle.status == orca::SceneStatus::success);
+    CHECK(middle.min[2] == Catch::Approx(-10.0));
+    CHECK(middle.max[2] == Catch::Approx(10.0));
+    CHECK(middle.max[0] - middle.min[0] == Catch::Approx(20.0));
+    CHECK(middle.valid_contour);
+    CHECK_FALSE(middle.contour.empty());
+    CHECK_FALSE(middle.section.empty());
+    // Above the cube the plane cuts nothing ("Cut plane is placed out of object").
+    const orca::CutPlane above = orca::describe_cut_plane(plane_at(30.0), prefix);
+    CHECK_FALSE(above.valid_contour);
+    CHECK(above.contour.empty());
+    orca::end_cut();
+    CHECK(orca::describe_cut_plane(plane_at(10.0), prefix).status != orca::SceneStatus::success);
+
+    // "Perform cut" 5 mm above the plate: the halves are objects of their own
+    // on the plate, the upper one 15 mm tall and the lower one 5 mm.
+    orca::ObjectCut cut;
+    cut.plane = plane_at(5.0);
+    const orca::ImportedModels halves = orca::edit_object(plate, 0, orca::ObjectEdit::cut, -1, k2_plus_profiles(), import_prefix("cut"), {}, cut);
+    INFO(halves.message);
+    REQUIRE(halves.status == orca::SceneStatus::success);
+    CHECK_FALSE(halves.has_question);
+    CHECK(halves.appended);
+    REQUIRE(halves.objects.size() == 2);
+    std::vector<double> heights;
+    for (const orca::ImportedObject& half : halves.objects) {
+        REQUIRE(half.instances.size() == 1);
+        heights.push_back(half.instances.front().size_z);
+    }
+    std::sort(heights.begin(), heights.end());
+    CHECK(heights[0] == Catch::Approx(5.0));
+    CHECK(heights[1] == Catch::Approx(15.0));
+
+    // "Cut to parts": one object, the upper half a part of it.
+    cut.keep_as_parts = true;
+    cut.place_on_cut_upper = false;
+    const orca::ImportedModels parts = orca::edit_object(plate, 0, orca::ObjectEdit::cut, -1, k2_plus_profiles(), import_prefix("cut-parts"), {}, cut);
+    INFO(parts.message);
+    REQUIRE(parts.status == orca::SceneStatus::success);
+    REQUIRE(parts.objects.size() == 1);
+    CHECK(parts.objects.front().parts.size() == 1);
+    CHECK(parts.objects.front().instances.front().size_z == Catch::Approx(20.0));
+}
+
 TEST_CASE("An object of one shell cannot be split", "[Adapter][Edit]")
 {
     require_engine();

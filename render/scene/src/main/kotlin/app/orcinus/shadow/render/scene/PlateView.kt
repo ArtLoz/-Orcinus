@@ -99,6 +99,12 @@ fun PlateView(
     /** A stroke of the finger, as a ray in world coordinates. */
     /** [starts] is true for the first touch of a stroke. */
     onPaint: (origin: Vector3, direction: Vector3, starts: Boolean) -> Unit = { _, _, _ -> },
+    /** The cut gizmo open on a copy: the view shows that copy alone, cut by the plane with its grabbers. */
+    cut: CutView? = null,
+    /** The plane a grabber moved or turned it to; [finished] once the finger let go. */
+    onCutPlane: (plane: Transform3, finished: Boolean) -> Unit = { _, _ -> },
+    /** A tap on the plane outside the section: flip_cut_plane(). */
+    onFlipCutPlane: () -> Unit = {},
     selectedObject: Int?,
     /** Every selected object, which the scene draws as selected; the tools work on a single one. */
     selectedObjects: Set<Int> = setOfNotNull(selectedObject),
@@ -223,6 +229,29 @@ fun PlateView(
         controller.setObjects(loaded)
     }
 
+    // GLGizmoCut3D: the outline and the section of the plane, which the
+    // engine writes for every position of it.
+    LaunchedEffect(cut?.contour, cut?.section) {
+        val contour = cut?.contour
+        val section = cut?.section
+        val loaded = withContext(Dispatchers.IO) {
+            listOf(contour, section).map { path -> path?.let { runCatching { MeshFiles.read(java.io.File(it.value)).cornerPositions() }.getOrNull() } }
+        }
+        controller.setCutMeshes(loaded[0], loaded[1])
+    }
+    // The copy the cut gizmo is open on, numbered as the scene numbers the copies.
+    val cutIndex = cut?.let { open ->
+        var index = 0
+        var found: Int? = null
+        for (plateObject in objects) {
+            for (instance in plateObject.instances.indices) {
+                if (plateObject.mesh == open.mesh && instance == open.instance) found = index
+                index++
+            }
+        }
+        found
+    }
+
     val haptics = LocalHapticFeedback.current
     SideEffect {
         controller.onSelectObject = onSelectObject
@@ -233,6 +262,9 @@ fun PlateView(
             val direction = ray.b - ray.a
             onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z), starts)
         }
+        controller.onCutPlane = { plane, finished -> onCutPlane(Transform3(plane.elements().toList()), finished) }
+        controller.onFlipCutPlane = onFlipCutPlane
+        controller.setCut(cut, cutIndex)
         controller.setPainting(painting != null)
         controller.setVerticalOnly(painting?.verticalOnly == true)
         // GLGizmoFdmSupports::on_opening() turns the slope on; the painting's
@@ -366,8 +398,8 @@ private suspend fun PointerInputScope.detectPlateGestures(
         controller.endMove()
 
         if (!dragging && !multiTouch && !pressedObject && !menuOpened) {
-            // A painting tool keeps its object while the finger turns the camera around it.
-            if (!controller.isPainting) {
+            // A painting tool and the cut gizmo keep their object while the finger turns the camera around it.
+            if (!controller.isPainting && !controller.isCutting) {
                 controller.clearSelection()
                 // A tap on another plate selects it.
                 controller.selectPlateAt(down.position.x, down.position.y)
@@ -404,6 +436,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     val isPainting: Boolean get() = painting
     private var paintingStroke = false
+
+    /** GLGizmoCut3D open on the copy at [cutIndex], which the scene shows alone. */
+    private var cut: CutView? = null
+    private var cutIndex: Int? = null
+    private var cutContour: FloatArray? = null
+    private var cutSection: FloatArray? = null
+    val isCutting: Boolean get() = cut != null
+    var onCutPlane: (Affine3, Boolean) -> Unit = { _, _ -> }
+    var onFlipCutPlane: () -> Unit = {}
     private var layer: PlateLayer? = null
     private var layerBox: Box3? = null
     private var selectedIndex: Int? = null
@@ -444,6 +485,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private class ScaleGrabberDrag(index: Int, startWorld: Affine3, val id: Int, val start: Vec3, val bottomCenter: Vec3, val center: Vec3) :
         Drag(index, startWorld)
 
+    /**
+     * GLGizmoCut3D's [grabber], or the plane itself, pressed at [startPoint]
+     * while the plane stood at [startPlane]; the plane it has taken, and for a
+     * rotation the angle it turned by.
+     */
+    private class CutDrag(index: Int, val grabber: CutGrabber, val startPlane: Affine3, val startPoint: Vec3) : Drag(index, startPlane) {
+        var plane: Affine3 = startPlane
+        var angle = 0.0
+    }
+
     /** The rotation gizmo's grabber of [axis], turning about the sphere [center] by [angle]. */
     private class RotateGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val center: Vec3, val sphereRadius: Double) :
         Drag(index, startWorld) {
@@ -477,6 +528,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * point ([x], [y]). Returns false when the view has none.
      */
     fun openPlateMenu(x: Float, y: Float): Boolean {
+        if (cut != null) return false
         val open = onOpenPlateMenu ?: return false
         // A right click on a plate selects it first.
         selectPlateAt(x, y)
@@ -563,6 +615,34 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         showObjects(plateObjects + listOfNotNull(wipeTower))
     }
 
+    /**
+     * The cut gizmo on the copy at [index], or none. While it is open the scene
+     * shows that copy alone (InstancesHider and toggle_model_objects_visibility).
+     */
+    fun setCut(cut: CutView?, index: Int?) {
+        if (this.cut == cut && cutIndex == index) return
+        val opened = (this.cut == null) != (cut == null) || cutIndex != index
+        this.cut = cut
+        cutIndex = index
+        if (cut == null) {
+            cutContour = null
+            cutSection = null
+        }
+        if (opened) {
+            if (drag is CutDrag || cut != null) drag = null
+            showObjects(plateObjects + listOfNotNull(wipeTower))
+        } else {
+            invalidate()
+        }
+    }
+
+    /** The outline and the section of the cut plane, as GL_TRIANGLES corners. */
+    fun setCutMeshes(contour: FloatArray?, section: FloatArray?) {
+        cutContour = contour
+        cutSection = section
+        invalidate()
+    }
+
     fun setPainting(value: Boolean) {
         if (painting == value) return
         painting = value
@@ -633,6 +713,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * false when the finger is on neither.
      */
     fun press(x: Float, y: Float, grabberRadius: Float): Boolean {
+        if (cut != null) return pressCut(x.toDouble(), y.toDouble(), grabberRadius.toDouble())
         if (painting) {
             // GLGizmoPainterBase::gizmo_event(): a press on the painted object
             // starts a stroke there, and the engine finds the triangle under
@@ -694,6 +775,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return
         }
         val drag = drag ?: return
+        if (drag is CutDrag) {
+            camera.mouseRay(x.toDouble(), y.toDouble())?.let { dragCut(drag, it) }
+            return
+        }
         val target = objects.firstOrNull { it.index == drag.index } ?: return
         val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
         if (drag is RotateGrabberDrag) {
@@ -765,6 +850,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         val drag = drag ?: return
         this.drag = null
+        if (drag is CutDrag) {
+            // on_stop_dragging(): the plane is where the drag left it; a click on
+            // the plane outside the section turns it over (on_mouse()).
+            when {
+                drag.moved -> onCutPlane(drag.plane, true)
+                drag.grabber == CutGrabber.PLANE && !insideSection(drag.startPoint) -> onFlipCutPlane()
+            }
+            invalidate()
+            return
+        }
         if (!drag.moved) {
             if (drag !is ObjectDrag) invalidate()
             return
@@ -879,6 +974,86 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             ?.let { (axis, _) -> target to axis }
     }
 
+    /** GLGizmoCut3D of the open cut, with its plane where the finger has it while it drags. */
+    private fun cutGizmo(): CutGizmo? {
+        val open = cut ?: return null
+        val plane = (drag as? CutDrag)?.plane ?: CutPlanes.affine(open.plane)
+        return CutGizmo(plane, open.radius, pixel())
+    }
+
+    /**
+     * GLGizmoCut3D::on_mouse() for a left press: its grabbers first, nearest to
+     * the finger within [radius] pixels, then the plane itself. Returns false
+     * when the finger is on neither, so it turns the camera.
+     */
+    private fun pressCut(x: Double, y: Double, radius: Double): Boolean {
+        val gizmo = cutGizmo() ?: return false
+        val index = cutIndex ?: -1
+        val grabber = listOf(
+            CutGrabber.Z to listOf(gizmo.sphereCenter()),
+            CutGrabber.X to gizmo.coneCenters(CutGrabber.X),
+            CutGrabber.Y to gizmo.coneCenters(CutGrabber.Y),
+        ).flatMap { (grabber, points) -> points.mapNotNull { point -> camera.project(point)?.let { grabber to (point to it) } } }
+            .map { (grabber, projected) -> Triple(grabber, projected.first, hypot(projected.second.first - x, projected.second.second - y)) }
+            .filter { it.third <= radius }
+            .minByOrNull { it.third }
+        if (grabber != null) {
+            drag = CutDrag(index, grabber.first, gizmo.plane, grabber.second)
+            invalidate()
+            return true
+        }
+        val ray = camera.mouseRay(x, y) ?: return false
+        val hit = gizmo.planeHit(ray) ?: return false
+        drag = CutDrag(index, CutGrabber.PLANE, gizmo.plane, hit)
+        invalidate()
+        return true
+    }
+
+    /**
+     * on_dragging(): the sphere and the plane move the plane along its normal
+     * (dragging_grabber_move()), X and Y turn it (dragging_grabber_rotation()).
+     */
+    private fun dragCut(drag: CutDrag, ray: Line3) {
+        val open = cut ?: return
+        val gizmo = CutGizmo(drag.startPlane, open.radius, pixel())
+        drag.plane = when (drag.grabber) {
+            CutGrabber.Z, CutGrabber.PLANE -> {
+                // The point of the ray nearest to where the drag began, taken along the normal.
+                val direction = ray.unitVector()
+                val intersection = ray.a + direction * (drag.startPoint - ray.a).dot(direction)
+                val projection = (intersection - drag.startPoint).dot(gizmo.normal)
+                if (!projection.isFinite()) return
+                drag.startPlane.withTranslation(gizmo.center + gizmo.normal * projection)
+            }
+            CutGrabber.X, CutGrabber.Y -> {
+                val (rotation, angle) = gizmo.dragRotation(drag.grabber, gizmo.rotation, ray)
+                drag.angle = angle
+                rotation.withTranslation(gizmo.center)
+            }
+        }
+        drag.moved = true
+        onCutPlane(drag.plane, false)
+        invalidate()
+    }
+
+    /** unproject_on_cut_plane() with the contours respected: whether [point] of the plane lies in the section. */
+    private fun insideSection(point: Vec3): Boolean {
+        val triangles = cutSection ?: return false
+        for (start in 0 until triangles.size / 9) {
+            val base = start * 9
+            val a = Vec3(triangles[base].toDouble(), triangles[base + 1].toDouble(), triangles[base + 2].toDouble())
+            val b = Vec3(triangles[base + 3].toDouble(), triangles[base + 4].toDouble(), triangles[base + 5].toDouble())
+            val c = Vec3(triangles[base + 6].toDouble(), triangles[base + 7].toDouble(), triangles[base + 8].toDouble())
+            val normal = (b - a).cross(c - a)
+            if (normal.norm() == 0.0) continue
+            val inside = (b - a).cross(point - a).dot(normal) >= 0.0 &&
+                (c - b).cross(point - b).dot(normal) >= 0.0 &&
+                (a - c).cross(point - c).dot(normal) >= 0.0
+            if (inside) return true
+        }
+        return false
+    }
+
     /** OrcaSlicer's gizmo sizes are desktop pixels at the camera target. */
     private fun pixel() = density / camera.zoom
 
@@ -919,8 +1094,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     }
 
     private fun showObjects(objects: List<SceneObject>) {
-        this.objects = objects
-        renderer.setObjects(objects)
+        val shown = if (cut != null) objects.filter { it.index == cutIndex } else objects
+        this.objects = shown
+        renderer.setObjects(shown)
         invalidate()
     }
 
@@ -947,12 +1123,20 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 selectedIndexes = selectedIndexes,
                 gizmo = gizmoFrame(),
                 slopeNormalZ = slopeNormalZ,
+                colorClipPlane = cutGizmo()?.let { gizmo ->
+                    // update_clipper(): set_color_clip_plane(normal, normal . centre).
+                    floatArrayOf(-gizmo.normal.x.toFloat(), -gizmo.normal.y.toFloat(), -gizmo.normal.z.toFloat(), gizmo.normal.dot(gizmo.center).toFloat())
+                },
             ),
         )
         surface.requestRender()
     }
 
     private fun gizmoFrame(): GizmoFrame? {
+        cutGizmo()?.let { gizmo ->
+            val dragging = drag as? CutDrag
+            return gizmo.frame(dragging?.grabber, dragging?.angle ?: 0.0, dragging?.startPlane?.withTranslation(Vec3.ZERO), cut?.canCut == true, cutContour, density)
+        }
         val target = objects.firstOrNull { it.index == selectedIndex } ?: return null
         return when (gizmo) {
             PlateGizmo.MOVE -> moveGizmo(target).frame((drag as? MoveGrabberDrag)?.axis, density)
@@ -975,7 +1159,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * with a gizmo, room for it around the selection.
      */
     private fun sceneBox(): Box3? {
-        val gizmoBox = objects.firstOrNull { it.index == selectedIndex && gizmo != null }?.bounds?.let { selection ->
+        val gizmoBox = objects.firstOrNull { it.index == selectedIndex && (gizmo != null || cut != null) }?.bounds?.let { selection ->
             val extend = Vec3(1.0, 1.0, 1.0) * selection.maxSize()
             Box3(selection.center() - extend, selection.center() + extend)
         }

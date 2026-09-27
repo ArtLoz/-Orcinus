@@ -128,6 +128,7 @@ import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
+import app.orcinus.shadow.render.scene.CutView
 import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateView
@@ -290,6 +291,19 @@ internal fun PrepareRoute(
         onUndo = viewModel::undo,
         onRedo = viewModel::redo,
         onDismissProblem = viewModel::dismissProblem,
+        cutActions = CutActions(
+            toggle = viewModel::toggleCut,
+            setPlane = viewModel::setCutPlane,
+            flip = viewModel::flipCutPlane,
+            setPosition = viewModel::setCutPosition,
+            resetPlane = viewModel::resetCutPlane,
+            setKeep = viewModel::setCutKeep,
+            setPlaceOnCut = viewModel::setCutPlaceOnCut,
+            setFlip = viewModel::setCutFlip,
+            setCutToParts = viewModel::setCutToParts,
+            perform = viewModel::performCut,
+            cancel = viewModel::closeCut,
+        ),
         simplifyActions = SimplifyActions(
             setUseCount = viewModel::setSimplifyUseCount,
             setReduction = viewModel::setSimplifyReduction,
@@ -366,6 +380,7 @@ internal fun PrepareScreen(
     plateMenuActions: PlateMenuActions = PlateMenuActions.NONE,
     simplifyActions: SimplifyActions = SimplifyActions.NONE,
     plateActions: PlateActions = PlateActions.NONE,
+    cutActions: CutActions = CutActions.NONE,
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         var objectMenu by remember { mutableStateOf<ObjectMenu?>(null) }
@@ -388,6 +403,13 @@ internal fun PrepareScreen(
                 onMoveWipeTower = onMoveWipeTower,
                 painting = state.painting?.let { PaintingView(it.mesh, it.kind, it.highlightAngle, it.verticalOnly) },
                 onPaint = paintingActions.paint,
+                cut = state.cut?.let { mode ->
+                    mode.plane?.let { plane ->
+                        CutView(mode.mesh, mode.instance, plane, mode.radius, mode.described?.contour, mode.canPerform, mode.described?.section)
+                    }
+                },
+                onCutPlane = cutActions.setPlane,
+                onFlipCutPlane = cutActions.flip,
                 selectedObject = state.selectedObject,
                 selectedObjects = state.selectedObjects,
                 gizmo = state.gizmo,
@@ -518,6 +540,7 @@ internal fun PrepareScreen(
                         onSplit = { edit -> state.selectedObject?.let { objectMenuActions.edit(it, edit) } },
                         arrangeActions.toggle,
                         onToggleGizmo,
+                        onToggleCut = cutActions.toggle,
                     )
                 }
                 val position = state.selectedPosition
@@ -530,6 +553,7 @@ internal fun PrepareScreen(
                         state.simplify,
                         simplifyActions,
                     )
+                    state.cut != null -> CutPanel(state.cut, cutActions)
                     state.painting?.kind == PaintKind.COLOR -> PaintingPanel(state, state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
@@ -883,6 +907,7 @@ private fun CanvasToolbar(
     onSplit: (ObjectEdit) -> Unit,
     onToggleArrange: () -> Unit,
     onToggleGizmo: (PlateGizmo) -> Unit,
+    onToggleCut: () -> Unit = {},
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -940,7 +965,14 @@ private fun CanvasToolbar(
         gizmo(DesignR.drawable.orca_toolbar_rotate, R.string.gizmo_rotate, PlateGizmo.ROTATE)
         gizmo(DesignR.drawable.orca_toolbar_scale, R.string.gizmo_scale, PlateGizmo.SCALE)
         gizmo(DesignR.drawable.orca_toolbar_flatten, R.string.gizmo_lay_on_face, PlateGizmo.LAY_ON_FACE)
-        gizmo(DesignR.drawable.orca_toolbar_cut, R.string.gizmo_cut, null)
+        // GLGizmoCut3D: on_is_activable() is a single full instance selected.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_cut,
+            contentDescription = stringResource(R.string.gizmo_cut),
+            onClick = onToggleCut,
+            enabled = state.canManipulate,
+            selected = state.cut != null,
+        )
         gizmo(DesignR.drawable.orca_toolbar_meshboolean, R.string.gizmo_mesh_boolean, null)
         // GLGizmoMmuSegmentation: the object is painted with the filaments of the plate.
         OrcaCanvasTool(
@@ -1273,7 +1305,7 @@ private fun FuzzySkinPaintingPanel(painting: PaintingMode, actions: PaintingActi
 
 /** A check box of a painting tool, the whole row its touch target. */
 @Composable
-private fun PaintingCheck(text: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun PaintingCheck(text: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -1296,7 +1328,7 @@ private fun PaintingCheck(text: String, checked: Boolean, onChange: (Boolean) ->
  * them; the desktop window stands beside the model instead.
  */
 @Composable
-private fun PaintingPanelFrame(title: String, done: String, onDone: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun PaintingPanelFrame(title: String, done: String, onDone: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     var expanded by rememberSaveable { mutableStateOf(true) }
     OrcaGizmoPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {

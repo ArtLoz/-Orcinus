@@ -1504,6 +1504,27 @@ enum class ObjectEdit : std::int64_t {
     // ObjectList::boolean() ("Mesh boolean"): the meshes of the object and of
     // its copies as one, its negative volumes taken out, a new object in its place.
     mesh_boolean = 8,
+    // GLGizmoCut3D::perform_cut() with a plane: the parts ObjectCut keeps join
+    // the end of the list, as objects of their own or as the parts of one.
+    cut = 9,
+};
+
+// The cut gizmo's plane and "After cut" of its window (GLGizmoCut3D).
+struct ObjectCut {
+    // The copy of the object the plane cuts (the selection's instance).
+    int instance{0};
+    // The plane in world coordinates, column by column: its centre
+    // (m_plane_center) and its rotation (m_rotation_m). Its normal is the
+    // rotated Z axis, and the upper part lies on that side.
+    std::vector<double> plane;
+    bool keep_upper{true};
+    bool keep_lower{true};
+    // "Cut to parts": both halves stay one object, as its parts.
+    bool keep_as_parts{false};
+    bool place_on_cut_upper{true};
+    bool place_on_cut_lower{false};
+    bool flip_upper{false};
+    bool flip_lower{false};
 };
 
 // The object menu's commands that change the meshes of the object at index
@@ -1517,8 +1538,47 @@ ImportedModels edit_object(
     int volume,
     const ProfileSelection& profiles,
     const std::string& output_prefix,
-    const DialogAnswers& answers
+    const DialogAnswers& answers,
+    // What ObjectEdit::cut cuts with.
+    const ObjectCut& cut = {}
 );
+
+// GLGizmoCut3D::bounding_box() of the copy the cut gizmo opened on: its solid
+// parts in the world, whose centre the plane starts at.
+struct CutObject {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    double min[3]{0.0, 0.0, 0.0};
+    double max[3]{0.0, 0.0, 0.0};
+};
+
+// Opens the cut gizmo on the copy at instance of the object: the engine keeps
+// the object until end_cut(), as the gizmo's clippers keep its meshes.
+CutObject begin_cut(const PlateObject& object, int instance, const ProfileSelection& profiles);
+
+// What the cut gizmo shows of a plane (ObjectCut::plane).
+struct CutPlane {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    // transformed_bounding_box(): the solid parts in the plane's frame, its
+    // centre at the origin; "Build Volume" gives its size.
+    double min[3]{0.0, 0.0, 0.0};
+    double max[3]{0.0, 0.0, 0.0};
+    // ObjectClipper::has_valid_contour(): the plane goes through the object.
+    bool valid_contour{false};
+    // The outline of the section the clippers draw (MeshClipper's contour),
+    // as a mesh for the 3D view named "<prefix>-<n>.mesh"; empty for none.
+    std::string contour;
+    // The section itself (MeshClipper's filled cut), "<prefix>-<n>-section.mesh",
+    // which tells a click on the plane inside the section from one outside it
+    // (unproject_on_cut_plane()); empty for none.
+    std::string section;
+};
+
+CutPlane describe_cut_plane(const std::vector<double>& plane, const std::string& mesh_prefix);
+
+// Closes the cut gizmo, which lets its object go.
+void end_cut();
 
 // ObjectList::set_volume_type() of one volume: the volume at volume_index of
 // the object at object_index of plate takes type, and the object's volumes are

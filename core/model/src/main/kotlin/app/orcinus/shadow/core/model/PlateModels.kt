@@ -435,8 +435,11 @@ sealed interface PlateRequest {
     /** The load of [source], one of the files of [batch]. */
     data class Import(val source: ModelPath, val batch: ImportBatch = ImportBatch()) : PlateRequest
 
-    /** [edit] of the object with the [mesh] file, or of its volume at [volume] (ObjectPartId.index). */
-    data class Edit(val mesh: ScenePath, val edit: ObjectEdit, val volume: Int? = null) : PlateRequest
+    /**
+     * [edit] of the object with the [mesh] file, or of its volume at [volume]
+     * (ObjectPartId.index); [cut] is what ObjectEdit.CUT cuts with.
+     */
+    data class Edit(val mesh: ScenePath, val edit: ObjectEdit, val volume: Int? = null, val cut: ObjectCut? = null) : PlateRequest
 
     /**
      * The handy model Orca String Hell loaded: OrcaSlicer suggests "One Wall
@@ -583,7 +586,30 @@ enum class ObjectEdit {
 
     /** ObjectList::boolean(): "Mesh boolean" */
     MESH_BOOLEAN,
+
+    /** GLGizmoCut3D::perform_cut() with a plane ([ObjectCut]). */
+    CUT,
 }
+
+/**
+ * The cut gizmo's plane and "After cut" of its window (GLGizmoCut3D; ObjectCut
+ * in orca_engine_adapter.hpp): [plane] stands in world coordinates, its centre
+ * and rotation, and its normal is the rotated Z axis, with the upper part on
+ * that side.
+ */
+data class ObjectCut(
+    /** The copy the plane cuts. */
+    val instance: Int,
+    val plane: Transform3,
+    val keepUpper: Boolean = true,
+    val keepLower: Boolean = true,
+    /** "Cut to parts": both halves stay one object, as its parts. */
+    val keepAsParts: Boolean = false,
+    val placeOnCutUpper: Boolean = true,
+    val placeOnCutLower: Boolean = false,
+    val flipUpper: Boolean = false,
+    val flipLower: Boolean = false,
+)
 
 /** Everything the app knows about the plate being prepared and sliced. */
 data class PlateState(

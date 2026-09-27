@@ -3366,9 +3366,27 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObject(
     jstring process_profile,
     jstring output_prefix,
     jobjectArray answer_ids,
-    jbooleanArray answers
+    jbooleanArray answers,
+    jint cut_instance,
+    jdoubleArray cut_plane,
+    jbooleanArray cut_flags
 )
 {
+    orcinus::orca::ObjectCut cut;
+    cut.instance = cut_instance;
+    cut.plane = to_doubles(env, cut_plane);
+    // keep_upper, keep_lower, keep_as_parts, place_on_cut_upper,
+    // place_on_cut_lower, flip_upper, flip_lower
+    const std::vector<bool> flags = to_bools(env, cut_flags);
+    if (flags.size() == 7) {
+        cut.keep_upper = flags[0];
+        cut.keep_lower = flags[1];
+        cut.keep_as_parts = flags[2];
+        cut.place_on_cut_upper = flags[3];
+        cut.place_on_cut_lower = flags[4];
+        cut.flip_upper = flags[5];
+        cut.flip_lower = flags[6];
+    }
     return to_java(
         env,
         orcinus::orca::edit_object(
@@ -3378,9 +3396,70 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObject(
             volume,
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
             to_utf8(env, output_prefix),
-            to_answers(env, answer_ids, answers)
+            to_answers(env, answer_ids, answers),
+            cut
         )
     );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginCut(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject object,
+    jint instance,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
+    const orcinus::orca::CutObject cut = orcinus::orca::begin_cut(
+        plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
+        instance,
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles)
+    );
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeCutObject");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[D[D)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(cut.status),
+        to_java(env, cut.message),
+        to_java(env, cut.min, 3),
+        to_java(env, cut.max, 3)
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeCutPlane(
+    JNIEnv* env,
+    jobject /* this */,
+    jdoubleArray plane,
+    jstring mesh_prefix
+)
+{
+    const orcinus::orca::CutPlane described = orcinus::orca::describe_cut_plane(to_doubles(env, plane), to_utf8(env, mesh_prefix));
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeCutPlane");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[D[DZLjava/lang/String;Ljava/lang/String;)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(described.status),
+        to_java(env, described.message),
+        to_java(env, described.min, 3),
+        to_java(env, described.max, 3),
+        described.valid_contour ? JNI_TRUE : JNI_FALSE,
+        to_java(env, described.contour),
+        to_java(env, described.section)
+    );
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endCut(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::end_cut();
 }
 
 extern "C" JNIEXPORT jobject JNICALL

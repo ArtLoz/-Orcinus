@@ -29,6 +29,11 @@ class AppSceneFiles(context: Context) : SceneFiles {
         return ScenePath(File(objects, "painted-${UUID.randomUUID()}").absolutePath)
     }
 
+    override fun newCutMeshes(): ScenePath {
+        objects.mkdirs()
+        return ScenePath(File(objects, "cut-${UUID.randomUUID()}").absolutePath)
+    }
+
     override fun newImportPrefix(): ScenePath {
         objects.mkdirs()
         return ScenePath(File(objects, "import-${UUID.randomUUID()}").absolutePath)

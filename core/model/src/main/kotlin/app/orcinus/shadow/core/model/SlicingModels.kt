@@ -398,6 +398,35 @@ data class CalibrationPrinter(
     val shaperTypes: List<String>,
 )
 
+/** GLGizmoCut3D::bounding_box(): the solid parts of the copy the cut gizmo is open on, in the world. */
+sealed interface CutObjectOutcome {
+    data class Success(val min: Vector3, val max: Vector3) : CutObjectOutcome
+
+    data class Failure(val message: String) : CutObjectOutcome
+}
+
+/** What the cut gizmo shows of a plane. */
+data class CutPlaneDescription(
+    /**
+     * transformed_bounding_box(): the solid parts in the plane's frame, its
+     * centre at the origin, which "Build Volume" gives the size of.
+     */
+    val min: Vector3,
+    val max: Vector3,
+    /** ObjectClipper::has_valid_contour(): the plane goes through the object. */
+    val validContour: Boolean,
+    /** The outline of the section, 0.4 mm wide, in world coordinates; null for none. */
+    val contour: ScenePath?,
+    /** The section itself, which tells a touch on the plane inside it from one outside it; null for none. */
+    val section: ScenePath? = null,
+)
+
+sealed interface CutPlaneOutcome {
+    data class Success(val plane: CutPlaneDescription) : CutPlaneOutcome
+
+    data class Failure(val message: String) : CutPlaneOutcome
+}
+
 sealed interface CalibrationPrinterOutcome {
     data class Success(val printer: CalibrationPrinter) : CalibrationPrinterOutcome
 

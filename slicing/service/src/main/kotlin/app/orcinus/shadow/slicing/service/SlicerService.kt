@@ -146,6 +146,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             prefix: String,
             answerIds: Array<String>,
             answers: BooleanArray,
+            cut: CutParcel?,
         ): ModelLoadParcel = runBlocking {
             engine.edit(
                 plate.toPlacedModels(),
@@ -155,8 +156,19 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                 profiles.toProfiles(),
                 ScenePath(prefix),
                 answerIds.zip(answers.toList()).toMap(),
+                cut?.toCut(),
             )
         }.toParcel()
+
+        override fun beginCut(plateObject: PlacedModelParcel, instance: Int, profiles: ProfilesParcel): CutObjectParcel = runBlocking {
+            engine.beginCut(arrayOf(plateObject).toPlacedModels().first(), instance, profiles.toProfiles())
+        }.toParcel()
+
+        override fun describeCutPlane(plane: DoubleArray, meshPrefix: String): CutPlaneParcel = runBlocking {
+            engine.describeCutPlane(Transform3(plane.toList()), ScenePath(meshPrefix))
+        }.toParcel()
+
+        override fun endCut() = runBlocking { engine.endCut() }
 
         override fun saveProject(
             path: String,

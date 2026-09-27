@@ -17,6 +17,9 @@ interface SceneFiles {
     /** A new prefix for the meshes of a painted object, "<prefix>-<filament>.mesh". */
     fun newPaintedMeshes(): ScenePath
 
+    /** A new prefix for the outlines and sections the cut gizmo shows of its plane, "<prefix>-<n>.mesh". */
+    fun newCutMeshes(): ScenePath
+
     /**
      * A new prefix for the meshes the engine writes for the objects of a model
      * file, "<prefix>-<object>..." beside the other object meshes.

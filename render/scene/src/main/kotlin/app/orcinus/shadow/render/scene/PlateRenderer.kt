@@ -36,6 +36,12 @@ internal class SceneFrame(
      * further down are tinted; null while it is closed.
      */
     val slopeNormalZ: Float? = null,
+    /**
+     * The cut gizmo's colour clip plane (GLVolumeCollection::set_color_clip_plane):
+     * -normal and offset; the objects are drawn in the colour of the upper part
+     * above it and of the lower part below it. Null while no cut is open.
+     */
+    val colorClipPlane: FloatArray? = null,
 )
 
 /**
@@ -83,6 +89,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var selectionBox: Triple<Box3, Boolean, GlVertexArray>? = null
     private var grabberCone: GlVertexArray? = null
     private var grabberCube: GlVertexArray? = null
+    private var grabberSphere: GlVertexArray? = null
     /** The build volume of the current plate while the objects are drawn. */
     private var printVolume: Box3? = null
     /** PartPlateList::m_idx_textures, made as the plates need them. */
@@ -129,6 +136,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         selectionBox = null
         grabberCone = null
         grabberCube = null
+        grabberSphere = null
         labelTextures.clear()
         synchronized(lock) {
             bedChanged = true
@@ -334,7 +342,14 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         program.setVec2("z_range", -Float.MAX_VALUE, Float.MAX_VALUE)
         // ClippingPlane::ClipsNothing()
         program.setVec4("clipping_plane", 0f, 0f, 1f, Float.MAX_VALUE)
-        program.setBoolean("use_color_clip_plane", false)
+        // GLGizmoCut3D::apply_color_clip_plane_colors() for the planar cut.
+        val colorClipPlane = frame.colorClipPlane
+        program.setBoolean("use_color_clip_plane", colorClipPlane != null)
+        if (colorClipPlane != null) {
+            program.setVec4("color_clip_plane", colorClipPlane[0], colorClipPlane[1], colorClipPlane[2], colorClipPlane[3])
+            program.setVec4("uniform_color_clip_plane_1", UPPER_PART_COLOR[0], UPPER_PART_COLOR[1], UPPER_PART_COLOR[2], UPPER_PART_COLOR[3])
+            program.setVec4("uniform_color_clip_plane_2", LOWER_PART_COLOR[0], LOWER_PART_COLOR[1], LOWER_PART_COLOR[2], LOWER_PART_COLOR[3])
+        }
         program.setBoolean("is_outline", false)
         program.setBoolean("slope.actived", false)
         printVolume = bed?.let { scene ->
@@ -442,6 +457,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
      * corners of the bounding box, with arrows under it when auto drop is off.
      */
     private fun renderSelection(program: GlProgram, frame: SceneFrame) {
+        // GLCanvas3D::_render_selection(): not while the cut gizmo runs.
+        if (frame.colorClipPlane != null) return
         // The desktop app draws one box around the whole selection; a plate of
         // a phone holds few objects, so each selected one gets its brackets,
         // around the copy and the parts that belong to it together.
@@ -474,10 +491,29 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
      * GLGizmoBase::render_grabbers() does.
      */
     private fun renderGizmo(programs: Programs, gizmo: GizmoFrame, frame: SceneFrame) {
+        val flat = programs.flat
+        if (gizmo.overlay.isNotEmpty()) {
+            // GLGizmoCut3D::render_clipper_cut(): over the scene, without depth, from both sides.
+            flat.use()
+            flat.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+            flat.setMatrix4("projection_matrix", frame.projection)
+            for (face in gizmo.overlay) drawFace(flat, face)
+        }
+        if (gizmo.sceneFaces.isNotEmpty()) {
+            // GLGizmoCut3D::render_cut_plane(): blended, in the scene's depth, from both sides.
+            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+            flat.use()
+            flat.setMatrix4("view_model_matrix", (frame.view * gizmo.sceneFacesWorld).toFloatArray())
+            flat.setMatrix4("projection_matrix", frame.projection)
+            for (face in gizmo.sceneFaces) drawFace(flat, face)
+            GLES30.glDisable(GLES30.GL_BLEND)
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        }
         GLES30.glClear(GLES30.GL_DEPTH_BUFFER_BIT)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
 
-        val flat = programs.flat
         if (gizmo.faces.isNotEmpty()) {
             // GLGizmoFlatten::on_render(): blended faces with the instance matrix, back faces culled.
             flat.use()
@@ -510,9 +546,10 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
         val cone = grabberCone ?: meshArray(GrabberMeshes.cone).also { grabberCone = it }
         val cube = grabberCube ?: meshArray(GrabberMeshes.cube).also { grabberCube = it }
+        val sphere = grabberSphere ?: meshArray(GrabberMeshes.sphere).also { grabberSphere = it }
         val light = programs.gouraudLight
         light.use()
-        light.setFloat("emission_factor", 0.1f)
+        light.setFloat("emission_factor", gizmo.emission)
         light.setMatrix4("projection_matrix", frame.projection)
         for (grabber in gizmo.grabbers) {
             light.setVec4("uniform_color", grabber.color.red, grabber.color.green, grabber.color.blue, grabber.color.alpha)
@@ -521,9 +558,18 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             when (grabber.shape) {
                 GrabberShape.CONE -> cone.draw()
                 GrabberShape.CUBE -> cube.draw()
+                GrabberShape.SPHERE -> sphere.draw()
             }
         }
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+    }
+
+    /** One face of a gizmo in its colour with the flat shader in use. */
+    private fun drawFace(flat: GlProgram, face: GizmoFace) {
+        val array = GlVertexArray(GlVertexArray.floatBuffer(face.triangles), listOf(GlProgram.POSITION to 3), GLES30.GL_TRIANGLES)
+        flat.setVec4("uniform_color", face.color.red, face.color.green, face.color.blue, face.color.alpha)
+        array.draw()
+        array.release()
     }
 
     private fun lineWidth(width: Float) = width.coerceIn(lineWidthRange[0].coerceAtLeast(1f), lineWidthRange[1].coerceAtLeast(1f))
@@ -571,6 +617,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     private companion object {
+        // UPPER_PART_COLOR and LOWER_PART_COLOR of GLGizmoCut.cpp: ColorRGBA::CYAN() and MAGENTA().
+        val UPPER_PART_COLOR = floatArrayOf(0f, 1f, 1f, 1f)
+        val LOWER_PART_COLOR = floatArrayOf(1f, 0f, 1f, 1f)
         // Bed3D::DEFAULT_MODEL_COLOR and DEFAULT_MODEL_COLOR_DARK
         val BED_MODEL_COLOR = floatArrayOf(0.3255f, 0.337f, 0.337f, 1f)
         val BED_MODEL_COLOR_DARK = floatArrayOf(0.255f, 0.255f, 0.283f, 1f)

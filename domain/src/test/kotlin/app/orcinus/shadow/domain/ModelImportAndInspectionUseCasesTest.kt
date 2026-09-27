@@ -5,6 +5,8 @@ import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.CopyPlacement
+import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlowRateCalibration
@@ -25,6 +27,7 @@ import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintStroke
@@ -246,7 +249,15 @@ class ModelImportAndInspectionUseCasesTest {
             profiles: SlicingProfileSelection,
             prefix: ScenePath,
             answers: Map<String, Boolean>,
+            cut: ObjectCut?,
         ) = ModelLoadOutcome.Failure("not used")
+
+        override suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome =
+            CutObjectOutcome.Failure("not used")
+
+        override suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome = CutPlaneOutcome.Failure("not used")
+
+        override suspend fun endCut() = Unit
 
         override suspend fun copy(
             plate: List<PlacedModel>,

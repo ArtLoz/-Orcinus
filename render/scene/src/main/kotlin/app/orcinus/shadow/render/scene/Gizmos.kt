@@ -54,6 +54,16 @@ internal class GizmoFrame(
     /** Translucent faces drawn in object coordinates with [facesWorld]. */
     val faces: List<GizmoFace> = emptyList(),
     val facesWorld: Affine3 = Affine3(),
+    /** Drawn first, over the scene without its depth: the cut gizmo's outline of the section. */
+    val overlay: List<GizmoFace> = emptyList(),
+    /**
+     * Translucent faces drawn into the scene, hidden where the objects stand
+     * in front of them, from both sides, in [sceneFacesWorld]: the cut plane.
+     */
+    val sceneFaces: List<GizmoFace> = emptyList(),
+    val sceneFacesWorld: Affine3 = Affine3(),
+    /** gouraud_light's emission_factor for the grabbers. */
+    val emission: Float = 0.1f,
 )
 
 /** GL_TRIANGLES of one colour, x, y, z per corner. */
@@ -65,7 +75,7 @@ internal class GizmoLines(val segments: FloatArray, val color: ColorRgba, val wi
 /** A grabber mesh placed in the world. */
 internal class GizmoGrabber(val world: Affine3, val color: ColorRgba, val shape: GrabberShape = GrabberShape.CONE)
 
-internal enum class GrabberShape { CONE, CUBE }
+internal enum class GrabberShape { CONE, CUBE, SPHERE }
 
 internal object GizmoColors {
     // ColorRGBA::X(), Y(), Z() in libslic3r/Color.hpp: GLGizmoBase::AXES_COLOR.
@@ -115,6 +125,54 @@ internal object GrabberMeshes {
         val corners = floatArrayOf(1f, 1f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 1f, 1f, 1f, 0f, 1f, 1f, 0f, 0f, 1f, 1f, 0f, 1f)
         val indices = intArrayOf(0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 0, 4, 7, 0, 7, 1, 1, 7, 6, 1, 6, 2, 2, 6, 5, 2, 5, 3, 4, 0, 3, 4, 3, 5)
         MeshFiles.fromIndexed(FloatArray(corners.size) { corners[it] - 0.5f }, indices)
+    }
+
+    /** its_make_sphere(1, PI / 12): GLGizmoCut3D's sphere grabber. */
+    val sphere: MeshData by lazy {
+        val fa = PI / 12.0
+        val sectorCount = kotlin.math.ceil(2.0 * PI / fa).toInt()
+        val stackCount = kotlin.math.ceil(PI / fa).toInt()
+        val sectorStep = 2.0 * PI / sectorCount
+        val stackStep = PI / stackCount
+        val positions = ArrayList<Float>()
+        for (i in 0..stackCount) {
+            // from pi/2 to -pi/2
+            val stackAngle = 0.5 * PI - stackStep * i
+            val xy = cos(stackAngle)
+            val z = sin(stackAngle)
+            if (i == 0 || i == stackCount) {
+                positions += listOf(xy.toFloat(), 0f, z.toFloat())
+            } else {
+                for (j in 0 until sectorCount) {
+                    val sectorAngle = sectorStep * j
+                    positions += listOf((xy * cos(sectorAngle)).toFloat(), (xy * sin(sectorAngle)).toFloat(), z.toFloat())
+                }
+            }
+        }
+        val indices = ArrayList<Int>()
+        for (i in 0 until stackCount) {
+            // Beginning of current stack, and of the next one.
+            var k1 = if (i == 0) 0 else 1 + (i - 1) * sectorCount
+            val k1First = k1
+            var k2 = if (i == 0) 1 else k1 + sectorCount
+            val k2First = k2
+            for (j in 0 until sectorCount) {
+                // 2 triangles per sector excluding first and last stacks
+                var k1Next = k1
+                var k2Next = k2
+                if (i != 0) {
+                    k1Next = if (j + 1 == sectorCount) k1First else k1 + 1
+                    indices += listOf(k1, k2, k1Next)
+                }
+                if (i + 1 != stackCount) {
+                    k2Next = if (j + 1 == sectorCount) k2First else k2 + 1
+                    indices += listOf(k1Next, k2, k2Next)
+                }
+                k1 = k1Next
+                k2 = k2Next
+            }
+        }
+        MeshFiles.fromIndexed(positions.toFloatArray(), indices.toIntArray())
     }
 
     val cone: MeshData by lazy {

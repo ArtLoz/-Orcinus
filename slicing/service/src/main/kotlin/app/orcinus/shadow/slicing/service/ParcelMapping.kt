@@ -11,6 +11,9 @@ import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPlaneDescription
+import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
@@ -34,6 +37,7 @@ import app.orcinus.shadow.core.model.ModelInspectionOutcome
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.OutputPath
@@ -1016,3 +1020,72 @@ internal fun CalibrationPrinterOutcome.toParcel() = CalibrationPrinterParcel().a
 
 internal fun CalibrationPrinterParcel.toOutcome(): CalibrationPrinterOutcome = error?.let { CalibrationPrinterOutcome.Failure(it) }
     ?: CalibrationPrinterOutcome.Success(CalibrationPrinter(gcodeFlavor, junctionDeviation, shaperTypes.toList()))
+
+internal fun ObjectCut.toParcel() = CutParcel().also {
+    it.instance = instance
+    it.plane = plane.columns.toDoubleArray()
+    it.keepUpper = keepUpper
+    it.keepLower = keepLower
+    it.keepAsParts = keepAsParts
+    it.placeOnCutUpper = placeOnCutUpper
+    it.placeOnCutLower = placeOnCutLower
+    it.flipUpper = flipUpper
+    it.flipLower = flipLower
+}
+
+internal fun CutParcel.toCut() = ObjectCut(
+    instance = instance,
+    plane = Transform3(plane.toList()),
+    keepUpper = keepUpper,
+    keepLower = keepLower,
+    keepAsParts = keepAsParts,
+    placeOnCutUpper = placeOnCutUpper,
+    placeOnCutLower = placeOnCutLower,
+    flipUpper = flipUpper,
+    flipLower = flipLower,
+)
+
+internal fun CutObjectOutcome.toParcel() = CutObjectParcel().also {
+    when (this) {
+        is CutObjectOutcome.Success -> {
+            it.min = doubleArrayOf(min.x, min.y, min.z)
+            it.max = doubleArrayOf(max.x, max.y, max.z)
+        }
+        is CutObjectOutcome.Failure -> {
+            it.error = message
+            it.min = DoubleArray(3)
+            it.max = DoubleArray(3)
+        }
+    }
+}
+
+internal fun CutObjectParcel.toOutcome(): CutObjectOutcome = error?.let { CutObjectOutcome.Failure(it) }
+    ?: CutObjectOutcome.Success(Vector3(min[0], min[1], min[2]), Vector3(max[0], max[1], max[2]))
+
+internal fun CutPlaneOutcome.toParcel() = CutPlaneParcel().also {
+    when (this) {
+        is CutPlaneOutcome.Success -> {
+            it.min = doubleArrayOf(plane.min.x, plane.min.y, plane.min.z)
+            it.max = doubleArrayOf(plane.max.x, plane.max.y, plane.max.z)
+            it.validContour = plane.validContour
+            it.contour = plane.contour?.value
+            it.section = plane.section?.value
+        }
+        is CutPlaneOutcome.Failure -> {
+            it.error = message
+            it.min = DoubleArray(3)
+            it.max = DoubleArray(3)
+        }
+    }
+}
+
+internal fun CutPlaneParcel.toOutcome(): CutPlaneOutcome = error?.let { CutPlaneOutcome.Failure(it) }
+    ?: CutPlaneOutcome.Success(
+        CutPlaneDescription(
+            min = Vector3(min[0], min[1], min[2]),
+            max = Vector3(max[0], max[1], max[2]),
+            validContour = validContour,
+            contour = contour?.let(::ScenePath),
+            section = section?.let(::ScenePath),
+        ),
+    )

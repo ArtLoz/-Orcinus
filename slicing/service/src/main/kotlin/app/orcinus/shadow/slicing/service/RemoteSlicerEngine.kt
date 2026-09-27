@@ -21,6 +21,8 @@ import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
 import app.orcinus.shadow.core.model.FilamentPresetChoice
@@ -43,6 +45,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PaintKind
@@ -213,6 +216,7 @@ class RemoteSlicerEngine(
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
         answers: Map<String, Boolean>,
+        cut: ObjectCut?,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         edit(
             plate.toParcels(),
@@ -223,8 +227,17 @@ class RemoteSlicerEngine(
             prefix.value,
             answers.keys.toTypedArray(),
             answers.values.toBooleanArray(),
+            cut?.toParcel(),
         ).toModelLoadOutcome()
     }
+
+    override suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome =
+        remote({ CutObjectOutcome.Failure(it) }) { beginCut(listOf(plateObject).toParcels().first(), instance, profiles.toParcel()).toOutcome() }
+
+    override suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome =
+        remote({ CutPlaneOutcome.Failure(it) }) { describeCutPlane(plane.columns.toDoubleArray(), meshPrefix.value).toOutcome() }
+
+    override suspend fun endCut() = remote({}) { endCut() }
 
     override suspend fun saveProject(
         path: ScenePath,

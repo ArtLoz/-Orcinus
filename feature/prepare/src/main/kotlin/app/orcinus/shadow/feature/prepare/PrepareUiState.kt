@@ -4,6 +4,7 @@ import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.ObjectPartId
@@ -45,6 +46,7 @@ import app.orcinus.shadow.domain.plate.canDeletePlate
 import app.orcinus.shadow.domain.plate.canWorkOnPlate
 import app.orcinus.shadow.domain.plate.presetValue
 import app.orcinus.shadow.domain.plate.spiralVaseMode
+import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
@@ -79,6 +81,8 @@ data class PrepareUiState(
     val flatteningPlanes: List<FlatteningPlane>,
     /** The colour painting tool, while it is open on an object. */
     val painting: PaintingMode? = null,
+    /** The cut gizmo, while it is open on a copy. */
+    val cut: CutMode? = null,
     /** The wipe tower of the plate; null when the plate prints with one filament. */
     val wipeTower: WipeTower? = null,
     /** The tower the last slice built, which the plate shows once it is sliced. */
@@ -238,6 +242,8 @@ internal data class PrepareViewState(
     val wipeTowerSelected: Boolean = false,
     /** The colour painting tool, while it is open. */
     val painting: PaintingMode? = null,
+    /** The cut gizmo, while it is open. */
+    val cut: CutMode? = null,
     /** The arrange options window is open, as the pressed Arrange toolbar item shows it. */
     val arrangeOptionsOpen: Boolean = false,
     /** The Simplify gizmo, while it is open. */
@@ -291,6 +297,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         gizmo = gizmo.takeIf { selectedObject != null && canEditPlate },
         flatteningPlanes = if (gizmo == PlateGizmo.LAY_ON_FACE) view.flatteningPlanes else emptyList(),
         painting = view.painting?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
+        cut = view.cut?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,
         filamentColors = presets?.filamentColors.orEmpty().mapNotNull(::parseFilamentColor),
@@ -304,9 +311,10 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
         arrangeSettings = arrangeSettings,
         clipboard = clipboard,
-        // While the painting tool is open, Undo and Redo work on its strokes (the gizmo's stack).
-        canUndo = view.painting?.canUndo ?: canUndo,
-        canRedo = view.painting?.canRedo ?: canRedo,
+        // While the painting tool is open, Undo and Redo work on its strokes (the gizmo's stack),
+        // and while the cut gizmo is, on its plane.
+        canUndo = view.cut?.canUndo ?: view.painting?.canUndo ?: canUndo,
+        canRedo = view.cut?.canRedo ?: view.painting?.canRedo ?: canRedo,
         plateOrigins = plateOrigins(),
         currentPlate = currentPlate,
         canAddPlate = canAddPlate && canEditPlate,
@@ -368,3 +376,98 @@ private fun List<PlateObject>.withSimplified(mode: SimplifyMode, selected: Plate
 /** Whether the rotation and scale match [other]'s, within rounding. */
 private fun Transform3.hasLinearPartOf(other: Transform3): Boolean =
     (0 until 11).filter { it % 4 != 3 }.all { abs(columns[it] - other.columns[it]) < 1e-6 }
+
+/**
+ * GLGizmoCut3D while it is open on the copy at [instance] of the object with
+ * the [mesh] file, cutting with a plane: the plane in world coordinates, the
+ * bounding box of the copy's solid parts it started in, what the engine said of
+ * the plane, "After cut", and the gizmo's own snapshots of its plane, which
+ * Undo and Redo go through while it is open.
+ */
+data class CutMode(
+    val mesh: ScenePath,
+    val instance: Int,
+    /** GLGizmoCut3D::bounding_box(); null until the engine reported it. */
+    val boundsMin: Vector3? = null,
+    val boundsMax: Vector3? = null,
+    /** The plane (ObjectCut.plane); null until the bounding box is known. */
+    val plane: Transform3? = null,
+    /** What the engine said of [describedPlane], the plane as it stood when it was asked. */
+    val described: CutPlaneDescription? = null,
+    val describedPlane: Transform3? = null,
+    val keepUpper: Boolean = true,
+    val keepLower: Boolean = true,
+    /** "Cut to parts" */
+    val keepAsParts: Boolean = false,
+    val placeOnCutUpper: Boolean = true,
+    val placeOnCutLower: Boolean = false,
+    /** "Flip" (m_rotate_upper and m_rotate_lower). */
+    val flipUpper: Boolean = false,
+    val flipLower: Boolean = false,
+    /** The gizmo's snapshots (on_save()), the one shown at [snapshot]. */
+    val snapshots: List<CutSnapshot> = emptyList(),
+    val snapshot: Int = 0,
+) {
+    /** m_bb_center, where reset_cut_plane() puts the plane. */
+    val boundsCenter: Vector3?
+        get() {
+            val min = boundsMin ?: return null
+            val max = boundsMax ?: return null
+            return Vector3((min.x + max.x) / 2.0, (min.y + max.y) / 2.0, (min.z + max.z) / 2.0)
+        }
+
+    /** m_radius: BoundingBoxf3::radius(), half the diagonal of the bounding box. */
+    val radius: Double
+        get() {
+            val min = boundsMin ?: return 0.0
+            val max = boundsMax ?: return 0.0
+            val x = max.x - min.x
+            val y = max.y - min.y
+            val z = max.z - min.z
+            return 0.5 * kotlin.math.sqrt(x * x + y * y + z * z)
+        }
+
+    /** is_cut_plane_init: the plane stands where reset_cut_plane() puts it. */
+    val planeAtStart: Boolean
+        get() {
+            val plane = plane ?: return true
+            return CutPlanes.isUnrotated(plane) && CutPlanes.center(plane) == boundsCenter
+        }
+
+    /** can_perform_cut() of a planar cut without connectors: something is kept. */
+    val canPerform: Boolean get() = plane != null && (keepUpper || keepLower)
+
+    /** render_build_size(): the size of the transformed bounding box. */
+    val buildVolume: Vector3?
+        get() = described?.let { Vector3(it.max.x - it.min.x, it.max.y - it.min.y, it.max.z - it.min.z) }
+
+    val canUndo: Boolean get() = snapshot > 0
+    val canRedo: Boolean get() = snapshot < snapshots.lastIndex
+
+    /** Plater::TakeSnapshot of a GizmoAction: the gizmo as it is now, the ones undone before gone. */
+    fun snapshotted(): CutMode = copy(snapshots = snapshots.take(snapshot + 1) + current(), snapshot = snapshot + 1)
+
+    /** on_load() of the snapshot at [index]. */
+    fun restored(index: Int): CutMode {
+        val saved = snapshots[index]
+        return copy(
+            plane = saved.plane,
+            keepUpper = saved.keepUpper,
+            keepLower = saved.keepLower,
+            flipUpper = saved.flipUpper,
+            flipLower = saved.flipLower,
+            snapshot = index,
+        )
+    }
+
+    fun current() = CutSnapshot(plane, keepUpper, keepLower, flipUpper, flipLower)
+}
+
+/** What GLGizmoCut3D::on_save() keeps of the planar cut. */
+data class CutSnapshot(
+    val plane: Transform3?,
+    val keepUpper: Boolean,
+    val keepLower: Boolean,
+    val flipUpper: Boolean,
+    val flipLower: Boolean,
+)

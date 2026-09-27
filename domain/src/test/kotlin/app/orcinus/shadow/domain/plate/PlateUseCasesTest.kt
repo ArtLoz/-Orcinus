@@ -22,6 +22,9 @@ import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPlaneDescription
+import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.EnginePlate
@@ -63,6 +66,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectPartId
@@ -1024,6 +1028,26 @@ class PlateUseCasesTest {
         assertEquals(listOf(LOADED.instances.single().inspection.mesh, other.mesh), state.objects.map { it.mesh })
         assertEquals(setOf(PlateInstanceId(LOADED.instances.single().inspection.mesh)), state.selectedInstances)
         // The object before the edit waits for Undo.
+        assertEquals(listOf(CUBE, other), state.history.undo.single().objects)
+    }
+
+    @Test
+    fun `the cut gizmo cuts the object with its plane, and the halves join the end of the plate`() {
+        val upper = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/cut-0.mesh")))))
+        val lower = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/cut-1.mesh")))))
+        val other = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))))
+        val repository = FakeRepository(readyState(CUBE, other))
+        val inspector = FakeInspector()
+        inspector.editOutcome = { ModelLoadOutcome.Success(listOf(upper, lower), emptyList(), appended = true) }
+        val cut = ObjectCut(instance = 0, plane = Transform3.IDENTITY, keepLower = false, flipUpper = true, placeOnCutUpper = false)
+
+        EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope).cut(CUBE.mesh, cut)
+
+        val state = repository.state.value
+        assertEquals(FakeInspector.Edit(0, ObjectEdit.CUT, null, emptyMap(), cut), inspector.edits.single())
+        assertEquals(listOf(other.mesh, upper.instances.single().inspection.mesh, lower.instances.single().inspection.mesh), state.objects.map { it.mesh })
+        // Plater::apply_cut_object_to_model() selects the new objects; "Cut by Plane" is one step of Undo.
+        assertEquals(state.objects.drop(1).map { PlateInstanceId(it.mesh) }.toSet(), state.selectedInstances)
         assertEquals(listOf(CUBE, other), state.history.undo.single().objects)
     }
 
@@ -2948,7 +2972,7 @@ class PlateUseCasesTest {
         }
 
         /** A request to edit an object of the plate. */
-        data class Edit(val index: Int, val edit: ObjectEdit, val volume: Int?, val answers: Map<String, Boolean>)
+        data class Edit(val index: Int, val edit: ObjectEdit, val volume: Int?, val answers: Map<String, Boolean>, val cut: ObjectCut? = null)
 
         val edits = mutableListOf<Edit>()
 
@@ -2963,11 +2987,20 @@ class PlateUseCasesTest {
             profiles: SlicingProfileSelection,
             prefix: ScenePath,
             answers: Map<String, Boolean>,
+            cut: ObjectCut?,
         ): ModelLoadOutcome {
-            edits += Edit(index, edit, volume, answers)
+            edits += Edit(index, edit, volume, answers, cut)
             this.plate = plate
             return editOutcome(answers)
         }
+
+        override suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome =
+            CutObjectOutcome.Success(Vector3(-10.0, -10.0, 0.0), Vector3(10.0, 10.0, 20.0))
+
+        override suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome =
+            CutPlaneOutcome.Success(CutPlaneDescription(Vector3(-10.0, -10.0, -10.0), Vector3(10.0, 10.0, 10.0), validContour = true, contour = null))
+
+        override suspend fun endCut() = Unit
 
         data class Copy(val sources: List<PlacedModel>, val count: Int, val placement: CopyPlacement)
 
@@ -3186,6 +3219,7 @@ class PlateUseCasesTest {
         }
 
         override fun newPaintedMeshes(): ScenePath = ScenePath("/scene/objects/painted")
+        override fun newCutMeshes(): ScenePath = ScenePath("/scene/objects/cut")
         val created = mutableListOf<ScenePath>()
         val deleted = mutableListOf<ScenePath>()
         var clearedObjects = false

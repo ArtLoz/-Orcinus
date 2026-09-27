@@ -163,6 +163,24 @@ applies each kind to its ModelVolume facets (mmu_segmentation_facets,
 supported_facets, seam_facets, fuzzy_skin_facets), so the print changes
 filament, supports, seam or skin over the painted surface.
 
+## Cutting a model
+
+`beginCut(object, instance, profiles)` opens OrcaSlicer's cut gizmo
+(GLGizmoCut3D) on one copy of an object: the engine keeps the object, as the
+gizmo's clippers keep its meshes, until `endCut()`, and reports the bounding
+box of the copy's solid parts, whose centre the plane starts at.
+`describeCutPlane(plane, meshPrefix)` answers what the gizmo shows of a plane,
+given in world coordinates as a transformation (its centre and rotation; its
+normal is the rotated Z axis, with the upper part on that side): the bounding
+box of the solid parts in the plane's frame ("Build Volume"), whether the
+plane goes through the object (ObjectClipper::has_valid_contour), and the
+outline of the section, 0.4 mm wide, with the section itself, as meshes named
+after the prefix (MeshClipper's contour and filled cut). The cut itself is
+`edit(..., ObjectEdit.CUT, cut = ObjectCut(...))`: Cut::perform_with_plane()
+with the attributes of perform_cut(), the parts it keeps loaded at the end of
+the plate as load_model_objects() loads them, with the question whether to
+repair the edges the cut left open.
+
 A request that names presets other than the selected ones is still served as
 before: the adapter selects them on a copy of the configuration, and shows the
 remembered selection again at the next preset call.

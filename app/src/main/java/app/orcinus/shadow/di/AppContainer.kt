@@ -46,6 +46,7 @@ import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
 import app.orcinus.shadow.domain.plate.CustomFilamentsUseCase
 import app.orcinus.shadow.domain.plate.CustomPrinterUseCase
+import app.orcinus.shadow.domain.plate.CutObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
@@ -382,6 +383,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             setExtruder = setExtruder,
             setFlushOption = setFlushOption,
             enablePaintedFuzzySkin = EnablePaintedFuzzySkinUseCase(plateRepository, settingsTabs, applicationScope),
+            cutObject = CutObjectUseCase(engine, sceneFiles, plateRepository),
             copyProcessSettings = copyProcessSettings,
             pasteProcessSettings = pasteProcessSettings,
             exportObjectMesh = exportObjectMesh,

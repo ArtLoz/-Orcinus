@@ -3,6 +3,7 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PendingPlateQuestion
 import app.orcinus.shadow.core.model.PlateInstanceId
@@ -39,14 +40,22 @@ class EditPlateObjectUseCase(
     private val applicationScope: CoroutineScope,
 ) {
     /** [edit] of the object with the [mesh] file, or of its volume at [volume] (ObjectPartId.index). */
-    operator fun invoke(mesh: ScenePath, edit: ObjectEdit, volume: Int? = null) {
+    operator fun invoke(mesh: ScenePath, edit: ObjectEdit, volume: Int? = null) = start(PlateRequest.Edit(mesh, edit, volume))
+
+    /**
+     * GLGizmoCut3D::perform_cut(): the object with the [mesh] file cut by
+     * [cut]; the parts it keeps join the end of the plate's list, selected.
+     */
+    fun cut(mesh: ScenePath, cut: ObjectCut) = start(PlateRequest.Edit(mesh, ObjectEdit.CUT, cut = cut))
+
+    private fun start(request: PlateRequest.Edit) {
         var started = false
         repository.update { state ->
-            started = !state.busy && state.profiles != null && state.objects.withMesh(mesh) != null
+            started = !state.busy && state.profiles != null && state.objects.withMesh(request.mesh) != null
             if (started) state.copy(editing = true, problem = null) else state
         }
         if (!started) return
-        applicationScope.launch { run(PlateRequest.Edit(mesh, edit, volume), emptyMap(), emptyList()) }
+        applicationScope.launch { run(request, emptyMap(), emptyList()) }
     }
 
     /** The answer to the question the command asked: it runs again with every answer so far. */
@@ -68,7 +77,7 @@ class EditPlateObjectUseCase(
         if (index < 0 || profiles == null) return finish(request, ModelLoadOutcome.Failure("The object is not on the plate"), answers, shown)
         val prefix = sceneFiles.newImportPrefix()
         val outcome = try {
-            inspector.edit(state.objects.map { it.placed() }, index, request.edit, request.volume, profiles, prefix, answers)
+            inspector.edit(state.objects.map { it.placed() }, index, request.edit, request.volume, profiles, prefix, answers, request.cut)
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation

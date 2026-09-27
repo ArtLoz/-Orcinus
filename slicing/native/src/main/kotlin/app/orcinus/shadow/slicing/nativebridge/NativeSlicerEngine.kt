@@ -25,6 +25,9 @@ import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilament
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
+import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPlaneDescription
+import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPreset
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
@@ -60,6 +63,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectVolume
@@ -294,6 +298,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
         answers: Map<String, Boolean>,
+        cut: ObjectCut?,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -311,8 +316,51 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             outputPrefix = prefix.value,
             answerIds = answers.keys.toTypedArray(),
             answers = answers.values.toBooleanArray(),
+            cutInstance = cut?.instance ?: 0,
+            cutPlane = cut?.plane?.columns?.toDoubleArray() ?: DoubleArray(0),
+            cutFlags = cut?.flags() ?: BooleanArray(0),
         ).toOutcome()
     }
+
+    override suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome =
+        withContext(Dispatchers.IO) {
+            val engineStatus = status()
+            if (!engineStatus.ready) {
+                return@withContext CutObjectOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+            }
+            val cut = NativeBindings.beginCut(
+                plateObject = nativePlate(listOf(plateObject)),
+                instance = instance,
+                printerProfile = profiles.printer.value,
+                filamentProfile = profiles.filament.value,
+                filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                processProfile = profiles.process.value,
+            )
+            if (cut.status != NativeSceneStatus.SUCCESS) {
+                CutObjectOutcome.Failure(cut.message)
+            } else {
+                CutObjectOutcome.Success(cut.min.toVector(), cut.max.toVector())
+            }
+        }
+
+    override suspend fun describeCutPlane(plane: Transform3, meshPrefix: ScenePath): CutPlaneOutcome = withContext(Dispatchers.IO) {
+        val described = NativeBindings.describeCutPlane(plane.columns.toDoubleArray(), meshPrefix.value)
+        if (described.status != NativeSceneStatus.SUCCESS) {
+            CutPlaneOutcome.Failure(described.message)
+        } else {
+            CutPlaneOutcome.Success(
+                CutPlaneDescription(
+                    min = described.min.toVector(),
+                    max = described.max.toVector(),
+                    validContour = described.validContour,
+                    contour = described.contour.takeIf(String::isNotEmpty)?.let(::ScenePath),
+                    section = described.section.takeIf(String::isNotEmpty)?.let(::ScenePath),
+                ),
+            )
+        }
+    }
+
+    override suspend fun endCut() = withContext(Dispatchers.IO) { NativeBindings.endCut() }
 
     override suspend fun saveProject(
         path: ScenePath,
@@ -1886,3 +1934,8 @@ private fun ModelSettings.values(): Array<String> = values.values.toTypedArray()
 private fun List<ModelSettings>.keys(): Array<Array<String>> = Array(size) { this[it].keys() }
 
 private fun List<ModelSettings>.values(): Array<Array<String>> = Array(size) { this[it].values() }
+
+/** ObjectCut's flags in the order the native bridge reads them. */
+private fun ObjectCut.flags() = booleanArrayOf(keepUpper, keepLower, keepAsParts, placeOnCutUpper, placeOnCutLower, flipUpper, flipLower)
+
+private fun DoubleArray.toVector() = Vector3(this[0], this[1], this[2])

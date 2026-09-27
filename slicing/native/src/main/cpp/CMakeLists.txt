@@ -9,6 +9,7 @@ add_library(orca_engine_adapter STATIC
     config_manipulation.cpp
     create_presets.cpp
     create_printer.cpp
+    cut.cpp
     engine_context.cpp
     flush_volumes.cpp
     nanosvg.cpp

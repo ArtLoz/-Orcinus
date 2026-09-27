@@ -9,6 +9,9 @@ import app.orcinus.shadow.slicing.service.ConfigExportOptionsParcel;
 import app.orcinus.shadow.slicing.service.CreateFilamentOptionsParcel;
 import app.orcinus.shadow.slicing.service.CreatePrinterOptionsParcel;
 import app.orcinus.shadow.slicing.service.CustomFilamentsParcel;
+import app.orcinus.shadow.slicing.service.CutObjectParcel;
+import app.orcinus.shadow.slicing.service.CutParcel;
+import app.orcinus.shadow.slicing.service.CutPlaneParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
 import app.orcinus.shadow.slicing.service.FilamentPresetsParcel;
 import app.orcinus.shadow.slicing.service.ConfigTransferParcel;
@@ -76,8 +79,13 @@ interface ISlicerService {
         in ProfilesParcel profiles,
         String prefix,
         in String[] answerIds,
-        in boolean[] answers
+        in boolean[] answers,
+        in @nullable CutParcel cut
     );
+    /** begin_cut(): the cut gizmo opened on a copy of the object. */
+    CutObjectParcel beginCut(in PlacedModelParcel plateObject, int instance, in ProfilesParcel profiles);
+    CutPlaneParcel describeCutPlane(in double[] plane, String meshPrefix);
+    void endCut();
     /** save_project(): the error message, null once saved. */
     @nullable String saveProject(
         String path,

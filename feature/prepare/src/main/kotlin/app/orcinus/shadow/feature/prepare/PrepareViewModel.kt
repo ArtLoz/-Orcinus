@@ -3,6 +3,8 @@ package app.orcinus.shadow.feature.prepare
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.CutObjectOutcome
+import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlushOption
@@ -12,6 +14,7 @@ import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
@@ -50,6 +53,7 @@ import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
+import app.orcinus.shadow.domain.plate.CutObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
@@ -90,6 +94,7 @@ import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.ObjectTransforms
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
@@ -144,6 +149,7 @@ class PrepareViewModel(
     private val setExtruder: SetExtruderUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
     private val enablePaintedFuzzySkin: EnablePaintedFuzzySkinUseCase,
+    private val cutObject: CutObjectUseCase,
     private val copyProcessSettings: CopyProcessSettingsUseCase,
     private val pasteProcessSettings: PasteProcessSettingsUseCase,
     private val exportObjectMesh: ExportObjectMeshUseCase,
@@ -178,6 +184,14 @@ class PrepareViewModel(
      */
     private val gapAreas = Channel<Double?>(Channel.CONFLATED)
 
+    /** The planes the cut gizmo asks the engine about; a drag sends many, so only the last one waiting is described. */
+    private val cutPlanes = Channel<Transform3>(Channel.CONFLATED)
+
+    /** The cut gizmo as it was left, which it opens with again (the gizmo's members outlive it). */
+    private var lastCut: CutMode? = null
+    private var openingCut: Job? = null
+    private var closingCut: Job? = null
+
     /** What each painting tool was left with, which it opens with again, as the desktop gizmos keep it. */
     private val paintingTools = mutableMapOf<PaintKind, PaintingMode>()
     private val view = MutableStateFlow(PrepareViewState())
@@ -197,6 +211,14 @@ class PrepareViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), plate.value.toPrepareUiState(PrepareViewState()))
 
     init {
+        viewModelScope.launch {
+            for (plane in cutPlanes) {
+                if (view.value.cut == null) continue
+                val outcome = cutObject.describe(plane)
+                if (outcome !is CutPlaneOutcome.Success) continue
+                view.update { state -> state.cut?.let { state.copy(cut = it.copy(described = outcome.plane, describedPlane = plane)) } ?: state }
+            }
+        }
         viewModelScope.launch {
             for (area in gapAreas) {
                 if (view.value.painting != null) paintObject.setGapFill(area).also(::showStrokes)
@@ -342,6 +364,7 @@ class PrepareViewModel(
      * up work.
      */
     fun togglePainting(kind: PaintKind = PaintKind.COLOR) {
+        closeCut()
         val open = view.value.painting
         if (open != null) {
             closePainting()
@@ -371,7 +394,7 @@ class PrepareViewModel(
     /** check_gizmos_closed_except(): the gizmo opens once no other tool of the canvas is. */
     private fun startSimplify(volume: ObjectPartId) {
         val current = view.value
-        if (current.painting != null || current.gizmo != null) {
+        if (current.painting != null || current.gizmo != null || current.cut != null) {
             openSimplify.refuse()
             return
         }
@@ -490,6 +513,186 @@ class PrepareViewModel(
         viewModelScope.launch { paintObject.fillGaps().also(::showStrokes) }
     }
 
+    /**
+     * The toolbar's Cut (GLGizmoCut3D): the gizmo opens on the selected copy,
+     * the other tools closing first, or closes. Its plane starts at the centre
+     * of the copy's bounding box, not rotated, unless the gizmo was left on
+     * that very box (update_bb()); "After cut" stays as it was left.
+     */
+    fun toggleCut() {
+        if (view.value.cut != null) return closeCut()
+        val state = state.value
+        val copy = state.sceneCopies.getOrNull(state.selectedObject ?: -1) ?: return
+        if (!state.canManipulate) return
+        closePainting()
+        openSimplify.close()
+        val left = lastCut
+        val mode = CutMode(
+            mesh = copy.id.mesh,
+            instance = copy.id.instance,
+            keepUpper = left?.keepUpper ?: true,
+            keepLower = left?.keepLower ?: true,
+            keepAsParts = left?.keepAsParts ?: false,
+            placeOnCutUpper = left?.placeOnCutUpper ?: true,
+            placeOnCutLower = left?.placeOnCutLower ?: false,
+            flipUpper = left?.flipUpper ?: false,
+            flipLower = left?.flipLower ?: false,
+        )
+        view.update { it.copy(cut = mode, gizmo = null, arrangeOptionsOpen = false) }
+        val closing = closingCut
+        openingCut = viewModelScope.launch {
+            closing?.join()
+            val outcome = cutObject.begin(mode.mesh, mode.instance)
+            if (outcome !is CutObjectOutcome.Success) {
+                view.update { state -> if (state.cut?.mesh == mode.mesh) state.copy(cut = null) else state }
+                return@launch
+            }
+            val kept = left?.takeIf { it.mesh == mode.mesh && it.instance == mode.instance && it.boundsMin == outcome.min && it.boundsMax == outcome.max }
+            val bounds = mode.copy(boundsMin = outcome.min, boundsMax = outcome.max)
+            val plane = kept?.plane ?: CutPlanes.at(bounds.boundsCenter ?: return@launch)
+            val opened = bounds.copy(plane = plane).let { it.copy(snapshots = listOf(it.current()), snapshot = 0) }
+            view.update { state -> if (state.cut?.mesh == mode.mesh && state.cut.instance == mode.instance) state.copy(cut = opened) else state }
+            cutPlanes.trySend(plane)
+        }
+    }
+
+    /** "Cancel" (reset_all_gizmos()): the gizmo closes, and the engine lets its object go. */
+    fun closeCut() {
+        val open = view.value.cut ?: return
+        if (open.plane != null) lastCut = open
+        view.update { it.copy(cut = null) }
+        val opening = openingCut
+        closingCut = viewModelScope.launch {
+            opening?.join()
+            cutObject.end()
+        }
+    }
+
+    /**
+     * The plane a grabber of the 3D view moved or turned the cut to
+     * (on_dragging()); the plane keeps within reach of the object as
+     * set_center_pos() keeps it. [finished] once the finger let go, which takes
+     * the gizmo's snapshot ("Move cut plane", "Rotate cut plane").
+     */
+    fun setCutPlane(plane: Transform3, finished: Boolean) {
+        val mode = view.value.cut ?: return
+        val current = mode.plane ?: return
+        val placed = if (CutPlanes.sameRotation(plane, current)) movedCut(mode, CutPlanes.center(plane)) ?: current else plane
+        updateCut(finished) { it.copy(plane = placed) }
+    }
+
+    /** A tap on the plane outside the section: flip_cut_plane(). */
+    fun flipCutPlane() {
+        val plane = view.value.cut?.plane ?: return
+        updateCut(snapshot = true) { it.copy(plane = CutPlanes.flipped(plane)) }
+    }
+
+    /** "Cut position": the height of the plane's centre (render_move_center_input(Z)). */
+    fun setCutPosition(z: Double) {
+        val mode = view.value.cut ?: return
+        val plane = mode.plane ?: return
+        val center = CutPlanes.center(plane)
+        val moved = movedCut(mode, Vector3(center.x, center.y, z)) ?: return
+        updateCut(snapshot = true) { it.copy(plane = moved) }
+    }
+
+    /** "Reset cutting plane", and "Reset", which also takes the connectors off: reset_cut_plane(). */
+    fun resetCutPlane() {
+        val center = view.value.cut?.boundsCenter ?: return
+        updateCut(snapshot = true) { it.copy(plane = CutPlanes.at(center)) }
+    }
+
+    /** "Keep" of the upper part and of the lower part. */
+    fun setCutKeep(upper: Boolean, keep: Boolean) = updateCut(snapshot = false) {
+        if (it.keepAsParts) it else if (upper) it.copy(keepUpper = keep) else it.copy(keepLower = keep)
+    }
+
+    /** "Place on cut", which clears "Flip" of the part. */
+    fun setCutPlaceOnCut(upper: Boolean, place: Boolean) = updateCut(snapshot = false) {
+        when {
+            it.keepAsParts -> it
+            upper -> if (it.keepUpper) it.copy(placeOnCutUpper = place, flipUpper = if (place) false else it.flipUpper) else it
+            else -> if (it.keepLower) it.copy(placeOnCutLower = place, flipLower = if (place) false else it.flipLower) else it
+        }
+    }
+
+    /** "Flip", which clears "Place on cut" of the part. */
+    fun setCutFlip(upper: Boolean, flip: Boolean) = updateCut(snapshot = false) {
+        when {
+            it.keepAsParts -> it
+            upper -> if (it.keepUpper) it.copy(flipUpper = flip, placeOnCutUpper = if (flip) false else it.placeOnCutUpper) else it
+            else -> if (it.keepLower) it.copy(flipLower = flip, placeOnCutLower = if (flip) false else it.placeOnCutLower) else it
+        }
+    }
+
+    /** "Cut to parts": both halves kept as the parts of one object, neither placed on the cut nor flipped. */
+    fun setCutToParts(parts: Boolean) = updateCut(snapshot = false) {
+        if (parts) {
+            it.copy(
+                keepAsParts = true,
+                keepUpper = true,
+                keepLower = true,
+                placeOnCutUpper = false,
+                placeOnCutLower = false,
+                flipUpper = false,
+                flipLower = false,
+            )
+        } else {
+            it.copy(keepAsParts = false)
+        }
+    }
+
+    /** "Perform cut": the gizmo closes, then the object is cut (perform_cut()). */
+    fun performCut() {
+        val mode = view.value.cut?.takeIf { it.canPerform } ?: return
+        val plane = mode.plane ?: return
+        closeCut()
+        editPlateObject.cut(
+            mode.mesh,
+            ObjectCut(
+                instance = mode.instance,
+                plane = plane,
+                keepUpper = mode.keepUpper,
+                keepLower = mode.keepLower,
+                keepAsParts = mode.keepAsParts,
+                placeOnCutUpper = mode.placeOnCutUpper,
+                placeOnCutLower = mode.placeOnCutLower,
+                flipUpper = mode.flipUpper,
+                flipLower = mode.flipLower,
+            ),
+        )
+    }
+
+    /** set_center_pos(center, true): the plane at [center], or null where it would leave the object behind. */
+    private fun movedCut(mode: CutMode, center: Vector3): Transform3? {
+        val plane = mode.plane ?: return null
+        val described = mode.described
+        val describedPlane = mode.describedPlane
+        val boundsCenter = mode.boundsCenter
+        if (described != null && describedPlane != null && boundsCenter != null &&
+            !CutPlanes.mayMoveTo(plane, center, describedPlane, described.min, described.max, boundsCenter)
+        ) {
+            return null
+        }
+        return CutPlanes.withCenter(plane, center)
+    }
+
+    /** A change of the cut gizmo; one of the plane is described anew, and [snapshot] takes the gizmo's snapshot. */
+    private fun updateCut(snapshot: Boolean, change: (CutMode) -> CutMode) {
+        val before = view.value.cut ?: return
+        view.update { state -> state.cut?.let { mode -> change(mode).let { if (snapshot) it.snapshotted() else it } }?.let { state.copy(cut = it) } ?: state }
+        val after = view.value.cut ?: return
+        if (after.plane != null && after.plane != before.plane) cutPlanes.trySend(after.plane)
+    }
+
+    /** Undo and Redo while the cut gizmo is open: its snapshot at [index]. */
+    private fun restoreCut(index: Int) {
+        val before = view.value.cut ?: return
+        view.update { state -> state.cut?.let { state.copy(cut = it.restored(index)) } ?: state }
+        val after = view.value.cut ?: return
+        if (after.plane != null && after.plane != before.plane) cutPlanes.trySend(after.plane)
+    }
+
     /** "Enable painted fuzzy skin for this object" of the fuzzy skin tool's warning. */
     fun enablePaintedFuzzySkin() {
         val mode = view.value.painting?.takeIf { it.kind == PaintKind.FUZZY_SKIN } ?: return
@@ -572,6 +775,7 @@ class PrepareViewModel(
         val state = state.value
         if (!state.canManipulate) return
         openSimplify.close()
+        closeCut()
         view.update { view ->
             view.copy(
                 gizmo = if (state.gizmo == type) null else type,
@@ -661,11 +865,19 @@ class PrepareViewModel(
      * app switches to the gizmo's stack.
      */
     fun undo() {
+        view.value.cut?.let { mode ->
+            if (mode.canUndo) restoreCut(mode.snapshot - 1)
+            return
+        }
         if (view.value.painting == null) return undoRedoPlate.undo()
         viewModelScope.launch { paintObject.undo().also(::showStrokes) }
     }
 
     fun redo() {
+        view.value.cut?.let { mode ->
+            if (mode.canRedo) restoreCut(mode.snapshot + 1)
+            return
+        }
         if (view.value.painting == null) return undoRedoPlate.redo()
         viewModelScope.launch { paintObject.redo().also(::showStrokes) }
     }
