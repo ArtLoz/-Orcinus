@@ -1,52 +1,52 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.BedShape
-import app.orcinus.shadow.core.model.lockedPlates
-import app.orcinus.shadow.core.model.partPlates
-import app.orcinus.shadow.core.model.plateOrigin
-import app.orcinus.shadow.core.model.PartPlate
-import app.orcinus.shadow.core.model.PlateProject
-import app.orcinus.shadow.core.model.ModelLoad
-import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.BuildVolumeFit
-import app.orcinus.shadow.core.model.EnginePlate
+import app.orcinus.shadow.core.model.BuiltInModel
 import app.orcinus.shadow.core.model.ConfigExportKind
+import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
+import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
-import app.orcinus.shadow.core.model.PresetCreationOutcome
-import app.orcinus.shadow.core.model.FilamentPresetsOutcome
-import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
-import app.orcinus.shadow.core.model.BuiltInModel
-import app.orcinus.shadow.core.model.ConfigTransferOutcome
+import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.EngineAvailability
+import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.EngineState
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.FilamentPresetsOutcome
+import app.orcinus.shadow.core.model.FlushVolumesChange
+import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.core.model.ImportBatch
 import app.orcinus.shadow.core.model.ImportedModelFile
+import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerRange
-import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.LayerRangeId
+import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
+import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
+import app.orcinus.shadow.core.model.PartPlate
 import app.orcinus.shadow.core.model.PendingPlateQuestion
-import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.PendingPresetChange
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PhysicalPrintersOutcome
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
+import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
@@ -54,27 +54,24 @@ import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
+import app.orcinus.shadow.core.model.PlateProject
+import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
+import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.PresetKind
-import app.orcinus.shadow.core.model.ImportBatch
-import app.orcinus.shadow.core.model.HandyModel
-import app.orcinus.shadow.core.model.DialogIcon
-import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetTransfer
 import app.orcinus.shadow.core.model.PresetsOutcome
-import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
-import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsScope
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
@@ -87,20 +84,23 @@ import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.extruderNumber
+import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.plateOrigin
+import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withInstances
 import app.orcinus.shadow.core.model.withLayerRangeAt
 import app.orcinus.shadow.core.model.withLayerRanges
-import app.orcinus.shadow.core.model.withPart
-import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withName
+import app.orcinus.shadow.core.model.withPart
 import app.orcinus.shadow.core.model.withPartAt
-import app.orcinus.shadow.core.model.withVolume
-import app.orcinus.shadow.core.model.withVolumeAt
 import app.orcinus.shadow.core.model.withParts
 import app.orcinus.shadow.core.model.withSettings
+import app.orcinus.shadow.core.model.withVolume
+import app.orcinus.shadow.core.model.withVolumeAt
 import app.orcinus.shadow.domain.CancelSliceUseCase
 import app.orcinus.shadow.domain.GetEngineStatusUseCase
 import app.orcinus.shadow.domain.ImportModelUseCase
@@ -1417,6 +1417,8 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
             // made of its parts, which the app cannot load yet.
             val part = target?.parts?.getOrNull(id.index - 1)
             if (target == null || part == null || state.busy) return@update state
+            // A solid part or a negative volume of a part of a cut stays; the user is asked to invalidate the cut first.
+            target.cutVolumeQuestion(part.type)?.let { return@update state.copy(plateQuestion = it) }
             val kept = target.parts.filterIndexed { at, _ -> at != id.index - 1 }
             val updated = if (kept.isEmpty()) {
                 target.withParts(kept)
@@ -1903,11 +1905,26 @@ class RemovePlateInstanceUseCase(
  * deleted while the plate is busy.
  */
 class DeletePlateObjectUseCase(private val repository: PlateRepository) {
-    operator fun invoke(mesh: ScenePath) {
+    operator fun invoke(mesh: ScenePath) = delete(mesh, confirmed = false)
+
+    /** The warning about a part of a cut answered: Delete goes on, Cancel keeps the object. */
+    fun answer(yes: Boolean) {
+        val request = repository.state.value.plateQuestion?.request as? PlateRequest.DeleteCutObject ?: return
+        repository.update { it.copy(plateQuestion = null) }
+        if (yes) delete(request.mesh, confirmed = true)
+    }
+
+    private fun delete(mesh: ScenePath, confirmed: Boolean) {
         repository.update { state ->
-            if (state.busy || state.objects.withMesh(mesh) == null) return@update state
+            val target = state.objects.withMesh(mesh)
+            if (state.busy || target == null) return@update state
+            // Plater::priv::delete_object_from_model(): a part of a cut warns
+            // first, and the other parts of the cut lose it with it.
+            val cutId = target.cutId
+            if (cutId != null && !confirmed) return@update state.copy(plateQuestion = deleteCutObjectQuestion(PlateRequest.DeleteCutObject(mesh)))
+            val kept = if (cutId != null) state.objects.withoutCut(cutId) else state.objects
             state.recorded().copy(
-                objects = state.objects.filterNot { it.mesh == mesh },
+                objects = kept.filterNot { it.mesh == mesh },
                 // The settings follow the selection, which the deleted object leaves.
                 selectedInstances = state.selectedInstances.filterNot { it.mesh == mesh }.toSet(),
                 selectedPart = state.selectedPart?.takeUnless { it.mesh == mesh },

@@ -712,6 +712,12 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         if (!object.volume_input_file.empty()) {
             own.source.input_file = object.volume_input_file;
         }
+        own.cut_info = detail::cut_info_of(object.volume_cut_info);
+    }
+    // The cut the object is a part of (as _BBS_3MF_Importer applies it).
+    if (object.cut_id.id != 0) {
+        loaded->cut_id = Slic3r::CutObjectBase(Slic3r::ObjectID(std::size_t(object.cut_id.id)), std::size_t(object.cut_id.check_sum),
+                                               std::size_t(object.cut_id.connectors_cnt));
     }
     // The colours the object is painted with (GLGizmoMmuSegmentation),
     // which MultiMaterialSegmentation prints.
@@ -752,6 +758,7 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         volume->source.is_converted_from_inches = part.from_inches;
         volume->source.is_converted_from_meters = part.from_meters;
         volume->source.input_file = part.input_file;
+        volume->cut_info = detail::cut_info_of(part.cut_info);
         if (!apply_painted_facets(*volume, part.painted)) {
             message = "The painted facets of a part could not be read";
             return nullptr;
@@ -3174,6 +3181,12 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
         out.volume_from_inches = own.source.is_converted_from_inches;
         out.volume_from_meters = own.source.is_converted_from_meters;
         out.volume_input_file = own.source.input_file;
+        out.volume_cut_info = detail::cut_info_from(own.cut_info);
+        if (object.is_cut()) {
+            out.cut_id.id = object.cut_id.id().id;
+            out.cut_id.check_sum = object.cut_id.check_sum();
+            out.cut_id.connectors_cnt = object.cut_id.connectors_cnt();
+        }
         out.model_path = base + "-source.mesh";
         out.matrix = matrix_of(own.get_matrix());
         fs::create_directories(fs::path(out.model_path).parent_path());
@@ -3196,6 +3209,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             part.from_inches = source.source.is_converted_from_inches;
             part.from_meters = source.source.is_converted_from_meters;
             part.input_file = source.source.input_file;
+            part.cut_info = detail::cut_info_from(source.cut_info);
             if (!write_mesh(source.mesh().its, part.model_path)) {
                 result.status = SceneStatus::write_failed;
                 result.message = "Unable to write " + part.model_path;

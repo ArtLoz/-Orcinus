@@ -619,6 +619,10 @@ internal class NativePlate(
     /** The files every object's own mesh and every part were read from (ModelVolume::source.input_file). */
     @JvmField val volumeInputFiles: Array<String>,
     @JvmField val partInputFiles: Array<String>,
+    /** The cut every object is a part of, three each (CutId.values), and the cut info of every own mesh and part, six each (CutInfo.values). */
+    @JvmField val cutIds: LongArray,
+    @JvmField val volumeCutInfo: DoubleArray,
+    @JvmField val partCutInfo: DoubleArray,
 )
 
 /** Constructed by the native bridge; see ImportedObject in orca_engine_adapter.hpp. */
@@ -661,6 +665,10 @@ internal class NativeImportedObject(
     /** ModelVolume::source.input_file of its own mesh and of every part. */
     @JvmField val volumeInputFile: String,
     @JvmField val partInputFiles: Array<String>,
+    /** ModelObject::cut_id (CutId.values), and the cut info of its own mesh and of every part (CutInfo.values). */
+    @JvmField val cutId: LongArray,
+    @JvmField val volumeCutInfo: DoubleArray,
+    @JvmField val partCutInfo: DoubleArray,
 )
 
 /** Constructed by the native bridge; see ImportedModels in orca_engine_adapter.hpp. */

@@ -68,6 +68,7 @@ import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
+import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
@@ -138,6 +139,7 @@ class PrepareViewModel(
     private val selectLayerRange: SelectLayerRangeUseCase,
     private val setSettingsScope: SetSettingsScopeUseCase,
     private val editPlateObject: EditPlateObjectUseCase,
+    private val invalidateCutInfo: InvalidateCutInfoUseCase,
     private val clonePlateObjects: ClonePlateObjectsUseCase,
     private val separatePlateInstances: SeparatePlateInstancesUseCase,
     private val fillBedWithInstances: FillBedWithInstancesUseCase,
@@ -1108,6 +1110,9 @@ class PrepareViewModel(
 
     /** The object menu's commands that change the meshes of the object of the copy at [index]. */
     fun editObjectAt(index: Int, edit: ObjectEdit) = copyAt(index)?.let { editPlateObject(it.mesh, edit) }
+
+    /** "Invalidate cut info" over a copy of a part of a cut. */
+    fun invalidateCutInfoAt(index: Int) = copyAt(index)?.let { invalidateCutInfo(it.mesh) }
 
     /** "Fill bed with instances" over a copy, which the new copies are modelled on. */
     fun fillBedWith(index: Int) = copyAt(index)?.let { fillBedWithInstances(it.mesh, it.instance) }

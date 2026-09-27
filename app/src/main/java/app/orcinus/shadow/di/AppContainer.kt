@@ -67,6 +67,7 @@ import app.orcinus.shadow.domain.plate.GcodeSender
 import app.orcinus.shadow.domain.plate.GetSetupFilamentsUseCase
 import app.orcinus.shadow.domain.plate.GetSetupPrintersUseCase
 import app.orcinus.shadow.domain.plate.ImportConfigUseCase
+import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
@@ -308,7 +309,16 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     )
     private val pasteFromClipboard = PasteFromClipboardUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val undoRedoPlate = UndoRedoPlateUseCase(plateRepository, placePlateObjects, settingsTabs, applicationScope)
-    val answerPlateQuestion = AnswerPlateQuestionUseCase(plateRepository, addModelToPlate, editPlateObject, settingsTabs)
+    private val invalidateCutInfo = InvalidateCutInfoUseCase(plateRepository)
+    val answerPlateQuestion = AnswerPlateQuestionUseCase(
+        plateRepository,
+        addModelToPlate,
+        editPlateObject,
+        settingsTabs,
+        deletePlateObject,
+        copyToClipboard,
+        invalidateCutInfo,
+    )
     private val setFlushOption = SetFlushOptionUseCase(plateRepository, settingsTabs, applicationScope)
     private val openSimplify = OpenSimplifyUseCase(plateRepository)
     private val replaceAllVolumes = ReplaceAllVolumesUseCase(
@@ -363,6 +373,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             selectLayerRange = selectLayerRange,
             setSettingsScope = setSettingsScope,
             editPlateObject = editPlateObject,
+            invalidateCutInfo = invalidateCutInfo,
             clonePlateObjects = clonePlateObjects,
             separatePlateInstances = separatePlateInstances,
             fillBedWithInstances = fillBedWithInstances,
@@ -442,6 +453,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         addPlateInstance = addPlateInstance,
         addObjectPart = addObjectPart,
         removeObjectPart = removeObjectPart,
+        invalidateCutInfo = invalidateCutInfo,
         removePlateInstance = removePlateInstance,
         clonePlateObjects = clonePlateObjects,
         separatePlateInstances = separatePlateInstances,

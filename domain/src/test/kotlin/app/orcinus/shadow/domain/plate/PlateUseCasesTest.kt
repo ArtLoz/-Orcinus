@@ -1,6 +1,8 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.CutId
+import app.orcinus.shadow.core.model.CutInfo
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
@@ -1076,7 +1078,15 @@ class PlateUseCasesTest {
             assertTrue(asked.busy)
             assertEquals(PlateRequest.Edit(CUBE.mesh, ObjectEdit.SPLIT_TO_OBJECTS), asked.plateQuestion?.request)
 
-            AnswerPlateQuestionUseCase(repository, addModel(repository, ModelImportOutcome.Failure(ModelImportFailureCode.EMPTY_FILE, ""), inspector, FakeSceneFiles()), edit, settingsTabs(repository))(false)
+            AnswerPlateQuestionUseCase(
+                repository,
+                addModel(repository, ModelImportOutcome.Failure(ModelImportFailureCode.EMPTY_FILE, ""), inspector, FakeSceneFiles()),
+                edit,
+                settingsTabs(repository),
+                DeletePlateObjectUseCase(repository),
+                CopyToClipboardUseCase(inspector, FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), scope),
+                InvalidateCutInfoUseCase(repository),
+            )(false)
         }
 
         val state = repository.state.value
@@ -1201,6 +1211,47 @@ class PlateUseCasesTest {
         val instances = repository.state.value.objects.single().instances
         assertEquals(List(4) { translated(40.0 * it, 0.0, 0.0) }, instances.map { it.inspection.placement })
         assertTrue(instances.all { it.printable && it.autoDrop && !it.placing })
+    }
+
+    @Test
+    fun `a part of a cut warns before it goes, and the rest of its cut is no longer cut`() {
+        val cut = CutId(7, checkSum = 2)
+        val plug = ObjectPart("", VolumeType.PART, ScenePath("/scene/plug.mesh"), Transform3.IDENTITY, cutInfo = CutInfo(connector = true))
+        val upper = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/upper.mesh")))), cutId = cut)
+        val lower = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/lower.mesh")))), cutId = cut, parts = listOf(plug))
+        val repository = FakeRepository(readyState(upper, lower))
+        val delete = DeletePlateObjectUseCase(repository)
+
+        delete(upper.mesh)
+
+        assertEquals(listOf(upper, lower), repository.state.value.objects)
+        assertEquals(PlateRequest.DeleteCutObject(upper.mesh), repository.state.value.plateQuestion?.request)
+
+        delete.answer(true)
+
+        val left = repository.state.value.objects.single()
+        assertNull(repository.state.value.plateQuestion)
+        assertNull(left.cutId)
+        assertFalse(left.parts.single().cutInfo.connector)
+    }
+
+    @Test
+    fun `a solid part of a cut stays until its cut info is invalidated`() {
+        val cut = CutId(7)
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/part.mesh"), Transform3.IDENTITY)
+        val upper = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/upper.mesh")))), cutId = cut, parts = listOf(part))
+        val lower = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/lower.mesh")))), cutId = cut)
+        val repository = FakeRepository(readyState(upper, lower))
+
+        RemoveObjectPartUseCase(repository)(ObjectPartId(upper.mesh, 1))
+
+        assertEquals(listOf(part), repository.state.value.objects.first().parts)
+        assertEquals(PlateRequest.InvalidateCut(upper.mesh), repository.state.value.plateQuestion?.request)
+
+        InvalidateCutInfoUseCase(repository).answer(true)
+
+        assertEquals(listOf(null, null), repository.state.value.objects.map { it.cutId })
+        assertTrue(repository.state.value.history.undo.isNotEmpty())
     }
 
     @Test
@@ -1558,7 +1609,15 @@ class PlateUseCasesTest {
         assertEquals("Suggestion", repository.state.value.plateQuestion?.question?.title?.single()?.msgid)
 
         val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
-        AnswerPlateQuestionUseCase(repository, add, EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope), tabs)(true)
+        AnswerPlateQuestionUseCase(
+            repository,
+            add,
+            EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope),
+            tabs,
+            DeletePlateObjectUseCase(repository),
+            CopyToClipboardUseCase(inspector, FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), scope),
+            InvalidateCutInfoUseCase(repository),
+        )(true)
 
         assertNull(repository.state.value.plateQuestion)
         assertEquals(listOf(Triple(PresetKind.PRINT, "min_width_top_surface", "0")), editor.changes)

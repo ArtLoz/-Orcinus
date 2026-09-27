@@ -21,4 +21,6 @@ parcelable LoadedObjectParcel {
     boolean[] printables;
     @nullable String painted;
     @nullable LayerRangeParcel[] layerRanges;
+    /** The object's cut id flattened (CutId.values); null for none. */
+    @nullable long[] cutId;
 }

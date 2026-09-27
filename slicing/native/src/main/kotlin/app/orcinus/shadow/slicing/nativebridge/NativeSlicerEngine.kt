@@ -27,6 +27,8 @@ import app.orcinus.shadow.core.model.CustomFilament
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutGroove
+import app.orcinus.shadow.core.model.CutId
+import app.orcinus.shadow.core.model.CutInfo
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.CutPartsOutcome
@@ -1811,6 +1813,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     convertedFromInches = partFromInches[part],
                     convertedFromMeters = partFromMeters[part],
                     inputFile = partInputFiles[part],
+                    cutInfo = CutInfo.of(partCutInfo, CutInfo.SIZE * part),
                 )
             },
             settings = ModelSettings(settingKeys.zip(settingValues).toMap()),
@@ -1821,7 +1824,9 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 convertedFromInches = volumeFromInches,
                 convertedFromMeters = volumeFromMeters,
                 inputFile = volumeInputFile,
+                cutInfo = CutInfo.of(volumeCutInfo),
             ),
+            cutId = CutId.of(cutId),
             instances = instances.mapIndexed { index, instance ->
                 PlateInstance(instance.toInspection(mesh), autoDrop = autoDrops[index], printable = printables[index])
             },
@@ -1986,6 +1991,9 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
         volumeNames = Array(objects.size) { objects[it].volume.name },
         volumeInputFiles = Array(objects.size) { objects[it].volume.inputFile },
         partInputFiles = Array(parts.size) { parts[it].inputFile },
+        cutIds = objects.flatMap { (it.cutId?.values() ?: LongArray(CutId.SIZE)).asList() }.toLongArray(),
+        volumeCutInfo = objects.flatMap { it.volume.cutInfo.values().asList() }.toDoubleArray(),
+        partCutInfo = parts.flatMap { it.cutInfo.values().asList() }.toDoubleArray(),
     )
 }
 

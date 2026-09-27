@@ -1264,6 +1264,30 @@ Slic3r::ModelObject* split_cut_parts(Slic3r::Model& model, const Slic3r::ModelOb
     return model_object;
 }
 
+Slic3r::ModelVolume::CutInfo cut_info_of(const VolumeCutInfo& info)
+{
+    Slic3r::ModelVolume::CutInfo result;
+    result.is_from_upper = info.from_upper;
+    result.is_connector = info.connector;
+    result.is_processed = info.processed;
+    result.connector_type = Slic3r::CutConnectorType(info.connector_type);
+    result.radius_tolerance = float(info.radius_tolerance);
+    result.height_tolerance = float(info.height_tolerance);
+    return result;
+}
+
+VolumeCutInfo cut_info_from(const Slic3r::ModelVolume::CutInfo& info)
+{
+    VolumeCutInfo result;
+    result.from_upper = info.is_from_upper;
+    result.connector = info.is_connector;
+    result.processed = info.is_processed;
+    result.connector_type = int(info.connector_type);
+    result.radius_tolerance = info.radius_tolerance;
+    result.height_tolerance = info.height_tolerance;
+    return result;
+}
+
 Slic3r::Cut::Groove cut_groove(const CutGroove& groove)
 {
     Slic3r::Cut::Groove result;

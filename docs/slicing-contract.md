@@ -200,7 +200,11 @@ Cut::perform_with_plane() with the attributes of perform_cut(), plugs and
 snaps becoming parts of the lower half and holes in the upper one, dowels
 objects of their own, or Cut::perform_with_groove() for the dovetail cut, or
 Cut::perform_by_contour() of the object split at the pieces' plane for a cut
-by pieces (`ObjectCut.parts`); the parts it keeps are loaded at the end of
+by pieces (`ObjectCut.parts`). The objects the engine writes carry the cut
+they are parts of (ModelObject::cut_id as `CutId`) and what the cut made of
+each volume (ModelVolume::cut_info as `CutInfo`), and every object the app
+hands over carries them back, so a later cut, a copy, Undo and a 3MF project
+(Metadata/cut_information.xml of bbs_3mf) keep them; the parts it keeps are loaded at the end of
 the plate as load_model_objects() loads them, with the question whether to
 repair the edges the cut left open.
 

@@ -129,6 +129,8 @@ val orcaIconNames = listOf(
     "toolbar_support", "toolbar_text", "toolbar_variable_layer_height", "undo",
     // BBLTopbar: Undo and Redo.
     "topbar_undo", "topbar_redo",
+    // ObjectDataViewModel: the lock of a part of a cut (LockIcon) and its connectors' info item.
+    "cut_", "cut_connectors",
 )
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).

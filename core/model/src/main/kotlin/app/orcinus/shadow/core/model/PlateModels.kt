@@ -59,7 +59,78 @@ data class ObjectPart(
      * name "Replace all with 3D files" looks for; empty for a generated shape.
      */
     val inputFile: String = "",
+    /** ModelVolume::cut_info: whether a cut made it a connector. */
+    val cutInfo: CutInfo = CutInfo(),
 )
+
+/**
+ * ModelVolume::CutInfo: what a cut made of a volume — a connector of the
+ * [connectorType] with its tolerances, or not — and which part it came from.
+ */
+data class CutInfo(
+    val fromUpper: Boolean = true,
+    val connector: Boolean = false,
+    val processed: Boolean = true,
+    val connectorType: CutConnectorType = CutConnectorType.PLUG,
+    val radiusTolerance: Double = 0.0,
+    val heightTolerance: Double = 0.0,
+) {
+    /** Flattened as the engine reads it (VolumeCutInfo of orca_engine_adapter.hpp). */
+    fun values(): DoubleArray = doubleArrayOf(
+        if (fromUpper) 1.0 else 0.0,
+        if (connector) 1.0 else 0.0,
+        if (processed) 1.0 else 0.0,
+        connectorType.ordinal.toDouble(),
+        radiusTolerance,
+        heightTolerance,
+    )
+
+    /** CutInfo::invalidate(): no longer a connector. */
+    fun invalidated() = copy(connector = false)
+
+    companion object {
+        const val SIZE = 6
+
+        /** The cut info of [values] from [at], as [values] flattens it. */
+        fun of(values: DoubleArray?, at: Int = 0): CutInfo {
+            if (values == null || values.size < at + SIZE) return CutInfo()
+            return CutInfo(
+                fromUpper = values[at] != 0.0,
+                connector = values[at + 1] != 0.0,
+                processed = values[at + 2] != 0.0,
+                connectorType = CutConnectorType.entries.getOrElse(values[at + 3].toInt()) { CutConnectorType.PLUG },
+                radiusTolerance = values[at + 4],
+                heightTolerance = values[at + 5],
+            )
+        }
+    }
+}
+
+/**
+ * CutObjectBase (ModelObject::cut_id): the cut an object is a part of. The
+ * objects of one cut share [id]; [checkSum] and [connectorsCount] follow the
+ * cuts made of them since.
+ */
+data class CutId(val id: Long, val checkSum: Long = 1, val connectorsCount: Long = 0) {
+    /** CutObjectBase::has_same_id() */
+    fun hasSameId(other: CutId) = id == other.id
+
+    /** CutObjectBase::is_equal() */
+    fun isEqual(other: CutId) = this == other
+
+    /** Flattened as the engine reads it (ObjectCutId of orca_engine_adapter.hpp). */
+    fun values(): LongArray = longArrayOf(id, checkSum, connectorsCount)
+
+    companion object {
+        const val SIZE = 3
+
+        /** The cut id of [values] from [at]; null for none (an invalid id). */
+        fun of(values: LongArray?, at: Int = 0): CutId? {
+            if (values == null || values.size < at + SIZE || values[at] == 0L) return null
+            return CutId(values[at], values[at + 1], values[at + 2])
+        }
+    }
+}
 
 /**
  * An object's own mesh (its first ModelVolume), which OrcaSlicer's object list
@@ -76,6 +147,7 @@ data class ObjectVolume(
     val convertedFromInches: Boolean = false,
     val convertedFromMeters: Boolean = false,
     val inputFile: String = "",
+    val cutInfo: CutInfo = CutInfo(),
 )
 
 /**
@@ -124,6 +196,9 @@ sealed interface PlateObject {
     /** The painted triangles as meshes, which the 3D view draws in the filament colours. */
     val paintedMeshes: List<PaintedMesh>
 
+    /** ModelObject::cut_id: the cut the object is a part of; null for none. */
+    val cutId: CutId?
+
     /**
      * An object of a model file: [file] names its own mesh (its first volume)
      * and the object, and [frame] places that mesh in the object as the file
@@ -141,6 +216,7 @@ sealed interface PlateObject {
         override val volume: ObjectVolume = ObjectVolume(),
         /** The name of the document it came from (ModelObject::input_file), which names the G-code. */
         val inputName: String = file.displayName,
+        override val cutId: CutId? = null,
     ) : PlateObject
 
     /** The engine's built-in 20 mm calibration cube. */
@@ -154,6 +230,7 @@ sealed interface PlateObject {
         override val volume: ObjectVolume = ObjectVolume(),
         /** The name the user gave it; null for the app's own. */
         val name: String? = null,
+        override val cutId: CutId? = null,
     ) : PlateObject
 }
 
@@ -182,8 +259,31 @@ fun PlateObject.volumeAt(index: Int): ObjectPart? = when {
         convertedFromInches = volume.convertedFromInches,
         convertedFromMeters = volume.convertedFromMeters,
         inputFile = volume.inputFile,
+        cutInfo = volume.cutInfo,
     )
     else -> parts.getOrNull(index - 1)
+}
+
+/** ModelObject::is_cut(): the object is a part of a cut. */
+val PlateObject.isCut: Boolean get() = cutId != null
+
+/** ModelObject::has_connectors(): a volume of the object is a connector of its cut. */
+val PlateObject.hasConnectors: Boolean get() = volume.cutInfo.connector || parts.any { it.cutInfo.connector }
+
+/** ModelObject::invalidate_cut(): the object is no longer a part of a cut, nor its volumes connectors. */
+fun PlateObject.withoutCut(): PlateObject {
+    val parts = parts.map { it.copy(cutInfo = it.cutInfo.invalidated()) }
+    val volume = volume.copy(cutInfo = volume.cutInfo.invalidated())
+    return when (this) {
+        is PlateObject.ImportedModel -> copy(cutId = null, parts = parts, volume = volume)
+        is PlateObject.CalibrationCube -> copy(cutId = null, parts = parts, volume = volume)
+    }
+}
+
+/** The object as a part of the cut [cutId] (CutObjectBase::copy()). */
+fun PlateObject.withCutId(cutId: CutId?): PlateObject = when (this) {
+    is PlateObject.ImportedModel -> copy(cutId = cutId)
+    is PlateObject.CalibrationCube -> copy(cutId = cutId)
 }
 
 /** The volume at [index] of [volumeAt] with the settings of [volume]; its own mesh keeps its geometry. */
@@ -446,6 +546,15 @@ sealed interface PlateRequest {
      * Threshold" 0 for "Only one wall on top surfaces" to work best.
      */
     data object TopSurfaceSuggestion : PlateRequest
+
+    /** Deleting the object with the [mesh] file, a part of a cut (Plater::priv::delete_object_from_model()). */
+    data class DeleteCutObject(val mesh: ScenePath) : PlateRequest
+
+    /** Cut of the Edit menu erasing [copies], the last copies of parts of a cut among them. */
+    data class EraseCutObjects(val copies: Set<PlateInstanceId>) : PlateRequest
+
+    /** Deleting a volume of the object with the [mesh] file, a part of a cut (ObjectList::del_from_cut_object()). */
+    data class InvalidateCut(val mesh: ScenePath) : PlateRequest
 }
 
 /**

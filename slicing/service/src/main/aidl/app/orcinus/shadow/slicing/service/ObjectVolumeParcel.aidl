@@ -10,4 +10,6 @@ parcelable ObjectVolumeParcel {
     boolean convertedFromInches;
     boolean convertedFromMeters;
     String inputFile = "";
+    /** ObjectVolume.cutInfo flattened (CutInfo.values). */
+    @nullable double[] cutInfo;
 }

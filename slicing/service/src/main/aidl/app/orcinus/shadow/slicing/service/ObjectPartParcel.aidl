@@ -22,4 +22,6 @@ parcelable ObjectPartParcel {
     boolean convertedFromMeters;
     /** ModelVolume::source.input_file; empty for a generated shape. */
     String inputFile = "";
+    /** ObjectPart.cutInfo flattened (CutInfo.values). */
+    @nullable double[] cutInfo;
 }

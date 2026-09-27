@@ -32,4 +32,5 @@ internal fun PlateObject.placed() = PlacedModel(
         is PlateObject.ImportedModel -> file.displayName
         is PlateObject.CalibrationCube -> name.orEmpty()
     },
+    cutId = cutId,
 )

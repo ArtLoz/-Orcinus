@@ -237,6 +237,7 @@ internal fun PrepareRoute(
             },
             copyProcessSettings = viewModel::copyProcessSettingsAt,
             pasteProcessSettings = viewModel::pasteProcessSettingsAt,
+            invalidateCutInfo = viewModel::invalidateCutInfoAt,
             simplify = viewModel::simplifyAt,
             replace = { index ->
                 viewModel.copyOf(index)?.let { copy ->
@@ -747,6 +748,8 @@ internal class PrepareObjectMenuActions(
     val replaceAll: (index: Int) -> Unit,
     /** Opens where the object is written, suggesting a file named after it. */
     val export: (index: Int, MeshFormat, name: String) -> Unit,
+    /** "Invalidate cut info" of a part of a cut. */
+    val invalidateCutInfo: (index: Int) -> Unit = {},
 ) {
     companion object {
         val NONE = PrepareObjectMenuActions(
@@ -888,6 +891,7 @@ private fun ObjectContextMenu(
                 replace = { actions.replace(index) },
                 replaceAll = { actions.replaceAll(index) },
                 export = { format -> actions.export(index, format, name) },
+                invalidateCutInfo = { actions.invalidateCutInfo(index) },
             ),
             dismiss = onDismiss,
         )
@@ -1030,12 +1034,13 @@ private fun CanvasToolbar(
         gizmo(DesignR.drawable.orca_toolbar_rotate, R.string.gizmo_rotate, PlateGizmo.ROTATE)
         gizmo(DesignR.drawable.orca_toolbar_scale, R.string.gizmo_scale, PlateGizmo.SCALE)
         gizmo(DesignR.drawable.orca_toolbar_flatten, R.string.gizmo_lay_on_face, PlateGizmo.LAY_ON_FACE)
-        // GLGizmoCut3D: on_is_activable() is a single full instance selected.
+        // GLGizmoCut3D: on_is_activable() is a single full instance selected,
+        // but for the dowel a cut made an object of.
         OrcaCanvasTool(
             icon = DesignR.drawable.orca_toolbar_cut,
             contentDescription = stringResource(R.string.gizmo_cut),
             onClick = onToggleCut,
-            enabled = state.canManipulate,
+            enabled = state.canCut,
             selected = state.cut != null,
         )
         gizmo(DesignR.drawable.orca_toolbar_meshboolean, R.string.gizmo_mesh_boolean, null)

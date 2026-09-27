@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.sidebar
 
 import app.orcinus.shadow.core.ui.plate.conversionsOf
+import app.orcinus.shadow.core.model.isCut
+import app.orcinus.shadow.core.model.hasConnectors
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.conversionName
@@ -172,6 +174,8 @@ internal class ObjectListActions(
     val addModels: () -> Unit = {},
     /** Opens the folder picker whose files replace the volumes of the plate's objects (Plater::replace_all_with_stl). */
     val replaceAllOnPlate: (Int) -> Unit = {},
+    /** ObjectList::invalidate_cut_info_for_selection() of an object. */
+    val invalidateCutInfo: (ScenePath) -> Unit = {},
 )
 
 /** An item the user renames: an object or one of its volumes, with the name it has. */
@@ -330,7 +334,8 @@ private fun LazyListScope.objectRows(
         item(key = "objects:${mesh.value}") {
             ObjectListRow(
                 name = plateObject.displayName(),
-                icon = null,
+                // ObjectDataViewModel::AddObject(): a part of a cut has the lock.
+                icon = if (plateObject.isCut) DesignR.drawable.orca_cut_ else null,
                 selected = ids.any { it in state.selectedInstances },
                 hasSettings = plateObject.settings.categories(definitions).isNotEmpty(),
                 indent = true,
@@ -375,6 +380,7 @@ private fun LazyListScope.objectRows(
                             name = name,
                             copies = plateObject.instances.indices.toSet(),
                             delete = { actions.delete(mesh) },
+                            invalidateCutInfo = { actions.invalidateCutInfo(mesh) },
                             onChooseShape = onChooseShape,
                             onAskNumberOfInstances = onAskNumberOfInstances,
                             onAskClone = onAskClone,
@@ -384,10 +390,28 @@ private fun LazyListScope.objectRows(
                 },
             )
         }
+        // ObjectList::update_info_items(): a part of a cut with connectors has
+        // their item, which the desktop list selects them with.
+        if (plateObject.isCut && plateObject.hasConnectors && plateObject.parts.isNotEmpty()) {
+            item(key = "objects:${mesh.value}:cut-connectors") {
+                ObjectListRow(
+                    name = orcaString("Cut connectors"),
+                    icon = DesignR.drawable.orca_cut_connectors,
+                    selected = false,
+                    hasSettings = false,
+                    indent = true,
+                    deeper = true,
+                    enabled = enabled,
+                    onClick = { actions.select(ids.first(), picking) },
+                )
+            }
+        }
         // ObjectList::add_volumes_to_object_in_list(): once the object has
-        // parts, every volume has a row, its own mesh first.
-        (0..plateObject.parts.size).forEach { at ->
+        // parts, every volume has a row, its own mesh first, but for the
+        // connectors of a cut.
+        if (plateObject.listsVolumes()) (0..plateObject.parts.size).forEach { at ->
             val part = plateObject.volumeAt(at) ?: return@forEach
+            if (plateObject.isCut && part.cutInfo.connector) return@forEach
             val partId = ObjectPartId(mesh, at)
             item(key = "objects:${mesh.value}:part:$at") {
                 ObjectListRow(
@@ -759,6 +783,7 @@ private fun ObjectListActions.menuOf(
     name: String,
     copies: Set<Int>,
     delete: () -> Unit,
+    invalidateCutInfo: () -> Unit,
     onChooseShape: (ScenePath, VolumeType) -> Unit,
     onAskNumberOfInstances: (ScenePath) -> Unit,
     onAskClone: (ScenePath) -> Unit,
@@ -790,7 +815,19 @@ private fun ObjectListActions.menuOf(
     replace = { replaceVolume(id, 0) },
     replaceAll = { replaceAllVolumes(id) },
     export = { exportObject(id.mesh, it, name) },
+    invalidateCutInfo = invalidateCutInfo,
 )
+
+/**
+ * can_add_volumes_to_object(): an object with parts lists its volumes; a part
+ * of a cut only while more than its own solid mesh is left besides the connectors.
+ */
+private fun PlateObject.listsVolumes(): Boolean {
+    if (parts.isEmpty()) return false
+    if (!isCut) return true
+    val listed = (0..parts.size).mapNotNull { volumeAt(it) }.filterNot { it.cutInfo.connector }
+    return listed.any { it.type != VolumeType.PART } || listed.size > 1
+}
 
 /** ObjectList::rename_item(), first in the menu of a row. */
 @Composable

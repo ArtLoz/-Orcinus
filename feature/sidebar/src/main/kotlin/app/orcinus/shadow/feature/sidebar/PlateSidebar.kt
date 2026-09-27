@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.sidebar
 
 import android.content.res.Configuration
+import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -334,6 +335,7 @@ class SidebarViewModel(
     private val editPlateObject: EditPlateObjectUseCase,
     private val addObjectPart: AddObjectPartUseCase,
     private val removeObjectPart: RemoveObjectPartUseCase,
+    private val invalidateCutInfo: InvalidateCutInfoUseCase,
     private val removePlateInstance: RemovePlateInstanceUseCase,
     private val clonePlateObjects: ClonePlateObjectsUseCase,
     private val separatePlateInstances: SeparatePlateInstancesUseCase,
@@ -637,6 +639,9 @@ class SidebarViewModel(
     fun addPart(mesh: ScenePath, shape: String, type: VolumeType, name: String) = addObjectPart(mesh, shape, type, name)
 
     fun removePart(id: ObjectPartId) = removeObjectPart(id)
+
+    /** "Invalidate cut info" of an object's menu. */
+    fun invalidateCutInfoOf(mesh: ScenePath) = invalidateCutInfo(mesh)
 
     fun deleteObject(mesh: ScenePath) = deletePlateObject(mesh)
 
@@ -1319,6 +1324,7 @@ fun PlateSidebar(
             editObject = viewModel::editObject,
             addPart = viewModel::addPart,
             removePart = viewModel::removePart,
+            invalidateCutInfo = viewModel::invalidateCutInfoOf,
             selectPart = viewModel::chooseSettingsPart,
             selectPartSettings = viewModel::openSettingsOfPart,
             addRange = viewModel::addRange,

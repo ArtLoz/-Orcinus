@@ -12,6 +12,8 @@ import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CutGroove
+import app.orcinus.shadow.core.model.CutId
+import app.orcinus.shadow.core.model.CutInfo
 import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.CutPartsOutcome
@@ -233,6 +235,7 @@ internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(siz
         parcel.volume = placed.volume.toParcel()
         parcel.name = placed.name
         parcel.layerRanges = placed.layerRanges.toParcels()
+        parcel.cutId = placed.cutId?.values()
     }
 }
 
@@ -255,6 +258,7 @@ private fun ObjectVolume.toParcel() = ObjectVolumeParcel().also {
     it.convertedFromInches = convertedFromInches
     it.convertedFromMeters = convertedFromMeters
     it.inputFile = inputFile
+    it.cutInfo = cutInfo.values()
 }
 
 private fun ObjectVolumeParcel?.toObjectVolume(): ObjectVolume = this?.let {
@@ -265,6 +269,7 @@ private fun ObjectVolumeParcel?.toObjectVolume(): ObjectVolume = this?.let {
         convertedFromInches = it.convertedFromInches,
         convertedFromMeters = it.convertedFromMeters,
         inputFile = it.inputFile.orEmpty(),
+        cutInfo = CutInfo.of(it.cutInfo),
     )
 } ?: ObjectVolume()
 
@@ -282,6 +287,7 @@ internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map 
         frame = parcel.frame?.let { Transform3(it.toList()) },
         volume = parcel.volume.toObjectVolume(),
         name = parcel.name.orEmpty(),
+        cutId = CutId.of(parcel.cutId),
     )
 }
 
@@ -298,6 +304,7 @@ private fun ObjectPart.toParcel() = ObjectPartParcel().also {
     it.convertedFromInches = convertedFromInches
     it.convertedFromMeters = convertedFromMeters
     it.inputFile = inputFile
+    it.cutInfo = cutInfo.values()
 }
 
 private fun ObjectPartParcel.toObjectPart() = ObjectPart(
@@ -313,6 +320,7 @@ private fun ObjectPartParcel.toObjectPart() = ObjectPart(
     convertedFromInches = convertedFromInches,
     convertedFromMeters = convertedFromMeters,
     inputFile = inputFile.orEmpty(),
+    cutInfo = CutInfo.of(cutInfo),
 )
 
 internal fun ProjectPlate.toParcel() = ProjectPlateParcel().also {
@@ -364,6 +372,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
                 parcel.printables = loaded.instances.map(PlateInstance::printable).toBooleanArray()
                 parcel.painted = loaded.painted.value.takeUnless(String::isEmpty)
                 parcel.layerRanges = loaded.layerRanges.toParcels()
+                parcel.cutId = loaded.cutId?.values()
             }
         }.toTypedArray()
     }
@@ -391,6 +400,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
                 },
                 painted = PaintedFacets(parcel.painted.orEmpty()),
                 layerRanges = parcel.layerRanges.toLayerRanges(),
+                cutId = CutId.of(parcel.cutId),
             )
         },
         shown,

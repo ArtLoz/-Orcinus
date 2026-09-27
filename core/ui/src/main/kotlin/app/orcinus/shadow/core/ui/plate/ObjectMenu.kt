@@ -45,22 +45,23 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.Axis
+import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
-import app.orcinus.shadow.core.model.Transform3
-import app.orcinus.shadow.core.model.mesh
-import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
-import app.orcinus.shadow.core.model.VolumeType
-import app.orcinus.shadow.core.model.FlushOption
-import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SettingsItemKind
+import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.flushesInto
+import app.orcinus.shadow.core.model.isCut
+import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
 import kotlin.math.abs
@@ -117,6 +118,8 @@ data class ObjectMenuState(
      * for which Plater::export_stl() writes an empty mesh.
      */
     val canExport: Boolean = false,
+    /** append_menu_item_invalidate_cut_info(): the object is a part of a cut. */
+    val cut: Boolean = false,
 )
 
 /** A filament of the plate as "Change Filament" lists it: its preset (Preset::label) and colour. */
@@ -199,6 +202,7 @@ fun objectMenuState(
         canReplace = enabled && plateObject.parts.isEmpty() && (!wholeObject || plateObject.instances.size == 1),
         canReplaceAll = enabled && (plateObject.parts.isNotEmpty() || (wholeObject && plateObject.instances.size > 1)),
         canExport = enabled && (wholeObject || plateObject.instances.size == 1),
+        cut = plateObject.isCut,
     )
 }
 
@@ -282,6 +286,8 @@ class ObjectMenuActions(
     val replaceAll: () -> Unit,
     /** Opens where the object is exported to (Plater::export_stl). */
     val export: (MeshFormat) -> Unit,
+    /** ObjectList::invalidate_cut_info_for_selection() */
+    val invalidateCutInfo: () -> Unit,
 )
 
 /**
@@ -406,6 +412,8 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
     state.conversions.forEach { conversion ->
         OrcaMenuItem(text = orcaString(conversionName(conversion)), enabled = state.enabled, onClick = run { actions.edit(conversion) })
     }
+    // MenuFactory::object_menu(): "Invalidate cut info" for a part of a cut.
+    if (state.cut) OrcaMenuItem(text = orcaString("Invalidate cut info"), enabled = state.enabled, onClick = run(actions.invalidateCutInfo))
     ChangeFilamentItem(state.filaments, withDefault = false, enabled = state.enabled, onPick = { filament -> dismiss(); actions.setFilament(filament) })
 }
 

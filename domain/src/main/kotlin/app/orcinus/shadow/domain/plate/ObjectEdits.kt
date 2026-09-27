@@ -104,11 +104,14 @@ class EditPlateObjectUseCase(
                     val old = state.objects.withMesh(request.mesh)
                     if (old == null || outcome.objects.isEmpty()) return@update informed.copy(editing = false)
                     val edited = outcome.objects.map { it.toPlateObjectOf(old) }
-                    val objects = if (outcome.appended) {
+                    val placed = if (outcome.appended) {
                         state.objects.filterNot { it.mesh == old.mesh } + edited
                     } else {
                         state.objects.map { if (it.mesh == old.mesh) edited.single() else it }
                     }
+                    // perform_cut() ends with synchronize_model_after_cut().
+                    val cutId = edited.firstNotNullOfOrNull { it.cutId }.takeIf { request.edit == ObjectEdit.CUT }
+                    val objects = if (cutId != null) placed.synchronizedAfterCut(cutId) else placed
                     // The old object's meshes stay with the snapshot taken before the edit.
                     informed.recorded().copy(
                         editing = false,
@@ -131,11 +134,17 @@ class AnswerPlateQuestionUseCase(
     private val addModelToPlate: AddModelToPlateUseCase,
     private val editPlateObject: EditPlateObjectUseCase,
     private val settingsTabs: PresetSettingsTabs,
+    private val deletePlateObject: DeletePlateObjectUseCase,
+    private val copyToClipboard: CopyToClipboardUseCase,
+    private val invalidateCutInfo: InvalidateCutInfoUseCase,
 ) {
     operator fun invoke(yes: Boolean) = when (repository.state.value.plateQuestion?.request) {
         is PlateRequest.Import -> addModelToPlate.answer(yes)
         is PlateRequest.Edit -> editPlateObject.answer(yes)
         PlateRequest.TopSurfaceSuggestion -> suggestion(yes)
+        is PlateRequest.DeleteCutObject -> deletePlateObject.answer(yes)
+        is PlateRequest.EraseCutObjects -> copyToClipboard.answer(yes)
+        is PlateRequest.InvalidateCut -> invalidateCutInfo.answer(yes)
         null -> Unit
     }
 
@@ -164,6 +173,7 @@ internal fun LoadedObject.toPlateObject(inputName: String) = PlateObject.Importe
     volume = volume,
     painted = painted,
     layerRanges = layerRanges,
+    cutId = cutId,
 )
 
 /**

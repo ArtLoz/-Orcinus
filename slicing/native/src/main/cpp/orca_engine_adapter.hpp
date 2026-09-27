@@ -162,6 +162,26 @@ enum class VolumeType : std::int64_t {
     support_enforcer = 4,
 };
 
+// ModelVolume::CutInfo: what a cut made of a volume — a connector of
+// connector_type (CutConnectorType) with its tolerances, or not — and which
+// part it came from.
+struct VolumeCutInfo {
+    bool from_upper{true};
+    bool connector{false};
+    bool processed{true};
+    int connector_type{0};
+    double radius_tolerance{0.0};
+    double height_tolerance{0.0};
+};
+
+// CutObjectBase (ModelObject::cut_id): the cut an object is a part of; the
+// objects of one cut share id, which 0 leaves invalid (not a part of a cut).
+struct ObjectCutId {
+    std::uint64_t id{0};
+    std::uint64_t check_sum{1};
+    std::uint64_t connectors_cnt{0};
+};
+
 // A part of an object (ModelVolume): one of the shapes the desktop app
 // generates (ObjectList::load_generic_subobject), or a volume a model file
 // brought (Plater::priv::load_files), with its transformation in the object's
@@ -192,6 +212,7 @@ struct ObjectPart {
     // ModelVolume::source.input_file: the file the volume was read from, which
     // "Replace all with 3D files" looks for by name; empty for a generated shape.
     std::string input_file;
+    VolumeCutInfo cut_info;
 };
 
 // A height range of an object (one entry of ModelObject::layer_config_ranges):
@@ -239,6 +260,9 @@ struct PlateObject {
     bool volume_from_inches{false};
     bool volume_from_meters{false};
     std::string volume_input_file;
+    // The cut the object is a part of, and what the cut made of its own mesh.
+    ObjectCutId cut_id;
+    VolumeCutInfo volume_cut_info;
 };
 
 // Slices the objects of the plate and writes G-code to output_path only after
@@ -1320,6 +1344,7 @@ struct ImportedPart {
     bool from_meters{false};
     // ModelVolume::source.input_file
     std::string input_file;
+    VolumeCutInfo cut_info;
 };
 
 // An object a model file brought, placed on the plate.
@@ -1356,6 +1381,9 @@ struct ImportedObject {
     // ModelInstance::auto_drop and printable of every instance.
     std::vector<bool> auto_drops;
     std::vector<bool> printables;
+    // ModelObject::cut_id, and the cut info of its own mesh.
+    ObjectCutId cut_id;
+    VolumeCutInfo volume_cut_info;
 };
 
 // A plate of a project (PartPlate, PlateData of bbs_3mf.hpp): its name,

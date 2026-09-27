@@ -155,6 +155,8 @@ data class PlacedModel(
     val volume: ObjectVolume = ObjectVolume(),
     /** ModelObject::name; empty keeps the name the engine gives the model. */
     val name: String = "",
+    /** ModelObject::cut_id: the cut the object is a part of. */
+    val cutId: CutId? = null,
 )
 
 /**
@@ -177,6 +179,8 @@ data class LoadedObject(
     /** The facets of its own mesh painted with the filaments of the plate. */
     val painted: PaintedFacets = PaintedFacets(),
     val layerRanges: List<LayerRange> = emptyList(),
+    /** ModelObject::cut_id */
+    val cutId: CutId? = null,
 )
 
 /** The file formats "Export as one STL" and "Export as one DRC" write. */

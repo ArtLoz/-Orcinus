@@ -8,6 +8,7 @@ import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
+import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.mesh
@@ -93,10 +94,23 @@ class CopyToClipboardUseCase(
      * Selection::erase() of the copies, as one action ("Cut Selected Objects"):
      * an object whose every copy goes leaves the plate.
      */
-    private fun erase(copies: Set<PlateInstanceId>) = repository.update { state ->
+    /** The warning about parts of a cut answered: Delete erases the copies, Cancel keeps them. */
+    fun answer(yes: Boolean) {
+        val request = repository.state.value.plateQuestion?.request as? PlateRequest.EraseCutObjects ?: return
+        repository.update { it.copy(plateQuestion = null) }
+        if (yes) erase(request.copies, confirmed = true)
+    }
+
+    private fun erase(copies: Set<PlateInstanceId>, confirmed: Boolean = false) = repository.update { state ->
         if (state.busy) return@update state
         val taken = copies.groupBy(PlateInstanceId::mesh).mapValues { (_, ids) -> ids.mapTo(HashSet(), PlateInstanceId::instance) }
-        val objects = state.objects.mapNotNull { plateObject ->
+        // Plater::priv::delete_object_from_model() for every object whose last
+        // copies go: a part of a cut warns first, and the rest of its cut loses it.
+        val gone = state.objects.filter { plateObject -> taken[plateObject.mesh]?.size == plateObject.instances.size }
+        val cuts = gone.mapNotNull { it.cutId }
+        if (cuts.isNotEmpty() && !confirmed) return@update state.copy(plateQuestion = deleteCutObjectQuestion(PlateRequest.EraseCutObjects(copies)))
+        val uncut = cuts.fold(state.objects) { objects, cutId -> objects.withoutCut(cutId) }
+        val objects = uncut.mapNotNull { plateObject ->
             val gone = taken[plateObject.mesh] ?: return@mapNotNull plateObject
             val kept = plateObject.instances.filterIndexed { index, _ -> index !in gone }
             if (kept.isEmpty()) null else plateObject.withInstances(kept)

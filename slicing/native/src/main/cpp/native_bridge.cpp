@@ -640,6 +640,32 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
         plate[index].volume_input_file = volume_inputs[index];
     }
     const std::vector<std::string> part_inputs = to_strings(env, static_cast<jobjectArray>(field("partInputFiles", strings)));
+    // The cut every object is a part of (three each), and the cut info of its
+    // own mesh and of every part (six each, as VolumeCutInfo lists them).
+    const std::vector<std::int64_t> cut_ids = to_longs(env, static_cast<jlongArray>(field("cutIds", "[J")));
+    const std::vector<double> volume_cut_info = to_doubles(env, static_cast<jdoubleArray>(field("volumeCutInfo", "[D")));
+    const std::vector<double> part_cut_info = to_doubles(env, static_cast<jdoubleArray>(field("partCutInfo", "[D")));
+    const auto cut_info_at = [](const std::vector<double>& values, const std::size_t index) {
+        orcinus::orca::VolumeCutInfo info;
+        if (6 * (index + 1) <= values.size()) {
+            const double* value = values.data() + 6 * index;
+            info.from_upper = value[0] != 0.0;
+            info.connector = value[1] != 0.0;
+            info.processed = value[2] != 0.0;
+            info.connector_type = int(value[3]);
+            info.radius_tolerance = value[4];
+            info.height_tolerance = value[5];
+        }
+        return info;
+    };
+    for (std::size_t index = 0; index < plate.size(); ++index) {
+        if (3 * (index + 1) <= cut_ids.size()) {
+            plate[index].cut_id.id = std::uint64_t(cut_ids[3 * index]);
+            plate[index].cut_id.check_sum = std::uint64_t(cut_ids[3 * index + 1]);
+            plate[index].cut_id.connectors_cnt = std::uint64_t(cut_ids[3 * index + 2]);
+        }
+        plate[index].volume_cut_info = cut_info_at(volume_cut_info, index);
+    }
     // The mesh file and the name of every part, in the plate's order.
     const std::vector<std::string> sources = to_strings(env, static_cast<jobjectArray>(field("partSources", strings)));
     const std::vector<std::string> names = to_strings(env, static_cast<jobjectArray>(field("partNames", strings)));
@@ -657,6 +683,7 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
             if (part < part_inputs.size()) {
                 added.input_file = part_inputs[part];
             }
+            added.cut_info = cut_info_at(part_cut_info, part);
             ++part;
         }
     }
@@ -2882,8 +2909,26 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[J[Ljava/lang/String;[D"
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
-        "Ljava/lang/String;[Ljava/lang/String;)V"
+        "Ljava/lang/String;[Ljava/lang/String;[J[D[D)V"
     );
+    // The cut the object is a part of, and the cut info of its own mesh and of every part.
+    const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
+    const jlongArray cut_id_array = env->NewLongArray(3);
+    env->SetLongArrayRegion(cut_id_array, 0, 3, cut_id);
+    const auto cut_info_values = [](const orcinus::orca::VolumeCutInfo& info, std::vector<double>& values) {
+        values.push_back(info.from_upper ? 1.0 : 0.0);
+        values.push_back(info.connector ? 1.0 : 0.0);
+        values.push_back(info.processed ? 1.0 : 0.0);
+        values.push_back(double(info.connector_type));
+        values.push_back(info.radius_tolerance);
+        values.push_back(info.height_tolerance);
+    };
+    std::vector<double> volume_cut_info;
+    cut_info_values(object.volume_cut_info, volume_cut_info);
+    std::vector<double> part_cut_info;
+    for (const orcinus::orca::ImportedPart& part : object.parts) {
+        cut_info_values(part.cut_info, part_cut_info);
+    }
     return env->NewObject(
         object_class,
         constructor,
@@ -2917,7 +2962,10 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         to_java_bools(env, object.auto_drops),
         to_java_bools(env, object.printables),
         to_java(env, object.volume_input_file),
-        to_java(env, part_inputs)
+        to_java(env, part_inputs),
+        cut_id_array,
+        to_java(env, volume_cut_info.data(), volume_cut_info.size()),
+        to_java(env, part_cut_info.data(), part_cut_info.size())
     );
 }
 

@@ -27,4 +27,6 @@ parcelable PlacedModelParcel {
     @nullable ObjectVolumeParcel volume;
     /** ModelObject::name; empty keeps the engine's. */
     String name = "";
+    /** The object's cut id flattened (CutId.values); null for none. */
+    @nullable long[] cutId;
 }

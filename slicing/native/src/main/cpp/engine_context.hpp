@@ -102,6 +102,10 @@ void apply_cut_connectors(Slic3r::ModelObject& object, const ObjectCut& cut, con
 // Cut::Groove of the dovetail cut.
 Slic3r::Cut::Groove cut_groove(const CutGroove& groove);
 
+// ModelVolume::CutInfo as the app keeps it, and back.
+Slic3r::ModelVolume::CutInfo cut_info_of(const VolumeCutInfo& info);
+VolumeCutInfo cut_info_from(const Slic3r::ModelVolume::CutInfo& info);
+
 // The object of GLGizmoCut3D::PartSelection: object cut at its copy instance
 // by cut_matrix into the parts of one object, each solid part split into its
 // pieces, alone in model.

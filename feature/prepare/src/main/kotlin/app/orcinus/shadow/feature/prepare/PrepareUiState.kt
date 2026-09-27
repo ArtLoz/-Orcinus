@@ -37,6 +37,7 @@ import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.parseFilamentColor
@@ -157,6 +158,17 @@ data class PrepareUiState(
 ) {
     /** GLGizmoBase::on_is_activable() for the manipulation gizmos: an object is selected. */
     val canManipulate: Boolean get() = selectedObject != null && canEditPlate
+
+    /**
+     * GLGizmoCut3D::on_is_activable(): a copy to cut, which is not a dowel a
+     * cut made an object of (a part of a cut whose one volume is that connector).
+     */
+    val canCut: Boolean
+        get() {
+            val selected = sceneCopies.getOrNull(selectedObject ?: -1)?.plateObject ?: return false
+            val dowel = selected.isCut && selected.parts.isEmpty() && selected.volume.cutInfo.let { it.connector && it.connectorType == CutConnectorType.DOWEL }
+            return canManipulate && !dowel
+        }
 
     /** The colour painting tool needs a selected object and more than one filament. */
     val canPaint: Boolean get() = canManipulate && filamentColors.size > 1

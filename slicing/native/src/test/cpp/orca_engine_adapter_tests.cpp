@@ -3193,6 +3193,8 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
     object.volume_from_meters = imported.volume_from_meters;
     object.volume_input_file = imported.volume_input_file;
     object.layer_ranges = imported.layer_ranges;
+    object.cut_id = imported.cut_id;
+    object.volume_cut_info = imported.volume_cut_info;
     for (const orca::ImportedPart& part : imported.parts) {
         orca::ObjectPart& added = object.parts.emplace_back();
         added.model_path = part.model_path;
@@ -3204,6 +3206,7 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
         added.from_inches = part.from_inches;
         added.from_meters = part.from_meters;
         added.input_file = part.input_file;
+        added.cut_info = part.cut_info;
     }
     for (std::size_t index = 0; index < imported.instances.size(); ++index) {
         orca::ObjectPlacement& instance = object.instances.emplace_back();
@@ -3611,6 +3614,36 @@ TEST_CASE("The cut gizmo checks its connectors and cuts with them", "[Adapter][E
     }
     CHECK(plugs == 1);
     CHECK(holes == 1);
+
+    // The halves are the parts of one cut (ModelObject::cut_id), the plug and
+    // the hole its connectors (ModelVolume::cut_info).
+    const orca::ObjectCutId first = plugged.objects.front().cut_id;
+    REQUIRE(first.id != 0);
+    CHECK(plugged.objects.back().cut_id.id == first.id);
+    CHECK(plugged.objects.back().cut_id.check_sum == first.check_sum);
+    for (const orca::ImportedObject& half : plugged.objects) {
+        CHECK_FALSE(half.volume_cut_info.connector);
+        for (const orca::ImportedPart& part : half.parts) {
+            CHECK(part.cut_info.connector);
+        }
+    }
+    // Loaded again, a half is still a part of that cut: cutting it once more
+    // keeps the cut (no InvalidateCutInfo) and counts the parts it adds.
+    const std::vector<orca::PlateObject> halves{plate_object_of(plugged.objects.front()), plate_object_of(plugged.objects.back())};
+    const auto& half_placement = plugged.objects.front().instances.front().instance_matrix;
+    orca::ObjectCut again;
+    again.plane = plane;
+    again.plane[12] = half_placement[12];
+    again.plane[13] = half_placement[13];
+    again.plane[14] = 0.5 * plugged.objects.front().instances.front().size_z;
+    const orca::ImportedModels quarters = orca::edit_object(halves, 0, orca::ObjectEdit::cut, -1, k2_plus_profiles(), import_prefix("cut-again"), {}, again);
+    INFO(quarters.message);
+    REQUIRE(quarters.status == orca::SceneStatus::success);
+    REQUIRE(quarters.objects.size() == 2);
+    for (const orca::ImportedObject& quarter : quarters.objects) {
+        CHECK(quarter.cut_id.id == first.id);
+        CHECK(quarter.cut_id.check_sum == first.check_sum + 1);
+    }
 
     // A dowel: an object of its own, with a hole in either half.
     cut.connectors.front().type = 1;
