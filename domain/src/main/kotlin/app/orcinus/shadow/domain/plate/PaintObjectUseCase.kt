@@ -70,6 +70,18 @@ class PaintObjectUseCase(
         return outcome
     }
 
+    /**
+     * GLGizmoFuzzySkin's warning: fuzzy skin is disabled for the object [mesh]
+     * names, by its own settings or else by the process preset, so the fuzzy
+     * skin painted on it does not take effect.
+     */
+    suspend fun fuzzySkinDisabled(mesh: ScenePath): Boolean {
+        val state = repository.state.value
+        val target = state.objects.firstOrNull { it.mesh == mesh } ?: return false
+        val profiles = state.profiles ?: return false
+        return inspector.fuzzySkinDisabled(target.placed(), profiles)
+    }
+
     /** The tool's own Undo and Redo of a stroke (the gizmo's undo/redo stack). */
     suspend fun undo(): PaintingOutcome = step { prefix -> inspector.undoPainting(prefix) }
 

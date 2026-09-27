@@ -707,6 +707,12 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         case PaintTool::gap_fill:
             // The gap fill paints no strokes (GLGizmoPainterBase::gizmo_event()).
             break;
+        case PaintTool::triangle:
+            // The Triangles tool: the triangle under the finger alone, which the
+            // stroke paints as it passes over one after another.
+            current.selector->bucket_fill_select_triangles(position, hit.face(), clipping_plane, -1.f, false, true);
+            current.selector->seed_fill_apply_on_triangles(state);
+            break;
         case PaintTool::bucket:
             current.selector->bucket_fill_select_triangles(
                 position,
@@ -881,6 +887,25 @@ PaintingState end_painting()
     current.mesh = Slic3r::TriangleMesh();
     current.painting = KindFacets();
     return result;
+}
+
+bool fuzzy_skin_disabled(const PlateObject& object, const ProfileSelection& profiles)
+{
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    if (detail::engine().bundle == nullptr) {
+        return false;
+    }
+    Slic3r::DynamicPrintConfig config;
+    std::string message;
+    if (detail::select_profiles(*detail::engine().bundle, profiles, config, message) != SliceStatus::success) {
+        return false;
+    }
+    // GLGizmoFuzzySkin::on_render_input_window(): the object's own value, or
+    // else the process preset's.
+    const Slic3r::DynamicPrintConfig object_config = detail::model_config(object.settings);
+    const Slic3r::DynamicPrintConfig& effective = object_config.option("fuzzy_skin") != nullptr ? object_config : config;
+    const auto* fuzzy_skin = effective.option<Slic3r::ConfigOptionEnum<Slic3r::FuzzySkinType>>("fuzzy_skin");
+    return fuzzy_skin != nullptr && fuzzy_skin->value == Slic3r::FuzzySkinType::Disabled_fuzzy;
 }
 
 }  // namespace orcinus::orca

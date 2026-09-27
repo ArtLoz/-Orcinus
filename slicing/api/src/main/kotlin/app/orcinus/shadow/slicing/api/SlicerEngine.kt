@@ -408,6 +408,13 @@ interface PlateInspector {
     /** One touch of a finger on the model being painted. */
     suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome
 
+    /**
+     * GLGizmoFuzzySkin's warning: fuzzy skin is "Disabled" for [plateObject],
+     * by its own settings or else by the process preset of [profiles], so the
+     * fuzzy skin painted on it does not take effect.
+     */
+    suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean
+
     /** The painting tool's own Undo and Redo: the painting before the last stroke, or after the one undone. */
     suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome
 

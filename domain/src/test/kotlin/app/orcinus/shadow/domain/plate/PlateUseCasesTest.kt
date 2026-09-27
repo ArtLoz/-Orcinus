@@ -2827,6 +2827,8 @@ class PlateUseCasesTest {
             return PaintingOutcome.Success(painted(meshPrefix))
         }
 
+        override suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean = false
+
         override suspend fun endPainting(): PaintingOutcome =
             PaintingOutcome.Success(PaintedSurface(facets = PaintedFacets("painted")))
 

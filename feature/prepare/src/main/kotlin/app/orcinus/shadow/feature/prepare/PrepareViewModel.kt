@@ -11,6 +11,7 @@ import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
@@ -23,6 +24,9 @@ import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.PresetSettings
+import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SettingsScope
@@ -50,6 +54,7 @@ import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
@@ -138,6 +143,7 @@ class PrepareViewModel(
     private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
     private val setExtruder: SetExtruderUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
+    private val enablePaintedFuzzySkin: EnablePaintedFuzzySkinUseCase,
     private val copyProcessSettings: CopyProcessSettingsUseCase,
     private val pasteProcessSettings: PasteProcessSettingsUseCase,
     private val exportObjectMesh: ExportObjectMeshUseCase,
@@ -195,6 +201,19 @@ class PrepareViewModel(
             for (area in gapAreas) {
                 if (view.value.painting != null) paintObject.setGapFill(area).also(::showStrokes)
             }
+        }
+        // GLGizmoFuzzySkin warns while fuzzy skin is disabled for the object it
+        // paints, as the object's settings and the process preset have it now.
+        viewModelScope.launch {
+            val fuzzySkinPainting = view.map { it.painting?.takeIf { mode -> mode.kind == PaintKind.FUZZY_SKIN }?.mesh }.distinctUntilChanged()
+            combine(plate, fuzzySkinPainting) { state, mesh -> mesh?.let { FuzzySkinSettings.of(state, it) } }
+                .distinctUntilChanged()
+                .collectLatest { settings ->
+                    val disabled = settings != null && paintObject.fuzzySkinDisabled(settings.mesh)
+                    view.update { state ->
+                        state.painting?.takeIf { it.kind == PaintKind.FUZZY_SKIN }?.let { state.copy(painting = it.copy(fuzzySkinDisabled = disabled)) } ?: state
+                    }
+                }
         }
         // "Simplify Model" opens the gizmo from the canvas and from the object
         // list; it closes once the plate no longer has the volume.
@@ -469,6 +488,12 @@ class PrepareViewModel(
     fun fillGaps() {
         if (view.value.painting?.tool != PaintTool.GAP_FILL) return
         viewModelScope.launch { paintObject.fillGaps().also(::showStrokes) }
+    }
+
+    /** "Enable painted fuzzy skin for this object" of the fuzzy skin tool's warning. */
+    fun enablePaintedFuzzySkin() {
+        val mode = view.value.painting?.takeIf { it.kind == PaintKind.FUZZY_SKIN } ?: return
+        enablePaintedFuzzySkin(mode.mesh)
     }
 
     /** "Highlight overhang areas", which the 3D view tints the object with. */
@@ -848,5 +873,25 @@ class PrepareViewModel(
         // GizmoObjectManipulation.cpp: MAX_NUM, and the change it ignores (EPSILON).
         const val MAX_NUM = 9999.99
         const val POSITION_EPSILON = 1e-4
+    }
+}
+
+/**
+ * What fuzzy skin of the object painted with it comes from: the object's own
+ * settings, the presets chosen and the process preset's values as edited.
+ */
+private data class FuzzySkinSettings(
+    val mesh: ScenePath,
+    val settings: ModelSettings?,
+    val presets: Presets?,
+    val process: PresetSettings?,
+) {
+    companion object {
+        fun of(state: PlateState, mesh: ScenePath) = FuzzySkinSettings(
+            mesh = mesh,
+            settings = state.objects.firstOrNull { it.mesh == mesh }?.settings,
+            presets = state.presets,
+            process = state.settingsTabs[PresetKind.PRINT]?.settings,
+        )
     }
 }

@@ -92,6 +92,36 @@ class SetFlushOptionUseCase(
     }
 }
 
+/**
+ * "Enable painted fuzzy skin for this object" of GLGizmoFuzzySkin's warning:
+ * the object's fuzzy skin becomes "Painted only" (FuzzySkinType::None), so
+ * what is painted takes effect. The desktop app sets the object's config
+ * without a step of Undo; the settings shown follow.
+ */
+class EnablePaintedFuzzySkinUseCase(
+    private val repository: PlateRepository,
+    private val settingsTabs: PresetSettingsTabs,
+    private val applicationScope: CoroutineScope,
+) {
+    operator fun invoke(mesh: ScenePath) {
+        var changed = false
+        repository.update { state ->
+            val target = state.objects.withMesh(mesh)
+            if (state.busy || target == null) return@update state
+            changed = true
+            state.copy(
+                objects = state.objects.replaced(target.withSettings(ModelSettings(target.settings.values + (FUZZY_SKIN to FUZZY_SKIN_PAINTED_ONLY)))),
+                result = null,
+            )
+        }
+        if (changed) applicationScope.launch { settingsTabs.refresh() }
+    }
+}
+
+/** The fuzzy_skin option, and its "Painted only" as OrcaSlicer writes it into a project. */
+private const val FUZZY_SKIN = "fuzzy_skin"
+private const val FUZZY_SKIN_PAINTED_ONLY = "none"
+
 /** ConfigOptionBool as OrcaSlicer writes it into a project. */
 private fun configBool(value: Boolean): String = if (value) "1" else "0"
 

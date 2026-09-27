@@ -488,6 +488,9 @@ class RemoteSlicerEngine(
         }
     }
 
+    override suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean =
+        remote({ false }) { fuzzySkinDisabled(listOf(plateObject).toParcels().first(), profiles.toParcel()) }
+
     override suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
         try {
             service().paintStroke(

@@ -5077,6 +5077,68 @@ TEST_CASE("The seam stands where it is enforced", "[Adapter][Scene]")
     CHECK(on_face(seam_points("seam-enforced")) > 10);
 }
 
+TEST_CASE("Painted fuzzy skin roughens the walls where it is painted", "[Adapter][Scene]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("fuzzy.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const std::vector<double> center = matrix_of(cube);
+
+    // The process preset has fuzzy skin "Painted only"; an object of its own
+    // with it "Disabled" is what the tool warns of, until the object has it
+    // "Painted only" again.
+    CHECK_FALSE(orca::fuzzy_skin_disabled(plate.front(), k2_plus_profiles()));
+    plate.front().settings.keys = {"fuzzy_skin"};
+    plate.front().settings.values = {"disabled_fuzzy"};
+    CHECK(orca::fuzzy_skin_disabled(plate.front(), k2_plus_profiles()));
+    plate.front().settings.values = {"none"};
+    CHECK_FALSE(orca::fuzzy_skin_disabled(plate.front(), k2_plus_profiles()));
+
+    // How many moves the outer walls are extruded with.
+    const auto outer_moves = [&](const std::string& name) {
+        const std::string output = output_path(name + ".gcode");
+        const orca::SliceResult sliced = orca::slice(name, plate, output, {}, k2_plus_profiles(), {}, {});
+        INFO(sliced.message);
+        REQUIRE(sliced.status == orca::SliceStatus::success);
+        std::istringstream gcode(read_file(output));
+        std::size_t moves = 0;
+        bool outer = false;
+        for (std::string line; std::getline(gcode, line);) {
+            if (line.rfind(";TYPE:", 0) == 0) {
+                outer = line == ";TYPE:Outer wall";
+            } else if (outer && line.rfind("G1 ", 0) == 0 && line.find(" E") != std::string::npos) {
+                ++moves;
+            }
+        }
+        return moves;
+    };
+    const std::size_t plain = outer_moves("fuzzy-plain");
+
+    // GLGizmoFuzzySkin: Triangles adds fuzzy skin to one triangle of the +X
+    // face, seen from +X.
+    const std::string prefix = output_path("fuzzy-paint");
+    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::fuzzy_skin, k2_plus_profiles(), {}, prefix).status ==
+            orca::SceneStatus::success);
+    orca::PaintStroke stroke;
+    stroke.origin[0] = center[12] + 100.0;
+    stroke.origin[1] = center[13];
+    stroke.origin[2] = 10.0;
+    stroke.direction[0] = -1.0;
+    stroke.state = 1;  // EnforcerBlockerType::FUZZY_SKIN
+    stroke.tool = orca::PaintTool::triangle;
+    stroke.starts = true;
+    REQUIRE(orca::paint(stroke, prefix).states == std::vector<int>{1});
+    const orca::PaintingState closed = orca::end_painting();
+    REQUIRE(closed.status == orca::SceneStatus::success);
+    CHECK(read_file(closed.facets).find("fuzzy_skin=") != std::string::npos);
+
+    // The walls under the triangle are jittered in many short moves.
+    plate.front().painted = closed.facets;
+    CHECK(outer_moves("fuzzy-painted") > plain + 100);
+}
+
 TEST_CASE("The gap fill shows the painting without its small patches, and merges them when asked", "[Adapter][Scene]")
 {
     require_engine();

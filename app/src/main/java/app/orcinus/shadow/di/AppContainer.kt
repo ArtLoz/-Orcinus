@@ -56,6 +56,7 @@ import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.EnginePlateSync
 import app.orcinus.shadow.domain.plate.ExportConfigUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
@@ -380,6 +381,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             setPlateObjectPrintable = setPlateObjectPrintable,
             setExtruder = setExtruder,
             setFlushOption = setFlushOption,
+            enablePaintedFuzzySkin = EnablePaintedFuzzySkinUseCase(plateRepository, settingsTabs, applicationScope),
             copyProcessSettings = copyProcessSettings,
             pasteProcessSettings = pasteProcessSettings,
             exportObjectMesh = exportObjectMesh,

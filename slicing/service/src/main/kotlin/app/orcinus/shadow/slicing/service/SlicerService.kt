@@ -412,6 +412,10 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             )
         }.toParcel()
 
+        override fun fuzzySkinDisabled(plateObject: PlacedModelParcel, profiles: ProfilesParcel): Boolean = runBlocking {
+            engine.fuzzySkinDisabled(arrayOf(plateObject).toPlacedModels().first(), profiles.toProfiles())
+        }
+
         override fun paintStroke(
             origin: DoubleArray,
             direction: DoubleArray,

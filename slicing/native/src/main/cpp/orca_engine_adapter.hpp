@@ -722,6 +722,9 @@ enum class PaintTool : std::int64_t {
     // The gap fill (ToolType::GAP_FILL), which paints no strokes: set_gap_fill()
     // and fill_gaps() work it.
     gap_fill = 4,
+    // Triangles (the brush with CursorType::POINTER): the one triangle of the
+    // painting under the finger, as the painting split it.
+    triangle = 5,
 };
 
 // One touch of the finger on a model being painted.
@@ -788,6 +791,11 @@ PaintingState begin_painting(
 );
 
 PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix);
+
+// GLGizmoFuzzySkin's warning: fuzzy skin is "Disabled" for the object, by its
+// own settings or else by the process preset, so the fuzzy skin painted on it
+// does not take effect.
+bool fuzzy_skin_disabled(const PlateObject& object, const ProfileSelection& profiles);
 
 // The painting before the last stroke, or after the stroke undone last, as the
 // gizmo's Undo and Redo bring it back.

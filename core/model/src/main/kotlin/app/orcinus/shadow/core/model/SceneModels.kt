@@ -355,6 +355,9 @@ enum class PaintTool {
 
     /** The gap fill, which paints no strokes: the small patches of the painting merge into the state around them. */
     GAP_FILL,
+
+    /** Triangles: the one triangle of the painting under the finger. */
+    TRIANGLE,
 }
 
 /** EnforcerBlockerType: the states a stroke paints; a filament's number paints colour. */

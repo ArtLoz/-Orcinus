@@ -228,6 +228,8 @@ interface ISlicerService {
         String facets,
         String meshPrefix
     );
+    /** GLGizmoFuzzySkin's warning: fuzzy skin is disabled for the object. */
+    boolean fuzzySkinDisabled(in PlacedModelParcel plateObject, in ProfilesParcel profiles);
     PaintingParcel paintStroke(
         in double[] origin,
         in double[] direction,

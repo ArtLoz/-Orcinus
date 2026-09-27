@@ -140,13 +140,17 @@ that kind it is already painted with, and keeps it until `endPainting()`, as
 the desktop gizmo keeps its selectors. `paint(stroke, meshPrefix)` is one touch
 of a finger: the ray is cast into the mesh (AABBMesh::query_ray_hit) and the
 triangles under the cursor take the stroke's state (EnforcerBlockerType: the
-filament for colour, enforcer or blocker for supports and the seam), with the
-sphere or circle brush (SinglePointCursor, and DoublePointCursor from where the
-stroke last met the model, as the gizmo joins its mouse positions), the smart
-fill or the bucket fill; "on overhangs only" limits it to overhanging facets.
-`clearPainting(meshPrefix)` is "Erase all". Every answer carries the triangles
-painted in each state, written as a mesh per state under a new name each time
-for the 3D view, and says whether the stroke met the model at all.
+filament for colour, enforcer or blocker for supports and the seam, FUZZY_SKIN
+for fuzzy skin), with the sphere or circle brush (SinglePointCursor, and
+DoublePointCursor from where the stroke last met the model, as the gizmo joins
+its mouse positions), the triangle under the finger alone (the Triangles tool,
+CursorType::POINTER), the smart fill or the bucket fill; "on overhangs only"
+limits it to overhanging facets. `clearPainting(meshPrefix)` is "Erase all".
+Every answer carries the triangles painted in each state, written as a mesh per
+state under a new name each time for the 3D view, and says whether the stroke
+met the model at all. `fuzzySkinDisabled(object, profiles)` answers the fuzzy
+skin tool's warning: whether fuzzy skin is "Disabled" for the object, by its
+own settings or else by the process preset.
 
 The painted facets of a volume, of every kind, travel as a file: the engine
 writes them (TriangleSelector::TriangleSplittingData as hexadecimal text, each

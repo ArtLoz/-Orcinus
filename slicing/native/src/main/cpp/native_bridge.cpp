@@ -1289,6 +1289,26 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     return to_java(env, state);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_fuzzySkinDisabled(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject object,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
+    const bool disabled = !plate.empty() &&
+        orcinus::orca::fuzzy_skin_disabled(
+            plate.front(),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles)
+        );
+    return disabled ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
     JNIEnv* env,

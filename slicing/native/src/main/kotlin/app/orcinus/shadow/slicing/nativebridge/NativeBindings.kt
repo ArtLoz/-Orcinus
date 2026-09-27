@@ -898,6 +898,16 @@ internal object NativeBindings {
         meshPrefix: String,
     ): NativePainting
 
+    /** GLGizmoFuzzySkin's warning: fuzzy skin is disabled for the object, by its settings or the process preset. */
+    external fun fuzzySkinDisabled(
+        /** The object alone, as a plate of one. */
+        plateObject: NativePlate,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): Boolean
+
     /** One touch of the finger on the model being painted. */
     external fun paintStroke(
         origin: DoubleArray,

@@ -67,6 +67,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
 import app.orcinus.shadow.core.designsystem.component.OrcaGizmoPanel
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.designsystem.component.OrcaLink
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
@@ -198,6 +199,7 @@ internal fun PrepareRoute(
             setVerticalOnly = viewModel::setVerticalOnly,
             setGapArea = viewModel::setGapArea,
             fillGaps = viewModel::fillGaps,
+            enableFuzzySkin = viewModel::enablePaintedFuzzySkin,
             clear = viewModel::clearPainting,
             close = viewModel::closePainting,
         ),
@@ -316,12 +318,14 @@ internal class PaintingActions(
     /** The gap fill's area and its "Perform". */
     val setGapArea: (Double) -> Unit,
     val fillGaps: () -> Unit,
+    /** "Enable painted fuzzy skin for this object" of the fuzzy skin tool's warning. */
+    val enableFuzzySkin: () -> Unit,
     /** "Erase all". */
     val clear: () -> Unit,
     val close: () -> Unit,
 ) {
     companion object {
-        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 }
 
@@ -529,6 +533,7 @@ internal fun PrepareScreen(
                     state.painting?.kind == PaintKind.COLOR -> PaintingPanel(state, state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
+                    state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null -> ScaleGizmoPanel(state, scale, size, scaleActions, onCloseGizmo)
                     state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(position, onSetPosition, onCloseGizmo)
@@ -961,7 +966,14 @@ private fun CanvasToolbar(
             enabled = state.canManipulate,
             selected = state.painting?.kind == PaintKind.SEAM,
         )
-        gizmo(DesignR.drawable.orca_toolbar_fuzzy_skin_paint, R.string.gizmo_fuzzy_skin_painting, null)
+        // GLGizmoFuzzySkin: the walls get fuzzy skin where it is painted.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_fuzzy_skin_paint,
+            contentDescription = stringResource(R.string.gizmo_fuzzy_skin_painting),
+            onClick = { onTogglePainting(PaintKind.FUZZY_SKIN) },
+            enabled = state.canManipulate,
+            selected = state.painting?.kind == PaintKind.FUZZY_SKIN,
+        )
         gizmo(DesignR.drawable.orca_toolbar_text, R.string.gizmo_emboss, null)
         gizmo(DesignR.drawable.orca_toolbar_measure, R.string.gizmo_measure, null)
         gizmo(DesignR.drawable.orca_toolbar_assembly, R.string.gizmo_assembly, null)
@@ -1186,6 +1198,76 @@ private fun SeamPaintingPanel(painting: PaintingMode, actions: PaintingActions) 
             onClick = actions.clear,
             modifier = Modifier.padding(top = 4.dp),
         )
+    }
+}
+
+/**
+ * GLGizmoFuzzySkin's window while it is open: whether the finger adds fuzzy
+ * skin or removes it (the left mouse button and Shift of the desktop, as
+ * buttons a thumb reaches), the tool — circle, sphere, triangles or smart
+ * fill — with its brush size or fill angle, "Erase all", "Done", and the
+ * warning while fuzzy skin is disabled for the object, with the link that
+ * enables it.
+ */
+@Composable
+private fun FuzzySkinPaintingPanel(painting: PaintingMode, actions: PaintingActions) {
+    PaintingPanelFrame(stringResource(R.string.gizmo_fuzzy_skin_painting), orcaString("Done"), actions.close) {
+        PaintingChoices(
+            listOf(
+                PaintState.ENFORCER to orcaString("Add fuzzy skin"),
+                PaintState.NONE to orcaString("Remove fuzzy skin"),
+            ),
+            selected = painting.state,
+            onSelect = actions.setState,
+        )
+        Text(
+            text = orcaString("Tool type"),
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+        )
+        PaintingChoices(
+            listOf(
+                PaintTool.CIRCLE to orcaString("Circle"),
+                PaintTool.BRUSH to orcaString("Sphere"),
+                PaintTool.TRIANGLE to orcaString("Triangle"),
+                PaintTool.FILL to orcaString("Fill"),
+            ),
+            selected = painting.tool,
+            onSelect = actions.setTool,
+        )
+        when (painting.tool) {
+            PaintTool.FILL -> PaintingSlider(
+                label = orcaString("Smart fill angle"),
+                value = painting.fillAngle.toFloat(),
+                range = SMART_FILL_ANGLE_MIN..SMART_FILL_ANGLE_MAX,
+                text = String.format(textLocale(), "%.0f°", painting.fillAngle),
+                onChange = { actions.setFillAngle(it.toDouble()) },
+            )
+            PaintTool.TRIANGLE -> Unit
+            else -> PaintingSlider(
+                label = orcaString("Brush size"),
+                value = painting.radius.toFloat(),
+                range = BRUSH_MIN..BRUSH_MAX,
+                text = String.format(textLocale(), "%.2f", painting.radius),
+                onChange = { actions.setRadius(it.toDouble()) },
+            )
+        }
+        OrcaButton(
+            text = orcaString("Erase all"),
+            size = OrcaButtonSize.Compact,
+            enabled = painting.painted,
+            onClick = actions.clear,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        if (painting.fuzzySkinDisabled) {
+            Text(
+                text = orcaString("Warning: Fuzzy skin is disabled, painted fuzzy skin will not take effect!"),
+                color = OrcaTheme.colors.warning,
+                style = OrcaTheme.typography.body12,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            OrcaLink(text = orcaString("Enable painted fuzzy skin for this object"), onClick = actions.enableFuzzySkin)
+        }
     }
 }
 

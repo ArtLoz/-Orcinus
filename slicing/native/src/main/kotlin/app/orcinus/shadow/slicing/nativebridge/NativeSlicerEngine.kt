@@ -809,6 +809,17 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         )
     }
 
+    override suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean = withContext(Dispatchers.IO) {
+        status().ready &&
+            NativeBindings.fuzzySkinDisabled(
+                plateObject = nativePlate(listOf(plateObject)),
+                printerProfile = profiles.printer.value,
+                filamentProfile = profiles.filament.value,
+                filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                processProfile = profiles.process.value,
+            )
+    }
+
     override suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
         painting(
             NativeBindings.paintStroke(

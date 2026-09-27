@@ -26,6 +26,8 @@ data class OrcaColors(
     val error: Color,
     /** Alert button when pressed. */
     val alert: Color,
+    /** ColorRGB::WARNING: the text of a warning in a gizmo's window. */
+    val warning: Color,
 
     // Window chrome
     val titleBar: Color,
@@ -94,6 +96,7 @@ val OrcaLightColors = OrcaColors(
     info = Color(0xFF1F8EEA),
     error = Color(0xFFD01B1B),
     alert = Color(0xFFE14747),
+    warning = Color(0xFFF1754E),
 
     titleBar = Color(0xFF262E30),
     tabBar = Color(0xFF3B4446),
@@ -146,6 +149,7 @@ val OrcaDarkColors = OrcaColors(
     info = Color(0xFF2778D2),
     error = Color(0xFFBB2A3A),
     alert = Color(0xFFE14747),
+    warning = Color(0xFFF1754E),
 
     titleBar = Color(0xFF262E30),
     tabBar = Color(0xFF2D2D30),

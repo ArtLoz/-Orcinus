@@ -179,6 +179,8 @@ class ModelImportAndInspectionUseCasesTest {
         override suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome =
             PaintingOutcome.Success(PaintedSurface())
 
+        override suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean = false
+
         override suspend fun endPainting(): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
 
         override suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
