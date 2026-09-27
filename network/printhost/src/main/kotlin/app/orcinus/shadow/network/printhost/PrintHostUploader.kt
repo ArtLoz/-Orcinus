@@ -3,6 +3,7 @@ package app.orcinus.shadow.network.printhost
 import app.orcinus.shadow.core.model.ElegooKind
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
+import app.orcinus.shadow.core.model.ObicoHost
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostType
@@ -91,7 +92,8 @@ class PrintHostUploader(
             } else {
                 elegoo.upload(printer, gcode, name, startPrint && printer.canStartPrint, options.elegoo, onProgress)
             }
-            PrintHostType.OBICO, PrintHostType.SIMPLYPRINT,
+            PrintHostType.OBICO -> uploadToObico(printer, gcode, name, startPrint, onProgress)
+            PrintHostType.SIMPLYPRINT,
             PrintHostType.PRINTER_3D_OS -> PrintHostUploadOutcome.Failure(UNSUPPORTED)
         }
     }
@@ -194,7 +196,8 @@ class PrintHostUploader(
             } else {
                 elegoo.test(printer)
             }
-            PrintHostType.OBICO, PrintHostType.SIMPLYPRINT,
+            PrintHostType.OBICO -> obicoTest(printer)
+            PrintHostType.SIMPLYPRINT,
             PrintHostType.PRINTER_3D_OS -> PrintHostTestOutcome.Failure(UNSUPPORTED)
         }
     }
@@ -219,6 +222,7 @@ class PrintHostUploader(
      * upload goes to (printhost_port), which the dialog's Refresh button lists.
      */
     suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome {
+        if (printer.hostType == PrintHostType.OBICO) return obicoPrinters(printer)
         if (printer.hostType != PrintHostType.REPETIER) return HostPrintersOutcome.Success(emptyList())
         val body = http.get(makeUrl(printer.host, "printer/list"), authHeaders(printer))
             .getOrElse { return HostPrintersOutcome.Failure(it.message ?: NO_ANSWER) }
@@ -417,6 +421,67 @@ class PrintHostUploader(
         )
         return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
     }
+
+    /**
+     * Obico::test(): the server's api/v1/version/ with the token as a bearer;
+     * without a token there is nothing to test, and the dialog logs in.
+     */
+    private suspend fun obicoTest(printer: PhysicalPrinter): PrintHostTestOutcome {
+        if (printer.apiKey.isEmpty()) return PrintHostTestOutcome.Failure("")
+        return http.get(ObicoHost.url(printer.host, "api/v1/version/"), obicoAuth(printer)).fold(
+            onSuccess = { PrintHostTestOutcome.Success("") },
+            onFailure = { PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) },
+        )
+    }
+
+    /**
+     * Obico::get_printers(): the account's printers as "Name [id]". A request
+     * that fails leaves the list empty, as the desktop dialog does; an answer
+     * it cannot read is reported.
+     */
+    private suspend fun obicoPrinters(printer: PhysicalPrinter): HostPrintersOutcome {
+        val body = http.get(ObicoHost.url(printer.host, "api/v1/printers/"), obicoAuth(printer))
+            .getOrElse { return HostPrintersOutcome.Success(emptyList()) }
+        val answer = runCatching { Json.parseToJsonElement(body) }.getOrNull()
+            ?: return HostPrintersOutcome.Failure("Parsing of host response failed.\nMessage body: \"$body\"")
+        (answer as? JsonObject)?.get("error")?.jsonPrimitive?.contentOrNull?.let { return HostPrintersOutcome.Failure(it) }
+        val printers = runCatching {
+            answer.jsonArray.map { item ->
+                val entry = item.jsonObject
+                entry.getValue("name").jsonPrimitive.content + " [" + entry.getValue("id").jsonPrimitive.content + "]"
+            }
+        }.getOrElse { return HostPrintersOutcome.Failure("Enumeration of host printers failed.\nMessage body: \"$body\"") }
+        return HostPrintersOutcome.Success(printers)
+    }
+
+    /**
+     * Obico::upload(): the token is tested first, then the file is posted to
+     * g_code_files with the printer chosen (printhost_port, as the dialog
+     * keeps it) and whether to print.
+     */
+    private suspend fun uploadToObico(
+        printer: PhysicalPrinter,
+        gcode: File,
+        name: String,
+        startPrint: Boolean,
+        onProgress: ((sent: Long, total: Long) -> Unit)?,
+    ): PrintHostUploadOutcome {
+        val tested = obicoTest(printer)
+        if (tested is PrintHostTestOutcome.Failure) return PrintHostUploadOutcome.Failure(tested.message)
+        val answer = http.postMultipart(
+            url = ObicoHost.url(printer.host, "api/v1/g_code_files/"),
+            headers = obicoAuth(printer),
+            fields = linkedMapOf("print" to startPrint.toString(), "path" to "", "printer_id" to printer.port, "filename" to name),
+            fileField = "file",
+            fileName = name,
+            file = gcode,
+            onProgress = onProgress,
+        )
+        return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+    }
+
+    /** Obico::set_auth(): the token as a bearer. */
+    private fun obicoAuth(printer: PhysicalPrinter): Map<String, String> = mapOf("Authorization" to "Bearer ${printer.apiKey}")
 
     /**
      * MKS::upload(): the file is the whole body of a post to upload, and the

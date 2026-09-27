@@ -52,6 +52,7 @@ import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.ObicoHost
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PresetKind
@@ -192,9 +193,18 @@ private fun ConnectionForm(
     var printersProblem by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
 
-    // update(), after every change of a setting.
+    // A cloud host whose Test asks for a login first (PrinterCloudAuthDialog), with what the test said.
+    var loggingIn by remember { mutableStateOf<Pair<PhysicalPrinter, String>?>(null) }
+
+    // m_on_change: update() when the kind of host or of its login changes,
+    // update_ports() when the printer of an Obico account does.
     fun set(key: String, value: String) {
-        settings = ModelSettings(settings.values + (key to value)).withHostDefaults()
+        var next = ModelSettings(settings.values + (key to value))
+        if (key == "host_type" || key == "printhost_authorization_type") next = next.withHostDefaults()
+        if (key == "printhost_port" && PrintHostType.of(next.values["host_type"].orEmpty()) == PrintHostType.OBICO) {
+            next = ModelSettings(next.values + ("print_host_webui" to ObicoHost.webUi(next.values["print_host"].orEmpty(), value)))
+        }
+        settings = next
         // What Test said was about another host; the desktop's message box is gone by now.
         if (key == "host_type" || key == "print_host") tested = null
     }
@@ -259,7 +269,13 @@ private fun ConnectionForm(
                     testing = true
                     val testedPrinter = printer
                     scope.launch {
-                        tested = testedPrinter to onTest(testedPrinter)
+                        val outcome = onTest(testedPrinter)
+                        // A cloud host that did not answer logs in (Obico's PrinterCloudAuthDialog).
+                        if (outcome is PrintHostTestOutcome.Failure && testedPrinter.hostType == PrintHostType.OBICO) {
+                            loggingIn = testedPrinter to outcome.message
+                        } else {
+                            tested = testedPrinter to outcome
+                        }
                         testing = false
                     }
                 },
@@ -365,6 +381,14 @@ private fun ConnectionForm(
                 types.getOrNull(typeLabels.indexOf(label))?.let { set("host_type", it.key) }
             },
         )
+    }
+    loggingIn?.let { (loginPrinter, message) ->
+        CloudLoginSheet(ObicoHost.loginUrl(loginPrinter.host)) { token ->
+            loggingIn = null
+            // The key field takes whatever the login gave, even nothing.
+            set("printhost_apikey", token)
+            tested = loginPrinter to if (token.isNotEmpty()) PrintHostTestOutcome.Success("") else PrintHostTestOutcome.Failure(message)
+        }
     }
     hostPrinters?.let { printers ->
         ChoiceListSheet(

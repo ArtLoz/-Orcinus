@@ -625,8 +625,8 @@ enum class PrintHostType(val key: String, val label: String) {
         }
 
     companion object {
-        /** The hosts the port does not cover yet: the cloud ones. */
-        private val UNSUPPORTED = setOf(OBICO, SIMPLYPRINT, PRINTER_3D_OS)
+        /** The hosts the port does not cover yet: the cloud ones that log in outside the app. */
+        private val UNSUPPORTED = setOf(SIMPLYPRINT, PRINTER_3D_OS)
 
         fun of(key: String): PrintHostType? = entries.firstOrNull { it.key == key }
     }
@@ -810,8 +810,8 @@ data class FlashforgeOptions(
 )
 
 /**
- * PhysicalPrinterDialog::update(), which runs whenever the dialog opens and a
- * setting changes: the address a cloud host fills in by itself is cleared once
+ * PhysicalPrinterDialog::update(), which runs when the dialog opens and when
+ * the kind of host or of its login changes: the address a cloud host fills in by itself is cleared once
  * another kind of host is chosen, and PrusaConnect, Obico, SimplyPrint and
  * 3DPrinterOS fill in their own when the field is empty (SimplyPrint always).
  */

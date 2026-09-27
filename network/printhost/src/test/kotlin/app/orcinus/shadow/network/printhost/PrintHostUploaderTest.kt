@@ -83,8 +83,8 @@ class PrintHostUploaderTest {
         val http = FakeHttpClient(answer = Result.success("{}"))
 
         val outcome = runSuspend {
-            // Obico is a cloud host with a login the app does not have.
-            PrintHostUploader(http).upload(printer("obico", "https://app.obico.io", "k"), gcode(), "plate.gcode", startPrint = true)
+            // 3DPrinterOS is a cloud host whose login the app does not have.
+            PrintHostUploader(http).upload(printer("3dprinteros", "https://cloud.3dprinteros.com", "k"), gcode(), "plate.gcode", startPrint = true)
         }
 
         assertTrue(outcome is PrintHostUploadOutcome.Failure)
