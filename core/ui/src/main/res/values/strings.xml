@@ -1,104 +1,101 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The OrcaSlicer catalogue the app's texts from OrcaSlicer use: localization/i18n/<language>. Empty for none. -->
-    <string name="orca_catalog_language" translatable="false">ru</string>
-
-    <string name="calibration_cube_name">Тестовый куб 20 мм</string>
-    <string name="duration_hours_minutes">%1$d ч %2$d мин</string>
-    <string name="duration_minutes">%1$d мин</string>
-    <string name="length_meters">%1$s м</string>
-    <string name="size_millimeters">%1$s × %2$s × %3$s мм</string>
-    <string name="size_inches">%1$s × %2$s × %3$s дюйм</string>
+    <string name="calibration_cube_name">Test cube 20 mm</string>
+    <string name="duration_hours_minutes">%1$d h %2$d min</string>
+    <string name="duration_minutes">%1$d min</string>
+    <string name="length_meters">%1$s m</string>
+    <string name="size_millimeters">%1$s × %2$s × %3$s mm</string>
+    <string name="size_inches">%1$s × %2$s × %3$s in</string>
 
     <!-- The list of an OrcaSlicer preset combo box. -->
-    <string name="user_presets">Пользовательские профили</string>
-    <string name="bundle_presets">Профили пакетов</string>
-    <string name="system_presets">Системные профили</string>
-    <string name="project_presets">Профили внутри проекта</string>
-    <string name="unsupported_presets">Профили других принтеров</string>
-    <string name="unspecified">Неизвестные</string>
-    <string name="search">Поиск</string>
-    <string name="clear_search">Очистить поиск</string>
+    <string name="user_presets">User presets</string>
+    <string name="bundle_presets">Bundle presets</string>
+    <string name="system_presets">System presets</string>
+    <string name="project_presets">Project-inside presets</string>
+    <string name="unsupported_presets">Unsupported presets</string>
+    <string name="unspecified">Unspecified</string>
+    <string name="search">Search</string>
+    <string name="clear_search">Clear search</string>
 
     <!-- OrcaSlicer's settings tabs. -->
-    <string name="settings_loading">Загрузка настроек…</string>
-    <string name="setting_tooltip">Показать описание</string>
-    <string name="setting_undo">Отменить изменение «%1$s»</string>
-    <string name="setting_values">Значения</string>
-    <string name="setting_override">Переопределить «%1$s»</string>
-    <string name="setting_compatible_all">Со всеми</string>
-    <string name="setting_compatible_count">Выбрано: %1$d</string>
-    <string name="setting_compatible_choose">Выбрать профили</string>
+    <string name="settings_loading">Loading settings…</string>
+    <string name="setting_tooltip">Show description</string>
+    <string name="setting_undo">Undo the change of “%1$s”</string>
+    <string name="setting_values">Values</string>
+    <string name="setting_override">Override “%1$s”</string>
+    <string name="setting_compatible_all">All</string>
+    <string name="setting_compatible_count">Selected: %1$d</string>
+    <string name="setting_compatible_choose">Choose presets</string>
     <string name="setting_point_x">X</string>
     <string name="setting_point_y">Y</string>
-    <string name="setting_color">Цвет</string>
+    <string name="setting_color">Color</string>
     <!-- RammingDialog: a touch screen has no Ctrl key, which the desktop app holds for a constant flow rate. -->
-    <string name="ramming_constant_flow">Постоянный расход: двигать все точки вместе</string>
+    <string name="ramming_constant_flow">Constant flow rate: move all points together</string>
 
-    <string name="problem_engine_unavailable">Ядро OrcaSlicer недоступно</string>
-    <string name="problem_import_failed">Не удалось открыть модель</string>
-    <string name="problem_slice_failed">Нарезка не удалась</string>
-    <string name="problem_engine_crashed">Ядро OrcaSlicer аварийно завершилось. Нарезку можно запустить снова.</string>
-    <string name="problem_slice_cancelled">Нарезка отменена</string>
-    <string name="problem_placement_failed">Не удалось переместить модель</string>
-    <string name="problem_presets_failed">Не удалось выбрать профиль</string>
-    <string name="problem_export_failed">Не удалось экспортировать модель</string>
+    <string name="problem_engine_unavailable">The OrcaSlicer engine is unavailable</string>
+    <string name="problem_import_failed">The model could not be opened</string>
+    <string name="problem_slice_failed">Slicing failed</string>
+    <string name="problem_engine_crashed">The OrcaSlicer engine crashed. Slicing can be started again.</string>
+    <string name="problem_slice_cancelled">Slicing Canceled</string>
+    <string name="problem_placement_failed">The model could not be moved</string>
+    <string name="problem_presets_failed">The preset could not be selected</string>
+    <string name="problem_export_failed">The model could not be exported</string>
 
     <!-- The object menu of the 3D view and of the object list (MenuFactory). -->
-    <string name="object_menu_delete">Удалить</string>
+    <string name="object_menu_delete">Delete</string>
     <!-- MenuFactory::append_menu_item_auto_drop(): "Auto Drop", untranslated in OrcaSlicer's Russian catalogue; worded like its «Автоориентация». -->
-    <string name="object_menu_auto_drop">Автоопускание на стол</string>
+    <string name="object_menu_auto_drop">Auto Drop</string>
     <!-- Search::SearchDialog: what the settings search shows. -->
-    <string name="settings_search">Поиск настроек</string>
-    <string name="settings_search_empty">Ничего не найдено</string>
+    <string name="settings_search">Search settings</string>
+    <string name="settings_search_empty">Nothing found</string>
     <!-- DiffPresetDialog: comparing two presets. -->
-    <string name="preset_compare">Сравнить пресеты</string>
+    <string name="preset_compare">Compare presets</string>
     <!-- DiffPresetDialog: кнопка между профилями; подпись у Orca закомментирована. -->
-    <string name="preset_compare_copy">Выбрать тот же профиль справа</string>
+    <string name="preset_compare_copy">Select the same preset on the right</string>
     <!-- EditFilamentPresetDialog: у материала не осталось ни одного профиля. -->
-    <string name="filament_no_presets">У этого материала нет профилей</string>
+    <string name="filament_no_presets">This filament has no presets</string>
     <!-- ExportConfigsDialog: у выбранного вида экспорта нет ни одного пользовательского профиля. -->
-    <string name="config_export_empty">Нечего экспортировать: пользовательских профилей такого вида нет</string>
+    <string name="config_export_empty">Nothing to export: there are no user presets of this kind</string>
     <!-- Sending G-code: the printer preset has no host yet; the desktop app offers no sending then. -->
-    <string name="printer_host_empty">У профиля принтера не указан адрес. Задайте его кнопкой «Подключение» у принтера на боковой панели.</string>
-    <string name="printer_host_send">Отправить на принтер</string>
-    <string name="printer_host_start">Начать печать сразу</string>
-    <string name="printer_host_sent">Отправлено: %1$s</string>
-    <string name="printer_host_sending">Отправка на принтер: %1$d %%</string>
+    <string name="printer_host_empty">The printer preset has no address. Set it with the “Connection” button next to the printer in the sidebar.</string>
+    <string name="printer_host_send">Send to printer</string>
+    <string name="printer_host_start">Start printing right away</string>
+    <string name="printer_host_sent">Sent: %1$s</string>
+    <string name="printer_host_sending">Sending to the printer: %1$d %%</string>
     <!-- A host type of OrcaSlicer's list whose protocol the app has not ported yet. -->
     <!-- Export G-code of the desktop app's File menu. -->
-    <string name="gcode_save">Сохранить G-code</string>
-    <string name="gcode_saved">G-code сохранён</string>
-    <string name="gcode_save_failed">Не удалось сохранить файл</string>
-    <string name="printer_host_local_network">Нет доступа к устройствам локальной сети: без него принтеры по Wi-Fi недоступны. Разрешите его приложению в настройках Android.</string>
-    <string name="printer_host_printer">Принтер: %s</string>
-    <string name="printer_host_self_test">Калибровка перед печатью</string>
-    <string name="printer_host_filament_mapping">Раскладка материалов по слотам:</string>
+    <string name="gcode_save">Save G-code</string>
+    <string name="gcode_saved">G-code saved</string>
+    <string name="gcode_save_failed">The file could not be saved</string>
+    <string name="printer_host_local_network">No access to devices on the local network, so printers on Wi-Fi cannot be reached. Allow it for the app in the Android settings.</string>
+    <string name="printer_host_printer">Printer: %s</string>
+    <string name="printer_host_self_test">Calibrate before printing</string>
+    <string name="printer_host_filament_mapping">Filaments by slot:</string>
     <!-- CrealityDiscoveryDialog: OrcaSlicer's Russian catalogue has none of its texts yet. -->
-    <string name="creality_discovery_title">Поиск принтеров Creality серии K</string>
-    <string name="creality_discovery_scanning">Поиск принтеров серии K в локальной сети… Это займёт несколько секунд.</string>
-    <string name="creality_discovery_none">Принтеры серии K не найдены. Убедитесь, что принтер в той же сети и Wi-Fi не изолирует устройства друг от друга, и нажмите «Сканировать» снова.</string>
-    <string name="creality_discovery_found">Найдено принтеров Creality: %1$d. Нажмите на нужный.</string>
-    <string name="creality_discovery_scan">Сканировать</string>
-    <string name="creality_discovery_unknown_model">(неизвестная модель серии K)</string>
+    <string name="creality_discovery_title">Detect Creality K-series printer</string>
+    <string name="creality_discovery_scanning">Scanning the LAN for K-series printers... this takes a few seconds.</string>
+    <string name="creality_discovery_none">No K-series printers found. Make sure the printer is on the same network and not blocked by Wi-Fi client isolation, then tap Scan again.</string>
+    <string name="creality_discovery_found">Found %1$d Creality printer(s). Tap the one to use.</string>
+    <string name="creality_discovery_scan">Scan</string>
+    <string name="creality_discovery_unknown_model">(unknown K-series)</string>
     <!-- MenuFactory: the object menu of the canvas and of the object list; copies named as the toolbar names them. -->
-    <string name="object_menu_add_instance">Добавить экземпляр</string>
-    <string name="object_menu_remove_instance">Удалить экземпляр</string>
-    <string name="object_menu_add_part">Добавить деталь</string>
-    <string name="object_menu_add_negative">Добавить вычитание</string>
-    <string name="object_menu_add_modifier">Добавить модификатор</string>
-    <string name="object_menu_add_support_blocker">Добавить блокатор поддержек</string>
-    <string name="object_menu_add_support_enforcer">Добавить усилитель поддержек</string>
-    <string name="object_menu_height_range">Диапазон высот</string>
+    <string name="object_menu_add_instance">Add instance</string>
+    <string name="object_menu_remove_instance">Remove instance</string>
+    <string name="object_menu_add_part">Add part</string>
+    <string name="object_menu_add_negative">Add negative part</string>
+    <string name="object_menu_add_modifier">Add modifier</string>
+    <string name="object_menu_add_support_blocker">Add support blocker</string>
+    <string name="object_menu_add_support_enforcer">Add support enforcer</string>
+    <string name="object_menu_height_range">Height range</string>
     <!-- create_mesh() of GUI_ObjectList.cpp: the shapes a part can have. -->
-    <string name="object_shape_title">Форма детали</string>
-    <string name="object_shape_cube">Куб</string>
-    <string name="object_shape_cylinder">Цилиндр</string>
-    <string name="object_shape_sphere">Сфера</string>
-    <string name="object_shape_slab">Плита</string>
-    <string name="object_shape_cone">Конус</string>
-    <string name="object_shape_disc">Диск</string>
-    <string name="object_shape_torus">Тор</string>
+    <string name="object_shape_title">Part shape</string>
+    <string name="object_shape_cube">Cube</string>
+    <string name="object_shape_cylinder">Cylinder</string>
+    <string name="object_shape_sphere">Sphere</string>
+    <string name="object_shape_slab">Slab</string>
+    <string name="object_shape_cone">Cone</string>
+    <string name="object_shape_disc">Disc</string>
+    <string name="object_shape_torus">Torus</string>
     <!-- The state of a plate's number in the strip of plates, whose icon shows the lock. -->
-    <string name="plate_locked">Стол заблокирован</string>
+    <string name="plate_locked">Plate locked</string>
 </resources>

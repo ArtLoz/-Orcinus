@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OrcaSlicer's Russian wording (localization/i18n/ru/OrcaSlicer_ru.po) where it has one. -->
+<resources>
+    <string name="prepare_title">Подготовка</string>
+    <string name="slice_plate">Нарезать</string>
+
+    <string name="add_model">Добавить модель</string>
+    <string name="add_calibration_cube">Добавить тестовый куб 20 мм</string>
+    <string name="empty_plate">Добавьте модель на стол</string>
+    <string name="plate_view">3D-вид стола. Один палец вращает, два пальца сдвигают и масштабируют, двойное касание возвращает вид на стол.</string>
+    <string name="importing_model">Импорт модели…</string>
+
+    <string name="toolbar_add_plate">Добавить стол</string>
+    <string name="toolbar_orient">Положить все/выбранные модели</string>
+    <string name="toolbar_arrange">Расставить все модели</string>
+    <string name="toolbar_add_instance">Добавить экземпляр</string>
+    <string name="toolbar_remove_instance">Удалить экземпляр</string>
+    <string name="toolbar_split_objects">Разделить на модели</string>
+    <string name="toolbar_split_parts">Разделить на части</string>
+    <string name="toolbar_variable_layer_height">Переменная высота слоёв</string>
+    <string name="toolbar_assembly_view">Сборочный вид</string>
+    <string name="arrange_options">Параметры расстановки</string>
+    <string name="arrange_spacing">Отступ</string>
+    <string name="arrange_spacing_auto">0 - автоматический отступ.</string>
+    <string name="arrange_rotation">Разрешить вращение при расстановке</string>
+    <string name="arrange_multi_materials">Разрешить использование нескольких материалов на одном столе</string>
+    <string name="arrange_align_y">Выравнивать по оси Y</string>
+    <string name="arrange">Расставить</string>
+    <string name="arrange_reset">Сброс</string>
+    <string name="gizmo_move">Перемещение</string>
+    <string name="gizmo_rotate">Вращение</string>
+    <string name="gizmo_scale">Масштаб</string>
+    <string name="gizmo_lay_on_face">Поверхностью на стол</string>
+    <string name="gizmo_cut">Разрезать/вырезать</string>
+    <string name="gizmo_mesh_boolean">Булевы операции</string>
+    <string name="gizmo_color_painting">Раскраска</string>
+    <string name="painting_filament">Материал</string>
+    <string name="painting_brush">Кисть</string>
+    <string name="painting_eraser">Стереть</string>
+    <string name="painting_done">Готово</string>
+    <string name="painting_collapse">Свернуть панель</string>
+    <string name="painting_expand">Развернуть панель</string>
+    <string name="painting_tool_brush">Кисть</string>
+    <string name="painting_tool_fill">Заливка</string>
+    <string name="painting_tool_bucket">Вся грань</string>
+    <string name="gizmo_support_painting">Рисование поддержек</string>
+    <string name="gizmo_seam_painting">Рисование шва</string>
+    <string name="gizmo_fuzzy_skin_painting">Рисование нечёткой оболочки</string>
+    <string name="gizmo_emboss">Рельефный текст</string>
+    <string name="gizmo_measure">Измерения</string>
+    <string name="gizmo_assembly">Объединить в сборку</string>
+    <string name="gizmo_brim_ears">Кайма «мышиные уши»</string>
+    <string name="gizmo_position">Позиция</string>
+    <string name="gizmo_world_coordinates">Относительно стола</string>
+    <string name="gizmo_rotate_relative">Прибавить угол</string>
+    <string name="gizmo_rotate_absolute">Поворот</string>
+    <string name="gizmo_reset_rotation">Сбросить последние изменения ориентации</string>
+    <string name="gizmo_reset_rotation_zero">Сбросить ориентацию до изначальной</string>
+    <string name="unit_degrees">°</string>
+    <string name="gizmo_scale_ratio">Масштаб</string>
+    <string name="gizmo_size">Размер</string>
+    <string name="gizmo_uniform_scale">Сохранять пропорции</string>
+    <string name="gizmo_reset_scale">Сброс масштаба</string>
+    <string name="unit_percent">%</string>
+    <string name="gizmo_done">Готово</string>
+    <string name="unit_mm">мм</string>
+    <string name="object_clashed">Модель выходит за границы стола или превышает высоту печати.\nУместите всю модель в границы стола (или за его пределы) и убедитесь, что высота модели находится в пределах области печати.</string>
+
+    <string name="object_name">Имя модели: %1$s</string>
+    <string name="object_size">Размер: %1$s</string>
+    <string name="object_triangles">Треугольники: %1$d</string>
+
+    <string name="slicing_progress">Нарезка: %1$d%%</string>
+    <string name="slicing_cancelling">Отмена…</string>
+    <string name="cancel">Отмена</string>
+    <string name="dismiss">Закрыть</string>
+</resources>

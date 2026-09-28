@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="slicing_notification_channel">Нарезка моделей</string>
-    <string name="slicing_notification_title">Нарезка: %1$s</string>
-    <string name="slicing_notification_preparing">Подготовка…</string>
-    <string name="slicing_notification_cancel">Отменить</string>
+    <string name="slicing_notification_channel">Slicing models</string>
+    <string name="slicing_notification_title">Slicing: %1$s</string>
+    <string name="slicing_notification_preparing">Preparing…</string>
+    <string name="slicing_notification_cancel">Cancel</string>
 </resources>

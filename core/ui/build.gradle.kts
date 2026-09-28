@@ -4,9 +4,10 @@ plugins {
 }
 
 /**
- * Packages OrcaSlicer's gettext catalogues from the pinned submodule as the
- * assets orca/i18n/<language>.po, for the languages the app's texts are in
- * (orca_catalog_language in the string resources).
+ * Packages every gettext catalogue of the pinned OrcaSlicer as the asset
+ * orca/i18n/<language>.po, with what msgfmt keeps of it: the header and the
+ * translated entries that are not fuzzy, without comments. The app loads the
+ * one of its language (OrcaLanguages.kt).
  */
 abstract class PrepareOrcaCatalogues : DefaultTask() {
     @get:InputFiles
@@ -22,16 +23,38 @@ abstract class PrepareOrcaCatalogues : DefaultTask() {
         root.deleteRecursively()
         root.mkdirs()
         catalogues.files.forEach { catalogue ->
-            catalogue.copyTo(root.resolve("${catalogue.parentFile.name}.po"))
+            root.resolve("${catalogue.parentFile.name}.po").writeText(compact(catalogue.readText()))
         }
     }
-}
 
-val orcaCatalogueLanguages = listOf("ru")
+    /** The entries the app reads, one after another; an entry is its lines without comments. */
+    private fun compact(po: String): String = po.replace("\r\n", "\n").split(Regex("\n{2,}")).mapNotNull { entry ->
+        val lines = entry.lines().filter(String::isNotBlank)
+        val fuzzy = lines.any { it.startsWith("#,") && it.substring(2).split(',').any { flag -> flag.trim() == "fuzzy" } }
+        val kept = lines.filterNot { it.startsWith("#") }
+        if (kept.isEmpty()) return@mapNotNull null
+        // The strings after msgstr, and the lines that continue them.
+        var inMsgstr = false
+        val translation = StringBuilder()
+        for (line in kept) {
+            when {
+                line.startsWith("msgstr") -> {
+                    inMsgstr = true
+                    translation.append(line.substringAfter(' ').trim().removeSurrounding("\""))
+                }
+                line.startsWith("\"") -> if (inMsgstr) translation.append(line.trim().removeSurrounding("\""))
+                else -> inMsgstr = false
+            }
+        }
+        // The header's msgid is empty; a long msgid starts empty too, and goes on on the next line.
+        val header = kept.size >= 2 && kept[0] == "msgid \"\"" && kept[1].startsWith("msgstr")
+        kept.joinToString("\n").takeIf { header || (!fuzzy && translation.isNotEmpty()) }
+    }.joinToString("\n\n", postfix = "\n")
+}
 
 val prepareOrcaCatalogues = tasks.register<PrepareOrcaCatalogues>("prepareOrcaCatalogues") {
     catalogues.from(
-        orcaCatalogueLanguages.map { rootProject.layout.projectDirectory.file("upstream/OrcaSlicer/localization/i18n/$it/OrcaSlicer_$it.po") },
+        rootProject.layout.projectDirectory.dir("upstream/OrcaSlicer/localization/i18n").asFileTree.matching { include("*/OrcaSlicer_*.po") },
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaCatalogues"))
 }

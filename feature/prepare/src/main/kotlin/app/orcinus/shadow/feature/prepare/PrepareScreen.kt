@@ -1176,7 +1176,7 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = String.format(textLocale(), "%.1f мм", painting.radius),
+                    text = String.format(textLocale(), "%.1f", painting.radius) + " " + stringResource(R.string.unit_mm),
                     color = OrcaTheme.colors.onCanvasPanel,
                     style = OrcaTheme.typography.body12,
                     modifier = Modifier.padding(start = 8.dp),

@@ -1,6 +1,9 @@
 package app.orcinus.shadow.feature.preferences
 
 import androidx.lifecycle.ViewModel
+import app.orcinus.shadow.core.model.AppConfigKeys
+import app.orcinus.shadow.core.ui.orca.OrcaLanguage
+import app.orcinus.shadow.domain.preferences.AppLanguage
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class PreferencesViewModel(
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
+    private val appLanguage: AppLanguage,
 ) : ViewModel() {
     /** Empty until the engine has answered, which leaves the items disabled. */
     val values: StateFlow<Map<String, String>> = preferences.values
@@ -24,6 +28,15 @@ class PreferencesViewModel(
     val problem: StateFlow<String?> = failure.asStateFlow()
 
     fun set(key: String, value: String) = setPreference(key, value) { failure.value = it }
+
+    /**
+     * The Language combo box's choice once confirmed: OrcaSlicer.conf keeps its
+     * name, and the app is shown in it (GUI_App::switch_language()).
+     */
+    fun selectLanguage(language: OrcaLanguage) {
+        setPreference(AppConfigKeys.LANGUAGE, language.canonicalName) { failure.value = it }
+        appLanguage.select(language.tag)
+    }
 
     fun dismissProblem() {
         failure.value = null

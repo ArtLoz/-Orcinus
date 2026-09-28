@@ -62,6 +62,12 @@ internal sealed interface PreferenceItem {
         val secondsTooltip: String,
     ) : PreferenceItem
 
+    /**
+     * create_item_language_combobox(): the languages of OrcaSlicer's catalogues
+     * (ORCA_LANGUAGES), the app's own selected.
+     */
+    data class Language(override val key: String, override val title: String, override val tooltip: String = "") : PreferenceItem
+
     /** create_item_button() of "Clear my choice on...": the button empties the remembered choice. */
     data class Clear(override val key: String, override val title: String, override val tooltip: String) : PreferenceItem
 
@@ -99,6 +105,7 @@ internal val PREFERENCE_PAGES = listOf(
             PreferenceSection(
                 "Settings",
                 listOf(
+                    PreferenceItem.Language(AppConfigKeys.LANGUAGE, "Language"),
                     PreferenceItem.Choice(
                         AppConfigKeys.USE_INCHES,
                         "Units",

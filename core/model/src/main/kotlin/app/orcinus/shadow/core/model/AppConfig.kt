@@ -46,6 +46,8 @@ object ImperialUnits {
  * their defaults.
  */
 object AppConfigKeys {
+    /** wxLanguageInfo::CanonicalName of the app's language, which the Language combo box writes. */
+    const val LANGUAGE = "language"
     const val USE_INCHES = "use_inches"
     const val NO_WARN_WHEN_MODIFIED_GCODES = "no_warn_when_modified_gcodes"
     const val DRC_BITS = "drc_bits"

@@ -6,9 +6,9 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import app.orcinus.shadow.core.model.OrcaText
-import app.orcinus.shadow.core.ui.R
 import java.io.FileNotFoundException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -34,37 +34,34 @@ fun orcaText(texts: List<OrcaText>): String = LocalOrcaCatalog.current.format(te
 fun orcaString(msgid: String, context: String = ""): String = LocalOrcaCatalog.current.translate(msgid, context)
 
 /**
- * The catalogue of the app's language, orca/i18n/<language>.po in the assets
- * (see core/ui/build.gradle.kts); empty until it is read, and for a language
- * OrcaSlicer does not translate.
+ * The catalogue of the app's language, orca/i18n/<catalog>.po in the assets
+ * (see core/ui/build.gradle.kts): the language Android gives the app, English
+ * for one OrcaSlicer does not translate; empty until it is read.
  */
 @Composable
 fun rememberOrcaCatalog(): OrcaCatalog {
     val context = LocalContext.current.applicationContext
-    val catalog by produceState(OrcaCatalogs.loaded ?: OrcaCatalog.EMPTY, context) { value = OrcaCatalogs.load(context) }
+    val language = orcaLanguageOf(LocalConfiguration.current.locales[0]).catalog
+    val catalog by produceState(OrcaCatalogs.loaded(language) ?: OrcaCatalog.EMPTY, context, language) {
+        value = OrcaCatalogs.load(context, language)
+    }
     return catalog
 }
 
-/** Reads the catalogue once per process. */
+/** Reads each catalogue once per process. */
 object OrcaCatalogs {
     private val lock = Mutex()
+    private val catalogs = HashMap<String, OrcaCatalog>()
 
-    @Volatile
-    internal var loaded: OrcaCatalog? = null
-        private set
+    internal fun loaded(language: String): OrcaCatalog? = synchronized(catalogs) { catalogs[language] }
 
-    suspend fun load(context: Context): OrcaCatalog = lock.withLock {
-        loaded ?: withContext(Dispatchers.IO) {
-            val language = context.getString(R.string.orca_catalog_language)
-            if (language.isEmpty()) {
+    suspend fun load(context: Context, language: String): OrcaCatalog = lock.withLock {
+        loaded(language) ?: withContext(Dispatchers.IO) {
+            try {
+                OrcaCatalog.parse(context.assets.open("orca/i18n/$language.po").use { it.readBytes().decodeToString() })
+            } catch (_: FileNotFoundException) {
                 OrcaCatalog.EMPTY
-            } else {
-                try {
-                    OrcaCatalog.parse(context.assets.open("orca/i18n/$language.po").use { it.readBytes().decodeToString() })
-                } catch (_: FileNotFoundException) {
-                    OrcaCatalog.EMPTY
-                }
             }
-        }.also { loaded = it }
+        }.also { catalog -> synchronized(catalogs) { catalogs[language] = catalog } }
     }
 }

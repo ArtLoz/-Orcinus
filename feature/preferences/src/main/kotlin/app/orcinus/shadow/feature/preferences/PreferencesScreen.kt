@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -53,6 +54,9 @@ import app.orcinus.shadow.core.designsystem.component.OrcaUnderlineTabs
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.ui.orca.ORCA_LANGUAGES
+import app.orcinus.shadow.core.ui.orca.OrcaLanguage
+import app.orcinus.shadow.core.ui.orca.orcaLanguageOf
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.settings.SettingTooltipDialog
 import app.orcinus.shadow.core.ui.settings.openInBrowser
@@ -62,7 +66,14 @@ import java.util.Locale
 internal fun PreferencesRoute(viewModel: PreferencesViewModel, onBack: () -> Unit) {
     val values by viewModel.values.collectAsStateWithLifecycle()
     val problem by viewModel.problem.collectAsStateWithLifecycle()
-    PreferencesScreen(values = values, problem = problem, onSet = viewModel::set, onDismissProblem = viewModel::dismissProblem, onBack = onBack)
+    PreferencesScreen(
+        values = values,
+        problem = problem,
+        onSet = viewModel::set,
+        onSelectLanguage = viewModel::selectLanguage,
+        onDismissProblem = viewModel::dismissProblem,
+        onBack = onBack,
+    )
 }
 
 /**
@@ -76,6 +87,7 @@ internal fun PreferencesScreen(
     values: Map<String, String>,
     problem: String?,
     onSet: (key: String, value: String) -> Unit,
+    onSelectLanguage: (OrcaLanguage) -> Unit,
     onDismissProblem: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -83,6 +95,9 @@ internal fun PreferencesScreen(
     var page by rememberSaveable { mutableIntStateOf(0) }
     var tooltip by remember { mutableStateOf<PreferenceItem?>(null) }
     var confirmingMixedTemperatures by remember { mutableStateOf(false) }
+    var confirmingLanguage by remember { mutableStateOf<OrcaLanguage?>(null) }
+    // The app's language as Android gives it, which a chosen language is.
+    val language = orcaLanguageOf(LocalConfiguration.current.locales[0])
     // Nothing can be changed before the engine has read the configuration.
     val enabled = values.isNotEmpty()
     Column(
@@ -96,12 +111,15 @@ internal fun PreferencesScreen(
             for (section in PREFERENCE_PAGES[page].sections) {
                 item(key = "section:${section.title}") { SectionTitle(orcaString(section.title)) }
                 items(section.items, key = { it.key }) { item ->
-                    PreferenceRow(item, values, enabled, onTooltip = { tooltip = item }) { key, value ->
-                        // create_item_checkbox(): turning the restriction off asks first.
-                        if (key == AppConfigKeys.ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING && value == "true") {
-                            confirmingMixedTemperatures = true
-                        } else {
-                            onSet(key, value)
+                    PreferenceRow(item, values, enabled, language, onTooltip = { tooltip = item }) { key, value ->
+                        when {
+                            // create_item_checkbox(): turning the restriction off asks first.
+                            key == AppConfigKeys.ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING && value == "true" -> confirmingMixedTemperatures = true
+                            // create_item_language_combobox(): another language asks first.
+                            key == AppConfigKeys.LANGUAGE -> ORCA_LANGUAGES.firstOrNull { it.catalog == value }
+                                ?.takeIf { it != language }
+                                ?.let { confirmingLanguage = it }
+                            else -> onSet(key, value)
                         }
                     }
                 }
@@ -118,6 +136,15 @@ internal fun PreferencesScreen(
                 else -> listOf(OrcaText(item.tooltip.ifEmpty { item.title }))
             },
             onDismiss = { tooltip = null },
+        )
+    }
+    confirmingLanguage?.let { chosen ->
+        LanguageDialog(
+            onContinue = {
+                confirmingLanguage = null
+                onSelectLanguage(chosen)
+            },
+            onCancel = { confirmingLanguage = null },
         )
     }
     if (confirmingMixedTemperatures) {
@@ -162,6 +189,7 @@ private fun PreferenceRow(
     item: PreferenceItem,
     values: Map<String, String>,
     enabled: Boolean,
+    language: OrcaLanguage,
     onTooltip: () -> Unit,
     onChange: (key: String, value: String) -> Unit,
 ) {
@@ -227,6 +255,14 @@ private fun PreferenceRow(
                 modifier = Modifier.width(CONTROL_WIDTH),
             )
             is PreferenceItem.Decimal -> DecimalField(item, value, enabled) { onChange(item.key, it) }
+            is PreferenceItem.Language -> OrcaComboBox(
+                items = ORCA_LANGUAGES.indices.toList(),
+                selected = ORCA_LANGUAGES.indexOf(language),
+                label = { ORCA_LANGUAGES[it].name },
+                onSelect = { onChange(item.key, ORCA_LANGUAGES[it].catalog) },
+                enabled = enabled,
+                modifier = Modifier.width(CONTROL_WIDTH),
+            )
             is PreferenceItem.Clear -> OrcaButton(
                 text = orcaString("Clear"),
                 onClick = { onChange(item.key, "") },
@@ -294,6 +330,32 @@ private fun SecondsField(value: String, enabled: Boolean, onChange: (String) -> 
                 }
                 focused = state.isFocused
             },
+    )
+}
+
+/**
+ * create_item_language_combobox()'s question before another language: the
+ * app's screen is built again in it. Its title is OrcaSlicer's L(), which
+ * leaves it untranslated.
+ */
+@Composable
+private fun LanguageDialog(onContinue: () -> Unit, onCancel: () -> Unit) {
+    val colors = OrcaTheme.colors
+    AlertDialog(
+        onDismissRequest = onCancel,
+        confirmButton = { OrcaButton(orcaString("OK"), onClick = onContinue) },
+        dismissButton = { OrcaButton(orcaString("Cancel"), onClick = onCancel, style = OrcaButtonStyle.Regular) },
+        title = { Text("Language selection", style = OrcaTheme.typography.head16) },
+        text = {
+            Text(
+                orcaString("Switching the language requires application restart.\n") + "\n" + orcaString("Do you want to continue?"),
+                style = OrcaTheme.typography.body14,
+            )
+        },
+        containerColor = colors.window,
+        titleContentColor = colors.text,
+        textContentColor = colors.text,
+        shape = OrcaTheme.shapes.window,
     )
 }
 

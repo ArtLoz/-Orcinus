@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- OrcaSlicer's Russian wording (localization/i18n/ru/OrcaSlicer_ru.po) where it has one. -->
+<!-- OrcaSlicer's English wording where it has one; values-ru has its Russian catalogue's. -->
 <resources>
-    <string name="settings_back">Назад</string>
+    <string name="settings_back">Back</string>
 </resources>

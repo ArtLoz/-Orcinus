@@ -133,7 +133,8 @@ file the engine writes.
 - `:feature:prepare` and `:feature:preview` are one screen each: a `NavKey`, an
   `EntryProviderScope` extension that registers the entry, a view model scoped
   to the entry, a stateful route, a stateless screen with previews, and the
-  screen's texts. Russian wording comes from OrcaSlicer's own translation
+  screen's texts: English in `values/`, OrcaSlicer's English wording where it
+  has one, and Russian in `values-ru/`, from OrcaSlicer's own translation
   (`localization/i18n/ru`) where it has one.
 - `:core:designsystem` is the full OrcaSlicer look:
   - colours by role, light and dark, from OrcaSlicer's dark-mode table
@@ -171,10 +172,15 @@ file the engine writes.
   build packages as an asset: `OrcaCatalog` reads it as `msgfmt` compiles it
   (fuzzy and empty entries are left out), selects plural forms by the
   catalogue's `Plural-Forms`, and fills printf and `boost::format` arguments.
-  The catalogue's language is a string resource beside the app's own texts,
-  which are Russian for now; a translation of the app sets its language there
-  and adds it to `orcaCatalogueLanguages` in `core/ui/build.gradle.kts`, the
-  catalogues the build packages.
+  The build packages every catalogue of the pinned OrcaSlicer, cut down to what
+  `msgfmt` keeps (header, translated entries that are not fuzzy); the app
+  loads the one of its language (`orcaLanguageOf()`: OrcaSlicer's languages in
+  `OrcaLanguages.kt`, English for one it does not translate). The app's
+  language is Android's per-app language (`LocaleManager` from Android 13,
+  `AndroidAppLanguage`'s own choice before), which the Preferences' Language
+  item sets through the `AppLanguage` port; the app's own texts exist in
+  English and Russian, so another language shows OrcaSlicer's texts in it and
+  the app's own in English.
 - `:render:scene` is OrcaSlicer's 3D plate view for Compose (`PlateView`), on
   OpenGL ES 3.0:
   - OrcaSlicer's own shaders (`resources/shaders/140`), which the build turns

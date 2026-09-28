@@ -3,6 +3,7 @@ package app.orcinus.shadow
 import android.Manifest
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
@@ -37,6 +38,11 @@ class MainActivity : ComponentActivity() {
     // job runs either way if the user declines.
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    // Before Android 13 the app's language is the activity's own configuration.
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AndroidAppLanguage.wrap(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // The launch screen is installed before the content, and stays while
         // the engine starts in its own process.
@@ -51,6 +57,8 @@ class MainActivity : ComponentActivity() {
 
         val container = (application as OrcinusApplication).container
         keepSplashWhileEngineStarts(splash, container)
+        // A language chosen before Android 13 takes effect as the activity is built again.
+        lifecycleScope.launch { container.appLanguage.changes.collect { recreate() } }
         setContent {
             OrcinusTheme {
                 // OrcaSlicer's own texts, such as its settings, come from its catalogue.

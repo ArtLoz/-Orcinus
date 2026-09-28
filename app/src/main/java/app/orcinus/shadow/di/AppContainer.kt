@@ -2,6 +2,7 @@ package app.orcinus.shadow.di
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import app.orcinus.shadow.AndroidAppLanguage
 import app.orcinus.shadow.BuildConfig
 import app.orcinus.shadow.NetworkWork
 import app.orcinus.shadow.OrcaSlicerService
@@ -547,7 +548,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)
 
-    fun preferencesViewModel() = PreferencesViewModel(appPreferences, SetPreferenceUseCase(appPreferences, settingsTabs, engine, platePresets, plateRepository, applicationScope))
+    /** The language the app shows, which Android keeps for it. */
+    val appLanguage = AndroidAppLanguage(applicationContext)
+
+    fun preferencesViewModel() = PreferencesViewModel(
+        appPreferences,
+        SetPreferenceUseCase(appPreferences, settingsTabs, engine, platePresets, plateRepository, applicationScope),
+        appLanguage,
+    )
 
     fun sidebarViewModel() = SidebarViewModel(
         observePlate = observePlate,
