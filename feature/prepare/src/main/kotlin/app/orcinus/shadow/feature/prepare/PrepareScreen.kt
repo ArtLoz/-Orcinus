@@ -137,6 +137,7 @@ import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.exportFileName
+import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
@@ -145,6 +146,7 @@ import app.orcinus.shadow.render.scene.CutView
 import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateGraphics
+import app.orcinus.shadow.render.scene.PlateNavigator
 import app.orcinus.shadow.render.scene.PlateView
 import app.orcinus.shadow.render.scene.PlateViewOptions
 import app.orcinus.shadow.render.scene.rememberPlateViewCamera
@@ -694,13 +696,17 @@ internal fun PrepareScreen(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // The canvas toolbar of OrcaSlicer's bottom-left corner: the View menu and the zoom button.
-                CanvasViewButtons(
-                    canvas = canvas,
-                    onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
-                    onSet = onSetCanvas,
-                    onZoom = viewCamera::zoomToFit,
-                )
+                // OrcaSlicer's bottom-left corner: the 3D navigator, and the canvas toolbar
+                // (the View menu and the zoom button) beside it.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                    if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels())
+                    CanvasViewButtons(
+                        canvas = canvas,
+                        onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
+                        onSet = onSetCanvas,
+                        onZoom = viewCamera::zoomToFit,
+                    )
+                }
                 // The plates' numbers and icons, under the thumb once there are several.
                 if (state.plateOrigins.size > 1) {
                     PlateStrip(

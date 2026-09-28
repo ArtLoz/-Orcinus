@@ -161,6 +161,17 @@ internal class OrcaCamera {
         }
     }
 
+    /** Camera::get_view_rotation(), as the rows of its matrix. */
+    fun viewRotationRows(): Array<Vec3> = viewRotation.toRotationRows()
+
+    /** Camera::set_rotation(): the camera turned to the rotation of the rows [rows] about its target. */
+    fun setRotation(rows: Array<Vec3>) {
+        val translation = viewMatrix.translation() + viewRotation.rotate(target)
+        viewRotation = Quaternion.fromRotationRows(rows).normalized()
+        viewMatrix = Affine3.fromPositionOrientation(viewRotation.rotate(-target) + translation, viewRotation)
+        updateZenit()
+    }
+
     /** Camera::recover_from_free_camera(): the right vector back parallel to the plate. */
     fun recoverFromFreeCamera() {
         if (abs(dirRight().z) > EPSILON) lookAt(position(), target, Vec3.UNIT_Z)

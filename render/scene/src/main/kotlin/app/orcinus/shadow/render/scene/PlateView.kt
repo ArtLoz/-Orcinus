@@ -21,8 +21,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -413,7 +415,8 @@ data class PlateViewOptions(
  * a view of the camera, "Default View", and the canvas's zoom button.
  */
 class PlateViewCamera {
-    internal var controller: PlateViewController? = null
+    /** The view's controller while it is shown, which the 3D navigator follows. */
+    internal var controller: PlateViewController? by mutableStateOf(null)
 
     /** GLCanvas3D::select_view() */
     fun selectView(view: CameraView) {
@@ -1264,6 +1267,25 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
     }
 
+    /** The camera's view rotation in the 3D navigator's space, as ImGuizmo::ViewManipulate() takes it. */
+    private val navigatorViewState = MutableStateFlow(ViewNavigator.viewOf(camera.viewRotationRows()))
+    val navigatorView: StateFlow<FloatArray> = navigatorViewState.asStateFlow()
+
+    /**
+     * GLCanvas3D::_render_3d_navigator() once the navigator changed the view:
+     * the camera turns to [view]; dragging the cube turns it to perspective,
+     * a click on the middle of a face ([clickedBox]) to orthographic and on
+     * another box back to perspective (Camera::auto_type()).
+     */
+    fun turnFromNavigator(view: FloatArray, dragging: Boolean, clickedBox: Int) {
+        camera.setRotation(ViewNavigator.rotationOf(view))
+        when {
+            dragging -> autoType(true)
+            clickedBox >= 0 -> autoType(clickedBox !in ViewNavigator.FACE_BOXES)
+        }
+        invalidate()
+    }
+
     /** GLCanvas3D::select_view() */
     fun selectView(view: CameraView) {
         camera.selectView(view)
@@ -1557,6 +1579,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             resetView()
             return
         }
+        navigatorViewState.value = ViewNavigator.viewOf(camera.viewRotationRows())
         val box = sceneBox() ?: Box3(Vec3(-1.0, -1.0, -1.0), Vec3(1.0, 1.0, 1.0))
         camera.sceneBox = box
         camera.applyProjection(box)

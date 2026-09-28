@@ -86,12 +86,14 @@ import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
 import app.orcinus.shadow.core.ui.settings.openInBrowser
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.scene.PlateGraphics
+import app.orcinus.shadow.render.scene.PlateNavigator
 import app.orcinus.shadow.render.scene.PlateView
 import app.orcinus.shadow.render.scene.PlateViewOptions
 import app.orcinus.shadow.render.scene.rememberPlateViewCamera
@@ -315,18 +317,23 @@ internal fun PreviewScreen(
                     onPerspectiveChange = { onSetCanvas(AppConfigKeys.USE_PERSPECTIVE_CAMERA, it.toString()) },
                     camera = viewCamera,
                 )
-                // The canvas toolbar (View menu and zoom button); the legend and the move slider take the bottom,
-                // so it stands under the sidebar's button.
-                CanvasViewButtons(
-                    canvas = canvas,
-                    onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
-                    onSet = onSetCanvas,
-                    onZoom = viewCamera::zoomToFit,
+                // The 3D navigator and the canvas toolbar (View menu and zoom button) beside it; the legend
+                // and the move slider take the bottom, so they stand under the sidebar's button.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                         .padding(start = 12.dp, top = 56.dp),
-                )
+                ) {
+                    if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels())
+                    CanvasViewButtons(
+                        canvas = canvas,
+                        onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
+                        onSet = onSetCanvas,
+                        onZoom = viewCamera::zoomToFit,
+                    )
+                }
             }
             if (allPlatesShown) {
                 AllPlatesStatsPanel(

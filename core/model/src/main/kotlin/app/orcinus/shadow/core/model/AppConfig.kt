@@ -35,6 +35,8 @@ data class CanvasPreferences(
     val perspective: Boolean = true,
     /** auto_perspective: the side views look orthographically, the others in perspective (Camera::auto_type()). */
     val autoPerspective: Boolean = false,
+    /** show_3d_navigator: the cube of the camera's views in the view's corner (GLCanvas3D::_render_3d_navigator()). */
+    val navigator: Boolean = true,
     /** show_canvas_zoom_button: the button that fits the plate or the selection to the view. */
     val zoomButton: Boolean = true,
     /** show_axes: the coordinate axes at the origin of the plates (Bed3D::render_axes()). */
@@ -72,6 +74,7 @@ object AppConfigKeys {
     const val ZOOM_TO_MOUSE = "zoom_to_mouse"
     const val USE_PERSPECTIVE_CAMERA = "use_perspective_camera"
     const val AUTO_PERSPECTIVE = "auto_perspective"
+    const val SHOW_3D_NAVIGATOR = "show_3d_navigator"
     const val SHOW_CANVAS_ZOOM_BUTTON = "show_canvas_zoom_button"
     const val SHOW_AXES = "show_axes"
     const val SHOW_PLATE_GRIDLINES = "show_plate_gridlines"
@@ -119,6 +122,7 @@ object AppConfigKeys {
         ZOOM_TO_MOUSE,
         USE_PERSPECTIVE_CAMERA,
         AUTO_PERSPECTIVE,
+        SHOW_3D_NAVIGATOR,
         SHOW_CANVAS_ZOOM_BUTTON,
         SHOW_AXES,
         SHOW_PLATE_GRIDLINES,

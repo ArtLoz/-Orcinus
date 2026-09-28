@@ -79,6 +79,20 @@ fun CanvasViewButtons(
     }
 }
 
+/**
+ * ImGuizmo's FaceLabels as GLCanvas3D::_render_3d_navigator() names them, in
+ * ImGuizmo::FACES order: back, top, right, front, bottom and left.
+ */
+@Composable
+fun navigatorFaceLabels(): List<String> = listOf(
+    orcaString("Back"),
+    orcaString("Top"),
+    orcaString("Right", "Camera"),
+    orcaString("Front"),
+    orcaString("Bottom"),
+    orcaString("Left", "Camera"),
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun CanvasViewSheet(
@@ -126,6 +140,7 @@ private fun CanvasViewSheet(
             ) { onSet(AppConfigKeys.AUTO_PERSPECTIVE, it.toString()) }
             HorizontalDivider(color = colors.separator)
             // The canvas menu (CanvasToolbarMenu), in its order.
+            SwitchRow(orcaString("3D Navigator"), null, canvas.navigator) { onSet(AppConfigKeys.SHOW_3D_NAVIGATOR, it.toString()) }
             SwitchRow(orcaString("Zoom button"), null, canvas.zoomButton) { onSet(AppConfigKeys.SHOW_CANVAS_ZOOM_BUTTON, it.toString()) }
             HorizontalDivider(color = colors.separator)
             SwitchRow(orcaString("Axes"), null, canvas.axes) { onSet(AppConfigKeys.SHOW_AXES, it.toString()) }
