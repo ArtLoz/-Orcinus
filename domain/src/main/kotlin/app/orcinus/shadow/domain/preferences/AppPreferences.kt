@@ -73,6 +73,12 @@ class AppPreferences(private val store: AppConfigStore) {
             fxaa = AppConfigKeys.bool(values[AppConfigKeys.OPENGL_FXAA_ENABLED]),
             fpsCap = AppConfigKeys.fpsCap(values[AppConfigKeys.OPENGL_FPS_CAP]),
             fpsOverlay = AppConfigKeys.bool(values[AppConfigKeys.OPENGL_SHOW_FPS_OVERLAY]),
+            // Plater::priv::apply_free_camera_correction() compares with "true" alone, as the canvas does "show_axes".
+            perspective = values[AppConfigKeys.USE_PERSPECTIVE_CAMERA]?.let { it == "true" } ?: true,
+            autoPerspective = AppConfigKeys.bool(values[AppConfigKeys.AUTO_PERSPECTIVE]),
+            zoomButton = values[AppConfigKeys.SHOW_CANVAS_ZOOM_BUTTON]?.let(AppConfigKeys::bool) ?: true,
+            axes = values[AppConfigKeys.SHOW_AXES]?.let { it == "true" } ?: true,
+            gridlines = values[AppConfigKeys.SHOW_PLATE_GRIDLINES]?.let(AppConfigKeys::bool) ?: true,
         )
     }
 }

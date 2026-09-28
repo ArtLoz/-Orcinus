@@ -530,6 +530,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             plateJobs = plateJobs,
             setPlateSettings = SetPlateSettingsUseCase(plateRepository),
             preferences = appPreferences,
+            setPreference = setPreference,
         )
     }
 
@@ -544,18 +545,18 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         exportGcode = exportGcode,
         editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
         preferences = appPreferences,
+        setPreference = setPreference,
     )
 
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)
 
+    /** An item of the Preferences or of a canvas's View menu, written into OrcaSlicer.conf. */
+    private val setPreference by lazy { SetPreferenceUseCase(appPreferences, settingsTabs, engine, platePresets, plateRepository, applicationScope) }
+
     /** The language the app shows, which Android keeps for it. */
     val appLanguage = AndroidAppLanguage(applicationContext)
 
-    fun preferencesViewModel() = PreferencesViewModel(
-        appPreferences,
-        SetPreferenceUseCase(appPreferences, settingsTabs, engine, platePresets, plateRepository, applicationScope),
-        appLanguage,
-    )
+    fun preferencesViewModel() = PreferencesViewModel(appPreferences, setPreference, appLanguage)
 
     fun sidebarViewModel() = SidebarViewModel(
         observePlate = observePlate,

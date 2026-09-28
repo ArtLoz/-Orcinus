@@ -593,3 +593,51 @@ internal class LayOnFaceGizmo(planes: List<FlatteningPlane>) {
 
     private fun FloatArray.point(index: Int) = Vec3(this[index].toDouble(), this[index + 1].toDouble(), this[index + 2].toDouble())
 }
+
+/**
+ * GLModel's smooth_cylinder(): [resolution] sides around the Z axis from 0 to
+ * [height], with its caps, as the positions of its triangles one after another
+ * (the flat shader needs no normals).
+ */
+internal fun smoothCylinder(resolution: Int, radius: Float, height: Float): FloatArray {
+    val sectorCount = maxOf(4, resolution)
+    val sectorStep = 2.0 * PI / sectorCount
+    val base = List(sectorCount) { i -> Vec3(radius * cos(sectorStep * i), radius * sin(sectorStep * i), 0.0) }
+    val h = Vec3(0.0, 0.0, height.toDouble())
+    val vertices = ArrayList<Vec3>()
+    val triangles = ArrayList<Int>()
+    // stem vertices and triangles
+    base.forEach { v ->
+        vertices += v
+        vertices += v + h
+    }
+    for (i in 0 until sectorCount) {
+        val v1 = i * 2
+        val v2 = if (i < sectorCount - 1) v1 + 2 else 0
+        val v3 = v2 + 1
+        val v4 = v1 + 1
+        triangles += listOf(v1, v2, v3, v1, v3, v4)
+    }
+    // bottom cap
+    var capCenter = vertices.size
+    vertices += Vec3.ZERO
+    vertices += base
+    for (i in 0 until sectorCount) {
+        triangles += listOf(capCenter, if (i < sectorCount - 1) capCenter + i + 2 else capCenter + 1, capCenter + i + 1)
+    }
+    // top cap
+    capCenter = vertices.size
+    vertices += h
+    vertices += base.map { it + h }
+    for (i in 0 until sectorCount) {
+        triangles += listOf(capCenter, capCenter + i + 1, if (i < sectorCount - 1) capCenter + i + 2 else capCenter + 1)
+    }
+    val positions = FloatArray(triangles.size * 3)
+    triangles.forEachIndexed { index, vertex ->
+        val v = vertices[vertex]
+        positions[index * 3] = v.x.toFloat()
+        positions[index * 3 + 1] = v.y.toFloat()
+        positions[index * 3 + 2] = v.z.toFloat()
+    }
+    return positions
+}

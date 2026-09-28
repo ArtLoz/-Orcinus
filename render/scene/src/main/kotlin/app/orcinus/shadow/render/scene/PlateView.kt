@@ -43,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.CameraView
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.Manipulation
@@ -162,6 +163,12 @@ fun PlateView(
     antialiasingSamples: Int = 4,
     /** The Preferences' graphics: FXAA, the FPS cap and the FPS overlay. */
     graphics: PlateGraphics = PlateGraphics(),
+    /** The View menu's projection, axes and grid. */
+    options: PlateViewOptions = PlateViewOptions(),
+    /** Camera::set_type() by Auto Perspective, which OrcaSlicer.conf keeps (use_perspective_camera). */
+    onPerspectiveChange: (Boolean) -> Unit = {},
+    /** The View menu's commands to the camera: its views and the zoom button. */
+    camera: PlateViewCamera? = null,
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -173,6 +180,12 @@ fun PlateView(
         val controller = surface.controller
         LaunchedEffect(orbitSpeed) { controller.orbitSpeed = orbitSpeed }
         LaunchedEffect(graphics.fxaa) { controller.setFxaa(graphics.fxaa) }
+        LaunchedEffect(options) { controller.setOptions(options) }
+        SideEffect { controller.onPerspectiveChange = onPerspectiveChange }
+        DisposableEffect(camera, controller) {
+            camera?.controller = controller
+            onDispose { if (camera?.controller === controller) camera.controller = null }
+        }
         LaunchedEffect(graphics.fpsCap) { surface.fpsCap = graphics.fpsCap }
         val fps by controller.fps.collectAsState()
         LaunchedEffect(freeCamera, zoomToFingers) {
@@ -382,6 +395,49 @@ fun PlateView(
 }
 
 private val DEFAULT_FILAMENT_COLOR = ColorRgba(0xF2 / 255f, 0x75 / 255f, 0x4E / 255f)
+
+/**
+ * The View menu's settings of the view (OrcaSlicer.conf): [perspective]
+ * (use_perspective_camera), [autoPerspective] (auto_perspective), [axes]
+ * (show_axes) and [gridlines] (show_plate_gridlines).
+ */
+data class PlateViewOptions(
+    val perspective: Boolean = true,
+    val autoPerspective: Boolean = false,
+    val axes: Boolean = true,
+    val gridlines: Boolean = true,
+)
+
+/**
+ * The View menu's commands to the camera of the [PlateView] it is given to:
+ * a view of the camera, "Default View", and the canvas's zoom button.
+ */
+class PlateViewCamera {
+    internal var controller: PlateViewController? = null
+
+    /** GLCanvas3D::select_view() */
+    fun selectView(view: CameraView) {
+        controller?.selectView(view)
+    }
+
+    /** The View menu's "Default View": the plate view framing the plate. */
+    fun defaultView() {
+        controller?.defaultView()
+    }
+
+    /** The zoom button of the canvas toolbar: the plate view framing the selection, or the plate. */
+    fun zoomToFit() {
+        controller?.zoomToFit()
+    }
+}
+
+/** A [PlateViewCamera] for as long as the page is shown. */
+@Composable
+fun rememberPlateViewCamera(): PlateViewCamera = remember { PlateViewCamera() }
+
+/** Camera::select_view()'s auto_type(): the side views are orthographic, the others in perspective. */
+private val CameraView.prefersPerspective: Boolean
+    get() = this == CameraView.ISO || this == CameraView.TOP_FRONT || this == CameraView.PLATE
 
 /** ImGui::SetNextWindowBgAlpha(0.35f) of the FPS overlay. */
 private const val FPS_BACKGROUND_ALPHA = 0.35f
@@ -1173,6 +1229,74 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    /** The View menu's projection, axes and grid, and Camera::m_prevent_auto_type. */
+    private var options = PlateViewOptions()
+    private var preventAutoType = false
+    var onPerspectiveChange: (Boolean) -> Unit = {}
+
+    fun setOptions(value: PlateViewOptions) {
+        options = value
+        // Plater::priv::apply_free_camera_correction(): the type of OrcaSlicer.conf.
+        setType(value.perspective, fromConfig = true)
+        invalidate()
+    }
+
+    /** Camera::set_type(): a type of its own keeps Auto Perspective from switching to perspective. */
+    private fun setType(perspective: Boolean, fromConfig: Boolean = false) {
+        if (camera.orthographic != perspective) return
+        camera.orthographic = !perspective
+        preventAutoType = true
+        // m_update_config_on_type_change_enabled: OrcaSlicer.conf follows every change.
+        if (!fromConfig) onPerspectiveChange(perspective)
+    }
+
+    /** Camera::auto_type(), with Auto Perspective on. */
+    private fun autoType(perspective: Boolean) {
+        if (!options.autoPerspective) return
+        if (perspective) {
+            if (!preventAutoType) {
+                setType(true)
+                preventAutoType = false
+            }
+        } else {
+            setType(false)
+            preventAutoType = false
+        }
+    }
+
+    /** GLCanvas3D::select_view() */
+    fun selectView(view: CameraView) {
+        camera.selectView(view)
+        autoType(view.prefersPerspective)
+        invalidate()
+    }
+
+    /** "Default View": the plate view, framing the plate (zoom_to_bed()). */
+    fun defaultView() {
+        selectView(CameraView.PLATE)
+        zoomToBed()
+    }
+
+    /** The canvas's zoom button: the plate view, framing the selection or, with none, the plate. */
+    fun zoomToFit() {
+        selectView(CameraView.PLATE)
+        val selection = objects.filter { it.index in selectedIndexes || it.index == selectedIndex }.map(SceneObject::bounds).reduceOrNull(Box3::merge)
+        if (selection == null) {
+            zoomToBed()
+        } else {
+            // zoom_to_selection(): DefaultCameraZoomToBoxMarginFactor.
+            camera.zoomToBox(selection, ZOOM_TO_PLATE_MARGIN_FACTOR)
+            invalidate()
+        }
+    }
+
+    /** GLCanvas3D::zoom_to_bed(): the current plate's build volume at z = 0 (DefaultCameraZoomToBedMarginFactor). */
+    private fun zoomToBed() {
+        camera.sceneBox = sceneBox()
+        currentPlateBox()?.let { camera.zoomToBox(it, ZOOM_TO_BED_MARGIN_FACTOR) }
+        invalidate()
+    }
+
     /** OrcaSlicer's plate view: from the front and above, framing the current plate (GLCanvas3D::zoom_to_plate). */
     fun resetView() {
         val bed = bed ?: return
@@ -1448,6 +1572,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 pixelScale = density,
                 selectedIndex = selectedIndex,
                 selectedIndexes = selectedIndexes,
+                showAxes = options.axes,
+                showGridlines = options.gridlines,
                 gizmo = gizmoFrame(),
                 slopeNormalZ = slopeNormalZ,
                 // apply_color_clip_plane_colors(): the dovetail cut shows no parts' colours on the object.
@@ -1527,6 +1653,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         // GLCanvas3D.cpp
         const val TRACKBALL_SIZE = 0.8
         const val ZOOM_TO_PLATE_MARGIN_FACTOR = 1.25
+        const val ZOOM_TO_BED_MARGIN_FACTOR = 2.0
         // libslic3r.h and Model.hpp
         const val EPSILON = 1e-4
         const val SINKING_Z_THRESHOLD = -0.001

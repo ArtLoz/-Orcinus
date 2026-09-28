@@ -1,5 +1,6 @@
 package app.orcinus.shadow.render.scene
 
+import app.orcinus.shadow.core.model.CameraView
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Quaternion
 import app.orcinus.shadow.render.scene.math.Vec3
@@ -111,6 +112,28 @@ class OrcaCameraTest {
         assertEquals(0.0, camera.dirRight().z, 1e-9)
         assertVec(eye, camera.position())
         assertVec(target, camera.target)
+    }
+
+    @Test
+    fun theViewsLookAtTheTargetFromTheirSide() {
+        val camera = OrcaCamera()
+        camera.selectPlateView()
+        val target = camera.target
+        val distance = (camera.position() - target).norm()
+        fun check(view: CameraView, forward: Vec3, up: Vec3) {
+            camera.selectView(view)
+            assertVec(forward, camera.dirForward())
+            assertVec(up, camera.dirUp())
+            assertVec(target, camera.target)
+            assertEquals(distance, (camera.position() - target).norm(), 1e-9)
+        }
+        // Camera::select_view(): top looks down with Y up, bottom looks up with -Y up.
+        check(CameraView.TOP, Vec3(0.0, 0.0, -1.0), Vec3(0.0, 1.0, 0.0))
+        check(CameraView.BOTTOM, Vec3(0.0, 0.0, 1.0), Vec3(0.0, -1.0, 0.0))
+        check(CameraView.FRONT, Vec3(0.0, 1.0, 0.0), Vec3(0.0, 0.0, 1.0))
+        check(CameraView.REAR, Vec3(0.0, -1.0, 0.0), Vec3(0.0, 0.0, 1.0))
+        check(CameraView.LEFT, Vec3(1.0, 0.0, 0.0), Vec3(0.0, 0.0, 1.0))
+        check(CameraView.RIGHT, Vec3(-1.0, 0.0, 0.0), Vec3(0.0, 0.0, 1.0))
     }
 
     @Test

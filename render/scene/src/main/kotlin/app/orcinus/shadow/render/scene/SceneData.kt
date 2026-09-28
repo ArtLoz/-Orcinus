@@ -78,10 +78,15 @@ internal class SceneBed(
     /** The plate at z = 0, which the plate view frames (GLCanvas3D::zoom_to_plate). */
     val plateBox = Box3(Vec3(buildVolume.min.x, buildVolume.min.y, 0.0), Vec3(buildVolume.max.x, buildVolume.max.y, 0.0))
 
-    /** Bed3D's extended bounding box: the plate and its model. */
-    val extendedBox = model?.bounds?.let { bounds ->
-        plateBox.merge(Box3(bounds.min + modelOffset, bounds.max + modelOffset))
-    } ?: plateBox
+    /** Bed3D::Axes: the stem length, a tenth of the build volume's largest size. */
+    val axisLength = 0.1 * buildVolume.maxSize()
+
+    /** Bed3D's extended bounding box: the plate, its model and the end of the axes (calc_extended_bounding_box()). */
+    val extendedBox = (
+        model?.bounds?.let { bounds ->
+            plateBox.merge(Box3(bounds.min + modelOffset, bounds.max + modelOffset))
+        } ?: plateBox
+        ).merge(Vec3(axisLength, axisLength, GROUND_Z + axisLength).let { Box3(it, it) })
 }
 
 internal class SceneObject(

@@ -52,6 +52,7 @@ import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
@@ -82,6 +83,7 @@ import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.filamentLength
 import app.orcinus.shadow.core.ui.network.rememberLocalNetworkAccess
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.printTime
@@ -91,6 +93,8 @@ import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateView
+import app.orcinus.shadow.render.scene.PlateViewOptions
+import app.orcinus.shadow.render.scene.rememberPlateViewCamera
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -105,6 +109,7 @@ internal fun PreviewRoute(
         state = state,
         layout = currentOrcaWindowLayout(),
         canvas = canvas,
+        onSetCanvas = viewModel::setCanvasOption,
         onSelectPlate = viewModel::selectPlate,
         onSlice = {
             onSliceRequested()
@@ -177,8 +182,11 @@ internal fun PreviewScreen(
     onSliceModeChange: (SliceMode) -> Unit = {},
     onShowAllPlates: () -> Unit = {},
     canvas: CanvasPreferences = CanvasPreferences(),
+    /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
+    onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
 ) {
     val result = state.result
+    val viewCamera = rememberPlateViewCamera()
     val untitled = orcaString("Untitled")
     var sending by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
@@ -303,6 +311,21 @@ internal fun PreviewScreen(
                     // The FPS overlay beside the sidebar button; the layer slider takes the top right corner.
                     graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopStart, PaddingValues(start = 58.dp, top = 19.dp)),
                     antialiasingSamples = canvas.antialiasingSamples,
+                    options = PlateViewOptions(canvas.perspective, canvas.autoPerspective, canvas.axes, canvas.gridlines),
+                    onPerspectiveChange = { onSetCanvas(AppConfigKeys.USE_PERSPECTIVE_CAMERA, it.toString()) },
+                    camera = viewCamera,
+                )
+                // The canvas toolbar (View menu and zoom button); the legend and the move slider take the bottom,
+                // so it stands under the sidebar's button.
+                CanvasViewButtons(
+                    canvas = canvas,
+                    onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
+                    onSet = onSetCanvas,
+                    onZoom = viewCamera::zoomToFit,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                        .padding(start = 12.dp, top = 56.dp),
                 )
             }
             if (allPlatesShown) {

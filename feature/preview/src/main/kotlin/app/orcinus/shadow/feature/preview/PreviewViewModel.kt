@@ -34,6 +34,7 @@ import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.allPlatesStats
 import app.orcinus.shadow.domain.preferences.AppPreferences
+import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -80,11 +81,15 @@ class PreviewViewModel(
     private val exportGcode: ExportGcodeUseCase,
     private val editLayerGcodes: EditLayerGcodesUseCase,
     preferences: AppPreferences,
+    private val setPreference: SetPreferenceUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
 
     /** What the Preferences change on the canvas. */
     val canvas: StateFlow<CanvasPreferences> = preferences.canvas
+
+    /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
+    fun setCanvasOption(key: String, value: String) = setPreference(key, value)
     val state: StateFlow<PreviewUiState> = observePlate()
         .map(PlateState::toPreviewUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toPreviewUiState())

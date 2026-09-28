@@ -104,6 +104,7 @@ import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.preferences.AppPreferences
+import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import app.orcinus.shadow.render.scene.CutConnectorEvent
 import app.orcinus.shadow.render.scene.CutLineEvent
 import app.orcinus.shadow.render.scene.CutPlanes
@@ -180,11 +181,15 @@ class PrepareViewModel(
     private val plateJobs: PlateJobsUseCase,
     private val setPlateSettings: SetPlateSettingsUseCase,
     preferences: AppPreferences,
+    private val setPreference: SetPreferenceUseCase,
 ) : ViewModel() {
     private val plate = observePlate()
 
     /** What the Preferences change on the canvas and the clone dialog. */
     val canvas: StateFlow<CanvasPreferences> = preferences.canvas
+
+    /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
+    fun setCanvasOption(key: String, value: String) = setPreference(key, value)
 
     /** A stroke is being painted; the next one waits for the engine to answer. */
     private var painting = false

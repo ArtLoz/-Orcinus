@@ -31,6 +31,16 @@ data class CanvasPreferences(
     val fpsCap: Int = 0,
     /** opengl_show_fps_overlay: the frames per second in a corner of the view. */
     val fpsOverlay: Boolean = false,
+    /** use_perspective_camera: the perspective projection; the orthographic one otherwise. */
+    val perspective: Boolean = true,
+    /** auto_perspective: the side views look orthographically, the others in perspective (Camera::auto_type()). */
+    val autoPerspective: Boolean = false,
+    /** show_canvas_zoom_button: the button that fits the plate or the selection to the view. */
+    val zoomButton: Boolean = true,
+    /** show_axes: the coordinate axes at the origin of the plates (Bed3D::render_axes()). */
+    val axes: Boolean = true,
+    /** show_plate_gridlines: the plates' grids. */
+    val gridlines: Boolean = true,
 )
 
 /** GizmoObjectManipulation's conversions, with which the canvas shows imperial units. */
@@ -60,6 +70,11 @@ object AppConfigKeys {
     const val AUTO_SLICE_CHANGE_DELAY_SECONDS = "auto_slice_change_delay_seconds"
     const val CAMERA_ORBIT_MULT = "camera_orbit_mult"
     const val ZOOM_TO_MOUSE = "zoom_to_mouse"
+    const val USE_PERSPECTIVE_CAMERA = "use_perspective_camera"
+    const val AUTO_PERSPECTIVE = "auto_perspective"
+    const val SHOW_CANVAS_ZOOM_BUTTON = "show_canvas_zoom_button"
+    const val SHOW_AXES = "show_axes"
+    const val SHOW_PLATE_GRIDLINES = "show_plate_gridlines"
     const val USE_FREE_CAMERA = "use_free_camera"
     const val OPENGL_ANTIALIASING_SAMPLES = "opengl_antialiasing_samples"
     const val OPENGL_FXAA_ENABLED = "opengl_fxaa_enabled"
@@ -102,6 +117,11 @@ object AppConfigKeys {
         AUTO_SLICE_CHANGE_DELAY_SECONDS,
         CAMERA_ORBIT_MULT,
         ZOOM_TO_MOUSE,
+        USE_PERSPECTIVE_CAMERA,
+        AUTO_PERSPECTIVE,
+        SHOW_CANVAS_ZOOM_BUTTON,
+        SHOW_AXES,
+        SHOW_PLATE_GRIDLINES,
         USE_FREE_CAMERA,
         OPENGL_ANTIALIASING_SAMPLES,
         OPENGL_FXAA_ENABLED,

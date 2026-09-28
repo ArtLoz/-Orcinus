@@ -29,6 +29,9 @@ internal class SceneFrame(
     val selectedIndex: Int?,
     /** Indexes of every selected object, which the scene draws as selected. */
     val selectedIndexes: Set<Int> = emptySet(),
+    /** show_axes and show_plate_gridlines of the View menu. */
+    val showAxes: Boolean = true,
+    val showGridlines: Boolean = true,
     /** The active gizmo on the selected object. */
     val gizmo: GizmoFrame?,
     /**
@@ -275,6 +278,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val bottom = !frame.lookingDownward
         val plates = plates
         gpuBed?.let { bed ->
+            // Bed3D::render_internal(): the axes first.
+            if (frame.showAxes) renderAxes(programs.flat, bed, frame)
             GLES30.glEnable(GLES30.GL_DEPTH_TEST)
             // Bed3D stands under the current plate (Plater::set_bed_position).
             if (!bottom) renderBedModel(programs.hotbed, bed, frame, plates.currentOrigin)
@@ -372,20 +377,22 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glDepthMask(true)
         }
 
-        // render_grid()
-        val lineColor = when {
-            bottom -> LINE_BOTTOM_COLOR
-            selected && frame.dark -> LINE_TOP_SELECTED_DARK_COLOR
-            selected -> LINE_TOP_SELECTED_COLOR
-            frame.dark -> LINE_TOP_DARK_COLOR
-            else -> LINE_TOP_COLOR
+        // render_grid(), while show_plate_gridlines is on
+        if (frame.showGridlines) {
+            val lineColor = when {
+                bottom -> LINE_BOTTOM_COLOR
+                selected && frame.dark -> LINE_TOP_SELECTED_DARK_COLOR
+                selected -> LINE_TOP_SELECTED_COLOR
+                frame.dark -> LINE_TOP_DARK_COLOR
+                else -> LINE_TOP_COLOR
+            }
+            flat.setVec4("uniform_color", lineColor[0], lineColor[1], lineColor[2], lineColor[3])
+            GLES30.glLineWidth(lineWidth(1f * frame.pixelScale))
+            bed.thinGridLines.draw()
+            GLES30.glLineWidth(lineWidth(2f * frame.pixelScale))
+            bed.boldGridLines.draw()
+            GLES30.glLineWidth(1f)
         }
-        flat.setVec4("uniform_color", lineColor[0], lineColor[1], lineColor[2], lineColor[3])
-        GLES30.glLineWidth(lineWidth(1f * frame.pixelScale))
-        bed.thinGridLines.draw()
-        GLES30.glLineWidth(lineWidth(2f * frame.pixelScale))
-        bed.boldGridLines.draw()
-        GLES30.glLineWidth(1f)
         GLES30.glDisable(GLES30.GL_BLEND)
 
         // render_logo() and render_logo_texture(), for the current plate
@@ -434,6 +441,27 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
             GLES30.glDisable(GLES30.GL_BLEND)
             GLES30.glDepthMask(true)
+        }
+    }
+
+    /**
+     * Bed3D::Axes::render(): a cylinder along each axis from the origin, in the
+     * axis's colour, drawn flat as OrcaSlicer draws them.
+     */
+    private fun renderAxes(program: GlProgram, bed: GpuBed, frame: SceneFrame) {
+        val origin = Vec3(0.0, 0.0, GROUND_Z.toDouble())
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        program.use()
+        program.setMatrix4("projection_matrix", frame.projection)
+        listOf(
+            AXIS_X_COLOR to Vec3(0.0, 0.5 * Math.PI, 0.0),
+            AXIS_Y_COLOR to Vec3(-0.5 * Math.PI, 0.0, 0.0),
+            AXIS_Z_COLOR to Vec3.ZERO,
+        ).forEach { (color, rotation) ->
+            val transform = Affine3.assemble(origin, rotation, Vec3(1.0, 1.0, 1.0))
+            program.setMatrix4("view_model_matrix", (frame.view * transform).toFloatArray())
+            program.setVec4("uniform_color", color[0], color[1], color[2], color[3])
+            bed.axis.draw()
         }
     }
 
@@ -734,6 +762,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val boldGridLines = GlVertexArray(scene.boldGridLines, listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
         val labelQuad = GlVertexArray(PlateLabels.quad(scene.buildVolume), listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2), GLES30.GL_TRIANGLES)
 
+        /** Bed3D::Axes::m_arrow: smooth_cylinder(16, stem length / 75, stem length). */
+        val axis = GlVertexArray(
+            GlVertexArray.floatBuffer(smoothCylinder(AXIS_RESOLUTION, (scene.axisLength / 75.0).toFloat(), scene.axisLength.toFloat())),
+            listOf(GlProgram.POSITION to 3),
+            GLES30.GL_TRIANGLES,
+        )
+
         /** The names written over the plates, with the squares they are drawn on, by name. */
         private val names = HashMap<String, Pair<GlTexture, GlVertexArray>>()
 
@@ -747,6 +782,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             model?.release()
             texture?.release()
             labelQuad.release()
+            axis.release()
             names.values.forEach { (nameTexture, quad) ->
                 nameTexture.release()
                 quad.release()
@@ -760,6 +796,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     private companion object {
+        // ColorRGB::X(), Y() and Z(), the colours of Bed3D's axes.
+        val AXIS_X_COLOR = floatArrayOf(255 / 255f, 60 / 255f, 91 / 255f, 1f)
+        val AXIS_Y_COLOR = floatArrayOf(100 / 255f, 200 / 255f, 24 / 255f, 1f)
+        val AXIS_Z_COLOR = floatArrayOf(47 / 255f, 136 / 255f, 233 / 255f, 1f)
+        const val AXIS_RESOLUTION = 16
+
         // Transform3d::Identity(), column-major.
         val IDENTITY = floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f)
         // UPPER_PART_COLOR and LOWER_PART_COLOR of GLGizmoCut.cpp: ColorRGBA::CYAN() and MAGENTA().

@@ -88,6 +88,7 @@ import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
@@ -122,6 +123,7 @@ import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.AddObjectItems
+import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.CloneDialog
 import app.orcinus.shadow.core.ui.plate.MenuFilament
 import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
@@ -144,6 +146,8 @@ import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateView
+import app.orcinus.shadow.render.scene.PlateViewOptions
+import app.orcinus.shadow.render.scene.rememberPlateViewCamera
 import java.util.Locale
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -306,6 +310,7 @@ internal fun PrepareRoute(
         onRedo = viewModel::redo,
         onDismissProblem = viewModel::dismissProblem,
         canvas = canvas,
+        onSetCanvas = viewModel::setCanvasOption,
         cutActions = CutActions(
             toggle = viewModel::toggleCut,
             setPlane = viewModel::setCutPlane,
@@ -417,8 +422,11 @@ internal fun PrepareScreen(
     plateActions: PlateActions = PlateActions.NONE,
     cutActions: CutActions = CutActions.NONE,
     canvas: CanvasPreferences = CanvasPreferences(),
+    /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
+    onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
+        val viewCamera = rememberPlateViewCamera()
         var objectMenu by remember { mutableStateOf<ObjectMenu?>(null) }
         var plateMenu by remember { mutableStateOf<Offset?>(null) }
         var askingCopies by remember { mutableStateOf<Int?>(null) }
@@ -499,6 +507,9 @@ internal fun PrepareScreen(
                 zoomToFingers = canvas.zoomToMouse,
                 // The FPS overlay under the canvas toolbar, which takes the top right corner.
                 graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopEnd, PaddingValues(top = 62.dp, end = 10.dp)),
+                options = PlateViewOptions(canvas.perspective, canvas.autoPerspective, canvas.axes, canvas.gridlines),
+                onPerspectiveChange = { onSetCanvas(AppConfigKeys.USE_PERSPECTIVE_CAMERA, it.toString()) },
+                camera = viewCamera,
                 antialiasingSamples = canvas.antialiasingSamples,
             )
         }
@@ -683,6 +694,13 @@ internal fun PrepareScreen(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // The canvas toolbar of OrcaSlicer's bottom-left corner: the View menu and the zoom button.
+                CanvasViewButtons(
+                    canvas = canvas,
+                    onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
+                    onSet = onSetCanvas,
+                    onZoom = viewCamera::zoomToFit,
+                )
                 // The plates' numbers and icons, under the thumb once there are several.
                 if (state.plateOrigins.size > 1) {
                     PlateStrip(

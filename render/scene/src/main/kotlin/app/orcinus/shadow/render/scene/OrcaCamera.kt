@@ -1,5 +1,6 @@
 package app.orcinus.shadow.render.scene
 
+import app.orcinus.shadow.core.model.CameraView
 import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Line3
@@ -98,8 +99,21 @@ internal class OrcaCamera {
         zoom = min(clamped, MAX_ZOOM)
     }
 
-    fun selectPlateView() {
-        lookAt(target - Vec3.UNIT_Y * (0.707 * distance) + Vec3.UNIT_Z * (0.707 * distance), target, Vec3.UNIT_Y + Vec3.UNIT_Z)
+    fun selectPlateView() = selectView(CameraView.PLATE)
+
+    /** Camera::select_view(): the camera looks at its target from [view], as far away as it is. */
+    fun selectView(view: CameraView) {
+        when (view) {
+            CameraView.ISO -> setDefaultOrientation()
+            CameraView.LEFT -> lookAt(target - Vec3.UNIT_X * distance, target, Vec3.UNIT_Z)
+            CameraView.RIGHT -> lookAt(target + Vec3.UNIT_X * distance, target, Vec3.UNIT_Z)
+            CameraView.TOP -> lookAt(target + Vec3.UNIT_Z * distance, target, Vec3.UNIT_Y)
+            CameraView.BOTTOM -> lookAt(target - Vec3.UNIT_Z * distance, target, -Vec3.UNIT_Y)
+            CameraView.FRONT -> lookAt(target - Vec3.UNIT_Y * distance, target, Vec3.UNIT_Z)
+            CameraView.REAR -> lookAt(target + Vec3.UNIT_Y * distance, target, Vec3.UNIT_Z)
+            CameraView.TOP_FRONT, CameraView.PLATE ->
+                lookAt(target - Vec3.UNIT_Y * (0.707 * distance) + Vec3.UNIT_Z * (0.707 * distance), target, Vec3.UNIT_Y + Vec3.UNIT_Z)
+        }
     }
 
     /** PartPlateList::select_plate_view(): the plate view of [center], from as far as the camera is. */
