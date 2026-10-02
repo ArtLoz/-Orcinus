@@ -5978,3 +5978,68 @@ TEST_CASE("The PA pattern stands a handle for every speed, whose patterns the sl
 
     REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
 }
+
+TEST_CASE("The variable layer height is edited on the bar, adapted, smoothed and reset, and the object slices with it", "[Adapter][LayerHeight]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::LayerEditing opened = orca::begin_layer_editing(plate_of({}), 0, k2_plus_profiles(), {});
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    // The plain profile of the 20 mm cube: 100 layers of 0.2 mm.
+    CHECK(opened.object_max_z == Catch::Approx(20.0));
+    CHECK(opened.layer_height == Catch::Approx(0.2));
+    CHECK(opened.fixed);
+    CHECK(opened.layers.size() == 2 * 100);
+
+    // "Add detail" held at the middle: the timer presses every 100 ms with
+    // the default strength and band width.
+    orca::LayerEditing detailed = opened;
+    for (int press = 0; press < 20; ++press) {
+        detailed = orca::edit_layer_heights(orca::LayerHeightEdit::decrease, 10.0, 0.005, 2.0);
+        REQUIRE(detailed.status == orca::SceneStatus::success);
+    }
+    CHECK_FALSE(detailed.fixed);
+    CHECK(detailed.layers.size() > 2 * 100);
+    CHECK(detailed.profile.size() > 4);
+    const orca::LayerEditing accepted = orca::accept_layer_heights();
+    REQUIRE(accepted.status == orca::SceneStatus::success);
+    CHECK(accepted.profile == detailed.profile);
+
+    // The object slices with its profile, and a project keeps it.
+    std::vector<orca::PlateObject> plate = plate_of({});
+    plate.front().layer_height_profile = accepted.profile;
+    const orca::SliceResult result =
+        orca::slice("variable-layer-height", plate, output_path("variable-layer-height.gcode"), {}, k2_plus_profiles(), {}, {});
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    CHECK(result.layer_count == int(detailed.layers.size() / 2));
+    const std::string project = output_path("variable-layer-height.3mf");
+    REQUIRE(orca::save_project(project, plate, k2_plus_profiles(), {orca::ProjectPlate()}).status == orca::SceneStatus::success);
+    const orca::ImportedModels reopened =
+        orca::import_model(project, k2_plus_profiles(), {}, import_prefix("variable-layer-height"), {}, orca::ModelLoad::project);
+    INFO(reopened.message);
+    REQUIRE(reopened.status == orca::SceneStatus::success);
+    REQUIRE(reopened.objects.size() == 1);
+    REQUIRE(reopened.objects.front().layer_height_profile.size() == accepted.profile.size());
+    for (std::size_t index = 0; index < accepted.profile.size(); ++index) {
+        CHECK(reopened.objects.front().layer_height_profile[index] == Catch::Approx(accepted.profile[index]).margin(1e-6));
+    }
+
+    // Adaptive on a cube: its walls stand upright, so the layers grow thicker.
+    const orca::LayerEditing adaptive = orca::adaptive_layer_heights(0.5);
+    REQUIRE(adaptive.status == orca::SceneStatus::success);
+    CHECK_FALSE(adaptive.fixed);
+    CHECK(adaptive.layers.size() < 2 * 100);
+
+    const orca::LayerEditing smoothed = orca::smooth_layer_heights(5, false);
+    REQUIRE(smoothed.status == orca::SceneStatus::success);
+    CHECK_FALSE(smoothed.profile.empty());
+
+    const orca::LayerEditing reset = orca::reset_layer_heights();
+    REQUIRE(reset.status == orca::SceneStatus::success);
+    CHECK(reset.fixed);
+    CHECK(reset.layers.size() == 2 * 100);
+    orca::end_layer_editing();
+    CHECK(orca::edit_layer_heights(orca::LayerHeightEdit::decrease, 10.0, 0.005, 2.0).status != orca::SceneStatus::success);
+}

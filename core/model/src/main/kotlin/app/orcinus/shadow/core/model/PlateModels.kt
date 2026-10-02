@@ -190,6 +190,12 @@ sealed interface PlateObject {
     /** The height ranges of the object, from the bed up (layer_config_ranges). */
     val layerRanges: List<LayerRange>
 
+    /**
+     * ModelObject::layer_height_profile: the variable layer height, z and
+     * layer height pairs from the bed up; empty for none.
+     */
+    val layerHeightProfile: List<Double>
+
     /** The facets of the object's own mesh painted with the filaments of the plate. */
     val painted: PaintedFacets
 
@@ -210,6 +216,7 @@ sealed interface PlateObject {
         override val settings: ModelSettings = ModelSettings(),
         override val parts: List<ObjectPart> = emptyList(),
         override val layerRanges: List<LayerRange> = emptyList(),
+        override val layerHeightProfile: List<Double> = emptyList(),
         override val painted: PaintedFacets = PaintedFacets(),
         override val paintedMeshes: List<PaintedMesh> = emptyList(),
         val frame: Transform3? = null,
@@ -225,6 +232,7 @@ sealed interface PlateObject {
         override val settings: ModelSettings = ModelSettings(),
         override val parts: List<ObjectPart> = emptyList(),
         override val layerRanges: List<LayerRange> = emptyList(),
+        override val layerHeightProfile: List<Double> = emptyList(),
         override val painted: PaintedFacets = PaintedFacets(),
         override val paintedMeshes: List<PaintedMesh> = emptyList(),
         override val volume: ObjectVolume = ObjectVolume(),
@@ -320,6 +328,18 @@ fun PlateObject.withLayerRanges(ranges: List<LayerRange>): PlateObject {
         is PlateObject.CalibrationCube -> copy(layerRanges = sorted)
     }
 }
+
+/** The variable layer height of the object replaced; empty for none. */
+fun PlateObject.withLayerHeightProfile(profile: List<Double>): PlateObject = when (this) {
+    is PlateObject.ImportedModel -> copy(layerHeightProfile = profile)
+    is PlateObject.CalibrationCube -> copy(layerHeightProfile = profile)
+}
+
+/**
+ * GUI_ObjectList's variable height column: a profile of more than the two
+ * points of a plain one is a variable layer height.
+ */
+val PlateObject.hasVariableLayerHeight: Boolean get() = layerHeightProfile.size > 4
 
 /** One height range replaced, by its place in the object's list. */
 fun PlateObject.withLayerRangeAt(index: Int, range: LayerRange): PlateObject =

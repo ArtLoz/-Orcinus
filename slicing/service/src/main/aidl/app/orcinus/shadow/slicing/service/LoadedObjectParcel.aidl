@@ -25,4 +25,6 @@ parcelable LoadedObjectParcel {
     @nullable long[] cutId;
     /** The name of the file it came from when the load read several; null otherwise. */
     @nullable String inputFile;
+    /** ModelObject::layer_height_profile; null for none. */
+    @nullable double[] layerHeightProfile;
 }

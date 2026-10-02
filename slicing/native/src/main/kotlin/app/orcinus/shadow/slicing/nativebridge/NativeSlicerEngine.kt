@@ -12,6 +12,9 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.LayerEditing
+import app.orcinus.shadow.core.model.LayerEditingOutcome
+import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
@@ -142,6 +145,7 @@ import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.filamentUsagesOf
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -158,7 +162,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** OrcaSlicer engine running in this process through the JNI bridge. */
-class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore {
+class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor {
     private val applicationContext = context.applicationContext
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
@@ -442,6 +446,55 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         }
 
     override suspend fun endCut() = withContext(Dispatchers.IO) { NativeBindings.endCut() }
+
+    override suspend fun begin(plate: List<PlacedModel>, index: Int, profiles: SlicingProfileSelection, plateSettings: ModelSettings) =
+        layerEditing {
+            NativeBindings.beginLayerEditing(
+                plate = nativePlate(plate),
+                objectIndex = index,
+                printerProfile = profiles.printer.value,
+                filamentProfile = profiles.filament.value,
+                filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                processProfile = profiles.process.value,
+                plateSettingKeys = plateSettings.keys(),
+                plateSettingValues = plateSettings.values(),
+            )
+        }
+
+    override suspend fun edit(action: LayerHeightEdit, z: Double, strength: Double, bandWidth: Double) =
+        layerEditing { NativeBindings.editLayerHeights(action.ordinal.toLong(), z, strength, bandWidth) }
+
+    override suspend fun adaptive(quality: Double) = layerEditing { NativeBindings.adaptiveLayerHeights(quality) }
+
+    override suspend fun smooth(radius: Int, keepMin: Boolean) = layerEditing { NativeBindings.smoothLayerHeights(radius, keepMin) }
+
+    override suspend fun reset() = layerEditing { NativeBindings.resetLayerHeights() }
+
+    override suspend fun accept() = layerEditing { NativeBindings.acceptLayerHeights() }
+
+    override suspend fun end() = withContext(Dispatchers.IO) { NativeBindings.endLayerEditing() }
+
+    private suspend fun layerEditing(call: () -> NativeLayerEditing): LayerEditingOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) return@withContext LayerEditingOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        val result = call()
+        if (result.status != NativeSceneStatus.SUCCESS) {
+            LayerEditingOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not edit the layer heights" })
+        } else {
+            LayerEditingOutcome.Success(
+                LayerEditing(
+                    profile = result.profile.toList(),
+                    layers = result.layers.toList(),
+                    objectMaxZ = result.objectMaxZ,
+                    layerHeight = result.layerHeight,
+                    minLayerHeight = result.minLayerHeight,
+                    maxLayerHeight = result.maxLayerHeight,
+                    objectPrintZHeight = result.objectPrintZHeight,
+                    fixed = result.fixed,
+                ),
+            )
+        }
+    }
 
     override suspend fun saveProject(
         path: ScenePath,
@@ -1945,6 +1998,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     settings = ModelSettings(rangeSettingKeys[range].zip(rangeSettingValues[range]).toMap()),
                 )
             },
+            inputFile = inputFile,
+            layerHeightProfile = layerHeightProfile.toList(),
         )
     }
 
@@ -2102,6 +2157,7 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
         cutIds = objects.flatMap { (it.cutId?.values() ?: LongArray(CutId.SIZE)).asList() }.toLongArray(),
         volumeCutInfo = objects.flatMap { it.volume.cutInfo.values().asList() }.toDoubleArray(),
         partCutInfo = parts.flatMap { it.cutInfo.values().asList() }.toDoubleArray(),
+        layerHeightProfiles = Array(objects.size) { objects[it].layerHeightProfile.toDoubleArray() },
     )
 }
 

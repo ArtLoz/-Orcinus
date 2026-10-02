@@ -172,6 +172,7 @@ internal fun LoadedObject.toPlateObject(inputName: String) = PlateObject.Importe
     instances = instances,
     settings = settings,
     parts = parts,
+    layerHeightProfile = layerHeightProfile,
     frame = frame,
     volume = volume,
     painted = painted,

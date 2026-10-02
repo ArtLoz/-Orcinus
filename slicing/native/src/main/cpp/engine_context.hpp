@@ -4,6 +4,7 @@
 #include <mutex>
 
 #include "libslic3r/BoundingBox.hpp"
+#include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "orca_engine_adapter.hpp"
@@ -73,6 +74,10 @@ Slic3r::Vec2d bed_center(const Slic3r::DynamicPrintConfig& config);
 
 // PartPlateList::compute_origin() of the plate at index among count plates.
 Slic3r::Vec2d plate_origin(const Slic3r::DynamicPrintConfig& config, int index, int count);
+
+// PartPlate::get_build_volume() of the current plate, which
+// Model::update_print_volume_state() judges the copies by.
+Slic3r::BuildVolume build_volume_of(const Slic3r::DynamicPrintConfig& config);
 
 // ObjectList::load_shape_object(): a shape of create_mesh() as an object of
 // its own named name, in the empty cell nearest to the plate's centre; null

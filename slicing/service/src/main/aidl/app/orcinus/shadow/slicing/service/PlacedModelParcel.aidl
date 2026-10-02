@@ -29,4 +29,6 @@ parcelable PlacedModelParcel {
     String name = "";
     /** The object's cut id flattened (CutId.values); null for none. */
     @nullable long[] cutId;
+    /** ModelObject::layer_height_profile; null for none. */
+    @nullable double[] layerHeightProfile;
 }

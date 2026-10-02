@@ -646,6 +646,8 @@ internal class NativePlate(
     @JvmField val cutIds: LongArray,
     @JvmField val volumeCutInfo: DoubleArray,
     @JvmField val partCutInfo: DoubleArray,
+    /** The variable layer height of every object (ModelObject::layer_height_profile); empty for none. */
+    @JvmField val layerHeightProfiles: Array<DoubleArray>,
 )
 
 /** Constructed by the native bridge; see ImportedObject in orca_engine_adapter.hpp. */
@@ -694,6 +696,22 @@ internal class NativeImportedObject(
     @JvmField val partCutInfo: DoubleArray,
     /** The name of the file it came from, when the load read several; empty otherwise. */
     @JvmField val inputFile: String,
+    /** ModelObject::layer_height_profile */
+    @JvmField val layerHeightProfile: DoubleArray,
+)
+
+/** Constructed by the native bridge; see LayerEditing in orca_engine_adapter.hpp. */
+internal class NativeLayerEditing(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val profile: DoubleArray,
+    @JvmField val layers: DoubleArray,
+    @JvmField val objectMaxZ: Double,
+    @JvmField val layerHeight: Double,
+    @JvmField val minLayerHeight: Double,
+    @JvmField val maxLayerHeight: Double,
+    @JvmField val objectPrintZHeight: Double,
+    @JvmField val fixed: Boolean,
 )
 
 /** Constructed by the native bridge; see ImportedModels in orca_engine_adapter.hpp. */
@@ -1338,6 +1356,31 @@ internal object NativeBindings {
 
     /** end_cut() */
     external fun endCut()
+
+    /** begin_layer_editing() */
+    external fun beginLayerEditing(
+        plate: NativePlate,
+        objectIndex: Int,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        plateSettingKeys: Array<String>,
+        plateSettingValues: Array<String>,
+    ): NativeLayerEditing
+
+    /** edit_layer_heights(): [action] is the LayerHeightEdit in orca_engine_adapter.hpp. */
+    external fun editLayerHeights(action: Long, z: Double, strength: Double, bandWidth: Double): NativeLayerEditing
+
+    external fun adaptiveLayerHeights(quality: Double): NativeLayerEditing
+
+    external fun smoothLayerHeights(radius: Int, keepMin: Boolean): NativeLayerEditing
+
+    external fun resetLayerHeights(): NativeLayerEditing
+
+    external fun acceptLayerHeights(): NativeLayerEditing
+
+    external fun endLayerEditing()
 
     /**
      * Commits [manipulation] (Manipulation in orca_engine_adapter.hpp) of the

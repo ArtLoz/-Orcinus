@@ -155,6 +155,8 @@ data class PlacedModel(
     val volume: ObjectVolume = ObjectVolume(),
     /** ModelObject::name; empty keeps the name the engine gives the model. */
     val name: String = "",
+    /** ModelObject::layer_height_profile; empty for none. */
+    val layerHeightProfile: List<Double> = emptyList(),
     /** ModelObject::cut_id: the cut the object is a part of. */
     val cutId: CutId? = null,
 )
@@ -183,6 +185,8 @@ data class LoadedObject(
     val cutId: CutId? = null,
     /** The name of the file it came from (ModelObject::input_file) when the load read several files; empty otherwise. */
     val inputFile: String = "",
+    /** ModelObject::layer_height_profile; empty for none. */
+    val layerHeightProfile: List<Double> = emptyList(),
 )
 
 /** The file formats "Export as one STL" and "Export as one DRC" write. */

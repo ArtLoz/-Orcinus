@@ -688,6 +688,14 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
             ++part;
         }
     }
+    // The variable layer height of every object.
+    if (const auto profiles = static_cast<jobjectArray>(field("layerHeightProfiles", "[[D"))) {
+        for (std::size_t index = 0; index < plate.size() && static_cast<std::size_t>(env->GetArrayLength(profiles)) > index; ++index) {
+            const auto profile = static_cast<jdoubleArray>(env->GetObjectArrayElement(profiles, static_cast<jsize>(index)));
+            plate[index].layer_height_profile = to_doubles(env, profile);
+            env->DeleteLocalRef(profile);
+        }
+    }
     env->DeleteLocalRef(plate_class);
     return plate;
 }
@@ -3001,7 +3009,7 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[J[Ljava/lang/String;[D"
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
-        "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;)V"
+        "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;[D)V"
     );
     // The cut the object is a part of, and the cut info of its own mesh and of every part.
     const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
@@ -3058,7 +3066,8 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         cut_id_array,
         to_java(env, volume_cut_info.data(), volume_cut_info.size()),
         to_java(env, part_cut_info.data(), part_cut_info.size()),
-        to_java(env, object.input_file)
+        to_java(env, object.input_file),
+        to_java(env, object.layer_height_profile.data(), object.layer_height_profile.size())
     );
 }
 
@@ -3827,6 +3836,89 @@ extern "C" JNIEXPORT void JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endCut(JNIEnv* /* env */, jobject /* this */)
 {
     orcinus::orca::end_cut();
+}
+
+// NativeLayerEditing
+static jobject to_java(JNIEnv* env, const orcinus::orca::LayerEditing& editing)
+{
+    const jclass editing_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeLayerEditing");
+    const jmethodID constructor = env->GetMethodID(editing_class, "<init>", "(JLjava/lang/String;[D[DDDDDDZ)V");
+    return env->NewObject(
+        editing_class,
+        constructor,
+        static_cast<jlong>(editing.status),
+        to_java(env, editing.message),
+        to_java(env, editing.profile.data(), editing.profile.size()),
+        to_java(env, editing.layers.data(), editing.layers.size()),
+        static_cast<jdouble>(editing.object_max_z),
+        static_cast<jdouble>(editing.layer_height),
+        static_cast<jdouble>(editing.min_layer_height),
+        static_cast<jdouble>(editing.max_layer_height),
+        static_cast<jdouble>(editing.object_print_z_height),
+        editing.fixed ? JNI_TRUE : JNI_FALSE
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginLayerEditing(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jobjectArray plate_setting_keys,
+    jobjectArray plate_setting_values
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::begin_layer_editing(
+            to_plate(env, plate),
+            static_cast<int>(object_index),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_model_settings(env, plate_setting_keys, plate_setting_values)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editLayerHeights(
+    JNIEnv* env, jobject /* this */, jlong action, jdouble z, jdouble strength, jdouble band_width)
+{
+    return to_java(env, orcinus::orca::edit_layer_heights(static_cast<orcinus::orca::LayerHeightEdit>(action), z, strength, band_width));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_adaptiveLayerHeights(JNIEnv* env, jobject /* this */, jdouble quality)
+{
+    return to_java(env, orcinus::orca::adaptive_layer_heights(quality));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_smoothLayerHeights(JNIEnv* env, jobject /* this */, jint radius, jboolean keep_min)
+{
+    return to_java(env, orcinus::orca::smooth_layer_heights(static_cast<int>(radius), keep_min == JNI_TRUE));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_resetLayerHeights(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::reset_layer_heights());
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_acceptLayerHeights(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::accept_layer_heights());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endLayerEditing(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::end_layer_editing();
 }
 
 extern "C" JNIEXPORT jobject JNICALL

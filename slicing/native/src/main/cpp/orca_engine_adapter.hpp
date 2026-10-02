@@ -249,6 +249,9 @@ struct PlateObject {
     ModelSettings settings;
     // The height ranges of the object, in their order from the bed up.
     std::vector<LayerRange> layer_ranges;
+    // ModelObject::layer_height_profile: the variable layer height, z and
+    // layer height pairs from the bed up; empty for none.
+    std::vector<double> layer_height_profile;
     // The file holding the facets painted on the object's own mesh, of every
     // kind (PaintKind): ModelVolume's mmu_segmentation_facets,
     // supported_facets, seam_facets and fuzzy_skin_facets. The painting of a
@@ -1472,6 +1475,8 @@ struct ImportedObject {
     std::string volume_input_file;
     // ModelObject::layer_config_ranges
     std::vector<LayerRange> layer_ranges;
+    // ModelObject::layer_height_profile
+    std::vector<double> layer_height_profile;
     // The object's own mesh in object coordinates for the 3D view, as
     // inspect_model() writes it.
     std::string mesh_path;
@@ -1857,6 +1862,67 @@ CutParts select_cut_part(
 
 // Closes the cut gizmo, which lets its object go.
 void end_cut();
+
+// LayerHeightEditActionType of Slicing.hpp: what a press on the variable layer
+// height bar does to the band of layers around it.
+enum class LayerHeightEdit : std::int64_t {
+    increase = 0,
+    decrease = 1,
+    reduce = 2,
+    smooth = 3,
+};
+
+// GLCanvas3D::LayersEditing of an object: its layer height profile, the
+// layers the profile makes (generate_object_layers(), the bottom and top of
+// every layer from the bed up), the object's height (m_object_max_z), the
+// slicing parameters the bar and the colours of the layers scale with, and
+// whether the profile is the plain one Reset has nothing to undo
+// (check_object_layers_fixed()). A failure has its status and message.
+struct LayerEditing {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<double> profile;
+    std::vector<double> layers;
+    double object_max_z{0};
+    double layer_height{0};
+    double min_layer_height{0};
+    double max_layer_height{0};
+    double object_print_z_height{0};
+    bool fixed{true};
+};
+
+// The variable layer height of the object at object_index of plate, as the
+// desktop app's 3D view opens it on the selected object: the engine keeps the
+// object, the slicing parameters of the presets of profiles, with the
+// shrinkage compensation of the plate's print, and the profile being edited,
+// from the object's own (ModelObject::layer_height_profile) or the plain one
+// of its height ranges, until end_layer_editing().
+LayerEditing begin_layer_editing(
+    const std::vector<PlateObject>& plate,
+    int object_index,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings
+);
+
+// LayersEditing::adjust_layer_height_profile(): a press on the bar at z of
+// the object, the band band_width around it changed by strength.
+LayerEditing edit_layer_heights(LayerHeightEdit action, double z, double strength, double band_width);
+
+// LayersEditing::adaptive_layer_height_profile(): the profile the object's
+// shape asks for at quality (0 for the fastest, 1 for the finest).
+LayerEditing adaptive_layer_heights(double quality);
+
+// LayersEditing::smooth_layer_height_profile() with HeightProfileSmoothingParams.
+LayerEditing smooth_layer_heights(int radius, bool keep_min);
+
+// LayersEditing::reset_layer_height_profile(): the plain profile again.
+LayerEditing reset_layer_heights();
+
+// LayersEditing::accept_changes(): the profile edited on the bar becomes the object's.
+LayerEditing accept_layer_heights();
+
+// The variable layer height closes, and the engine forgets the object.
+void end_layer_editing();
 
 // ObjectList::set_volume_type() of one volume: the volume at volume_index of
 // the object at object_index of plate takes type, and the object's volumes are

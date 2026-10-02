@@ -33,4 +33,5 @@ internal fun PlateObject.placed() = PlacedModel(
         is PlateObject.CalibrationCube -> name.orEmpty()
     },
     cutId = cutId,
+    layerHeightProfile = layerHeightProfile,
 )

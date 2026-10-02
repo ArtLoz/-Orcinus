@@ -38,7 +38,9 @@ import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
+import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.LayerGcode
+import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
@@ -101,6 +103,7 @@ import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -123,7 +126,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore {
+) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -290,6 +293,24 @@ class RemoteSlicerEngine(
         }
 
     override suspend fun endCut() = remote({}) { endCut() }
+
+    override suspend fun begin(plate: List<PlacedModel>, index: Int, profiles: SlicingProfileSelection, plateSettings: ModelSettings) =
+        remote({ LayerEditingOutcome.Failure(it) }) { beginLayerEditing(plate.toParcels(), index, profiles.toParcel(), plateSettings.toParcel()).toLayerEditingOutcome() }
+
+    override suspend fun edit(action: LayerHeightEdit, z: Double, strength: Double, bandWidth: Double) =
+        remote({ LayerEditingOutcome.Failure(it) }) { editLayerHeights(action.name, z, strength, bandWidth).toLayerEditingOutcome() }
+
+    override suspend fun adaptive(quality: Double) =
+        remote({ LayerEditingOutcome.Failure(it) }) { adaptiveLayerHeights(quality).toLayerEditingOutcome() }
+
+    override suspend fun smooth(radius: Int, keepMin: Boolean) =
+        remote({ LayerEditingOutcome.Failure(it) }) { smoothLayerHeights(radius, keepMin).toLayerEditingOutcome() }
+
+    override suspend fun reset() = remote({ LayerEditingOutcome.Failure(it) }) { resetLayerHeights().toLayerEditingOutcome() }
+
+    override suspend fun accept() = remote({ LayerEditingOutcome.Failure(it) }) { acceptLayerHeights().toLayerEditingOutcome() }
+
+    override suspend fun end() = remote({}) { endLayerEditing() }
 
     override suspend fun saveProject(
         path: ScenePath,

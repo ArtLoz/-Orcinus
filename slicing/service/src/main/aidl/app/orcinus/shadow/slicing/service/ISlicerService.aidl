@@ -14,6 +14,7 @@ import app.orcinus.shadow.slicing.service.CutObjectParcel;
 import app.orcinus.shadow.slicing.service.CutParcel;
 import app.orcinus.shadow.slicing.service.CutPartsParcel;
 import app.orcinus.shadow.slicing.service.CutPlaneParcel;
+import app.orcinus.shadow.slicing.service.LayerEditingParcel;
 import app.orcinus.shadow.slicing.service.PlateValidationParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
 import app.orcinus.shadow.slicing.service.FilamentPresetsParcel;
@@ -107,6 +108,14 @@ interface ISlicerService {
     /** select_cut_part(): a right click turns a piece over. */
     CutPartsParcel selectCutPart(in double[] partsPlane, in boolean[] selected, in double[] origin, in double[] direction, String meshPrefix);
     void endCut();
+    /** begin_layer_editing() and the calls of the variable layer height; action is the LayerHeightEdit's name. */
+    LayerEditingParcel beginLayerEditing(in PlacedModelParcel[] plate, int index, in ProfilesParcel profiles, in ModelSettingsParcel plateSettings);
+    LayerEditingParcel editLayerHeights(String action, double z, double strength, double bandWidth);
+    LayerEditingParcel adaptiveLayerHeights(double quality);
+    LayerEditingParcel smoothLayerHeights(int radius, boolean keepMin);
+    LayerEditingParcel resetLayerHeights();
+    LayerEditingParcel acceptLayerHeights();
+    void endLayerEditing();
     /** save_project(): the error message, null once saved; sliced is the SlicedPlates' name. */
     @nullable String saveProject(
         String path,

@@ -775,6 +775,10 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
     for (const LayerRange& range : object.layer_ranges) {
         loaded->layer_config_ranges[{range.bottom, range.top}].assign_config(detail::model_config(range.settings));
     }
+    // The variable layer height of the object (GLCanvas3D::LayersEditing).
+    if (!object.layer_height_profile.empty()) {
+        loaded->layer_height_profile.set(object.layer_height_profile);
+    }
     drop_instances(*loaded);
     return loaded;
 }
@@ -3479,6 +3483,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             layers.top = range.second;
             layers.settings = settings_of(config);
         }
+        out.layer_height_profile = object.layer_height_profile.get();
         // The own mesh in object coordinates for the 3D view.
         Slic3r::TriangleMesh shown = own.mesh();
         shown.transform(own.get_matrix(), true);
@@ -5222,6 +5227,11 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
 Slic3r::Vec2d plate_origin(const Slic3r::DynamicPrintConfig& config, const int index, const int count)
 {
     return plate_origin_at(config, index, count);
+}
+
+Slic3r::BuildVolume build_volume_of(const Slic3r::DynamicPrintConfig& config)
+{
+    return orcinus::orca::build_volume_of(config);
 }
 
 Slic3r::ModelObject* add_shape_object(Slic3r::Model& model, const std::string& shape, const std::string& name, const Slic3r::DynamicPrintConfig& config)

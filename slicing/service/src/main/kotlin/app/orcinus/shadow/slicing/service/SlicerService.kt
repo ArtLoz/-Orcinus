@@ -20,6 +20,7 @@ import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
+import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelLoad
@@ -52,6 +53,7 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.cutConnectors
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -74,7 +76,7 @@ import kotlinx.coroutines.runBlocking
  * notification, so slicing continues when the app leaves the screen. It stops
  * itself when the job ends.
  */
-abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore {
+abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -215,6 +217,22 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         }.toParcel()
 
         override fun endCut() = runBlocking { engine.endCut() }
+
+        override fun beginLayerEditing(plate: Array<PlacedModelParcel>, index: Int, profiles: ProfilesParcel, plateSettings: ModelSettingsParcel) =
+            runBlocking { engine.begin(plate.toPlacedModels(), index, profiles.toProfiles(), plateSettings.toModelSettings()) }.toParcel()
+
+        override fun editLayerHeights(action: String, z: Double, strength: Double, bandWidth: Double) =
+            runBlocking { engine.edit(LayerHeightEdit.valueOf(action), z, strength, bandWidth) }.toParcel()
+
+        override fun adaptiveLayerHeights(quality: Double) = runBlocking { engine.adaptive(quality) }.toParcel()
+
+        override fun smoothLayerHeights(radius: Int, keepMin: Boolean) = runBlocking { engine.smooth(radius, keepMin) }.toParcel()
+
+        override fun resetLayerHeights() = runBlocking { engine.reset() }.toParcel()
+
+        override fun acceptLayerHeights() = runBlocking { engine.accept() }.toParcel()
+
+        override fun endLayerEditing() = runBlocking { engine.end() }
 
         override fun saveProject(
             path: String,

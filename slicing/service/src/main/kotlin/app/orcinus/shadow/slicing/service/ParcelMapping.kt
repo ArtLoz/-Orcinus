@@ -10,6 +10,8 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.LayerEditing
+import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CutGroove
@@ -241,6 +243,7 @@ internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(siz
         parcel.name = placed.name
         parcel.layerRanges = placed.layerRanges.toParcels()
         parcel.cutId = placed.cutId?.values()
+        parcel.layerHeightProfile = placed.layerHeightProfile.toDoubleArray()
     }
 }
 
@@ -293,6 +296,7 @@ internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map 
         volume = parcel.volume.toObjectVolume(),
         name = parcel.name.orEmpty(),
         cutId = CutId.of(parcel.cutId),
+        layerHeightProfile = parcel.layerHeightProfile?.toList().orEmpty(),
     )
 }
 
@@ -408,6 +412,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
                 parcel.layerRanges = loaded.layerRanges.toParcels()
                 parcel.cutId = loaded.cutId?.values()
                 parcel.inputFile = loaded.inputFile.takeUnless(String::isEmpty)
+                parcel.layerHeightProfile = loaded.layerHeightProfile.toDoubleArray()
             }
         }.toTypedArray()
     }
@@ -438,6 +443,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
                 layerRanges = parcel.layerRanges.toLayerRanges(),
                 cutId = CutId.of(parcel.cutId),
                 inputFile = parcel.inputFile.orEmpty(),
+                layerHeightProfile = parcel.layerHeightProfile?.toList().orEmpty(),
             )
         },
         shown,
@@ -1247,4 +1253,34 @@ internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
         sequence = (sequence ?: IntArray(0)).toList(),
     )
 }
+
+internal fun LayerEditingOutcome.toParcel() = LayerEditingParcel().also {
+    when (this) {
+        is LayerEditingOutcome.Failure -> it.error = message
+        is LayerEditingOutcome.Success -> {
+            it.profile = editing.profile.toDoubleArray()
+            it.layers = editing.layers.toDoubleArray()
+            it.objectMaxZ = editing.objectMaxZ
+            it.layerHeight = editing.layerHeight
+            it.minLayerHeight = editing.minLayerHeight
+            it.maxLayerHeight = editing.maxLayerHeight
+            it.objectPrintZHeight = editing.objectPrintZHeight
+            it.fixed = editing.fixed
+        }
+    }
+}
+
+internal fun LayerEditingParcel.toLayerEditingOutcome(): LayerEditingOutcome = error?.let(LayerEditingOutcome::Failure)
+    ?: LayerEditingOutcome.Success(
+        LayerEditing(
+            profile = profile?.toList().orEmpty(),
+            layers = layers?.toList().orEmpty(),
+            objectMaxZ = objectMaxZ,
+            layerHeight = layerHeight,
+            minLayerHeight = minLayerHeight,
+            maxLayerHeight = maxLayerHeight,
+            objectPrintZHeight = objectPrintZHeight,
+            fixed = fixed,
+        ),
+    )
 
