@@ -145,6 +145,7 @@ import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import java.io.File
+import java.io.FileNotFoundException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -1527,6 +1528,24 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         NativeBindings.selectPlate(index, count)
     }
 
+    /**
+     * GUI_App::load_language(): libslic3r translates its own messages with the
+     * catalogue the app packages as orca/i18n/<catalog>.po (core/ui); English
+     * and a language without one leave them as they are.
+     */
+    override suspend fun setLanguage(catalog: String) = withContext(Dispatchers.IO) {
+        val po = if (catalog == ENGLISH_CATALOG) {
+            ""
+        } else {
+            try {
+                applicationContext.assets.open("orca/i18n/$catalog.po").use { it.readBytes().decodeToString() }
+            } catch (_: FileNotFoundException) {
+                ""
+            }
+        }
+        NativeBindings.setTranslations(po)
+    }
+
     override suspend fun printSequence(
         plate: List<PlacedModel>,
         profiles: SlicingProfileSelection,
@@ -2060,3 +2079,6 @@ private fun List<ModelSettings>.values(): Array<Array<String>> = Array(size) { t
 private fun ObjectCut.flags() = booleanArrayOf(keepUpper, keepLower, keepAsParts, placeOnCutUpper, placeOnCutLower, flipUpper, flipLower)
 
 private fun DoubleArray.toVector() = Vector3(this[0], this[1], this[2])
+
+/** OrcaSlicer's messages are written in English, which has no catalogue. */
+private const val ENGLISH_CATALOG = "en"

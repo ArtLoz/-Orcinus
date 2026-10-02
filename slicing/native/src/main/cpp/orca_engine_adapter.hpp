@@ -378,6 +378,12 @@ struct ThumbnailSizes {
 
 ThumbnailSizes thumbnail_sizes(const ProfileSelection& profiles);
 
+// GUI_App::load_language() with Slic3r::I18N::set_translate_callback():
+// libslic3r's own messages, such as the ones of Print::validate() and of the
+// G-code export, in the app's language. [po] is the text of the language's
+// gettext catalogue; an empty one, as for English, leaves them as they are.
+void set_translations(const std::string& po);
+
 // GLVolumeCollection::get_selection_support_normal_z(): the slope.normal_z the
 // canvas highlights overhangs from while "Overhangs" is on, worked out from the
 // edited process preset and the full configuration of the selected presets.

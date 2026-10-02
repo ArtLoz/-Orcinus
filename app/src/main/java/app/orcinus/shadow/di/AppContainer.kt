@@ -224,6 +224,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
      * the :slicer process, which loads OrcaSlicer's profiles. The app shell
      * calls [startEngine] again when it composes; a started engine returns at once.
      */
+    /** GUI_App::load_language(): the engine's own messages in the language of OrcaSlicer's catalogue the app shows. */
+    fun setEngineLanguage(catalog: String) {
+        applicationScope.launch { engine.setLanguage(catalog) }
+    }
+
     fun startEngineEarly() {
         applicationScope.launch { startEngine() }
         // The engine works on the plate the app shows.

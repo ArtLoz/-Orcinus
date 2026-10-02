@@ -30,6 +30,7 @@
 #include <vector>
 
 #include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 
 #include <miniz/miniz.h>
 
@@ -39,6 +40,7 @@
 
 #include "orca_engine_adapter.hpp"
 #include "toolpaths_file.hpp"
+#include "libslic3r/I18N.hpp"
 
 namespace orca = orcinus::orca;
 namespace fs = boost::filesystem;
@@ -1866,6 +1868,35 @@ TEST_CASE("The wipe tower stands on a plate that prints with two filaments", "[A
     CHECK(moved.shown);
     CHECK(moved.x == Catch::Approx(40.0).margin(0.01));
     CHECK(moved.y == Catch::Approx(30.0).margin(0.01));
+}
+
+TEST_CASE("libslic3r's messages come in the language of the catalogue the app gives", "[Adapter]")
+{
+    orca::set_translations(
+        "msgid \"\"\n"
+        "msgstr \"\"\n"
+        "\"Language: ru\\n\"\n"
+        "\n"
+        "msgid \"No object is on the plate.\"\n"
+        "msgstr \"На столе нет \"\n"
+        "\"объектов.\"\n"
+        "\n"
+        "msgctxt \"Camera\"\n"
+        "msgid \"Left\"\n"
+        "msgstr \"Слева\"\n"
+        "\n"
+        "msgid \"%1% is too close to others, and collisions may be caused.\"\n"
+        "msgstr \"%1% слишком близко к другим, возможны столкновения.\"\n");
+    // GUI_App::load_language(): L() of libslic3r translates, with the entries that have no context.
+    CHECK(Slic3r::I18N::translate("No object is on the plate.") == "На столе нет объектов.");
+    CHECK(Slic3r::I18N::translate("Left") == "Left");
+    CHECK(Slic3r::I18N::translate("Untranslated") == "Untranslated");
+    CHECK((boost::format(Slic3r::I18N::translate("%1% is too close to others, and collisions may be caused.")) % "Cube").str()
+          == "Cube слишком близко к другим, возможны столкновения.");
+
+    // English: the messages as they are.
+    orca::set_translations("");
+    CHECK(Slic3r::I18N::translate("No object is on the plate.") == "No object is on the plate.");
 }
 
 TEST_CASE("The overhangs are tinted from one degree past the support threshold angle", "[Adapter][Scene]")

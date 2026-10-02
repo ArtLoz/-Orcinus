@@ -2594,6 +2594,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_printSequence(
     return result;
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setTranslations(JNIEnv* env, jobject /* this */, jstring po)
+{
+    orcinus::orca::set_translations(to_utf8(env, po));
+}
+
 extern "C" JNIEXPORT jdouble JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_overhangNormalZ(
     JNIEnv* env,

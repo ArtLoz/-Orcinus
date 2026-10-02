@@ -135,6 +135,10 @@ class RemoteSlicerEngine(
     /** Lets a call through once the service it goes to knows [plate]. */
     private val plateTelling = Mutex()
 
+    /** The language of the engine's messages, and the service that knows it; a new process is told again. Guarded by [lock]. */
+    private var language: String? = null
+    private var languageKnownBy: ISlicerService? = null
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val service = ISlicerService.Stub.asInterface(binder)
@@ -1010,6 +1014,20 @@ class RemoteSlicerEngine(
         }
     }
 
+    override suspend fun setLanguage(catalog: String) {
+        synchronized(lock) {
+            if (language == catalog) return
+            language = catalog
+            languageKnownBy = null
+        }
+        // Reaching the service tells it the language.
+        try {
+            service()
+        } catch (_: IllegalStateException) {
+            // Not bound: the next call tells the language.
+        }
+    }
+
     override suspend fun selectPlate(index: Int, count: Int) {
         synchronized(lock) {
             plate = index to count
@@ -1061,6 +1079,18 @@ class RemoteSlicerEngine(
                 }
             }
             synchronized(lock) { if (told && plate == selected) plateKnownBy = service }
+        }
+        val catalog = synchronized(lock) { language?.takeIf { languageKnownBy !== service } }
+        if (catalog != null) {
+            val told = withContext(Dispatchers.IO) {
+                try {
+                    service.setLanguage(catalog)
+                    true
+                } catch (_: RemoteException) {
+                    false
+                }
+            }
+            synchronized(lock) { if (told && language == catalog) languageKnownBy = service }
         }
         return service
     }

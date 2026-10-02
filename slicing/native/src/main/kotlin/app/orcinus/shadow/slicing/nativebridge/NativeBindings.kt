@@ -901,6 +901,9 @@ internal object NativeBindings {
         processProfile: String,
     ): NativeThumbnailSizes
 
+    /** libslic3r's own messages in the language of the gettext catalogue [po]; empty for English. */
+    external fun setTranslations(po: String)
+
     /**
      * GLCanvas3D::Labels' "Sequence#": the print order of every copy of the
      * plate as Print::validate() numbers it, -1 for one not printed; empty

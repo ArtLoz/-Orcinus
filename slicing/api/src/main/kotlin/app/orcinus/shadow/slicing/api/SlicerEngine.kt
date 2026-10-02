@@ -114,6 +114,13 @@ interface SlicerEngine {
     suspend fun cancel(jobId: SliceJobId): Boolean
 
     /**
+     * GUI_App::load_language(): the engine's own messages, such as its print
+     * validation, in the language of OrcaSlicer's catalogue [catalog] ("ru",
+     * "zh_CN"; "en" for none), as the app shows its texts.
+     */
+    suspend fun setLanguage(catalog: String) = Unit
+
+    /**
      * The thumbnails the G-code of the printer of [profiles] holds, which the
      * caller renders before it slices (SliceRequest.thumbnails).
      */
