@@ -10,6 +10,8 @@ target_include_directories(orcinus_toolpaths_file INTERFACE "${CMAKE_CURRENT_LIS
 add_library(orcinus_toolpaths SHARED toolpaths_bridge.cpp)
 find_library(android_log_library log REQUIRED)
 target_link_libraries(orcinus_toolpaths PRIVATE orcinus_toolpaths_file libvgcode ${android_log_library})
+# The OrcaSlicer version the toolpaths OBJ file names as its generator.
+target_include_directories(orcinus_toolpaths PRIVATE "${CMAKE_BINARY_DIR}/libslic3r")
 target_link_options(orcinus_toolpaths PRIVATE "-Wl,--exclude-libs,ALL")
 set_target_properties(
     orcinus_toolpaths

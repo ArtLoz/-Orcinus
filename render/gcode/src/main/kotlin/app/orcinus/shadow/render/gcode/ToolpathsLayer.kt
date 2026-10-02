@@ -89,6 +89,18 @@ class ToolpathsLayer private constructor(
         listener?.invoke()
     }
 
+    /**
+     * GCodeViewer::export_toolpaths_to_obj(): the extrusions the viewer shows
+     * now, in their colours, written to [path] with the materials beside it
+     * (".mtl"); false before the viewer has drawn, or when it cannot be written.
+     */
+    @Synchronized
+    fun exportToObj(path: String): Boolean {
+        if (viewer == 0L) return false
+        java.io.File(path).parentFile?.mkdirs()
+        return NativeToolpaths.exportToObj(viewer, path)
+    }
+
     @Synchronized
     override fun onContextCreated() {
         // The viewer's GL objects died with the old context; its data is read again.

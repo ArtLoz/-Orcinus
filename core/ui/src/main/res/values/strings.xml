@@ -66,6 +66,8 @@
     <!-- Export G-code of the desktop app's File menu. -->
     <string name="gcode_save">Save G-code</string>
     <string name="share">Share</string>
+    <string name="toolpaths_exported">Toolpaths exported</string>
+    <string name="toolpaths_materials">The toolpaths are saved. Save their materials, the colours, beside them as “%1$s”.</string>
     <string name="share_project">Share project</string>
     <string name="gcode_saved">G-code saved</string>
     <string name="gcode_save_failed">The file could not be saved</string>

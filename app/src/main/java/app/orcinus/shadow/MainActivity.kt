@@ -17,6 +17,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.core.animation.doOnEnd
 import androidx.core.splashscreen.SplashScreen
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -24,6 +26,7 @@ import androidx.core.splashscreen.SplashScreenViewProvider
 import androidx.lifecycle.lifecycleScope
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.EngineAvailability
+import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.R as CoreUiR
 import app.orcinus.shadow.di.AppContainer
 import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
@@ -69,7 +72,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             OrcinusTheme {
                 // OrcaSlicer's own texts, such as its settings, come from its catalogue.
-                CompositionLocalProvider(LocalOrcaCatalog provides rememberOrcaCatalog()) {
+                CompositionLocalProvider(
+                    LocalOrcaCatalog provides rememberOrcaCatalog(),
+                    // The preview offers the File menu its toolpaths while it shows them.
+                    LocalToolpathsExport provides remember { mutableStateOf(null) },
+                ) {
                     OrcinusApp(container = container, onSliceRequested = ::requestNotificationPermission)
                 }
             }

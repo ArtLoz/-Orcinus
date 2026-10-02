@@ -3,9 +3,13 @@ package app.orcinus.shadow.feature.sidebar
 import android.content.res.Configuration
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.allSliceResultsReady
+import app.orcinus.shadow.core.ui.ExportResultDialog
+import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.shareDocument
+import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.ui.settings.PrinterConnectionSheet
@@ -378,6 +382,7 @@ class SidebarViewModel(
     private val changeVolumeType: ChangeVolumeTypeUseCase,
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
     private val saveProject: SaveProjectUseCase,
+    private val exportToolpaths: ExportToolpathsUseCase,
     private val projectLifecycle: ProjectLifecycleUseCase,
     private val calibrateUseCase: CalibrateUseCase,
     private val describeCalibrationPrinterUseCase: DescribeCalibrationPrinterUseCase,
@@ -464,6 +469,17 @@ class SidebarViewModel(
 
     /** The name "Export plate sliced file" offers. */
     fun slicedName(): String? = saveProject.slicedName()
+
+    /** The name "Export toolpaths as OBJ" offers its OBJ file under. */
+    fun toolpathsName(untitled: String): String = exportToolpaths.suggestedName(untitled)
+
+    /** "Export toolpaths as OBJ" into [document]: [write] writes what the preview shows; null when it could not. */
+    suspend fun exportToolpaths(document: ExternalDocumentReference, untitled: String, write: suspend (String) -> Boolean): ExportToolpathsUseCase.Materials? =
+        exportToolpaths.writeToolpaths(document, untitled, write)
+
+    /** The materials of the toolpaths written, into [document], or dropped for null. */
+    suspend fun saveToolpathMaterials(materials: ExportToolpathsUseCase.Materials, document: ExternalDocumentReference?): Boolean =
+        exportToolpaths.saveMaterials(materials, document)
 
     val state: StateFlow<SidebarUiState> = observePlate()
         .map(PlateState::toSidebarUiState)
@@ -1041,6 +1057,27 @@ private fun SidebarAction(icon: Int, text: String, onClick: () -> Unit) {
     }
 }
 
+/**
+ * The OBJ file of "Export toolpaths as OBJ" is written: its materials, the
+ * colours of the toolpaths, are saved beside it under the [name] it gives them.
+ */
+@Composable
+private fun ToolpathMaterialsDialog(name: String, onSave: () -> Unit, onSkip: () -> Unit) {
+    val colors = OrcaTheme.colors
+    AlertDialog(
+        onDismissRequest = {},
+        confirmButton = { OrcaButton(orcaString("Save"), onClick = onSave) },
+        dismissButton = { OrcaButton(orcaString("Skip"), onClick = onSkip, style = OrcaButtonStyle.Regular) },
+        title = { Text(orcaString("Export toolpaths as OBJ"), style = OrcaTheme.typography.head16) },
+        text = { Text(stringResource(UiR.string.toolpaths_materials, name), style = OrcaTheme.typography.body14) },
+        containerColor = colors.window,
+        titleContentColor = colors.text,
+        textContentColor = colors.text,
+        shape = OrcaTheme.shapes.window,
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    )
+}
+
 /** The desktop app's File menu for the project: its quick-access Save and "Save Project as". */
 internal class ProjectActions(
     val save: () -> Unit,
@@ -1051,6 +1088,8 @@ internal class ProjectActions(
     val share: () -> Unit = {},
     /** "Export plate sliced file" (all = false) and "Export all plate sliced file" of the Export menu. */
     val exportSliced: (all: Boolean) -> Unit = {},
+    /** "Export toolpaths as OBJ" of the Export menu; null while the preview shows no toolpaths. */
+    val exportToolpaths: (() -> Unit)? = null,
     /** A test of the Calibration menu, which starts a project of its own. */
     val calibrate: (CalibrationParams) -> Unit = {},
     /** The flow ratio test of the Calibration menu, which starts a project of its own. */
@@ -1172,6 +1211,14 @@ private fun ProjectTitle(
                     },
                     enabled = canExportAllSliced,
                 )
+                OrcaMenuItem(
+                    text = orcaString("Export toolpaths as OBJ") + "…",
+                    onClick = {
+                        fileMenu = false
+                        actions.exportToolpaths?.invoke()
+                    },
+                    enabled = actions.exportToolpaths != null,
+                )
             }
         }
     }
@@ -1288,6 +1335,10 @@ private const val MESH_MIME_TYPE = "application/octet-stream"
 /** The media type of a 3MF project. */
 private const val PROJECT_MIME_TYPE = "model/3mf"
 
+/** The OBJ file of "Export toolpaths as OBJ" and its materials. */
+private const val OBJ_MIME_TYPE = "model/obj"
+private const val MATERIALS_MIME_TYPE = "model/mtl"
+
 /** Which Setup Wizard page a preset list opens: its printers or its filaments. */
 enum class PresetWizardPage { PRINTERS, FILAMENTS }
 
@@ -1366,6 +1417,41 @@ fun PlateSidebar(
     val exportSliced: (Boolean) -> Unit = { all ->
         exportingAll = all
         slicedPicker.launch(viewModel.slicedName() ?: ((state.projectName ?: untitled) + ".gcode.3mf"))
+    }
+    // "Export toolpaths as OBJ": the preview's toolpaths go into the OBJ file
+    // the user picks, and their materials into a second document beside it,
+    // as a phone's picker grants the one document picked.
+    val toolpathsWriter = LocalToolpathsExport.current.value
+    var toolpathsExported by remember { mutableStateOf<Boolean?>(null) }
+    var materials by remember { mutableStateOf<ExportToolpathsUseCase.Materials?>(null) }
+    val materialsPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(MATERIALS_MIME_TYPE)) { uri ->
+        val waiting = materials ?: return@rememberLauncherForActivityResult
+        materials = null
+        shareScope.launch {
+            toolpathsExported = viewModel.saveToolpathMaterials(waiting, uri?.let { ExternalDocumentReference(it.toString()) })
+        }
+    }
+    val toolpathsPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(OBJ_MIME_TYPE)) { uri ->
+        val write = toolpathsWriter
+        if (uri != null && write != null) {
+            shareScope.launch {
+                val written = viewModel.exportToolpaths(ExternalDocumentReference(uri.toString()), untitled, write)
+                if (written == null) toolpathsExported = false else materials = written
+            }
+        }
+    }
+    materials?.let { waiting ->
+        ToolpathMaterialsDialog(
+            name = waiting.name,
+            onSave = { materialsPicker.launch(waiting.name) },
+            onSkip = {
+                materials = null
+                shareScope.launch { viewModel.saveToolpathMaterials(waiting, null) }
+            },
+        )
+    }
+    toolpathsExported?.let { written ->
+        ExportResultDialog(orcaString("Export toolpaths as OBJ"), written, stringResource(UiR.string.toolpaths_exported), onDismiss = { toolpathsExported = null })
     }
     // Open Project's file dialog (GUI_App::load_project).
     val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -1504,6 +1590,7 @@ fun PlateSidebar(
             new = viewModel::newProject,
             share = shareProject,
             exportSliced = exportSliced,
+            exportToolpaths = toolpathsWriter?.let { { toolpathsPicker.launch(viewModel.toolpathsName(untitled)) } },
             open = { openPicker.launch(arrayOf("*/*")) },
             calibrate = { params ->
                 viewModel.calibrate(params)

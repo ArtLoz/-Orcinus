@@ -43,6 +43,9 @@ internal object NativeToolpaths {
     external fun toggleOptionVisibility(viewer: Long, option: Int)
 
     external fun snapshot(viewer: Long): NativeToolpathsSnapshot
+
+    /** GCodeViewer::export_toolpaths_to_obj(): false when the OBJ file or its materials cannot be written. */
+    external fun exportToObj(viewer: Long, path: String): Boolean
 }
 
 /** Constructed by the native bridge; see Statistics in toolpaths_file.hpp. */

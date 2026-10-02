@@ -66,6 +66,8 @@
     <!-- Export G-code of the desktop app's File menu. -->
     <string name="gcode_save">Сохранить G-code</string>
     <string name="share">Поделиться</string>
+    <string name="toolpaths_exported">Траектории экспортированы</string>
+    <string name="toolpaths_materials">Траектории сохранены. Сохраните рядом с ними их материалы (цвета) как «%1$s».</string>
     <string name="share_project">Поделиться проектом</string>
     <string name="gcode_saved">G-code сохранён</string>
     <string name="gcode_save_failed">Не удалось сохранить файл</string>

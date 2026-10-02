@@ -26,6 +26,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -80,6 +81,8 @@ import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.parseFilamentColor
+import app.orcinus.shadow.core.ui.ExportResultDialog
+import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.filamentLength
@@ -101,7 +104,9 @@ import app.orcinus.shadow.render.scene.PlateView
 import app.orcinus.shadow.render.scene.PlateViewOptions
 import app.orcinus.shadow.render.scene.rememberPlateViewCamera
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun PreviewRoute(
@@ -222,6 +227,13 @@ internal fun PreviewScreen(
     }
     val shown = layer
     val view = shown?.view?.collectAsStateWithLifecycle()?.value
+    // The File menu's "Export toolpaths as OBJ" writes what the preview shows, while it shows toolpaths.
+    val toolpathsExport = LocalToolpathsExport.current
+    val exportable = shown?.takeIf { view != null }
+    DisposableEffect(exportable) {
+        toolpathsExport.value = exportable?.let { layer -> { path: String -> withContext(Dispatchers.IO) { layer.exportToObj(path) } } }
+        onDispose { toolpathsExport.value = null }
+    }
     val navigationBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     // GLCanvas3D::_render_imgui_select_plate_toolbar(): the statistics of all
     // plates show instead of the plate once they are all sliced.
@@ -467,30 +479,8 @@ internal fun PreviewScreen(
         SendResultDialog(outcome, onDismiss = { sent = null })
     }
     saved?.let { written ->
-        SaveResultDialog(written, onDismiss = { saved = null })
+        ExportResultDialog(orcaString("Export G-code"), written, stringResource(UiR.string.gcode_saved), onDismiss = { saved = null })
     }
-}
-
-/** Whether the G-code reached the document the user picked. */
-@Composable
-private fun SaveResultDialog(written: Boolean, onDismiss: () -> Unit) {
-    val colors = OrcaTheme.colors
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { OrcaButton(orcaString("OK"), onClick = onDismiss) },
-        title = { Text(orcaString("Export G-code"), style = OrcaTheme.typography.head16) },
-        text = {
-            Text(
-                text = stringResource(if (written) UiR.string.gcode_saved else UiR.string.gcode_save_failed),
-                color = if (written) colors.text else colors.error,
-                style = OrcaTheme.typography.body14,
-            )
-        },
-        containerColor = colors.window,
-        titleContentColor = colors.text,
-        textContentColor = colors.text,
-        shape = OrcaTheme.shapes.window,
-    )
 }
 
 /** What the upload did, as the desktop app reports it. */

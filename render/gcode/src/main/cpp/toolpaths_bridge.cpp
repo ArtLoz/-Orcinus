@@ -7,6 +7,7 @@
 // viewer shows uploads textures, so those calls come from the GL thread too.
 
 #include "toolpaths_file.hpp"
+#include "toolpaths_obj.hpp"
 
 #include "libvgcode/include/ColorRange.hpp"
 #include "libvgcode/include/Viewer.hpp"
@@ -378,6 +379,15 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
         int_array(env, tool_colors),
         int_array(env, used_extruders)
     );
+}
+
+// GCodeViewer::export_toolpaths_to_obj(): what the viewer shows, written to
+// path, and its colours to the materials file beside it.
+JNIEXPORT jboolean JNICALL
+Java_app_orcinus_shadow_render_gcode_NativeToolpaths_exportToObj(JNIEnv* env, jobject, jlong viewer, jstring path)
+{
+    orcinus::toolpaths::ToolpathsObjExporter exporter(viewer_of(viewer));
+    return exporter.export_to(to_string(env, path)) ? JNI_TRUE : JNI_FALSE;
 }
 
 } // extern "C"
