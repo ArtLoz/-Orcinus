@@ -3,6 +3,7 @@ package app.orcinus.shadow.feature.prepare.navigation
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
+import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.feature.prepare.PrepareRoute
 import app.orcinus.shadow.feature.prepare.PrepareViewModel
 import kotlinx.serialization.Serializable
@@ -19,8 +20,15 @@ fun EntryProviderScope<NavKey>.prepareEntry(
     createViewModel: () -> PrepareViewModel,
     onSliceRequested: () -> Unit,
     onOpenSidebar: () -> Unit = {},
+    /** A setting a validation notification jumps to opens on its tab's page. */
+    onOpenSetting: (SearchOption) -> Unit = {},
 ) {
     entry<PrepareNavKey> {
-        PrepareRoute(viewModel = viewModel { createViewModel() }, onSliceRequested = onSliceRequested, onOpenSidebar = onOpenSidebar)
+        PrepareRoute(
+            viewModel = viewModel { createViewModel() },
+            onSliceRequested = onSliceRequested,
+            onOpenSidebar = onOpenSidebar,
+            onOpenSetting = onOpenSetting,
+        )
     }
 }

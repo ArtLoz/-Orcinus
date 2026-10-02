@@ -36,6 +36,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -113,6 +114,7 @@ import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SliceProgress
@@ -162,8 +164,11 @@ internal fun PrepareRoute(
     viewModel: PrepareViewModel,
     onSliceRequested: () -> Unit,
     onOpenSidebar: () -> Unit = {},
+    /** A setting a validation notification jumps to opens on its tab's page. */
+    onOpenSetting: (SearchOption) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel) { viewModel.settingToOpen.collect(onOpenSetting) }
     val canvas by viewModel.canvas.collectAsStateWithLifecycle()
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.addModel(it.toString()) }

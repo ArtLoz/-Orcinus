@@ -407,6 +407,7 @@ private fun Workspace(
                     createViewModel = container::prepareViewModel,
                     onSliceRequested = onSliceRequested,
                     onOpenSidebar = { sidebarVisible = true },
+                    onOpenSetting = onOpenSetting,
                 )
                 previewEntry(createViewModel = container::previewViewModel, onSliceRequested = onSliceRequested)
                 deviceEntry(createViewModel = container::deviceViewModel)

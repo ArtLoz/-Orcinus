@@ -76,6 +76,7 @@ import app.orcinus.shadow.domain.plate.ExportConfigUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
+import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
 import app.orcinus.shadow.domain.plate.GcodeSender
 import app.orcinus.shadow.domain.plate.GetSetupFilamentsUseCase
 import app.orcinus.shadow.domain.plate.GetSetupPrintersUseCase
@@ -542,6 +543,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             setPlateSettings = SetPlateSettingsUseCase(plateRepository),
             preferences = appPreferences,
             setPreference = setPreference,
+            findValidationSetting = FindValidationSettingUseCase(settingsTabs),
         )
     }
 

@@ -40,6 +40,7 @@ import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetSettings
 import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SettingsScope
 import app.orcinus.shadow.core.model.SimplifyConfig
@@ -70,6 +71,7 @@ import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
+import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
@@ -115,6 +117,7 @@ import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -122,6 +125,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -183,6 +187,7 @@ class PrepareViewModel(
     private val setPlateSettings: SetPlateSettingsUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
+    private val findValidationSetting: FindValidationSettingUseCase? = null,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -374,12 +379,20 @@ class PrepareViewModel(
 
     fun addCalibrationCube() = addCalibrationCubeToPlate()
 
+    /** The setting a validation notification's "Jump to" opens, for the page to show. */
+    private val settingJumps = Channel<SearchOption>(Channel.CONFLATED)
+    val settingToOpen: Flow<SearchOption> = settingJumps.receiveAsFlow()
+
     /**
      * "Jump to" of a validation notification: the object or the copy it is
-     * about is selected (ObjectList::select_items()).
+     * about is selected (ObjectList::select_items()), and the setting it names
+     * opens on its tab (Sidebar::jump_to_option()).
      */
     fun jumpTo(notice: ValidationNotice) {
         notice.target?.let { selectPlateObject(it) }
+        val find = findValidationSetting ?: return
+        if (notice.option.isEmpty()) return
+        viewModelScope.launch { find(notice.option)?.let { settingJumps.trySend(it) } }
     }
 
     /** Clearing the selection closes the gizmo, as GLGizmosManager does when it is no longer activable. */
