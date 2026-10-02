@@ -1822,9 +1822,18 @@ PlateValidation validate_plate(
             for (const Slic3r::Polygon& polygon : polygons) {
                 add_outline(polygon, result.clearance_counts, result.clearance);
             }
+            for (const Slic3r::ExPolygon& polygon : Slic3r::union_ex(polygons)) {
+                for (const Slic3r::Vec3d& corner : Slic3r::triangulate_expolygon_3d(polygon)) {
+                    result.clearance_fill.push_back(corner.x());
+                    result.clearance_fill.push_back(corner.y());
+                }
+            }
             for (const auto& [polygon, height] : height_polygons) {
-                add_outline(polygon, result.height_counts, result.height_outlines);
-                result.heights.push_back(height);
+                for (const Slic3r::Vec3d& corner : Slic3r::triangulate_expolygon_3d(Slic3r::ExPolygon(polygon))) {
+                    result.height_fill.push_back(corner.x());
+                    result.height_fill.push_back(corner.y());
+                    result.height_fill.push_back(height);
+                }
             }
         }
 

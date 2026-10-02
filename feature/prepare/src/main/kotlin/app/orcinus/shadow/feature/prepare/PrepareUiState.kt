@@ -57,6 +57,7 @@ import app.orcinus.shadow.domain.plate.canWorkOnPlate
 import app.orcinus.shadow.domain.plate.presetValue
 import app.orcinus.shadow.domain.plate.spiralVaseMode
 import app.orcinus.shadow.render.scene.CutPlanes
+import app.orcinus.shadow.render.scene.PlateClearance
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
@@ -145,6 +146,8 @@ data class PrepareUiState(
     /** The plate's validation (Plater::priv::update_background_process()): its error and its warning. */
     val validationError: ValidationNotice? = null,
     val validationWarning: ValidationNotice? = null,
+    /** The sequential printing's clearances while the validation fails. */
+    val clearance: PlateClearance? = null,
     val arrangeOptionsOpen: Boolean,
     val arrangeSettings: ArrangeSettings,
     /** What Copy and Cut took, which Paste puts on the plate. */
@@ -370,6 +373,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         printSequence = validation?.sequence.orEmpty(),
         validationError = validation?.error?.let { notice(it, objects) },
         validationWarning = validation?.warning?.let { notice(it, objects) },
+        clearance = validation?.takeIf { it.error != null && (it.clearance.isNotEmpty() || it.heightLimitFill.isNotEmpty()) }
+            ?.let { PlateClearance(it.clearance, it.clearanceFill, it.heightLimitFill) },
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
         arrangeSettings = arrangeSettings,
         clipboard = clipboard,

@@ -12,7 +12,7 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
-import app.orcinus.shadow.core.model.ClearanceHeight
+import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportEntry
@@ -134,7 +134,6 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
-import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -1569,7 +1568,10 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             error = validationMessage(result.errorText, result.errorObject, result.errorInstance, result.errorOption),
             warning = validationMessage(result.warningText, result.warningObject, result.warningInstance, result.warningOption),
             clearance = outlines(result.clearanceCounts, result.clearance),
-            heightLimits = outlines(result.heightCounts, result.heightOutlines).zip(result.heights.toList(), ::ClearanceHeight),
+            clearanceFill = List(result.clearanceFill.size / 2) { Point2(result.clearanceFill[it * 2], result.clearanceFill[it * 2 + 1]) },
+            heightLimitFill = List(result.heightFill.size / 3) {
+                Vector3(result.heightFill[it * 3], result.heightFill[it * 3 + 1], result.heightFill[it * 3 + 2])
+            },
             sequence = result.sequence.toList(),
         )
     }

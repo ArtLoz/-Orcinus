@@ -439,22 +439,23 @@ data class PlateValidationMessage(
     val option: String = "",
 )
 
-/** A copy's outline at the height a copy printed before the last may reach (sequential printing). */
-data class ClearanceHeight(val outline: List<Point2>, val height: Double)
-
 /**
  * Plater::priv::update_background_process(): the current plate applied to its
  * print and validated. The [error] blocks slicing; while there is one the
- * plate shows the sequential printing's [clearance] outlines and [heightLimits]
- * (GLCanvas3D::SequentialPrintClearance). [sequence] numbers every copy of the
- * plate in its print order, object by object, -1 for one not printed, while
- * the plate prints by object or in the object list's order; empty otherwise.
+ * plate shows the sequential printing's clearances
+ * (GLCanvas3D::SequentialPrintClearance): the copies' [clearance] outlines,
+ * their union as triangles ([clearanceFill], on the plate), and the outlines
+ * at the height a copy printed before the last may reach, as triangles
+ * ([heightLimitFill]). [sequence] numbers every copy of the plate in its print
+ * order, object by object, -1 for one not printed, while the plate prints by
+ * object or in the object list's order; empty otherwise.
  */
 data class PlateValidation(
     val error: PlateValidationMessage? = null,
     val warning: PlateValidationMessage? = null,
     val clearance: List<List<Point2>> = emptyList(),
-    val heightLimits: List<ClearanceHeight> = emptyList(),
+    val clearanceFill: List<Point2> = emptyList(),
+    val heightLimitFill: List<Vector3> = emptyList(),
     val sequence: List<Int> = emptyList(),
 )
 

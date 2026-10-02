@@ -53,6 +53,8 @@ internal class SceneFrame(
     val phong: Boolean = false,
     /** The realistic view with "Shadows" (opengl_phong_basic_plate_shadows) on the Prepare page: the objects cast shadows on the plate. */
     val shadows: Boolean = false,
+    /** The sequential printing's clearances while the plate's validation fails (GLCanvas3D::_render_sequential_clearance()). */
+    val clearance: SceneClearance? = null,
     /** The realistic view with "SSAO ambient occlusion" (opengl_phong_ssao): the frame goes through the SSAO pass. */
     val ssao: Boolean = false,
     /**
@@ -152,6 +154,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var outlineDepth: GlDepthTarget? = null
     /** GLCanvas3D::m_background: the quad over the whole view that the FXAA pass and the shadows draw. */
     private var screenQuad: GlVertexArray? = null
+    /** SequentialPrintClearance's models: the perimeter, the fill and the height limits of the clearance they were made of. */
+    private var clearanceArrays: Pair<SceneClearance, List<GlVertexArray>>? = null
     /** GLCanvas3D::m_plate_shadow_mask, with the build volume it was made for (m_plate_shadow_mask_key). */
     private var shadowMask: Pair<Box3, GlVertexArray>? = null
 
@@ -202,6 +206,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         outlineDepth = null
         screenQuad = null
         shadowMask = null
+        clearanceArrays = null
         val samples = IntArray(2)
         GLES30.glGetIntegerv(GLES30.GL_SAMPLES, samples, 0)
         GLES30.glGetIntegerv(GLES30.GL_MAX_SAMPLES, samples, 1)
@@ -419,6 +424,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         renderObjects(if (frame.phong) programs.phong else programs.gouraud, frame)
         renderWireframes(programs.flat, frame)
         renderSelection(programs.flat, frame)
+        frame.clearance?.let { renderClearance(programs.flat, it, frame) }
         frame.gizmo?.let { renderGizmo(programs, it, frame) }
     }
 
@@ -665,6 +671,35 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glDisable(GLES30.GL_STENCIL_TEST)
         GLES30.glStencilMask(0xFF)
+    }
+
+    /** SequentialPrintClearance::render() with its fill, as a failing validation shows it. */
+    private fun renderClearance(program: GlProgram, clearance: SceneClearance, frame: SceneFrame) {
+        val arrays = clearanceArrays?.takeIf { it.first === clearance }?.second ?: run {
+            clearanceArrays?.second?.forEach(GlVertexArray::release)
+            listOf(clearance.lines to GLES30.GL_LINES, clearance.fill to GLES30.GL_TRIANGLES, clearance.heightLimits to GLES30.GL_TRIANGLES)
+                .map { (points, mode) -> GlVertexArray(GlVertexArray.floatBuffer(points), listOf(GlProgram.POSITION to 3), mode) }
+                .also { clearanceArrays = clearance to it }
+        }
+        val (perimeter, fill, heightLimit) = arrays
+        program.use()
+        program.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+        program.setMatrix4("projection_matrix", frame.projection)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glLineWidth(lineWidth(frame.pixelScale))
+        program.setVec4("uniform_color", CLEARANCE_FILL_COLOR[0], CLEARANCE_FILL_COLOR[1], CLEARANCE_FILL_COLOR[2], CLEARANCE_FILL_COLOR[3])
+        perimeter.draw()
+        // The fill keeps the colour set_polygons() gave its geometry.
+        program.setVec4("uniform_color", 0.8f, 0.8f, 1f, 0.5f)
+        fill.draw()
+        program.setVec4("uniform_color", CLEARANCE_FILL_COLOR[0], CLEARANCE_FILL_COLOR[1], CLEARANCE_FILL_COLOR[2], CLEARANCE_FILL_COLOR[3])
+        heightLimit.draw()
+        GLES30.glLineWidth(1f)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
     }
 
     /** GLCanvas3D::_render_objects() and GLVolumeCollection::render() for opaque volumes. */
@@ -1043,6 +1078,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     private companion object {
+        // SequentialPrintClearance::render(): FILL_COLOR, while the clearance is drawn with its fill.
+        val CLEARANCE_FILL_COLOR = floatArrayOf(0.7f, 0.7f, 1f, 0.5f)
+
         // GLCanvas3D::_render_cast_shadows_on_plate(): the light, normalized (-0.6, 0.6, 1) in eye space, and the shadows' alpha.
         val LIGHT_DIR_EYE = Vec3(-0.4574957, 0.4574957, 0.7624929).normalized()
         const val SHADOW_ALPHA = 0.4f

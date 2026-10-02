@@ -681,10 +681,11 @@ struct PlateValidation {
     // The outlines, each its point count, then x and y of every point in mm.
     std::vector<std::int32_t> clearance_counts;
     std::vector<double> clearance;
-    // The height limits: outlines as above, and the height of each.
-    std::vector<std::int32_t> height_counts;
-    std::vector<double> height_outlines;
-    std::vector<double> heights;
+    // SequentialPrintClearance::set_polygons(): the outlines' union as
+    // triangles, x and y of every corner; and the height limits as
+    // triangles at their heights, x, y and z of every corner.
+    std::vector<double> clearance_fill;
+    std::vector<double> height_fill;
     // One number per copy of the plate, object by object, -1 for a copy that
     // is not printed; empty when the plate prints otherwise.
     std::vector<std::int32_t> sequence;

@@ -14,9 +14,9 @@ parcelable PlateValidationParcel {
     /** The clearance outlines: each one's point count, then x and y of every point. */
     @nullable int[] clearanceCounts;
     @nullable double[] clearance;
-    /** The height limits: outlines as above, and the height of each. */
-    @nullable int[] heightCounts;
-    @nullable double[] heightOutlines;
-    @nullable double[] heights;
+    /** The outlines' union as triangles, x and y of every corner. */
+    @nullable double[] clearanceFill;
+    /** The height limits as triangles, x, y and z of every corner. */
+    @nullable double[] heightFill;
     @nullable int[] sequence;
 }

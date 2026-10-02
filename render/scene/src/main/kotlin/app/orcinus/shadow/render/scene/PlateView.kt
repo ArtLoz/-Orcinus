@@ -179,6 +179,8 @@ fun PlateView(
     labels: Map<Int, PlateLabel> = emptyMap(),
     /** The realistic view with "Smooth normals" (opengl_phong_smooth_normals): the meshes are read with smooth normals. */
     smoothNormals: Boolean = false,
+    /** The sequential printing's clearances while the plate's validation fails; null for none. */
+    clearance: PlateClearance? = null,
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -192,6 +194,7 @@ fun PlateView(
         LaunchedEffect(graphics.fxaa) { controller.setFxaa(graphics.fxaa) }
         LaunchedEffect(options) { controller.setOptions(options) }
         LaunchedEffect(overhangNormalZ) { controller.setOverhangs(overhangNormalZ) }
+        LaunchedEffect(clearance) { controller.setClearance(clearance) }
         LaunchedEffect(labels.keys) { controller.setLabelled(labels.keys) }
         val labelPlacements by controller.labelPlacements.collectAsState()
         SideEffect { controller.onPerspectiveChange = onPerspectiveChange }
@@ -1272,6 +1275,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The canvas's "Overhangs" (GLCanvas3D::m_slope's global use), slope.normal_z; null while hidden. */
     private var overhangNormalZ: Float? = null
 
+    /** GLCanvas3D::m_sequential_print_clearance, visible while it is set. */
+    private var clearance: SceneClearance? = null
+
+    fun setClearance(value: PlateClearance?) {
+        clearance = value?.let(::SceneClearance)
+        invalidate()
+    }
+
     fun setOverhangs(normalZ: Float?) {
         if (overhangNormalZ == normalZ) return
         overhangNormalZ = normalZ
@@ -1684,6 +1695,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 showGridlines = options.gridlines,
                 overhangNormalZ = overhangNormalZ,
                 outline = options.outline,
+                // _render_sequential_clearance(): not while a gizmo's grabber is dragged.
+                clearance = clearance.takeIf { drag !is MoveGrabberDrag && drag !is RotateGrabberDrag && drag !is ScaleGrabberDrag },
                 phong = options.phong,
                 shadows = options.shadows,
                 ssao = options.ssao,

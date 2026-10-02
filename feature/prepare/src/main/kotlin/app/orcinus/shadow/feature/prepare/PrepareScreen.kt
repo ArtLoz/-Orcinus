@@ -534,6 +534,8 @@ internal fun PrepareScreen(
                 overhangNormalZ = state.overhangNormalZ.takeIf { canvas.overhang },
                 labels = if (canvas.labels) objectLabels(state) else emptyMap(),
                 smoothNormals = canvas.realistic && canvas.smoothNormals,
+                // _render_sequential_clearance(): with no gizmo open, or the move, rotation or scale gizmo.
+                clearance = state.clearance.takeIf { state.painting == null && state.cut == null && state.simplify == null && state.gizmo != PlateGizmo.LAY_ON_FACE },
                 antialiasingSamples = canvas.antialiasingSamples,
             )
         }

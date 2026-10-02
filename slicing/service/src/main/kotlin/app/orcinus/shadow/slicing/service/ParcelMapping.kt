@@ -10,7 +10,7 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
-import app.orcinus.shadow.core.model.ClearanceHeight
+import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutId
@@ -87,7 +87,6 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
-import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -1194,9 +1193,8 @@ internal fun PlateValidation.toParcel() = PlateValidationParcel().also { parcel 
     parcel.warningOption = warning?.option
     parcel.clearanceCounts = clearance.map { it.size }.toIntArray()
     parcel.clearance = clearance.flatten().flatMap { listOf(it.x, it.y) }.toDoubleArray()
-    parcel.heightCounts = heightLimits.map { it.outline.size }.toIntArray()
-    parcel.heightOutlines = heightLimits.flatMap { it.outline }.flatMap { listOf(it.x, it.y) }.toDoubleArray()
-    parcel.heights = heightLimits.map { it.height }.toDoubleArray()
+    parcel.clearanceFill = clearanceFill.flatMap { listOf(it.x, it.y) }.toDoubleArray()
+    parcel.heightFill = heightLimitFill.flatMap { listOf(it.x, it.y, it.z) }.toDoubleArray()
     parcel.sequence = sequence.toIntArray()
 }
 
@@ -1214,7 +1212,8 @@ internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
         error = message(errorText, errorObject, errorInstance, errorOption),
         warning = message(warningText, warningObject, warningInstance, warningOption),
         clearance = outlines(clearanceCounts, clearance),
-        heightLimits = outlines(heightCounts, heightOutlines).zip((heights ?: DoubleArray(0)).toList(), ::ClearanceHeight),
+        clearanceFill = (clearanceFill ?: DoubleArray(0)).let { fill -> List(fill.size / 2) { Point2(fill[it * 2], fill[it * 2 + 1]) } },
+        heightLimitFill = (heightFill ?: DoubleArray(0)).let { fill -> List(fill.size / 3) { Vector3(fill[it * 3], fill[it * 3 + 1], fill[it * 3 + 2]) } },
         sequence = (sequence ?: IntArray(0)).toList(),
     )
 }

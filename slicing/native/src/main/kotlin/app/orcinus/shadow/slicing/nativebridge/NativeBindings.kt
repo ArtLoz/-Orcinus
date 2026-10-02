@@ -522,9 +522,8 @@ internal class NativePlateValidation(
     @JvmField val warningOption: String,
     @JvmField val clearanceCounts: IntArray,
     @JvmField val clearance: DoubleArray,
-    @JvmField val heightCounts: IntArray,
-    @JvmField val heightOutlines: DoubleArray,
-    @JvmField val heights: DoubleArray,
+    @JvmField val clearanceFill: DoubleArray,
+    @JvmField val heightFill: DoubleArray,
     @JvmField val sequence: IntArray,
 )
 

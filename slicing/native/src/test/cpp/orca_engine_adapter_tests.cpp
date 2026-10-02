@@ -1949,6 +1949,9 @@ TEST_CASE("The plate is validated after a change as the desktop app's background
     CHECK(close.error.instance == 0);
     CHECK(!close.clearance_counts.empty());
     CHECK(close.clearance.size() == 2 * std::size_t(std::accumulate(close.clearance_counts.begin(), close.clearance_counts.end(), 0)));
+    // SequentialPrintClearance::set_polygons(): their union as triangles, x and y of each corner.
+    CHECK(!close.clearance_fill.empty());
+    CHECK(close.clearance_fill.size() % 6 == 0);
 }
 
 TEST_CASE("A code the layer slider puts on a layer runs where that layer starts", "[Adapter][Scene]")
