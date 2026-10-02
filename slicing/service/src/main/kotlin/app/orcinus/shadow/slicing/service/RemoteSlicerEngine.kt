@@ -1023,6 +1023,9 @@ class RemoteSlicerEngine(
         }
     }
 
+    override suspend fun printSequence(plate: List<PlacedModel>, profiles: SlicingProfileSelection, plateSettings: ModelSettings): List<Int>? =
+        remote({ null }) { printSequence(plate.toParcels(), profiles.toParcel(), plateSettings.toParcel()) }?.toList()
+
     override suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? =
         remote({ Double.NaN }) { overhangNormalZ(profiles.toParcel()) }.takeUnless(Double::isNaN)?.toFloat()
 

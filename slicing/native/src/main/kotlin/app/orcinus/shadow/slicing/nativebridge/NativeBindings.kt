@@ -901,6 +901,21 @@ internal object NativeBindings {
         processProfile: String,
     ): NativeThumbnailSizes
 
+    /**
+     * GLCanvas3D::Labels' "Sequence#": the print order of every copy of the
+     * plate as Print::validate() numbers it, -1 for one not printed; empty
+     * when the plate does not print by object, null when it cannot be read.
+     */
+    external fun printSequence(
+        plate: NativePlate,
+        plateSettingKeys: Array<String>,
+        plateSettingValues: Array<String>,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): IntArray?
+
     /** GLVolumeCollection::get_selection_support_normal_z(): the canvas's overhang highlight; NaN without presets. */
     external fun overhangNormalZ(
         printerProfile: String,

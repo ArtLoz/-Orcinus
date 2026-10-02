@@ -1685,6 +1685,69 @@ SliceResult slice(
     }
 }
 
+bool print_sequence(
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings,
+    std::vector<std::int32_t>& sequence
+)
+{
+    sequence.clear();
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return false;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        std::string message;
+        if (select_profiles(*engine().bundle, profiles, config, message) != SliceStatus::success) {
+            return false;
+        }
+        config.apply(detail::model_config(plate_settings), true);
+        // GLCanvas3D::_render(): sequential_print, from PartPlate::get_real_print_seq() and print_order.
+        const auto* order = config.option<Slic3r::ConfigOptionEnum<Slic3r::PrintOrder>>("print_order");
+        const bool sequential = config.opt_enum<Slic3r::PrintSequence>("print_sequence") == Slic3r::PrintSequence::ByObject
+            || (order != nullptr && order->value == Slic3r::PrintOrder::AsObjectList);
+        if (!sequential) {
+            return true;
+        }
+
+        Slic3r::Model model;
+        if (!load_plate(plate, config, model, message)) {
+            return false;
+        }
+        // The copies of the plate by their ids, which the print's own model keeps.
+        std::map<std::size_t, std::size_t> copies;
+        for (const Slic3r::ModelObject* object : model.objects) {
+            for (const Slic3r::ModelInstance* instance : object->instances) {
+                copies.emplace(instance->id().id, copies.size());
+            }
+        }
+        model.update_print_volume_state(build_volume_of(config));
+
+        Slic3r::Print print;
+        print.set_plate_origin(Slic3r::to_3d(plate_origin_of(config), 0.));
+        print.set_plate_index(engine().plate_index);
+        print.apply(model, config);
+        Slic3r::StringObjectException warning;
+        print.validate(&warning);
+
+        sequence.assign(copies.size(), -1);
+        for (const Slic3r::PrintObject* print_object : print.objects()) {
+            for (const Slic3r::PrintInstance& instance : print_object->instances()) {
+                const auto copy = copies.find(instance.model_instance->id().id);
+                if (copy != copies.end()) {
+                    sequence[copy->second] = instance.model_instance->arrange_order;
+                }
+            }
+        }
+        return true;
+    } catch (const std::exception&) {
+        sequence.clear();
+        return false;
+    }
+}
+
 ThumbnailSizes thumbnail_sizes(const ProfileSelection& profiles)
 {
     ThumbnailSizes result;

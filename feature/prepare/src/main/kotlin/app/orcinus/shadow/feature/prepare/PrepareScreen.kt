@@ -146,6 +146,7 @@ import app.orcinus.shadow.render.scene.CutView
 import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateGraphics
+import app.orcinus.shadow.render.scene.PlateLabel
 import app.orcinus.shadow.render.scene.PlateNavigator
 import app.orcinus.shadow.render.scene.PlateView
 import app.orcinus.shadow.render.scene.PlateViewOptions
@@ -513,6 +514,7 @@ internal fun PrepareScreen(
                 onPerspectiveChange = { onSetCanvas(AppConfigKeys.USE_PERSPECTIVE_CAMERA, it.toString()) },
                 camera = viewCamera,
                 overhangNormalZ = state.overhangNormalZ.takeIf { canvas.overhang },
+                labels = if (canvas.labels) objectLabels(state) else emptyMap(),
                 antialiasingSamples = canvas.antialiasingSamples,
             )
         }
@@ -1967,3 +1969,24 @@ private fun PrepareWidePreview() = OrcinusTheme {
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }
+
+/**
+ * GLCanvas3D::Labels::render(): the copies of the current plate, each named
+ * after its object, with its number when the object has several, and its
+ * place in the print order while the plate prints by object; none while a
+ * gizmo runs.
+ */
+@Composable
+private fun objectLabels(state: PrepareUiState): Map<Int, PlateLabel> {
+    if (state.gizmo != null || state.painting != null || state.cut != null || state.simplify != null) return emptyMap()
+    val sequence = orcaString("Sequence")
+    return state.currentPlateCopies.associateWith { index ->
+        val copy = state.sceneCopies[index]
+        val copies = copy.plateObject.instances.size
+        PlateLabel(
+            name = copy.plateObject.displayName() + if (copies > 1) " (${copy.id.instance + 1})" else "",
+            printOrder = state.printSequence.getOrNull(index)?.takeIf { it >= 0 }?.let { "$sequence#: $it" },
+        )
+    }
+}
+

@@ -437,6 +437,8 @@ interface ISlicerService {
     void slice(in SliceRequestParcel request, ISliceCallback callback);
     /** The thumbnails the G-code of the printer holds: width and height of each; null on failure, with the reason in error. */
     ThumbnailSizesParcel thumbnailSizes(in ProfilesParcel profiles);
+    /** GLCanvas3D::Labels' "Sequence#" of every copy; null when the plate cannot be read. */
+    int[] printSequence(in PlacedModelParcel[] plate, in ProfilesParcel profiles, in ModelSettingsParcel plateSettings);
     /** GLVolumeCollection::get_selection_support_normal_z(); NaN without presets. */
     double overhangNormalZ(in ProfilesParcel profiles);
     /** select_plate(): the plate the next requests are for, among count plates. */

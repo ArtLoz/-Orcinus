@@ -646,6 +646,20 @@ WipeTowerState describe_wipe_tower(
     const ModelSettings& plate_settings
 );
 
+// The "Sequence#" of GLCanvas3D::Labels: while the current plate prints by
+// object, or in the object list's order, the desktop app's background process
+// applies the plate to its print and validates it, and Print::validate()
+// numbers the copies in the order they print (ModelInstance::arrange_order).
+// One number per copy of the plate, object by object, -1 for a copy that is
+// not printed; empty when the plate prints otherwise, and false when the plate
+// cannot be read.
+bool print_sequence(
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings,
+    std::vector<std::int32_t>& sequence
+);
+
 // The flushing volumes of the plate (WipingDialog): how much filament is
 // pushed into the wipe tower when the print changes from one filament to
 // another. OrcaSlicer keeps a matrix per nozzle in the project, one row per

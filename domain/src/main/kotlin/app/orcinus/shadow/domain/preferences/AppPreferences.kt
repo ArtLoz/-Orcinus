@@ -80,6 +80,7 @@ class AppPreferences(private val store: AppConfigStore) {
             zoomButton = values[AppConfigKeys.SHOW_CANVAS_ZOOM_BUTTON]?.let(AppConfigKeys::bool) ?: true,
             overhang = AppConfigKeys.bool(values[AppConfigKeys.SHOW_OVERHANG]),
             outline = AppConfigKeys.bool(values[AppConfigKeys.SHOW_OUTLINE]),
+            labels = AppConfigKeys.bool(values[AppConfigKeys.SHOW_LABELS]),
             axes = values[AppConfigKeys.SHOW_AXES]?.let { it == "true" } ?: true,
             gridlines = values[AppConfigKeys.SHOW_PLATE_GRIDLINES]?.let(AppConfigKeys::bool) ?: true,
         )

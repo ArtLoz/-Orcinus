@@ -916,6 +916,12 @@ data class PlateState(
      * null until the engine worked it out from the edited presets.
      */
     val overhangNormalZ: Float? = null,
+    /**
+     * The "Sequence#" of the canvas's labels: every copy's place in the print
+     * order, object by object, -1 for one not printed; empty while the plate
+     * does not print by object, null while the labels are hidden or unknown.
+     */
+    val printSequence: List<Int>? = null,
     /** The arrange options (GLCanvas3D::ArrangeSettings), which every arrangement of the plate takes. */
     val arrangeSettings: ArrangeSettings = ArrangeSettings(),
     /** What Copy and Cut took (Selection::Clipboard); null while nothing was copied. */

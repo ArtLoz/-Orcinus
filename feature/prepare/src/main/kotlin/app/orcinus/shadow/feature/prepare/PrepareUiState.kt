@@ -43,6 +43,7 @@ import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.parseFilamentColor
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.plateSettingsChoice
 import app.orcinus.shadow.core.model.withInstance
@@ -109,6 +110,10 @@ data class PrepareUiState(
     val wireframes: Set<ScenePath> = emptySet(),
     /** The canvas's "Overhangs": slope.normal_z, which the support settings give; null until the engine answered. */
     val overhangNormalZ: Float? = null,
+    /** The copies of the current plate, by their index among [sceneCopies], which the canvas's labels name. */
+    val currentPlateCopies: Set<Int> = emptySet(),
+    /** The labels' "Sequence#": each copy's place in the print order, -1 for one not printed; empty while the plate prints by layer. */
+    val printSequence: List<Int> = emptyList(),
     val arrangeOptionsOpen: Boolean,
     val arrangeSettings: ArrangeSettings,
     /** What Copy and Cut took, which Paste puts on the plate. */
@@ -330,6 +335,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         simplify = view.simplify?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } },
         wireframes = view.simplify?.takeIf { it.wireframe }?.preview?.let { setOf(it.mesh) }.orEmpty(),
         overhangNormalZ = overhangNormalZ,
+        currentPlateCopies = copies.indices.filterTo(mutableSetOf()) { plateOf(copies[it].instance) == currentPlate },
+        printSequence = printSequence.orEmpty(),
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
         arrangeSettings = arrangeSettings,
         clipboard = clipboard,

@@ -155,6 +155,9 @@ private fun CanvasViewSheet(
             HorizontalDivider(color = colors.separator)
             SwitchRow(orcaString("Axes"), null, canvas.axes) { onSet(AppConfigKeys.SHOW_AXES, it.toString()) }
             SwitchRow(orcaString("Gridlines"), null, canvas.gridlines) { onSet(AppConfigKeys.SHOW_PLATE_GRIDLINES, it.toString()) }
+            HorizontalDivider(color = colors.separator)
+            // Plater::priv::are_view3D_labels_shown(): off while the preview is shown.
+            SwitchRow(orcaString("Labels"), null, canvas.labels && !preview, enabled = !preview) { onSet(AppConfigKeys.SHOW_LABELS, it.toString()) }
             Spacer(Modifier.padding(bottom = 8.dp))
         }
     }

@@ -881,6 +881,9 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun selectPlate(index: Int, count: Int) = runBlocking { engine.selectPlate(index, count) }
 
+        override fun printSequence(plate: Array<PlacedModelParcel>, profiles: ProfilesParcel, plateSettings: ModelSettingsParcel): IntArray? =
+            runBlocking { engine.printSequence(plate.toPlacedModels(), profiles.toProfiles(), plateSettings.toModelSettings()) }?.toIntArray()
+
         override fun overhangNormalZ(profiles: ProfilesParcel): Double =
             runBlocking { engine.overhangNormalZ(profiles.toProfiles()) }?.toDouble() ?: Double.NaN
 

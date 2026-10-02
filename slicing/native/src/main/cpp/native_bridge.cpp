@@ -2565,6 +2565,35 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_thumbnailSizes(
     return env->NewObject(result_class, constructor, static_cast<jlong>(result.status), to_java(env, result.message), sizes);
 }
 
+extern "C" JNIEXPORT jintArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_printSequence(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jobjectArray plate_setting_keys,
+    jobjectArray plate_setting_values,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    std::vector<std::int32_t> sequence;
+    if (!orcinus::orca::print_sequence(
+            to_plate(env, plate),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_model_settings(env, plate_setting_keys, plate_setting_values),
+            sequence
+        )) {
+        return nullptr;
+    }
+    const jintArray result = env->NewIntArray(static_cast<jsize>(sequence.size()));
+    if (!sequence.empty()) {
+        env->SetIntArrayRegion(result, 0, static_cast<jsize>(sequence.size()), reinterpret_cast<const jint*>(sequence.data()));
+    }
+    return result;
+}
+
 extern "C" JNIEXPORT jdouble JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_overhangNormalZ(
     JNIEnv* env,

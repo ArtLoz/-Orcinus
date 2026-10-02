@@ -145,6 +145,15 @@ interface PlateInspector {
     suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? = null
 
     /**
+     * GLCanvas3D::Labels' "Sequence#": while [plate] prints by object, or in
+     * the object list's order, the order every copy prints in as
+     * Print::validate() numbers it (ModelInstance::arrange_order), object by
+     * object, -1 for a copy that is not printed. Empty when the plate prints
+     * otherwise; null when it cannot be read.
+     */
+    suspend fun printSequence(plate: List<PlacedModel>, profiles: SlicingProfileSelection, plateSettings: ModelSettings): List<Int>? = null
+
+    /**
      * Loads [model], writes its mesh to [mesh], and places it as OrcaSlicer
      * places an object added to the plate that already holds [plate].
      */

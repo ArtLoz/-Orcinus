@@ -173,6 +173,8 @@ fun PlateView(
     camera: PlateViewCamera? = null,
     /** The canvas's "Overhangs": slope.normal_z they are tinted from; null while they are hidden. */
     overhangNormalZ: Float? = null,
+    /** The canvas's "Labels": what each labelled copy's label reads, by the copy's index; none while they are hidden. */
+    labels: Map<Int, PlateLabel> = emptyMap(),
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -186,6 +188,8 @@ fun PlateView(
         LaunchedEffect(graphics.fxaa) { controller.setFxaa(graphics.fxaa) }
         LaunchedEffect(options) { controller.setOptions(options) }
         LaunchedEffect(overhangNormalZ) { controller.setOverhangs(overhangNormalZ) }
+        LaunchedEffect(labels.keys) { controller.setLabelled(labels.keys) }
+        val labelPlacements by controller.labelPlacements.collectAsState()
         SideEffect { controller.onPerspectiveChange = onPerspectiveChange }
         DisposableEffect(camera, controller) {
             camera?.controller = controller
@@ -383,6 +387,7 @@ fun PlateView(
                     .semantics { this.contentDescription = contentDescription }
                     .pointerInput(surface) { detectPlateGestures(controller, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
             )
+            if (labels.isNotEmpty()) ObjectLabels(labelPlacements, labels, Modifier.fillMaxSize())
             // GLCanvas3D::_render_fps_overlay(): nothing until the first second is measured.
             if (graphics.fpsOverlay && fps >= 0) {
                 BasicText(
@@ -1246,6 +1251,44 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    /** The copies whose labels the view shows (GLCanvas3D::Labels), and where they stand. */
+    private var labelled: Set<Int> = emptySet()
+    private val labelPlacementsState = MutableStateFlow<List<LabelPlacement>>(emptyList())
+    val labelPlacements: StateFlow<List<LabelPlacement>> = labelPlacementsState.asStateFlow()
+
+    fun setLabelled(indexes: Set<Int>) {
+        if (labelled == indexes) return
+        labelled = indexes
+        invalidate()
+    }
+
+    /**
+     * GLCanvas3D::Labels::render(): every labelled copy's box, merged from its
+     * volumes, labelled at its centre where that lies in the view; the
+     * selected ones last, the others from the farthest to the nearest. OrcaSlicer
+     * divides the perspective projection by 1000, the camera's usual distance,
+     * rather than by each point's own depth; the view projects the centre.
+     */
+    private fun placeLabels() {
+        if (labelled.isEmpty()) {
+            if (labelPlacementsState.value.isNotEmpty()) labelPlacementsState.value = emptyList()
+            return
+        }
+        val view = camera.viewMatrix
+        labelPlacementsState.value = objects.filter { it.index in labelled }
+            .groupBy(SceneObject::index)
+            .map { (index, volumes) ->
+                val center = volumes.map(SceneObject::bounds).reduce(Box3::merge).center()
+                Triple(index, center, view.transformPoint(center).z)
+            }
+            .sortedWith(compareBy({ (index, _, _) -> index in selectedIndexes || index == selectedIndex }, { (_, _, eyeZ) -> eyeZ }))
+            .mapNotNull { (index, center, _) ->
+                val (x, y) = camera.project(center) ?: return@mapNotNull null
+                if (x < 0.0 || camera.viewportWidth < x || y < 0.0 || camera.viewportHeight < y) return@mapNotNull null
+                LabelPlacement(index, x.toFloat(), y.toFloat(), selected = index in selectedIndexes || index == selectedIndex)
+            }
+    }
+
     /** The View menu's projection, axes and grid, and Camera::m_prevent_auto_type. */
     private var options = PlateViewOptions()
     private var preventAutoType = false
@@ -1597,6 +1640,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val box = sceneBox() ?: Box3(Vec3(-1.0, -1.0, -1.0), Vec3(1.0, 1.0, 1.0))
         camera.sceneBox = box
         camera.applyProjection(box)
+        placeLabels()
         renderer.setFrame(
             SceneFrame(
                 view = camera.viewMatrix,

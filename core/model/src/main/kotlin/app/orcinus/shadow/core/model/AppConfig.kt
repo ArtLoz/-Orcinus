@@ -43,6 +43,8 @@ data class CanvasPreferences(
     val overhang: Boolean = false,
     /** show_outline: the selected objects are drawn with their silhouettes outlined. */
     val outline: Boolean = false,
+    /** show_labels: the Prepare page's 3D view labels every object on the plate with its name. */
+    val labels: Boolean = false,
     /** show_axes: the coordinate axes at the origin of the plates (Bed3D::render_axes()). */
     val axes: Boolean = true,
     /** show_plate_gridlines: the plates' grids. */
@@ -82,6 +84,7 @@ object AppConfigKeys {
     const val SHOW_CANVAS_ZOOM_BUTTON = "show_canvas_zoom_button"
     const val SHOW_OVERHANG = "show_overhang"
     const val SHOW_OUTLINE = "show_outline"
+    const val SHOW_LABELS = "show_labels"
     const val SHOW_AXES = "show_axes"
     const val SHOW_PLATE_GRIDLINES = "show_plate_gridlines"
     const val USE_FREE_CAMERA = "use_free_camera"
@@ -132,6 +135,7 @@ object AppConfigKeys {
         SHOW_CANVAS_ZOOM_BUTTON,
         SHOW_OVERHANG,
         SHOW_OUTLINE,
+        SHOW_LABELS,
         SHOW_AXES,
         SHOW_PLATE_GRIDLINES,
         USE_FREE_CAMERA,

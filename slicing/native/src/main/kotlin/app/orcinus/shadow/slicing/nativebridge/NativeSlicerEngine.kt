@@ -1527,6 +1527,23 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         NativeBindings.selectPlate(index, count)
     }
 
+    override suspend fun printSequence(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        plateSettings: ModelSettings,
+    ): List<Int>? = withContext(Dispatchers.IO) {
+        if (!status().ready) return@withContext null
+        NativeBindings.printSequence(
+            plate = nativePlate(plate),
+            plateSettingKeys = plateSettings.keys(),
+            plateSettingValues = plateSettings.values(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+        )?.toList()
+    }
+
     override suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? = withContext(Dispatchers.IO) {
         if (!status().ready) return@withContext null
         NativeBindings.overhangNormalZ(
