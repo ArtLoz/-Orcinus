@@ -128,6 +128,7 @@ import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.storage.api.ConfigFiles
 import app.orcinus.shadow.storage.api.DocumentExport
+import app.orcinus.shadow.storage.api.FileShare
 import app.orcinus.shadow.storage.api.GcodeOutputs
 import app.orcinus.shadow.storage.api.PlateCache
 import app.orcinus.shadow.storage.api.ProjectBackup
@@ -1586,6 +1587,20 @@ class ExportGcodeUseCase(
     suspend operator fun invoke(document: ExternalDocumentReference): Boolean {
         val result = repository.state.value.result ?: return false
         return documents.copyTo(result.gcode.value, document)
+    }
+}
+
+/**
+ * Android's share sheet for the G-code of the last slice, offered under the
+ * name the slice gave it; null when the plate has none to share.
+ */
+class ShareGcodeUseCase(
+    private val files: FileShare,
+    private val repository: PlateRepository,
+) {
+    suspend operator fun invoke(): ExternalDocumentReference? {
+        val gcode = repository.state.value.result?.gcode?.value ?: return null
+        return files.shareable(gcode, java.io.File(gcode).name)
     }
 }
 

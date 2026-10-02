@@ -65,6 +65,8 @@
     <!-- A host type of OrcaSlicer's list whose protocol the app has not ported yet. -->
     <!-- Export G-code of the desktop app's File menu. -->
     <string name="gcode_save">Сохранить G-code</string>
+    <string name="share">Поделиться</string>
+    <string name="share_project">Поделиться проектом</string>
     <string name="gcode_saved">G-code сохранён</string>
     <string name="gcode_save_failed">Не удалось сохранить файл</string>
     <string name="printer_host_local_network">Нет доступа к устройствам локальной сети: без него принтеры по Wi-Fi недоступны. Разрешите его приложению в настройках Android.</string>

@@ -53,6 +53,17 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Slices a 3D model chosen by the user into G-code for a 3D printer with the OrcaSlicer engine. Started from the app by the user, shows progress with a cancel action, and stops when the job ends." />
         </service>
+
+        <!-- The G-code and projects the user shares with another app. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/shared_files" />
+        </provider>
     </application>
 
 </manifest>

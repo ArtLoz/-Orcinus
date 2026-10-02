@@ -30,6 +30,7 @@ import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
 import app.orcinus.shadow.domain.plate.SendGcodeUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.domain.plate.ShareGcodeUseCase
 import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.allPlatesStats
@@ -79,6 +80,7 @@ class PreviewViewModel(
     private val printerConnection: ObservePrinterConnectionUseCase,
     private val sendGcode: SendGcodeUseCase,
     private val exportGcode: ExportGcodeUseCase,
+    private val shareGcode: ShareGcodeUseCase,
     private val editLayerGcodes: EditLayerGcodesUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
@@ -165,6 +167,9 @@ class PreviewViewModel(
     fun gcodeName(): String = exportGcode.suggestedName() ?: "plate.gcode"
 
     suspend fun exportGcode(document: ExternalDocumentReference): Boolean = exportGcode.invoke(document)
+
+    /** The G-code as the share sheet takes it; null when there is none. */
+    suspend fun shareGcode(): ExternalDocumentReference? = shareGcode.invoke()
 
     private companion object {
         // Keeps the upstream flow through configuration changes.

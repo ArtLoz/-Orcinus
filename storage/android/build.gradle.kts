@@ -18,5 +18,6 @@ android {
 
 dependencies {
     implementation(project(":storage:api"))
+    implementation(libs.androidx.core)
     implementation(libs.kotlinx.coroutines.core)
 }

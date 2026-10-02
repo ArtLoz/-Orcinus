@@ -43,8 +43,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvas
+import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaInfoItem
 import app.orcinus.shadow.core.designsystem.component.OrcaInfoPanel
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
@@ -90,6 +92,7 @@ import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
 import app.orcinus.shadow.core.ui.settings.openInBrowser
+import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.scene.PlateGraphics
@@ -130,6 +133,7 @@ internal fun PreviewRoute(
         ),
         gcodeName = viewModel::gcodeName,
         onExportGcode = viewModel::exportGcode,
+        onShareGcode = viewModel::shareGcode,
         layerGcodeActions = LayerGcodeActions(
             addPause = viewModel::addPause,
             addTemplate = viewModel::addTemplate,
@@ -179,6 +183,8 @@ internal fun PreviewScreen(
     /** Export G-code: the name the file is offered under, and the save itself. */
     gcodeName: () -> String = { "plate.gcode" },
     onExportGcode: suspend (ExternalDocumentReference) -> Boolean = { false },
+    /** The G-code as Android's share sheet takes it; null when there is none. */
+    onShareGcode: suspend () -> ExternalDocumentReference? = { null },
     layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
     onSelectPlate: (Int) -> Unit = {},
     onSliceModeChange: (SliceMode) -> Unit = {},
@@ -252,7 +258,7 @@ internal fun PreviewScreen(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 } else {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         // Export G-code of the desktop app's File menu.
                         OrcaButton(
                             text = stringResource(UiR.string.gcode_save),
@@ -265,6 +271,13 @@ internal fun PreviewScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(start = 8.dp),
+                        )
+                        // Android's share sheet, the phone's way of handing the file to another app.
+                        OrcaIconButton(
+                            icon = DesignR.drawable.app_share,
+                            contentDescription = stringResource(UiR.string.share),
+                            onClick = { scope.launch { onShareGcode()?.let { context.shareDocument(it, GCODE_MIME_TYPE) } } },
+                            modifier = Modifier.padding(start = 4.dp),
                         )
                     }
                 }

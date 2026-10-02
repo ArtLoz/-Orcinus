@@ -1,7 +1,10 @@
 package app.orcinus.shadow.feature.sidebar
 
 import android.content.res.Configuration
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.ui.settings.PrinterConnectionSheet
@@ -443,6 +446,9 @@ class SidebarViewModel(
 
     /** Plater::save_project(): into [document] for "Save Project as", into the project's own otherwise. */
     fun saveProject(document: ExternalDocumentReference? = null) = saveProject.invoke(document)
+
+    /** The project as Android's share sheet takes it, written under [name]; null when it could not be written. */
+    suspend fun shareProject(name: String): ExternalDocumentReference? = saveProject.share(name)
 
     val state: StateFlow<SidebarUiState> = observePlate()
         .map(PlateState::toSidebarUiState)
@@ -1024,6 +1030,8 @@ internal class ProjectActions(
     val saveAs: () -> Unit,
     val new: () -> Unit,
     val open: () -> Unit,
+    /** Android's share sheet for the project, written as "Save Project as" writes it. */
+    val share: () -> Unit = {},
     /** A test of the Calibration menu, which starts a project of its own. */
     val calibrate: (CalibrationParams) -> Unit = {},
     /** The flow ratio test of the Calibration menu, which starts a project of its own. */
@@ -1109,6 +1117,14 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
                     onClick = {
                         fileMenu = false
                         actions.saveAs()
+                    },
+                    enabled = canSave,
+                )
+                OrcaMenuItem(
+                    text = stringResource(UiR.string.share_project),
+                    onClick = {
+                        fileMenu = false
+                        actions.share()
                     },
                     enabled = canSave,
                 )
@@ -1293,6 +1309,11 @@ fun PlateSidebar(
     }
     val untitled = orcaString("Untitled")
     val saveProjectAs = { projectPicker.launch((state.projectName ?: untitled) + ".3mf") }
+    val context = LocalContext.current
+    val shareScope = rememberCoroutineScope()
+    val shareProject: () -> Unit = {
+        shareScope.launch { viewModel.shareProject(state.projectName ?: untitled)?.let { context.shareDocument(it, PROJECT_MIME_TYPE) } }
+    }
     // Open Project's file dialog (GUI_App::load_project).
     val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.openProject(ExternalDocumentReference(uri.toString()))
@@ -1428,6 +1449,7 @@ fun PlateSidebar(
             save = { if (viewModel.projectNeedsDocument) saveProjectAs() else viewModel.saveProject() },
             saveAs = saveProjectAs,
             new = viewModel::newProject,
+            share = shareProject,
             open = { openPicker.launch(arrayOf("*/*")) },
             calibrate = { params ->
                 viewModel.calibrate(params)

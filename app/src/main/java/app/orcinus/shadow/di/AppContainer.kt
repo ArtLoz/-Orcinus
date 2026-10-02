@@ -135,6 +135,7 @@ import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
 import app.orcinus.shadow.domain.plate.SetPlateSettingsUseCase
 import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
+import app.orcinus.shadow.domain.plate.ShareGcodeUseCase
 import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.SliceAllPlatesUseCase
@@ -169,6 +170,7 @@ import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
 import app.orcinus.shadow.storage.android.AppConfigFiles
 import app.orcinus.shadow.storage.android.AppDocumentExport
 import app.orcinus.shadow.storage.android.AppDocumentFolders
+import app.orcinus.shadow.storage.android.AppFileShare
 import app.orcinus.shadow.storage.android.AppGcodeOutputs
 import app.orcinus.shadow.storage.android.AppPlateCache
 import app.orcinus.shadow.storage.android.AppProjectBackupFiles
@@ -278,7 +280,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val sliceAllPlates = SliceAllPlatesUseCase(slicePlate, plateRepository, applicationScope)
     val sliceAction = SliceActionUseCase(slicePlate, sliceAllPlates, plateRepository)
     val setSliceMode = SetSliceModeUseCase(plateRepository)
-    private val saveProject = SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope)
+    /** Android's share sheet for the G-code and the project. */
+    private val fileShare = AppFileShare(applicationContext, "${applicationContext.packageName}.files")
+    private val saveProject =
+        SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope, fileShare)
     val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope, appPreferences)
 
     /** SavePresetDialog's check of a name, which the project's questions ask too. */
@@ -407,6 +412,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     )
     val sendGcode = SendGcodeUseCase(gcodeSender, plateRepository)
     val exportGcode = ExportGcodeUseCase(AppDocumentExport(applicationContext), plateRepository)
+    val shareGcode = ShareGcodeUseCase(fileShare, plateRepository)
     private val importConfig = ImportConfigUseCase(engine, engine, configFiles, platePresets)
     private val exportConfig = ExportConfigUseCase(engine, configFiles)
     private val addLayerRange = AddLayerRangeUseCase(plateRepository)
@@ -565,6 +571,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         printerConnection = printerConnection,
         sendGcode = sendGcode,
         exportGcode = exportGcode,
+        shareGcode = shareGcode,
         editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
         preferences = appPreferences,
         setPreference = setPreference,

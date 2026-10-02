@@ -267,7 +267,7 @@ class PlateUseCasesTest {
         inspector.calibration = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
         val lifecycle = ProjectLifecycleUseCase(
             repository,
-            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope) { _, _ -> null },
             FakePresetManager(),
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
@@ -300,7 +300,7 @@ class PlateUseCasesTest {
         inspector.calibration = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
         val lifecycle = ProjectLifecycleUseCase(
             repository,
-            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope) { _, _ -> null },
             FakePresetManager(),
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
@@ -328,7 +328,7 @@ class PlateUseCasesTest {
         }
         val lifecycle = ProjectLifecycleUseCase(
             repository,
-            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope) { _, _ -> null },
             FakePresetManager(),
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
@@ -354,7 +354,7 @@ class PlateUseCasesTest {
         inspector.calibration = { ModelLoadOutcome.Success(listOf(LOADED.copy(name = "pa_pattern_100_5000")), emptyList(), plateCount = 2) }
         val lifecycle = ProjectLifecycleUseCase(
             repository,
-            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope) { _, _ -> null },
             FakePresetManager(),
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
@@ -1075,7 +1075,7 @@ class PlateUseCasesTest {
         val changed = readyState(CUBE).let { it.copy(history = PlateHistory(undo = listOf(it.snapshot()))) }
         fun lifecycle(repository: FakeRepository, preferences: AppPreferences) = ProjectLifecycleUseCase(
             repository,
-            SaveProjectUseCase(FakeInspector(), { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope),
+            SaveProjectUseCase(FakeInspector(), { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(), repository, scope) { _, _ -> null },
             FakePresetManager(),
             NoSettingsEditor,
             PresetsApplier { _, _ -> },
@@ -1107,7 +1107,7 @@ class PlateUseCasesTest {
         var saved: List<LayerGcode>? = null
         inspector.saveProject = { _, _, plates -> saved = plates.single().layerGcodes; ProjectSaveOutcome.Success }
         val documents = FakeDocuments(name = "Box.3mf")
-        val save = SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope)
+        val save = SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope) { _, _ -> null }
         val document = ExternalDocumentReference("content://documents/box")
 
         assertTrue(save.needsDocument)
@@ -1124,7 +1124,7 @@ class PlateUseCasesTest {
         assertEquals(listOf(document, document), documents.copied.map { it.second })
 
         // A document that cannot be written gets OrcaSlicer's message box, and the project keeps its name.
-        val failing = SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(succeeds = false), repository, scope)
+        val failing = SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), FakeDocuments(succeeds = false), repository, scope) { _, _ -> null }
         failing(ExternalDocumentReference("content://documents/other"))
         assertEquals("save_project_failed", repository.state.value.plateNotices.single().id)
         assertEquals("Box", repository.state.value.project.name)
@@ -1135,7 +1135,7 @@ class PlateUseCasesTest {
     fun `a new project asks to save a changed plate first, and starts afresh unless cancelled`() {
         fun lifecycle(repository: FakeRepository, inspector: FakeInspector, documents: FakeDocuments) = ProjectLifecycleUseCase(
             repository,
-            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope),
+            SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope) { _, _ -> null },
             FakePresetManager(),
             NoSettingsEditor,
             PresetsApplier { _, _ -> },

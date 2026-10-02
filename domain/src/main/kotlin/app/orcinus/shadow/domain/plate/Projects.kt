@@ -30,6 +30,7 @@ import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.storage.api.DocumentExport
+import app.orcinus.shadow.storage.api.FileShare
 import app.orcinus.shadow.storage.api.SceneFiles
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -50,6 +51,7 @@ class SaveProjectUseCase(
     private val documents: DocumentExport,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    private val files: FileShare,
 ) {
     /** "Save Project" has no document to write again and asks for one, as "Save Project as" does. */
     val needsDocument: Boolean get() = repository.state.value.project.document == null
@@ -62,31 +64,11 @@ class SaveProjectUseCase(
     /** Writes the project into [document]; false when it could not, after the message box says so. */
     suspend fun save(document: ExternalDocumentReference): Boolean {
         val state = repository.state.value
-        val profiles = state.profiles ?: return false
+        if (state.profiles == null) return false
         val prefix = sceneFiles.newImportPrefix()
         val file = ScenePath("${prefix.value}-project.3mf")
         try {
-            // Plater::export_3mf(): every plate with its picture, every part
-            // of the objects on it whether it prints or not (THUMBNAIL_SIZE_3MF).
-            val origins = state.plateOrigins()
-            val plates = state.partPlates().mapIndexed { index, plate ->
-                ProjectPlate(
-                    name = plate.name,
-                    locked = plate.locked,
-                    // The flushing volumes are the project's, which the current plate holds.
-                    settings = plate.settings.withFlushVolumesOf(state.plateSettings),
-                    layerGcodes = plate.layerGcodes,
-                    thumbnail = picture(state, origins[index], ScenePath("${prefix.value}-plate-${index + 1}.rgba")),
-                )
-            }
-            val outcome = try {
-                inspector.saveProject(file, state.objects.map { it.placed() }, profiles, plates, state.project.info)
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (error: Exception) {
-                ProjectSaveOutcome.Failure(error.message.orEmpty())
-            }
-            val saved = outcome is ProjectSaveOutcome.Success && documents.copyTo(file.value, document)
+            val saved = write(state, file, prefix) && documents.copyTo(file.value, document)
             val savedName = if (saved) documents.displayName(document)?.let(::projectNameOf) else null
             repository.update { current ->
                 if (saved) {
@@ -102,6 +84,51 @@ class SaveProjectUseCase(
         } finally {
             sceneFiles.deleteImport(prefix)
         }
+    }
+
+    /**
+     * Android's share sheet for the project: the plates written as a project
+     * as "Save Project as" writes them, offered as [name].3mf; the project
+     * keeps its name, its document and its unsaved changes. Null when it
+     * could not be written, after the message box says so.
+     */
+    suspend fun share(name: String): ExternalDocumentReference? {
+        val state = repository.state.value
+        val prefix = sceneFiles.newImportPrefix()
+        val file = ScenePath("${prefix.value}-project.3mf")
+        try {
+            val shared = if (write(state, file, prefix)) files.shareable(file.value, "$name.3mf") else null
+            if (shared == null) repository.update { it.copy(plateNotices = it.plateNotices + SAVE_FAILED) }
+            return shared
+        } finally {
+            sceneFiles.deleteImport(prefix)
+        }
+    }
+
+    /** Plater::export_3mf() of [state] into [file]; false when the engine could not write it. */
+    private suspend fun write(state: PlateState, file: ScenePath, prefix: ScenePath): Boolean {
+        val profiles = state.profiles ?: return false
+        // Plater::export_3mf(): every plate with its picture, every part
+        // of the objects on it whether it prints or not (THUMBNAIL_SIZE_3MF).
+        val origins = state.plateOrigins()
+        val plates = state.partPlates().mapIndexed { index, plate ->
+            ProjectPlate(
+                name = plate.name,
+                locked = plate.locked,
+                // The flushing volumes are the project's, which the current plate holds.
+                settings = plate.settings.withFlushVolumesOf(state.plateSettings),
+                layerGcodes = plate.layerGcodes,
+                thumbnail = picture(state, origins[index], ScenePath("${prefix.value}-plate-${index + 1}.rgba")),
+            )
+        }
+        val outcome = try {
+            inspector.saveProject(file, state.objects.map { it.placed() }, profiles, plates, state.project.info)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            ProjectSaveOutcome.Failure(error.message.orEmpty())
+        }
+        return outcome is ProjectSaveOutcome.Success
     }
 
     /** The picture of the plate at [origin] in [state], written to [file]; null when it cannot be rendered. */
