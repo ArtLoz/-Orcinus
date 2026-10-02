@@ -41,6 +41,9 @@ interface SceneFiles {
     /** The wipe tower mesh of the slice whose toolpaths are [toolpaths], kept and deleted with them. */
     fun wipeTowerMeshOf(toolpaths: ScenePath): ScenePath
 
+    /** The slice info of the slice whose toolpaths are [toolpaths], kept and deleted with them. */
+    fun sliceInfoOf(toolpaths: ScenePath): ScenePath
+
     /** A thumbnail the G-code of the slice whose toolpaths are [toolpaths] carries; deleted once the slice is done. */
     fun thumbnailOf(toolpaths: ScenePath, size: ThumbnailSize): ScenePath
 

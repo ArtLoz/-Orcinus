@@ -12,6 +12,7 @@
 
 #include "engine_context.hpp"
 #include "settings_tab.hpp"
+#include "slice_info.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/LocalesUtils.hpp"
@@ -764,7 +765,9 @@ ProjectSave save_project(
     const std::vector<PlateObject>& plate,
     const ProfileSelection& profiles,
     const std::vector<ProjectPlate>& plates,
-    const std::string& project_info
+    const std::string& project_info,
+    const int current_plate,
+    const SlicedPlates sliced
 )
 {
     ProjectSave result;
@@ -775,8 +778,14 @@ ProjectSave save_project(
     }
     Slic3r::PlateDataPtrs plate_data_list;
     std::vector<Slic3r::Preset*> project_presets;
-    // Every plate's picture, which store_bbs_3mf() takes by plate index.
+    // Every plate's pictures, which store_bbs_3mf() takes by plate index, and
+    // the plates' first layers (PartPlate::cali_bboxes_data), of which the
+    // current plate's is made once it is sliced.
     std::vector<Slic3r::ThumbnailData> thumbnail_data(plates.size());
+    std::vector<Slic3r::ThumbnailData> no_light_data(plates.size());
+    std::vector<Slic3r::ThumbnailData> top_data(plates.size());
+    std::vector<Slic3r::ThumbnailData> pick_data(plates.size());
+    std::vector<Slic3r::PlateBBoxData> bbox_data(plates.size());
     try {
         Slic3r::PresetBundle& preset_bundle = *detail::engine().bundle;
         Slic3r::DynamicPrintConfig selected;
@@ -848,12 +857,32 @@ ProjectSave save_project(
 
         //BBS: add plate logic for thumbnail generate
         std::vector<Slic3r::ThumbnailData*> thumbnails;
-        // PartPlateList::store_to_3mf_structure() for every plate, without slice info.
+        std::vector<Slic3r::ThumbnailData*> no_light_thumbnails;
+        std::vector<Slic3r::ThumbnailData*> top_thumbnails;
+        std::vector<Slic3r::ThumbnailData*> picking_thumbnails;
+        std::vector<Slic3r::PlateBBoxData*> plate_bboxes;
         const int count = int(plates.size());
         for (std::size_t index = 0; index < plates.size(); ++index) {
             read_thumbnail(plates[index].thumbnail, thumbnail_data[index]);
             thumbnails.push_back(&thumbnail_data[index]);
+            read_thumbnail(plates[index].no_light_thumbnail, no_light_data[index]);
+            no_light_thumbnails.push_back(&no_light_data[index]);
+            read_thumbnail(plates[index].top_thumbnail, top_data[index]);
+            top_thumbnails.push_back(&top_data[index]);
+            read_thumbnail(plates[index].pick_thumbnail, pick_data[index]);
+            picking_thumbnails.push_back(&pick_data[index]);
+            plate_bboxes.push_back(&bbox_data[index]);
+        }
+        // The current plate's first layer, while its slice result is valid
+        // (generate_first_layer_bbox()).
+        if (current_plate >= 0 && current_plate < count && !plates[std::size_t(current_plate)].slice_info_path.empty()) {
+            Slic3r::PlateData slice;
+            detail::read_slice_info(plates[std::size_t(current_plate)].slice_info_path, slice, bbox_data[std::size_t(current_plate)]);
+        }
 
+        // PartPlateList::store_to_3mf_structure() for every plate, with the slice
+        // info of the plates sliced whose G-code the file carries.
+        for (std::size_t index = 0; index < plates.size(); ++index) {
             Slic3r::PlateData* plate_data_item = new Slic3r::PlateData();
             plate_data_list.push_back(plate_data_item);
             if (const auto* maps = own_configs[index].option<Slic3r::ConfigOptionInts>("filament_map")) {
@@ -864,6 +893,28 @@ ProjectSave save_project(
             plate_data_item->plate_name = plates[index].name;
             plate_data_item->plate_thumbnail.load_from(thumbnail_data[index]);
             plate_data_item->config.apply(own_configs[index]);
+            if (no_light_data[index].is_valid()) {
+                plate_data_item->no_light_thumbnail_file = "valid_no_light";
+            }
+            if (top_data[index].is_valid()) {
+                plate_data_item->top_file = "valid_top";
+            }
+            if (pick_data[index].is_valid()) {
+                plate_data_item->pick_file = "valid_pick";
+            }
+            const ProjectPlate& own = plates[index];
+            const bool exported = sliced == SlicedPlates::all || (sliced == SlicedPlates::current && int(index) == current_plate);
+            if (exported && !own.slice_info_path.empty() && !own.gcode_path.empty()) {
+                Slic3r::PlateBBoxData first_layer;
+                if (detail::read_slice_info(own.slice_info_path, *plate_data_item, first_layer)) {
+                    if (bbox_data[index].is_valid()) {
+                        plate_data_item->pattern_bbox_file = "valid_pattern_bbox";
+                    }
+                    plate_data_item->gcode_file = own.gcode_path;
+                    plate_data_item->is_sliced_valid = true;
+                    plate_data_item->first_layer_time = std::to_string(bbox_data[index].first_layer_time);
+                }
+            }
         }
         // PartPlateList::reload_all_objects(): every copy joins the first plate it meets.
         for (std::size_t obj_id = 0; obj_id < model.objects.size(); ++obj_id) {
@@ -878,20 +929,29 @@ ProjectSave save_project(
         // BBS: backup
         project_presets = preset_bundle.get_current_project_embedded_presets();
 
-        // Plater::save_project()
+        // Plater::save_project(), and Plater::export_gcode_3mf() for a sliced plate's file.
         auto save_strategy = Slic3r::SaveStrategy::SplitModel | Slic3r::SaveStrategy::ShareMesh;
-        if (detail::engine().config->get_bool("export_sources_full_pathnames")) {
+        if (sliced != SlicedPlates::none) {
+            save_strategy = Slic3r::SaveStrategy::Silence | Slic3r::SaveStrategy::SplitModel | Slic3r::SaveStrategy::WithGcode |
+                            Slic3r::SaveStrategy::SkipModel;
+        } else if (detail::engine().config->get_bool("export_sources_full_pathnames")) {
             save_strategy = save_strategy | Slic3r::SaveStrategy::FullPathSources;
         }
+        save_strategy = save_strategy | Slic3r::SaveStrategy::UseLoadedId;
 
         Slic3r::StoreParams store_params;
         store_params.path = path.c_str();
         store_params.model = &model;
         store_params.plate_data_list = plate_data_list;
-        store_params.export_plate_idx = -1;
+        // PLATE_CURRENT_IDX, the plate exported, or PLATE_ALL_IDX.
+        store_params.export_plate_idx = sliced == SlicedPlates::current ? current_plate : sliced == SlicedPlates::all ? -2 : -1;
         store_params.project_presets = project_presets;
         store_params.config = &cfg;
         store_params.thumbnail_data = thumbnails;
+        store_params.no_light_thumbnail_data = no_light_thumbnails;
+        store_params.top_thumbnail_data = top_thumbnails;
+        store_params.pick_thumbnail_data = picking_thumbnails;
+        store_params.id_bboxes = plate_bboxes;
         store_params.strategy = save_strategy | Slic3r::SaveStrategy::Zip64;
 
         // get type and color for platedata
@@ -900,9 +960,22 @@ ProjectSave save_project(
         if (nozzle_diameter_option)
             nozzle_diameter_str = nozzle_diameter_option->serialize();
         std::string printer_model_id = preset_bundle.printers.get_edited_preset().get_printer_type(&preset_bundle);
+        auto* filament_color = dynamic_cast<const Slic3r::ConfigOptionStrings*>(cfg.option("filament_colour"));
+        auto* filament_id_opt = dynamic_cast<const Slic3r::ConfigOptionStrings*>(cfg.option("filament_ids"));
         for (Slic3r::PlateData* plate_data : plate_data_list) {
             plate_data->printer_model_id = printer_model_id;
             plate_data->nozzle_diameters = nozzle_diameter_str;
+            for (auto it = plate_data->slice_filaments_info.begin(); it != plate_data->slice_filaments_info.end(); it++) {
+                std::string display_filament_type;
+                it->type = cfg.get_filament_type(display_filament_type, it->id);
+                it->filament_id = filament_id_opt ? filament_id_opt->get_at(it->id) : "";
+                it->color = filament_color ? filament_color->get_at(it->id) : "#FFFFFF";
+                // save filament info used in curr plate
+                if (current_plate >= 0 && std::size_t(current_plate) < plate_bboxes.size()) {
+                    plate_bboxes[std::size_t(current_plate)]->filament_ids.push_back(it->id);
+                    plate_bboxes[std::size_t(current_plate)]->filament_colors.push_back(it->color);
+                }
+            }
         }
 
         if (!Slic3r::store_bbs_3mf(store_params)) {

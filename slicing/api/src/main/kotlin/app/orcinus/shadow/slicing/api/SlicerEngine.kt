@@ -80,6 +80,7 @@ import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
+import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.ThumbnailImage
@@ -203,7 +204,9 @@ interface PlateInspector {
      * presets the project brought, and the plates with their names, locks,
      * own settings, codes on their layers and pictures, written to [path] as
      * OrcaSlicer writes a project, with what the project it was opened from
-     * holds besides its objects ([projectInfo], LoadedProject.info).
+     * holds besides its objects ([projectInfo], LoadedProject.info). With
+     * [sliced], Plater::export_gcode_3mf(): the G-code and slice info of the
+     * plate at [currentPlate] or of every sliced plate besides.
      */
     suspend fun saveProject(
         path: ScenePath,
@@ -211,6 +214,8 @@ interface PlateInspector {
         profiles: SlicingProfileSelection,
         plates: List<ProjectPlate>,
         projectInfo: ScenePath? = null,
+        currentPlate: Int = 0,
+        sliced: SlicedPlates = SlicedPlates.NONE,
     ): ProjectSaveOutcome
 
     /**

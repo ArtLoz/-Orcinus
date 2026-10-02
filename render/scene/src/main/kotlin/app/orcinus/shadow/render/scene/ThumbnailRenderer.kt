@@ -12,6 +12,7 @@ import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlatePicture
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.ThumbnailImage
@@ -50,9 +51,8 @@ class ThumbnailRenderer(context: Context) {
     /**
      * Renders [objects] standing on [plate], which stands at [origin] among
      * the plates, in the colours of their filaments ([filamentColors],
-     * "#RRGGBB" by filament) at every one of [sizes], and writes each picture
-     * to the file [fileFor] names. The G-code's pictures show the printable
-     * copies alone ([printableOnly]), a project's every one.
+     * "#RRGGBB" by filament) at every one of [sizes] as [picture] asks, and
+     * writes each picture to the file [fileFor] names.
      */
     suspend fun render(
         objects: List<PlateObject>,
@@ -60,19 +60,20 @@ class ThumbnailRenderer(context: Context) {
         origin: Point2,
         filamentColors: List<String>,
         sizes: List<ThumbnailSize>,
-        printableOnly: Boolean,
+        picture: PlatePicture,
         fileFor: (ThumbnailSize) -> ScenePath,
     ): List<ThumbnailImage> = withContext(dispatcher) {
         val plateBox = buildVolume(plate, origin)
-        val volumes = visibleVolumes(objects, plate, plateBox, filamentColors, printableOnly)
+        val volumes = visibleVolumes(objects, plate, plateBox, filamentColors, picture.printableOnly)
         OffscreenContext().use {
-            val program = GlProgram(assets, THUMBNAIL_SHADER)
+            // GLCanvas3D::render_thumbnail(): the pick picture is drawn with the flat shader.
+            val program = GlProgram(assets, if (picture == PlatePicture.PICK) FLAT_SHADER else THUMBNAIL_SHADER)
             val arrays = volumes.associate { volume ->
-                volume.key to GlVertexArray(volume.mesh.vertices, listOf(GlProgram.POSITION to 3, GlProgram.NORMAL to 3), GLES30.GL_TRIANGLES)
+                volume.scene.key to GlVertexArray(volume.scene.mesh.vertices, listOf(GlProgram.POSITION to 3, GlProgram.NORMAL to 3), GLES30.GL_TRIANGLES)
             }
             try {
                 sizes.mapNotNull { size ->
-                    val pixels = renderFramebuffer(size, program, volumes, arrays, plateBox) ?: return@mapNotNull null
+                    val pixels = renderFramebuffer(size, program, volumes, arrays, plateBox, picture) ?: return@mapNotNull null
                     val path = fileFor(size)
                     File(path.value).outputStream().channel.use { channel -> channel.write(pixels) }
                     ThumbnailImage(size, path)
@@ -85,10 +86,19 @@ class ThumbnailRenderer(context: Context) {
     }
 
     /**
+     * A volume of the picture: its scene object, the filament it prints with
+     * (GLVolume::extruder_id) and the loaded_id of its copy
+     * (GLVolume::model_object_ID).
+     */
+    private class ThumbnailVolume(val scene: SceneObject, val extruder: Int, val labelId: Int)
+
+    /**
      * GLCanvas3D::render_thumbnail_internal() with use_plate_box: the model
      * parts of the printable copies whose bounding box lies inside the plate's
      * build volume and above the plate, without modifiers and the wipe tower
-     * (ThumbnailsParams parts_only), each in the colour of its filament.
+     * (ThumbnailsParams parts_only), each in the colour of its filament. The
+     * engine numbers the copies of the plate's objects in their order
+     * (load_plate()), which the pick picture's colours are.
      */
     private fun visibleVolumes(
         objects: List<PlateObject>,
@@ -96,32 +106,38 @@ class ThumbnailRenderer(context: Context) {
         buildVolume: Box3,
         filamentColors: List<String>,
         printableOnly: Boolean,
-    ): List<SceneObject> {
+    ): List<ThumbnailVolume> {
         val colors = filamentColors.map { parseFilamentColor(it) }
         val default = plate.filamentColor
         fun colorOf(extruder: Int): ColorRgba = colors.getOrNull(extruder - 1) ?: default
         val plateBox = Box3(buildVolume.min.copy(z = -1e10), buildVolume.max)
         val meshes = MeshCache()
+        var label = 0
         return objects.flatMap { plateObject ->
-            plateObject.instances.filter { it.printable || !printableOnly }.flatMap { instance ->
-                val copy = SceneLoader.loadObject(0, plateObject, instance, colorOf(plateObject.extruderNumber), meshes)
-                val parts = plateObject.parts
-                    .filter { it.type == VolumeType.PART }
-                    .map { part ->
-                        val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
-                        SceneLoader.loadPart(0, part, instance, colorOf(extruder), meshes)
+            plateObject.instances.mapNotNull { instance -> (++label).takeIf { instance.printable || !printableOnly }?.let { instance to it } }
+                .flatMap { (instance, labelId) ->
+                    val copy = ThumbnailVolume(
+                        SceneLoader.loadObject(0, plateObject, instance, colorOf(plateObject.extruderNumber), meshes),
+                        plateObject.extruderNumber,
+                        labelId,
+                    )
+                    val parts = plateObject.parts
+                        .filter { it.type == VolumeType.PART }
+                        .map { part ->
+                            val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
+                            ThumbnailVolume(SceneLoader.loadPart(0, part, instance, colorOf(extruder), meshes), extruder, labelId)
+                        }
+                    // GLVolume::simple_render() draws a painted volume in the colour
+                    // of every filament it is painted with.
+                    val painted = plateObject.paintedMeshes.filter { it.kind == PaintKind.COLOR }.map { mesh ->
+                        ThumbnailVolume(SceneLoader.loadPaintedMesh(0, mesh, instance, colorOf(mesh.state), meshes), mesh.state, labelId)
                     }
-                // GLVolume::simple_render() draws a painted volume in the colour
-                // of every filament it is painted with.
-                val painted = plateObject.paintedMeshes.filter { it.kind == PaintKind.COLOR }.map { mesh ->
-                    SceneLoader.loadPaintedMesh(0, mesh, instance, colorOf(mesh.state), meshes)
+                    val contained = { volume: ThumbnailVolume ->
+                        val hull = hullBox(volume.scene)
+                        plateBox.contains(hull) && hull.max.z > 0.0
+                    }
+                    (listOf(copy).filter(contained) + painted.takeIf { contained(copy) }.orEmpty() + parts.filter(contained))
                 }
-                val contained = { volume: SceneObject ->
-                    val hull = hullBox(volume)
-                    plateBox.contains(hull) && hull.max.z > 0.0
-                }
-                (listOf(copy).filter(contained) + painted.takeIf { contained(copy) }.orEmpty() + parts.filter(contained))
-            }
         }
     }
 
@@ -129,16 +145,18 @@ class ThumbnailRenderer(context: Context) {
     private fun renderFramebuffer(
         size: ThumbnailSize,
         program: GlProgram,
-        volumes: List<SceneObject>,
+        volumes: List<ThumbnailVolume>,
         arrays: Map<String, GlVertexArray>,
         plateBuildVolume: Box3,
+        picture: PlatePicture,
     ): ByteBuffer? {
         val w = size.width
         val h = size.height
         if (w <= 0 || h <= 0) return null
         val maxSamples = IntArray(1).also { GLES30.glGetIntegerv(GLES30.GL_MAX_SAMPLES, it, 0) }[0]
         val numSamples = maxSamples / 2
-        val multisample = numSamples > 0
+        // The pick picture's colours are ids, which multisampling would blend.
+        val multisample = numSamples > 0 && picture != PlatePicture.PICK
 
         val renderFbo = IntArray(1).also { GLES30.glGenFramebuffers(1, it, 0) }[0]
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, renderFbo)
@@ -165,7 +183,7 @@ class ThumbnailRenderer(context: Context) {
 
         var pixels: ByteBuffer? = null
         if (GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) == GLES30.GL_FRAMEBUFFER_COMPLETE) {
-            renderInternal(w, h, program, volumes, arrays, plateBuildVolume)
+            renderInternal(w, h, program, volumes, arrays, plateBuildVolume, picture)
             val read = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
             if (multisample) {
                 val resolveFbo = IntArray(1).also { GLES30.glGenFramebuffers(1, it, 0) }[0]
@@ -198,12 +216,21 @@ class ThumbnailRenderer(context: Context) {
     }
 
     /**
-     * GLCanvas3D::render_thumbnail_internal() without picking: the camera
-     * zoomed to the visible volumes, the projection tightened around the plate,
-     * and every volume drawn with the thumbnail shader.
+     * GLCanvas3D::render_thumbnail_internal(): the camera zoomed to the visible
+     * volumes, or over the whole plate from the top, the projection tightened
+     * around the plate, and every volume drawn with the thumbnail shader, or
+     * for picking in the colour of its copy's id.
      */
-    private fun renderInternal(w: Int, h: Int, program: GlProgram, volumes: List<SceneObject>, arrays: Map<String, GlVertexArray>, plateBuildVolume: Box3) {
-        var volumesBox = volumes.map(SceneObject::bounds).reduceOrNull(Box3::merge) ?: Box3(Vec3.ZERO, Vec3.ZERO)
+    private fun renderInternal(
+        w: Int,
+        h: Int,
+        program: GlProgram,
+        volumes: List<ThumbnailVolume>,
+        arrays: Map<String, GlVertexArray>,
+        plateBuildVolume: Box3,
+        picture: PlatePicture,
+    ) {
+        var volumesBox = volumes.map { it.scene.bounds }.reduceOrNull(Box3::merge) ?: Box3(Vec3.ZERO, Vec3.ZERO)
         volumesBox = Box3(volumesBox.min.copy(z = -SCENE_EPSILON), volumesBox.max)
         val width = volumesBox.max.x - volumesBox.min.x
         val depth = volumesBox.max.y - volumesBox.min.y
@@ -213,13 +240,26 @@ class ThumbnailRenderer(context: Context) {
             Vec3(volumesBox.max.x + width * 0.01f, volumesBox.max.y + depth * 0.01f, volumesBox.max.z + height * 0.02f),
         )
 
-        // A new camera looks from the default isometric direction (select_view("iso")).
         val camera = OrcaCamera()
         camera.orthographic = true
         camera.sceneBox = plateBuildVolume
         camera.setViewport(w, h)
         GLES30.glViewport(0, 0, w, h)
-        camera.zoomToBox(volumesBox)
+        if (picture == PlatePicture.TOP || picture == PlatePicture.PICK) {
+            // ViewAngleType::Top_Plate: the plate's centre seen from as high as
+            // the build volume, zoomed for the plate to fill the picture.
+            val min = plateBuildVolume.min
+            val max = plateBuildVolume.max
+            val center = Vec3((max.x + min.x) / 2, (max.y + min.y) / 2, 0.0)
+            val distanceZ = max.z - min.z
+            val scaleX = w / (max.x - min.x)
+            val scaleY = h / (max.y - min.y)
+            camera.lookAt(center + Vec3.UNIT_Z * distanceZ, center, Vec3.UNIT_Y)
+            camera.setZoom(minOf(scaleX, scaleY))
+        } else {
+            // A new camera looks from the default isometric direction (select_view("iso")).
+            camera.zoomToBox(volumesBox)
+        }
         val view = camera.viewMatrix
         camera.applyProjection(plateBuildVolume)
         val projection = FloatArray(16) { camera.projectionMatrix[it].toFloat() }
@@ -227,20 +267,33 @@ class ThumbnailRenderer(context: Context) {
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        if (picture == PlatePicture.PICK) {
+            renderPicking(program, volumes, arrays, view, projection)
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+            return
+        }
         // The 3D view's state the desktop app renders with: blending for its
-        // colours, back faces culled.
-        GLES30.glEnable(GLES30.GL_BLEND)
-        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        // colours, back faces culled; without light, no blending, for the
+        // alpha to keep the filament.
+        val banLight = picture == PlatePicture.NO_LIGHT
+        if (banLight) {
+            GLES30.glDisable(GLES30.GL_BLEND)
+        } else {
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        }
         GLES30.glEnable(GLES30.GL_CULL_FACE)
         GLES30.glCullFace(GLES30.GL_BACK)
 
         program.use()
         program.setFloat("emission_factor", 0.1f)
-        program.setBoolean("ban_light", false)
+        program.setBoolean("ban_light", banLight)
         program.setMatrix4("projection_matrix", projection)
-        for (volume in volumes) {
+        for (thumbnailVolume in volumes) {
+            val volume = thumbnailVolume.scene
             val array = arrays[volume.key] ?: continue
-            val color = VolumeColors.adjustForRendering(volume.color)
+            val adjusted = VolumeColors.adjustForRendering(volume.color)
+            val color = if (banLight) adjusted.copy(alpha = (255 - (thumbnailVolume.extruder - 1)) / 255f) else adjusted
             program.setVec4("uniform_color", color.red, color.green, color.blue, color.alpha)
             program.setMatrix4("volume_world_matrix", volume.world.toFloatArray())
             program.setMatrix4("view_model_matrix", (view * volume.world).toFloatArray())
@@ -260,6 +313,27 @@ class ThumbnailRenderer(context: Context) {
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+    }
+
+    /**
+     * Object picking mode of render_thumbnail_internal(): every volume in the
+     * colour of its copy's id, red its lowest byte, opaque, without blending
+     * and with back faces drawn, to show broken geometry.
+     */
+    private fun renderPicking(program: GlProgram, volumes: List<ThumbnailVolume>, arrays: Map<String, GlVertexArray>, view: Affine3, projection: FloatArray) {
+        program.use()
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        program.setMatrix4("projection_matrix", projection)
+        for (thumbnailVolume in volumes) {
+            val volume = thumbnailVolume.scene
+            val array = arrays[volume.key] ?: continue
+            val id = thumbnailVolume.labelId
+            program.setVec4("uniform_color", (id and 0xFF) / 255f, ((id shr 8) and 0xFF) / 255f, ((id shr 16) and 0xFF) / 255f, 1f)
+            program.setMatrix4("view_model_matrix", (view * volume.world).toFloatArray())
+            array.draw()
+        }
+        GLES30.glEnable(GLES30.GL_CULL_FACE)
     }
 
     private fun colorTexture(w: Int, h: Int): Int {
@@ -308,6 +382,7 @@ class ThumbnailRenderer(context: Context) {
 
     private companion object {
         const val THUMBNAIL_SHADER = "thumbnail"
+        const val FLAT_SHADER = "flat"
 
         // BuildVolume::SceneEpsilon
         const val SCENE_EPSILON = 1e-4

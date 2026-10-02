@@ -66,6 +66,7 @@
 #include "nanosvg/nanosvgrast.h"
 #include "slic3r/GUI/LibVGCode/LibVGCodeWrapper.hpp"
 #include "toolpaths_file.hpp"
+#include "slice_info.hpp"
 
 #if !defined(__BYTE_ORDER__) || __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error "Mesh files are written in the native byte order, which must be little-endian"
@@ -784,6 +785,18 @@ bool load_plate(const std::vector<PlateObject>& plate, const Slic3r::DynamicPrin
     for (const PlateObject& object : plate) {
         if (load_object(object, config, model, message) == nullptr) {
             return false;
+        }
+    }
+    // The plate is loaded anew for every request, so its copies go by their
+    // place among the plate's copies, which stays from the slice to the 3MF
+    // file of the sliced plate and its pick picture, as OrcaSlicer's command
+    // line labels the copies of a 3MF file by their loaded_id; the desktop
+    // app's copies go by ids that live as long as the app.
+    std::size_t label = 0;
+    for (Slic3r::ModelObject* object : model.objects) {
+        for (Slic3r::ModelInstance* instance : object->instances) {
+            instance->loaded_id = ++label;
+            instance->use_loaded_id_for_label = true;
         }
     }
     return true;
@@ -1535,7 +1548,8 @@ SliceResult slice(
     const std::vector<ThumbnailImage>& thumbnails,
     const std::vector<LayerGcode>& layer_gcodes,
     const CalibrationParams& calibration,
-    const CalibrationParams& pa_pattern
+    const CalibrationParams& pa_pattern,
+    const std::string& slice_info_path
 )
 {
     if (!acquire_job(job_id)) {
@@ -1655,6 +1669,7 @@ SliceResult slice(
         result.total_cost = print.print_statistics().total_cost;
         result.filaments = filament_usage(gcode_result, filaments, config.option<Slic3r::ConfigOptionStrings>("filament_colour")->values.size());
         result.toolpaths_written = !toolpaths_path.empty() && write_toolpaths(gcode_result, print, config, toolpaths_path);
+        result.slice_info_written = !slice_info_path.empty() && detail::write_slice_info(print, gcode_result, slice_info_path);
         // GLCanvas3D::reload_scene(): once the wipe tower is built, the plate
         // shows it as the slice made it — its ribs and its brim, in the tower's
         // own coordinates — instead of the box it estimated.

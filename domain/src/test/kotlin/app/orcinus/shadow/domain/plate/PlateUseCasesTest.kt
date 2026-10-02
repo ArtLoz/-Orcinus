@@ -148,6 +148,7 @@ import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SliceStatistics
+import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.model.StepMeshOptions
@@ -1129,6 +1130,35 @@ class PlateUseCasesTest {
         assertEquals("save_project_failed", repository.state.value.plateNotices.single().id)
         assertEquals("Box", repository.state.value.project.name)
         assertEquals(document, repository.state.value.project.document)
+    }
+
+    @Test
+    fun `a sliced plate's file carries the plate's G-code and slice info, and the project keeps its name`() {
+        val result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/box.gcode"), STATISTICS, sliceInfo = ScenePath("/scene/box.slice.json"))
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        var plate: ProjectPlate? = null
+        inspector.saveProject = { _, _, plates -> plate = plates.single(); ProjectSaveOutcome.Success }
+        val documents = FakeDocuments()
+        val save = SaveProjectUseCase(inspector, { _, _, _, _, _, _, _ -> emptyList() }, FakeSceneFiles(), documents, repository, scope) { _, _ -> null }
+        val document = ExternalDocumentReference("content://documents/box")
+
+        val exported = mutableListOf<Boolean>()
+        // MainFrame::can_export_gcode(): nothing to export before the plate is sliced.
+        scope.launch { exported += save.exportSliced(document, all = false) }
+        repository.update { it.copy(result = result) }
+        assertEquals("box.gcode.3mf", save.slicedName())
+        scope.launch { exported += save.exportSliced(document, all = false) }
+
+        assertEquals(listOf(false, true), exported)
+
+        assertEquals(listOf(SlicedPlates.CURRENT), inspector.savedSlices)
+        assertEquals(OutputPath("/gcode/box.gcode"), plate?.gcode)
+        assertEquals(ScenePath("/scene/box.slice.json"), plate?.sliceInfo)
+        assertEquals(document, documents.copied.single().second)
+        // Silence: the project is not saved by it.
+        assertNull(repository.state.value.project.document)
+        assertTrue(repository.state.value.projectDirty)
     }
 
     @Test
@@ -3456,7 +3486,15 @@ class PlateUseCasesTest {
             profiles: SlicingProfileSelection,
             plates: List<ProjectPlate>,
             projectInfo: ScenePath?,
-        ): ProjectSaveOutcome = saveProject(path, plate, plates)
+            currentPlate: Int,
+            sliced: SlicedPlates,
+        ): ProjectSaveOutcome {
+            savedSlices += sliced
+            return saveProject(path, plate, plates)
+        }
+
+        /** Which plates' G-code every saved file carried. */
+        val savedSlices = mutableListOf<SlicedPlates>()
 
         /** What saving a project answers; by default it is saved. */
         var saveProject: (ScenePath, List<PlacedModel>, List<ProjectPlate>) -> ProjectSaveOutcome =
@@ -3634,6 +3672,8 @@ class PlateUseCasesTest {
         override fun newToolpaths() = ScenePath("/scene/toolpaths/${toolpaths.size}.toolpaths").also(toolpaths::add)
 
         override fun wipeTowerMeshOf(toolpaths: ScenePath) = ScenePath(toolpaths.value + ".tower.mesh")
+
+        override fun sliceInfoOf(toolpaths: ScenePath) = ScenePath(toolpaths.value + ".slice.json")
 
         override fun thumbnailOf(toolpaths: ScenePath, size: ThumbnailSize) = ScenePath("${toolpaths.value}.${size.width}x${size.height}.rgba")
 

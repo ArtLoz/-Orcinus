@@ -44,6 +44,7 @@ import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
+import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.Transform3
@@ -221,6 +222,8 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             profiles: ProfilesParcel,
             plates: Array<ProjectPlateParcel>,
             projectInfo: String?,
+            currentPlate: Int,
+            sliced: String,
         ): String? = runBlocking {
             engine.saveProject(
                 ScenePath(path),
@@ -228,6 +231,8 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
                 profiles.toProfiles(),
                 plates.map { it.toProjectPlate() },
                 projectInfo?.let(::ScenePath),
+                currentPlate,
+                SlicedPlates.valueOf(sliced),
             )
         }.let { outcome -> (outcome as? ProjectSaveOutcome.Failure)?.message }
 

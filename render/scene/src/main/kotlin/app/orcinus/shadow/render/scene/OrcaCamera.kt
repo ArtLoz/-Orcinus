@@ -231,7 +231,8 @@ internal class OrcaCamera {
         return Pair((ndcX + 1.0) * 0.5 * viewportWidth, viewportHeight - (ndcY + 1.0) * 0.5 * viewportHeight)
     }
 
-    private fun lookAt(position: Vec3, lookTarget: Vec3, up: Vec3) {
+    /** Camera::look_at() */
+    internal fun lookAt(position: Vec3, lookTarget: Vec3, up: Vec3) {
         val unitZ = (position - lookTarget).normalized()
         val unitX = up.cross(unitZ).normalized()
         val unitY = unitZ.cross(unitX).normalized()

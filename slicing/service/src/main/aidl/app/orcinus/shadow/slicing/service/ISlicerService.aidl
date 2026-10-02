@@ -107,13 +107,15 @@ interface ISlicerService {
     /** select_cut_part(): a right click turns a piece over. */
     CutPartsParcel selectCutPart(in double[] partsPlane, in boolean[] selected, in double[] origin, in double[] direction, String meshPrefix);
     void endCut();
-    /** save_project(): the error message, null once saved. */
+    /** save_project(): the error message, null once saved; sliced is the SlicedPlates' name. */
     @nullable String saveProject(
         String path,
         in PlacedModelParcel[] plate,
         in ProfilesParcel profiles,
         in ProjectPlateParcel[] plates,
-        @nullable String projectInfo
+        @nullable String projectInfo,
+        int currentPlate,
+        String sliced
     );
     /** export_object_mesh(): format is the MeshFormat's name. */
     MeshExportParcel exportMesh(

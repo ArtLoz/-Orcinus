@@ -489,6 +489,11 @@ data class PlateSliceResult(
     val toolpaths: ScenePath? = null,
     /** The wipe tower as the slice built it, which the plate then shows. */
     val wipeTower: ScenePath? = null,
+    /**
+     * What the plate keeps of the slice for the 3MF files of the project and
+     * its sliced plates (the slice info of its print and G-code result).
+     */
+    val sliceInfo: ScenePath? = null,
     /** The codes on the layers the plate was sliced with. */
     val layerGcodes: List<LayerGcode> = emptyList(),
     /** What the layer slider's menu offers for this print. */

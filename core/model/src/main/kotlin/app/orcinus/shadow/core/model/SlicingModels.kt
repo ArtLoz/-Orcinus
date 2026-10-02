@@ -316,7 +316,25 @@ data class ProjectPlate(
     val settings: ModelSettings = ModelSettings(),
     val layerGcodes: List<LayerGcode> = emptyList(),
     val thumbnail: ThumbnailImage? = null,
+    /**
+     * export_3mf()'s other pictures of the plate, as large as [thumbnail]:
+     * without light, from the top, and its pick picture.
+     */
+    val noLightThumbnail: ThumbnailImage? = null,
+    val topThumbnail: ThumbnailImage? = null,
+    val pickThumbnail: ThumbnailImage? = null,
+    /** While the plate's slice result is valid: what it keeps of the slice, and its G-code. */
+    val sliceInfo: ScenePath? = null,
+    val gcode: OutputPath? = null,
 )
+
+/**
+ * The plates whose G-code a project's 3MF file carries
+ * (Plater::export_gcode_3mf()): none for "Save project", the current plate's
+ * for "Export plate sliced file", every sliced plate's for "Export all plate
+ * sliced file".
+ */
+enum class SlicedPlates { NONE, CURRENT, ALL }
 
 /** A 3MF file opened as a project: its plates, at least one (PartPlateList::load_from_3mf_structure). */
 data class LoadedProject(
@@ -359,6 +377,8 @@ data class SliceRequest(
     val toolpaths: ScenePath? = null,
     /** Where the engine writes the wipe tower the slice builds, for the 3D view; null writes none. */
     val wipeTower: ScenePath? = null,
+    /** Where the engine writes what the plate keeps of the slice for its 3MF files; null writes none. */
+    val sliceInfo: ScenePath? = null,
     val printerProfile: ProfileId,
     val filamentProfile: ProfileId,
     /** Every filament of the plate; empty prints with [filamentProfile] alone. */
@@ -542,6 +562,29 @@ data class LayerGcodeRules(
 data class ThumbnailSize(val width: Int, val height: Int)
 
 /**
+ * What a picture of a plate shows and how: ThumbnailsParams' printable_only
+ * with the camera, picking and light GLCanvas3D::render_thumbnail() is asked
+ * for. The G-code's thumbnails show the printable copies; a project's
+ * pictures of a plate (Plater::export_3mf()) show every copy.
+ */
+enum class PlatePicture(val printableOnly: Boolean) {
+    /** The G-code's thumbnails: from the default isometric view, zoomed to the copies. */
+    GCODE(true),
+
+    /** A project's picture of a plate (plate_N.png), as the G-code's thumbnails are drawn. */
+    PLATE(false),
+
+    /** plate_no_light_N.png: the same view without light, each volume's alpha telling its filament. */
+    NO_LIGHT(false),
+
+    /** top_N.png: the whole plate from the top (ViewAngleType::Top_Plate). */
+    TOP(false),
+
+    /** pick_N.png: the whole plate from the top, every copy in the colour of its loaded_id. */
+    PICK(false),
+}
+
+/**
  * A picture of the plate for the G-code, rendered as OrcaSlicer renders it
  * while it exports G-code (GLCanvas3D::render_thumbnail): RGBA pixels, the
  * bottom row first, as glReadPixels() reads them.
@@ -650,6 +693,8 @@ sealed interface SliceOutcome {
         val toolpaths: ScenePath? = null,
         /** The requested wipe tower mesh, or null when the plate prints none. */
         val wipeTower: ScenePath? = null,
+        /** The requested slice info, or null when none was written. */
+        val sliceInfo: ScenePath? = null,
         val layerGcodeRules: LayerGcodeRules = LayerGcodeRules(),
     ) : SliceOutcome
 

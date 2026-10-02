@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
@@ -296,6 +297,12 @@ data class SidebarUiState(
     val projectDirty: Boolean = false,
     /** The project can be saved: the presets are known and the plate is not changing. */
     val canSaveProject: Boolean = false,
+    /**
+     * "Export plate sliced file" and "Export all plate sliced file" can write
+     * their file (MainFrame::can_export_gcode(), can_export_all_gcode()).
+     */
+    val canExportSliced: Boolean = false,
+    val canExportAllSliced: Boolean = false,
     /** The plates of the object list (ObjectDataViewModel's plate items), each with the objects under it. */
     val plates: List<ObjectListPlate> = listOf(ObjectListPlate(0)),
     /** The objects that stand on no plate whole, under "Outside". */
@@ -449,6 +456,14 @@ class SidebarViewModel(
 
     /** The project as Android's share sheet takes it, written under [name]; null when it could not be written. */
     suspend fun shareProject(name: String): ExternalDocumentReference? = saveProject.share(name)
+
+    /** Plater::export_gcode_3mf() into [document]: the current plate's G-code, or every sliced plate's when [all]. */
+    fun exportSliced(document: ExternalDocumentReference, all: Boolean) {
+        viewModelScope.launch { saveProject.exportSliced(document, all) }
+    }
+
+    /** The name "Export plate sliced file" offers. */
+    fun slicedName(): String? = saveProject.slicedName()
 
     val state: StateFlow<SidebarUiState> = observePlate()
         .map(PlateState::toSidebarUiState)
@@ -829,6 +844,8 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     projectName = project.name,
     projectDirty = projectDirty,
     canSaveProject = profiles != null && !busy,
+    canExportSliced = profiles != null && !busy && objects.isNotEmpty() && result != null,
+    canExportAllSliced = profiles != null && !busy && objects.isNotEmpty() && allSliceResultsReady(),
     plates = objects.groupBy(::listPlateOf).let { groups ->
         partPlates().mapIndexed { index, plate ->
             ObjectListPlate(
@@ -1032,6 +1049,8 @@ internal class ProjectActions(
     val open: () -> Unit,
     /** Android's share sheet for the project, written as "Save Project as" writes it. */
     val share: () -> Unit = {},
+    /** "Export plate sliced file" (all = false) and "Export all plate sliced file" of the Export menu. */
+    val exportSliced: (all: Boolean) -> Unit = {},
     /** A test of the Calibration menu, which starts a project of its own. */
     val calibrate: (CalibrationParams) -> Unit = {},
     /** The flow ratio test of the Calibration menu, which starts a project of its own. */
@@ -1050,7 +1069,14 @@ internal class ProjectActions(
  * bar, the Calibration menu of its top bar, and its File menu under the arrow.
  */
 @Composable
-private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, actions: ProjectActions) {
+private fun ProjectTitle(
+    name: String?,
+    dirty: Boolean,
+    canSave: Boolean,
+    actions: ProjectActions,
+    canExportSliced: Boolean = false,
+    canExportAllSliced: Boolean = false,
+) {
     var fileMenu by remember { mutableStateOf(false) }
     var calibrationMenu by remember { mutableStateOf(false) }
     var temperature by remember { mutableStateOf(false) }
@@ -1127,6 +1153,24 @@ private fun ProjectTitle(name: String?, dirty: Boolean, canSave: Boolean, action
                         actions.share()
                     },
                     enabled = canSave,
+                )
+                // MainFrame's Export menu.
+                OrcaMenuSeparator()
+                OrcaMenuItem(
+                    text = orcaString("Export plate sliced file") + "…",
+                    onClick = {
+                        fileMenu = false
+                        actions.exportSliced(false)
+                    },
+                    enabled = canExportSliced,
+                )
+                OrcaMenuItem(
+                    text = orcaString("Export all plate sliced file") + "…",
+                    onClick = {
+                        fileMenu = false
+                        actions.exportSliced(true)
+                    },
+                    enabled = canExportAllSliced,
                 )
             }
         }
@@ -1314,6 +1358,15 @@ fun PlateSidebar(
     val shareProject: () -> Unit = {
         shareScope.launch { viewModel.shareProject(state.projectName ?: untitled)?.let { context.shareDocument(it, PROJECT_MIME_TYPE) } }
     }
+    // Plater::export_gcode_3mf()'s file dialog ("Save Sliced file as:"), for the current plate or all.
+    var exportingAll by rememberSaveable { mutableStateOf(false) }
+    val slicedPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME_TYPE)) { uri ->
+        if (uri != null) viewModel.exportSliced(ExternalDocumentReference(uri.toString()), exportingAll)
+    }
+    val exportSliced: (Boolean) -> Unit = { all ->
+        exportingAll = all
+        slicedPicker.launch(viewModel.slicedName() ?: ((state.projectName ?: untitled) + ".gcode.3mf"))
+    }
     // Open Project's file dialog (GUI_App::load_project).
     val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.openProject(ExternalDocumentReference(uri.toString()))
@@ -1450,6 +1503,7 @@ fun PlateSidebar(
             saveAs = saveProjectAs,
             new = viewModel::newProject,
             share = shareProject,
+            exportSliced = exportSliced,
             open = { openPicker.launch(arrayOf("*/*")) },
             calibrate = { params ->
                 viewModel.calibrate(params)
@@ -1631,7 +1685,7 @@ internal fun PlateSidebarContent(
             .background(OrcaTheme.colors.window),
     ) {
         item(key = "project") {
-            ProjectTitle(state.projectName, state.projectDirty, state.canSaveProject, project)
+            ProjectTitle(state.projectName, state.projectDirty, state.canSaveProject, project, state.canExportSliced, state.canExportAllSliced)
         }
 
         item(key = "printer") {

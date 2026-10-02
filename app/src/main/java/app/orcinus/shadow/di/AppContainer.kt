@@ -261,8 +261,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     // The desktop app renders the G-code thumbnails with its 3D view's
     // renderer; the app's renderer draws them offscreen before it slices.
     private val thumbnailRenderer = ThumbnailRenderer(applicationContext)
-    private val plateThumbnails = PlateThumbnailRenderer { objects, plate, origin, colors, sizes, printableOnly, fileFor ->
-        thumbnailRenderer.render(objects, plate, origin, colors, sizes, printableOnly, fileFor)
+    private val plateThumbnails = PlateThumbnailRenderer { objects, plate, origin, colors, sizes, picture, fileFor ->
+        thumbnailRenderer.render(objects, plate, origin, colors, sizes, picture, fileFor)
     }
     private val renderThumbnails = RenderThumbnailsUseCase(
         engine = engine,

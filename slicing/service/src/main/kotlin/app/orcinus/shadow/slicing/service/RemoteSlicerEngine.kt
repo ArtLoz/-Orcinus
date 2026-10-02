@@ -89,6 +89,7 @@ import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SliceStage
+import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.ThumbnailImage
@@ -296,6 +297,8 @@ class RemoteSlicerEngine(
         profiles: SlicingProfileSelection,
         plates: List<ProjectPlate>,
         projectInfo: ScenePath?,
+        currentPlate: Int,
+        sliced: SlicedPlates,
     ): ProjectSaveOutcome = withContext(Dispatchers.IO) {
         try {
             val error = service().saveProject(
@@ -304,6 +307,8 @@ class RemoteSlicerEngine(
                 profiles.toParcel(),
                 plates.map { it.toParcel() }.toTypedArray(),
                 projectInfo?.value,
+                currentPlate,
+                sliced.name,
             )
             error?.let(ProjectSaveOutcome::Failure) ?: ProjectSaveOutcome.Success
         } catch (_: RemoteException) {

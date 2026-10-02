@@ -49,6 +49,7 @@ import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SimplifyOutcome
+import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.ThumbnailImage
@@ -317,6 +318,8 @@ class ModelImportAndInspectionUseCasesTest {
             profiles: SlicingProfileSelection,
             plates: List<ProjectPlate>,
             projectInfo: ScenePath?,
+            currentPlate: Int,
+            sliced: SlicedPlates,
         ): ProjectSaveOutcome = saveProject(path, plate, plates)
 
         /** What saving a project answers; by default it is saved. */

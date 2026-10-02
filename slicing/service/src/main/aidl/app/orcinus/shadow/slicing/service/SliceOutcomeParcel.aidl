@@ -13,6 +13,8 @@ parcelable SliceOutcomeParcel {
     @nullable String toolpathsPath;
     /** The wipe tower mesh of a success, when the plate prints one. */
     @nullable String wipeTowerPath;
+    /** The slice info of a success, when it was written. */
+    @nullable String sliceInfoPath;
     int layerCount;
     long estimatedPrintTimeSeconds;
     double filamentMillimeters;

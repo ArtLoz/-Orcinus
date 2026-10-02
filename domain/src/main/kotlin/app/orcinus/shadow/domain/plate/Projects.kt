@@ -2,9 +2,12 @@ package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.DialogIcon
+import app.orcinus.shadow.core.model.PlatePicture
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.ThumbnailImage
+import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.PartPlate
@@ -105,24 +108,63 @@ class SaveProjectUseCase(
         }
     }
 
-    /** Plater::export_3mf() of [state] into [file]; false when the engine could not write it. */
-    private suspend fun write(state: PlateState, file: ScenePath, prefix: ScenePath): Boolean {
+    /**
+     * Plater::export_gcode_3mf(): the plates written as a project with the
+     * G-code and slice info of the current plate, or of every sliced plate
+     * when [all], into [document]. The project keeps its name, its document
+     * and its unsaved changes (Silence). False when there is no G-code to
+     * export, or after the message box says it could not be written.
+     */
+    suspend fun exportSliced(document: ExternalDocumentReference, all: Boolean): Boolean {
+        val state = repository.state.value
+        // MainFrame::can_export_gcode() and can_export_all_gcode()
+        val ready = if (all) state.allSliceResultsReady() else state.result != null
+        if (state.objects.isEmpty() || !ready) return false
+        val prefix = sceneFiles.newImportPrefix()
+        val file = ScenePath("${prefix.value}-sliced.gcode.3mf")
+        try {
+            val exported = write(state, file, prefix, if (all) SlicedPlates.ALL else SlicedPlates.CURRENT) && documents.copyTo(file.value, document)
+            if (!exported) repository.update { it.copy(plateNotices = it.plateNotices + SAVE_FAILED) }
+            return exported
+        } finally {
+            sceneFiles.deleteImport(prefix)
+        }
+    }
+
+    /**
+     * The name a sliced plate's file is offered under: the G-code's, as
+     * output_filepath_for_project() names it, with ".gcode.3mf".
+     */
+    fun slicedName(): String? = repository.state.value.result?.gcode?.value?.let { java.io.File(it).name.removeSuffix(".gcode") + ".gcode.3mf" }
+
+    /**
+     * Plater::export_3mf() of [state] into [file], with the G-code of the
+     * [sliced] plates; false when the engine could not write it.
+     */
+    private suspend fun write(state: PlateState, file: ScenePath, prefix: ScenePath, sliced: SlicedPlates = SlicedPlates.NONE): Boolean {
         val profiles = state.profiles ?: return false
-        // Plater::export_3mf(): every plate with its picture, every part
-        // of the objects on it whether it prints or not (THUMBNAIL_SIZE_3MF).
+        // Plater::export_3mf(): every plate with its pictures, every part of
+        // the objects on it whether it prints or not (THUMBNAIL_SIZE_3MF), and
+        // its slice result while it is valid.
         val origins = state.plateOrigins()
         val plates = state.partPlates().mapIndexed { index, plate ->
+            suspend fun pictureOf(kind: PlatePicture, name: String) = picture(state, origins[index], kind, ScenePath("${prefix.value}-plate-${index + 1}-$name.rgba"))
             ProjectPlate(
                 name = plate.name,
                 locked = plate.locked,
                 // The flushing volumes are the project's, which the current plate holds.
                 settings = plate.settings.withFlushVolumesOf(state.plateSettings),
                 layerGcodes = plate.layerGcodes,
-                thumbnail = picture(state, origins[index], ScenePath("${prefix.value}-plate-${index + 1}.rgba")),
+                thumbnail = pictureOf(PlatePicture.PLATE, "picture"),
+                noLightThumbnail = pictureOf(PlatePicture.NO_LIGHT, "no-light"),
+                topThumbnail = pictureOf(PlatePicture.TOP, "top"),
+                pickThumbnail = pictureOf(PlatePicture.PICK, "pick"),
+                sliceInfo = plate.result?.sliceInfo,
+                gcode = plate.result?.gcode,
             )
         }
         val outcome = try {
-            inspector.saveProject(file, state.objects.map { it.placed() }, profiles, plates, state.project.info)
+            inspector.saveProject(file, state.objects.map { it.placed() }, profiles, plates, state.project.info, state.currentPlate, sliced)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Exception) {
@@ -131,11 +173,11 @@ class SaveProjectUseCase(
         return outcome is ProjectSaveOutcome.Success
     }
 
-    /** The picture of the plate at [origin] in [state], written to [file]; null when it cannot be rendered. */
-    private suspend fun picture(state: PlateState, origin: Point2, file: ScenePath): ThumbnailImage? {
+    /** The [kind] of picture of the plate at [origin] in [state], written to [file]; null when it cannot be rendered. */
+    private suspend fun picture(state: PlateState, origin: Point2, kind: PlatePicture, file: ScenePath): ThumbnailImage? {
         val plate = state.plate ?: return null
         return try {
-            thumbnails.render(state.objects, plate, origin, state.presets?.filamentColors.orEmpty(), listOf(PICTURE_SIZE), printableOnly = false) { file }
+            thumbnails.render(state.objects, plate, origin, state.presets?.filamentColors.orEmpty(), listOf(PICTURE_SIZE), kind) { file }
                 .firstOrNull()
         } catch (cancellation: CancellationException) {
             throw cancellation

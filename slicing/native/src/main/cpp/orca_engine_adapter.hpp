@@ -90,6 +90,8 @@ struct SliceResult {
     bool toolpaths_written{false};
     // The mesh of the wipe tower the slice built was written for the 3D view.
     bool wipe_tower_written{false};
+    // The slice info was written for the 3MF files of the plate (slice_info.hpp).
+    bool slice_info_written{false};
     // What the layer slider's menu offers for this print (IMSlider::SetDrawMode,
     // SetModeAndOnlyExtruder): nothing but "Jump to Layer" for a print by
     // object, a filament change while the objects print with one filament and
@@ -332,7 +334,10 @@ SliceResult slice(
     // Model::calib_pa_pattern: the PA pattern whose G-code the plate's handles
     // print (Plater::_calib_pa_pattern_gen_gcode), which takes the place of
     // the layer codes; none by default.
-    const CalibrationParams& pa_pattern = {}
+    const CalibrationParams& pa_pattern = {},
+    // Where what the plate keeps of its slice for the 3MF files of the
+    // project and its sliced plates is written (slice_info.hpp); empty writes none.
+    const std::string& slice_info_path = {}
 );
 
 // Returns true only when job_id is the active job and cancellation was requested.
@@ -1496,6 +1501,24 @@ struct ProjectPlate {
     ModelSettings settings;
     std::vector<LayerGcode> layer_gcodes;
     ThumbnailImage thumbnail;
+    // export_3mf()'s other pictures of the plate: without light, from the top
+    // and its pick picture, whose colours are its copies' loaded_id.
+    ThumbnailImage no_light_thumbnail;
+    ThumbnailImage top_thumbnail;
+    ThumbnailImage pick_thumbnail;
+    // While the plate's slice result is valid: what the plate keeps of its
+    // slice (slice_info.hpp) and its G-code.
+    std::string slice_info_path;
+    std::string gcode_path;
+};
+
+// The plates whose G-code a project's 3MF file carries (Plater::export_gcode_3mf()):
+// none for "Save project", the current plate's for "Export plate sliced file",
+// every sliced plate's for "Export all plate sliced file".
+enum class SlicedPlates : std::int64_t {
+    none = 0,
+    current = 1,
+    all = 2,
 };
 
 struct ImportedModels {
@@ -1602,9 +1625,14 @@ ImportedModels prepare_flow_rate_calibration(
 // plates keep (every plate's wipe tower position, the flushing volumes of the
 // first), the presets the project brought, and the plates
 // (PartPlateList::store_to_3mf_structure): each with its name, lock, own
-// settings, the copies standing on it and its picture, which the app rendered
-// at 512 x 512 as the desktop app renders it (THUMBNAIL_SIZE_3MF); no picture
-// is written for an empty path.
+// settings, the copies standing on it and its pictures, which the app
+// rendered at 512 x 512 as the desktop app renders them (THUMBNAIL_SIZE_3MF),
+// and the first layer of the current plate once it is sliced
+// (generate_first_layer_bbox()); no picture is written for an empty path.
+// With sliced, Plater::export_gcode_3mf() (Silence | SplitModel | WithGcode |
+// SkipModel): the G-code and slice info of the current plate or of every
+// sliced plate besides. The copies go by their loaded_id (UseLoadedId), as
+// load_plate() numbers them.
 ProjectSave save_project(
     const std::string& path,
     const std::vector<PlateObject>& plate,
@@ -1612,7 +1640,10 @@ ProjectSave save_project(
     const std::vector<ProjectPlate>& plates,
     // What import_model() kept of the project the plate was opened from
     // (ImportedModels::project_info); empty for a plate that was not.
-    const std::string& project_info = {}
+    const std::string& project_info = {},
+    // PartPlateList::get_curr_plate_index()
+    int current_plate = 0,
+    SlicedPlates sliced = SlicedPlates::none
 );
 
 // How a 3MF file loads (LoadType of Plater.cpp): its objects alone ("Import

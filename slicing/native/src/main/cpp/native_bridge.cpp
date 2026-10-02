@@ -1041,6 +1041,15 @@ static std::vector<orcinus::orca::ProjectPlate> to_project_plates(JNIEnv* env, j
         plate.thumbnail.width = env->GetIntField(native_plate, env->GetFieldID(plate_class, "thumbnailWidth", "I"));
         plate.thumbnail.height = env->GetIntField(native_plate, env->GetFieldID(plate_class, "thumbnailHeight", "I"));
         plate.thumbnail.path = to_utf8(env, static_cast<jstring>(field("thumbnailPath", string)));
+        // The other pictures are as large as the plate's picture.
+        for (auto [picture, name] : {std::pair{&plate.no_light_thumbnail, "noLightThumbnailPath"}, std::pair{&plate.top_thumbnail, "topThumbnailPath"},
+                                     std::pair{&plate.pick_thumbnail, "pickThumbnailPath"}}) {
+            picture->width = plate.thumbnail.width;
+            picture->height = plate.thumbnail.height;
+            picture->path = to_utf8(env, static_cast<jstring>(field(name, string)));
+        }
+        plate.slice_info_path = to_utf8(env, static_cast<jstring>(field("sliceInfoPath", string)));
+        plate.gcode_path = to_utf8(env, static_cast<jstring>(field("gcodePath", string)));
         env->PopLocalFrame(nullptr);
     }
     env->DeleteLocalRef(plate_class);
@@ -1058,7 +1067,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_saveProject(
     jstring filament_profile,
     jobjectArray filament_profiles,
     jstring process_profile,
-    jstring project_info
+    jstring project_info,
+    jint current_plate,
+    jlong sliced
 )
 {
     const orcinus::orca::ProjectSave saved = orcinus::orca::save_project(
@@ -1066,7 +1077,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_saveProject(
         to_plate(env, plate),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_project_plates(env, plates),
-        to_utf8(env, project_info)
+        to_utf8(env, project_info),
+        static_cast<int>(current_plate),
+        static_cast<orcinus::orca::SlicedPlates>(sliced)
     );
     // status, message.
     return to_java(env, std::vector<std::string>{std::to_string(static_cast<int>(saved.status)), saved.message});
@@ -1128,7 +1141,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     jobjectArray layer_gcode_colors,
     jobjectArray layer_gcode_extras,
     jobject calibration,
-    jobject pa_pattern
+    jobject pa_pattern,
+    jstring slice_info_path
 )
 {
     const std::vector<orcinus::orca::LayerGcode> layer_gcodes =
@@ -1157,7 +1171,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         thumbnails,
         layer_gcodes,
         to_calibration(env, calibration),
-        to_calibration(env, pa_pattern)
+        to_calibration(env, pa_pattern),
+        slice_info_path != nullptr ? to_utf8(env, slice_info_path) : std::string()
     );
 
     // The filaments the plate prints with, and eight amounts for each: metres
@@ -1173,7 +1188,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     const jintArray filament_array = env->NewIntArray(static_cast<jsize>(filaments.size()));
     env->SetIntArrayRegion(filament_array, 0, static_cast<jsize>(filaments.size()), filaments.data());
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZZZZD[I[D)V");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZZZZD[I[DZ)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1189,7 +1204,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         result.has_template ? JNI_TRUE : JNI_FALSE,
         static_cast<jdouble>(result.total_cost),
         filament_array,
-        to_java(env, amounts.data(), amounts.size())
+        to_java(env, amounts.data(), amounts.size()),
+        result.slice_info_written ? JNI_TRUE : JNI_FALSE
     );
 }
 
@@ -3053,7 +3069,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ProjectPlate& plate)
     const jmethodID constructor = env->GetMethodID(
         plate_class,
         "<init>",
-        "(Ljava/lang/String;Z[Ljava/lang/String;[Ljava/lang/String;[D[J[I[Ljava/lang/String;[Ljava/lang/String;IILjava/lang/String;)V"
+        "(Ljava/lang/String;Z[Ljava/lang/String;[Ljava/lang/String;[D[J[I[Ljava/lang/String;[Ljava/lang/String;IILjava/lang/String;"
+        "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"
     );
     std::vector<double> heights;
     std::vector<jlong> types;
@@ -3085,7 +3102,12 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ProjectPlate& plate)
         to_java(env, extras),
         static_cast<jint>(plate.thumbnail.width),
         static_cast<jint>(plate.thumbnail.height),
-        to_java(env, plate.thumbnail.path)
+        to_java(env, plate.thumbnail.path),
+        to_java(env, plate.no_light_thumbnail.path),
+        to_java(env, plate.top_thumbnail.path),
+        to_java(env, plate.pick_thumbnail.path),
+        to_java(env, plate.slice_info_path),
+        to_java(env, plate.gcode_path)
     );
 }
 

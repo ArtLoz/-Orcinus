@@ -5218,6 +5218,57 @@ TEST_CASE("A project keeps its designer, license and auxiliary files through a s
     CHECK(read_file((fs::path(opened.project_info) / "Auxiliaries" / "Model Pictures" / "cover.png").string()) == "picture");
 }
 
+TEST_CASE("A sliced plate's 3MF file carries its G-code, its slice info and its first layer", "[Adapter][Project]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const std::string gcode = output_path("sliced-plate.gcode");
+    const std::string slice_info = output_path("sliced-plate.slice.json");
+    const orca::SliceResult result =
+        orca::slice("sliced-plate", plate_of({}), gcode, {}, k2_plus_profiles(), {}, {}, {}, {}, {}, {}, {}, slice_info);
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    REQUIRE(result.slice_info_written);
+
+    orca::ProjectPlate plate;
+    plate.slice_info_path = slice_info;
+    plate.gcode_path = gcode;
+    const std::string sliced = output_path("sliced-plate.gcode.3mf");
+    const orca::ProjectSave saved = orca::save_project(sliced, plate_of({}), k2_plus_profiles(), {plate}, {}, 0, orca::SlicedPlates::current);
+    INFO(saved.message);
+    REQUIRE(saved.status == orca::SceneStatus::success);
+
+    // export_3mf() with WithGcode: the plate's G-code and its checksum, the
+    // slice info, and the first layer of the current plate.
+    std::set<std::string> entries;
+    std::string slice_config;
+    mz_zip_archive zip_archive;
+    mz_zip_zero_struct(&zip_archive);
+    REQUIRE(mz_zip_reader_init_file(&zip_archive, sliced.c_str(), 0) == MZ_TRUE);
+    for (mz_uint index = 0; index < mz_zip_reader_get_num_files(&zip_archive); ++index) {
+        mz_zip_archive_file_stat file_stat;
+        if (mz_zip_reader_file_stat(&zip_archive, index, &file_stat) == MZ_TRUE) {
+            entries.insert(file_stat.m_filename);
+        }
+    }
+    std::size_t size = 0;
+    if (void* data = mz_zip_reader_extract_file_to_heap(&zip_archive, "Metadata/slice_info.config", &size, 0)) {
+        slice_config.assign(static_cast<const char*>(data), size);
+        mz_free(data);
+    }
+    mz_zip_reader_end(&zip_archive);
+    CHECK(entries.count("Metadata/plate_1.gcode") == 1);
+    CHECK(entries.count("Metadata/plate_1.gcode.md5") == 1);
+    CHECK(entries.count("Metadata/plate_1.json") == 1);
+    INFO(slice_config);
+    CHECK(slice_config.find("key=\"prediction\" value=\"0\"") == std::string::npos);
+    CHECK(slice_config.find("key=\"prediction\"") != std::string::npos);
+    CHECK(slice_config.find("key=\"weight\"") != std::string::npos);
+    // The copy goes by the number load_plate() gave it, as the G-code labels it.
+    CHECK(slice_config.find("identify_id=\"1\"") != std::string::npos);
+    CHECK(slice_config.find("<filament id=\"1\"") != std::string::npos);
+}
+
 TEST_CASE("The current plate places, judges and slices objects from its own origin", "[Adapter][Plates]")
 {
     require_engine();

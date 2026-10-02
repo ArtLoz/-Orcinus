@@ -62,17 +62,22 @@ class AppSceneFiles(context: Context) : SceneFiles {
 
     override fun wipeTowerMeshOf(toolpaths: ScenePath): ScenePath = ScenePath(toolpaths.value + WIPE_TOWER_SUFFIX)
 
+    override fun sliceInfoOf(toolpaths: ScenePath): ScenePath = ScenePath(toolpaths.value + SLICE_INFO_SUFFIX)
+
     // Not kept by deleteToolpathsExcept(): the G-code holds the thumbnails once it is written.
     override fun thumbnailOf(toolpaths: ScenePath, size: ThumbnailSize): ScenePath =
         ScenePath("${toolpaths.value}.thumbnail-${size.width}x${size.height}.rgba")
 
     override fun deleteToolpathsExcept(keep: Collection<ScenePath>) {
-        val kept = keep.flatMapTo(HashSet()) { listOf(File(it.value), File(wipeTowerMeshOf(it).value)) }
+        val kept = keep.flatMapTo(HashSet()) { listOf(File(it.value), File(wipeTowerMeshOf(it).value), File(sliceInfoOf(it).value)) }
         toolpaths.listFiles()?.filter { it !in kept }?.forEach(File::delete)
     }
 
     private companion object {
         /** The wipe tower of a slice lies beside its toolpaths. */
         const val WIPE_TOWER_SUFFIX = ".tower.mesh"
+
+        /** The slice info of a slice lies beside its toolpaths. */
+        const val SLICE_INFO_SUFFIX = ".slice.json"
     }
 }

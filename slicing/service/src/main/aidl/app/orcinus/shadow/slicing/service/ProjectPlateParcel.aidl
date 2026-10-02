@@ -18,4 +18,11 @@ parcelable ProjectPlateParcel {
     int thumbnailWidth;
     int thumbnailHeight;
     @nullable String thumbnailPath;
+    /** The other pictures, as large as the picture: without light, from the top, and the pick picture. */
+    @nullable String noLightThumbnailPath;
+    @nullable String topThumbnailPath;
+    @nullable String pickThumbnailPath;
+    /** While the plate's slice result is valid: its slice info and its G-code. */
+    @nullable String sliceInfoPath;
+    @nullable String gcodePath;
 }

@@ -13,6 +13,8 @@ parcelable SliceRequestParcel {
     @nullable String toolpathsPath;
     /** Where the engine writes the wipe tower the slice builds; null writes none. */
     @nullable String wipeTowerPath;
+    /** Where the engine writes the plate's slice info for its 3MF files; null writes none. */
+    @nullable String sliceInfoPath;
     String printerProfile;
     String filamentProfile;
     /** Every filament of the plate; null prints with filamentProfile alone. */

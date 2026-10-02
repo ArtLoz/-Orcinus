@@ -23,6 +23,7 @@ add_library(orca_engine_adapter STATIC
     settings_fields.cpp
     settings_tab.cpp
     settings_tabs.cpp
+    slice_info.cpp
     step_mesh.cpp
     setup_catalog.cpp
     tab_filament.cpp

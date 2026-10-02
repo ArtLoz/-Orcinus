@@ -146,6 +146,23 @@ fun PlateState.partPlates(): List<PartPlate> = plates.mapIndexed { index, plate 
     if (index == currentPlate) plate.copy(settings = plateSettings, layerGcodes = layerGcodes, result = result) else plate
 }
 
+/**
+ * PartPlateList::is_all_slice_results_ready_for_print(): every plate a
+ * printable copy stands on is sliced, and some plate is; a plate whose copies
+ * are all unprintable needs no G-code.
+ */
+fun PlateState.allSliceResultsReady(): Boolean {
+    val plates = partPlates()
+    val copies = copies()
+    var ready = false
+    for (index in plates.indices) {
+        val onPlate = copies.filter { plateOf(it) == index }
+        if (onPlate.any { it.printable } && plates[index].result == null) return false
+        if (plates[index].result != null) ready = true
+    }
+    return ready
+}
+
 /** PartPlateList::get_nonempty_plate_list(): the plates a copy stands on, by index. */
 fun PlateState.nonemptyPlates(): List<Int> = plates.indices.filter { index -> copies().any { plateOf(it) == index } }
 

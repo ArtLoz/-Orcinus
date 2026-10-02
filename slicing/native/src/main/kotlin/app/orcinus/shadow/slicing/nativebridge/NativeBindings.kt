@@ -22,6 +22,7 @@ internal class NativeSliceResult(
     /** The plate's filaments, from 1, with eight amounts each in [filamentAmounts]: metres and grams for the model, support, flushing and wipe tower. */
     @JvmField val filaments: IntArray,
     @JvmField val filamentAmounts: DoubleArray,
+    @JvmField val sliceInfoWritten: Boolean,
 ) {
     companion object {
         const val SUCCESS = 0L
@@ -745,6 +746,13 @@ internal class NativeProjectPlate(
     @JvmField val thumbnailWidth: Int,
     @JvmField val thumbnailHeight: Int,
     @JvmField val thumbnailPath: String,
+    /** The plate's other pictures, as large as its picture: without light, from the top, and its pick picture. */
+    @JvmField val noLightThumbnailPath: String,
+    @JvmField val topThumbnailPath: String,
+    @JvmField val pickThumbnailPath: String,
+    /** While the plate's slice result is valid: its slice info and its G-code; empty otherwise. */
+    @JvmField val sliceInfoPath: String,
+    @JvmField val gcodePath: String,
 )
 
 /** Constructed by the native bridge; see CalibrationPrinter in orca_engine_adapter.hpp. */
@@ -888,6 +896,8 @@ internal object NativeBindings {
         calibration: NativeCalibration?,
         /** The PA pattern the plate's handles print; null for none. */
         paPattern: NativeCalibration?,
+        /** Where what the plate keeps of its slice for its 3MF files goes; null writes none. */
+        sliceInfoPath: String?,
     ): NativeSliceResult
 
     /** prepare_calibration(): the calibration's model set up on the empty plate, and the presets changed. */
@@ -1100,6 +1110,10 @@ internal object NativeBindings {
         filamentProfiles: Array<String>,
         processProfile: String,
         projectInfo: String,
+        /** PartPlateList::get_curr_plate_index() */
+        currentPlate: Int,
+        /** SlicedPlates in orca_engine_adapter.hpp. */
+        sliced: Long,
     ): Array<String>
 
     /**

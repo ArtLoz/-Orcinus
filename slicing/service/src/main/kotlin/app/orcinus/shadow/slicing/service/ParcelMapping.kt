@@ -116,6 +116,7 @@ internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
     it.outputPath = output.value
     it.toolpathsPath = toolpaths?.value
     it.wipeTowerPath = wipeTower?.value
+    it.sliceInfoPath = sliceInfo?.value
     it.printerProfile = printerProfile.value
     it.filamentProfile = filamentProfile.value
     it.filamentProfiles = filamentProfiles.map(ProfileId::value).toTypedArray()
@@ -191,6 +192,7 @@ internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
     output = OutputPath(outputPath),
     toolpaths = toolpathsPath?.let(::ScenePath),
     wipeTower = wipeTowerPath?.let(::ScenePath),
+    sliceInfo = sliceInfoPath?.let(::ScenePath),
     printerProfile = ProfileId(printerProfile),
     filamentProfile = ProfileId(filamentProfile),
     filamentProfiles = filamentProfiles.orEmpty().map(::ProfileId),
@@ -338,6 +340,11 @@ internal fun ProjectPlate.toParcel() = ProjectPlateParcel().also {
     it.thumbnailWidth = thumbnail?.size?.width ?: 0
     it.thumbnailHeight = thumbnail?.size?.height ?: 0
     it.thumbnailPath = thumbnail?.path?.value
+    it.noLightThumbnailPath = noLightThumbnail?.path?.value
+    it.topThumbnailPath = topThumbnail?.path?.value
+    it.pickThumbnailPath = pickThumbnail?.path?.value
+    it.sliceInfoPath = sliceInfo?.value
+    it.gcodePath = gcode?.value
 }
 
 internal fun ProjectPlateParcel.toProjectPlate() = ProjectPlate(
@@ -346,6 +353,11 @@ internal fun ProjectPlateParcel.toProjectPlate() = ProjectPlate(
     settings = settings.toModelSettings(),
     layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
     thumbnail = thumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
+    noLightThumbnail = noLightThumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
+    topThumbnail = topThumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
+    pickThumbnail = pickThumbnailPath?.let { ThumbnailImage(ThumbnailSize(thumbnailWidth, thumbnailHeight), ScenePath(it)) },
+    sliceInfo = sliceInfoPath?.let(::ScenePath),
+    gcode = gcodePath?.let(::OutputPath),
 )
 
 /** StepMeshOptions as the service passes them: linear and angle deflections, and split as 1 or 0. */
@@ -452,6 +464,7 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.gcodePath = gcodePath.value
             it.toolpathsPath = toolpaths?.value
             it.wipeTowerPath = wipeTower?.value
+            it.sliceInfoPath = sliceInfo?.value
             it.layerCount = statistics.layerCount
             it.estimatedPrintTimeSeconds = statistics.estimatedPrintTimeSeconds
             it.filamentMillimeters = statistics.filamentMillimeters
@@ -489,6 +502,7 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             ),
             toolpaths = toolpathsPath?.let(::ScenePath),
             wipeTower = wipeTowerPath?.let(::ScenePath),
+            sliceInfo = sliceInfoPath?.let(::ScenePath),
             layerGcodeRules = LayerGcodeRules(sequential, canChangeFilament, hasTemplate),
         )
 

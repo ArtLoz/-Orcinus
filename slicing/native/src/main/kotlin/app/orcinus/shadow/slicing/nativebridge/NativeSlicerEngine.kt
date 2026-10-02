@@ -12,6 +12,7 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ComparedPresets
@@ -206,6 +207,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     layerGcodeExtras = request.layerGcodes.map(LayerGcode::extra).toTypedArray(),
                     calibration = request.calibration?.toNative(),
                     paPattern = request.paPattern?.toNative(),
+                    sliceInfoPath = request.sliceInfo?.value,
                 )
             }
             try {
@@ -447,6 +449,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         profiles: SlicingProfileSelection,
         plates: List<ProjectPlate>,
         projectInfo: ScenePath?,
+        currentPlate: Int,
+        sliced: SlicedPlates,
     ): ProjectSaveOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -461,6 +465,8 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             projectInfo = projectInfo?.value.orEmpty(),
+            currentPlate = currentPlate,
+            sliced = sliced.ordinal.toLong(),
         )
         if (saveStatus.toLong() == NativeSceneStatus.SUCCESS) {
             ProjectSaveOutcome.Success
@@ -1872,6 +1878,11 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         thumbnailWidth = thumbnail?.size?.width ?: 0,
         thumbnailHeight = thumbnail?.size?.height ?: 0,
         thumbnailPath = thumbnail?.path?.value.orEmpty(),
+        noLightThumbnailPath = noLightThumbnail?.path?.value.orEmpty(),
+        topThumbnailPath = topThumbnail?.path?.value.orEmpty(),
+        pickThumbnailPath = pickThumbnail?.path?.value.orEmpty(),
+        sliceInfoPath = sliceInfo?.value.orEmpty(),
+        gcodePath = gcode?.value.orEmpty(),
     )
 
     private fun NativeProjectPlate.toProjectPlate() = ProjectPlate(
@@ -1979,6 +1990,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 ),
                 toolpaths = request.toolpaths?.takeIf { result.toolpathsWritten },
                 wipeTower = request.wipeTower?.takeIf { result.wipeTowerWritten },
+                sliceInfo = request.sliceInfo?.takeIf { result.sliceInfoWritten },
                 layerGcodeRules = LayerGcodeRules(
                     sequential = result.sequential,
                     canChangeFilament = result.canChangeFilament,
