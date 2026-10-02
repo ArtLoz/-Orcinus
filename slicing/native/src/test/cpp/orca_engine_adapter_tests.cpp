@@ -22,6 +22,7 @@
 #include <cstring>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <set>
 #include <sstream>
 #include <fstream>
@@ -1911,10 +1912,10 @@ TEST_CASE("The overhangs are tinted from one degree past the support threshold a
     CHECK(std::isnan(orca::overhang_normal_z(unknown)));
 }
 
-TEST_CASE("The labels number the copies in their print order while the plate prints by object", "[Adapter][Scene]")
+TEST_CASE("The plate is validated after a change as the desktop app's background process does", "[Adapter][Scene]")
 {
     require_engine();
-    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("sequence.mesh"), {});
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("validation.mesh"), {});
     REQUIRE(cube.status == orca::SceneStatus::success);
     std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
     orca::PlateObject second;
@@ -1922,17 +1923,32 @@ TEST_CASE("The labels number the copies in their print order while the plate pri
     second.instances.front().matrix[12] += 100.0;
     plate.push_back(second);
 
-    // By layer the labels show no order.
-    std::vector<std::int32_t> sequence;
-    REQUIRE(orca::print_sequence(plate, k2_plus_profiles(), {}, sequence));
-    CHECK(sequence.empty());
+    // By layer: valid, and no print order for the labels.
+    const orca::PlateValidation by_layer = orca::validate_plate(plate, k2_plus_profiles(), {});
+    REQUIRE(by_layer.read);
+    CHECK(by_layer.error.text.empty());
+    CHECK(by_layer.sequence.empty());
 
-    // By object Print::validate() numbers the copies in the object list's order.
+    // By object: Print::validate() numbers the copies in the object list's order.
     orca::ModelSettings by_object;
     by_object.keys = {"print_sequence"};
     by_object.values = {"by object"};
-    REQUIRE(orca::print_sequence(plate, k2_plus_profiles(), by_object, sequence));
-    CHECK(sequence == std::vector<std::int32_t>{1, 2});
+    const orca::PlateValidation apart = orca::validate_plate(plate, k2_plus_profiles(), by_object);
+    REQUIRE(apart.read);
+    INFO(apart.error.text);
+    CHECK(apart.error.text.empty());
+    CHECK(apart.sequence == std::vector<std::int32_t>{1, 2});
+    CHECK(apart.clearance_counts.empty());
+
+    // Closer than the extruder's clearance: the error names the second copy, and the outlines show.
+    plate.back().instances.front().matrix[12] -= 70.0;
+    const orca::PlateValidation close = orca::validate_plate(plate, k2_plus_profiles(), by_object);
+    REQUIRE(close.read);
+    CHECK(close.error.text.find("too close to others") != std::string::npos);
+    CHECK(close.error.object == 1);
+    CHECK(close.error.instance == 0);
+    CHECK(!close.clearance_counts.empty());
+    CHECK(close.clearance.size() == 2 * std::size_t(std::accumulate(close.clearance_counts.begin(), close.clearance_counts.end(), 0)));
 }
 
 TEST_CASE("A code the layer slider puts on a layer runs where that layer starts", "[Adapter][Scene]")

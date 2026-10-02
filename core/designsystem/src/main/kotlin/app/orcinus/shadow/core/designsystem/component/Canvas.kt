@@ -37,6 +37,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -164,14 +165,20 @@ enum class OrcaNotificationLevel {
     /** The canvas panel with the accent bar on the left. */
     Regular,
 
+    /** WarningNotificationLevel: the canvas panel with the bar in OrcaSlicer's warning colour. */
+    Warning,
+
     /** ErrorNotificationLevel: white text on OrcaSlicer's error colour. */
     Error,
 }
 
 private val LocalNotificationLevel = staticCompositionLocalOf { OrcaNotificationLevel.Regular }
 
-// NotificationManager::PopNotification::m_ErrorColor
+// NotificationManager::PopNotification::m_ErrorColor, m_WarnColor and m_HyperTextColor; the error's link colour.
 private val NotificationErrorColor = Color(0xFFE14747)
+private val NotificationWarningColor = Color(0xFFF59B16)
+private val NotificationLinkColor = Color(0f, 0.588f, 0.533f)
+private val NotificationErrorLinkColor = Color(135, 43, 43)
 
 /**
  * OrcaSlicer's canvas notification, as the object information and slicing
@@ -198,7 +205,13 @@ fun OrcaNotification(
             Modifier
                 .width(4.dp)
                 .fillMaxHeight()
-                .background(if (error) NotificationErrorColor else colors.accent),
+                .background(
+                    when (level) {
+                        OrcaNotificationLevel.Error -> NotificationErrorColor
+                        OrcaNotificationLevel.Warning -> NotificationWarningColor
+                        OrcaNotificationLevel.Regular -> colors.accent
+                    },
+                ),
         )
         CompositionLocalProvider(LocalNotificationLevel provides level) {
             Column(
@@ -216,6 +229,20 @@ fun OrcaNotification(
             )
         }
     }
+}
+
+/** PopNotification::render_hypertext(): the notification's underlined link, such as "Jump to". */
+@Composable
+fun OrcaNotificationLink(text: String, onClick: () -> Unit) {
+    val color = if (LocalNotificationLevel.current == OrcaNotificationLevel.Error) NotificationErrorLinkColor else NotificationLinkColor
+    Text(
+        text = text,
+        color = color,
+        style = OrcaTheme.typography.body13.copy(textDecoration = TextDecoration.Underline),
+        modifier = Modifier
+            .padding(top = 4.dp)
+            .clickable(role = Role.Button, onClick = onClick),
+    )
 }
 
 /** Body text line of a notification. */

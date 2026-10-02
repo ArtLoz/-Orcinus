@@ -12,6 +12,7 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.ClearanceHeight
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportEntry
@@ -89,6 +90,8 @@ import app.orcinus.shadow.core.model.PlateGeometry
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateManipulation
+import app.orcinus.shadow.core.model.PlateValidation
+import app.orcinus.shadow.core.model.PlateValidationMessage
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetChange
 import app.orcinus.shadow.core.model.PresetChangeAction
@@ -1546,13 +1549,13 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         NativeBindings.setTranslations(po)
     }
 
-    override suspend fun printSequence(
+    override suspend fun validatePlate(
         plate: List<PlacedModel>,
         profiles: SlicingProfileSelection,
         plateSettings: ModelSettings,
-    ): List<Int>? = withContext(Dispatchers.IO) {
+    ): PlateValidation? = withContext(Dispatchers.IO) {
         if (!status().ready) return@withContext null
-        NativeBindings.printSequence(
+        val result = NativeBindings.validatePlate(
             plate = nativePlate(plate),
             plateSettingKeys = plateSettings.keys(),
             plateSettingValues = plateSettings.values(),
@@ -1560,7 +1563,26 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             filamentProfile = profiles.filament.value,
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
-        )?.toList()
+        )
+        if (!result.read) return@withContext null
+        PlateValidation(
+            error = validationMessage(result.errorText, result.errorObject, result.errorInstance, result.errorOption),
+            warning = validationMessage(result.warningText, result.warningObject, result.warningInstance, result.warningOption),
+            clearance = outlines(result.clearanceCounts, result.clearance),
+            heightLimits = outlines(result.heightCounts, result.heightOutlines).zip(result.heights.toList(), ::ClearanceHeight),
+            sequence = result.sequence.toList(),
+        )
+    }
+
+    private fun validationMessage(text: String, objectIndex: Int, instanceIndex: Int, option: String) =
+        text.takeIf { it.isNotEmpty() }?.let { PlateValidationMessage(it, objectIndex, instanceIndex, option) }
+
+    /** Outlines given as their point counts and the points' x and y, one after another. */
+    private fun outlines(counts: IntArray, points: DoubleArray): List<List<Point2>> {
+        var at = 0
+        return counts.map { count ->
+            List(count) { point -> Point2(points[(at + point) * 2], points[(at + point) * 2 + 1]) }.also { at += count }
+        }
     }
 
     override suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? = withContext(Dispatchers.IO) {

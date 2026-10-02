@@ -652,18 +652,48 @@ WipeTowerState describe_wipe_tower(
     const ModelSettings& plate_settings
 );
 
-// The "Sequence#" of GLCanvas3D::Labels: while the current plate prints by
-// object, or in the object list's order, the desktop app's background process
-// applies the plate to its print and validates it, and Print::validate()
-// numbers the copies in the order they print (ModelInstance::arrange_order).
-// One number per copy of the plate, object by object, -1 for a copy that is
-// not printed; empty when the plate prints otherwise, and false when the plate
-// cannot be read.
-bool print_sequence(
+// A message of Print::validate() (StringObjectException): its text, the copy
+// it is about and the setting to look at.
+struct ValidationMessage {
+    // Empty for none.
+    std::string text;
+    // The object by its index on the plate, -1 for none; the copy of it, -1
+    // for the object as a whole.
+    std::int32_t object{-1};
+    std::int32_t instance{-1};
+    // opt_key: the setting the message is about; empty for none.
+    std::string option;
+};
+
+// Plater::priv::update_background_process(): after every change the desktop
+// app applies the plate to its print and validates it. The error blocks
+// slicing and shows with the warning as notifications; while it does, the
+// sequential printing's clearance outlines (and the height limits of the
+// copies printed before the last) show on the plate. Validation also numbers
+// the copies in their print order (ModelInstance::arrange_order), which the
+// labels show as "Sequence#" while the plate prints by object or in the
+// object list's order.
+struct PlateValidation {
+    // False when the plate cannot be read.
+    bool read{false};
+    ValidationMessage error;
+    ValidationMessage warning;
+    // The outlines, each its point count, then x and y of every point in mm.
+    std::vector<std::int32_t> clearance_counts;
+    std::vector<double> clearance;
+    // The height limits: outlines as above, and the height of each.
+    std::vector<std::int32_t> height_counts;
+    std::vector<double> height_outlines;
+    std::vector<double> heights;
+    // One number per copy of the plate, object by object, -1 for a copy that
+    // is not printed; empty when the plate prints otherwise.
+    std::vector<std::int32_t> sequence;
+};
+
+PlateValidation validate_plate(
     const std::vector<PlateObject>& plate,
     const ProfileSelection& profiles,
-    const ModelSettings& plate_settings,
-    std::vector<std::int32_t>& sequence
+    const ModelSettings& plate_settings
 );
 
 // The flushing volumes of the plate (WipingDialog): how much filament is

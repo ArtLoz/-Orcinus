@@ -509,6 +509,25 @@ internal class NativeSearchCatalog(
 )
 
 /** Constructed by the native bridge; see ThumbnailSizes in orca_engine_adapter.hpp. */
+/** Constructed by the native bridge; see PlateValidation in orca_engine_adapter.hpp. */
+internal class NativePlateValidation(
+    @JvmField val read: Boolean,
+    @JvmField val errorText: String,
+    @JvmField val errorObject: Int,
+    @JvmField val errorInstance: Int,
+    @JvmField val errorOption: String,
+    @JvmField val warningText: String,
+    @JvmField val warningObject: Int,
+    @JvmField val warningInstance: Int,
+    @JvmField val warningOption: String,
+    @JvmField val clearanceCounts: IntArray,
+    @JvmField val clearance: DoubleArray,
+    @JvmField val heightCounts: IntArray,
+    @JvmField val heightOutlines: DoubleArray,
+    @JvmField val heights: DoubleArray,
+    @JvmField val sequence: IntArray,
+)
+
 internal class NativeThumbnailSizes(
     @JvmField val status: Long,
     @JvmField val message: String,
@@ -904,12 +923,8 @@ internal object NativeBindings {
     /** libslic3r's own messages in the language of the gettext catalogue [po]; empty for English. */
     external fun setTranslations(po: String)
 
-    /**
-     * GLCanvas3D::Labels' "Sequence#": the print order of every copy of the
-     * plate as Print::validate() numbers it, -1 for one not printed; empty
-     * when the plate does not print by object, null when it cannot be read.
-     */
-    external fun printSequence(
+    /** Plater::priv::update_background_process()'s validation of the current plate; see PlateValidation in orca_engine_adapter.hpp. */
+    external fun validatePlate(
         plate: NativePlate,
         plateSettingKeys: Array<String>,
         plateSettingValues: Array<String>,
@@ -917,7 +932,7 @@ internal object NativeBindings {
         filamentProfile: String,
         filamentProfiles: Array<String>,
         processProfile: String,
-    ): IntArray?
+    ): NativePlateValidation
 
     /** GLVolumeCollection::get_selection_support_normal_z(): the canvas's overhang highlight; NaN without presets. */
     external fun overhangNormalZ(

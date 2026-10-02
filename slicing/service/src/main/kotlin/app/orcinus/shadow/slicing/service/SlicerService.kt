@@ -883,8 +883,8 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
 
         override fun setLanguage(catalog: String) = runBlocking { engine.setLanguage(catalog) }
 
-        override fun printSequence(plate: Array<PlacedModelParcel>, profiles: ProfilesParcel, plateSettings: ModelSettingsParcel): IntArray? =
-            runBlocking { engine.printSequence(plate.toPlacedModels(), profiles.toProfiles(), plateSettings.toModelSettings()) }?.toIntArray()
+        override fun validatePlate(plate: Array<PlacedModelParcel>, profiles: ProfilesParcel, plateSettings: ModelSettingsParcel): PlateValidationParcel? =
+            runBlocking { engine.validatePlate(plate.toPlacedModels(), profiles.toProfiles(), plateSettings.toModelSettings()) }?.toParcel()
 
         override fun overhangNormalZ(profiles: ProfilesParcel): Double =
             runBlocking { engine.overhangNormalZ(profiles.toProfiles()) }?.toDouble() ?: Double.NaN

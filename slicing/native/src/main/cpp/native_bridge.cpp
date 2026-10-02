@@ -2565,8 +2565,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_thumbnailSizes(
     return env->NewObject(result_class, constructor, static_cast<jlong>(result.status), to_java(env, result.message), sizes);
 }
 
-extern "C" JNIEXPORT jintArray JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_printSequence(
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_validatePlate(
     JNIEnv* env,
     jobject /* this */,
     jobject plate,
@@ -2578,20 +2578,43 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_printSequence(
     jstring process_profile
 )
 {
-    std::vector<std::int32_t> sequence;
-    if (!orcinus::orca::print_sequence(
-            to_plate(env, plate),
-            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
-            to_model_settings(env, plate_setting_keys, plate_setting_values),
-            sequence
-        )) {
-        return nullptr;
-    }
-    const jintArray result = env->NewIntArray(static_cast<jsize>(sequence.size()));
-    if (!sequence.empty()) {
-        env->SetIntArrayRegion(result, 0, static_cast<jsize>(sequence.size()), reinterpret_cast<const jint*>(sequence.data()));
-    }
-    return result;
+    const orcinus::orca::PlateValidation result = orcinus::orca::validate_plate(
+        to_plate(env, plate),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+        to_model_settings(env, plate_setting_keys, plate_setting_values)
+    );
+    const auto ints = [env](const std::vector<std::int32_t>& values) {
+        const jintArray array = env->NewIntArray(static_cast<jsize>(values.size()));
+        if (array != nullptr && !values.empty()) {
+            env->SetIntArrayRegion(array, 0, static_cast<jsize>(values.size()), reinterpret_cast<const jint*>(values.data()));
+        }
+        return array;
+    };
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePlateValidation");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(ZLjava/lang/String;IILjava/lang/String;Ljava/lang/String;IILjava/lang/String;[I[D[I[D[D[I)V"
+    );
+    return env->NewObject(
+        result_class,
+        constructor,
+        result.read ? JNI_TRUE : JNI_FALSE,
+        to_java(env, result.error.text),
+        static_cast<jint>(result.error.object),
+        static_cast<jint>(result.error.instance),
+        to_java(env, result.error.option),
+        to_java(env, result.warning.text),
+        static_cast<jint>(result.warning.object),
+        static_cast<jint>(result.warning.instance),
+        to_java(env, result.warning.option),
+        ints(result.clearance_counts),
+        to_java(env, result.clearance.data(), result.clearance.size()),
+        ints(result.height_counts),
+        to_java(env, result.height_outlines.data(), result.height_outlines.size()),
+        to_java(env, result.heights.data(), result.heights.size()),
+        ints(result.sequence)
+    );
 }
 
 extern "C" JNIEXPORT void JNICALL

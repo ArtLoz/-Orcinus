@@ -14,6 +14,7 @@ import app.orcinus.shadow.slicing.service.CutObjectParcel;
 import app.orcinus.shadow.slicing.service.CutParcel;
 import app.orcinus.shadow.slicing.service.CutPartsParcel;
 import app.orcinus.shadow.slicing.service.CutPlaneParcel;
+import app.orcinus.shadow.slicing.service.PlateValidationParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
 import app.orcinus.shadow.slicing.service.FilamentPresetsParcel;
 import app.orcinus.shadow.slicing.service.ConfigTransferParcel;
@@ -439,8 +440,8 @@ interface ISlicerService {
     ThumbnailSizesParcel thumbnailSizes(in ProfilesParcel profiles);
     /** GUI_App::load_language(): the engine's own messages in the language of OrcaSlicer's catalogue. */
     void setLanguage(String catalog);
-    /** GLCanvas3D::Labels' "Sequence#" of every copy; null when the plate cannot be read. */
-    int[] printSequence(in PlacedModelParcel[] plate, in ProfilesParcel profiles, in ModelSettingsParcel plateSettings);
+    /** Plater::priv::update_background_process()'s validation of the plate; null when it cannot be read. */
+    @nullable PlateValidationParcel validatePlate(in PlacedModelParcel[] plate, in ProfilesParcel profiles, in ModelSettingsParcel plateSettings);
     /** GLVolumeCollection::get_selection_support_normal_z(); NaN without presets. */
     double overhangNormalZ(in ProfilesParcel profiles);
     /** select_plate(): the plate the next requests are for, among count plates. */

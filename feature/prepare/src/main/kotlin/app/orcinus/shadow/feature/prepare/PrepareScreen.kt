@@ -79,6 +79,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
+import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLink
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
 import app.orcinus.shadow.core.designsystem.component.OrcaProgressNotification
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
@@ -312,6 +313,7 @@ internal fun PrepareRoute(
         onUndo = viewModel::undo,
         onRedo = viewModel::redo,
         onDismissProblem = viewModel::dismissProblem,
+        onJumpTo = viewModel::jumpTo,
         canvas = canvas,
         onSetCanvas = viewModel::setCanvasOption,
         cutActions = CutActions(
@@ -417,6 +419,8 @@ internal fun PrepareScreen(
     onSlice: () -> Unit,
     onCancelSlicing: () -> Unit,
     onDismissProblem: () -> Unit,
+    /** "Jump to" of a validation notification. */
+    onJumpTo: (ValidationNotice) -> Unit = {},
     onSliceModeChange: (SliceMode) -> Unit = {},
     onUndo: () -> Unit = {},
     onRedo: () -> Unit = {},
@@ -716,7 +720,7 @@ internal fun PrepareScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem)
+                Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onJumpTo)
                 // In a wide window the slice button sits in the tab bar, as on desktop.
                 if (layout == OrcaWindowLayout.Compact) {
                     SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
@@ -966,7 +970,11 @@ private fun Notifications(
     imperial: Boolean,
     onCancelSlicing: () -> Unit,
     onDismissProblem: () -> Unit,
+    onJumpTo: (ValidationNotice) -> Unit,
 ) {
+    // Plater::priv::process_validation_warning() and push_validate_error_notification().
+    state.validationWarning?.let { ValidationNotification(it, OrcaNotificationLevel.Warning, orcaString("WARNING:"), onJumpTo) }
+    state.validationError?.let { ValidationNotification(it, OrcaNotificationLevel.Error, orcaString("Error:"), onJumpTo) }
     if (state.objectClashed) {
         // GLCanvas3D::EWarning::ObjectClashed
         OrcaNotification(level = OrcaNotificationLevel.Error) {
@@ -1006,6 +1014,25 @@ private fun Notifications(
         )
     } else {
         state.selectedCopy?.let { ObjectInfo(it, imperial) }
+    }
+}
+
+/**
+ * A message of the plate's validation: "Error:" or "WARNING:" over its text,
+ * and "Jump to" with the name of the object it is about and its setting.
+ */
+@Composable
+private fun ValidationNotification(notice: ValidationNotice, level: OrcaNotificationLevel, title: String, onJumpTo: (ValidationNotice) -> Unit) {
+    val name = notice.targetObject?.displayName()
+    val link = if (name != null || notice.option.isNotEmpty()) {
+        orcaString("Jump to") + (name?.let { " [$it]" }.orEmpty()) + notice.option.takeIf { it.isNotEmpty() }?.let { " ($it)" }.orEmpty()
+    } else {
+        null
+    }
+    OrcaNotification(level = level) {
+        OrcaNotificationText(title, emphasized = true)
+        OrcaNotificationText(notice.text.trimEnd())
+        link?.let { OrcaNotificationLink(it, onClick = { onJumpTo(notice) }) }
     }
 }
 

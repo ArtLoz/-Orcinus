@@ -54,6 +54,7 @@ import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
+import app.orcinus.shadow.core.model.PlateValidation
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
@@ -152,13 +153,11 @@ interface PlateInspector {
     suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? = null
 
     /**
-     * GLCanvas3D::Labels' "Sequence#": while [plate] prints by object, or in
-     * the object list's order, the order every copy prints in as
-     * Print::validate() numbers it (ModelInstance::arrange_order), object by
-     * object, -1 for a copy that is not printed. Empty when the plate prints
-     * otherwise; null when it cannot be read.
+     * Plater::priv::update_background_process(): [plate] applied to its print
+     * and validated, as the desktop app does after every change; null when it
+     * cannot be read.
      */
-    suspend fun printSequence(plate: List<PlacedModel>, profiles: SlicingProfileSelection, plateSettings: ModelSettings): List<Int>? = null
+    suspend fun validatePlate(plate: List<PlacedModel>, profiles: SlicingProfileSelection, plateSettings: ModelSettings): PlateValidation? = null
 
     /**
      * Loads [model], writes its mesh to [mesh], and places it as OrcaSlicer

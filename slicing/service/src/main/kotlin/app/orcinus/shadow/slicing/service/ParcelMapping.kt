@@ -10,6 +10,7 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.ClearanceHeight
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutId
@@ -58,6 +59,8 @@ import app.orcinus.shadow.core.model.PlateGeometry
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateManipulation
+import app.orcinus.shadow.core.model.PlateValidation
+import app.orcinus.shadow.core.model.PlateValidationMessage
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetChange
 import app.orcinus.shadow.core.model.PresetChoice
@@ -1179,3 +1182,40 @@ internal fun CutPlaneParcel.toOutcome(): CutPlaneOutcome = error?.let { CutPlane
             previewParts = previewMeshes.indices.map { index -> CutPreviewPart(ScenePath(previewMeshes[index]), previewUpper[index], previewModifiers[index]) },
         ),
     )
+
+internal fun PlateValidation.toParcel() = PlateValidationParcel().also { parcel ->
+    parcel.errorText = error?.text
+    parcel.errorObject = error?.objectIndex ?: -1
+    parcel.errorInstance = error?.instanceIndex ?: -1
+    parcel.errorOption = error?.option
+    parcel.warningText = warning?.text
+    parcel.warningObject = warning?.objectIndex ?: -1
+    parcel.warningInstance = warning?.instanceIndex ?: -1
+    parcel.warningOption = warning?.option
+    parcel.clearanceCounts = clearance.map { it.size }.toIntArray()
+    parcel.clearance = clearance.flatten().flatMap { listOf(it.x, it.y) }.toDoubleArray()
+    parcel.heightCounts = heightLimits.map { it.outline.size }.toIntArray()
+    parcel.heightOutlines = heightLimits.flatMap { it.outline }.flatMap { listOf(it.x, it.y) }.toDoubleArray()
+    parcel.heights = heightLimits.map { it.height }.toDoubleArray()
+    parcel.sequence = sequence.toIntArray()
+}
+
+internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
+    fun message(text: String?, objectIndex: Int, instanceIndex: Int, option: String?) =
+        text?.let { PlateValidationMessage(it, objectIndex, instanceIndex, option.orEmpty()) }
+    fun outlines(counts: IntArray?, points: DoubleArray?): List<List<Point2>> {
+        val values = points ?: DoubleArray(0)
+        var at = 0
+        return (counts ?: IntArray(0)).map { count ->
+            List(count) { point -> Point2(values[(at + point) * 2], values[(at + point) * 2 + 1]) }.also { at += count }
+        }
+    }
+    return PlateValidation(
+        error = message(errorText, errorObject, errorInstance, errorOption),
+        warning = message(warningText, warningObject, warningInstance, warningOption),
+        clearance = outlines(clearanceCounts, clearance),
+        heightLimits = outlines(heightCounts, heightOutlines).zip((heights ?: DoubleArray(0)).toList(), ::ClearanceHeight),
+        sequence = (sequence ?: IntArray(0)).toList(),
+    )
+}
+

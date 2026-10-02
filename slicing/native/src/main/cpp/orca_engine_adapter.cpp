@@ -20,6 +20,7 @@
 #include <CGAL/Min_sphere_of_spheres_d.h>
 #include <CGAL/Simple_cartesian.h>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/format.hpp>
 #include <boost/filesystem.hpp>
 #include <png.h>
 
@@ -46,6 +47,7 @@
 #include "libslic3r/Geometry/ConvexHull.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/GCode/Thumbnails.hpp"
+#include "libslic3r/I18N.hpp"
 #include "libslic3r/Layer.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/ModelArrange.hpp"
@@ -1685,66 +1687,165 @@ SliceResult slice(
     }
 }
 
-bool print_sequence(
-    const std::vector<PlateObject>& plate,
-    const ProfileSelection& profiles,
-    const ModelSettings& plate_settings,
-    std::vector<std::int32_t>& sequence
+namespace {
+
+// Plater::post_process_string_object_exception(): a filament the bed type is
+// not meant for is named in the message, by its alias or its name without the
+// printer.
+void post_process_string_object_exception(Slic3r::StringObjectException& err, const Slic3r::PresetBundle& bundle)
+{
+    if (err.type != Slic3r::StringExceptionType::STRING_EXCEPT_FILAMENT_NOT_MATCH_BED_TYPE || err.params.size() < 3) {
+        return;
+    }
+    try {
+        const int extruder_id = std::atoi(err.params[2].c_str()) - 1;
+        if (extruder_id < 0 || std::size_t(extruder_id) >= bundle.filament_presets.size()) {
+            return;
+        }
+        std::string filament_name = bundle.filament_presets[std::size_t(extruder_id)];
+        for (const Slic3r::Preset& filament : bundle.filaments) {
+            if (filament.name == filament_name) {
+                if (!filament.alias.empty()) {
+                    filament_name = filament.alias;
+                } else if (const std::size_t at = filament_name.find('@'); at != std::string::npos && at > 0) {
+                    filament_name = filament_name.substr(0, at - 1);
+                }
+                break;
+            }
+        }
+        err.string = (boost::format(Slic3r::I18N::translate(
+                          "Plate %d: %s is not suggested to be used to print filament %s (%s). "
+                          "If you still want to do this print job, please set this filament's bed temperature to non-zero."))
+                      % err.params[0] % err.params[1] % err.params[2] % filament_name).str();
+        err.string += "\n";
+    } catch (...) {
+    }
+}
+
+// The message of [err], with the copy it is about found among the plate's
+// objects by its id: a print object or model object names the object, a model
+// instance the copy.
+ValidationMessage validation_message(
+    const Slic3r::StringObjectException& err,
+    const std::map<std::size_t, std::int32_t>& objects,
+    const std::map<std::size_t, std::pair<std::int32_t, std::int32_t>>& copies
 )
 {
-    sequence.clear();
+    ValidationMessage message;
+    message.text = err.string;
+    message.option = err.opt_key;
+    const auto* print_object = dynamic_cast<const Slic3r::PrintObjectBase*>(err.object);
+    const auto* model_object = print_object != nullptr ? print_object->model_object() : dynamic_cast<const Slic3r::ModelObject*>(err.object);
+    const auto* model_instance = dynamic_cast<const Slic3r::ModelInstance*>(err.object);
+    if (model_instance != nullptr) {
+        if (const auto copy = copies.find(model_instance->id().id); copy != copies.end()) {
+            message.object = copy->second.first;
+            message.instance = copy->second.second;
+        }
+    } else if (model_object != nullptr) {
+        if (const auto object = objects.find(model_object->id().id); object != objects.end()) {
+            message.object = object->second;
+        }
+    }
+    return message;
+}
+
+void add_outline(const Slic3r::Polygon& polygon, std::vector<std::int32_t>& counts, std::vector<double>& points)
+{
+    counts.push_back(std::int32_t(polygon.points.size()));
+    for (const Slic3r::Point& point : polygon.points) {
+        points.push_back(Slic3r::unscale<double>(point.x()));
+        points.push_back(Slic3r::unscale<double>(point.y()));
+    }
+}
+
+}  // namespace
+
+PlateValidation validate_plate(
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const ModelSettings& plate_settings
+)
+{
+    PlateValidation result;
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
     if (engine().bundle == nullptr) {
-        return false;
+        return result;
     }
     try {
         Slic3r::DynamicPrintConfig config;
         std::string message;
         if (select_profiles(*engine().bundle, profiles, config, message) != SliceStatus::success) {
-            return false;
+            return result;
         }
         config.apply(detail::model_config(plate_settings), true);
+
+        Slic3r::Model model;
+        if (!load_plate(plate, config, model, message)) {
+            return result;
+        }
+        // The objects and copies of the plate by their ids, which the print's own model keeps.
+        std::map<std::size_t, std::int32_t> objects;
+        std::map<std::size_t, std::pair<std::int32_t, std::int32_t>> copies;
+        std::vector<std::size_t> copy_ids;
+        for (std::size_t object = 0; object < model.objects.size(); ++object) {
+            objects.emplace(model.objects[object]->id().id, std::int32_t(object));
+            for (std::size_t instance = 0; instance < model.objects[object]->instances.size(); ++instance) {
+                const std::size_t id = model.objects[object]->instances[instance]->id().id;
+                copies.emplace(id, std::make_pair(std::int32_t(object), std::int32_t(instance)));
+                copy_ids.push_back(id);
+            }
+        }
+        // update_print_volume_state(), then BackgroundSlicingProcess::apply() of the current plate.
+        model.update_print_volume_state(build_volume_of(config));
+        Slic3r::Print print;
+        print.set_plate_origin(Slic3r::to_3d(plate_origin_of(config), 0.));
+        print.set_plate_index(engine().plate_index);
+        print.set_check_multi_filaments_compatibility(engine().config->get("enable_high_low_temp_mixed_printing") == "false");
+        print.is_BBL_printer() = engine().bundle->is_bbl_vendor();
+        print.apply(model, config);
+        result.read = true;
+        // background_process.empty(): a plate with nothing to print is not validated.
+        if (print.empty()) {
+            return result;
+        }
+
+        Slic3r::StringObjectException warning;
+        Slic3r::Polygons polygons;
+        std::vector<std::pair<Slic3r::Polygon, float>> height_polygons;
+        Slic3r::StringObjectException err = print.validate(&warning, &polygons, &height_polygons);
+        post_process_string_object_exception(err, *engine().bundle);
+        result.error = validation_message(err, objects, copies);
+        result.warning = validation_message(warning, objects, copies);
+        // set_sequential_print_clearance_polygons() while the print is not valid.
+        if (!err.string.empty()) {
+            for (const Slic3r::Polygon& polygon : polygons) {
+                add_outline(polygon, result.clearance_counts, result.clearance);
+            }
+            for (const auto& [polygon, height] : height_polygons) {
+                add_outline(polygon, result.height_counts, result.height_outlines);
+                result.heights.push_back(height);
+            }
+        }
+
         // GLCanvas3D::_render(): sequential_print, from PartPlate::get_real_print_seq() and print_order.
         const auto* order = config.option<Slic3r::ConfigOptionEnum<Slic3r::PrintOrder>>("print_order");
         const bool sequential = config.opt_enum<Slic3r::PrintSequence>("print_sequence") == Slic3r::PrintSequence::ByObject
             || (order != nullptr && order->value == Slic3r::PrintOrder::AsObjectList);
-        if (!sequential) {
-            return true;
-        }
-
-        Slic3r::Model model;
-        if (!load_plate(plate, config, model, message)) {
-            return false;
-        }
-        // The copies of the plate by their ids, which the print's own model keeps.
-        std::map<std::size_t, std::size_t> copies;
-        for (const Slic3r::ModelObject* object : model.objects) {
-            for (const Slic3r::ModelInstance* instance : object->instances) {
-                copies.emplace(instance->id().id, copies.size());
-            }
-        }
-        model.update_print_volume_state(build_volume_of(config));
-
-        Slic3r::Print print;
-        print.set_plate_origin(Slic3r::to_3d(plate_origin_of(config), 0.));
-        print.set_plate_index(engine().plate_index);
-        print.apply(model, config);
-        Slic3r::StringObjectException warning;
-        print.validate(&warning);
-
-        sequence.assign(copies.size(), -1);
-        for (const Slic3r::PrintObject* print_object : print.objects()) {
-            for (const Slic3r::PrintInstance& instance : print_object->instances()) {
-                const auto copy = copies.find(instance.model_instance->id().id);
-                if (copy != copies.end()) {
-                    sequence[copy->second] = instance.model_instance->arrange_order;
+        if (sequential) {
+            result.sequence.assign(copy_ids.size(), -1);
+            for (const Slic3r::PrintObject* print_object : print.objects()) {
+                for (const Slic3r::PrintInstance& instance : print_object->instances()) {
+                    const auto found = std::find(copy_ids.begin(), copy_ids.end(), instance.model_instance->id().id);
+                    if (found != copy_ids.end()) {
+                        result.sequence[std::size_t(found - copy_ids.begin())] = instance.model_instance->arrange_order;
+                    }
                 }
             }
         }
-        return true;
+        return result;
     } catch (const std::exception&) {
-        sequence.clear();
-        return false;
+        return PlateValidation{};
     }
 }
 

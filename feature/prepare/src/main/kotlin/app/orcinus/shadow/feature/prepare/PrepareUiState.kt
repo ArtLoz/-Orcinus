@@ -28,6 +28,7 @@ import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.PlateValidationMessage
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.ScenePath
@@ -72,6 +73,33 @@ data class ObjectPosition(val x: Double, val y: Double, val z: Double) {
 /** One copy of an object on the plate, as the 3D view draws and numbers them. */
 data class SceneCopy(val id: PlateInstanceId, val plateObject: PlateObject, val instance: PlateInstance)
 
+/**
+ * A message of the plate's validation as its notification shows it
+ * (NotificationManager::push_validate_error_notification() and
+ * Plater::priv::process_validation_warning()): the [text], and what "Jump to"
+ * goes to — the [target] object or copy it is about, which it selects and
+ * names, and the setting [option] it names (opt_key).
+ */
+data class ValidationNotice(
+    val text: String,
+    val target: PlateInstanceId? = null,
+    val targetObject: PlateObject? = null,
+    /** The message is about one copy of the object, not the object as a whole. */
+    val copy: Boolean = false,
+    val option: String = "",
+)
+
+private fun notice(message: PlateValidationMessage, objects: List<PlateObject>): ValidationNotice {
+    val target = objects.getOrNull(message.objectIndex)
+    return ValidationNotice(
+        text = message.text,
+        target = target?.let { PlateInstanceId(it.mesh, message.instanceIndex.coerceAtLeast(0)) },
+        targetObject = target,
+        copy = target != null && message.instanceIndex >= 0,
+        option = message.option,
+    )
+}
+
 data class PrepareUiState(
     /** The printer's plate for the 3D view; null until the engine described it. */
     val plate: PlateDescription?,
@@ -114,6 +142,9 @@ data class PrepareUiState(
     val currentPlateCopies: Set<Int> = emptySet(),
     /** The labels' "Sequence#": each copy's place in the print order, -1 for one not printed; empty while the plate prints by layer. */
     val printSequence: List<Int> = emptyList(),
+    /** The plate's validation (Plater::priv::update_background_process()): its error and its warning. */
+    val validationError: ValidationNotice? = null,
+    val validationWarning: ValidationNotice? = null,
     val arrangeOptionsOpen: Boolean,
     val arrangeSettings: ArrangeSettings,
     /** What Copy and Cut took, which Paste puts on the plate. */
@@ -336,7 +367,9 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         wireframes = view.simplify?.takeIf { it.wireframe }?.preview?.let { setOf(it.mesh) }.orEmpty(),
         overhangNormalZ = overhangNormalZ,
         currentPlateCopies = copies.indices.filterTo(mutableSetOf()) { plateOf(copies[it].instance) == currentPlate },
-        printSequence = printSequence.orEmpty(),
+        printSequence = validation?.sequence.orEmpty(),
+        validationError = validation?.error?.let { notice(it, objects) },
+        validationWarning = validation?.warning?.let { notice(it, objects) },
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
         arrangeSettings = arrangeSettings,
         clipboard = clipboard,

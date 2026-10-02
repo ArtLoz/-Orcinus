@@ -61,6 +61,7 @@ import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
+import app.orcinus.shadow.core.model.PlateValidation
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
@@ -1041,8 +1042,8 @@ class RemoteSlicerEngine(
         }
     }
 
-    override suspend fun printSequence(plate: List<PlacedModel>, profiles: SlicingProfileSelection, plateSettings: ModelSettings): List<Int>? =
-        remote({ null }) { printSequence(plate.toParcels(), profiles.toParcel(), plateSettings.toParcel()) }?.toList()
+    override suspend fun validatePlate(plate: List<PlacedModel>, profiles: SlicingProfileSelection, plateSettings: ModelSettings): PlateValidation? =
+        remote({ null }) { validatePlate(plate.toParcels(), profiles.toParcel(), plateSettings.toParcel()) }?.toPlateValidation()
 
     override suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? =
         remote({ Double.NaN }) { overhangNormalZ(profiles.toParcel()) }.takeUnless(Double::isNaN)?.toFloat()

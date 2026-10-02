@@ -917,11 +917,11 @@ data class PlateState(
      */
     val overhangNormalZ: Float? = null,
     /**
-     * The "Sequence#" of the canvas's labels: every copy's place in the print
-     * order, object by object, -1 for one not printed; empty while the plate
-     * does not print by object, null while the labels are hidden or unknown.
+     * The plate applied to its print and validated after its last change
+     * (Plater::priv::update_background_process()); null while there is
+     * nothing to validate or the engine has not answered.
      */
-    val printSequence: List<Int>? = null,
+    val validation: PlateValidation? = null,
     /** The arrange options (GLCanvas3D::ArrangeSettings), which every arrangement of the plate takes. */
     val arrangeSettings: ArrangeSettings = ArrangeSettings(),
     /** What Copy and Cut took (Selection::Clipboard); null while nothing was copied. */
@@ -1018,7 +1018,9 @@ data class PlateState(
         get() = engine.availability == EngineAvailability.READY && profiles != null && !busy &&
             // ModelInstance::is_printable(): inside the build volume and printed.
             copies().any { it.inspection.fit == BuildVolumeFit.INSIDE && it.printable } &&
-            copies().none { it.placing || it.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE }
+            copies().none { it.placing || it.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE } &&
+            // PartPlate::can_slice(): not while the print's validation fails (m_apply_invalid).
+            validation?.error == null
 
     /** MainFrame::get_enable_slice_status() of "Slice all": always, while nothing is being sliced. */
     val canSliceAll: Boolean

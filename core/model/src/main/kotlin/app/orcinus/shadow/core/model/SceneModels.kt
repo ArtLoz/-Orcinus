@@ -425,3 +425,36 @@ sealed interface PlateDescriptionOutcome {
 
     data class Failure(val message: String) : PlateDescriptionOutcome
 }
+
+/**
+ * A message of Print::validate() (StringObjectException), in the app's
+ * language: the object of the plate it is about, by its index among the
+ * objects validated (-1 for none), the copy of it (-1 for the object as a
+ * whole), and [option], the setting to look at (opt_key; empty for none).
+ */
+data class PlateValidationMessage(
+    val text: String,
+    val objectIndex: Int = -1,
+    val instanceIndex: Int = -1,
+    val option: String = "",
+)
+
+/** A copy's outline at the height a copy printed before the last may reach (sequential printing). */
+data class ClearanceHeight(val outline: List<Point2>, val height: Double)
+
+/**
+ * Plater::priv::update_background_process(): the current plate applied to its
+ * print and validated. The [error] blocks slicing; while there is one the
+ * plate shows the sequential printing's [clearance] outlines and [heightLimits]
+ * (GLCanvas3D::SequentialPrintClearance). [sequence] numbers every copy of the
+ * plate in its print order, object by object, -1 for one not printed, while
+ * the plate prints by object or in the object list's order; empty otherwise.
+ */
+data class PlateValidation(
+    val error: PlateValidationMessage? = null,
+    val warning: PlateValidationMessage? = null,
+    val clearance: List<List<Point2>> = emptyList(),
+    val heightLimits: List<ClearanceHeight> = emptyList(),
+    val sequence: List<Int> = emptyList(),
+)
+

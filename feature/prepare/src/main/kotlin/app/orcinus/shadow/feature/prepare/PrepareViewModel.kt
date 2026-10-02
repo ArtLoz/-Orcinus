@@ -374,6 +374,14 @@ class PrepareViewModel(
 
     fun addCalibrationCube() = addCalibrationCubeToPlate()
 
+    /**
+     * "Jump to" of a validation notification: the object or the copy it is
+     * about is selected (ObjectList::select_items()).
+     */
+    fun jumpTo(notice: ValidationNotice) {
+        notice.target?.let { selectPlateObject(it) }
+    }
+
     /** Clearing the selection closes the gizmo, as GLGizmosManager does when it is no longer activable. */
     fun selectObject(index: Int?) {
         // The wipe tower is no object of the plate: picking it takes the
