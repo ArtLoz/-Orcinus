@@ -152,6 +152,7 @@ private fun CanvasViewSheet(
                 onSet(AppConfigKeys.SHOW_OVERHANG, it.toString())
             }
             SwitchRow(orcaString("Outline"), null, canvas.outline, enabled = !preview) { onSet(AppConfigKeys.SHOW_OUTLINE, it.toString()) }
+            SwitchRow(orcaString("Realistic View"), null, canvas.realistic) { onSet(AppConfigKeys.OPENGL_REALISTIC_MODE, it.toString()) }
             HorizontalDivider(color = colors.separator)
             SwitchRow(orcaString("Axes"), null, canvas.axes) { onSet(AppConfigKeys.SHOW_AXES, it.toString()) }
             SwitchRow(orcaString("Gridlines"), null, canvas.gridlines) { onSet(AppConfigKeys.SHOW_PLATE_GRIDLINES, it.toString()) }

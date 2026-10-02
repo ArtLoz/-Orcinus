@@ -48,6 +48,8 @@ internal class SceneFrame(
     val overhangNormalZ: Float? = null,
     /** The canvas's "Outline" (show_outline): the selected volumes are drawn with their silhouettes. */
     val outline: Boolean = false,
+    /** The realistic view with "Phong shading" (opengl_realistic_mode and opengl_realistic_phong): the volumes take the phong shader. */
+    val phong: Boolean = false,
     /**
      * The cut gizmo's colour clip plane (GLVolumeCollection::set_color_clip_plane):
      * -normal and offset; the objects are drawn in the colour of the upper part
@@ -302,7 +304,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         }
         // GLCanvas3D::_render() for the preview: the G-code after the bed.
         layer?.draw(frame.view.toFloatArray(), frame.projection)
-        renderObjects(programs.gouraud, frame)
+        // GLCanvas3D::_render_objects(): "phong" in the realistic view with Phong shading, "gouraud" otherwise.
+        renderObjects(if (frame.phong) programs.phong else programs.gouraud, frame)
         renderWireframes(programs.flat, frame)
         renderSelection(programs.flat, frame)
         frame.gizmo?.let { renderGizmo(programs, it, frame) }
@@ -484,6 +487,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glEnable(GLES30.GL_CULL_FACE)
         GLES30.glCullFace(GLES30.GL_BACK)
         program.use()
+        // opengl_phong_ssao, which the phong shader leaves to the SSAO pass.
+        if (frame.phong) program.setBoolean("enable_ssao", false)
         program.setFloat("z_far", frame.farZ)
         program.setFloat("z_near", frame.nearZ)
         program.setMatrix4("projection_matrix", frame.projection)
@@ -799,6 +804,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val gouraud = GlProgram(assets, "gouraud")
         val gouraudLight = GlProgram(assets, "gouraud_light")
         val hotbed = GlProgram(assets, "hotbed")
+        val phong = GlProgram(assets, "phong")
         val printbed = GlProgram(assets, "printbed")
     }
 

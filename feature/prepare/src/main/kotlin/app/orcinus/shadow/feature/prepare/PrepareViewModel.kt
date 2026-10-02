@@ -2,6 +2,7 @@ package app.orcinus.shadow.feature.prepare
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.CutConnector
@@ -235,7 +236,27 @@ class PrepareViewModel(
     val state: StateFlow<PrepareUiState> = combine(plate, view, PlateState::toPrepareUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), plate.value.toPrepareUiState(PrepareViewState()))
 
+    /** GLGizmosManager::m_restore_realistic_view_after_paint */
+    private var restoreRealisticView = false
+
     init {
+        // GLGizmosManager::open_gizmo(): the support, seam and fuzzy skin painting turn the realistic
+        // view off while they are open, and it comes back once no gizmo is open after them.
+        viewModelScope.launch {
+            view.map { it.painting?.kind ?: it.gizmo ?: it.cut ?: it.simplify }.distinctUntilChanged().collect { gizmo ->
+                when {
+                    gizmo == null -> if (restoreRealisticView) {
+                        setPreference(AppConfigKeys.OPENGL_REALISTIC_MODE, "true")
+                        restoreRealisticView = false
+                    }
+                    gizmo in REALISTIC_OFF_PAINTING -> if (canvas.value.realistic) {
+                        restoreRealisticView = true
+                        setPreference(AppConfigKeys.OPENGL_REALISTIC_MODE, "false")
+                    }
+                    else -> restoreRealisticView = false
+                }
+            }
+        }
         viewModelScope.launch {
             for (asked in cutPlanes) {
                 val plane = asked.plane ?: continue
@@ -1357,6 +1378,9 @@ class PrepareViewModel(
     fun dismissProblem() = dismissPlateProblem()
 
     private companion object {
+        /** The gizmos that turn the realistic view off while they are open: Seam, FdmSupports and FuzzySkin. */
+        val REALISTIC_OFF_PAINTING = setOf(PaintKind.SEAM, PaintKind.SUPPORTS, PaintKind.FUZZY_SKIN)
+
         /** GLGizmoSimplify's "static int reduction = 2": Medium. */
         const val DEFAULT_REDUCTION = 2
 

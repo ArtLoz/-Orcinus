@@ -418,6 +418,8 @@ data class PlateViewOptions(
     val axes: Boolean = true,
     val gridlines: Boolean = true,
     val outline: Boolean = false,
+    /** The realistic view with Phong shading (opengl_realistic_mode and opengl_realistic_phong). */
+    val phong: Boolean = false,
 )
 
 /**
@@ -1657,6 +1659,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 showGridlines = options.gridlines,
                 overhangNormalZ = overhangNormalZ,
                 outline = options.outline,
+                phong = options.phong,
                 gizmo = gizmoFrame(),
                 slopeNormalZ = slopeNormalZ,
                 // apply_color_clip_plane_colors(): the dovetail cut shows no parts' colours on the object.

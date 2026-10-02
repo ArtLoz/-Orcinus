@@ -45,6 +45,10 @@ data class CanvasPreferences(
     val outline: Boolean = false,
     /** show_labels: the Prepare page's 3D view labels every object on the plate with its name. */
     val labels: Boolean = false,
+    /** opengl_realistic_mode: the canvas's "Realistic View". */
+    val realistic: Boolean = false,
+    /** opengl_realistic_phong: the realistic view shades the objects with Phong's model. */
+    val phong: Boolean = true,
     /** show_axes: the coordinate axes at the origin of the plates (Bed3D::render_axes()). */
     val axes: Boolean = true,
     /** show_plate_gridlines: the plates' grids. */
@@ -92,6 +96,8 @@ object AppConfigKeys {
     const val OPENGL_FXAA_ENABLED = "opengl_fxaa_enabled"
     const val OPENGL_FPS_CAP = "opengl_fps_cap"
     const val OPENGL_SHOW_FPS_OVERLAY = "opengl_show_fps_overlay"
+    const val OPENGL_REALISTIC_MODE = "opengl_realistic_mode"
+    const val OPENGL_REALISTIC_PHONG = "opengl_realistic_phong"
     const val DEVELOPER_MODE = "developer_mode"
     const val KEEP_PAINTING = "keep_painting"
     const val LOG_SEVERITY_LEVEL = "log_severity_level"
@@ -143,6 +149,8 @@ object AppConfigKeys {
         OPENGL_FXAA_ENABLED,
         OPENGL_FPS_CAP,
         OPENGL_SHOW_FPS_OVERLAY,
+        OPENGL_REALISTIC_MODE,
+        OPENGL_REALISTIC_PHONG,
         DEVELOPER_MODE,
         KEEP_PAINTING,
         LOG_SEVERITY_LEVEL,

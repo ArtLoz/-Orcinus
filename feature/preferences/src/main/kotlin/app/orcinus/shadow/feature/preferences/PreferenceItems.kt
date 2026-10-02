@@ -247,6 +247,12 @@ internal val PREFERENCE_PAGES = listOf(
         "Graphics",
         listOf(
             PreferenceSection(
+                "Realistic View",
+                listOf(
+                    PreferenceItem.Check(AppConfigKeys.OPENGL_REALISTIC_PHONG, "Phong shading", "Uses Phong shading inside realistic view."),
+                ),
+            ),
+            PreferenceSection(
                 "Anti-aliasing",
                 listOf(
                     PreferenceItem.Choice(
