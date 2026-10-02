@@ -421,7 +421,7 @@ class SidebarViewModel(
 
     fun addHandyModel(model: HandyModel) = addModelToPlate.handy(model)
 
-    fun addModel(document: ExternalDocumentReference) = addModelToPlate(document)
+    fun addModels(documents: List<ExternalDocumentReference>) = addModelToPlate(documents)
 
     /** Plater::new_project() */
     fun newProject() = projectLifecycle.newProject()
@@ -1297,9 +1297,9 @@ fun PlateSidebar(
     val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.openProject(ExternalDocumentReference(uri.toString()))
     }
-    // The plate menu's Add Models (Plater::add_file).
-    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) viewModel.addModel(ExternalDocumentReference(uri.toString()))
+    // The plate menu's Add Models (Plater::add_file), whose file dialog takes several files at once.
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) viewModel.addModels(uris.map { ExternalDocumentReference(it.toString()) })
     }
     // Import Configs takes a document, Export Preset Bundle a folder.
     // The file dialog of the desktop app takes several files at once.

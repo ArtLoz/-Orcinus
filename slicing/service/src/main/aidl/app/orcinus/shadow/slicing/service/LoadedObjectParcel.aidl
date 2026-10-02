@@ -23,4 +23,6 @@ parcelable LoadedObjectParcel {
     @nullable LayerRangeParcel[] layerRanges;
     /** The object's cut id flattened (CutId.values); null for none. */
     @nullable long[] cutId;
+    /** The name of the file it came from when the load read several; null otherwise. */
+    @nullable String inputFile;
 }

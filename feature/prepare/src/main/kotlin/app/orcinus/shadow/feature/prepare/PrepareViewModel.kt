@@ -375,7 +375,8 @@ class PrepareViewModel(
             other.dimensions == dimensions && other.unscaledDimensions == unscaledDimensions && other.profiles == profiles
     }
 
-    fun addModel(reference: String) = addModelToPlate(ExternalDocumentReference(reference))
+    /** The documents the user picked at once (Plater::add_file()). */
+    fun addModels(references: List<String>) = addModelToPlate(references.map(::ExternalDocumentReference))
 
     fun addCalibrationCube() = addCalibrationCubeToPlate()
 

@@ -122,7 +122,7 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             runBlocking { engine.inspect(model.toModelSource(), profiles.toProfiles(), ScenePath(meshPath), plate.toPlacedModels()) }.toParcel()
 
         override fun load(
-            source: String,
+            sources: Array<String>,
             profiles: ProfilesParcel,
             plate: Array<PlacedModelParcel>,
             prefix: String,
@@ -130,17 +130,19 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
             answers: BooleanArray,
             load: String,
             chosen: Boolean,
-            stepMesh: DoubleArray?,
+            stepMeshes: DoubleArray,
+            askMulti: Boolean,
         ): ModelLoadParcel = runBlocking {
             engine.load(
-                ModelPath(source),
+                sources.map(::ModelPath),
                 profiles.toProfiles(),
                 plate.toPlacedModels(),
                 ScenePath(prefix),
                 answerIds.zip(answers.toList()).toMap(),
                 ModelLoad.valueOf(load),
                 chosen,
-                stepMesh?.toStepMeshOptions(),
+                stepMeshes.toStepMeshes(),
+                askMulti,
             )
         }.toParcel()
 

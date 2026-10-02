@@ -729,7 +729,8 @@ jobject to_java(JNIEnv* env, const orcinus::orca::SettingsDialog& dialog)
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;"
         "Z"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;"
-        "Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;)V"
+        "Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;"
+        "Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;Z)V"
     );
     return env->NewObject(
         dialog_class,
@@ -740,7 +741,9 @@ jobject to_java(JNIEnv* env, const orcinus::orca::SettingsDialog& dialog)
         to_java(env, dialog.text),
         dialog.question ? JNI_TRUE : JNI_FALSE,
         to_java(env, dialog.yes),
-        to_java(env, dialog.no)
+        to_java(env, dialog.no),
+        to_java(env, dialog.checkbox),
+        dialog.checked ? JNI_TRUE : JNI_FALSE
     );
 }
 
@@ -2982,7 +2985,7 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[J[Ljava/lang/String;[D"
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
-        "Ljava/lang/String;[Ljava/lang/String;[J[D[D)V"
+        "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;)V"
     );
     // The cut the object is a part of, and the cut info of its own mesh and of every part.
     const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
@@ -3038,7 +3041,8 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         to_java(env, part_inputs),
         cut_id_array,
         to_java(env, volume_cut_info.data(), volume_cut_info.size()),
-        to_java(env, part_cut_info.data(), part_cut_info.size())
+        to_java(env, part_cut_info.data(), part_cut_info.size()),
+        to_java(env, object.input_file)
     );
 }
 
@@ -3137,7 +3141,7 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
         "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;I"
-        "ZDDZ)V"
+        "ZDDZIZ)V"
     );
     const jobjectArray plates = to_java_objects(
         env,
@@ -3165,7 +3169,9 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         imported.step_mesh ? JNI_TRUE : JNI_FALSE,
         static_cast<jdouble>(imported.step_linear_deflection),
         static_cast<jdouble>(imported.step_angle_deflection),
-        imported.step_split_compound ? JNI_TRUE : JNI_FALSE
+        imported.step_split_compound ? JNI_TRUE : JNI_FALSE,
+        static_cast<jint>(imported.step_file),
+        imported.split_to_objects ? JNI_TRUE : JNI_FALSE
     );
 }
 
@@ -3527,7 +3533,7 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
     JNIEnv* env,
     jobject /* this */,
-    jstring source_path,
+    jobjectArray source_paths,
     jstring printer_profile,
     jstring filament_profile,
     jobjectArray filament_profiles,
@@ -3538,23 +3544,34 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
     jbooleanArray answers,
     jlong load,
     jboolean chosen,
-    jboolean step_chosen,
-    jdouble step_linear,
-    jdouble step_angle,
-    jboolean step_split
+    jbooleanArray step_chosen,
+    jdoubleArray step_linear,
+    jdoubleArray step_angle,
+    jbooleanArray step_split,
+    jboolean ask_multi
 )
 {
+    // StepMeshDialog's answer for every file.
+    const std::vector<bool> chosen_meshes = to_bools(env, step_chosen);
+    const std::vector<double> linear = to_doubles(env, step_linear);
+    const std::vector<double> angle = to_doubles(env, step_angle);
+    const std::vector<bool> split = to_bools(env, step_split);
+    std::vector<orcinus::orca::StepMeshChoice> step_meshes;
+    for (std::size_t index = 0; index < chosen_meshes.size() && index < linear.size() && index < angle.size() && index < split.size(); ++index) {
+        step_meshes.push_back(to_step_mesh(chosen_meshes[index] ? JNI_TRUE : JNI_FALSE, linear[index], angle[index], split[index] ? JNI_TRUE : JNI_FALSE));
+    }
     return to_java(
         env,
-        orcinus::orca::import_model(
-            to_utf8(env, source_path),
+        orcinus::orca::import_models(
+            to_strings(env, source_paths),
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
             to_plate(env, plate),
             to_utf8(env, output_prefix),
             to_answers(env, answer_ids, answers),
             static_cast<orcinus::orca::ModelLoad>(load),
             chosen == JNI_TRUE,
-            to_step_mesh(step_chosen, step_linear, step_angle, step_split)
+            step_meshes,
+            ask_multi == JNI_TRUE
         )
     );
 }

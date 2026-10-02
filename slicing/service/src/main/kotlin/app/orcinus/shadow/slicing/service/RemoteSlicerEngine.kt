@@ -202,17 +202,18 @@ class RemoteSlicerEngine(
     }
 
     override suspend fun load(
-        source: ModelPath,
+        sources: List<ModelPath>,
         profiles: SlicingProfileSelection,
         plate: List<PlacedModel>,
         prefix: ScenePath,
         answers: Map<String, Boolean>,
         load: ModelLoad,
         chosen: Boolean,
-        stepMesh: StepMeshOptions?,
+        stepMeshes: Map<Int, StepMeshOptions>,
+        askMulti: Boolean,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         load(
-            source.value,
+            sources.map(ModelPath::value).toTypedArray(),
             profiles.toParcel(),
             plate.toParcels(),
             prefix.value,
@@ -220,7 +221,8 @@ class RemoteSlicerEngine(
             answers.values.toBooleanArray(),
             load.name,
             chosen,
-            stepMesh?.toArray(),
+            stepMeshes.toArray(sources.size),
+            askMulti,
         ).toModelLoadOutcome()
     }
 

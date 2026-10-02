@@ -353,6 +353,15 @@ internal fun StepMeshOptions.toArray() = doubleArrayOf(linearDeflection, angleDe
 
 internal fun DoubleArray.toStepMeshOptions() = StepMeshOptions(this[0], this[1], this[2] != 0.0)
 
+/** StepMeshDialog's answers for [count] files as the service passes them: chosen as 1 or 0, then StepMeshOptions.toArray(). */
+internal fun Map<Int, StepMeshOptions>.toArray(count: Int) = (0 until count).flatMap { file ->
+    this[file]?.let { listOf(1.0) + it.toArray().toList() } ?: listOf(0.0, 0.0, 0.0, 0.0)
+}.toDoubleArray()
+
+internal fun DoubleArray.toStepMeshes(): Map<Int, StepMeshOptions> = (0 until size / 4)
+    .filter { this[it * 4] != 0.0 }
+    .associateWith { copyOfRange(it * 4 + 1, it * 4 + 4).toStepMeshOptions() }
+
 internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.notices = notices.map { dialog -> dialog.toParcel() }.toTypedArray()
     it.appended = this is ModelLoadOutcome.Success && appended
@@ -360,6 +369,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.presetsChanged = this is ModelLoadOutcome.Success && presetsChanged
     it.calibration = (this as? ModelLoadOutcome.Success)?.calibration?.toParcel()
     it.plateCount = (this as? ModelLoadOutcome.Success)?.plateCount ?: 0
+    it.splitToObjects = this is ModelLoadOutcome.Success && splitToObjects
     (this as? ModelLoadOutcome.Success)?.project?.let { project ->
         it.plates = project.plates.map { plate -> plate.toParcel() }.toTypedArray()
         it.projectInfo = project.info?.value
@@ -367,7 +377,10 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     when (this) {
         is ModelLoadOutcome.Failure -> it.error = message
         is ModelLoadOutcome.Question -> it.question = question.toParcel()
-        is ModelLoadOutcome.StepMesh -> it.stepMesh = options.toArray()
+        is ModelLoadOutcome.StepMesh -> {
+            it.stepMesh = options.toArray()
+            it.stepFile = file
+        }
         is ModelLoadOutcome.Success -> it.objects = objects.map { loaded ->
             LoadedObjectParcel().also { parcel ->
                 parcel.name = loaded.name
@@ -382,6 +395,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
                 parcel.painted = loaded.painted.value.takeUnless(String::isEmpty)
                 parcel.layerRanges = loaded.layerRanges.toParcels()
                 parcel.cutId = loaded.cutId?.values()
+                parcel.inputFile = loaded.inputFile.takeUnless(String::isEmpty)
             }
         }.toTypedArray()
     }
@@ -391,7 +405,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
     val shown = notices.orEmpty().map { it.toDialog() }
     error?.let { return ModelLoadOutcome.Failure(it, shown) }
     question?.let { return ModelLoadOutcome.Question(it.toDialog(), shown) }
-    stepMesh?.let { return ModelLoadOutcome.StepMesh(it.toStepMeshOptions(), shown) }
+    stepMesh?.let { return ModelLoadOutcome.StepMesh(it.toStepMeshOptions(), shown, stepFile) }
     return ModelLoadOutcome.Success(
         objects.orEmpty().map { parcel ->
             LoadedObject(
@@ -411,6 +425,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
                 painted = PaintedFacets(parcel.painted.orEmpty()),
                 layerRanges = parcel.layerRanges.toLayerRanges(),
                 cutId = CutId.of(parcel.cutId),
+                inputFile = parcel.inputFile.orEmpty(),
             )
         },
         shown,
@@ -425,6 +440,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
         presetsChanged = presetsChanged,
         calibration = calibration?.toCalibrationParams(),
         plateCount = plateCount,
+        splitToObjects = splitToObjects,
     )
 }
 

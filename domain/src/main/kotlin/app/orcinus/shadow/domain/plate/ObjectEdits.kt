@@ -140,8 +140,9 @@ class AnswerPlateQuestionUseCase(
     private val copyToClipboard: CopyToClipboardUseCase,
     private val invalidateCutInfo: InvalidateCutInfoUseCase,
 ) {
-    operator fun invoke(yes: Boolean) = when (repository.state.value.plateQuestion?.request) {
-        is PlateRequest.Import -> addModelToPlate.answer(yes)
+    /** [checked] is the state of the question's check box, when it has one. */
+    operator fun invoke(yes: Boolean, checked: Boolean = false) = when (repository.state.value.plateQuestion?.request) {
+        is PlateRequest.Import -> addModelToPlate.answer(yes, checked)
         is PlateRequest.Edit -> editPlateObject.answer(yes)
         PlateRequest.TopSurfaceSuggestion -> suggestion(yes)
         is PlateRequest.DeleteCutObject -> deletePlateObject.answer(yes)

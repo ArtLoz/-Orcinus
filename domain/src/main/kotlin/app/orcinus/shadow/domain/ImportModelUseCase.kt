@@ -10,4 +10,9 @@ class ImportModelUseCase(
     suspend operator fun invoke(
         reference: ExternalDocumentReference,
     ): ModelImportOutcome = importer.importModel(reference)
+
+    /** The documents the user picked at once. */
+    suspend operator fun invoke(
+        references: List<ExternalDocumentReference>,
+    ): List<ModelImportOutcome> = importer.importModels(references)
 }

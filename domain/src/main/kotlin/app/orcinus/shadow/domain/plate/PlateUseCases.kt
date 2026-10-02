@@ -28,6 +28,7 @@ import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.ImportBatch
+import app.orcinus.shadow.core.model.ImportFiles
 import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerRange
@@ -42,6 +43,7 @@ import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.OrcaText
@@ -576,6 +578,12 @@ class ApplySetupUseCase(
  * user chooses in ProjectDropDialog ([openAs]) — always, or by default only
  * when the plate already has objects. A project takes the plate's place with
  * its objects, settings and presets, and Undo starts afresh from it.
+ *
+ * Several documents picked at once load as Plater::add_file() loads them:
+ * model files together, asking whether they make one object of several parts
+ * and whether it drops onto the plate; with 3MF files among them, the first
+ * 3MF file opens as a single one does, then the other 3MF files load as
+ * geometry, and the other files together.
  */
 class AddModelToPlateUseCase(
     private val importModel: ImportModelUseCase,
@@ -589,30 +597,54 @@ class AddModelToPlateUseCase(
     private val applicationScope: CoroutineScope,
     private val preferences: AppPreferences,
     private val stepMeshPrompt: StepMeshPrompt,
+    private val editPlateObject: EditPlateObjectUseCase,
 ) {
-    operator fun invoke(reference: ExternalDocumentReference) {
-        if (!start()) return
+    operator fun invoke(reference: ExternalDocumentReference) = invoke(listOf(reference))
+
+    /** Plater::add_file() of the documents the user picked at once. */
+    operator fun invoke(references: List<ExternalDocumentReference>) {
+        if (references.isEmpty() || !start()) return
         applicationScope.launch {
-            when (val imported = importModel(reference)) {
-                is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
-                is ModelImportOutcome.Success -> {
-                    val path = imported.model.path
-                    val picked = ImportBatch(document = reference, displayName = imported.model.displayName)
-                    if (!path.value.endsWith(".3mf", ignoreCase = true)) {
-                        load(path, picked, emptyMap(), emptyList())
-                        return@launch
-                    }
-                    // open_3mf_file(): "Ask When Relevant" asks only over a plate with objects.
-                    val setting = preferences[AppConfigKeys.PROJECT_LOAD_BEHAVIOUR]
-                    val relevant = repository.state.value.objects.isNotEmpty() && setting == AppConfigKeys.ASK_WHEN_RELEVANT
-                    // determine_load_type()
-                    when (if (relevant) AppConfigKeys.ALWAYS_ASK else setting) {
-                        AppConfigKeys.LOAD_GEOMETRY_ONLY -> load(path, picked, emptyMap(), emptyList())
-                        AppConfigKeys.ALWAYS_ASK -> repository.update { it.copy(projectDrop = path, projectDropBatch = picked) }
-                        else -> openProject(path, picked)
-                    }
+            val picked = mutableListOf<Pair<ExternalDocumentReference, ImportedModelFile>>()
+            for ((reference, imported) in references.zip(importModel(references))) {
+                when (imported) {
+                    is ModelImportOutcome.Failure -> return@launch finish(ModelLoadOutcome.Failure(imported.message))
+                    is ModelImportOutcome.Success -> picked += reference to imported.model
                 }
             }
+            val projects = picked.filter { (_, model) -> model.path.value.endsWith(".3mf", ignoreCase = true) }
+            val models = picked.filterNot { it in projects }
+            when {
+                // LoadFilesType::SingleOther, and MultipleOther: the files load together,
+                // asking whether they make one object; a plate without a name takes the first one's.
+                projects.isEmpty() -> {
+                    val (document, model) = picked.first()
+                    val files = ImportFiles(models.map { it.second.path }, askMulti = models.size > 1)
+                    load(files, ImportBatch(document = document, displayName = model.displayName), emptyMap(), emptyList())
+                }
+                // Single3MF, Multiple3MF and Multiple3MFOther: the first 3MF file opens
+                // as open_3mf_file() opens it, then the other 3MF files and the other
+                // files load as geometry. The other 3MF files load one by one, as the
+                // engine loads a 3MF file only on its own.
+                else -> {
+                    val (document, project) = projects.first()
+                    val rest = projects.drop(1).map { ImportFiles(it.second.path) } +
+                        listOfNotNull(models.takeIf { it.isNotEmpty() }?.let { others -> ImportFiles(others.map { it.second.path }) })
+                    open3mf(project.path, ImportBatch(rest = rest, document = document, displayName = project.displayName))
+                }
+            }
+        }
+    }
+
+    /** open_3mf_file(): "Ask When Relevant" asks only over a plate with objects. */
+    private suspend fun open3mf(path: ModelPath, picked: ImportBatch) {
+        val setting = preferences[AppConfigKeys.PROJECT_LOAD_BEHAVIOUR]
+        val relevant = repository.state.value.objects.isNotEmpty() && setting == AppConfigKeys.ASK_WHEN_RELEVANT
+        // determine_load_type()
+        when (if (relevant) AppConfigKeys.ALWAYS_ASK else setting) {
+            AppConfigKeys.LOAD_GEOMETRY_ONLY -> load(ImportFiles(path), picked, emptyMap(), emptyList())
+            AppConfigKeys.ALWAYS_ASK -> repository.update { it.copy(projectDrop = path, projectDropBatch = picked) }
+            else -> openProject(path, picked)
         }
     }
 
@@ -649,19 +681,26 @@ class AddModelToPlateUseCase(
             displayName = backup.origin.name?.takeIf { document != null }?.let { "$it.3mf" },
             restore = true,
         )
-        load(backup.file, batch, emptyMap(), emptyList())
+        load(ImportFiles(backup.file), batch, emptyMap(), emptyList())
     }
 
-    /** Plater::load_project(): the questions of the project before, then the load. */
+    /**
+     * Plater::load_project(): the questions of the project before, then the
+     * load. A project the user keeps from opening leaves the other files of
+     * the batch to load, as add_file() goes on with them.
+     */
     private suspend fun openProject(path: ModelPath, picked: ImportBatch, chosen: Boolean = false) {
         if (!confirmClose.confirm(newProject = false)) {
-            repository.update { it.copy(importing = false) }
+            if (picked.rest.isEmpty()) repository.update { it.copy(importing = false) } else load(picked.rest.first(), picked.next(picked.loaded), emptyMap(), emptyList())
             return
         }
-        load(path, picked.copy(load = ModelLoad.PROJECT, chosen = chosen), emptyMap(), emptyList())
+        load(ImportFiles(path), picked.copy(load = ModelLoad.PROJECT, chosen = chosen), emptyMap(), emptyList())
     }
 
-    /** ProjectDropDialog's choice for the 3MF file that waits; null cancels the load. */
+    /**
+     * ProjectDropDialog's choice for the 3MF file that waits; null cancels its
+     * load, and the other files of the batch load still, as add_file() goes on.
+     */
     fun openAs(load: ModelLoad?) {
         var source: ModelPath? = null
         var picked = ImportBatch()
@@ -670,14 +709,21 @@ class AddModelToPlateUseCase(
             picked = state.projectDropBatch
             when {
                 source == null -> state
-                load == null -> state.copy(projectDrop = null, projectDropBatch = ImportBatch(), importing = false)
+                load == null -> state.copy(projectDrop = null, projectDropBatch = ImportBatch(), importing = picked.rest.isNotEmpty())
                 else -> state.copy(projectDrop = null, projectDropBatch = ImportBatch())
             }
         }
         val path = source ?: return
-        if (load == null) return
+        if (load == null) {
+            if (picked.rest.isNotEmpty()) applicationScope.launch { load(picked.rest.first(), picked.next(picked.loaded), emptyMap(), emptyList()) }
+            return
+        }
         applicationScope.launch {
-            if (load == ModelLoad.PROJECT) openProject(path, picked, chosen = true) else load(path, picked.copy(load = load, chosen = true), emptyMap(), emptyList())
+            if (load == ModelLoad.PROJECT) {
+                openProject(path, picked, chosen = true)
+            } else {
+                load(ImportFiles(path), picked.copy(load = load, chosen = true), emptyMap(), emptyList())
+            }
         }
     }
 
@@ -696,11 +742,11 @@ class AddModelToPlateUseCase(
                 return@launch finish(ModelLoadOutcome.Failure("${model.label} is not among OrcaSlicer's handy models"))
             }
             val batch = ImportBatch(
-                rest = files.drop(1).filterNotNull(),
+                rest = files.drop(1).filterNotNull().map(::ImportFiles),
                 arrange = model.arrangeAfterImport,
                 suggestTopSurface = model.suggestsTopSurface,
             )
-            load(first, batch, emptyMap(), emptyList())
+            load(ImportFiles(first), batch, emptyMap(), emptyList())
         }
     }
 
@@ -714,8 +760,11 @@ class AddModelToPlateUseCase(
         return started
     }
 
-    /** The answer to the question the load asked: the file loads again with every answer so far. */
-    fun answer(yes: Boolean) {
+    /**
+     * The answer to the question the load asked, with the state of its check
+     * box when it has one: the files load again with every answer so far.
+     */
+    fun answer(yes: Boolean, checked: Boolean = false) {
         var pending: PendingPlateQuestion? = null
         repository.update { state ->
             pending = state.plateQuestion?.takeIf { it.request is PlateRequest.Import }
@@ -723,17 +772,19 @@ class AddModelToPlateUseCase(
         }
         val question = pending ?: return
         val request = question.request as PlateRequest.Import
-        applicationScope.launch { load(request.source, request.batch, question.answers + (question.question.id to yes), question.shown) }
+        val dialog = question.question
+        val answers = question.answers + (dialog.id to yes) + listOfNotNull(dialog.checkbox?.let { dialog.checkboxAnswer to checked })
+        applicationScope.launch { load(request.files, request.batch, answers, question.shown) }
     }
 
-    private suspend fun load(source: ModelPath, batch: ImportBatch, answers: Map<String, Boolean>, shown: List<SettingsDialog>) {
+    private suspend fun load(files: ImportFiles, batch: ImportBatch, answers: Map<String, Boolean>, shown: List<SettingsDialog>) {
         val state = repository.state.value
         val profiles = state.profiles ?: return finish(ModelLoadOutcome.Failure("No printer is set up"))
         val prefix = sceneFiles.newImportPrefix()
         // Plater::load_project() resets the plate before the project loads.
         val plate = if (batch.load == ModelLoad.PROJECT) emptyList() else state.objects.map { it.placed() }
         val outcome = try {
-            inspector.load(source, profiles, plate, prefix, answers, batch.load, batch.chosen, batch.stepMesh)
+            inspector.load(files.files, profiles, plate, prefix, answers, batch.load, batch.chosen, batch.stepMeshes, files.askMulti)
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation
@@ -742,29 +793,31 @@ class AddModelToPlateUseCase(
         }
         if (outcome !is ModelLoadOutcome.Success) sceneFiles.deleteImport(prefix)
         if (outcome is ModelLoadOutcome.StepMesh) {
-            // StepMeshDialog; its Cancel ends the whole load, as load_files() returns.
-            val options = stepMeshPrompt.ask(source, outcome.options)
+            // StepMeshDialog for the STEP file that asked; its Cancel ends the whole load, as load_files() returns.
+            val options = stepMeshPrompt.ask(files.files.getOrElse(outcome.file) { files.first }, outcome.options)
             if (options == null) {
                 repository.update { it.copy(importing = false) }
                 return
             }
-            return load(source, batch.copy(stepMesh = options), answers, shown)
+            return load(files, batch.copy(stepMeshes = batch.stepMeshes + (outcome.file to options)), answers, shown)
         }
         // The presets the load selected (a project's, or more filaments for a
         // 3MF file's objects) reach the plate together with its objects, so no
         // request asks the engine for the presets before.
         val presets = if (outcome is ModelLoadOutcome.Success && outcome.presetsChanged) presetManager.presets() else null
-        finish(outcome, source, batch, answers, shown, presets)
+        finish(outcome, files, batch, answers, shown, presets)
     }
 
     /**
      * The load asks again what it asked before, and shows its message boxes
-     * again: each shows once. A file of a batch that loaded goes on with the
-     * next one, and the last one ends the batch.
+     * again: each shows once. A load of a batch goes on with the next one,
+     * and the last one ends the batch. Files the user wants as objects that
+     * keep their places loaded as one object, which is then split into them
+     * (split_object() after load_model_objects()).
      */
     private fun finish(
         outcome: ModelLoadOutcome,
-        source: ModelPath? = null,
+        files: ImportFiles? = null,
         batch: ImportBatch = ImportBatch(),
         answers: Map<String, Boolean> = emptyMap(),
         shown: List<SettingsDialog> = emptyList(),
@@ -773,9 +826,11 @@ class AddModelToPlateUseCase(
         var next: ImportBatch? = null
         var done = false
         var before: SlicingProfileSelection? = null
+        var split: ScenePath? = null
         repository.update { state ->
             next = null
             done = false
+            split = null
             before = state.profiles
             val notices = outcome.notices.filterNot { it in shown }
             val informed = state.copy(
@@ -786,11 +841,13 @@ class AddModelToPlateUseCase(
                 is ModelLoadOutcome.Success -> {
                     // ModelObject::input_file: the document the objects came from; a
                     // restored backup's objects come from its origin (load_files()'s real_filename).
-                    val inputName = batch.displayName?.takeIf { batch.restore } ?: source?.value.orEmpty().substringAfterLast('/')
-                    val added = outcome.objects.map { it.toPlateObject(inputName) }
+                    // The objects of several files each come from their own.
+                    val inputName = batch.displayName?.takeIf { batch.restore } ?: files?.first?.value.orEmpty().substringAfterLast('/')
+                    val added = outcome.objects.map { it.toPlateObject(it.inputFile.ifEmpty { inputName }) }
                     // load_files() selects every object it added.
                     val loaded = batch.loaded + added.allCopies()
-                    if (batch.rest.isNotEmpty()) next = batch.copy(rest = batch.rest.drop(1), loaded = loaded, stepMesh = null) else done = true
+                    if (batch.rest.isNotEmpty()) next = batch.next(loaded) else done = true
+                    if (outcome.splitToObjects) split = added.singleOrNull()?.mesh
                     val project = outcome.project
                     if (project != null) {
                         // Plater::load_project(): the project takes the plate's place with
@@ -801,7 +858,7 @@ class AddModelToPlateUseCase(
                             PartPlate(name = plate.name, locked = plate.locked, settings = plate.settings, layerGcodes = plate.layerGcodes)
                         }.ifEmpty { listOf(PartPlate()) }
                         informed.copy(
-                            importing = false,
+                            importing = batch.rest.isNotEmpty(),
                             objects = added,
                             selectedInstances = loaded,
                             selectedPart = null,
@@ -851,7 +908,7 @@ class AddModelToPlateUseCase(
                 }
                 is ModelLoadOutcome.Question -> informed.copy(
                     plateQuestion = PendingPlateQuestion(
-                        PlateRequest.Import(checkNotNull(source), batch),
+                        PlateRequest.Import(checkNotNull(files), batch),
                         outcome.question,
                         answers,
                         shown + notices,
@@ -874,10 +931,24 @@ class AddModelToPlateUseCase(
             applicationScope.launch { load(batch.rest.first(), following, emptyMap(), emptyList()) }
         } else if (done) {
             val state = repository.state.value
+            split?.let { editPlateObject(it, ObjectEdit.SPLIT_TO_OBJECTS) }
             if (batch.arrange && state.objects.isNotEmpty()) placePlateObjects(PlateManipulation.ArrangePlate(state.arrangeSettings))
             if (batch.suggestTopSurface) suggestTopSurface()
         }
     }
+
+    /**
+     * The batch for its next load, with the copies [loaded] so far: add_file()
+     * loads the files after the first as geometry, which name nothing.
+     */
+    private fun ImportBatch.next(loaded: Set<PlateInstanceId>) = copy(
+        rest = rest.drop(1),
+        loaded = loaded,
+        stepMeshes = emptyMap(),
+        load = ModelLoad.GEOMETRY,
+        chosen = false,
+        displayName = null,
+    )
 
     /**
      * The handy model Orca String Hell has text embossed on its top: with

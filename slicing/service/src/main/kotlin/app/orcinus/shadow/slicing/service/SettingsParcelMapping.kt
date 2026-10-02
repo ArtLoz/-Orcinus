@@ -289,6 +289,8 @@ internal fun SettingsDialog.toParcel() = SettingsDialogParcel().also {
     it.question = question
     it.yes = yes?.toParcel()
     it.no = no?.toParcel()
+    it.checkbox = checkbox?.toParcel()
+    it.checked = checked
 }
 
 internal fun SettingsDialogParcel.toDialog() = SettingsDialog(
@@ -299,6 +301,8 @@ internal fun SettingsDialogParcel.toDialog() = SettingsDialog(
     question = question,
     yes = yes?.toText(),
     no = no?.toText(),
+    checkbox = checkbox?.toText(),
+    checked = checked,
 )
 
 internal fun List<OrcaText>.toParcels(): Array<OrcaTextParcel> = map(OrcaText::toParcel).toTypedArray()

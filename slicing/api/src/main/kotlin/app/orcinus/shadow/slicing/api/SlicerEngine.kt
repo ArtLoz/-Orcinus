@@ -171,25 +171,29 @@ interface PlateInspector {
     ): ModelInspectionOutcome
 
     /**
-     * Plater::priv::load_files() for the model file [source] of any type the
-     * desktop app imports: its objects are loaded, with the questions and
-     * message boxes of the desktop app, and placed on the plate that holds
-     * [plate]. A question is answered by loading again with [answers], by
-     * dialog id. The engine writes every object's meshes into files whose
-     * names start with [prefix]. A 3MF file loads as [load] asks, which the
-     * user [chosen] in ProjectDropDialog when set; a project loads onto an
-     * empty plate and selects its presets.
+     * Plater::priv::load_files() for the model files [sources] of any type the
+     * desktop app imports: their objects are loaded, with the questions and
+     * message boxes of the desktop app, and placed together on the plate that
+     * holds [plate]. A question is answered by loading again with [answers],
+     * by dialog id; the questions about every file but the first are told
+     * apart by the file's place ("model_in_meters@1"). The engine writes
+     * every object's meshes into files whose names start with [prefix]. A
+     * single 3MF file loads as [load] asks, which the user [chosen] in
+     * ProjectDropDialog when set; a project loads onto an empty plate and
+     * selects its presets. Several files are model files, none a 3MF file;
+     * with [askMulti] the user is asked whether they make one object.
      */
     suspend fun load(
-        source: ModelPath,
+        sources: List<ModelPath>,
         profiles: SlicingProfileSelection,
         plate: List<PlacedModel>,
         prefix: ScenePath,
         answers: Map<String, Boolean> = emptyMap(),
         load: ModelLoad = ModelLoad.GEOMETRY,
         chosen: Boolean = false,
-        /** StepMeshDialog's answer for a STEP file that asked; null before it asked. */
-        stepMesh: StepMeshOptions? = null,
+        /** StepMeshDialog's answers for the STEP files that asked, by their place among [sources]. */
+        stepMeshes: Map<Int, StepMeshOptions> = emptyMap(),
+        askMulti: Boolean = false,
     ): ModelLoadOutcome
 
     /**

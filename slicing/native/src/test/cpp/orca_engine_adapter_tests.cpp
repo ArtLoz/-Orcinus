@@ -3297,6 +3297,25 @@ std::string cube_obj(const double size)
     return obj.str();
 }
 
+// A cube of size mm with its corner at (x, y, z), as a part of a model
+// exported file by file stands where it stood in the model.
+std::string cube_obj_at(const double size, const double x, const double y, const double z)
+{
+    std::ostringstream obj;
+    std::istringstream lines(cube_obj(size));
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind("v ", 0) == 0) {
+            std::istringstream values(line.substr(2));
+            double vx = 0.0, vy = 0.0, vz = 0.0;
+            values >> vx >> vy >> vz;
+            obj << "v " << vx + x << ' ' << vy + y << ' ' << vz + z << '\n';
+        } else {
+            obj << line << '\n';
+        }
+    }
+    return obj.str();
+}
+
 // Two 10 mm cubes as AMF objects, the second one lifted 20 mm by the
 // constellation, as a file that stacks objects at several heights holds them.
 std::string stacked_cubes_amf()
@@ -3979,6 +3998,52 @@ TEST_CASE("An object of one shell cannot be split", "[Adapter][Edit]")
     CHECK(split.objects.empty());
     REQUIRE(split.notices.size() == 1);
     CHECK(split.notices.front().id == "split_failed");
+}
+
+TEST_CASE("Several model files load together and ask whether they make one object", "[Adapter][Import]")
+{
+    require_engine();
+    // A 20 mm base and a 10 mm cube standing on it, exported as two files.
+    const std::string base = device_dir + "/tmp/import/base.obj";
+    const std::string top = device_dir + "/tmp/import/top.obj";
+    write_text(base, cube_obj(20.0));
+    write_text(top, cube_obj_at(10.0, 5.0, 5.0, 20.0));
+    const auto load = [&](const orca::DialogAnswers& answers, const std::string& name) {
+        return orca::import_models({base, top}, k2_plus_profiles(), {}, import_prefix(name), answers, orca::ModelLoad::geometry, false, {}, true);
+    };
+
+    const orca::ImportedModels asked = load({}, "files-asked");
+    INFO(asked.message);
+    REQUIRE(asked.has_question);
+    CHECK(asked.question.id == "multiple_files_parts");
+    CHECK(asked.question.checkbox.msgid == "Auto-Drop");
+    CHECK(asked.question.checked);
+
+    // Yes: one object of two parts, which keep their places to each other.
+    const orca::ImportedModels single = load({{"multiple_files_parts", true}}, "files-single");
+    INFO(single.message);
+    REQUIRE(single.objects.size() == 1);
+    CHECK(single.objects.front().parts.size() == 1);
+    CHECK(single.objects.front().instances.front().size_z == Catch::Approx(30.0));
+    CHECK_FALSE(single.split_to_objects);
+
+    // No: two objects, each dropped onto the plate and named after its file.
+    const orca::ImportedModels apart = load({{"multiple_files_parts", false}}, "files-apart");
+    INFO(apart.message);
+    REQUIRE(apart.objects.size() == 2);
+    CHECK(apart.objects[0].input_file == "base.obj");
+    CHECK(apart.objects[1].input_file == "top.obj");
+    CHECK(apart.objects[1].instances.front().size_z == Catch::Approx(10.0));
+    CHECK(apart.objects[1].auto_drops.front());
+    CHECK_FALSE(apart.split_to_objects);
+
+    // No without Auto-Drop: one object that keeps the heights, which split_object() then splits.
+    const orca::ImportedModels kept =
+        load({{"multiple_files_parts", false}, {std::string("multiple_files_parts") + orca::CHECKBOX_ANSWER, false}}, "files-kept");
+    INFO(kept.message);
+    REQUIRE(kept.objects.size() == 1);
+    CHECK(kept.split_to_objects);
+    CHECK_FALSE(kept.objects.front().auto_drops.front());
 }
 
 TEST_CASE("Split to parts makes every shell of a mesh a part of the object", "[Adapter][Edit]")

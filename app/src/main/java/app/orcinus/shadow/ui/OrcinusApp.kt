@@ -126,7 +126,7 @@ class AppShellViewModel(
     fun chooseSliceMode(mode: SliceMode) = setSliceMode(mode)
 
     /** OrcaSlicer's message boxes while it changes the plate: a load or the object menu. */
-    fun answer(yes: Boolean) = answerPlateQuestion(yes)
+    fun answer(yes: Boolean, checked: Boolean) = answerPlateQuestion(yes, checked)
 
     fun dismissNotice() = dismissPlateNotice()
 
@@ -280,7 +280,7 @@ private fun Workspace(
     val stepMesh = plate.stepMesh
     when {
         notice != null -> SettingsNoticeDialog(notice, onDismiss = shell::dismissNotice)
-        question != null -> SettingsQuestionDialog(question, onAnswer = shell::answer)
+        question != null -> SettingsQuestionDialog(question, onAnswerChecked = shell::answer)
         stepMesh != null -> StepMeshDialog(stepMesh, countTriangles = shell::stepTriangleCount, onAnswer = shell::answerStepMesh)
         projectPrompt is ProjectPrompt.SaveChanges -> ProjectSaveChangesDialog(onAnswer = shell::answerSaveChanges)
         projectPrompt is ProjectPrompt.RestoreBackup -> ProjectRestoreDialog(onAnswer = shell::answerRestore)

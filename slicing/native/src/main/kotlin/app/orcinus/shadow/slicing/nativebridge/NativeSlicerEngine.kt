@@ -277,21 +277,23 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
     }
 
     override suspend fun load(
-        source: ModelPath,
+        sources: List<ModelPath>,
         profiles: SlicingProfileSelection,
         plate: List<PlacedModel>,
         prefix: ScenePath,
         answers: Map<String, Boolean>,
         load: ModelLoad,
         chosen: Boolean,
-        stepMesh: StepMeshOptions?,
+        stepMeshes: Map<Int, StepMeshOptions>,
+        askMulti: Boolean,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
             return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
+        val stepMesh = sources.indices.map { stepMeshes[it] }
         NativeBindings.importModel(
-            sourcePath = source.value,
+            sourcePaths = sources.map(ModelPath::value).toTypedArray(),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
@@ -302,10 +304,11 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             answers = answers.values.toBooleanArray(),
             load = load.ordinal.toLong(),
             chosen = chosen,
-            stepChosen = stepMesh != null,
-            stepLinear = stepMesh?.linearDeflection ?: 0.0,
-            stepAngle = stepMesh?.angleDeflection ?: 0.0,
-            stepSplit = stepMesh?.splitCompound ?: false,
+            stepChosen = stepMesh.map { it != null }.toBooleanArray(),
+            stepLinear = stepMesh.map { it?.linearDeflection ?: 0.0 }.toDoubleArray(),
+            stepAngle = stepMesh.map { it?.angleDeflection ?: 0.0 }.toDoubleArray(),
+            stepSplit = stepMesh.map { it?.splitCompound ?: false }.toBooleanArray(),
+            askMulti = askMulti,
         ).toOutcome()
     }
 
@@ -1816,7 +1819,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
             status != NativeSceneStatus.SUCCESS ->
                 ModelLoadOutcome.Failure(message.ifBlank { "OrcaSlicer could not load the file" }, shown)
             hasQuestion -> ModelLoadOutcome.Question(question.toDialog(), shown)
-            stepMesh -> ModelLoadOutcome.StepMesh(StepMeshOptions(stepLinearDeflection, stepAngleDeflection, stepSplitCompound), shown)
+            stepMesh -> ModelLoadOutcome.StepMesh(StepMeshOptions(stepLinearDeflection, stepAngleDeflection, stepSplitCompound), shown, stepFile)
             else -> ModelLoadOutcome.Success(
                 objects = objects.map { it.toLoadedObject() },
                 notices = shown,
@@ -1833,6 +1836,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 presetsChanged = presetsChanged,
                 calibration = calibration?.toParams(),
                 plateCount = plateCount,
+                splitToObjects = splitToObjects,
             )
         }
     }

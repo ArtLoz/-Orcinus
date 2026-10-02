@@ -287,6 +287,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     // StepMeshDialog, which a load or a replacement of a STEP file waits for.
     val stepMeshPrompt = StepMeshPrompt(engine, appPreferences, plateRepository)
 
+    private val editPlateObject = EditPlateObjectUseCase(engine, sceneFiles, plateRepository, applicationScope)
     val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
         inspector = engine,
@@ -299,6 +300,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         applicationScope = applicationScope,
         preferences = appPreferences,
         stepMeshPrompt = stepMeshPrompt,
+        editPlateObject = editPlateObject,
     )
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
@@ -432,7 +434,6 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val removeLastPlateInstances = RemoveLastPlateInstancesUseCase(plateRepository, deletePlateObject)
     private val setNumberOfInstances = SetNumberOfInstancesUseCase(plateRepository, addPlateInstance, removeLastPlateInstances, deletePlateObject)
     private val renamePlateItem = RenamePlateItemUseCase(plateRepository)
-    private val editPlateObject = EditPlateObjectUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val clonePlateObjects = ClonePlateObjectsUseCase(engine, sceneFiles, plateRepository, placePlateObjects, applicationScope)
     private val separatePlateInstances = SeparatePlateInstancesUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val fillBedWithInstances = FillBedWithInstancesUseCase(plateRepository, placePlateObjects)

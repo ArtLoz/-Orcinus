@@ -181,6 +181,8 @@ data class LoadedObject(
     val layerRanges: List<LayerRange> = emptyList(),
     /** ModelObject::cut_id */
     val cutId: CutId? = null,
+    /** The name of the file it came from (ModelObject::input_file) when the load read several files; empty otherwise. */
+    val inputFile: String = "",
 )
 
 /** The file formats "Export as one STL" and "Export as one DRC" write. */
@@ -260,6 +262,12 @@ sealed interface ModelLoadOutcome {
          * pattern's handles may fill beyond the first; 0 for any other load.
          */
         val plateCount: Int = 0,
+        /**
+         * load_files() of several files the user wants as separate objects
+         * that keep their places: they loaded as one object, which
+         * split_object() is to split into objects.
+         */
+        val splitToObjects: Boolean = false,
     ) : ModelLoadOutcome
 
     /** The load asks [question] before it adds anything; it is requested again with the answer. */
@@ -269,7 +277,12 @@ sealed interface ModelLoadOutcome {
      * A STEP file waits for StepMeshDialog, which opens with [options]; the load
      * is requested again with the user's choice.
      */
-    data class StepMesh(val options: StepMeshOptions, override val notices: List<SettingsDialog>) : ModelLoadOutcome
+    data class StepMesh(
+        val options: StepMeshOptions,
+        override val notices: List<SettingsDialog>,
+        /** The STEP file, by its place among the files of the load. */
+        val file: Int = 0,
+    ) : ModelLoadOutcome
 
     data class Failure(val message: String, override val notices: List<SettingsDialog> = emptyList()) : ModelLoadOutcome
 }

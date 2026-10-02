@@ -237,14 +237,15 @@ class ModelImportAndInspectionUseCasesTest {
         }
 
         override suspend fun load(
-            source: ModelPath,
+            sources: List<ModelPath>,
             profiles: SlicingProfileSelection,
             plate: List<PlacedModel>,
             prefix: ScenePath,
             answers: Map<String, Boolean>,
             load: ModelLoad,
             chosen: Boolean,
-            stepMesh: StepMeshOptions?,
+            stepMeshes: Map<Int, StepMeshOptions>,
+            askMulti: Boolean,
         ) = ModelLoadOutcome.Failure("not used")
 
         override suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double) = 0L

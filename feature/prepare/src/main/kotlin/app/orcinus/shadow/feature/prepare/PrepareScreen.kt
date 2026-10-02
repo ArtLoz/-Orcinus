@@ -170,8 +170,9 @@ internal fun PrepareRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel) { viewModel.settingToOpen.collect(onOpenSetting) }
     val canvas by viewModel.canvas.collectAsStateWithLifecycle()
-    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { viewModel.addModel(it.toString()) }
+    // The file dialog of the desktop app takes several files at once.
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) viewModel.addModels(uris.map { it.toString() })
     }
     // "Export as one STL/DRC" and "Replace 3D file": the object waits for the
     // document the user picks, as the desktop app waits for its file dialog.

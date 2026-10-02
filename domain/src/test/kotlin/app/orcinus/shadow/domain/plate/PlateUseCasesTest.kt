@@ -51,6 +51,7 @@ import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.ImportBatch
+import app.orcinus.shadow.core.model.ImportFiles
 import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerGcodeRules
@@ -1202,7 +1203,7 @@ class PlateUseCasesTest {
         val asked = repository.state.value
         assertTrue(asked.importing)
         assertEquals(QUESTION, asked.plateQuestion?.question)
-        assertEquals(PlateRequest.Import(file.path, ImportBatch(document = REFERENCE, displayName = "stacked.amf")), asked.plateQuestion?.request)
+        assertEquals(PlateRequest.Import(ImportFiles(file.path), ImportBatch(document = REFERENCE, displayName = "stacked.amf")), asked.plateQuestion?.request)
         assertEquals(listOf(NOTICE), asked.plateNotices)
         assertEquals(listOf(CUBE), asked.objects)
         // Nothing the load wrote before it asked stays.
@@ -1219,6 +1220,62 @@ class PlateUseCasesTest {
         assertEquals(2, loaded.objects.size)
         // The message box the first load showed does not show again.
         assertTrue(loaded.plateNotices.isEmpty())
+    }
+
+    @Test
+    fun `model files picked at once load together, and objects that keep their places are split after`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val body = ImportedModelFile(ModelPath("/imports/body.stl"), "body.stl")
+        val lid = ImportedModelFile(ModelPath("/imports/lid.stl"), "lid.stl")
+        val references = listOf(ExternalDocumentReference("content://body"), ExternalDocumentReference("content://lid"))
+        val question = QUESTION.copy(id = "multiple_files_parts", checkbox = OrcaText("Auto-Drop"), checked = true)
+        val inspector = FakeInspector()
+        inspector.load = { answers ->
+            if ("multiple_files_parts" in answers) {
+                ModelLoadOutcome.Success(listOf(LOADED), emptyList(), splitToObjects = true)
+            } else {
+                ModelLoadOutcome.Question(question, emptyList())
+            }
+        }
+        val addModel = addModel(repository, ModelImportOutcome.Success(body), inspector, FakeSceneFiles()) {
+            ModelImportOutcome.Success(if (it == references.first()) body else lid)
+        }
+
+        addModel(references)
+
+        // add_file(): one load_files() of both, which asks whether they make one object.
+        val asked = inspector.loads.single()
+        assertEquals(listOf(body.path, lid.path), asked.sources)
+        assertTrue(asked.askMulti)
+        assertEquals(question, repository.state.value.plateQuestion?.question)
+
+        addModel.answer(yes = false, checked = false)
+
+        assertEquals(mapOf("multiple_files_parts" to false, "multiple_files_parts#checked" to false), inspector.loads.last().answers)
+        // The one object they loaded as is split into objects that keep their places.
+        assertEquals(ObjectEdit.SPLIT_TO_OBJECTS, inspector.edits.single().edit)
+        // A plate without a name takes the first file's.
+        assertEquals("body", repository.state.value.project.name)
+    }
+
+    @Test
+    fun `a 3MF file among the files picked opens first, and the other files load after it as geometry`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val project = ImportedModelFile(ModelPath("/imports/box.3mf"), "box.3mf")
+        val lid = ImportedModelFile(ModelPath("/imports/lid.stl"), "lid.stl")
+        val references = listOf(ExternalDocumentReference("content://lid"), ExternalDocumentReference("content://box"))
+        val inspector = FakeInspector()
+        val preferences = preferences(AppConfigKeys.PROJECT_LOAD_BEHAVIOUR to AppConfigKeys.LOAD_GEOMETRY_ONLY)
+        val addModel = addModel(repository, ModelImportOutcome.Success(lid), inspector, FakeSceneFiles(), preferences) {
+            ModelImportOutcome.Success(if (it == references.first()) lid else project)
+        }
+
+        addModel(references)
+
+        assertEquals(listOf(listOf(project.path), listOf(lid.path)), inspector.loads.map { it.sources })
+        assertTrue(inspector.loads.none { it.askMulti })
+        assertFalse(repository.state.value.importing)
+        assertEquals(3, repository.state.value.objects.size)
     }
 
     @Test
@@ -2690,10 +2747,12 @@ class PlateUseCasesTest {
         files: FakeSceneFiles,
         preferences: AppPreferences = preferences(),
         stepMeshPrompt: StepMeshPrompt = StepMeshPrompt(inspector, preferences, repository),
+        /** The file of every document picked; [imported] for all by default. */
+        importedBy: ((ExternalDocumentReference) -> ModelImportOutcome)? = null,
     ) =
         AddModelToPlateUseCase(
             importModel = ImportModelUseCase(object : ModelFileImporter {
-                override suspend fun importModel(reference: ExternalDocumentReference) = imported
+                override suspend fun importModel(reference: ExternalDocumentReference) = importedBy?.invoke(reference) ?: imported
             }),
             inspector = inspector,
             sceneFiles = files,
@@ -2705,6 +2764,7 @@ class PlateUseCasesTest {
             applicationScope = scope,
             preferences = preferences,
             stepMeshPrompt = stepMeshPrompt,
+            editPlateObject = EditPlateObjectUseCase(inspector, files, repository, scope),
         )
 
     private fun assertIsCube(plateObject: PlateObject?) {
@@ -3240,13 +3300,15 @@ class PlateUseCasesTest {
             return outcome ?: ModelInspectionOutcome.Success(INSPECTION.copy(mesh = mesh))
         }
 
-        /** A request to load a model file. */
+        /** A request to load model files: the first, and all of them. */
         data class Load(
             val source: ModelPath,
             val prefix: ScenePath,
             val answers: Map<String, Boolean>,
             val load: ModelLoad = ModelLoad.GEOMETRY,
             val chosen: Boolean = false,
+            val sources: List<ModelPath> = listOf(source),
+            val askMulti: Boolean = false,
         )
 
         val loads = mutableListOf<Load>()
@@ -3268,17 +3330,19 @@ class PlateUseCasesTest {
         }
 
         override suspend fun load(
-            source: ModelPath,
+            sources: List<ModelPath>,
             profiles: SlicingProfileSelection,
             plate: List<PlacedModel>,
             prefix: ScenePath,
             answers: Map<String, Boolean>,
             load: ModelLoad,
             chosen: Boolean,
-            stepMesh: StepMeshOptions?,
+            stepMeshes: Map<Int, StepMeshOptions>,
+            askMulti: Boolean,
         ): ModelLoadOutcome {
-            loads += Load(source, prefix, answers, load, chosen)
-            stepMeshes += stepMesh
+            loads += Load(sources.first(), prefix, answers, load, chosen, sources, askMulti)
+            val stepMesh = stepMeshes[0]
+            this.stepMeshes += stepMesh
             this.profiles = profiles
             this.plate = plate
             // A STEP file waits for StepMeshDialog until it is answered.

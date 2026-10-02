@@ -24,32 +24,50 @@ class ContentResolverModelFileImporter(
 
     override suspend fun importModel(
         reference: ExternalDocumentReference,
-    ): ModelImportOutcome = withContext(Dispatchers.IO) {
+    ): ModelImportOutcome = importModels(listOf(reference)).single()
+
+    /**
+     * Every document is copied into a folder of its own under its own name,
+     * so that documents of the same name stay apart; only the files of the
+     * latest import are kept.
+     */
+    override suspend fun importModels(
+        references: List<ExternalDocumentReference>,
+    ): List<ModelImportOutcome> = withContext(Dispatchers.IO) {
+        val importsDirectory = File(applicationContext.filesDir, "imports")
+        if (!importsDirectory.exists() && !importsDirectory.mkdirs()) {
+            return@withContext references.map { readFailure("Unable to create the model import directory") }
+        }
+        val folders = references.indices.map { File(importsDirectory, it.toString()) }
+        // The files of the import before go.
+        importsDirectory.listFiles()?.forEach(File::deleteRecursively)
+        references.zip(folders) { reference, folder -> copy(reference, folder) }
+    }
+
+    private fun copy(reference: ExternalDocumentReference, folder: File): ModelImportOutcome {
         val uri = Uri.parse(reference.value)
         val metadata = try {
             readMetadata(uri)
         } catch (error: SecurityException) {
-            return@withContext readFailure(error.message ?: "Access to the selected document was denied")
+            return readFailure(error.message ?: "Access to the selected document was denied")
         }
         if (metadata.size != null && metadata.size > MAX_MODEL_BYTES) {
-            return@withContext ModelImportOutcome.Failure(
+            return ModelImportOutcome.Failure(
                 ModelImportFailureCode.FILE_TOO_LARGE,
                 "The model file is larger than 512 MB",
             )
         }
-
-        val importsDirectory = File(applicationContext.filesDir, "imports")
-        if (!importsDirectory.exists() && !importsDirectory.mkdirs()) {
-            return@withContext readFailure("Unable to create the model import directory")
+        if (!folder.exists() && !folder.mkdirs()) {
+            return readFailure("Unable to create the model import directory")
         }
 
         // OrcaSlicer names the object after the file, as desktop does when it opens
         // the document, so the copy keeps the document's name.
-        val destination = File(importsDirectory, metadata.displayName.toFileName())
-        val temporary = File(importsDirectory, TEMPORARY_FILE_NAME)
-        try {
+        val destination = File(folder, metadata.displayName.toFileName())
+        val temporary = File(folder, TEMPORARY_FILE_NAME)
+        return try {
             val input = applicationContext.contentResolver.openInputStream(uri)
-                ?: return@withContext readFailure("Unable to open the selected document")
+                ?: return readFailure("Unable to open the selected document")
             val copiedBytes = input.use { source ->
                 temporary.outputStream().buffered().use { target ->
                     copyWithLimit(source, target)
@@ -57,14 +75,12 @@ class ContentResolverModelFileImporter(
             }
             if (copiedBytes == 0L) {
                 temporary.delete()
-                return@withContext ModelImportOutcome.Failure(
+                return ModelImportOutcome.Failure(
                     ModelImportFailureCode.EMPTY_FILE,
                     "The selected model file is empty",
                 )
             }
             Files.move(temporary.toPath(), destination.toPath(), REPLACE_EXISTING, ATOMIC_MOVE)
-            // Only the latest import is kept.
-            importsDirectory.listFiles()?.filter { it != destination }?.forEach(File::delete)
 
             ModelImportOutcome.Success(
                 ImportedModelFile(

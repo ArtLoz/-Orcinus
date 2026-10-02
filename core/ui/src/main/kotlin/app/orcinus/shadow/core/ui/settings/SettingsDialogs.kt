@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -70,13 +72,37 @@ fun SettingsNoticeDialog(dialog: SettingsDialog, onDismiss: () -> Unit) {
  * as the desktop app's modal box must: the change waits for the answer.
  */
 @Composable
-fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswer: (Boolean) -> Unit) {
+fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswer: (Boolean) -> Unit) =
+    SettingsQuestionDialog(dialog, onAnswerChecked = { yes, _ -> onAnswer(yes) })
+
+/**
+ * A question with RichMessageDialog's check box under it when it has one
+ * ([SettingsDialog.checkbox]): the answer comes with the box's state.
+ */
+@Composable
+fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswerChecked: (yes: Boolean, checked: Boolean) -> Unit) {
+    var checked by rememberSaveable(dialog) { mutableStateOf(dialog.checked) }
     SettingsAlert(
         dialog = dialog,
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-        confirm = { OrcaButton(dialog.yes?.let { orcaText(it) } ?: orcaString("Yes"), onClick = { onAnswer(true) }) },
-        dismiss = { OrcaButton(dialog.no?.let { orcaText(it) } ?: orcaString("No"), onClick = { onAnswer(false) }, style = OrcaButtonStyle.Regular) },
+        confirm = { OrcaButton(dialog.yes?.let { orcaText(it) } ?: orcaString("Yes"), onClick = { onAnswerChecked(true, checked) }) },
+        dismiss = {
+            OrcaButton(dialog.no?.let { orcaText(it) } ?: orcaString("No"), onClick = { onAnswerChecked(false, checked) }, style = OrcaButtonStyle.Regular)
+        },
+        below = dialog.checkbox?.let { label ->
+            {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .padding(top = 12.dp)
+                        .toggleable(value = checked, role = Role.Checkbox, onValueChange = { checked = it }),
+                ) {
+                    OrcaCheckBox(checked = checked, onCheckedChange = null)
+                    Text(orcaText(label), style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        },
     )
 }
 
@@ -87,6 +113,8 @@ private fun SettingsAlert(
     confirm: @Composable () -> Unit,
     dismiss: (@Composable () -> Unit)? = null,
     properties: DialogProperties = DialogProperties(),
+    /** What stands under the message, such as a check box. */
+    below: (@Composable () -> Unit)? = null,
 ) {
     val colors = OrcaTheme.colors
     AlertDialog(
@@ -95,11 +123,10 @@ private fun SettingsAlert(
         dismissButton = dismiss,
         title = dialog.title.takeIf { it.isNotEmpty() }?.let { title -> { Text(orcaText(title), style = OrcaTheme.typography.head16) } },
         text = {
-            Text(
-                orcaText(dialog.text).trim(),
-                style = OrcaTheme.typography.body14,
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            )
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(orcaText(dialog.text).trim(), style = OrcaTheme.typography.body14)
+                below?.invoke()
+            }
         },
         containerColor = colors.window,
         titleContentColor = colors.text,

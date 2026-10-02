@@ -282,6 +282,9 @@ internal class NativeSettingsDialog(
     @JvmField val question: Boolean,
     @JvmField val yes: NativeUiText,
     @JvmField val no: NativeUiText,
+    /** RichMessageDialog's check box: its label (empty for none), and whether it starts checked. */
+    @JvmField val checkbox: NativeUiText,
+    @JvmField val checked: Boolean,
 )
 
 /** Constructed by the native bridge; see SettingsLineOption in orca_engine_adapter.hpp. */
@@ -688,6 +691,8 @@ internal class NativeImportedObject(
     @JvmField val cutId: LongArray,
     @JvmField val volumeCutInfo: DoubleArray,
     @JvmField val partCutInfo: DoubleArray,
+    /** The name of the file it came from, when the load read several; empty otherwise. */
+    @JvmField val inputFile: String,
 )
 
 /** Constructed by the native bridge; see ImportedModels in orca_engine_adapter.hpp. */
@@ -716,6 +721,10 @@ internal class NativeImportedModels(
     @JvmField val stepLinearDeflection: Double,
     @JvmField val stepAngleDeflection: Double,
     @JvmField val stepSplitCompound: Boolean,
+    /** The STEP file that waits, by its place among the files of the load. */
+    @JvmField val stepFile: Int,
+    /** The files loaded as one object, which is to be split into objects that keep their places. */
+    @JvmField val splitToObjects: Boolean,
 )
 
 /**
@@ -1051,12 +1060,13 @@ internal object NativeBindings {
     ): NativeModelInspection
 
     /**
-     * import_model(): the objects of the model file [sourcePath], placed beside
-     * the objects of [plate], with their meshes written into files named after
-     * [outputPrefix]; [answerIds] and [answers] answer the questions it asked.
+     * import_models(): the objects of the model files [sourcePaths], placed
+     * beside the objects of [plate], with their meshes written into files
+     * named after [outputPrefix]; [answerIds] and [answers] answer the
+     * questions it asked.
      */
     external fun importModel(
-        sourcePath: String,
+        sourcePaths: Array<String>,
         printerProfile: String,
         filamentProfile: String,
         filamentProfiles: Array<String>,
@@ -1068,11 +1078,13 @@ internal object NativeBindings {
         /** ModelLoad in orca_engine_adapter.hpp, and whether ProjectDropDialog chose it. */
         load: Long,
         chosen: Boolean,
-        /** StepMeshChoice in orca_engine_adapter.hpp. */
-        stepChosen: Boolean,
-        stepLinear: Double,
-        stepAngle: Double,
-        stepSplit: Boolean,
+        /** StepMeshChoice in orca_engine_adapter.hpp, for every file. */
+        stepChosen: BooleanArray,
+        stepLinear: DoubleArray,
+        stepAngle: DoubleArray,
+        stepSplit: BooleanArray,
+        /** Plater::add_file() of several model files: asks whether they make one object. */
+        askMulti: Boolean,
     ): NativeImportedModels
 
     /**

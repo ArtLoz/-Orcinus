@@ -532,8 +532,8 @@ data class PendingPlateQuestion(
 
 /** What asked the question: the load of a model file, the object menu, or a suggestion after a load. */
 sealed interface PlateRequest {
-    /** The load of [source], one of the files of [batch]. */
-    data class Import(val source: ModelPath, val batch: ImportBatch = ImportBatch()) : PlateRequest
+    /** The load of [files], one of the loads of [batch]. */
+    data class Import(val files: ImportFiles, val batch: ImportBatch = ImportBatch()) : PlateRequest
 
     /**
      * [edit] of the object with the [mesh] file, or of its volume at [volume]
@@ -558,21 +558,35 @@ sealed interface PlateRequest {
 }
 
 /**
- * Plater::load_files() with several files: the files still to load after the
+ * One Plater::priv::load_files() call: its [files] load together, as one
+ * model whose objects join the plate at once. With [askMulti]
+ * (Plater::add_file() of several model files, none a 3MF file) the user is
+ * asked whether they make one object of several parts, and whether it drops
+ * onto the plate.
+ */
+data class ImportFiles(val files: List<ModelPath>, val askMulti: Boolean = false) {
+    constructor(file: ModelPath) : this(listOf(file))
+
+    /** The file the load is known by: the first. */
+    val first: ModelPath get() = files.first()
+}
+
+/**
+ * Plater::load_files() with several files: the loads still to come after the
  * one loading, the copies loaded before it, which stay selected with the new
  * ones, whether the plate is arranged afterwards, and whether the String Hell
  * suggestion follows.
  */
 data class ImportBatch(
-    val rest: List<ModelPath> = emptyList(),
+    val rest: List<ImportFiles> = emptyList(),
     val loaded: Set<PlateInstanceId> = emptySet(),
     val arrange: Boolean = false,
     val suggestTopSurface: Boolean = false,
     /** How a 3MF file of the batch loads, and whether the user chose it in ProjectDropDialog. */
     val load: ModelLoad = ModelLoad.GEOMETRY,
     val chosen: Boolean = false,
-    /** StepMeshDialog's answer for the STEP file the batch loads now; null before it asked. */
-    val stepMesh: StepMeshOptions? = null,
+    /** StepMeshDialog's answers for the STEP files the batch loads now, by their place among its files. */
+    val stepMeshes: Map<Int, StepMeshOptions> = emptyMap(),
     /**
      * The document the user picked and the name it goes by: a project opened
      * from it is saved into it again, and a plate without a name takes the

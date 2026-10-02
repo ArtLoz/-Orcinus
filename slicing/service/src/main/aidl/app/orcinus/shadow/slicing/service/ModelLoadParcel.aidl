@@ -26,4 +26,8 @@ parcelable ModelLoadParcel {
     int plateCount;
     /** A STEP file waits for StepMeshDialog: its linear and angle deflections and split (1 or 0). */
     @nullable double[] stepMesh;
+    /** The STEP file that waits, by its place among the files of the load. */
+    int stepFile;
+    /** The files loaded as one object, which is to be split into objects that keep their places. */
+    boolean splitToObjects;
 }

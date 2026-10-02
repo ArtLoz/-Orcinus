@@ -1299,7 +1299,14 @@ struct SettingsDialog {
     // Labels of the Yes and No buttons when the box has its own.
     UiText yes;
     UiText no;
+    // RichMessageDialog::ShowCheckBox(): the label of the check box under the
+    // question, none without one, and whether it starts checked. Its state
+    // answers under the question's id followed by CHECKBOX_ANSWER.
+    UiText checkbox;
+    bool checked{false};
 };
+
+inline constexpr const char* CHECKBOX_ANSWER = "#checked";
 
 // A setting of the edited preset as its field shows it (Tab::update_changed_ui,
 // ConfigManipulation's toggles).
@@ -1472,6 +1479,9 @@ struct ImportedObject {
     // ModelObject::cut_id, and the cut info of its own mesh.
     ObjectCutId cut_id;
     VolumeCutInfo volume_cut_info;
+    // The name of the file the object came from (ModelObject::input_file),
+    // when a load reads several files.
+    std::string input_file;
 };
 
 // A plate of a project (PartPlate, PlateData of bbs_3mf.hpp): its name,
@@ -1503,7 +1513,13 @@ struct ImportedModels {
     double step_linear_deflection{0};
     double step_angle_deflection{0};
     bool step_split_compound{false};
+    // The STEP file that waits, by its place among the files of the load.
+    int step_file{0};
     std::vector<ImportedObject> objects;
+    // load_files() of several files the user wants as separate objects that
+    // keep their places: they load as one object, which split_object() then
+    // splits into objects.
+    bool split_to_objects{false};
     // edit_object(): the edited object left the plate and the objects join the
     // end of its list (load_model_objects), instead of taking its place.
     bool appended{false};
@@ -1990,6 +2006,26 @@ ImportedModels import_model(
     // configuration remembers (import_project_action).
     bool chosen = false,
     const StepMeshChoice& step_mesh = {}
+);
+
+// Plater::priv::load_files() for several model files at once, none of them a
+// 3MF file: every file is read with its own questions, told apart by the
+// file's place after the first ("model_in_meters@1"); a file that cannot be
+// read shows its error and the others load. Their objects join the plate
+// together; with ask_multi (Plater::add_file() of several model files) the
+// user is asked whether they make one object of several parts and whether
+// they drop onto the plate. step_meshes holds StepMeshDialog's answer for
+// each file; a STEP file without one stops the load (step_file).
+ImportedModels import_models(
+    const std::vector<std::string>& source_paths,
+    const ProfileSelection& profiles,
+    const std::vector<PlateObject>& plate,
+    const std::string& output_prefix,
+    const DialogAnswers& answers,
+    ModelLoad load,
+    bool chosen,
+    const std::vector<StepMeshChoice>& step_meshes,
+    bool ask_multi
 );
 
 // What a request of the settings of an object or of the plate carries, since

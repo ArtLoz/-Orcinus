@@ -198,6 +198,8 @@ internal fun NativeSettingsDialog.toDialog() = SettingsDialog(
     question = question,
     yes = yes.takeIf { it.msgid.isNotEmpty() }?.toText(),
     no = no.takeIf { it.msgid.isNotEmpty() }?.toText(),
+    checkbox = checkbox.takeIf { it.msgid.isNotEmpty() }?.toText(),
+    checked = checked,
 )
 
 internal fun NativeUiText.toText() = OrcaText(

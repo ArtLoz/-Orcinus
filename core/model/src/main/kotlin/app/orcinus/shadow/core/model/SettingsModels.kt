@@ -366,7 +366,22 @@ data class SettingsDialog(
     /** Labels of the buttons, when the box has its own. */
     val yes: OrcaText?,
     val no: OrcaText?,
-)
+    /**
+     * RichMessageDialog::ShowCheckBox(): the check box under the question,
+     * none without one, and whether it starts checked; its state answers
+     * under [checkboxAnswer].
+     */
+    val checkbox: OrcaText? = null,
+    val checked: Boolean = false,
+) {
+    /** The answer id the check box's state goes by. */
+    val checkboxAnswer: String get() = id + CHECKBOX_ANSWER
+
+    companion object {
+        /** What follows the question's id in the answer of its check box (CHECKBOX_ANSWER of the engine). */
+        const val CHECKBOX_ANSWER = "#checked"
+    }
+}
 
 /** An entry of a combo box whose entries the tab sets. */
 data class SettingChoice(

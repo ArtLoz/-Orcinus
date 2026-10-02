@@ -3608,6 +3608,21 @@ ImportedModels import_model(
     const StepMeshChoice& step_mesh
 )
 {
+    return import_models({source_path}, profiles, plate, output_prefix, answers, load, chosen, {step_mesh}, false);
+}
+
+ImportedModels import_models(
+    const std::vector<std::string>& source_paths,
+    const ProfileSelection& profiles,
+    const std::vector<PlateObject>& plate,
+    const std::string& output_prefix,
+    const DialogAnswers& answers,
+    const ModelLoad load,
+    const bool chosen,
+    const std::vector<StepMeshChoice>& step_meshes,
+    const bool ask_multi
+)
+{
     ImportedModels result;
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
     if (engine().bundle == nullptr) {
@@ -3616,6 +3631,8 @@ ImportedModels import_model(
         return result;
     }
     detail::SettingsDialogs dialogs(answers);
+    // The file being read, whose STEP mesh StepMeshDialog may be asked for.
+    std::size_t reading = 0;
     try {
         Slic3r::DynamicPrintConfig config;
         if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
@@ -3623,10 +3640,20 @@ ImportedModels import_model(
             result.status = scene_status(status);
             return result;
         }
-
-        bool imperial = false;
-        const std::string file_name = fs::path(source_path).filename().string();
-        const bool type_3mf = boost::algorithm::iends_with(source_path, ".3mf");
+        if (source_paths.empty()) {
+            result.message = "No file to load";
+            return result;
+        }
+        // load_files(): a single file loads one by one, a 3MF file with what
+        // it brings besides its objects; several files load together into
+        // one model (new_model), whose objects join the plate at once.
+        // Plater::add_file() opens a 3MF file of several on its own.
+        const bool one_by_one = source_paths.size() == 1;
+        if (!one_by_one && std::any_of(source_paths.begin(), source_paths.end(),
+                                       [](const std::string& path) { return boost::algorithm::iends_with(path, ".3mf"); })) {
+            result.message = "3MF files load one at a time";
+            return result;
+        }
         if (chosen) {
             // determine_load_type(): the answer to ProjectDropDialog.
             engine().config->set("import_project_action", load == ModelLoad::project ? "1" : "2");
@@ -3634,72 +3661,119 @@ ImportedModels import_model(
         }
         detail::Archive3mf archive;
         Slic3r::Model imported;
-        if (type_3mf) {
-            imported = detail::read_3mf(source_path, load == ModelLoad::project, config, dialogs, archive);
-        } else {
-            imported = read_model_file(source_path, dialogs, imperial, step_mesh, false);
-            for (Slic3r::ModelObject* object : imported.objects) {
-                if (object->name.empty()) {
-                    object->name = file_name;
-                }
-                object->rotate(Slic3r::Geometry::deg2rad(config.opt_float("preferred_orientation")), Slic3r::Axis::Z);
-            }
-        }
         // A project's objects stand where it placed them, with the settings it
         // gave them; the questions about a model file are not asked.
-        const bool is_project_file = archive.load_config;
-        const Slic3r::DynamicPrintConfig& placing = detail::placing_config(archive, config);
+        bool is_project_file = false;
+        for (; reading < source_paths.size(); ++reading) {
+            const std::string& source_path = source_paths[reading];
+            // The questions about every file but the first are told apart by its place.
+            dialogs.set_scope(reading == 0 ? std::string() : "@" + std::to_string(reading));
+            const std::string file_name = fs::path(source_path).filename().string();
+            const bool type_3mf = boost::algorithm::iends_with(source_path, ".3mf");
+            bool imperial = false;
+            Slic3r::Model model;
+            try {
+                if (type_3mf) {
+                    model = detail::read_3mf(source_path, load == ModelLoad::project, config, dialogs, archive);
+                } else {
+                    const StepMeshChoice step_mesh = reading < step_meshes.size() ? step_meshes[reading] : StepMeshChoice{};
+                    model = read_model_file(source_path, dialogs, imperial, step_mesh, false);
+                    for (Slic3r::ModelObject* object : model.objects) {
+                        if (object->name.empty()) {
+                            object->name = file_name;
+                        }
+                        object->rotate(Slic3r::Geometry::deg2rad(config.opt_float("preferred_orientation")), Slic3r::Axis::Z);
+                    }
+                }
+            } catch (const std::exception& error) {
+                // A file of several that cannot be read shows its error, and the others load.
+                if (one_by_one) {
+                    throw;
+                }
+                dialogs.error("load_failed", {detail::ui_text("%1%", {error.what()})});
+                continue;
+            }
+            const bool project = archive.load_config;
 
-        if (!is_project_file && imported.removed_objects_with_zero_volume() > 0) {
-            dialogs.inform("zero_volume", {detail::ui_text("Objects with zero volume removed")},
-                           {detail::ui_text("The volume of the object is zero")}, DialogIcon::info);
-        }
-        if (imported.objects.empty() && !is_project_file) {
-            result.message = "The supplied file couldn't be read because it's empty";
-            result.notices = dialogs.take_notices();
-            return result;
-        }
-        // A model that looks like metres or inches is scaled to millimetres
-        // when the user agrees; an AMF file in inches is scaled whatever its size.
-        const std::vector<UiText> too_small = {detail::ui_text(
-            "The object from file %s is too small, and maybe in meters or inches.\n Do you want to scale to millimeters?", {file_name})};
-        if (is_project_file) {
-        } else if (imperial) {
-            imported.convert_from_imperial_units(false);
-        } else if (imported.looks_like_saved_in_meters()) {
-            if (dialogs.ask("model_in_meters", too_small, {detail::ui_text("Object too small")})) {
-                imported.convert_from_meters(true);
+            if (!project && model.removed_objects_with_zero_volume() > 0) {
+                dialogs.inform("zero_volume", {detail::ui_text("Objects with zero volume removed")},
+                               {detail::ui_text("The volume of the object is zero")}, DialogIcon::info);
             }
-        } else if (imported.looks_like_imperial_units()) {
-            if (dialogs.ask("model_in_inches", too_small, {detail::ui_text("Object too small")})) {
-                imported.convert_from_imperial_units(true);
+            if (model.objects.empty() && !project) {
+                if (!one_by_one) {
+                    continue;
+                }
+                result.message = "The supplied file couldn't be read because it's empty";
+                result.notices = dialogs.take_notices();
+                return result;
+            }
+            // A model that looks like metres or inches is scaled to millimetres
+            // when the user agrees; an AMF file in inches is scaled whatever its size.
+            const std::vector<UiText> too_small = {detail::ui_text(
+                "The object from file %s is too small, and maybe in meters or inches.\n Do you want to scale to millimeters?", {file_name})};
+            if (project) {
+            } else if (imperial) {
+                model.convert_from_imperial_units(false);
+            } else if (model.looks_like_saved_in_meters()) {
+                if (dialogs.ask("model_in_meters", too_small, {detail::ui_text("Object too small")})) {
+                    model.convert_from_meters(true);
+                }
+            } else if (model.looks_like_imperial_units()) {
+                if (dialogs.ask("model_in_inches", too_small, {detail::ui_text("Object too small")})) {
+                    model.convert_from_imperial_units(true);
+                }
+            }
+            if (!project && model.looks_like_multipart_object()) {
+                if (dialogs.ask("multipart_object",
+                                {detail::ui_text("This file contains several objects positioned at multiple heights.\n"
+                                                 "Instead of considering them as multiple objects, should \n"
+                                                 "the file be loaded as a single object having multiple parts?")},
+                                {detail::ui_text("Multi-part object detected")})) {
+                    model.convert_multipart_object(unsigned(std::max<std::size_t>(profiles.filaments.size(), 1)));
+                }
+            }
+
+            // An object of a file other than 3MF or AMF is centred around the
+            // origin without its modifiers, and an object the file placed rests on
+            // the plate, or keeps a project's height below it.
+            for (Slic3r::ModelObject* object : model.objects) {
+                if (!type_3mf && !is_any_amf(source_path)) {
+                    object->center_around_origin(false);
+                }
+                if (!object->instances.empty()) {
+                    object->ensure_on_bed(project);
+                }
+            }
+            if (one_by_one) {
+                // The objects of a 3MF file loaded without its settings gather around
+                // the plate's centre, as they stood to each other.
+                if (type_3mf && !project) {
+                    model.center_instances_around_point(build_volume_of(config).bed_center());
+                }
+                imported = std::move(model);
+                is_project_file = project;
+            } else {
+                for (const Slic3r::ModelObject* object : model.objects) {
+                    imported.add_object(*object);
+                }
             }
         }
-        if (!is_project_file && imported.looks_like_multipart_object()) {
-            if (dialogs.ask("multipart_object",
-                            {detail::ui_text("This file contains several objects positioned at multiple heights.\n"
-                                             "Instead of considering them as multiple objects, should \n"
-                                             "the file be loaded as a single object having multiple parts?")},
-                            {detail::ui_text("Multi-part object detected")})) {
+        dialogs.set_scope({});
+
+        // load_files() of several files the user picked at once: asked whether
+        // their objects make one object of several parts, and whether they drop
+        // onto the plate. Objects that keep their places without Auto-Drop load
+        // as one object too, which split_object() then splits.
+        bool auto_drop = true;
+        if (!one_by_one && ask_multi && imported.objects.size() > 1) {
+            const auto [single, drop] = dialogs.ask_checked(
+                "multiple_files_parts", {detail::ui_text("Load these files as a single object with multiple parts?\n")},
+                {detail::ui_text("Object with multiple parts was detected")}, detail::ui_text("Auto-Drop"), true, DialogIcon::question);
+            auto_drop = drop;
+            if (single || !auto_drop) {
                 imported.convert_multipart_object(unsigned(std::max<std::size_t>(profiles.filaments.size(), 1)));
             }
-        }
-
-        // An object of a file other than 3MF or AMF is centred around the
-        // origin without its modifiers, and an object the file placed rests on
-        // the plate, or keeps a project's height below it.
-        for (Slic3r::ModelObject* object : imported.objects) {
-            if (!type_3mf && !is_any_amf(source_path)) {
-                object->center_around_origin(false);
-            }
-            if (!object->instances.empty()) {
-                object->ensure_on_bed(is_project_file);
-            }
-        }
-        // The objects of a 3MF file loaded without its settings gather around
-        // the plate's centre, as they stood to each other.
-        if (type_3mf && !is_project_file) {
-            imported.center_instances_around_point(build_volume_of(config).bed_center());
+            result.split_to_objects = !single && !auto_drop;
         }
 
         // load_model_objects(): an object the file placed keeps its instances,
@@ -3709,6 +3783,7 @@ ImportedModels import_model(
             result.notices = dialogs.take_notices();
             return result;
         }
+        const Slic3r::DynamicPrintConfig& placing = detail::placing_config(archive, config);
         const Slic3r::BoundingBoxf bed = build_volume_of(placing).bounding_volume2d();
         const Slic3r::BoundingBoxf3 plate_box = plate_box_of(placing);
         // PartPlate::empty() does not see the file's objects until they are
@@ -3725,7 +3800,15 @@ ImportedModels import_model(
                 new_instances.push_back(object->add_instance());
             }
             offer_to_scale_down(*object, bed_size, dialogs, placed.size());
-            object->ensure_on_bed(is_project_file);
+            if (auto_drop) {
+                object->ensure_on_bed(is_project_file);
+            } else {
+                // Without Auto-Drop the copies keep their heights, lifted above the plate.
+                for (Slic3r::ModelInstance* instance : object->instances) {
+                    instance->auto_drop = false;
+                }
+                object->translate_instances(Slic3r::Vec3d(0.0, 0.0, -std::min(object->min_z(), 0.0)));
+            }
             placed.push_back(object);
         }
         // The objects the file did not place: on the plate's centre when the
@@ -3745,9 +3828,15 @@ ImportedModels import_model(
         if (!write_objects(placed, output_prefix, result)) {
             return result;
         }
+        // The objects of several files tell which one each came from.
+        if (!one_by_one) {
+            for (std::size_t index = 0; index < placed.size() && index < result.objects.size(); ++index) {
+                result.objects[index].input_file = fs::path(placed[index]->input_file).filename().string();
+            }
+        }
         // Every question is answered: what the file brings into the presets.
-        if (type_3mf) {
-            detail::apply_3mf(archive, file_name, dialogs, result);
+        if (one_by_one && boost::algorithm::iends_with(source_paths.front(), ".3mf")) {
+            detail::apply_3mf(archive, fs::path(source_paths.front()).filename().string(), dialogs, result);
         }
         if (result.project) {
             result.project_info = output_prefix + "-project";
@@ -3767,6 +3856,7 @@ ImportedModels import_model(
         result.step_linear_deflection = pending.linear_deflection;
         result.step_angle_deflection = pending.angle_deflection;
         result.step_split_compound = pending.split_compound;
+        result.step_file = int(reading);
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;
         return result;
