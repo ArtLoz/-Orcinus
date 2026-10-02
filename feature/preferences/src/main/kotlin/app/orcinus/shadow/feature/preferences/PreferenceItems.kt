@@ -250,6 +250,11 @@ internal val PREFERENCE_PAGES = listOf(
                 "Realistic View",
                 listOf(
                     PreferenceItem.Check(AppConfigKeys.OPENGL_REALISTIC_PHONG, "Phong shading", "Uses Phong shading inside realistic view."),
+                    PreferenceItem.Check(
+                        AppConfigKeys.OPENGL_PHONG_BASIC_PLATE_SHADOWS,
+                        "Shadows",
+                        "Renders cast shadows on the plate in realistic view.",
+                    ),
                 ),
             ),
             PreferenceSection(

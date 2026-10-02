@@ -83,6 +83,7 @@ class AppPreferences(private val store: AppConfigStore) {
             labels = AppConfigKeys.bool(values[AppConfigKeys.SHOW_LABELS]),
             realistic = AppConfigKeys.bool(values[AppConfigKeys.OPENGL_REALISTIC_MODE]),
             phong = values[AppConfigKeys.OPENGL_REALISTIC_PHONG]?.let(AppConfigKeys::bool) ?: true,
+            shadows = AppConfigKeys.bool(values[AppConfigKeys.OPENGL_PHONG_BASIC_PLATE_SHADOWS]),
             axes = values[AppConfigKeys.SHOW_AXES]?.let { it == "true" } ?: true,
             gridlines = values[AppConfigKeys.SHOW_PLATE_GRIDLINES]?.let(AppConfigKeys::bool) ?: true,
         )

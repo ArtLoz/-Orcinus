@@ -420,6 +420,8 @@ data class PlateViewOptions(
     val outline: Boolean = false,
     /** The realistic view with Phong shading (opengl_realistic_mode and opengl_realistic_phong). */
     val phong: Boolean = false,
+    /** The realistic view with shadows on the plate (opengl_phong_basic_plate_shadows), which the preview has not. */
+    val shadows: Boolean = false,
 )
 
 /**
@@ -1660,6 +1662,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 overhangNormalZ = overhangNormalZ,
                 outline = options.outline,
                 phong = options.phong,
+                shadows = options.shadows,
                 gizmo = gizmoFrame(),
                 slopeNormalZ = slopeNormalZ,
                 // apply_color_clip_plane_colors(): the dovetail cut shows no parts' colours on the object.
@@ -1816,17 +1819,20 @@ internal class PlateSurfaceView(context: Context, samples: Int) : GLSurfaceView(
  * cannot (OpenGLManager::can_multisample()).
  */
 private class MultisampleConfigChooser(private val samples: Int) : GLSurfaceView.EGLConfigChooser {
+    // OpenGLManager::create_wxglcanvas() asks for an 8-bit stencil, which the realistic view's shadows mark the plate with.
     override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig =
-        (if (samples > 0) choose(egl, display, samples) else null) ?: choose(egl, display, samples = 0)
-            ?: error("No OpenGL ES 3.0 configuration with a depth buffer")
+        STENCILS.firstNotNullOfOrNull { stencil ->
+            (if (samples > 0) choose(egl, display, samples, stencil) else null) ?: choose(egl, display, samples = 0, stencil)
+        } ?: error("No OpenGL ES 3.0 configuration with a depth buffer")
 
-    private fun choose(egl: EGL10, display: EGLDisplay, samples: Int): EGLConfig? {
+    private fun choose(egl: EGL10, display: EGLDisplay, samples: Int, stencil: Int): EGLConfig? {
         val attributes = intArrayOf(
             EGL10.EGL_RED_SIZE, 8,
             EGL10.EGL_GREEN_SIZE, 8,
             EGL10.EGL_BLUE_SIZE, 8,
             EGL10.EGL_ALPHA_SIZE, 8,
             EGL10.EGL_DEPTH_SIZE, 24,
+            EGL10.EGL_STENCIL_SIZE, stencil,
             EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
             EGL10.EGL_SAMPLE_BUFFERS, if (samples > 0) 1 else 0,
             EGL10.EGL_SAMPLES, samples,
@@ -1839,6 +1845,7 @@ private class MultisampleConfigChooser(private val samples: Int) : GLSurfaceView
 
     private companion object {
         const val EGL_OPENGL_ES3_BIT = 0x40
+        val STENCILS = listOf(8, 0)
     }
 }
 

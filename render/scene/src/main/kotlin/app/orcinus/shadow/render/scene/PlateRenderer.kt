@@ -12,6 +12,7 @@ import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Vec3
 import javax.microedition.khronos.egl.EGLConfig
+import kotlin.math.abs
 import javax.microedition.khronos.opengles.GL10
 
 /** What one frame shows from where: computed on the main thread from the camera. */
@@ -50,6 +51,8 @@ internal class SceneFrame(
     val outline: Boolean = false,
     /** The realistic view with "Phong shading" (opengl_realistic_mode and opengl_realistic_phong): the volumes take the phong shader. */
     val phong: Boolean = false,
+    /** The realistic view with "Shadows" (opengl_phong_basic_plate_shadows) on the Prepare page: the objects cast shadows on the plate. */
+    val shadows: Boolean = false,
     /**
      * The cut gizmo's colour clip plane (GLVolumeCollection::set_color_clip_plane):
      * -normal and offset; the objects are drawn in the colour of the upper part
@@ -144,8 +147,10 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var offscreen: GlOffscreenFrame? = null
     /** GLVolume::render_with_outline()'s depth texture, kept for the next frames rather than made for every volume. */
     private var outlineDepth: GlDepthTarget? = null
-    /** GLCanvas3D::m_background: the quad over the whole view that the FXAA pass draws. */
+    /** GLCanvas3D::m_background: the quad over the whole view that the FXAA pass and the shadows draw. */
     private var screenQuad: GlVertexArray? = null
+    /** GLCanvas3D::m_plate_shadow_mask, with the build volume it was made for (m_plate_shadow_mask_key). */
+    private var shadowMask: Pair<Box3, GlVertexArray>? = null
 
     fun setBed(bed: SceneBed?) = synchronized(lock) {
         pendingBed = bed
@@ -193,6 +198,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         offscreen = null
         outlineDepth = null
         screenQuad = null
+        shadowMask = null
         val samples = IntArray(2)
         GLES30.glGetIntegerv(GLES30.GL_SAMPLES, samples, 0)
         GLES30.glGetIntegerv(GLES30.GL_MAX_SAMPLES, samples, 1)
@@ -243,18 +249,21 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         return made.takeIf { it.complete }
     }
 
+    /** GLCanvas3D::m_background: the quad over the whole view. */
+    private fun screenQuad(): GlVertexArray = screenQuad ?: GlVertexArray(
+        GlVertexArray.floatBuffer(
+            floatArrayOf(
+                -1f, -1f, 0f, 0f, 0f, 1f, -1f, 0f, 1f, 0f, 1f, 1f, 0f, 1f, 1f,
+                -1f, -1f, 0f, 0f, 0f, 1f, 1f, 0f, 1f, 1f, -1f, 1f, 0f, 0f, 1f,
+            ),
+        ),
+        listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2),
+        GLES30.GL_TRIANGLES,
+    ).also { screenQuad = it }
+
     /** GLCanvas3D::_render_fxaa_pass(): the frame drawn over the view through the fxaa shader. */
     private fun renderFxaa(program: GlProgram, target: GlOffscreenFrame) {
-        val quad = screenQuad ?: GlVertexArray(
-            GlVertexArray.floatBuffer(
-                floatArrayOf(
-                    -1f, -1f, 0f, 0f, 0f, 1f, -1f, 0f, 1f, 0f, 1f, 1f, 0f, 1f, 1f,
-                    -1f, -1f, 0f, 0f, 0f, 1f, 1f, 0f, 1f, 1f, -1f, 1f, 0f, 0f, 1f,
-                ),
-            ),
-            listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2),
-            GLES30.GL_TRIANGLES,
-        ).also { screenQuad = it }
+        val quad = screenQuad()
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
@@ -302,6 +311,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             }
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         }
+        if (frame.shadows) renderCastShadows(programs.flat, frame)
         // GLCanvas3D::_render() for the preview: the G-code after the bed.
         layer?.draw(frame.view.toFloatArray(), frame.projection)
         // GLCanvas3D::_render_objects(): "phong" in the realistic view with Phong shading, "gouraud" otherwise.
@@ -477,6 +487,94 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             program.setVec4("uniform_color", color[0], color[1], color[2], color[3])
             bed.axis.draw()
         }
+    }
+
+    /**
+     * GLCanvas3D::_render_cast_shadows_on_plate(): the stencil marks the
+     * current plate's build volume, then every printable model part flattened
+     * onto it along a light that turns with the view, and the marked pixels
+     * are darkened over the whole view.
+     */
+    private fun renderCastShadows(program: GlProgram, frame: SceneFrame) {
+        val volumes = objects.filter { it.printable && !it.modifier && !it.overlay && it.index != WIPE_TOWER_INDEX }
+        if (volumes.isEmpty()) return
+        val bed = gpuBed ?: return
+
+        // Fixed light direction (pointing downward at an angle), defined in eye space and turned to world space
+        // with the inverse view rotation.
+        val toLight = (frame.view.linearRow(0) * LIGHT_DIR_EYE.x + frame.view.linearRow(1) * LIGHT_DIR_EYE.y + frame.view.linearRow(2) * LIGHT_DIR_EYE.z).normalized()
+        val ray = -toLight
+        if (abs(ray.z) < 1e-6) return
+        // Shadow projection matrix - flattens geometry onto Z=0 plane along light direction, with a bias against acne.
+        val shadowProjection = Affine3.fromRows(
+            doubleArrayOf(1.0, 0.0, -ray.x / ray.z, 0.0),
+            doubleArrayOf(0.0, 1.0, -ray.y / ray.z, 0.0),
+            doubleArrayOf(0.0, 0.0, 0.0, 0.01),
+        )
+
+        // PASS 0: the stencil mask of the build plate (value = 1).
+        GLES30.glEnable(GLES30.GL_STENCIL_TEST)
+        GLES30.glStencilMask(0xFF)
+        GLES30.glClearStencil(0)
+        GLES30.glClear(GLES30.GL_STENCIL_BUFFER_BIT)
+        GLES30.glStencilFunc(GLES30.GL_ALWAYS, 1, 0xFF)
+        GLES30.glStencilOp(GLES30.GL_KEEP, GLES30.GL_KEEP, GLES30.GL_REPLACE)
+        GLES30.glColorMask(false, false, false, false)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        program.use()
+        program.setMatrix4("projection_matrix", frame.projection)
+        val origin = plates.currentOrigin
+        val plate = Box3(bed.scene.buildVolume.min + origin, bed.scene.buildVolume.max + origin)
+        val mask = shadowMask?.takeIf { it.first == plate }?.second ?: run {
+            shadowMask?.second?.release()
+            val x0 = plate.min.x.toFloat()
+            val y0 = plate.min.y.toFloat()
+            val x1 = plate.max.x.toFloat()
+            val y1 = plate.max.y.toFloat()
+            GlVertexArray(
+                GlVertexArray.floatBuffer(floatArrayOf(x0, y0, 0f, x1, y0, 0f, x1, y1, 0f, x0, y0, 0f, x1, y1, 0f, x0, y1, 0f)),
+                listOf(GlProgram.POSITION to 3),
+                GLES30.GL_TRIANGLES,
+            ).also { shadowMask = plate to it }
+        }
+        program.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+        mask.draw()
+
+        // PASS 1: the objects' shadows projected onto the plate (stencil 1 becomes 2).
+        GLES30.glStencilFunc(GLES30.GL_EQUAL, 1, 0xFF)
+        GLES30.glStencilOp(GLES30.GL_KEEP, GLES30.GL_KEEP, GLES30.GL_INCR)
+        GLES30.glDepthMask(false)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDepthFunc(GLES30.GL_ALWAYS)
+        GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)
+        GLES30.glPolygonOffset(-2f, -2f)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        for (volume in volumes) {
+            val mesh = gpuObjects[volume.key] ?: continue
+            program.setMatrix4("view_model_matrix", (frame.view * shadowProjection * volume.world).toFloatArray())
+            mesh.draw()
+        }
+
+        // PASS 2: the shadow colour where the stencil is 2.
+        GLES30.glColorMask(true, true, true, true)
+        GLES30.glStencilFunc(GLES30.GL_EQUAL, 2, 0xFF)
+        GLES30.glStencilOp(GLES30.GL_KEEP, GLES30.GL_KEEP, GLES30.GL_KEEP)
+        GLES30.glStencilMask(0x00)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        program.setMatrix4("view_model_matrix", IDENTITY)
+        program.setMatrix4("projection_matrix", IDENTITY)
+        program.setVec4("uniform_color", 0f, 0f, 0f, SHADOW_ALPHA)
+        screenQuad().draw()
+
+        // The state as it was.
+        GLES30.glDepthMask(true)
+        GLES30.glDepthFunc(GLES30.GL_LESS)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glDisable(GLES30.GL_STENCIL_TEST)
+        GLES30.glStencilMask(0xFF)
     }
 
     /** GLCanvas3D::_render_objects() and GLVolumeCollection::render() for opaque volumes. */
@@ -851,6 +949,10 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     private companion object {
+        // GLCanvas3D::_render_cast_shadows_on_plate(): the light, normalized (-0.6, 0.6, 1) in eye space, and the shadows' alpha.
+        val LIGHT_DIR_EYE = Vec3(-0.4574957, 0.4574957, 0.7624929).normalized()
+        const val SHADOW_ALPHA = 0.4f
+
         // ColorRGB::X(), Y() and Z(), the colours of Bed3D's axes.
         val AXIS_X_COLOR = floatArrayOf(255 / 255f, 60 / 255f, 91 / 255f, 1f)
         val AXIS_Y_COLOR = floatArrayOf(100 / 255f, 200 / 255f, 24 / 255f, 1f)
