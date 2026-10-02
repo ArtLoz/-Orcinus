@@ -1023,6 +1023,9 @@ class RemoteSlicerEngine(
         }
     }
 
+    override suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? =
+        remote({ Double.NaN }) { overhangNormalZ(profiles.toParcel()) }.takeUnless(Double::isNaN)?.toFloat()
+
     override suspend fun thumbnailSizes(profiles: SlicingProfileSelection): ThumbnailSizesOutcome =
         remote(ThumbnailSizesOutcome::Failure) { thumbnailSizes(profiles.toParcel()).toThumbnailSizesOutcome() }
 

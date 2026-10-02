@@ -107,6 +107,8 @@ data class PrepareUiState(
     val simplify: SimplifyMode? = null,
     /** The meshes the 3D view draws with their triangle edges over them (the gizmo's "Show wireframe"). */
     val wireframes: Set<ScenePath> = emptySet(),
+    /** The canvas's "Overhangs": slope.normal_z, which the support settings give; null until the engine answered. */
+    val overhangNormalZ: Float? = null,
     val arrangeOptionsOpen: Boolean,
     val arrangeSettings: ArrangeSettings,
     /** What Copy and Cut took, which Paste puts on the plate. */
@@ -327,6 +329,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         settingsClipboard = settingsClipboard,
         simplify = view.simplify?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } },
         wireframes = view.simplify?.takeIf { it.wireframe }?.preview?.let { setOf(it.mesh) }.orEmpty(),
+        overhangNormalZ = overhangNormalZ,
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
         arrangeSettings = arrangeSettings,
         clipboard = clipboard,

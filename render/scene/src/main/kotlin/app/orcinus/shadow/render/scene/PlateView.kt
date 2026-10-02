@@ -171,6 +171,8 @@ fun PlateView(
     onPerspectiveChange: (Boolean) -> Unit = {},
     /** The View menu's commands to the camera: its views and the zoom button. */
     camera: PlateViewCamera? = null,
+    /** The canvas's "Overhangs": slope.normal_z they are tinted from; null while they are hidden. */
+    overhangNormalZ: Float? = null,
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -183,6 +185,7 @@ fun PlateView(
         LaunchedEffect(orbitSpeed) { controller.orbitSpeed = orbitSpeed }
         LaunchedEffect(graphics.fxaa) { controller.setFxaa(graphics.fxaa) }
         LaunchedEffect(options) { controller.setOptions(options) }
+        LaunchedEffect(overhangNormalZ) { controller.setOverhangs(overhangNormalZ) }
         SideEffect { controller.onPerspectiveChange = onPerspectiveChange }
         DisposableEffect(camera, controller) {
             camera?.controller = controller
@@ -401,13 +404,15 @@ private val DEFAULT_FILAMENT_COLOR = ColorRgba(0xF2 / 255f, 0x75 / 255f, 0x4E / 
 /**
  * The View menu's settings of the view (OrcaSlicer.conf): [perspective]
  * (use_perspective_camera), [autoPerspective] (auto_perspective), [axes]
- * (show_axes) and [gridlines] (show_plate_gridlines).
+ * (show_axes), [gridlines] (show_plate_gridlines) and [outline]
+ * (show_outline, which the preview has not).
  */
 data class PlateViewOptions(
     val perspective: Boolean = true,
     val autoPerspective: Boolean = false,
     val axes: Boolean = true,
     val gridlines: Boolean = true,
+    val outline: Boolean = false,
 )
 
 /**
@@ -1232,6 +1237,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    /** The canvas's "Overhangs" (GLCanvas3D::m_slope's global use), slope.normal_z; null while hidden. */
+    private var overhangNormalZ: Float? = null
+
+    fun setOverhangs(normalZ: Float?) {
+        if (overhangNormalZ == normalZ) return
+        overhangNormalZ = normalZ
+        invalidate()
+    }
+
     /** The View menu's projection, axes and grid, and Camera::m_prevent_auto_type. */
     private var options = PlateViewOptions()
     private var preventAutoType = false
@@ -1597,6 +1611,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 selectedIndexes = selectedIndexes,
                 showAxes = options.axes,
                 showGridlines = options.gridlines,
+                overhangNormalZ = overhangNormalZ,
+                outline = options.outline,
                 gizmo = gizmoFrame(),
                 slopeNormalZ = slopeNormalZ,
                 // apply_color_clip_plane_colors(): the dovetail cut shows no parts' colours on the object.

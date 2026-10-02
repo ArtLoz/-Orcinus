@@ -58,6 +58,8 @@ fun CanvasViewButtons(
     onSet: (key: String, value: String) -> Unit,
     onZoom: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The preview's canvas, on which the items of the Prepare page's alone are disabled. */
+    preview: Boolean = false,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -69,6 +71,7 @@ fun CanvasViewButtons(
     if (open) {
         CanvasViewSheet(
             canvas = canvas,
+            preview = preview,
             onView = { view ->
                 open = false
                 onView(view)
@@ -97,6 +100,7 @@ fun navigatorFaceLabels(): List<String> = listOf(
 @Composable
 private fun CanvasViewSheet(
     canvas: CanvasPreferences,
+    preview: Boolean,
     onView: (CameraView?) -> Unit,
     onSet: (key: String, value: String) -> Unit,
     onDismiss: () -> Unit,
@@ -143,6 +147,12 @@ private fun CanvasViewSheet(
             SwitchRow(orcaString("3D Navigator"), null, canvas.navigator) { onSet(AppConfigKeys.SHOW_3D_NAVIGATOR, it.toString()) }
             SwitchRow(orcaString("Zoom button"), null, canvas.zoomButton) { onSet(AppConfigKeys.SHOW_CANVAS_ZOOM_BUTTON, it.toString()) }
             HorizontalDivider(color = colors.separator)
+            // Plater::priv::is_view3D_overhang_shown(): off while the preview is shown.
+            SwitchRow(orcaString("Overhangs"), null, canvas.overhang && !preview, enabled = !preview) {
+                onSet(AppConfigKeys.SHOW_OVERHANG, it.toString())
+            }
+            SwitchRow(orcaString("Outline"), null, canvas.outline, enabled = !preview) { onSet(AppConfigKeys.SHOW_OUTLINE, it.toString()) }
+            HorizontalDivider(color = colors.separator)
             SwitchRow(orcaString("Axes"), null, canvas.axes) { onSet(AppConfigKeys.SHOW_AXES, it.toString()) }
             SwitchRow(orcaString("Gridlines"), null, canvas.gridlines) { onSet(AppConfigKeys.SHOW_PLATE_GRIDLINES, it.toString()) }
             Spacer(Modifier.padding(bottom = 8.dp))
@@ -167,21 +177,21 @@ private fun RadioRow(title: String, selected: Boolean, onSelect: () -> Unit) {
 }
 
 @Composable
-private fun SwitchRow(title: String, detail: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(title: String, detail: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
             .padding(horizontal = 16.dp, vertical = 6.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body14)
+            Text(title, color = if (enabled) OrcaTheme.colors.text else OrcaTheme.colors.textDisabled, style = OrcaTheme.typography.body14)
             if (detail != null) Text(detail, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body12)
         }
         Spacer(Modifier.width(12.dp))
-        OrcaSwitch(checked = checked, onCheckedChange = onChange)
+        OrcaSwitch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }
 

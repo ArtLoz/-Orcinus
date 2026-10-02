@@ -332,6 +332,7 @@ internal fun PreviewScreen(
                         onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
                         onSet = onSetCanvas,
                         onZoom = viewCamera::zoomToFit,
+                        preview = true,
                     )
                 }
             }

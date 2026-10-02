@@ -2565,6 +2565,19 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_thumbnailSizes(
     return env->NewObject(result_class, constructor, static_cast<jlong>(result.status), to_java(env, result.message), sizes);
 }
 
+extern "C" JNIEXPORT jdouble JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_overhangNormalZ(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    return orcinus::orca::overhang_normal_z(to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles));
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeGcodePlaceholders(JNIEnv* env, jobject /* this */, jlong kind, jstring key)
 {

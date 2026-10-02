@@ -6,7 +6,7 @@ plugins {
 /**
  * Packages OrcaSlicer's GLSL 1.40 shaders from the pinned submodule as OpenGL
  * ES 3.0 shaders. The two dialects differ only in the version line and in the
- * default float precision, which ES requires in fragment shaders, so the
+ * default precisions, which ES requires in fragment shaders, so the
  * shaders stay OrcaSlicer's own and follow upstream updates.
  */
 abstract class ConvertOrcaShaders : DefaultTask() {
@@ -31,7 +31,8 @@ abstract class ConvertOrcaShaders : DefaultTask() {
 
     private companion object {
         const val DESKTOP_VERSION = "#version 140"
-        const val ES_HEADER = "#version 300 es\nprecision highp float;\nprecision highp int;"
+        // ES samples with lowp by default in fragment shaders; the outline of gouraud reads depths.
+        const val ES_HEADER = "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;"
     }
 }
 

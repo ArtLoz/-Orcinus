@@ -121,18 +121,20 @@ internal class SceneObject(
      * selection's, with the overhangs the support tool highlights.
      */
     val paintedByTool: Boolean = false,
+    /** GLVolume::is_modifier: a part that is not a model part (a modifier, a negative volume, a support blocker or enforcer). */
+    val modifier: Boolean = false,
 ) {
     val bounds = mesh.bounds.transformed(world)
 
     fun withWorld(world: Affine3) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool)
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool, modifier)
 
     fun withWireframe(wireframe: Boolean) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool)
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool, modifier)
 
     /** The object as the painting tool draws it, in [color]. */
     fun paintedByTool(color: ColorRgba) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, true)
+        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, true, modifier)
 
     /** The bounding sphere's centre in world coordinates. */
     fun sphereCenter(): Vec3 = world.transformPoint(sphereCenter)
@@ -327,6 +329,7 @@ internal object SceneLoader {
             autoDrop = instance.autoDrop,
             printable = instance.printable,
             partlyInside = instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE,
+            modifier = part.type != VolumeType.PART,
         )
     }
 

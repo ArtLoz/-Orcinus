@@ -901,6 +901,14 @@ internal object NativeBindings {
         processProfile: String,
     ): NativeThumbnailSizes
 
+    /** GLVolumeCollection::get_selection_support_normal_z(): the canvas's overhang highlight; NaN without presets. */
+    external fun overhangNormalZ(
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): Double
+
     /** The wipe tower of the plate, as the desktop canvas draws it. */
     external fun describeWipeTower(
         plate: NativePlate,

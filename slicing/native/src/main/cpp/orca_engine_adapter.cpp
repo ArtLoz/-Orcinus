@@ -7,6 +7,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -1714,6 +1715,67 @@ ThumbnailSizes thumbnail_sizes(const ProfileSelection& profiles)
         result.message = error.what();
     }
     return result;
+}
+
+double overhang_normal_z(const ProfileSelection& profiles)
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    try {
+        using namespace Slic3r;
+        DynamicPrintConfig selected;
+        std::string message;
+        if (select_profiles(*engine().bundle, profiles, selected, message) != SliceStatus::success) {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        // ORCA: Compute slope.normal_z for 3D overhang highlight directly from support settings.
+        // If support_threshold_angle is 0, use tree fallback angle (30 deg) for tree supports,
+        // and derive an equivalent angle from threshold overlap for normal supports.
+        const DynamicPrintConfig& glb_cfg  = engine().bundle->prints.get_edited_preset().config;
+        const auto& full_cfg               = selected;
+        const auto support_type            = glb_cfg.opt_enum<SupportType>("support_type");
+        const int  support_threshold_angle = glb_cfg.opt_int("support_threshold_angle");
+        double angle_rad;
+
+        if (support_threshold_angle > 0) {
+            // Match support generation: explicit threshold angles are treated as inclusive.
+            const int effective_support_threshold_angle = std::min(support_threshold_angle + 1, 89);
+            angle_rad = Geometry::deg2rad(static_cast<double>(effective_support_threshold_angle));
+        } else if (is_tree(support_type)) {
+            angle_rad = Geometry::deg2rad(30.0); // fallback value for tree supports
+        } else { // For normal supports, if the angle is set to 0, calculate normal_z from overlap.
+            const double layer_height        = full_cfg.opt_float("layer_height");
+            const auto*  nozzle_diameter_opt = full_cfg.option<ConfigOptionFloats>("nozzle_diameter");
+            const int    wall_filament_id       = full_cfg.opt_int("outer_wall_filament_id");
+            const size_t nozzle_count        = nozzle_diameter_opt->values.size();
+            const size_t wall_extruder_idx   = (wall_filament_id > 0 && wall_filament_id <= static_cast<int>(nozzle_count))
+                ? static_cast<size_t>(wall_filament_id - 1)
+                : 0; // Invalid extruder index falls back to extruder 1.
+
+            // Use wall extruder's nozzle diameter for better estimation of external perimeter width,
+            // which is more relevant to overhang printing than the default nozzle diameter.
+            const double nozzle_diameter = nozzle_diameter_opt->values[wall_extruder_idx];
+
+            double external_perimeter_width = full_cfg.get_abs_value("outer_wall_line_width", nozzle_diameter);
+            if (external_perimeter_width <= 0.0) {
+                external_perimeter_width = full_cfg.get_abs_value("line_width", nozzle_diameter);
+
+                if (external_perimeter_width <= 0.0)
+                    external_perimeter_width = nozzle_diameter;
+            }
+
+            const double overlap_width      = full_cfg.get_abs_value("support_threshold_overlap", external_perimeter_width);
+            const double lower_layer_offset = std::max(0.0, external_perimeter_width - overlap_width);
+
+            angle_rad = lower_layer_offset <= EPSILON ? Geometry::deg2rad(89.0) : std::atan(layer_height / lower_layer_offset);
+        }
+
+        return static_cast<float>(-std::cos(std::clamp(angle_rad, 0.0, Geometry::deg2rad(89.0))));
+    } catch (const std::exception&) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
 }
 
 void select_plate(const int index, const int count)

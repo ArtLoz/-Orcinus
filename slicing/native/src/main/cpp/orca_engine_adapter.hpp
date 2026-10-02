@@ -378,6 +378,12 @@ struct ThumbnailSizes {
 
 ThumbnailSizes thumbnail_sizes(const ProfileSelection& profiles);
 
+// GLVolumeCollection::get_selection_support_normal_z(): the slope.normal_z the
+// canvas highlights overhangs from while "Overhangs" is on, worked out from the
+// edited process preset and the full configuration of the selected presets.
+// NaN when the presets cannot be selected.
+double overhang_normal_z(const ProfileSelection& profiles);
+
 // The plate of the selected printer as desktop OrcaSlicer draws it (Bed3D and
 // PartPlate), in millimetres on the plate plane. Files are written into the
 // output directory given to describe_plate().

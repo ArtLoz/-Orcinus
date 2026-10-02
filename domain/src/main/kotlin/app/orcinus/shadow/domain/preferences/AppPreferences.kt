@@ -78,6 +78,8 @@ class AppPreferences(private val store: AppConfigStore) {
             autoPerspective = AppConfigKeys.bool(values[AppConfigKeys.AUTO_PERSPECTIVE]),
             navigator = values[AppConfigKeys.SHOW_3D_NAVIGATOR]?.let(AppConfigKeys::bool) ?: true,
             zoomButton = values[AppConfigKeys.SHOW_CANVAS_ZOOM_BUTTON]?.let(AppConfigKeys::bool) ?: true,
+            overhang = AppConfigKeys.bool(values[AppConfigKeys.SHOW_OVERHANG]),
+            outline = AppConfigKeys.bool(values[AppConfigKeys.SHOW_OUTLINE]),
             axes = values[AppConfigKeys.SHOW_AXES]?.let { it == "true" } ?: true,
             gridlines = values[AppConfigKeys.SHOW_PLATE_GRIDLINES]?.let(AppConfigKeys::bool) ?: true,
         )

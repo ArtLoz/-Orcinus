@@ -142,6 +142,7 @@ import app.orcinus.shadow.domain.plate.StepMeshPrompt
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.plate.UpdateFlushVolumesUseCase
+import app.orcinus.shadow.domain.plate.OverhangUpdates
 import app.orcinus.shadow.domain.plate.WipeTowerUpdates
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
@@ -228,6 +229,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         EnginePlateSync(engine, plateRepository, placePlateObjects, applicationScope).start()
         // The wipe tower follows the plate, as the desktop canvas rebuilds it.
         wipeTowerUpdates.start()
+        // The overhangs' angle follows the support settings of the edited presets.
+        OverhangUpdates(engine, plateRepository, applicationScope).start()
         // Meshes go once neither the plate, its undo/redo stack nor the clipboard needs them.
         applicationScope.launch { ObjectMeshRetention(plateRepository, sceneFiles).run() }
         // "Auto backup", and the restore of a project an earlier run left.

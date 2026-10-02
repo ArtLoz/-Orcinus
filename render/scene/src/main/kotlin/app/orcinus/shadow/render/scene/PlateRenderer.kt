@@ -3,6 +3,7 @@ package app.orcinus.shadow.render.scene
 import android.content.res.AssetManager
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
+import app.orcinus.shadow.render.scene.gl.GlDepthTarget
 import app.orcinus.shadow.render.scene.gl.GlOffscreenFrame
 import app.orcinus.shadow.render.scene.gl.GlProgram
 import app.orcinus.shadow.render.scene.gl.GlTexture
@@ -40,6 +41,13 @@ internal class SceneFrame(
      * further down are tinted; null while it is closed.
      */
     val slopeNormalZ: Float? = null,
+    /**
+     * The canvas's "Overhangs" (GLVolumeCollection::m_slope.isGlobalActive):
+     * slope.normal_z of every model part but the wipe tower; null while hidden.
+     */
+    val overhangNormalZ: Float? = null,
+    /** The canvas's "Outline" (show_outline): the selected volumes are drawn with their silhouettes. */
+    val outline: Boolean = false,
     /**
      * The cut gizmo's colour clip plane (GLVolumeCollection::set_color_clip_plane):
      * -normal and offset; the objects are drawn in the colour of the upper part
@@ -132,6 +140,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     /** The samples of the surface's buffer, which the frame drawn for FXAA takes too. */
     private var surfaceSamples = 0
     private var offscreen: GlOffscreenFrame? = null
+    /** GLVolume::render_with_outline()'s depth texture, kept for the next frames rather than made for every volume. */
+    private var outlineDepth: GlDepthTarget? = null
     /** GLCanvas3D::m_background: the quad over the whole view that the FXAA pass draws. */
     private var screenQuad: GlVertexArray? = null
 
@@ -179,6 +189,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         gizmoMeshes.clear()
         labelTextures.clear()
         offscreen = null
+        outlineDepth = null
         screenQuad = null
         val samples = IntArray(2)
         GLES30.glGetIntegerv(GLES30.GL_SAMPLES, samples, 0)
@@ -579,8 +590,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             printable = sceneObject.printable,
         )
         // GLGizmoPainterBase::render_triangles(): the slope of the object the
-        // support painting tool draws.
-        val slope = frame.slopeNormalZ?.takeIf { sceneObject.paintedByTool }
+        // support painting tool draws; GLVolumeCollection::render(): the
+        // canvas's overhangs on every other model part but the wipe tower.
+        val slope = if (sceneObject.paintedByTool) {
+            frame.slopeNormalZ
+        } else {
+            frame.overhangNormalZ?.takeIf { !sceneObject.modifier && sceneObject.index != WIPE_TOWER_INDEX }
+        }
         program.setBoolean("slope.actived", slope != null)
         if (slope != null) program.setFloat("slope.normal_z", slope)
         program.setVec4("uniform_color", color.red, color.green, color.blue, color.alpha)
@@ -591,8 +607,41 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         // GLVolume::render(): a mirrored volume turns its faces.
         val leftHanded = sceneObject.world.isLeftHanded
         if (leftHanded) GLES30.glFrontFace(GLES30.GL_CW)
-        mesh.draw()
+        // GLVolumeCollection::render(): a selected volume with "Outline" on.
+        val depth = if (frame.outline && sceneObject.index in frame.selectedIndexes && !sceneObject.paintedByTool) depthTarget() else null
+        if (depth != null) renderWithOutline(program, mesh, depth) else mesh.draw()
         if (leftHanded) GLES30.glFrontFace(GLES30.GL_CCW)
+    }
+
+    /**
+     * GLVolume::render_with_outline(): the volume drawn into a depth texture
+     * alone, then drawn as usual with that texture, where the gouraud shader
+     * darkens or lightens its silhouette.
+     */
+    private fun renderWithOutline(program: GlProgram, mesh: GlVertexArray, depth: GlDepthTarget) {
+        // The frame is drawn on the surface, or off screen for FXAA.
+        val target = IntArray(1)
+        GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, target, 0)
+        depth.bind()
+        mesh.draw()
+        depth.unbind(target[0])
+        program.setBoolean("is_outline", true)
+        program.setVec2("screen_size", depth.width.toFloat(), depth.height.toFloat())
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, depth.texture)
+        program.setInt("depth_tex", 0)
+        mesh.draw()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        program.setBoolean("is_outline", false)
+    }
+
+    /** The depth texture of the outline at the view's size, made again when the view changes size; null where it cannot be. */
+    private fun depthTarget(): GlDepthTarget? {
+        val current = outlineDepth
+        if (current != null && current.width == viewportWidth && current.height == viewportHeight) return current.takeIf { it.complete }
+        current?.release()
+        if (viewportWidth <= 0 || viewportHeight <= 0) return null
+        return GlDepthTarget(viewportWidth, viewportHeight).also { outlineDepth = it }.takeIf { it.complete }
     }
 
     /**

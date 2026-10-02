@@ -138,6 +138,13 @@ interface PlateInspector {
     suspend fun describePlate(profiles: SlicingProfileSelection, directory: ScenePath): PlateDescriptionOutcome
 
     /**
+     * GLVolumeCollection::get_selection_support_normal_z(): the slope.normal_z
+     * the canvas highlights overhangs from, after the support settings of the
+     * edited presets of [profiles]; null when they cannot be selected.
+     */
+    suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? = null
+
+    /**
      * Loads [model], writes its mesh to [mesh], and places it as OrcaSlicer
      * places an object added to the plate that already holds [plate].
      */

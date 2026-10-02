@@ -1527,6 +1527,16 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         NativeBindings.selectPlate(index, count)
     }
 
+    override suspend fun overhangNormalZ(profiles: SlicingProfileSelection): Float? = withContext(Dispatchers.IO) {
+        if (!status().ready) return@withContext null
+        NativeBindings.overhangNormalZ(
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+        ).takeUnless(Double::isNaN)?.toFloat()
+    }
+
     override suspend fun thumbnailSizes(profiles: SlicingProfileSelection): ThumbnailSizesOutcome =
         whenReady(ThumbnailSizesOutcome::Failure) {
             val result = NativeBindings.thumbnailSizes(

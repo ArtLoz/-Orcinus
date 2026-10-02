@@ -39,6 +39,10 @@ data class CanvasPreferences(
     val navigator: Boolean = true,
     /** show_canvas_zoom_button: the button that fits the plate or the selection to the view. */
     val zoomButton: Boolean = true,
+    /** show_overhang: the 3D view of the Prepare page tints the overhangs its supports would hold up. */
+    val overhang: Boolean = false,
+    /** show_outline: the selected objects are drawn with their silhouettes outlined. */
+    val outline: Boolean = false,
     /** show_axes: the coordinate axes at the origin of the plates (Bed3D::render_axes()). */
     val axes: Boolean = true,
     /** show_plate_gridlines: the plates' grids. */
@@ -76,6 +80,8 @@ object AppConfigKeys {
     const val AUTO_PERSPECTIVE = "auto_perspective"
     const val SHOW_3D_NAVIGATOR = "show_3d_navigator"
     const val SHOW_CANVAS_ZOOM_BUTTON = "show_canvas_zoom_button"
+    const val SHOW_OVERHANG = "show_overhang"
+    const val SHOW_OUTLINE = "show_outline"
     const val SHOW_AXES = "show_axes"
     const val SHOW_PLATE_GRIDLINES = "show_plate_gridlines"
     const val USE_FREE_CAMERA = "use_free_camera"
@@ -124,6 +130,8 @@ object AppConfigKeys {
         AUTO_PERSPECTIVE,
         SHOW_3D_NAVIGATOR,
         SHOW_CANVAS_ZOOM_BUTTON,
+        SHOW_OVERHANG,
+        SHOW_OUTLINE,
         SHOW_AXES,
         SHOW_PLATE_GRIDLINES,
         USE_FREE_CAMERA,

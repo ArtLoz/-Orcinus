@@ -910,6 +910,12 @@ data class PlateState(
      * the options of the process preset.
      */
     val flushing: WipeTower = WipeTower(),
+    /**
+     * GLVolumeCollection::get_selection_support_normal_z(): the canvas's
+     * "Overhangs" tint the faces whose world normal points further down;
+     * null until the engine worked it out from the edited presets.
+     */
+    val overhangNormalZ: Float? = null,
     /** The arrange options (GLCanvas3D::ArrangeSettings), which every arrangement of the plate takes. */
     val arrangeSettings: ArrangeSettings = ArrangeSettings(),
     /** What Copy and Cut took (Selection::Clipboard); null while nothing was copied. */

@@ -509,9 +509,10 @@ internal fun PrepareScreen(
                 zoomToFingers = canvas.zoomToMouse,
                 // The FPS overlay under the canvas toolbar, which takes the top right corner.
                 graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopEnd, PaddingValues(top = 62.dp, end = 10.dp)),
-                options = PlateViewOptions(canvas.perspective, canvas.autoPerspective, canvas.axes, canvas.gridlines),
+                options = PlateViewOptions(canvas.perspective, canvas.autoPerspective, canvas.axes, canvas.gridlines, canvas.outline),
                 onPerspectiveChange = { onSetCanvas(AppConfigKeys.USE_PERSPECTIVE_CAMERA, it.toString()) },
                 camera = viewCamera,
+                overhangNormalZ = state.overhangNormalZ.takeIf { canvas.overhang },
                 antialiasingSamples = canvas.antialiasingSamples,
             )
         }
