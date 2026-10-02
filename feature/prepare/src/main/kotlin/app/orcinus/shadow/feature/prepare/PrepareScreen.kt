@@ -720,62 +720,69 @@ internal fun PrepareScreen(
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(12.dp),
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onJumpTo)
-                // In a wide window the slice button sits in the tab bar, as on desktop.
-                if (layout == OrcaWindowLayout.Compact) {
-                    SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
-                }
-            }
-            Column(
+            // The plates and Undo at the bottom left, the notifications and the
+            // slice button beside them at the bottom right, never over each other.
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
+                    .fillMaxWidth()
                     .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Bottom,
             ) {
-                // The plates' numbers and icons, under the thumb once there are several.
-                if (state.plateOrigins.size > 1) {
-                    PlateStrip(
-                        count = state.plateOrigins.size,
-                        current = state.currentPlate,
-                        onSelect = plateActions.select,
-                        enabled = state.canEditPlate,
-                        locked = state.lockedPlates,
-                    ) { index, dismiss ->
-                        // PartPlate's icons (Plater::select_plate_by_hover_id).
-                        PlateMenuItems(
-                            actions = PlateIconActions(
-                                delete = { plateActions.delete(index) },
-                                orient = { plateActions.orient(index) },
-                                arrange = { plateActions.arrange(index) },
-                                lock = { plateActions.lock(index) },
-                                settings = {
-                                    plateActions.select(index)
-                                    customizingPlate = index
-                                },
-                                moveToFront = { plateActions.moveToFront(index) },
-                                rename = { renamingPlate = index },
-                            ),
-                            dismiss = dismiss,
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // The plates' numbers and icons, under the thumb once there are several.
+                    if (state.plateOrigins.size > 1) {
+                        PlateStrip(
+                            count = state.plateOrigins.size,
+                            current = state.currentPlate,
+                            onSelect = plateActions.select,
                             enabled = state.canEditPlate,
-                            locked = index in state.lockedPlates,
-                            workable = index in state.workablePlates,
-                            deletable = state.canDeletePlate,
-                            first = index == 0,
-                            customized = index in state.customizedPlates,
-                        )
+                            locked = state.lockedPlates,
+                        ) { index, dismiss ->
+                            // PartPlate's icons (Plater::select_plate_by_hover_id).
+                            PlateMenuItems(
+                                actions = PlateIconActions(
+                                    delete = { plateActions.delete(index) },
+                                    orient = { plateActions.orient(index) },
+                                    arrange = { plateActions.arrange(index) },
+                                    lock = { plateActions.lock(index) },
+                                    settings = {
+                                        plateActions.select(index)
+                                        customizingPlate = index
+                                    },
+                                    moveToFront = { plateActions.moveToFront(index) },
+                                    rename = { renamingPlate = index },
+                                ),
+                                dismiss = dismiss,
+                                enabled = state.canEditPlate,
+                                locked = index in state.lockedPlates,
+                                workable = index in state.workablePlates,
+                                deletable = state.canDeletePlate,
+                                first = index == 0,
+                                customized = index in state.customizedPlates,
+                            )
+                        }
+                    }
+                    // BBLTopbar's Undo and Redo, which a phone keeps under the thumb over the plate.
+                    OrcaCanvasToolbar {
+                        OrcaCanvasTool(DesignR.drawable.orca_topbar_undo, orcaString("Undo"), onUndo, enabled = state.canUndo)
+                        OrcaCanvasTool(DesignR.drawable.orca_topbar_redo, orcaString("Redo"), onRedo, enabled = state.canRedo)
                     }
                 }
-                // BBLTopbar's Undo and Redo, which a phone keeps under the thumb over the plate.
-                OrcaCanvasToolbar {
-                    OrcaCanvasTool(DesignR.drawable.orca_topbar_undo, orcaString("Undo"), onUndo, enabled = state.canUndo)
-                    OrcaCanvasTool(DesignR.drawable.orca_topbar_redo, orcaString("Redo"), onRedo, enabled = state.canRedo)
+                Column(
+                    // The notifications take the width the plates and Undo leave.
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onJumpTo)
+                    // In a wide window the slice button sits in the tab bar, as on desktop.
+                    if (layout == OrcaWindowLayout.Compact) {
+                        SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
+                    }
                 }
             }
         }

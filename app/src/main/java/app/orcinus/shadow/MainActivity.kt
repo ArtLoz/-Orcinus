@@ -24,10 +24,12 @@ import androidx.core.splashscreen.SplashScreenViewProvider
 import androidx.lifecycle.lifecycleScope
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.EngineAvailability
+import app.orcinus.shadow.core.ui.R as CoreUiR
 import app.orcinus.shadow.di.AppContainer
 import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
 import app.orcinus.shadow.core.ui.orca.orcaLanguageOf
 import app.orcinus.shadow.core.ui.orca.rememberOrcaCatalog
+import app.orcinus.shadow.domain.plate.EngineLanguage
 import app.orcinus.shadow.ui.OrcinusApp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -61,7 +63,9 @@ class MainActivity : ComponentActivity() {
         // A language chosen before Android 13 takes effect as the activity is built again.
         lifecycleScope.launch { container.appLanguage.changes.collect { recreate() } }
         // The engine's own messages follow the language the activity is built in.
-        container.setEngineLanguage(orcaLanguageOf(resources.configuration.locales[0]).catalog)
+        container.setEngineLanguage(
+            EngineLanguage(orcaLanguageOf(resources.configuration.locales[0]).catalog, getString(CoreUiR.string.calibration_cube_name)),
+        )
         setContent {
             OrcinusTheme {
                 // OrcaSlicer's own texts, such as its settings, come from its catalogue.

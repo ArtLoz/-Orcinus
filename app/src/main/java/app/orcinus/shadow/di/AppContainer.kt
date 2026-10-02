@@ -71,6 +71,7 @@ import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
+import app.orcinus.shadow.domain.plate.EngineLanguage
 import app.orcinus.shadow.domain.plate.EnginePlateSync
 import app.orcinus.shadow.domain.plate.ExportConfigUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
@@ -178,6 +179,7 @@ import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onCompletion
@@ -220,16 +222,22 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val selectPreset = SelectPresetUseCase(engine, platePresets, flushVolumes, settingsTabs, plateRepository, applicationScope)
     private val applySetup = ApplySetupUseCase(engine, platePresets, plateRepository, applicationScope)
 
+    /** The language the engine was last told, for the messages the app asks it for again in it. */
+    private val engineLanguage = MutableStateFlow<EngineLanguage?>(null)
+
+    /** GUI_App::load_language(): the engine's own messages in the language of OrcaSlicer's catalogue the app shows. */
+    fun setEngineLanguage(language: EngineLanguage) {
+        applicationScope.launch {
+            engine.setLanguage(language.catalog)
+            engineLanguage.value = language
+        }
+    }
+
     /**
      * Starts the engine as soon as the process does: binding the service starts
      * the :slicer process, which loads OrcaSlicer's profiles. The app shell
      * calls [startEngine] again when it composes; a started engine returns at once.
      */
-    /** GUI_App::load_language(): the engine's own messages in the language of OrcaSlicer's catalogue the app shows. */
-    fun setEngineLanguage(catalog: String) {
-        applicationScope.launch { engine.setLanguage(catalog) }
-    }
-
     fun startEngineEarly() {
         applicationScope.launch { startEngine() }
         // The engine works on the plate the app shows.
@@ -239,7 +247,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         // The overhangs' angle follows the support settings of the edited presets.
         OverhangUpdates(engine, plateRepository, applicationScope).start()
         // The plate is validated after every change, as the desktop app's background process does.
-        PlateValidationUpdates(engine, plateRepository, appPreferences, applicationScope).start()
+        PlateValidationUpdates(engine, plateRepository, appPreferences, engineLanguage, applicationScope).start()
         // Meshes go once neither the plate, its undo/redo stack nor the clipboard needs them.
         applicationScope.launch { ObjectMeshRetention(plateRepository, sceneFiles).run() }
         // "Auto backup", and the restore of a project an earlier run left.
