@@ -33,6 +33,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -382,14 +384,25 @@ fun PlateView(
         val doubleTapTimeout = LocalViewConfiguration.current.doubleTapTimeoutMillis
         val longPressTimeout = LocalViewConfiguration.current.longPressTimeoutMillis
         val edgePx = with(LocalDensity.current) { GESTURE_EDGE.toPx() }
-        Box(modifier) {
+        // The 3D navigator, which the view draws and takes the touches of where the page placed it.
+        val navigatorInput = remember(controller) { NavigatorInput(controller) }
+        var viewOrigin by remember { mutableStateOf<Offset?>(null) }
+        val navigatorSlot = camera?.navigatorSlot
+        val navigatorSquare = navigatorSlot?.let { slot -> viewOrigin?.let { slot.bounds.translate(-it) } }
+        SideEffect {
+            navigatorInput.square = navigatorSquare
+            navigatorInput.density = density
+            navigatorInput.touchSlop = touchSlop
+        }
+        Box(modifier.onGloballyPositioned { viewOrigin = it.boundsInRoot().topLeft }) {
             AndroidView(factory = { surface }, modifier = Modifier.fillMaxSize())
             Box(
                 Modifier
                     .fillMaxSize()
                     .semantics { this.contentDescription = contentDescription }
-                    .pointerInput(surface) { detectPlateGestures(controller, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
+                    .pointerInput(surface) { detectPlateGestures(controller, navigatorInput, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
             )
+            if (navigatorSlot != null && navigatorSquare != null) NavigatorCube(controller, navigatorInput, navigatorSquare, navigatorSlot.faceLabels)
             if (labels.isNotEmpty()) ObjectLabels(labelPlacements, labels, Modifier.fillMaxSize())
             // GLCanvas3D::_render_fps_overlay(): nothing until the first second is measured.
             if (graphics.fpsOverlay && fps >= 0) {
@@ -434,8 +447,11 @@ data class PlateViewOptions(
  * a view of the camera, "Default View", and the canvas's zoom button.
  */
 class PlateViewCamera {
-    /** The view's controller while it is shown, which the 3D navigator follows. */
+    /** The view's controller while it is shown. */
     internal var controller: PlateViewController? by mutableStateOf(null)
+
+    /** Where the page placed the 3D navigator ([PlateNavigator]); null while it shows none. */
+    internal var navigatorSlot: NavigatorSlot? by mutableStateOf(null)
 
     /** GLCanvas3D::select_view() */
     fun selectView(view: CameraView) {
@@ -491,6 +507,7 @@ private val GESTURE_EDGE = 20.dp
  */
 private suspend fun PointerInputScope.detectPlateGestures(
     controller: PlateViewController,
+    navigator: NavigatorInput,
     touchSlop: Float,
     doubleTapTimeoutMillis: Long,
     longPressTimeoutMillis: Long,
@@ -500,6 +517,7 @@ private suspend fun PointerInputScope.detectPlateGestures(
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = true)
         if (down.position.x < edgePx) return@awaitEachGesture
+        if (with(navigator) { handle(down) }) return@awaitEachGesture
         down.consume()
         val pressedObject = controller.press(down.position.x, down.position.y, touchSlop * GRABBER_TOUCH_SLOPS)
         var positions = mapOf(down.id to down.position)

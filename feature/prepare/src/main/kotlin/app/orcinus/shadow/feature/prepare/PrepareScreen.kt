@@ -508,8 +508,8 @@ internal fun PrepareScreen(
                 orbitSpeed = canvas.orbitSpeed,
                 freeCamera = canvas.freeCamera,
                 zoomToFingers = canvas.zoomToMouse,
-                // The FPS overlay under the canvas toolbar, which takes the top right corner.
-                graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopEnd, PaddingValues(top = 62.dp, end = 10.dp)),
+                // The FPS overlay under the toolbar's left end; the navigator takes the top right corner.
+                graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopStart, PaddingValues(top = CanvasNavigatorTop, start = CanvasMargin)),
                 options = PlateViewOptions(
                     perspective = canvas.perspective,
                     autoPerspective = canvas.autoPerspective,
@@ -619,6 +619,25 @@ internal fun PrepareScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)),
         ) {
+            // OrcaSlicer's 3D navigator and canvas toolbar (the View menu and the zoom button) of its
+            // bottom-left corner; a phone keeps them in the top right corner under the toolbar, as
+            // mobile CAD apps place their view cube, clear of the plates, Undo and the slice button.
+            // The gizmo windows open over them.
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = CanvasNavigatorTop, end = CanvasMargin),
+            ) {
+                if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels())
+                CanvasViewButtons(
+                    canvas = canvas,
+                    onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
+                    onSet = onSetCanvas,
+                    onZoom = viewCamera::zoomToFit,
+                )
+            }
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -709,17 +728,6 @@ internal fun PrepareScreen(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // OrcaSlicer's bottom-left corner: the 3D navigator, and the canvas toolbar
-                // (the View menu and the zoom button) beside it.
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-                    if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels())
-                    CanvasViewButtons(
-                        canvas = canvas,
-                        onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
-                        onSet = onSetCanvas,
-                        onZoom = viewCamera::zoomToFit,
-                    )
-                }
                 // The plates' numbers and icons, under the thumb once there are several.
                 if (state.plateOrigins.size > 1) {
                     PlateStrip(
@@ -1906,6 +1914,9 @@ private val AxisNames = listOf("X", "Y", "Z")
 // ColorRGBA::X(), Y(), Z(), which the move window uses for the axis names.
 private val AxisColors = listOf(Color(255, 60, 91), Color(100, 200, 24), Color(47, 136, 233))
 private val CanvasMargin = 12.dp
+
+/** The navigator and the FPS overlay stand under the toolbar, which takes the top 12 dp and its own height. */
+private val CanvasNavigatorTop = 62.dp
 
 // A gizmo window fits a phone: label, three fields, unit, and reset button in 360 dp.
 private val PositionLabelWidth = 64.dp

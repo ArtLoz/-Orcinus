@@ -145,6 +145,8 @@ val orcaDarkIconNames = listOf(
     "toolbar_meshboolean", "toolbar_support", "toolbar_seam", "toolbar_fuzzy_skin_paint",
     "toolbar_text", "toolbar_measure", "toolbar_assembly", "toolbar_brimears", "toolbar_assemble",
     "mmu_segmentation",
+    // GLCanvas3D::_render_canvas_toolbar(): IC_CANVAS_MENU_DARK and IC_CANVAS_ZOOM_DARK.
+    "canvas_menu", "canvas_zoom",
 )
 
 /**

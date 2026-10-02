@@ -1868,6 +1868,42 @@ TEST_CASE("The wipe tower stands on a plate that prints with two filaments", "[A
     CHECK(moved.y == Catch::Approx(30.0).margin(0.01));
 }
 
+TEST_CASE("The overhangs are tinted from one degree past the support threshold angle", "[Adapter][Scene]")
+{
+    require_engine();
+    // get_selection_support_normal_z(): the K2 Plus process supports from 30 degrees, counted inclusive.
+    const double normal_z = orca::overhang_normal_z(k2_plus_profiles());
+    CHECK(normal_z == Catch::Approx(-std::cos(31.0 * M_PI / 180.0)).epsilon(1e-6));
+
+    orca::ProfileSelection unknown = k2_plus_profiles();
+    unknown.printer = "No such printer";
+    CHECK(std::isnan(orca::overhang_normal_z(unknown)));
+}
+
+TEST_CASE("The labels number the copies in their print order while the plate prints by object", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("sequence.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    orca::PlateObject second;
+    second.instances.push_back(orca::ObjectPlacement{matrix_of(cube), true, true});
+    second.instances.front().matrix[12] += 100.0;
+    plate.push_back(second);
+
+    // By layer the labels show no order.
+    std::vector<std::int32_t> sequence;
+    REQUIRE(orca::print_sequence(plate, k2_plus_profiles(), {}, sequence));
+    CHECK(sequence.empty());
+
+    // By object Print::validate() numbers the copies in the object list's order.
+    orca::ModelSettings by_object;
+    by_object.keys = {"print_sequence"};
+    by_object.values = {"by object"};
+    REQUIRE(orca::print_sequence(plate, k2_plus_profiles(), by_object, sequence));
+    CHECK(sequence == std::vector<std::int32_t>{1, 2});
+}
+
 TEST_CASE("A code the layer slider puts on a layer runs where that layer starts", "[Adapter][Scene]")
 {
     require_engine();

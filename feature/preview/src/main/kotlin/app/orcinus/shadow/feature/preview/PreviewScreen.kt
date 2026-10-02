@@ -325,10 +325,12 @@ internal fun PreviewScreen(
                     camera = viewCamera,
                     smoothNormals = canvas.realistic && canvas.smoothNormals,
                 )
-                // The 3D navigator and the canvas toolbar (View menu and zoom button) beside it; the legend
-                // and the move slider take the bottom, so they stand under the sidebar's button.
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                // The 3D navigator and the canvas toolbar (View menu and zoom button) under it; the layer
+                // slider takes the right side and the legend and the move slider the bottom, so they stand
+                // under the sidebar's button.
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))

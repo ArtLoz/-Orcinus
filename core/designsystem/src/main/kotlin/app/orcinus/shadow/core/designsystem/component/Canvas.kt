@@ -1,6 +1,7 @@
 package app.orcinus.shadow.core.designsystem.component
 
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -135,7 +136,11 @@ fun OrcaGizmoPanel(
     )
 }
 
-/** Round canvas buttons of OrcaSlicer's bottom-left corner (menu, zoom). */
+/**
+ * Round canvas buttons of OrcaSlicer's bottom-left corner (menu, zoom):
+ * ImGui::ImageButton3() draws the button's own 36 x 36 image, circle and all,
+ * in its light or dark variant.
+ */
 @Composable
 fun OrcaCanvasRoundButton(
     @DrawableRes icon: Int,
@@ -143,18 +148,15 @@ fun OrcaCanvasRoundButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
+    Image(
+        painter = painterResource(icon),
+        contentDescription = contentDescription,
         modifier = modifier
             .minimumInteractiveComponentSize()
             .size(36.dp)
-            .shadow(2.dp, CircleShape)
             .clip(CircleShape)
-            .background(OrcaTheme.colors.canvasPanel)
             .clickable(role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(painterResource(icon), contentDescription = contentDescription, tint = OrcaTheme.colors.onCanvasPanel, modifier = Modifier.size(OrcaTheme.dimensions.icon))
-    }
+    )
 }
 
 /** How OrcaSlicer's NotificationManager draws a notification of a level. */

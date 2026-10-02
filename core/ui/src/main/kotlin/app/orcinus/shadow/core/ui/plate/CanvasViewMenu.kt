@@ -62,7 +62,7 @@ fun CanvasViewButtons(
     preview: Boolean = false,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         OrcaCanvasRoundButton(DesignR.drawable.orca_canvas_menu, orcaString("View"), onClick = { open = true })
         if (canvas.zoomButton) {
             OrcaCanvasRoundButton(DesignR.drawable.orca_canvas_zoom, orcaString("Fit camera to scene or selected object."), onClick = onZoom)

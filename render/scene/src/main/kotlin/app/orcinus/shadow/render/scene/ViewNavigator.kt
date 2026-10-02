@@ -32,10 +32,17 @@ internal class ViewNavigator {
     /** What the navigator draws for [view] in a square of [size] pixels at the origin, with the box [highlighted] lit. */
     fun draw(view: FloatArray, size: Float, highlighted: Int): NavigatorDrawing {
         val (cubeView, res) = cube(view)
+        val faces = ArrayList<NavigatorFace>()
         val panels = ArrayList<NavigatorPanel>()
         val labels = ArrayList<NavigatorLabel>()
         for (iFace in 0 until 6) {
             val face = face(iFace, cubeView) ?: continue
+            faces += NavigatorFace(
+                corners = listOf(Vec2(0f, 0f), Vec2(0f, 2f), Vec2(2f, 2f), Vec2(2f, 0f)).map { p ->
+                    worldToPos((face.dx * p.x + face.dy * p.y + face.origin) * (0.5f * face.invert), res, size)
+                },
+                viewNormal = face.viewNormal,
+            )
             for (iPanel in 0 until 9) {
                 val p = Vec2(PANEL_POSITION[iPanel].x * 2f, PANEL_POSITION[iPanel].y * 2f)
                 val s = Vec2(PANEL_SIZE[iPanel].x * 2f, PANEL_SIZE[iPanel].y * 2f)
@@ -71,7 +78,7 @@ internal class ViewNavigator {
                 visible = visible,
             )
         }
-        return NavigatorDrawing(panels, labels, axes)
+        return NavigatorDrawing(faces, panels, labels, axes)
     }
 
     /**
@@ -202,7 +209,7 @@ internal class ViewNavigator {
         val viewSpacePoint = Vec4.ZERO.transformPoint(cubeView)
         // back face culling
         if (buildPlan(viewSpacePoint, viewSpaceNormal).w > 0f) return null
-        return Face(normalIndex, perpX, perpY, invert)
+        return Face(normalIndex, perpX, perpY, invert, viewSpaceNormal)
     }
 
     /**
@@ -236,16 +243,16 @@ internal class ViewNavigator {
             5 -> Unit // Left
         }
         val scaleFactor = 2f / size
-        // v->pos for a vertex at (x, y) of the text, whose origin is its middle.
-        return NavigatorLabel(iFace) { x, y, halfWidth, halfHeight ->
-            val ppx = ((x - halfWidth) * scaleFactor * invertX + 0.5f) * 2f
-            val ppy = ((y - halfHeight) * scaleFactor * invertY + 0.5f) * 2f
+        // v->pos for a vertex at (x, y) of the text, whose origin is its middle, the text scaled by [scale].
+        return NavigatorLabel(iFace) { x, y, halfWidth, halfHeight, scale ->
+            val ppx = ((x - halfWidth) * scaleFactor * scale * invertX + 0.5f) * 2f
+            val ppy = ((y - halfHeight) * scaleFactor * scale * invertY + 0.5f) * 2f
             val pt = tdx * ppx + tdy * ppy
             worldToPos((pt + face.origin) * (0.5f * face.invert), res, size)
         }
     }
 
-    private inner class Face(val normalIndex: Int, val perpX: Int, val perpY: Int, val invert: Float) {
+    private inner class Face(val normalIndex: Int, val perpX: Int, val perpY: Int, val invert: Float, val viewNormal: Vec4) {
         val normal = DIRECTION_UNARY[normalIndex] * invert
         val dx = DIRECTION_UNARY[perpX]
         val dy = DIRECTION_UNARY[perpY]
@@ -483,10 +490,18 @@ internal data class Vec2(val x: Float, val y: Float)
 /** A panel of a face on the screen, and whether the finger presses its box. */
 internal class NavigatorPanel(val corners: List<Vec2>, val pressed: Boolean)
 
+/** A face turned towards the camera: its corners on the screen and its normal in the cube's view space, which shades it. */
+internal class NavigatorFace(val corners: List<Vec2>, val viewNormal: Vec4)
+
 /** A face's label: where a point of its text, laid out from its top left, goes on the screen. */
-internal class NavigatorLabel(val face: Int, val map: (x: Float, y: Float, halfWidth: Float, halfHeight: Float) -> Vec2)
+internal class NavigatorLabel(val face: Int, val map: (x: Float, y: Float, halfWidth: Float, halfHeight: Float, scale: Float) -> Vec2)
 
 /** An axis from the cube's corner, with where its label goes, dimmed when hidden behind the cube. */
 internal class NavigatorAxis(val axis: Int, val start: Vec2, val end: Vec2, val label: Vec2, val visible: Boolean)
 
-internal class NavigatorDrawing(val panels: List<NavigatorPanel>, val labels: List<NavigatorLabel>, val axes: List<NavigatorAxis>)
+internal class NavigatorDrawing(
+    val faces: List<NavigatorFace>,
+    val panels: List<NavigatorPanel>,
+    val labels: List<NavigatorLabel>,
+    val axes: List<NavigatorAxis>,
+)
