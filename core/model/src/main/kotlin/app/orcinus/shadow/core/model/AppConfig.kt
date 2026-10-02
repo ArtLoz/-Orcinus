@@ -49,6 +49,10 @@ data class CanvasPreferences(
     val realistic: Boolean = false,
     /** opengl_realistic_phong: the realistic view shades the objects with Phong's model. */
     val phong: Boolean = true,
+    /** opengl_phong_ssao: the realistic view darkens the frame's hollows (screen-space ambient occlusion). */
+    val ssao: Boolean = false,
+    /** opengl_phong_smooth_normals: the realistic view shades the meshes with smooth normals. */
+    val smoothNormals: Boolean = false,
     /** opengl_phong_basic_plate_shadows: the realistic view casts the objects' shadows on the plate. */
     val shadows: Boolean = false,
     /** show_axes: the coordinate axes at the origin of the plates (Bed3D::render_axes()). */
@@ -101,6 +105,8 @@ object AppConfigKeys {
     const val OPENGL_REALISTIC_MODE = "opengl_realistic_mode"
     const val OPENGL_REALISTIC_PHONG = "opengl_realistic_phong"
     const val OPENGL_PHONG_BASIC_PLATE_SHADOWS = "opengl_phong_basic_plate_shadows"
+    const val OPENGL_PHONG_SSAO = "opengl_phong_ssao"
+    const val OPENGL_PHONG_SMOOTH_NORMALS = "opengl_phong_smooth_normals"
     const val DEVELOPER_MODE = "developer_mode"
     const val KEEP_PAINTING = "keep_painting"
     const val LOG_SEVERITY_LEVEL = "log_severity_level"
@@ -155,6 +161,8 @@ object AppConfigKeys {
         OPENGL_REALISTIC_MODE,
         OPENGL_REALISTIC_PHONG,
         OPENGL_PHONG_BASIC_PLATE_SHADOWS,
+        OPENGL_PHONG_SSAO,
+        OPENGL_PHONG_SMOOTH_NORMALS,
         DEVELOPER_MODE,
         KEEP_PAINTING,
         LOG_SEVERITY_LEVEL,

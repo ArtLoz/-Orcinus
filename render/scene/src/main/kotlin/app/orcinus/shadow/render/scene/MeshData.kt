@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 import java.nio.IntBuffer
 import java.nio.FloatBuffer
 import java.nio.channels.FileChannel
+import kotlin.math.cos
 import kotlin.math.sqrt
 
 /**
@@ -58,13 +59,17 @@ internal object MeshFiles {
     private const val HEADER_BYTES = 16
     const val FLOATS_PER_CORNER = 6
 
-    /** Reads a mesh file written by the engine (see mesh_file_magic in orca_engine_adapter.hpp). */
-    fun read(file: File): MeshData = RandomAccessFile(file, "r").use { access ->
+    /**
+     * Reads a mesh file written by the engine (see mesh_file_magic in
+     * orca_engine_adapter.hpp); with [smooth], with the realistic view's smooth
+     * normals rather than the faces' own.
+     */
+    fun read(file: File, smooth: Boolean = false): MeshData = RandomAccessFile(file, "r").use { access ->
         val buffer = access.channel.map(FileChannel.MapMode.READ_ONLY, 0, access.length()).order(ByteOrder.LITTLE_ENDIAN)
-        read(buffer)
+        read(buffer, smooth)
     }
 
-    fun read(buffer: ByteBuffer): MeshData {
+    fun read(buffer: ByteBuffer, smooth: Boolean = false): MeshData {
         val data = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
         if (data.remaining() < HEADER_BYTES) throw IOException("Mesh file is truncated")
         val magic = ByteArray(4).also { data.get(it) }
@@ -80,14 +85,24 @@ internal object MeshFiles {
         val positions = data.slice().order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
         data.position(HEADER_BYTES + 12 * vertexCount)
         val indices = data.slice().order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()
-        return build(positions, indices, vertexCount, triangleCount)
+        return build(positions, indices, vertexCount, triangleCount, smooth)
     }
 
     /** A mesh built in code, as indexed_triangle_set: x, y, z per vertex and three vertex indices per triangle. */
-    fun fromIndexed(positions: FloatArray, indices: IntArray): MeshData =
-        build(FloatBuffer.wrap(positions), IntBuffer.wrap(indices), positions.size / 3, indices.size / 3)
+    fun fromIndexed(positions: FloatArray, indices: IntArray, smooth: Boolean = false): MeshData =
+        build(FloatBuffer.wrap(positions), IntBuffer.wrap(indices), positions.size / 3, indices.size / 3, smooth)
 
-    private fun build(positions: FloatBuffer, indices: IntBuffer, vertexCount: Int, triangleCount: Int): MeshData {
+    /**
+     * GLModel::init_from(const indexed_triangle_set&): a vertex per corner,
+     * with the face's normal, or in the realistic view with "Smooth normals"
+     * ([smooth]) the corner's normal of igl::per_corner_normals() at 5 degrees.
+     */
+    private fun build(positions: FloatBuffer, indices: IntBuffer, vertexCount: Int, triangleCount: Int, smooth: Boolean): MeshData {
+        for (index in 0 until triangleCount * 3) {
+            val vertex = indices.get(index)
+            if (vertex < 0 || vertex >= vertexCount) throw IOException("Mesh file is corrupt")
+        }
+        val smoothNormals = if (smooth) cornerNormals(positions, indices, vertexCount, triangleCount, SMOOTH_CORNER_THRESHOLD_DEGREES) else null
         val cornerCount = triangleCount * 3
         val vertices = ByteBuffer.allocateDirect(cornerCount * FLOATS_PER_CORNER * Float.SIZE_BYTES)
             .order(ByteOrder.nativeOrder())
@@ -134,7 +149,12 @@ internal object MeshFiles {
                 val x = positions.get(corner[k])
                 val y = positions.get(corner[k] + 1)
                 val z = positions.get(corner[k] + 2)
-                vertices.put(x).put(y).put(z).put(nx).put(ny).put(nz)
+                if (smoothNormals != null) {
+                    val normal = (triangle * 3 + k) * 3
+                    vertices.put(x).put(y).put(z).put(smoothNormals[normal]).put(smoothNormals[normal + 1]).put(smoothNormals[normal + 2])
+                } else {
+                    vertices.put(x).put(y).put(z).put(nx).put(ny).put(nz)
+                }
                 if (x < minX) minX = x
                 if (y < minY) minY = y
                 if (z < minZ) minZ = z
@@ -151,4 +171,83 @@ internal object MeshFiles {
         }
         return MeshData(vertices, cornerCount, bounds)
     }
+
+    /**
+     * igl::per_corner_normals(V, F, corner_threshold_degrees, CN): every
+     * corner's normal is the area-weighted average of the unit normals of the
+     * faces around its vertex that turn from its own face by less than the
+     * threshold, in double precision as GLModel hands it the mesh.
+     */
+    private fun cornerNormals(positions: FloatBuffer, indices: IntBuffer, vertexCount: Int, triangleCount: Int, thresholdDegrees: Double): FloatArray {
+        // unit normals and face areas
+        val faceNormals = DoubleArray(triangleCount * 3)
+        val faceAreas = DoubleArray(triangleCount)
+        for (face in 0 until triangleCount) {
+            val v0 = indices.get(face * 3) * 3
+            val v1 = indices.get(face * 3 + 1) * 3
+            val v2 = indices.get(face * 3 + 2) * 3
+            val ax = positions.get(v1).toDouble() - positions.get(v0)
+            val ay = positions.get(v1 + 1).toDouble() - positions.get(v0 + 1)
+            val az = positions.get(v1 + 2).toDouble() - positions.get(v0 + 2)
+            val bx = positions.get(v2).toDouble() - positions.get(v0)
+            val by = positions.get(v2 + 1).toDouble() - positions.get(v0 + 1)
+            val bz = positions.get(v2 + 2).toDouble() - positions.get(v0 + 2)
+            val nx = ay * bz - az * by
+            val ny = az * bx - ax * bz
+            val nz = ax * by - ay * bx
+            val area = sqrt(nx * nx + ny * ny + nz * nz)
+            faceAreas[face] = area
+            faceNormals[face * 3] = nx / area
+            faceNormals[face * 3 + 1] = ny / area
+            faceNormals[face * 3 + 2] = nz / area
+        }
+        // igl::vertex_triangle_adjacency(): the faces around every vertex, in the faces' order.
+        val starts = IntArray(vertexCount + 1)
+        for (corner in 0 until triangleCount * 3) starts[indices.get(corner) + 1]++
+        for (vertex in 0 until vertexCount) starts[vertex + 1] += starts[vertex]
+        val filled = starts.copyOf(vertexCount)
+        val faces = IntArray(triangleCount * 3)
+        for (corner in 0 until triangleCount * 3) faces[filled[indices.get(corner)]++] = corner / 3
+
+        val cosThreshold = cos(thresholdDegrees * Math.PI / 180)
+        val normals = FloatArray(triangleCount * 9)
+        for (face in 0 until triangleCount) {
+            val fx = faceNormals[face * 3]
+            val fy = faceNormals[face * 3 + 1]
+            val fz = faceNormals[face * 3 + 2]
+            for (corner in 0 until 3) {
+                val vertex = indices.get(face * 3 + corner)
+                var sx = 0.0
+                var sy = 0.0
+                var sz = 0.0
+                for (k in starts[vertex] until starts[vertex + 1]) {
+                    val other = faces[k]
+                    val ox = faceNormals[other * 3]
+                    val oy = faceNormals[other * 3 + 1]
+                    val oz = faceNormals[other * 3 + 2]
+                    // if difference in normal is slight then add to average
+                    if (fx * ox + fy * oy + fz * oz > cosThreshold) {
+                        sx += ox * faceAreas[other]
+                        sy += oy * faceAreas[other]
+                        sz += oz * faceAreas[other]
+                    }
+                }
+                // Eigen's normalize() leaves a zero vector as it is.
+                val length = sqrt(sx * sx + sy * sy + sz * sz)
+                if (length > 0.0) {
+                    sx /= length
+                    sy /= length
+                    sz /= length
+                }
+                val out = (face * 3 + corner) * 3
+                normals[out] = sx.toFloat()
+                normals[out + 1] = sy.toFloat()
+                normals[out + 2] = sz.toFloat()
+            }
+        }
+        return normals
+    }
+
+    /** GLModel::init_from(): the corner threshold it gives igl::per_corner_normals(). */
+    private const val SMOOTH_CORNER_THRESHOLD_DEGREES = 5.0
 }

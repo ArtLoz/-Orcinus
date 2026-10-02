@@ -313,9 +313,17 @@ internal fun PreviewScreen(
                     // The FPS overlay beside the sidebar button; the layer slider takes the top right corner.
                     graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopStart, PaddingValues(start = 58.dp, top = 19.dp)),
                     antialiasingSamples = canvas.antialiasingSamples,
-                    options = PlateViewOptions(canvas.perspective, canvas.autoPerspective, canvas.axes, canvas.gridlines, phong = canvas.realistic && canvas.phong),
+                    options = PlateViewOptions(
+                        perspective = canvas.perspective,
+                        autoPerspective = canvas.autoPerspective,
+                        axes = canvas.axes,
+                        gridlines = canvas.gridlines,
+                        phong = canvas.realistic && canvas.phong,
+                        ssao = canvas.realistic && canvas.ssao,
+                    ),
                     onPerspectiveChange = { onSetCanvas(AppConfigKeys.USE_PERSPECTIVE_CAMERA, it.toString()) },
                     camera = viewCamera,
+                    smoothNormals = canvas.realistic && canvas.smoothNormals,
                 )
                 // The 3D navigator and the canvas toolbar (View menu and zoom button) beside it; the legend
                 // and the move slider take the bottom, so they stand under the sidebar's button.

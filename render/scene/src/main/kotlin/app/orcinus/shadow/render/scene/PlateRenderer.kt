@@ -53,6 +53,8 @@ internal class SceneFrame(
     val phong: Boolean = false,
     /** The realistic view with "Shadows" (opengl_phong_basic_plate_shadows) on the Prepare page: the objects cast shadows on the plate. */
     val shadows: Boolean = false,
+    /** The realistic view with "SSAO ambient occlusion" (opengl_phong_ssao): the frame goes through the SSAO pass. */
+    val ssao: Boolean = false,
     /**
      * The cut gizmo's colour clip plane (GLVolumeCollection::set_color_clip_plane):
      * -normal and offset; the objects are drawn in the colour of the upper part
@@ -106,7 +108,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
     private var programs: Programs? = null
     private var gpuBed: GpuBed? = null
-    private val gpuObjects = LinkedHashMap<String, GlVertexArray>()
+    /** The volumes' meshes on the GPU by key, with the mesh each was made from: a mesh read again goes up again. */
+    private val gpuObjects = LinkedHashMap<String, Pair<MeshData, GlVertexArray>>()
     /** The edges of the triangles of the meshes drawn as a wireframe, by mesh. */
     private val gpuWireframes = LinkedHashMap<String, GlVertexArray>()
     private var objects: List<SceneObject> = emptyList()
@@ -115,7 +118,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var grabberCube: GlVertexArray? = null
     private var grabberSphere: GlVertexArray? = null
     /** The cut gizmo's connector shapes, by mesh file. */
-    private val gizmoMeshes = HashMap<String, GlVertexArray>()
+    private val gizmoMeshes = HashMap<String, Pair<MeshData, GlVertexArray>>()
     /** The build volume of the current plate while the objects are drawn. */
     private var printVolume: Box3? = null
     /** PartPlateList::m_idx_textures, made as the plates need them. */
@@ -226,14 +229,20 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             return
         }
-        // FXAA reads the whole frame, so it is drawn off screen first; OpenGL ES
-        // cannot copy the surface's multisampled buffer as desktop OpenGL does.
-        val target = if (fxaa) offscreenFrame() else null
+        // SSAO and FXAA read the whole frame, so it is drawn off screen first; OpenGL ES
+        // cannot copy the surface's multisampled buffer, or its depth, as desktop OpenGL does.
+        val target = if (fxaa || frame.ssao) offscreenFrame() else null
         target?.bind()
         renderScene(programs, frame)
         if (target != null) {
+            // GLCanvas3D::render(): the SSAO pass, then the FXAA pass.
+            if (frame.ssao) {
+                target.resolve(depth = true)
+                target.bind()
+                renderSsao(programs, frame, target)
+            }
             target.resolve()
-            renderFxaa(programs.fxaa, target)
+            if (fxaa) renderFxaa(programs.fxaa, target) else renderFrame(programs.flatTexture, target)
         }
         measureFps()
     }
@@ -260,6 +269,98 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2),
         GLES30.GL_TRIANGLES,
     ).also { screenQuad = it }
+
+    /**
+     * GLCanvas3D::_render_ssao_pass(): the frame's colour and depth as they
+     * are, the stencil marking the plate where it is seen, and the frame
+     * drawn again through the ssao shader everywhere else.
+     */
+    private fun renderSsao(programs: Programs, frame: SceneFrame, target: GlOffscreenFrame) {
+        GLES30.glDisable(GLES30.GL_BLEND)
+        // Build stencil mask for bed/plate and apply SSAO only outside this mask.
+        GLES30.glEnable(GLES30.GL_STENCIL_TEST)
+        GLES30.glStencilMask(0xFF)
+        GLES30.glClearStencil(0)
+        GLES30.glClear(GLES30.GL_STENCIL_BUFFER_BIT)
+        GLES30.glStencilFunc(GLES30.GL_ALWAYS, 1, 0xFF)
+        GLES30.glStencilOp(GLES30.GL_KEEP, GLES30.GL_KEEP, GLES30.GL_REPLACE)
+        // Mark only visible plate pixels (do not exclude objects in front of plate).
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDepthMask(false)
+        GLES30.glDepthFunc(GLES30.GL_LEQUAL)
+        GLES30.glColorMask(false, false, false, false)
+        plateMask()?.let { mask ->
+            programs.flat.use()
+            programs.flat.setMatrix4("projection_matrix", frame.projection)
+            programs.flat.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+            mask.draw()
+        }
+        GLES30.glColorMask(true, true, true, true)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glStencilMask(0x00)
+        GLES30.glStencilFunc(GLES30.GL_NOTEQUAL, 1, 0xFF)
+        GLES30.glStencilOp(GLES30.GL_KEEP, GLES30.GL_KEEP, GLES30.GL_KEEP)
+
+        val program = programs.ssao
+        program.use()
+        program.setMatrix4("view_model_matrix", IDENTITY)
+        program.setMatrix4("projection_matrix", IDENTITY)
+        program.setInt("color_texture", 0)
+        program.setInt("depth_texture", 1)
+        program.setVec2("inv_tex_size", 1f / target.width, 1f / target.height)
+        program.setFloat("z_near", frame.nearZ)
+        program.setFloat("z_far", frame.farZ)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target.texture)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target.depthTexture)
+        screenQuad().draw()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+
+        GLES30.glDisable(GLES30.GL_STENCIL_TEST)
+        GLES30.glStencilMask(0xFF)
+        GLES30.glDepthMask(true)
+        GLES30.glDepthFunc(GLES30.GL_LESS)
+    }
+
+    /** The frame drawn off screen, put on the view as it is when no FXAA pass draws it. */
+    private fun renderFrame(program: GlProgram, target: GlOffscreenFrame) {
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        program.use()
+        program.setMatrix4("view_model_matrix", IDENTITY)
+        program.setMatrix4("projection_matrix", IDENTITY)
+        program.setInt("uniform_texture", 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target.texture)
+        screenQuad().draw()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+    }
+
+    /**
+     * The current plate's build volume at z = 0, which the shadows and the
+     * SSAO pass mark in the stencil (m_plate_shadow_mask, made again for
+     * another build volume as its key tells).
+     */
+    private fun plateMask(): GlVertexArray? {
+        val bed = gpuBed ?: return null
+        val origin = plates.currentOrigin
+        val plate = Box3(bed.scene.buildVolume.min + origin, bed.scene.buildVolume.max + origin)
+        shadowMask?.takeIf { it.first == plate }?.let { return it.second }
+        shadowMask?.second?.release()
+        val x0 = plate.min.x.toFloat()
+        val y0 = plate.min.y.toFloat()
+        val x1 = plate.max.x.toFloat()
+        val y1 = plate.max.y.toFloat()
+        return GlVertexArray(
+            GlVertexArray.floatBuffer(floatArrayOf(x0, y0, 0f, x1, y0, 0f, x1, y1, 0f, x0, y0, 0f, x1, y1, 0f, x0, y1, 0f)),
+            listOf(GlProgram.POSITION to 3),
+            GLES30.GL_TRIANGLES,
+        ).also { shadowMask = plate to it }
+    }
 
     /** GLCanvas3D::_render_fxaa_pass(): the frame drawn over the view through the fxaa shader. */
     private fun renderFxaa(program: GlProgram, target: GlOffscreenFrame) {
@@ -342,9 +443,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         }
         if (newObjects != null) {
             val keys = newObjects.mapTo(HashSet()) { it.key }
-            gpuObjects.keys.filter { it !in keys }.forEach { gpuObjects.remove(it)?.release() }
+            gpuObjects.keys.filter { it !in keys }.forEach { gpuObjects.remove(it)?.second?.release() }
             newObjects.forEach { sceneObject ->
-                gpuObjects.getOrPut(sceneObject.key) { meshArray(sceneObject.mesh) }
+                val uploaded = gpuObjects[sceneObject.key]
+                if (uploaded?.first !== sceneObject.mesh) {
+                    uploaded?.second?.release()
+                    gpuObjects[sceneObject.key] = sceneObject.mesh to meshArray(sceneObject.mesh)
+                }
             }
             val wired = newObjects.filter(SceneObject::wireframe).associateBy(SceneObject::key)
             gpuWireframes.keys.filter { it !in wired }.forEach { gpuWireframes.remove(it)?.release() }
@@ -498,7 +603,6 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private fun renderCastShadows(program: GlProgram, frame: SceneFrame) {
         val volumes = objects.filter { it.printable && !it.modifier && !it.overlay && it.index != WIPE_TOWER_INDEX }
         if (volumes.isEmpty()) return
-        val bed = gpuBed ?: return
 
         // Fixed light direction (pointing downward at an angle), defined in eye space and turned to world space
         // with the inverse view rotation.
@@ -523,22 +627,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         program.use()
         program.setMatrix4("projection_matrix", frame.projection)
-        val origin = plates.currentOrigin
-        val plate = Box3(bed.scene.buildVolume.min + origin, bed.scene.buildVolume.max + origin)
-        val mask = shadowMask?.takeIf { it.first == plate }?.second ?: run {
-            shadowMask?.second?.release()
-            val x0 = plate.min.x.toFloat()
-            val y0 = plate.min.y.toFloat()
-            val x1 = plate.max.x.toFloat()
-            val y1 = plate.max.y.toFloat()
-            GlVertexArray(
-                GlVertexArray.floatBuffer(floatArrayOf(x0, y0, 0f, x1, y0, 0f, x1, y1, 0f, x0, y0, 0f, x1, y1, 0f, x0, y1, 0f)),
-                listOf(GlProgram.POSITION to 3),
-                GLES30.GL_TRIANGLES,
-            ).also { shadowMask = plate to it }
-        }
         program.setMatrix4("view_model_matrix", frame.view.toFloatArray())
-        mask.draw()
+        plateMask()?.draw()
 
         // PASS 1: the objects' shadows projected onto the plate (stencil 1 becomes 2).
         GLES30.glStencilFunc(GLES30.GL_EQUAL, 1, 0xFF)
@@ -550,7 +640,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glPolygonOffset(-2f, -2f)
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         for (volume in volumes) {
-            val mesh = gpuObjects[volume.key] ?: continue
+            val mesh = gpuObjects[volume.key]?.second ?: continue
             program.setMatrix4("view_model_matrix", (frame.view * shadowProjection * volume.world).toFloatArray())
             mesh.draw()
         }
@@ -586,7 +676,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glCullFace(GLES30.GL_BACK)
         program.use()
         // opengl_phong_ssao, which the phong shader leaves to the SSAO pass.
-        if (frame.phong) program.setBoolean("enable_ssao", false)
+        if (frame.phong) program.setBoolean("enable_ssao", frame.ssao)
         program.setFloat("z_far", frame.farZ)
         program.setFloat("z_near", frame.nearZ)
         program.setMatrix4("projection_matrix", frame.projection)
@@ -670,7 +760,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
     /** GLVolume::render(): one volume with the shader's uniforms for it. */
     private fun drawVolume(program: GlProgram, frame: SceneFrame, sceneObject: SceneObject) {
-        val mesh = gpuObjects[sceneObject.key] ?: return
+        val mesh = gpuObjects[sceneObject.key]?.second ?: return
         // GLVolumeCollection::render(): a volume across the current plate's
         // boundary is darkened outside it; the others are drawn as they are.
         val volume = printVolume?.takeIf { sceneObject.partlyInside }
@@ -795,7 +885,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             light.setFloat("emission_factor", gizmo.emission)
             light.setMatrix4("projection_matrix", frame.projection)
             for (placed in gizmo.sceneMeshes) {
-                val array = gizmoMeshes.getOrPut(placed.key) { meshArray(placed.mesh) }
+                val array = gizmoMeshes[placed.key]?.takeIf { it.first === placed.mesh }?.second ?: meshArray(placed.mesh).also { made ->
+                    gizmoMeshes.put(placed.key, placed.mesh to made)?.second?.release()
+                }
                 light.setFloat("emission_factor", placed.emission ?: gizmo.emission)
                 light.setVec4("uniform_color", placed.color.red, placed.color.green, placed.color.blue, placed.color.alpha)
                 light.setMatrix4("view_model_matrix", (frame.view * placed.world).toFloatArray())
@@ -898,11 +990,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
     private class Programs(assets: AssetManager) {
         val flat = GlProgram(assets, "flat")
+        val flatTexture = GlProgram(assets, "flat_texture")
         val fxaa = GlProgram(assets, "fxaa")
         val gouraud = GlProgram(assets, "gouraud")
         val gouraudLight = GlProgram(assets, "gouraud_light")
         val hotbed = GlProgram(assets, "hotbed")
         val phong = GlProgram(assets, "phong")
+        val ssao = GlProgram(assets, "ssao")
         val printbed = GlProgram(assets, "printbed")
     }
 

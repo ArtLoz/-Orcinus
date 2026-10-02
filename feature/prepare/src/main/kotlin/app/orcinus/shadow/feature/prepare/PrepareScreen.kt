@@ -518,11 +518,13 @@ internal fun PrepareScreen(
                     outline = canvas.outline,
                     phong = canvas.realistic && canvas.phong,
                     shadows = canvas.realistic && canvas.shadows,
+                    ssao = canvas.realistic && canvas.ssao,
                 ),
                 onPerspectiveChange = { onSetCanvas(AppConfigKeys.USE_PERSPECTIVE_CAMERA, it.toString()) },
                 camera = viewCamera,
                 overhangNormalZ = state.overhangNormalZ.takeIf { canvas.overhang },
                 labels = if (canvas.labels) objectLabels(state) else emptyMap(),
+                smoothNormals = canvas.realistic && canvas.smoothNormals,
                 antialiasingSamples = canvas.antialiasingSamples,
             )
         }

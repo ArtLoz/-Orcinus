@@ -250,10 +250,17 @@ internal val PREFERENCE_PAGES = listOf(
                 "Realistic View",
                 listOf(
                     PreferenceItem.Check(AppConfigKeys.OPENGL_REALISTIC_PHONG, "Phong shading", "Uses Phong shading inside realistic view."),
+                    PreferenceItem.Check(AppConfigKeys.OPENGL_PHONG_SSAO, "SSAO ambient occlusion", "Applies SSAO in realistic view."),
                     PreferenceItem.Check(
                         AppConfigKeys.OPENGL_PHONG_BASIC_PLATE_SHADOWS,
                         "Shadows",
                         "Renders cast shadows on the plate in realistic view.",
+                    ),
+                    PreferenceItem.Check(
+                        AppConfigKeys.OPENGL_PHONG_SMOOTH_NORMALS,
+                        "Smooth normals",
+                        "Applies smooth normals to the realistic view.\n\nRequires manual scene reload to take effect " +
+                            "(right-click on 3D view → \"Reload All\").",
                     ),
                 ),
             ),

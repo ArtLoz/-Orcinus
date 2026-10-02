@@ -175,6 +175,8 @@ fun PlateView(
     overhangNormalZ: Float? = null,
     /** The canvas's "Labels": what each labelled copy's label reads, by the copy's index; none while they are hidden. */
     labels: Map<Int, PlateLabel> = emptyMap(),
+    /** The realistic view with "Smooth normals" (opengl_phong_smooth_normals): the meshes are read with smooth normals. */
+    smoothNormals: Boolean = false,
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -223,9 +225,9 @@ fun PlateView(
             controller.setAppearance(colors.canvas, colors.isDark, density)
         }
 
-        val bed by produceState<SceneBed?>(null, plate) {
+        val bed by produceState<SceneBed?>(null, plate, smoothNormals) {
             value = plate?.let { description ->
-                withContext(Dispatchers.IO) { runCatching { SceneLoader.loadBed(description) }.getOrNull() }
+                withContext(Dispatchers.IO) { runCatching { SceneLoader.loadBed(description, smoothNormals) }.getOrNull() }
             }
         }
         LaunchedEffect(bed) { controller.setBed(bed) }
@@ -236,13 +238,14 @@ fun PlateView(
         val meshes = remember { MeshCache() }
         // The tower stands on the current plate, where wipe_tower_x and wipe_tower_y of the plate put it.
         val towerOrigin = plateOrigins.getOrElse(currentPlate) { Point2(0.0, 0.0) }
-        LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin) {
-            val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin) } }
+        LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin, smoothNormals) {
+            val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin, smoothNormals) } }
             controller.setWipeTower(tower)
         }
         val paintedByTool = painting?.takeIf { it.kind != PaintKind.COLOR }?.mesh
-        LaunchedEffect(objects, color, filamentColors, wireframes, paintedByTool) {
+        LaunchedEffect(objects, color, filamentColors, wireframes, paintedByTool, smoothNormals) {
             val loaded = withContext(Dispatchers.IO) {
+                meshes.smoothNormals = smoothNormals
                 meshes.retain(
                     objects.flatMapTo(HashSet()) { plateObject ->
                         listOf(plateObject.mesh.value) +
@@ -305,17 +308,17 @@ fun PlateView(
         }
         // The dovetail's plane, and the pieces shown in the object's place.
         val dovetailPaths = listOfNotNull(cut?.groovePlane?.value) + cut?.previewParts?.map { it.mesh.value }.orEmpty()
-        LaunchedEffect(dovetailPaths) {
+        LaunchedEffect(dovetailPaths, smoothNormals) {
             val loaded = withContext(Dispatchers.IO) {
-                dovetailPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
+                dovetailPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path), smoothNormals) }.getOrNull()?.let { path to it } }.toMap()
             }
             controller.setCutPartMeshes(loaded)
         }
         // The shapes of the cut's connectors.
         val connectorMeshPaths = cut?.connectors?.mapNotNull { it.mesh?.value }?.distinct().orEmpty()
-        LaunchedEffect(connectorMeshPaths) {
+        LaunchedEffect(connectorMeshPaths, smoothNormals) {
             val loaded = withContext(Dispatchers.IO) {
-                connectorMeshPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path)) }.getOrNull()?.let { path to it } }.toMap()
+                connectorMeshPaths.mapNotNull { path -> runCatching { MeshFiles.read(java.io.File(path), smoothNormals) }.getOrNull()?.let { path to it } }.toMap()
             }
             controller.setCutConnectorMeshes(loaded)
         }
@@ -422,6 +425,8 @@ data class PlateViewOptions(
     val phong: Boolean = false,
     /** The realistic view with shadows on the plate (opengl_phong_basic_plate_shadows), which the preview has not. */
     val shadows: Boolean = false,
+    /** The realistic view's SSAO pass (opengl_phong_ssao). */
+    val ssao: Boolean = false,
 )
 
 /**
@@ -1663,6 +1668,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 outline = options.outline,
                 phong = options.phong,
                 shadows = options.shadows,
+                ssao = options.ssao,
                 gizmo = gizmoFrame(),
                 slopeNormalZ = slopeNormalZ,
                 // apply_color_clip_plane_colors(): the dovetail cut shows no parts' colours on the object.

@@ -3,6 +3,9 @@ package app.orcinus.shadow.render.scene
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -26,6 +29,32 @@ class MeshFilesTest {
         assertEquals(1.0, mesh.bounds.max.x)
         assertEquals(1.0, mesh.bounds.max.y)
         assertEquals(0.0, mesh.bounds.min.z)
+    }
+
+    @Test
+    fun smoothNormalsAverageTheFacesThatTurnLessThanFiveDegrees() {
+        // Two triangles folded by 4 degrees along their shared edge x = 1, and a third one at right angles to them.
+        val tilt = Math.toRadians(4.0)
+        val vertices = floatArrayOf(
+            0f, 0f, 0f, 1f, 0f, 0f, 1f, 1f, 0f, 0f, 1f, 0f,
+            (1 + cos(tilt)).toFloat(), 0f, sin(tilt).toFloat(),
+            1f, 0f, -1f,
+        )
+        val indices = intArrayOf(0, 1, 2, 1, 4, 2, 1, 5, 4)
+
+        val mesh = MeshFiles.fromIndexed(vertices, indices, smooth = true)
+
+        fun normal(corner: Int) = FloatArray(3) { mesh.vertices.get(corner * MeshFiles.FLOATS_PER_CORNER + 3 + it) }.toList()
+        // The far corner of the first face has that face alone: +Z.
+        assertEquals(listOf(0f, 0f, 1f), normal(0))
+        // On the fold the two faces are averaged, weighted by their (equal) areas; the upright one is not.
+        val folded = listOf(-sin(tilt) / 2, 0.0, (1 + cos(tilt)) / 2).let { n ->
+            val length = sqrt(n.sumOf { it * it })
+            n.map { (it / length).toFloat() }
+        }
+        normal(1).zip(folded).forEach { (actual, expected) -> assertEquals(expected, actual, 1e-6f) }
+        // Without smooth normals every corner keeps its face's.
+        assertEquals(listOf(0f, 0f, 1f), FloatArray(3) { MeshFiles.fromIndexed(vertices, indices).vertices.get(MeshFiles.FLOATS_PER_CORNER + 3 + it) }.toList())
     }
 
     @Test

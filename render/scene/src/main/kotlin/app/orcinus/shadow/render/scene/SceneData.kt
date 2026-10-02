@@ -285,7 +285,15 @@ internal object VolumeColors {
 internal class MeshCache {
     private val meshes = ConcurrentHashMap<String, MeshData>()
 
-    operator fun get(path: String): MeshData = meshes.getOrPut(path) { MeshFiles.read(File(path)) }
+    /** The realistic view's smooth normals; another value reads every mesh again. */
+    @Volatile
+    var smoothNormals = false
+        set(value) {
+            if (field != value) meshes.clear()
+            field = value
+        }
+
+    operator fun get(path: String): MeshData = meshes.getOrPut(path) { MeshFiles.read(File(path), smoothNormals) }
 
     /** Forgets the meshes of objects no longer in the scene. */
     fun retain(paths: Set<String>) {
@@ -295,14 +303,14 @@ internal class MeshCache {
 
 /** Reads what the engine wrote for the 3D view. Runs off the main thread. */
 internal object SceneLoader {
-    fun loadBed(plate: PlateDescription): SceneBed {
+    fun loadBed(plate: PlateDescription, smoothNormals: Boolean = false): SceneBed {
         val geometry = plate.geometry
         return SceneBed(
             plateTriangles = texturedTriangles(geometry.plateTriangles),
             excludeTriangles = flatPoints(geometry.excludeTriangles, GROUND_Z),
             thinGridLines = flatPoints(geometry.thinGridLines, GROUND_Z_GRIDLINE),
             boldGridLines = flatPoints(geometry.boldGridLines, GROUND_Z_GRIDLINE),
-            model = geometry.bedModel?.let { MeshFiles.read(File(it.value)) },
+            model = geometry.bedModel?.let { MeshFiles.read(File(it.value), smoothNormals) },
             texture = geometry.bedTexture?.let { decodeTexture(File(it.value)) },
             buildVolume = Box3.of(geometry.printableArea.map { Vec3(it.x, it.y, 0.0) })
                 .let { Box3(it.min, Vec3(it.max.x, it.max.y, geometry.printableHeight)) },
@@ -388,7 +396,13 @@ internal object SceneLoader {
      * the plate; one volume takes the colour of the first, since the scene
      * moves a volume as a whole.
      */
-    fun loadWipeTower(tower: WipeTower, colors: List<ColorRgba>, built: ScenePath? = null, origin: Point2 = Point2(0.0, 0.0)): SceneObject? {
+    fun loadWipeTower(
+        tower: WipeTower,
+        colors: List<ColorRgba>,
+        built: ScenePath? = null,
+        origin: Point2 = Point2(0.0, 0.0),
+        smoothNormals: Boolean = false,
+    ): SceneObject? {
         if (built == null && tower.depth < WIPE_TOWER_MIN_DEPTH) return null
         val height = if (tower.height == 0.0) WIPE_TOWER_MIN_HEIGHT else tower.height
         val world = Affine3.assemble(
@@ -398,8 +412,8 @@ internal object SceneLoader {
         )
         // load_real_wipe_tower_preview(): once the plate is sliced, the tower
         // the slice built, with its ribs and brim, stands where the box stood.
-        val mesh = built?.let { runCatching { MeshFiles.read(File(it.value)) }.getOrNull() }
-            ?: MeshFiles.fromIndexed(boxPositions(tower.width, tower.depth, height), BOX_TRIANGLES)
+        val mesh = built?.let { runCatching { MeshFiles.read(File(it.value), smoothNormals) }.getOrNull() }
+            ?: MeshFiles.fromIndexed(boxPositions(tower.width, tower.depth, height), BOX_TRIANGLES, smoothNormals)
         val filament = tower.filaments.firstOrNull() ?: 1
         val color = colors.getOrNull(filament - 1) ?: colors.firstOrNull() ?: WIPE_TOWER_FALLBACK
         return SceneObject(

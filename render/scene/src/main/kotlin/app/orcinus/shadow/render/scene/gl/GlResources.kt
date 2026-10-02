@@ -155,57 +155,59 @@ internal class GlTexture(width: Int, height: Int, rgba: ByteBuffer) {
 }
 
 /**
- * A frame drawn off screen for a pass over the whole of it: with [samples], a
- * multisampled colour and depth buffer that [resolve] copies into [texture],
- * as the surface's own buffer would be resolved; without, [texture] itself
- * with a depth buffer. [complete] tells whether the driver took it.
+ * A frame drawn off screen for the passes over the whole of it: a colour and a
+ * depth and stencil buffer, multisampled with [samples] as the surface would
+ * be, which [resolve] copies into [texture] and, when asked, [depthTexture],
+ * as desktop OpenGL copies the frame it drew (glCopyTexSubImage2D cannot read
+ * the surface's depth on OpenGL ES). [complete] tells whether the driver took it.
  */
 internal class GlOffscreenFrame(val width: Int, val height: Int, samples: Int) {
     val texture: Int
+    val depthTexture: Int
     private val resolveFramebuffer: Int
     private val drawFramebuffer: Int
     private val renderbuffers = IntArray(2)
     val complete: Boolean
 
     init {
-        val ids = IntArray(1)
-        GLES30.glGenTextures(1, ids, 0)
+        val ids = IntArray(2)
+        GLES30.glGenTextures(2, ids, 0)
         texture = ids[0]
+        depthTexture = ids[1]
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
         GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        // A depth texture is read with nearest filtering alone on OpenGL ES.
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, depthTexture)
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_DEPTH24_STENCIL8, width, height, 0, GLES30.GL_DEPTH_STENCIL, GLES30.GL_UNSIGNED_INT_24_8, null)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
 
-        GLES30.glGenFramebuffers(1, ids, 0)
+        GLES30.glGenFramebuffers(2, ids, 0)
         resolveFramebuffer = ids[0]
+        drawFramebuffer = ids[1]
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, resolveFramebuffer)
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, texture, 0)
+        GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_STENCIL_ATTACHMENT, GLES30.GL_TEXTURE_2D, depthTexture, 0)
+        val resolveComplete = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) == GLES30.GL_FRAMEBUFFER_COMPLETE
 
+        // The frame is drawn apart from the textures, which the passes over it read.
         GLES30.glGenRenderbuffers(2, renderbuffers, 0)
-        if (samples > 0) {
-            GLES30.glGenFramebuffers(1, ids, 0)
-            drawFramebuffer = ids[0]
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, drawFramebuffer)
-            GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, renderbuffers[0])
-            GLES30.glRenderbufferStorageMultisample(GLES30.GL_RENDERBUFFER, samples, GLES30.GL_RGBA8, width, height)
-            GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_RENDERBUFFER, renderbuffers[0])
-            GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, renderbuffers[1])
-            GLES30.glRenderbufferStorageMultisample(GLES30.GL_RENDERBUFFER, samples, GLES30.GL_DEPTH24_STENCIL8, width, height)
-        } else {
-            drawFramebuffer = resolveFramebuffer
-            GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, renderbuffers[1])
-            GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH24_STENCIL8, width, height)
-        }
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, drawFramebuffer)
+        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, renderbuffers[0])
+        GLES30.glRenderbufferStorageMultisample(GLES30.GL_RENDERBUFFER, samples, GLES30.GL_RGBA8, width, height)
+        GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_RENDERBUFFER, renderbuffers[0])
         // The surface's depth and stencil, which the shadows of the realistic view need.
+        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, renderbuffers[1])
+        GLES30.glRenderbufferStorageMultisample(GLES30.GL_RENDERBUFFER, samples, GLES30.GL_DEPTH24_STENCIL8, width, height)
         GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_STENCIL_ATTACHMENT, GLES30.GL_RENDERBUFFER, renderbuffers[1])
-        complete = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) == GLES30.GL_FRAMEBUFFER_COMPLETE &&
-            (drawFramebuffer == resolveFramebuffer || run {
-                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, resolveFramebuffer)
-                GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) == GLES30.GL_FRAMEBUFFER_COMPLETE
-            })
+        complete = resolveComplete && GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) == GLES30.GL_FRAMEBUFFER_COMPLETE
         GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, 0)
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
@@ -213,21 +215,19 @@ internal class GlOffscreenFrame(val width: Int, val height: Int, samples: Int) {
     /** Draws into the frame from now on. */
     fun bind() = GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, drawFramebuffer)
 
-    /** Resolves the samples into [texture], and draws on the surface again. */
-    fun resolve() {
-        if (drawFramebuffer != resolveFramebuffer) {
-            GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, drawFramebuffer)
-            GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, resolveFramebuffer)
-            GLES30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST)
-        }
+    /** Resolves the samples into [texture], and with [depth] into [depthTexture] too, and draws on the surface again. */
+    fun resolve(depth: Boolean = false) {
+        GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, drawFramebuffer)
+        GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, resolveFramebuffer)
+        GLES30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST)
+        if (depth) GLES30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GLES30.GL_DEPTH_BUFFER_BIT, GLES30.GL_NEAREST)
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
 
     fun release() {
-        val framebuffers = if (drawFramebuffer == resolveFramebuffer) intArrayOf(resolveFramebuffer) else intArrayOf(resolveFramebuffer, drawFramebuffer)
-        GLES30.glDeleteFramebuffers(framebuffers.size, framebuffers, 0)
+        GLES30.glDeleteFramebuffers(2, intArrayOf(resolveFramebuffer, drawFramebuffer), 0)
         GLES30.glDeleteRenderbuffers(2, renderbuffers, 0)
-        GLES30.glDeleteTextures(1, intArrayOf(texture), 0)
+        GLES30.glDeleteTextures(2, intArrayOf(texture, depthTexture), 0)
     }
 }
 
