@@ -1428,6 +1428,20 @@ internal object NativeBindings {
         stepSplit: Boolean,
     ): NativeImportedModels
 
+    /** place_volume(): [manipulation] is Manipulation in orca_engine_adapter.hpp. */
+    external fun placeVolume(
+        plate: NativePlate,
+        objectIndex: Int,
+        volume: Int,
+        matrix: DoubleArray,
+        manipulation: Long,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
     /** mesh_boolean(): [operation] is MeshBooleanOperation's ordinal. */
     external fun meshBoolean(
         plate: NativePlate,

@@ -33,6 +33,11 @@ internal class SceneFrame(
     val selectedIndex: Int?,
     /** Indexes of every selected object, which the scene draws as selected. */
     val selectedIndexes: Set<Int> = emptySet(),
+    /**
+     * Selection::Volume: the meshes of the selected copy drawn as selected,
+     * its one selected volume; null while whole copies are selected.
+     */
+    val selectedVolumes: Set<String>? = null,
     /** show_axes and show_plate_gridlines of the View menu. */
     val showAxes: Boolean = true,
     val showGridlines: Boolean = true,
@@ -86,6 +91,10 @@ internal class SceneFrame(
     /** Volumes a tool frames as the selection is framed (Selection::render_bounding_box() with its colour). */
     val framedVolumes: List<FramedVolume> = emptyList(),
 )
+
+/** Whether [sceneObject] is drawn selected: its copy is, and it is the selected volume when one is selected alone. */
+internal fun SceneFrame.selects(sceneObject: SceneObject): Boolean =
+    sceneObject.index in selectedIndexes && selectedVolumes?.contains(sceneObject.key) != false
 
 /** A volume's box in the world, framed in [color] (RGB). */
 internal class FramedVolume(val box: Box3, val color: FloatArray)
@@ -1007,7 +1016,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         } else {
             VolumeColors.render(
                 sceneObject.color,
-                selected = sceneObject.index in frame.selectedIndexes && !sceneObject.paintedByTool,
+                selected = frame.selects(sceneObject) && !sceneObject.paintedByTool,
                 printable = sceneObject.printable,
             )
         }
@@ -1030,7 +1039,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val leftHanded = sceneObject.world.isLeftHanded
         if (leftHanded) GLES30.glFrontFace(GLES30.GL_CW)
         // GLVolumeCollection::render(): a selected volume with "Outline" on.
-        val depth = if (frame.outline && sceneObject.index in frame.selectedIndexes && !sceneObject.paintedByTool) depthTarget() else null
+        val depth = if (frame.outline && frame.selects(sceneObject) && !sceneObject.paintedByTool) depthTarget() else null
         if (depth != null) renderWithOutline(program, mesh, depth) else mesh.draw()
         if (leftHanded) GLES30.glFrontFace(GLES30.GL_CCW)
     }
@@ -1076,7 +1085,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         // The desktop app draws one box around the whole selection; a plate of
         // a phone holds few objects, so each selected one gets its brackets,
         // around the copy and the parts that belong to it together.
-        for ((_, volumes) in objects.filter { it.index in frame.selectedIndexes }.groupBy(SceneObject::index)) {
+        for ((_, volumes) in objects.filter(frame::selects).groupBy(SceneObject::index)) {
             val box = volumes.map(SceneObject::bounds).reduce(Box3::merge)
             renderSelectionOf(program, frame, box, volumes.first().autoDrop)
         }

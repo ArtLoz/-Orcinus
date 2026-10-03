@@ -5012,6 +5012,85 @@ ImportedModels load_volume(
     }
 }
 
+ImportedModels place_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const std::vector<double>& matrix,
+    Manipulation manipulation,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    if (matrix.size() != 16) {
+        result.message = "The transformation is not a 4 x 4 matrix";
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size() || volume_index >= model.objects[object_index]->volumes.size()) {
+            result.message = "The plate has no such volume";
+            return result;
+        }
+        ModelObject* mo = model.objects[object_index];
+        // do_rotate() and do_scale(): where each copy stood before.
+        std::vector<double> min_zs;
+        for (std::size_t instance = 0; instance < mo->instances.size(); ++instance) {
+            min_zs.push_back(mo->instance_bounding_box(instance).min.z());
+        }
+        Transform3d transformation = Transform3d::Identity();
+        std::copy(matrix.begin(), matrix.end(), transformation.data());
+        ModelVolume* cur_mv = mo->volumes[volume_index];
+        if (cur_mv->get_transformation() != Geometry::Transformation(transformation)) {
+            cur_mv->set_transformation(Geometry::Transformation(transformation));
+        }
+        mo->invalidate_bounding_box();
+
+        // Fixes sinking/flying instances (snaps object to buildplate)
+        for (std::size_t instance = 0; instance < mo->instances.size(); ++instance) {
+            ModelInstance* mi = mo->instances[instance];
+            if (!mi->auto_drop) {
+                continue;
+            }
+            const double shift_z = mo->get_instance_min_z(instance);
+            const bool drops = manipulation == Manipulation::move ? shift_z > SINKING_Z_THRESHOLD :
+                                                                     min_zs[instance] >= SINKING_Z_THRESHOLD || shift_z > SINKING_Z_THRESHOLD;
+            if (drops && shift_z != 0.0) {
+                mo->translate_instance(instance, Vec3d(0.0, 0.0, -shift_z));
+            }
+        }
+        result.selected_volume = int(volume_index);
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects({mo}, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.objects.clear();
+        return result;
+    }
+}
+
 ImportedModels mesh_boolean(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,

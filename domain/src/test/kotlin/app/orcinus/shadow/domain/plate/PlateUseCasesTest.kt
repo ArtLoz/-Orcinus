@@ -163,6 +163,7 @@ import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -171,6 +172,8 @@ import app.orcinus.shadow.core.model.flushesInto
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.partPlates
+import app.orcinus.shadow.core.model.translationTransform
+import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withInstances
 import app.orcinus.shadow.core.model.withPainted
@@ -3157,6 +3160,40 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a part moved in the world takes the move in the object's coordinates, and the engine's object keeps it selected`() {
+        // The copy turned a quarter about Z: the object's X points along the world's Y.
+        val turned = Transform3(listOf(0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 100.0, 120.0, 10.0, 1.0))
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), moved(INSPECTION.placement, 5.0))
+        val cube = CUBE.withInspection(INSPECTION.copy(placement = turned)).withParts(listOf(part))
+        val repository = FakeRepository(readyState(cube).copy(selectedInstances = setOf(PlateInstanceId(cube.mesh)), selectedPart = ObjectPartId(cube.mesh, 1)))
+        val inspector = FakeInspector()
+        val placed = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/placed.mesh"), placement = turned))))
+        inspector.placedVolume = ModelLoadOutcome.Success(listOf(placed), emptyList(), selectedVolume = 1)
+        val place = PlaceObjectVolumeUseCase(inspector, FakeSceneFiles(), repository, scope)
+
+        place.changedInWorld(PlateInstanceId(cube.mesh), 1, translationTransform(Vector3(0.0, 10.0, 0.0)), VolumeManipulation.MOVE)
+
+        // 10 mm along the world's Y is 10 mm along the turned object's X.
+        val call = inspector.placeCalls.single()
+        assertEquals(0 to 1, call.index to call.volume)
+        assertEquals(VolumeManipulation.MOVE, call.manipulation)
+        assertEquals(15.0, call.matrix.columns[12], 1e-9)
+        assertEquals(0.0, call.matrix.columns[13], 1e-9)
+        assertEquals(0.0, call.matrix.columns[14], 1e-9)
+        val state = repository.state.value
+        assertFalse(state.editing)
+        assertEquals(ScenePath("/scene/objects/placed.mesh"), state.objects.single().mesh)
+        assertEquals(setOf(PlateInstanceId(ScenePath("/scene/objects/placed.mesh"))), state.selectedInstances)
+        assertEquals(ObjectPartId(ScenePath("/scene/objects/placed.mesh"), 1), state.selectedPart)
+        assertEquals(listOf(cube.mesh), state.history.undo.map { it.objects.single().mesh })
+
+        // A transformation the volume has already asks the engine nothing.
+        val placedPart = state.objects.single().volumeAt(1)!!
+        place(PlateInstanceId(placed.instances.single().inspection.mesh), 1, placedPart.placement, VolumeManipulation.MOVE)
+        assertEquals(1, inspector.placeCalls.size)
+    }
+
+    @Test
     fun `copied process settings of an object carry its own, and those of a part carry the object's under them`() {
         val part = ObjectPart("Cube", VolumeType.MODIFIER, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement, ModelSettings(mapOf("wall_loops" to "5")))
         val cube = CUBE.withSettings(ModelSettings(mapOf("layer_height" to "0.1", "wall_loops" to "3"))).withParts(listOf(part))
@@ -3789,6 +3826,26 @@ class PlateUseCasesTest {
         data class BooleanCall(val index: Int, val source: Int, val tool: Int, val operation: MeshBooleanOperation, val deleteInput: Boolean)
 
         val booleanCalls = mutableListOf<BooleanCall>()
+
+        data class PlaceCall(val index: Int, val volume: Int, val matrix: Transform3, val manipulation: VolumeManipulation)
+
+        val placeCalls = mutableListOf<PlaceCall>()
+
+        /** The answer to placeVolume(). */
+        var placedVolume: ModelLoadOutcome = ModelLoadOutcome.Success(emptyList(), emptyList())
+
+        override suspend fun placeVolume(
+            plate: List<PlacedModel>,
+            index: Int,
+            volume: Int,
+            matrix: Transform3,
+            manipulation: VolumeManipulation,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            placeCalls += PlaceCall(index, volume, matrix, manipulation)
+            return placedVolume
+        }
 
         /** The answers to meshBoolean(), one per call. */
         val booleans = ArrayDeque<ModelLoadOutcome>()

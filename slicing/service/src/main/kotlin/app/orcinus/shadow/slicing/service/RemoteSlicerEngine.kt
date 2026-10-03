@@ -118,6 +118,7 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.connectorKinds
@@ -635,6 +636,19 @@ class RemoteSlicerEngine(
         stepMesh: StepMeshOptions?,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         replaceVolume(plate.toParcels(), index, volume, source.value, profiles.toParcel(), prefix.value, stepMesh?.toArray()).toModelLoadOutcome()
+    }
+
+    override suspend fun placeVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        matrix: Transform3,
+        manipulation: VolumeManipulation,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        placeVolume(plate.toParcels(), index, volume, matrix.columns.toDoubleArray(), manipulation.name, profiles.toParcel(), prefix.value)
+            .toModelLoadOutcome()
     }
 
     override suspend fun meshBoolean(

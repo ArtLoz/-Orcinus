@@ -76,9 +76,12 @@ import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.EmbossTransform
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.times
+import app.orcinus.shadow.core.model.translationTransform
 import app.orcinus.shadow.domain.DescribeFlatteningPlanesUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
@@ -121,6 +124,7 @@ import app.orcinus.shadow.domain.plate.PaintObjectUseCase
 import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
 import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.PlaceInAssemblyUseCase
+import app.orcinus.shadow.domain.plate.PlaceObjectVolumeUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
@@ -238,6 +242,7 @@ class PrepareViewModel(
     private val cancelPlateSlicing: CancelPlateSlicingUseCase,
     private val dismissPlateProblem: DismissPlateProblemUseCase,
     private val meshBooleans: MeshBooleanUseCase,
+    private val placeObjectVolume: PlaceObjectVolumeUseCase,
     private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
     private val setExtruder: SetExtruderUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
@@ -3049,6 +3054,10 @@ class PrepareViewModel(
         val state = state.value
         val index = state.selectedObject ?: return
         val copy = state.sceneCopies[index]
+        state.selectedVolume?.let { volume ->
+            setVolumePosition(copy.id, volume, state, axis, value)
+            return
+        }
         val assembly = view.value.assemblyView
         val current = (if (assembly) assembleOf(copy.id) ?: return else copy.instance.inspection.placement).columns
         val clamped = value.coerceIn(-MAX_NUM, MAX_NUM)
@@ -3063,8 +3072,37 @@ class PrepareViewModel(
      * selected copy.
      */
     fun setMoveObjectCoordinates(objectCoordinates: Boolean) {
+        state.value.selectedVolume?.let { volume ->
+            view.update { it.copy(moveWorldVolume = volume.index.takeUnless { objectCoordinates }) }
+            return
+        }
         val copy = state.value.selectedObject?.let(::copyAt)
         view.update { it.copy(moveObjectCoordinatesCopy = copy?.takeIf { objectCoordinates }) }
+    }
+
+    /**
+     * change_position_value() of a volume: its offset in the object, or in the
+     * world, takes [value] along [axis] (Selection::translate() relative to the
+     * instance, or to the world).
+     */
+    private fun setVolumePosition(copy: PlateInstanceId, volume: SelectedVolume, state: PrepareUiState, axis: Int, value: Double) {
+        val position = state.selectedPosition ?: return
+        val current = listOf(position.x, position.y, position.z)[axis]
+        val clamped = value.coerceIn(-MAX_NUM, MAX_NUM)
+        if (abs(current - clamped) < POSITION_EPSILON) return
+        val displacement = translationTransform(Vector3(if (axis == 0) clamped - current else 0.0, if (axis == 1) clamped - current else 0.0, if (axis == 2) clamped - current else 0.0))
+        if (state.moveObjectCoordinates) {
+            placeObjectVolume(copy, volume.id.index, displacement * volume.matrix, VolumeManipulation.MOVE)
+        } else {
+            placeObjectVolume.changedInWorld(copy, volume.id.index, displacement, VolumeManipulation.MOVE)
+        }
+    }
+
+    /** The move gizmo or a finger moved the selected volume of the copy at [index] by [change] in the world. */
+    fun placeVolume(index: Int, change: Transform3, manipulation: VolumeManipulation) {
+        val volume = state.value.selectedVolume ?: return
+        val copy = copyAt(index)?.takeIf { it.mesh == volume.id.mesh } ?: return
+        placeObjectVolume.changedInWorld(copy, volume.id.index, change, manipulation)
     }
 
     /**

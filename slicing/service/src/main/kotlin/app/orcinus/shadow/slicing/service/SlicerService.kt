@@ -58,6 +58,7 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.cutConnectors
 import app.orcinus.shadow.slicing.api.AppConfigStore
@@ -542,6 +543,26 @@ abstract class SlicerService<E> : Service()
             stepMesh: DoubleArray?,
         ): ModelLoadParcel = runBlocking {
             engine.replaceVolume(plate.toPlacedModels(), index, volume, ModelPath(source), profiles.toProfiles(), ScenePath(prefix), stepMesh?.toStepMeshOptions())
+        }.toParcel()
+
+        override fun placeVolume(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volume: Int,
+            matrix: DoubleArray,
+            manipulation: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.placeVolume(
+                plate.toPlacedModels(),
+                index,
+                volume,
+                Transform3(matrix.toList()),
+                VolumeManipulation.valueOf(manipulation),
+                profiles.toProfiles(),
+                ScenePath(prefix),
+            )
         }.toParcel()
 
         override fun meshBoolean(

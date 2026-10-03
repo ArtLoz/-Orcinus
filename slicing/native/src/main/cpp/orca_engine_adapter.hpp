@@ -2638,6 +2638,23 @@ ImportedModels load_volume(
     const StepMeshChoice& step_mesh = {}
 );
 
+// GLCanvas3D::do_move(), do_rotate() and do_scale() of a volume
+// (Selection::Volume): the volume at volume_index of the object at
+// object_index takes matrix (column-major 4 x 4, in the object's coordinates),
+// as a gizmo or a window left it; then every copy of the object with auto
+// drop on drops onto the plate when it floats above it (a move), or rests on
+// it unless it was sunk before (a rotation or a scale). The object is written
+// as import_model() writes objects; selected_volume is the volume.
+ImportedModels place_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const std::vector<double>& matrix,
+    Manipulation manipulation,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
 // GLGizmoMeshBoolean's operations, as MeshBooleanOperation lists them.
 enum class MeshBooleanOperation : std::int64_t {
     union_ = 0,

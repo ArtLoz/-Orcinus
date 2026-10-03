@@ -137,6 +137,7 @@ import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R as UiR
@@ -353,6 +354,7 @@ internal fun PrepareRoute(
         onSetPosition = viewModel::setPosition,
         onSetMoveObjectCoordinates = viewModel::setMoveObjectCoordinates,
         onTranslateInObject = viewModel::translateInObject,
+        onPlaceVolume = viewModel::placeVolume,
         onAutoOrient = viewModel::autoOrient,
         onAddInstance = viewModel::addInstance,
         onRemoveInstance = viewModel::removeInstance,
@@ -635,6 +637,8 @@ internal fun PrepareScreen(
     /** The move window's coordinates, and its "Translate(Relative)" in object coordinates. */
     onSetMoveObjectCoordinates: (Boolean) -> Unit = {},
     onTranslateInObject: (axis: Int, value: Double) -> Unit = { _, _ -> },
+    /** A gizmo or a finger moved the selected volume of the copy at index by a change in the world. */
+    onPlaceVolume: (index: Int, change: Transform3, manipulation: VolumeManipulation) -> Unit = { _, _, _ -> },
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         val viewCamera = rememberPlateViewCamera()
@@ -800,6 +804,8 @@ internal fun PrepareScreen(
                 onAssemblySelection = { assemblySelection = it },
                 onPlaceInAssembly = assemblyViewActions.place,
                 onAssemblySection = assemblyViewActions.sectionPlane,
+                selectedVolume = state.selectedVolume?.mesh?.value,
+                onPlaceVolume = onPlaceVolume,
             )
             state.measure?.editingDistance?.let { distance ->
                 MeasureScaleDialog(distance, canvas.imperialUnits, measureActions.scale, measureActions.cancelScale)
@@ -1055,6 +1061,8 @@ internal fun PrepareScreen(
                         imperial = canvas.imperialUnits,
                         objectCoordinates = state.moveObjectCoordinates,
                         canObjectCoordinates = state.canMoveObjectCoordinates,
+                        // A volume shows its offset in the object; a copy, how far it moves along its own axes.
+                        relative = state.selectedVolume == null,
                         onCoordinates = onSetMoveObjectCoordinates,
                         onSetPosition = onSetPosition,
                         onTranslate = onTranslateInObject,
@@ -2079,7 +2087,9 @@ private const val GAP_AREA_MAX = 5f
 /**
  * GizmoObjectManipulation::do_render_move_window() in world coordinates: the
  * object's position per axis, applied when an input is done, and the button
- * that closes the gizmo. [imperial] units show and take it in inches.
+ * that closes the gizmo. [imperial] units show and take it in inches. In
+ * object coordinates a copy is moved by a distance along its own axes
+ * ([relative]), a volume takes a position in the object.
  */
 @Composable
 private fun MoveGizmoPanel(
@@ -2087,6 +2097,7 @@ private fun MoveGizmoPanel(
     imperial: Boolean,
     objectCoordinates: Boolean,
     canObjectCoordinates: Boolean,
+    relative: Boolean,
     onCoordinates: (Boolean) -> Unit,
     onSetPosition: (axis: Int, value: Double) -> Unit,
     onTranslate: (axis: Int, value: Double) -> Unit,
@@ -2108,7 +2119,7 @@ private fun MoveGizmoPanel(
             Spacer(Modifier.width(PositionLabelWidth))
             AxisHeaders()
         }
-        if (objectCoordinates) {
+        if (objectCoordinates && relative) {
             // In object coordinates the copy moves by what is typed along its own axes.
             GizmoValueRow(
                 label = orcaString("Translate(Relative)"),

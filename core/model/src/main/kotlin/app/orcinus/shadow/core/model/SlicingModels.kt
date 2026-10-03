@@ -197,6 +197,13 @@ data class LoadedObject(
     val brimPoints: List<BrimPoint> = emptyList(),
 )
 
+/** What moved a volume: GLCanvas3D::do_move(), do_rotate() or do_scale(), which drop the copies differently. */
+enum class VolumeManipulation {
+    MOVE,
+    ROTATE,
+    SCALE,
+}
+
 /** GLGizmoMeshBoolean's operations (MeshBooleanOperation), in its order. */
 enum class MeshBooleanOperation {
     /** "Union": the two volumes joined, the second gone. */

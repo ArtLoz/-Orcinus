@@ -60,6 +60,8 @@ import app.orcinus.shadow.core.model.placing
 import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.plateSettingsChoice
+import app.orcinus.shadow.core.model.times
+import app.orcinus.shadow.core.model.translation
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withPainted
@@ -236,6 +238,12 @@ data class PrepareUiState(
     val canMoveObjectCoordinates: Boolean = false,
     /** The move gizmo's reference system in object coordinates: the copy's placement (or its place in the assembly). */
     val moveFrame: Transform3? = null,
+    /**
+     * Selection::Volume: the volume of the one selected copy the object list
+     * selected alone, which the move gizmo and its window move ("Volume
+     * Operations"); null while copies are selected.
+     */
+    val selectedVolume: SelectedVolume? = null,
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
     val selectedRotation: Vector3?,
     /** GizmoObjectManipulation::update_reset_buttons_visibility(): the rotation differs from when the tool opened. */
@@ -403,6 +411,11 @@ internal data class PrepareViewState(
      * selected shows world coordinates again (GLGizmoMove3D::change_cs_by_selection()).
      */
     val moveObjectCoordinatesCopy: PlateInstanceId? = null,
+    /**
+     * The volume the move window shows in "World coordinates"; another volume
+     * selected shows object coordinates again (change_cs_by_selection()).
+     */
+    val moveWorldVolume: VolumeIndex? = null,
     /**
      * Its "Delete input" of the difference and of the intersection, which the
      * desktop tool keeps from one opening to the next.
@@ -623,6 +636,28 @@ data class SimplifyMode(
     val canApply: Boolean get() = preview != null && !running
 }
 
+/** Selection::get_selected_single_volume(): the object's index on the plate and the volume's in it (ModelObject::volumes). */
+data class VolumeIndex(val objectIndex: Int, val volume: Int)
+
+/**
+ * A volume selected alone: [id] in the object list, [mesh] the 3D view draws
+ * it from, [index] as the desktop selection counts it, and [matrix] its
+ * transformation in the object.
+ */
+data class SelectedVolume(val id: ObjectPartId, val mesh: ScenePath, val index: VolumeIndex, val matrix: Transform3)
+
+/**
+ * Selection::Volume: the volume of the one selected copy the object list
+ * selected alone; the assembly view moves copies only.
+ */
+private fun PlateState.selectedVolume(view: PrepareViewState): SelectedVolume? {
+    val part = selectedPart ?: return null
+    if (view.assemblyView || view.wipeTowerSelected || selectedInstances.singleOrNull()?.mesh != part.mesh) return null
+    val objectIndex = objects.indexOfFirst { it.mesh == part.mesh }
+    val volume = objects.getOrNull(objectIndex)?.volumeAt(part.index) ?: return null
+    return SelectedVolume(part, volume.mesh, VolumeIndex(objectIndex, part.index), volume.placement)
+}
+
 internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState {
     val gizmo = view.gizmo
     val rotationStart = view.rotationStart
@@ -639,8 +674,13 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     // GizmoObjectManipulation in the assembly view: the copy's assemble transformation.
     val assembled = selectedObject?.let(copies::get)?.instance?.takeIf { view.assemblyView }?.let { it.assemble ?: Transform3.IDENTITY }
     val assembledRotation = assembled?.let(AssemblyTransforms::rotationDegrees)
-    val moveObjectCoordinates = view.moveObjectCoordinatesCopy != null && view.moveObjectCoordinatesCopy == selectedInstance &&
-        selectedInstances.size == 1 && !view.wipeTowerSelected
+    val volume = selectedVolume(view)
+    // GLGizmoMove3D::change_cs_by_selection(): a volume shows object coordinates, a copy world coordinates, until the other is picked.
+    val moveObjectCoordinates = if (volume != null) {
+        view.moveWorldVolume != volume.index
+    } else {
+        view.moveObjectCoordinatesCopy != null && view.moveObjectCoordinatesCopy == selectedInstance && selectedInstances.size == 1 && !view.wipeTowerSelected
+    }
     // The plate changes once OrcaSlicer has the presets it places objects with.
     val canEditPlate = !busy && !slicingAll && engine.availability == EngineAvailability.READY && profiles != null
     return PrepareUiState(
@@ -729,10 +769,16 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         bedTypes = presets?.bedTypes.orEmpty(),
         spiralVaseMode = spiralVaseMode(),
         printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",
-        selectedPosition = (if (view.assemblyView) assembled else selected?.placement)?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
+        selectedPosition = if (volume != null && selected != null) {
+            // update_settings_value() of a volume: its offset in the object, or in the world.
+            (if (moveObjectCoordinates) volume.matrix else selected.placement * volume.matrix).translation.let { ObjectPosition(it.x, it.y, it.z) }
+        } else {
+            (if (view.assemblyView) assembled else selected?.placement)?.columns?.let { ObjectPosition(it[12], it[13], it[14]) }
+        },
         moveObjectCoordinates = moveObjectCoordinates,
         canMoveObjectCoordinates = selectedObject != null && selectedInstances.size == 1 && !view.wipeTowerSelected,
         moveFrame = (if (view.assemblyView) assembled else selected?.placement)?.takeIf { moveObjectCoordinates },
+        selectedVolume = volume,
         selectedRotation = if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
         canResetRotation = if (view.assemblyView) {
             assembled != null && rotationStart != null && !assembled.hasLinearPartOf(rotationStart)

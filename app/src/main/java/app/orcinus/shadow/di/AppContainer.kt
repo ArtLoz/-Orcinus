@@ -105,6 +105,7 @@ import app.orcinus.shadow.domain.plate.PaintObjectUseCase
 import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
 import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.PlaceInAssemblyUseCase
+import app.orcinus.shadow.domain.plate.PlaceObjectVolumeUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlateFilamentsUseCase
@@ -599,6 +600,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             cancelPlateSlicing = cancelPlateSlicing,
             dismissPlateProblem = dismissPlateProblem,
             meshBooleans = MeshBooleanUseCase(engine, sceneFiles, plateRepository, applicationScope),
+            placeObjectVolume = PlaceObjectVolumeUseCase(engine, sceneFiles, plateRepository, applicationScope),
             setPlateObjectPrintable = setPlateObjectPrintable,
             setExtruder = setExtruder,
             setFlushOption = setFlushOption,

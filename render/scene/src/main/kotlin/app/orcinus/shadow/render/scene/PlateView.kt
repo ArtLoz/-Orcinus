@@ -61,6 +61,7 @@ import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.extruderNumber
@@ -238,6 +239,17 @@ fun PlateView(
     onPlaceInAssembly: (index: Int, assemble: Transform3, manipulation: Manipulation) -> Unit = { _, _, _ -> },
     /** The plane of the assembly view's "Section View", its normal and offset, as it changes; null while it clips nothing. */
     onAssemblySection: (normal: Vector3, offset: Double) -> Unit = { _, _ -> },
+    /**
+     * Selection::Volume: the mesh of the selected copy's volume the object
+     * list selected alone, which is drawn selected and which the move gizmo
+     * and a finger move alone; null while copies are selected.
+     */
+    selectedVolume: String? = null,
+    /**
+     * GLCanvas3D::do_move() of a volume: the selected volume of the copy at
+     * [index] changed by [change] in the world; the app places it.
+     */
+    onPlaceVolume: (index: Int, change: Transform3, manipulation: VolumeManipulation) -> Unit = { _, _, _ -> },
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -377,7 +389,7 @@ fun PlateView(
                     }
                 }
             }
-            controller.setObjects(loaded, inAssembly)
+            controller.setObjects(loaded, inAssembly, source = objects)
         }
 
         // GLGizmoCut3D: the outline and the section of the plane, which the
@@ -529,6 +541,7 @@ fun PlateView(
             }
             controller.onAssemblySelection = onAssemblySelection
             controller.onPlaceInAssembly = onPlaceInAssembly
+            controller.onPlaceVolume = onPlaceVolume
             controller.onAssemblySection = onAssemblySection
             controller.setAssembly(assembly)
             controller.setSelection(selectedObject)
@@ -536,6 +549,8 @@ fun PlateView(
             controller.setGizmo(gizmo)
             controller.setFlatteningPlanes(flatteningPlanes)
             controller.setEditable(editable)
+            controller.setSelectedVolume(selectedVolume)
+            controller.settleVolume(editable, objects)
         }
 
         val touchSlop = LocalViewConfiguration.current.touchSlop
@@ -874,6 +889,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var layerBox: Box3? = null
     private var selectedIndex: Int? = null
     private var selectedIndexes: Set<Int> = emptySet()
+
+    /** Selection::Volume: the mesh of the selected copy's volume selected alone; null while copies are. */
+    private var selectedVolume: String? = null
     private var gizmo: PlateGizmo? = null
     private var flatteningPlanes: List<FlatteningPlane> = emptyList()
     private var layOnFace = LayOnFaceGizmo(emptyList())
@@ -904,6 +922,17 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** _render_assemble_info(): the size of the assembly view's selection, told as it changes. */
     var onAssemblySelection: (Vector3?) -> Unit = {}
     var onPlaceInAssembly: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
+    var onPlaceVolume: (Int, Transform3, VolumeManipulation) -> Unit = { _, _, _ -> }
+
+    /**
+     * The objects of the plate the scene was last made from, and the volumes
+     * made of them, which a volume a gizmo left goes back to when the app
+     * placed none ([settleVolume]); [volumeLeft] while a volume stands where
+     * a gizmo left it for the app to place it.
+     */
+    private var source: List<PlateObject>? = null
+    private var loaded: List<SceneObject> = emptyList()
+    private var volumeLeft = false
 
     /**
      * ModelObjectsClipper of the assembly view: the normal of its plane, kept
@@ -928,17 +957,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** A tap on another plate, with its index; null where plates are not picked. */
     var onSelectPlate: ((Int) -> Unit)? = null
 
-    /** A press that may become a manipulation of the object [index], which stood at [startWorld]. */
-    private sealed class Drag(val index: Int, val startWorld: Affine3) {
+    /**
+     * A press that may become a manipulation of the object [index], which
+     * stood at [startWorld]; of its volume [key] alone (Selection::Volume),
+     * or of the copy with its parts when null.
+     */
+    private sealed class Drag(val index: Int, val startWorld: Affine3, val key: String? = null) {
         var moved = false
     }
 
     /** GLCanvas3D::Mouse::Drag: the object itself, touched at [startPosition]. */
-    private class ObjectDrag(index: Int, startWorld: Affine3, val startPosition: Vec3) : Drag(index, startWorld)
+    private class ObjectDrag(index: Int, startWorld: Affine3, val startPosition: Vec3, key: String? = null) : Drag(index, startWorld, key)
 
     /** GLGizmoBase::use_grabbers(): the move gizmo's grabber of [axis] at [startGrabber], the box centre at [startCenter]. */
-    private class MoveGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val startGrabber: Vec3, val startCenter: Vec3) :
-        Drag(index, startWorld)
+    private class MoveGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val startGrabber: Vec3, val startCenter: Vec3, key: String?) :
+        Drag(index, startWorld, key)
 
     /** The scale gizmo's grabber [id], scaling about the box [center] as the grabber moves from [start]. */
     private class ScaleGrabberDrag(index: Int, startWorld: Affine3, val id: Int, val start: Vec3, val bottomCenter: Vec3, val center: Vec3) :
@@ -1153,8 +1186,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** New objects replace what a finger was moving: the scene no longer has it where the move began. */
     /** The volumes of the copies, made for the assembly view when [inAssembly], at an explosion ratio of 1. */
-    fun setObjects(objects: List<SceneObject>, inAssembly: Boolean = false) {
+    fun setObjects(objects: List<SceneObject>, inAssembly: Boolean = false, source: List<PlateObject>? = null) {
         drag = null
+        this.source = source
+        loaded = objects
+        volumeLeft = false
         objectsInAssembly = inAssembly
         plateObjects = if (inAssembly) objects.map { it.exploded((assembly?.explosionRatio ?: 1.0) - 1.0) } else objects
         showObjects(plateObjects + listOfNotNull(wipeTower))
@@ -1381,6 +1417,51 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         this.editable = editable
     }
 
+    fun setSelectedVolume(key: String?) {
+        if (selectedVolume == key) return
+        selectedVolume = key
+        if (drag?.key != null) drag = null
+        invalidate()
+    }
+
+    /**
+     * Once the plate can be edited again after a volume was left for the app
+     * to place, and the plate's [objects] are still those the scene was made
+     * from (the engine placed nothing), the volume goes back where they have it.
+     */
+    fun settleVolume(editable: Boolean, objects: List<PlateObject>) {
+        if (!volumeLeft || !editable) return
+        volumeLeft = false
+        if (objects == source) setObjects(loaded, objectsInAssembly, source)
+    }
+
+    /**
+     * Selection::Volume in the 3D view: the volume the move gizmo and a
+     * finger move alone. The rotation and the scale gizmos, and the assembly
+     * view, still work on the copy.
+     */
+    private fun volumeMode(): String? =
+        selectedVolume?.takeIf { assembly == null && gizmo != PlateGizmo.ROTATE && gizmo != PlateGizmo.SCALE && gizmo != PlateGizmo.LAY_ON_FACE }
+
+    /** What the gizmos stand around: the selected volume, or the selected copy. */
+    private fun selectedTarget(): SceneObject? =
+        volumeMode()?.let { key -> objects.firstOrNull { it.index == selectedIndex && it.key == key } } ?: objects.firstOrNull { it.index == selectedIndex }
+
+    /** What [drag] moves: its volume, or the copy. */
+    private fun targetOf(drag: Drag): SceneObject? =
+        drag.key?.let { key -> objects.firstOrNull { it.index == drag.index && it.key == key } } ?: objects.firstOrNull { it.index == drag.index }
+
+    /**
+     * The volumes drawn selected while one is selected alone: it, with the
+     * paint of the copy's own mesh when it is that mesh; null while copies are.
+     */
+    private fun selectedVolumes(): Set<String>? {
+        val key = selectedVolume?.takeIf { assembly == null } ?: return null
+        val volumes = plateObjects.filter { it.index == selectedIndex }
+        val own = volumes.firstOrNull()?.key == key
+        return volumes.filter { it.key == key || (own && it.overlay) }.mapTo(HashSet()) { it.key }
+    }
+
     /**
      * GLCanvas3D::on_mouse() for a left press. Gizmo grabbers come first, as
      * they are drawn over the scene: within [grabberRadius] pixels of one, the
@@ -1471,7 +1552,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 PlateGizmo.SCALE -> scaleGizmo(target).let {
                     ScaleGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.grabberCenter(4), it.center)
                 }
-                else -> moveGizmo(target).let { MoveGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.center) }
+                else -> moveGizmo(target).let { MoveGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.center, volumeMode()) }
             }
             invalidate()
             return true
@@ -1481,10 +1562,19 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             .mapNotNull { sceneObject -> sceneObject.raycast(ray)?.let { sceneObject to it } }
             .minByOrNull { (_, hit) -> (hit - ray.a).norm() }
             ?: return false
+        val volumeKey = volumeMode()
+        if (volumeKey != null && volume.index == selectedIndex && volume.key == volumeKey) {
+            // Selection::add() of the selected volume keeps the selection, and the
+            // finger drags the volume alone.
+            drag = if (editable) ObjectDrag(volume.index, volume.world, hit, volume.key) else null
+            return true
+        }
         // A part of an object is picked with the object it belongs to, as the
-        // desktop canvas moves the instance, not the volume.
+        // desktop canvas moves the instance, not the volume (Selection::add()
+        // of a model part takes the instance mode, even of the copy whose
+        // volume was selected).
         val target = objects.firstOrNull { it.index == volume.index } ?: volume
-        select(target.index)
+        if (volumeKey != null && target.index == selectedIndex) onSelectObject(target.index) else select(target.index)
         drag = if (editable) ObjectDrag(target.index, target.world, hit) else null
         return true
     }
@@ -1552,7 +1642,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             onCutConnector(CutConnectorEvent.Move(drag.connector, Vector3(point.x, point.y, point.z), finished = false))
             return
         }
-        val target = objects.firstOrNull { it.index == drag.index } ?: return
+        val target = targetOf(drag) ?: return
         val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
         if (drag is RotateGrabberDrag) {
             // GLGizmoRotate3D::on_mouse(): the object turns about the sphere's centre by the ring's angle.
@@ -1588,7 +1678,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             }
         }
         drag.moved = true
-        replaceObject(target.withWorld(drag.startWorld.withTranslation(drag.startWorld.translation() + offset)))
+        replaceObject(target.withWorld(drag.startWorld.withTranslation(drag.startWorld.translation() + offset)), alone = drag.key != null)
     }
 
     private fun objectOffset(drag: ObjectDrag, ray: Line3): Vec3? {
@@ -1683,12 +1773,19 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             if (drag !is ObjectDrag) invalidate()
             return
         }
-        val target = objects.firstOrNull { it.index == drag.index } ?: return
+        val target = targetOf(drag) ?: return
         if (target.index == WIPE_TOWER_INDEX) {
             // apply_wipe_tower(): the tower keeps to the plate, so only its
             // corner on the current plate is written back.
             val corner = target.world.translation() - plates.currentOrigin
             onMoveWipeTower(corner.x, corner.y)
+            return
+        }
+        if (drag.key != null) {
+            // GLCanvas3D::do_move() of a volume: the app places it and drops the
+            // copies; the volume stands where it was left until then.
+            volumeLeft = true
+            onPlaceVolume(target.index, Transform3((target.world * drag.startWorld.inverse()).elements().toList()), VolumeManipulation.MOVE)
             return
         }
         val manipulation = when (drag) {
@@ -2113,7 +2210,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The grabber of the active gizmo nearest to the point, within [radius] pixels of it on the screen. */
     private fun grabberAt(x: Double, y: Double, radius: Double): Pair<SceneObject, Int>? {
         if (!editable) return null
-        val target = objects.firstOrNull { it.index == selectedIndex } ?: return null
+        val target = selectedTarget() ?: return null
         val ends: (Int) -> Pair<Vec3, Vec3> = when (gizmo) {
             PlateGizmo.MOVE -> moveGizmo(target).let { move -> { axis -> move.grabberCenter(axis) to move.grabberTip(axis) } }
             PlateGizmo.ROTATE -> rotateGizmo(target).let { rotate -> { axis -> rotate.grabberEnds(axis, 0.0) } }
@@ -2318,18 +2415,22 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * The moved volume replaces the one it was made from; the other volumes of
      * the same copy — the parts of the object — follow it through the same
      * transformation, as the desktop app moves a ModelObject with its volumes.
+     * A volume moved [alone] takes the paint of the copy's own mesh along when
+     * it is that mesh.
      */
-    private fun replaceObject(sceneObject: SceneObject) {
+    private fun replaceObject(sceneObject: SceneObject, alone: Boolean = false) {
         if (sceneObject.index == WIPE_TOWER_INDEX) {
             wipeTower = sceneObject
         } else {
             val previous = plateObjects.firstOrNull { it.index == sceneObject.index && it.key == sceneObject.key }
             val transform = previous?.let { sceneObject.world * it.world.inverse() }
+            val own = plateObjects.firstOrNull { it.index == sceneObject.index }?.key == sceneObject.key
             plateObjects = plateObjects.map { volume ->
                 when {
                     volume.index != sceneObject.index -> volume
                     volume.key == sceneObject.key -> sceneObject
                     transform == null -> volume
+                    alone && !(own && volume.overlay) -> volume
                     else -> volume.withWorld(transform * volume.world)
                 }
             }
@@ -2396,6 +2497,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 pixelScale = density,
                 selectedIndex = selectedIndex,
                 selectedIndexes = selectedIndexes,
+                selectedVolumes = selectedVolumes(),
                 showAxes = options.axes,
                 showGridlines = options.gridlines,
                 overhangNormalZ = overhangNormalZ,
@@ -2473,7 +2575,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 pixelScale = density,
             )
         }
-        val target = objects.firstOrNull { it.index == selectedIndex } ?: return null
+        val target = selectedTarget() ?: return null
         return when (gizmo) {
             PlateGizmo.MOVE -> moveGizmo(target).frame((drag as? MoveGrabberDrag)?.axis, density)
             PlateGizmo.ROTATE -> {

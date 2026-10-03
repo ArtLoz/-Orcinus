@@ -4828,6 +4828,67 @@ TEST_CASE("Mesh Boolean joins, subtracts and intersects two volumes of an object
     }
 }
 
+// matrix with its offset moved by dz.
+std::vector<double> raised(std::vector<double> matrix, double dz)
+{
+    matrix[14] += dz;
+    return matrix;
+}
+
+TEST_CASE("A volume moved, turned or scaled drops its object as GLCanvas3D does", "[Adapter][Edit][PlaceVolume]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("place-cube"), {});
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    REQUIRE(imported.objects.size() == 1);
+    const orca::ImportedObject& cube = imported.objects.front();
+    const double cube_z = cube.instances.front().instance_matrix[14];
+
+    SECTION("a move above the plate drops the object back")
+    {
+        const orca::ImportedModels moved = orca::place_volume({plate_object_of(cube)}, 0, 0, raised(cube.matrix, 10.0), orca::Manipulation::move,
+                                                              k2_plus_profiles(), import_prefix("place-up"));
+        INFO(moved.message);
+        REQUIRE(moved.status == orca::SceneStatus::success);
+        REQUIRE(moved.objects.size() == 1);
+        CHECK(moved.selected_volume == 0);
+        CHECK(moved.objects.front().matrix[14] == Catch::Approx(cube.matrix[14] + 10.0));
+        CHECK(moved.objects.front().instances.front().instance_matrix[14] == Catch::Approx(cube_z - 10.0));
+    }
+
+    const orca::ImportedModels with_part = orca::load_volume({plate_object_of(cube)}, 0, device_dir + "/data/2x20x10.obj", "2x20x10.obj",
+                                                             orca::VolumeType::part, k2_plus_profiles(), import_prefix("place-part"));
+    INFO(with_part.message);
+    REQUIRE(with_part.status == orca::SceneStatus::success);
+    const orca::ImportedObject& object = with_part.objects.front();
+    REQUIRE(object.parts.size() == 1);
+    const double object_z = object.instances.front().instance_matrix[14];
+    const std::vector<double> sunk = raised(object.parts.front().matrix, -5.0);
+
+    SECTION("a move into the plate leaves the object sunk")
+    {
+        const orca::ImportedModels moved = orca::place_volume({plate_object_of(object)}, 0, 1, sunk, orca::Manipulation::move,
+                                                              k2_plus_profiles(), import_prefix("place-down"));
+        INFO(moved.message);
+        REQUIRE(moved.status == orca::SceneStatus::success);
+        const orca::ImportedObject& result = moved.objects.front();
+        CHECK(moved.selected_volume == 1);
+        REQUIRE(result.parts.size() == 1);
+        CHECK(result.parts.front().matrix[14] == Catch::Approx(sunk[14]));
+        CHECK(result.instances.front().instance_matrix[14] == Catch::Approx(object_z));
+        CHECK(result.instances.front().size_z == Catch::Approx(25.0).margin(0.01));
+    }
+    SECTION("a turn or a scale of an object that stood on the plate lifts it back")
+    {
+        const orca::ImportedModels turned = orca::place_volume({plate_object_of(object)}, 0, 1, sunk, orca::Manipulation::rotate,
+                                                               k2_plus_profiles(), import_prefix("place-turn"));
+        INFO(turned.message);
+        REQUIRE(turned.status == orca::SceneStatus::success);
+        CHECK(turned.objects.front().instances.front().instance_matrix[14] == Catch::Approx(object_z + 5.0));
+    }
+}
+
 // The value of key among settings; empty when they do not set it.
 std::string setting_of(const orca::ModelSettings& settings, const std::string& key)
 {

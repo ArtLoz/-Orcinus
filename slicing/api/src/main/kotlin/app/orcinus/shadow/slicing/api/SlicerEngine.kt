@@ -89,6 +89,7 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 
@@ -284,6 +285,23 @@ interface PlateInspector {
         prefix: ScenePath,
         stepMesh: StepMeshOptions? = null,
     ): ModelLoadOutcome
+
+    /**
+     * GLCanvas3D::do_move(), do_rotate() and do_scale() of a volume: the
+     * volume at [volume] of the object at [index] takes [matrix] in the
+     * object's coordinates, and the object's copies drop onto the plate as
+     * [manipulation] lets them; the engine writes the object anew, named
+     * after [prefix].
+     */
+    suspend fun placeVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        matrix: Transform3,
+        manipulation: VolumeManipulation,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = ModelLoadOutcome.Failure("Placing a volume is not supported")
 
     /**
      * GLGizmoMeshBoolean: the volumes [source] and [tool] (ModelObject::volumes)

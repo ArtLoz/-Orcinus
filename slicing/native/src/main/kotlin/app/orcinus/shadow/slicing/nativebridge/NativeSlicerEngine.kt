@@ -168,6 +168,7 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeOrigin
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
@@ -1116,6 +1117,34 @@ class NativeSlicerEngine(context: Context) :
             stepLinear = stepMesh?.linearDeflection ?: 0.0,
             stepAngle = stepMesh?.angleDeflection ?: 0.0,
             stepSplit = stepMesh?.splitCompound ?: false,
+        ).toOutcome()
+    }
+
+    override suspend fun placeVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        matrix: Transform3,
+        manipulation: VolumeManipulation,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.placeVolume(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volume = volume,
+            matrix = matrix.columns.toDoubleArray(),
+            // Manipulation::move, rotate and scale of orca_engine_adapter.hpp.
+            manipulation = manipulation.ordinal.toLong(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
         ).toOutcome()
     }
 
