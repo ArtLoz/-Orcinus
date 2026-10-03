@@ -62,6 +62,16 @@
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePresetCreation { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeCustomFilaments { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeFilamentPresets { <init>(...); }
+# The plate's validation, the variable layer height, and the text and SVG tools.
+-keep class app.orcinus.shadow.slicing.nativebridge.NativePlateValidation { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeLayerEditing { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeFontFace { <init>(...); }
+# The bridge reads a text style's fields by their names as well as making one.
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeTextStyle { <init>(...); <fields>; }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeTextStyles { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeEmbossVolume { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeSvgWarning { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeSvgPreview { <init>(...); }
 # The bridge looks onProgress up on the listener object, which is usually a
 # lambda that R8 synthesizes; a rule on implementing classes does not reach it.
 # Keeping the interface method keeps its name in every implementation.
