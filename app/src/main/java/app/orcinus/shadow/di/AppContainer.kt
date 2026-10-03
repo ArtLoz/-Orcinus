@@ -149,6 +149,7 @@ import app.orcinus.shadow.domain.plate.SliceAllPlatesUseCase
 import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
 import app.orcinus.shadow.domain.plate.StepMeshPrompt
+import app.orcinus.shadow.domain.plate.TakePlateSnapshotUseCase
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.TextFontsUseCase
 import app.orcinus.shadow.domain.plate.TextStylesUseCase
@@ -593,6 +594,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             measureFeatures = measureFeatures,
             brimEarsTool = brimEarsTool,
             enablePaintedBrim = EnablePaintedBrimUseCase(plateRepository, settingsTabs, applicationScope),
+            takeSnapshot = TakePlateSnapshotUseCase(plateRepository),
             preferences = appPreferences,
             setPreference = setPreference,
             findValidationSetting = FindValidationSettingUseCase(settingsTabs),

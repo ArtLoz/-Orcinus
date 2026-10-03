@@ -60,6 +60,8 @@ fun CanvasViewButtons(
     modifier: Modifier = Modifier,
     /** The preview's canvas, on which the items of the Prepare page's alone are disabled. */
     preview: Boolean = false,
+    /** The assembly view's canvas, on which the items that do not work on assembly are disabled. */
+    assembly: Boolean = false,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -72,6 +74,7 @@ fun CanvasViewButtons(
         CanvasViewSheet(
             canvas = canvas,
             preview = preview,
+            assembly = assembly,
             onView = { view ->
                 open = false
                 onView(view)
@@ -101,6 +104,7 @@ fun navigatorFaceLabels(): List<String> = listOf(
 private fun CanvasViewSheet(
     canvas: CanvasPreferences,
     preview: Boolean,
+    assembly: Boolean,
     onView: (CameraView?) -> Unit,
     onSet: (key: String, value: String) -> Unit,
     onDismiss: () -> Unit,
@@ -144,21 +148,24 @@ private fun CanvasViewSheet(
             ) { onSet(AppConfigKeys.AUTO_PERSPECTIVE, it.toString()) }
             HorizontalDivider(color = colors.separator)
             // The canvas menu (CanvasToolbarMenu), in its order.
-            SwitchRow(orcaString("3D Navigator"), null, canvas.navigator) { onSet(AppConfigKeys.SHOW_3D_NAVIGATOR, it.toString()) }
+            // "not work on assembly"
+            SwitchRow(orcaString("3D Navigator"), null, canvas.navigator, enabled = !assembly) { onSet(AppConfigKeys.SHOW_3D_NAVIGATOR, it.toString()) }
             SwitchRow(orcaString("Zoom button"), null, canvas.zoomButton) { onSet(AppConfigKeys.SHOW_CANVAS_ZOOM_BUTTON, it.toString()) }
             HorizontalDivider(color = colors.separator)
-            // Plater::priv::is_view3D_overhang_shown(): off while the preview is shown.
-            SwitchRow(orcaString("Overhangs"), null, canvas.overhang && !preview, enabled = !preview) {
+            // Plater::priv::is_view3D_overhang_shown(): off while the preview or the assembly view is shown.
+            SwitchRow(orcaString("Overhangs"), null, canvas.overhang && !preview && !assembly, enabled = !preview && !assembly) {
                 onSet(AppConfigKeys.SHOW_OVERHANG, it.toString())
             }
             SwitchRow(orcaString("Outline"), null, canvas.outline, enabled = !preview) { onSet(AppConfigKeys.SHOW_OUTLINE, it.toString()) }
             SwitchRow(orcaString("Realistic View"), null, canvas.realistic) { onSet(AppConfigKeys.OPENGL_REALISTIC_MODE, it.toString()) }
             HorizontalDivider(color = colors.separator)
-            SwitchRow(orcaString("Axes"), null, canvas.axes) { onSet(AppConfigKeys.SHOW_AXES, it.toString()) }
-            SwitchRow(orcaString("Gridlines"), null, canvas.gridlines) { onSet(AppConfigKeys.SHOW_PLATE_GRIDLINES, it.toString()) }
+            SwitchRow(orcaString("Axes"), null, canvas.axes, enabled = !assembly) { onSet(AppConfigKeys.SHOW_AXES, it.toString()) }
+            SwitchRow(orcaString("Gridlines"), null, canvas.gridlines, enabled = !assembly) { onSet(AppConfigKeys.SHOW_PLATE_GRIDLINES, it.toString()) }
             HorizontalDivider(color = colors.separator)
-            // Plater::priv::are_view3D_labels_shown(): off while the preview is shown.
-            SwitchRow(orcaString("Labels"), null, canvas.labels && !preview, enabled = !preview) { onSet(AppConfigKeys.SHOW_LABELS, it.toString()) }
+            // Plater::priv::are_view3D_labels_shown(): off while the preview or the assembly view is shown.
+            SwitchRow(orcaString("Labels"), null, canvas.labels && !preview && !assembly, enabled = !preview && !assembly) {
+                onSet(AppConfigKeys.SHOW_LABELS, it.toString())
+            }
             Spacer(Modifier.padding(bottom = 8.dp))
         }
     }

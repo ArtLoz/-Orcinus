@@ -99,6 +99,33 @@ internal class OrcaCamera {
         zoom = min(clamped, MAX_ZOOM)
     }
 
+    /**
+     * What Camera::load_camera_view() takes from another camera, as each canvas
+     * keeps the shared camera's view while another canvas shows: its target,
+     * zoom, scene box, view and zenit. The type and the distance stay the
+     * camera's own.
+     */
+    class View(
+        val target: Vec3,
+        val zoom: Double,
+        val sceneBox: Box3?,
+        val viewMatrix: Affine3,
+        val viewRotation: Quaternion,
+        val zenit: Double,
+    )
+
+    fun view() = View(target, zoom, sceneBox, viewMatrix, viewRotation, zenit)
+
+    /** Camera::load_camera_view() */
+    fun loadView(view: View) {
+        target = view.target
+        zoom = view.zoom
+        sceneBox = view.sceneBox
+        viewMatrix = view.viewMatrix
+        viewRotation = view.viewRotation
+        zenit = view.zenit
+    }
+
     fun selectPlateView() = selectView(CameraView.PLATE)
 
     /** Camera::select_view(): the camera looks at its target from [view], as far away as it is. */

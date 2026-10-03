@@ -43,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -159,6 +160,7 @@ import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
+import app.orcinus.shadow.render.scene.AssemblyView
 import app.orcinus.shadow.render.scene.BrimEarState
 import app.orcinus.shadow.render.scene.BrimEarView
 import app.orcinus.shadow.render.scene.BrimEarsView
@@ -183,6 +185,8 @@ import kotlin.math.sqrt
 @Composable
 internal fun PrepareRoute(
     viewModel: PrepareViewModel,
+    /** How many times the workspace switched to the page (EVT_GLVIEWTOOLBAR_3D), which then shows the 3D view. */
+    shown: Int = 0,
     onSliceRequested: () -> Unit,
     onOpenSidebar: () -> Unit = {},
     /** A setting a validation notification jumps to opens on its tab's page. */
@@ -190,6 +194,15 @@ internal fun PrepareRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel) { viewModel.settingToOpen.collect(onOpenSetting) }
+    // select_view_3D("3D") once the workspace switched to the page; a page made anew,
+    // or turned with the phone, has seen the switches before it.
+    var seenShown by rememberSaveable { mutableIntStateOf(shown) }
+    LaunchedEffect(shown) {
+        if (shown != seenShown) {
+            seenShown = shown
+            viewModel.returnFromAssemblyView()
+        }
+    }
     val canvas by viewModel.canvas.collectAsStateWithLifecycle()
     val textFamilies by viewModel.textFamilies.collectAsStateWithLifecycle()
     // The default styles of the text tool are named in the app's language (_u8L()).
@@ -459,6 +472,12 @@ internal fun PrepareRoute(
             assemble = viewModel::assemble,
             flip = viewModel::flipByFace2,
         ),
+        assemblyViewActions = AssemblyViewActions(
+            open = viewModel::openAssemblyView,
+            back = viewModel::returnFromAssemblyView,
+            setExplosionRatio = viewModel::setExplosionRatio,
+            setVisible = viewModel::setAssemblyVisible,
+        ),
         brimEarsActions = BrimEarsActions(
             toggle = viewModel::toggleBrimEars,
             close = viewModel::closeBrimEars,
@@ -572,6 +591,7 @@ internal fun PrepareScreen(
     measureActions: MeasureActions = MeasureActions.NONE,
     brimEarsActions: BrimEarsActions = BrimEarsActions.NONE,
     assemblyActions: AssemblyActions = AssemblyActions.NONE,
+    assemblyViewActions: AssemblyViewActions = AssemblyViewActions.NONE,
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
@@ -579,6 +599,8 @@ internal fun PrepareScreen(
     OrcaCanvas(Modifier.fillMaxSize()) {
         val viewCamera = rememberPlateViewCamera()
         var objectMenu by remember { mutableStateOf<ObjectMenu?>(null) }
+        // _render_assemble_info(): the size of the assembly view's selection, which its view tells.
+        var assemblySelection by remember { mutableStateOf<Vector3?>(null) }
         var plateMenu by remember { mutableStateOf<Offset?>(null) }
         var askingCopies by remember { mutableStateOf<Int?>(null) }
         var cloning by remember { mutableStateOf<Int?>(null) }
@@ -599,6 +621,8 @@ internal fun PrepareScreen(
                 textActions.addRequested(request, hit, defaultText)
             }
         }
+        // The phone's Back leaves the assembly view as its "Return" does; an open tool takes it first.
+        BackHandler(enabled = state.assemblyView != null) { assemblyViewActions.back() }
         // The desktop measuring tool's Esc: the phone's Back drops the last selection, and with none closes the tool.
         BackHandler(enabled = state.measure != null) { measureActions.escape() }
         var renamingPlate by remember { mutableStateOf<Int?>(null) }
@@ -721,6 +745,8 @@ internal fun PrepareScreen(
                 onEditMeasureDistance = measureActions.editDistance,
                 brimEars = state.brimEars?.let { mode -> brimEarsViewOf(state, mode) },
                 onBrimEars = brimEarsActions.touch,
+                assembly = state.assemblyView?.let { AssemblyView(it.explosionRatio, it.hidden) },
+                onAssemblySelection = { assemblySelection = it },
             )
             state.measure?.editingDistance?.let { distance ->
                 MeasureScaleDialog(distance, canvas.imperialUnits, measureActions.scale, measureActions.cancelScale)
@@ -742,7 +768,19 @@ internal fun PrepareScreen(
                 },
             )
         }
-        objectMenu?.let { menu ->
+        // Plater::priv::on_right_click() in the assembly view: its own menu.
+        objectMenu?.takeIf { state.assemblyView != null }?.let { menu ->
+            AssemblyObjectMenu(
+                state = state,
+                index = menu.index,
+                position = menu.position,
+                onDismiss = { objectMenu = null },
+                onDelete = onDeleteObject,
+                onSetFilament = objectMenuActions.setFilament,
+                actions = assemblyViewActions,
+            )
+        }
+        objectMenu?.takeIf { state.assemblyView == null }?.let { menu ->
             ObjectContextMenu(
                 state,
                 menu,
@@ -865,6 +903,7 @@ internal fun PrepareScreen(
                     onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
                     onSet = onSetCanvas,
                     onZoom = viewCamera::zoomToFit,
+                    assembly = state.assemblyView != null,
                 )
             }
             Column(
@@ -877,7 +916,9 @@ internal fun PrepareScreen(
             ) {
                 // The toolbar starts after the sidebar button; the gizmo windows below may use the whole width.
                 Box(Modifier.padding(start = OrcaSidebarToggleSpace - CanvasMargin)) {
-                    CanvasToolbar(
+                    if (state.assemblyView != null) {
+                        AssemblyViewToolbar(assemblyViewActions)
+                    } else CanvasToolbar(
                         state,
                         onTogglePainting,
                         onAddModel,
@@ -899,6 +940,7 @@ internal fun PrepareScreen(
                         onToggleMeasure = measureActions.toggle,
                         onToggleBrimEars = brimEarsActions.toggle,
                         onToggleAssembly = assemblyActions.toggle,
+                        onOpenAssemblyView = assemblyViewActions.open,
                     )
                 }
                 val position = state.selectedPosition
@@ -983,68 +1025,77 @@ internal fun PrepareScreen(
                 }
             }
             // The plates and Undo at the bottom left, the notifications and the
-            // slice button beside them at the bottom right, never over each other.
-            Row(
+            // slice button beside them at the bottom right, never over each other;
+            // the assembly view's controls over them (_render_assemble_control()).
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .padding(12.dp)
                     .onGloballyPositioned { bottomControlsTop = it.boundsInParent().top },
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Bottom,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                state.assemblyView?.let { mode -> AssemblyViewPanel(mode, assemblySelection, assemblyViewActions) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    // The plates' numbers and icons, under the thumb once there are several.
-                    if (state.plateOrigins.size > 1) {
-                        PlateStrip(
-                            count = state.plateOrigins.size,
-                            current = state.currentPlate,
-                            onSelect = plateActions.select,
-                            enabled = state.canEditPlate,
-                            locked = state.lockedPlates,
-                        ) { index, dismiss ->
-                            // PartPlate's icons (Plater::select_plate_by_hover_id).
-                            PlateMenuItems(
-                                actions = PlateIconActions(
-                                    delete = { plateActions.delete(index) },
-                                    orient = { plateActions.orient(index) },
-                                    arrange = { plateActions.arrange(index) },
-                                    lock = { plateActions.lock(index) },
-                                    settings = {
-                                        plateActions.select(index)
-                                        customizingPlate = index
-                                    },
-                                    moveToFront = { plateActions.moveToFront(index) },
-                                    rename = { renamingPlate = index },
-                                ),
-                                dismiss = dismiss,
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // The plates' numbers and icons, under the thumb once there are several; the assembly view has no plates.
+                        if (state.plateOrigins.size > 1 && state.assemblyView == null) {
+                            PlateStrip(
+                                count = state.plateOrigins.size,
+                                current = state.currentPlate,
+                                onSelect = plateActions.select,
                                 enabled = state.canEditPlate,
-                                locked = index in state.lockedPlates,
-                                workable = index in state.workablePlates,
-                                deletable = state.canDeletePlate,
-                                first = index == 0,
-                                customized = index in state.customizedPlates,
-                            )
+                                locked = state.lockedPlates,
+                            ) { index, dismiss ->
+                                // PartPlate's icons (Plater::select_plate_by_hover_id).
+                                PlateMenuItems(
+                                    actions = PlateIconActions(
+                                        delete = { plateActions.delete(index) },
+                                        orient = { plateActions.orient(index) },
+                                        arrange = { plateActions.arrange(index) },
+                                        lock = { plateActions.lock(index) },
+                                        settings = {
+                                            plateActions.select(index)
+                                            customizingPlate = index
+                                        },
+                                        moveToFront = { plateActions.moveToFront(index) },
+                                        rename = { renamingPlate = index },
+                                    ),
+                                    dismiss = dismiss,
+                                    enabled = state.canEditPlate,
+                                    locked = index in state.lockedPlates,
+                                    workable = index in state.workablePlates,
+                                    deletable = state.canDeletePlate,
+                                    first = index == 0,
+                                    customized = index in state.customizedPlates,
+                                )
+                            }
+                        }
+                        // BBLTopbar's Undo and Redo, which a phone keeps under the thumb over the plate.
+                        OrcaCanvasToolbar {
+                            OrcaCanvasTool(DesignR.drawable.orca_topbar_undo, orcaString("Undo"), onUndo, enabled = state.canUndo)
+                            OrcaCanvasTool(DesignR.drawable.orca_topbar_redo, orcaString("Redo"), onRedo, enabled = state.canRedo)
                         }
                     }
-                    // BBLTopbar's Undo and Redo, which a phone keeps under the thumb over the plate.
-                    OrcaCanvasToolbar {
-                        OrcaCanvasTool(DesignR.drawable.orca_topbar_undo, orcaString("Undo"), onUndo, enabled = state.canUndo)
-                        OrcaCanvasTool(DesignR.drawable.orca_topbar_redo, orcaString("Redo"), onRedo, enabled = state.canRedo)
-                    }
-                }
-                Column(
-                    // The notifications take the width the plates and Undo leave.
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onJumpTo)
-                    // In a wide window the slice button sits in the tab bar, as on desktop.
-                    if (layout == OrcaWindowLayout.Compact) {
-                        SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
+                    Column(
+                        // The notifications take the width the plates and Undo leave.
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // GLCanvas3D::_render() renders no notifications over the assembly view.
+                        if (state.assemblyView == null) Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onJumpTo)
+                        // In a wide window the slice button sits in the tab bar, as on desktop.
+                        if (layout == OrcaWindowLayout.Compact) {
+                            SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
+                        }
                     }
                 }
             }
@@ -1365,6 +1416,7 @@ private fun CanvasToolbar(
     onToggleMeasure: () -> Unit = {},
     onToggleBrimEars: () -> Unit = {},
     onToggleAssembly: () -> Unit = {},
+    onOpenAssemblyView: () -> Unit = {},
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -1374,9 +1426,6 @@ private fun CanvasToolbar(
         enabled = gizmo != null && state.canManipulate,
         selected = gizmo != null && state.gizmo == gizmo,
     )
-
-    @Composable
-    fun unavailable(icon: Int, name: Int) = OrcaCanvasTool(icon, stringResource(name), onClick = {}, enabled = false)
 
     OrcaCanvasToolbar {
         OrcaCanvasTool(DesignR.drawable.orca_toolbar_open, stringResource(R.string.add_model), onAddModel, enabled = state.canEditPlate)
@@ -1504,7 +1553,13 @@ private fun CanvasToolbar(
             selected = state.brimEars != null,
         )
         OrcaCanvasToolbarSeparator()
-        unavailable(DesignR.drawable.orca_toolbar_assemble, R.string.toolbar_assembly_view)
+        // The assembly view toolbar's "Assembly View" (EVT_GLVIEWTOOLBAR_ASSEMBLE), which Plater::has_assmeble_view() enables.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_assemble,
+            contentDescription = stringResource(R.string.toolbar_assembly_view),
+            onClick = onOpenAssemblyView,
+            enabled = state.canOpenAssemblyView,
+        )
     }
 }
 

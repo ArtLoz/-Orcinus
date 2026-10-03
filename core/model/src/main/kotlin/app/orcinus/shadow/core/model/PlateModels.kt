@@ -1024,6 +1024,12 @@ data class PlateState(
     val paPattern: CalibrationParams? = null,
     /** The states of the plate Undo and Redo return to (Plater's UndoRedo::Stack). */
     val history: PlateHistory = PlateHistory(),
+    /**
+     * How many times Plater::priv::reset() started the project afresh (New
+     * Project, Open Project), which the canvases' own state follows, such as
+     * the assembly view's explosion ratio.
+     */
+    val projectResets: Int = 0,
     /** Which settings the app shows: the presets, or the ones of an object (ParamsPanel's Global and Objects). */
     val settingsScope: SettingsScope = SettingsScope.GLOBAL,
     val slicing: PlateSlicing? = null,

@@ -18,6 +18,8 @@ data object PrepareNavKey : NavKey
  */
 fun EntryProviderScope<NavKey>.prepareEntry(
     createViewModel: () -> PrepareViewModel,
+    /** How many times the workspace switched to the page, which then shows the 3D view. */
+    shown: Int = 0,
     onSliceRequested: () -> Unit,
     onOpenSidebar: () -> Unit = {},
     /** A setting a validation notification jumps to opens on its tab's page. */
@@ -26,6 +28,7 @@ fun EntryProviderScope<NavKey>.prepareEntry(
     entry<PrepareNavKey> {
         PrepareRoute(
             viewModel = viewModel { createViewModel() },
+            shown = shown,
             onSliceRequested = onSliceRequested,
             onOpenSidebar = onOpenSidebar,
             onOpenSetting = onOpenSetting,

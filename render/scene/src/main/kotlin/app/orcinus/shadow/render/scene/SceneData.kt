@@ -123,18 +123,46 @@ internal class SceneObject(
     val paintedByTool: Boolean = false,
     /** GLVolume::is_modifier: a part that is not a model part (a modifier, a negative volume, a support blocker or enforcer). */
     val modifier: Boolean = false,
+    /**
+     * In the assembly view, how far the volume moves in the world for every
+     * unit the explosion ratio grows (GLVolume::world_matrix()'s offsets).
+     */
+    val explosion: Vec3 = Vec3.ZERO,
+    /** GLVolume::visible off: the assembly view's "Hide" draws the volume in MODEL_HIDDEN_COL. */
+    val hidden: Boolean = false,
 ) {
     val bounds = mesh.bounds.transformed(world)
 
-    fun withWorld(world: Affine3) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool, modifier)
+    fun withWorld(world: Affine3) = SceneObject(
+        index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool, modifier,
+        explosion, hidden,
+    )
 
-    fun withWireframe(wireframe: Boolean) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool, modifier)
+    fun withWireframe(wireframe: Boolean) = SceneObject(
+        index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool, modifier,
+        explosion, hidden,
+    )
 
     /** The object as the painting tool draws it, in [color]. */
-    fun paintedByTool(color: ColorRgba) =
-        SceneObject(index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, true, modifier)
+    fun paintedByTool(color: ColorRgba) = SceneObject(
+        index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, true, modifier,
+        explosion, hidden,
+    )
+
+    /**
+     * The volume as the assembly view draws it: at [world] with an explosion
+     * ratio of 1, spread by [explosion], and never across a plate's boundary.
+     * "Hide" makes it [hidden], or [faint] where paint covers it, whose
+     * colours GLVolume::render() keeps at the hidden alpha.
+     */
+    fun inAssembly(world: Affine3, explosion: Vec3, hidden: Boolean, faint: Boolean) = SceneObject(
+        index, key, mesh, world, if (faint) color.copy(alpha = VolumeColors.HIDDEN.alpha) else color, sphereCenter, sphereRadius, autoDrop, printable,
+        transparent || hidden || faint, overlay, wireframe, false, paintedByTool, modifier, explosion, hidden,
+    )
+
+    /** GLVolume::world_matrix() once the explosion ratio grew by [ratio]. */
+    fun exploded(ratio: Double): SceneObject =
+        if (ratio == 0.0 || explosion.isZero()) this else withWorld(world.withTranslation(world.translation() + explosion * ratio))
 
     /** The bounding sphere's centre in world coordinates. */
     fun sphereCenter(): Vec3 = world.transformPoint(sphereCenter)
@@ -243,6 +271,9 @@ internal object VolumeColors {
     private const val FULLY_TRANSPARENT_MATERIAL_THRESHOLD = 0.1f
     private const val FULL_TRANSPARENT_MODIFIED_TO_FIX_ALPHA = 0.3f
     private const val FULL_BLACK_THRESHOLD = 0.2f
+
+    /** GLVolume::MODEL_HIDDEN_COL, which the assembly view's "Hide" draws a volume in. */
+    val HIDDEN = ColorRgba(0f, 0f, 0f, 0.3f)
 
     /** GLVolume::UNPRINTABLE_COLOR, which an object that is not printed is drawn in. */
     private val UNPRINTABLE = ColorRgba(0f, 0f, 0f, 0.5f)

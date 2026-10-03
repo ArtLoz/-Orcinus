@@ -872,6 +872,8 @@ class AddModelToPlateUseCase(
                             // Plater::load_project()
                             paPattern = null,
                             history = PlateHistory(),
+                            // Plater::priv::reset()
+                            projectResets = state.projectResets + 1,
                             result = null,
                         ).let { loaded ->
                             loaded.copy(

@@ -212,6 +212,14 @@ fun PlateView(
     brimEars: BrimEarsView? = null,
     /** What a finger does with the brim ears tool open. */
     onBrimEars: (BrimEarsTouch) -> Unit = {},
+    /**
+     * The assembly view while it shows (AssembleView): every copy's model parts
+     * where they stand in the assembly, spread by its explosion ratio, under a
+     * camera of the view's own; null for the 3D view.
+     */
+    assembly: AssemblyView? = null,
+    /** The size of the assembly view's selection, which its "Assembly Info" tells; null while nothing is selected. */
+    onAssemblySelection: (Vector3?) -> Unit = {},
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -224,9 +232,13 @@ fun PlateView(
         LaunchedEffect(orbitSpeed) { controller.orbitSpeed = orbitSpeed }
         LaunchedEffect(graphics.fxaa) { controller.setFxaa(graphics.fxaa) }
         LaunchedEffect(options) { controller.setOptions(options) }
-        LaunchedEffect(overhangNormalZ) { controller.setOverhangs(overhangNormalZ) }
-        LaunchedEffect(clearance) { controller.setClearance(clearance) }
-        LaunchedEffect(labels.keys) { controller.setLabelled(labels.keys) }
+        // The assembly view's canvas shows no overhangs ("Overhangs" works on the
+        // Prepare page's 3D view alone), no clearance and no labels.
+        val inAssembly = assembly != null
+        val shownLabels = if (inAssembly) emptyMap() else labels
+        LaunchedEffect(overhangNormalZ, inAssembly) { controller.setOverhangs(overhangNormalZ.takeUnless { inAssembly }) }
+        LaunchedEffect(clearance, inAssembly) { controller.setClearance(clearance.takeUnless { inAssembly }) }
+        LaunchedEffect(shownLabels.keys) { controller.setLabelled(shownLabels.keys) }
         val labelPlacements by controller.labelPlacements.collectAsState()
         val measureDimensions by controller.measureDimensions.collectAsState()
         SideEffect { controller.onPerspectiveChange = onPerspectiveChange }
@@ -275,12 +287,16 @@ fun PlateView(
         val meshes = remember { MeshCache() }
         // The tower stands on the current plate, where wipe_tower_x and wipe_tower_y of the plate put it.
         val towerOrigin = plateOrigins.getOrElse(currentPlate) { Point2(0.0, 0.0) }
-        LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin, smoothNormals) {
-            val tower = withContext(Dispatchers.IO) { wipeTower?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin, smoothNormals) } }
+        LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin, smoothNormals, inAssembly) {
+            // GLCanvas3D::reload_scene(): the assembly view loads no wipe tower.
+            val tower = withContext(Dispatchers.IO) {
+                wipeTower?.takeUnless { inAssembly }?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin, smoothNormals) }
+            }
             controller.setWipeTower(tower)
         }
         val paintedByTool = painting?.takeIf { it.kind != PaintKind.COLOR }?.mesh
-        LaunchedEffect(objects, color, filamentColors, wireframes, paintedByTool, smoothNormals) {
+        val hiddenCopies = assembly?.hidden.orEmpty()
+        LaunchedEffect(objects, color, filamentColors, wireframes, paintedByTool, smoothNormals, inAssembly, hiddenCopies) {
             val loaded = withContext(Dispatchers.IO) {
                 meshes.smoothNormals = smoothNormals
                 meshes.retain(
@@ -294,7 +310,7 @@ fun PlateView(
                 // plate's order, as the app's selection counts them.
                 var index = 0
                 objects.flatMap { plateObject ->
-                    plateObject.instances.flatMap { instance ->
+                    plateObject.instances.flatMapIndexed { instanceIndex, instance ->
                         // The copy itself is picked and moved; its parts carry its
                         // own index, so they are picked and moved with it.
                         val copyIndex = index++
@@ -315,6 +331,7 @@ fun PlateView(
                             runCatching { SceneLoader.loadPart(copyIndex, part, instance, partColor, meshes) }.getOrNull()
                                 ?.let { it.withWireframe(part.mesh in wireframes) }
                                 ?.let { if (byTool && part.type == VolumeType.PART) it.paintedByTool(GizmoColors.NEUTRAL) else it }
+                                ?.let { part to it }
                         }
                         // The colours the object is painted with, over its surface, or
                         // the paint of the open painting tool of another kind.
@@ -326,11 +343,23 @@ fun PlateView(
                             runCatching { SceneLoader.loadPaintedMesh(copyIndex, mesh, instance, paint, meshes) }.getOrNull()
                                 ?.let { if (byTool) it.paintedByTool(paint) else it }
                         }
-                        listOfNotNull(copy) + parts + painted
+                        if (!inAssembly) {
+                            listOfNotNull(copy) + parts.map { it.second } + painted
+                        } else {
+                            // GLCanvas3D::reload_scene() for the assembly view: the
+                            // copy's model parts alone, where it stands in the assembly.
+                            val placement = AssemblyPlacement(instance, (plateObject as? PlateObject.ImportedModel)?.frame ?: Transform3.IDENTITY)
+                            val hidden = PlateInstanceId(plateObject.mesh, instanceIndex) in hiddenCopies
+                            // GLVolume::render(): a hidden volume under paint keeps the paint's colours.
+                            val faint = hidden && painted.isNotEmpty()
+                            listOfNotNull(copy?.let { placement.place(it, hidden = hidden && !faint, faint = faint) }) +
+                                parts.filter { (part, _) -> part.type == VolumeType.PART }.map { (part, volume) -> placement.place(volume, part.placement, hidden = hidden) } +
+                                painted.map { placement.place(it, faint = hidden) }
+                        }
                     }
                 }
             }
-            controller.setObjects(loaded)
+            controller.setObjects(loaded, inAssembly)
         }
 
         // GLGizmoCut3D: the outline and the section of the plane, which the
@@ -456,6 +485,8 @@ fun PlateView(
                     open(Offset(x, y))
                 }
             }
+            controller.onAssemblySelection = onAssemblySelection
+            controller.setAssembly(assembly)
             controller.setSelection(selectedObject)
             controller.setSelected(selectedObjects)
             controller.setGizmo(gizmo)
@@ -474,7 +505,7 @@ fun PlateView(
         val navigatorSquare = navigatorSlot?.let { slot -> viewOrigin?.let { slot.bounds.translate(-it) } }
         val layerBar = camera?.layerBarSlot?.let { slot -> viewOrigin?.let { slot.translate(-it) } }
         SideEffect {
-            controller.setLayerEditing(layerEditing, layerEditingIndexes, layerBar)
+            controller.setLayerEditing(layerEditing.takeUnless { inAssembly }, layerEditingIndexes, layerBar)
             navigatorInput.square = navigatorSquare
             navigatorInput.density = density
             navigatorInput.touchSlop = touchSlop
@@ -488,7 +519,7 @@ fun PlateView(
                     .pointerInput(surface) { detectPlateGestures(controller, navigatorInput, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
             )
             if (navigatorSlot != null && navigatorSquare != null) NavigatorCube(controller, navigatorInput, navigatorSquare, navigatorSlot.faceLabels)
-            if (labels.isNotEmpty()) ObjectLabels(labelPlacements, labels, Modifier.fillMaxSize())
+            if (shownLabels.isNotEmpty()) ObjectLabels(labelPlacements, shownLabels, Modifier.fillMaxSize())
             measureDimensions?.let { dimensions ->
                 MeasureDimensionsOverlay(
                     dimensions = dimensions,
@@ -805,6 +836,26 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var framedBed: SceneBed? = null
     private var plates = ScenePlates.SINGLE
 
+    /** The assembly view while it shows (GLCanvas3D::CanvasAssembleView). */
+    private var assembly: AssemblyView? = null
+
+    /** Whether [plateObjects] were made for the assembly view, which shows no others. */
+    private var objectsInAssembly = false
+
+    /**
+     * The camera's view the 3D view and the assembly view each keep while the
+     * other shows (their canvases' cameras); the assembly view has none before
+     * it first shows, when it frames its volumes (first_enter_assemble and
+     * Camera::requires_zoom_to_volumes).
+     */
+    private var plateCameraView: OrcaCamera.View? = null
+    private var assemblyCameraView: OrcaCamera.View? = null
+    private var zoomToVolumes = false
+
+    /** _render_assemble_info(): the size of the assembly view's selection, told as it changes. */
+    var onAssemblySelection: (Vector3?) -> Unit = {}
+    private var assemblySelection: Vector3? = null
+
     var onSelectObject: (Int?) -> Unit = {}
     var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
     var onPaint: (Line3, starts: Boolean) -> Unit = { _, _ -> }
@@ -944,6 +995,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (cut != null) return selectCutPart(x, y)
         if (isEditingLayers) return false
         val open = onOpenPlateMenu ?: return false
+        if (assembly != null) {
+            // The assembly view picks no plate, and has no menu over empty space while something is selected.
+            if (selectedIndex != null || selectedIndexes.isNotEmpty()) return false
+            open(x, y)
+            return true
+        }
         // A right click on a plate selects it first.
         selectPlateAt(x, y)
         open(x, y)
@@ -963,6 +1020,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * plate under the point ([x], [y]) becomes the current one.
      */
     fun selectPlateAt(x: Float, y: Float) {
+        if (assembly != null) return
         val select = onSelectPlate ?: return
         val bed = bed ?: return
         val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
@@ -1031,10 +1089,45 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     }
 
     /** New objects replace what a finger was moving: the scene no longer has it where the move began. */
-    fun setObjects(objects: List<SceneObject>) {
+    /** The volumes of the copies, made for the assembly view when [inAssembly], at an explosion ratio of 1. */
+    fun setObjects(objects: List<SceneObject>, inAssembly: Boolean = false) {
         drag = null
-        plateObjects = objects
+        objectsInAssembly = inAssembly
+        plateObjects = if (inAssembly) objects.map { it.exploded((assembly?.explosionRatio ?: 1.0) - 1.0) } else objects
         showObjects(plateObjects + listOfNotNull(wipeTower))
+    }
+
+    /**
+     * Plater::priv::set_current_panel() between the 3D view and the assembly
+     * view: each keeps its view of the camera while the other shows. While the
+     * assembly view shows, the volumes move on with its explosion ratio
+     * (GLVolume::explosion_ratio).
+     */
+    fun setAssembly(view: AssemblyView?) {
+        val previous = assembly
+        if (previous == view) return
+        assembly = view
+        if ((previous == null) != (view == null)) {
+            drag = null
+            if (view != null) {
+                plateCameraView = camera.view()
+                val kept = assemblyCameraView
+                if (kept != null) {
+                    camera.loadView(kept)
+                } else {
+                    camera.loadView(OrcaCamera().view())
+                    zoomToVolumes = true
+                }
+            } else {
+                assemblyCameraView = camera.view()
+                plateCameraView?.let(camera::loadView)
+                zoomToVolumes = false
+            }
+            showObjects(plateObjects + listOfNotNull(wipeTower))
+        } else if (objectsInAssembly && previous != null && view != null && previous.explosionRatio != view.explosionRatio) {
+            plateObjects = plateObjects.map { it.exploded(view.explosionRatio - previous.explosionRatio) }
+            showObjects(plateObjects + listOfNotNull(wipeTower))
+        }
     }
 
     /**
@@ -1348,7 +1441,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         val offset = when (drag) {
             is RotateGrabberDrag, is ScaleGrabberDrag, is BrimEarDrag -> return
-            is ObjectDrag -> objectOffset(drag, ray) ?: return
+            // GLCanvas3D::on_mouse(): the assembly view moves nothing a finger drags.
+            is ObjectDrag -> if (assembly != null) return else objectOffset(drag, ray) ?: return
             is MoveGrabberDrag -> {
                 // GLGizmoMove3D::on_dragging(): the displacement along the grabber's axis.
                 val displacement = MoveGizmo.projection(drag.startGrabber, drag.startCenter, ray)
@@ -1568,6 +1662,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val rotX = dx * factor
         val rotY = dy * factor
         when {
+            // The assembly view turns about the selection, or every volume, past the limits, whatever the camera.
+            assembly != null -> camera.rotateOnSphereWithTarget(rotX, rotY, false, (selectionBox() ?: objectsBox())?.center() ?: Vec3.ZERO)
             // The painting gizmos turn about the painted object, past the limits, whatever the camera.
             painting -> {
                 val box = objects.firstOrNull { it.index == selectedIndex }?.bounds ?: objectsBox()
@@ -1593,8 +1689,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * one pixel spans 1 / zoom millimetres.
      */
     fun pan(dx: Float, dy: Float) {
-        // A constrained camera is levelled before it pans.
-        if (!freeCamera) camera.recoverFromFreeCamera()
+        // A constrained camera is levelled before it pans; the assembly view's is not.
+        if (!freeCamera && assembly == null) camera.recoverFromFreeCamera()
         val scale = 1.0 / camera.zoom
         camera.setTarget(camera.target - camera.dirRight() * (dx * scale) + camera.dirUp() * (dy * scale))
         invalidate()
@@ -1796,18 +1892,30 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         zoomToBed()
     }
 
-    /** The canvas's zoom button: the plate view, framing the selection or, with none, the plate. */
+    /**
+     * The canvas's zoom button: the plate view, framing the selection or, with
+     * none, the plate, or the assembly view's volumes (zoom_to_volumes()).
+     */
     fun zoomToFit() {
         selectView(CameraView.PLATE)
-        val selection = objects.filter { it.index in selectedIndexes || it.index == selectedIndex }.map(SceneObject::bounds).reduceOrNull(Box3::merge)
-        if (selection == null) {
-            zoomToBed()
-        } else {
+        val selection = selectionBox()
+        when {
             // zoom_to_selection(): DefaultCameraZoomToBoxMarginFactor.
-            camera.zoomToBox(selection, ZOOM_TO_PLATE_MARGIN_FACTOR)
-            invalidate()
+            selection != null -> {
+                camera.zoomToBox(selection, ZOOM_TO_BOX_MARGIN_FACTOR)
+                invalidate()
+            }
+            assembly != null -> {
+                objectsBox()?.let { camera.zoomToBox(it, ZOOM_TO_BOX_MARGIN_FACTOR) }
+                invalidate()
+            }
+            else -> zoomToBed()
         }
     }
+
+    /** Selection::get_bounding_box(): every volume of the selected copies. */
+    private fun selectionBox(): Box3? =
+        objects.filter { it.index in selectedIndexes || it.index == selectedIndex }.map(SceneObject::bounds).reduceOrNull(Box3::merge)
 
     /** GLCanvas3D::zoom_to_bed(): the current plate's build volume at z = 0 (DefaultCameraZoomToBedMarginFactor). */
     private fun zoomToBed() {
@@ -1816,8 +1924,18 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
-    /** OrcaSlicer's plate view: from the front and above, framing the current plate (GLCanvas3D::zoom_to_plate). */
+    /**
+     * OrcaSlicer's plate view: from the front and above, framing the current
+     * plate (GLCanvas3D::zoom_to_plate); the assembly view, which has no plate,
+     * frames its volumes as its zoom button does with nothing selected.
+     */
     fun resetView() {
+        if (assembly != null) {
+            camera.selectPlateView()
+            objectsBox()?.let { camera.zoomToBox(it, ZOOM_TO_BOX_MARGIN_FACTOR) }
+            invalidate()
+            return
+        }
         val bed = bed ?: return
         camera.selectPlateView()
         camera.sceneBox = sceneBox()
@@ -2070,6 +2188,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 volume.index == WIPE_TOWER_INDEX ||
                     (volume.index in measuredIndexes && measured.volumes?.let { volumes -> volumes.any { it.value == volume.key } } != false)
             }
+            // The volumes made for the other view wait for those of this one; the assembly view has no wipe tower.
+            objectsInAssembly != (assembly != null) -> emptyList()
+            assembly != null -> objects.filter { it.index != WIPE_TOWER_INDEX }
             cut == null -> objects
             preview -> emptyList()
             else -> objects.filter { it.index == cutIndex }
@@ -2086,9 +2207,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             onPixelSize(reportedPixel)
         }
         val bed = bed
-        if (bed != null && framedBed !== bed && camera.viewportWidth > 1) {
+        if (bed != null && framedBed !== bed && camera.viewportWidth > 1 && assembly == null) {
             resetView()
             return
+        }
+        // Camera::requires_zoom_to_volumes: the assembly view first shows its volumes framed.
+        if (zoomToVolumes && assembly != null && objectsInAssembly && camera.viewportWidth > 1) {
+            zoomToVolumes = false
+            objectsBox()?.let { camera.zoomToBox(it, ZOOM_TO_BOX_MARGIN_FACTOR) }
         }
         navigatorViewState.value = ViewNavigator.viewOf(camera.viewRotationRows())
         val box = sceneBox() ?: Box3(Vec3(-1.0, -1.0, -1.0), Vec3(1.0, 1.0, 1.0))
@@ -2115,7 +2241,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 // _render_sequential_clearance(): not while a gizmo's grabber is dragged.
                 clearance = clearance.takeIf { drag !is MoveGrabberDrag && drag !is RotateGrabberDrag && drag !is ScaleGrabberDrag },
                 phong = options.phong,
-                shadows = options.shadows,
+                // _render_cast_shadows_on_plate(): the 3D view's alone.
+                shadows = options.shadows && assembly == null,
                 ssao = options.ssao,
                 gizmo = gizmoFrame(),
                 slopeNormalZ = slopeNormalZ,
@@ -2132,9 +2259,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 },
                 layerEditing = layerEditing,
                 selectionHidden = measure != null || brimEars != null,
+                assembly = assembly != null,
             ),
         )
         surface.requestRender()
+        // _render_assemble_info(): the selection's size while the assembly view shows.
+        val selection = assembly?.let { selectionBox()?.size()?.let { size -> Vector3(size.x, size.y, size.z) } }
+        if (selection != assemblySelection) {
+            assemblySelection = selection
+            onAssemblySelection(selection)
+        }
     }
 
     private fun gizmoFrame(): GizmoFrame? {
@@ -2200,6 +2334,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         // GLCanvas3D.cpp
         const val TRACKBALL_SIZE = 0.8
         const val ZOOM_TO_PLATE_MARGIN_FACTOR = 1.25
+        const val ZOOM_TO_BOX_MARGIN_FACTOR = 1.25
         const val ZOOM_TO_BED_MARGIN_FACTOR = 2.0
         // libslic3r.h and Model.hpp
         const val EPSILON = 1e-4

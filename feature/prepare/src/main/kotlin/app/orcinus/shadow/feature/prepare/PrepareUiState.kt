@@ -66,6 +66,7 @@ import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.canAddPlate
 import app.orcinus.shadow.domain.plate.canDeletePlate
 import app.orcinus.shadow.domain.plate.canWorkOnPlate
+import app.orcinus.shadow.domain.plate.hasAssembleView
 import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.measuredVolumes
 import app.orcinus.shadow.domain.plate.presetValue
@@ -158,6 +159,10 @@ data class PrepareUiState(
     val brimEars: BrimEarsMode? = null,
     /** GLGizmoBrimEars::on_is_activable(): a single copy is selected whole. */
     val canEditBrimEars: Boolean = false,
+    /** The assembly view (AssembleView), while it shows in the 3D view's place. */
+    val assemblyView: AssemblyViewMode? = null,
+    /** Plater::priv::has_assemble_view(): a copy has a place in the assembly view, which the toolbar's "Assembly View" opens. */
+    val canOpenAssemblyView: Boolean = false,
     /** Plater::can_layers_editing(): the toolbar's "Variable layer height" can open on the selection. */
     val canEditLayers: Boolean = false,
     /** The wipe tower of the plate; null when the plate prints with one filament. */
@@ -329,6 +334,13 @@ data class PaintingMode(
     val canRedo: Boolean = false,
 )
 
+/**
+ * The assembly view while it shows (AssembleView): its explosion ratio
+ * (GLCanvas3D::m_explosion_ratio, 1 to 3), and the copies its menu's "Hide"
+ * made faint (GLCanvas3D::set_selected_visible()).
+ */
+data class AssemblyViewMode(val explosionRatio: Double = 1.0, val hidden: Set<PlateInstanceId> = emptySet())
+
 internal data class PrepareViewState(
     val gizmo: PlateGizmo? = null,
     /** The selected object's placement when the rotation tool opened: GizmoObjectManipulation::set_init_rotation(). */
@@ -361,6 +373,12 @@ internal data class PrepareViewState(
     val measure: MeasureMode? = null,
     /** The brim ears tool, while it is open. */
     val brimEars: BrimEarsMode? = null,
+    /** The assembly view shows in the 3D view's place. */
+    val assemblyView: Boolean = false,
+    /** GLCanvas3D::m_explosion_ratio of the assembly view, which it keeps until the project starts afresh (reset_explosion_ratio()). */
+    val explosionRatio: Double = 1.0,
+    /** The copies the assembly view's "Hide" made faint, which it keeps while it shows them. */
+    val assemblyHidden: Set<PlateInstanceId> = emptySet(),
 )
 
 /**
@@ -577,7 +595,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         flatteningPlanes = if (gizmo == PlateGizmo.LAY_ON_FACE) view.flatteningPlanes else emptyList(),
         painting = view.painting?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
         cut = view.cut?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
-        layerEditing = layerEditingObject()?.takeIf { layerEditing && canEditPlate }?.let { target ->
+        // The assembly view's canvas edits no layers; the 3D view's keeps them for when it shows again.
+        layerEditing = layerEditingObject()?.takeIf { layerEditing && canEditPlate && !view.assemblyView }?.let { target ->
             LayerEditingMode(target.mesh, view.layerDescription?.takeIf { it.first == target.mesh }?.second, view.layerTools, view.layerCursor)
         },
         canEditLayers = canEditPlate && layerEditingObject() != null,
@@ -587,6 +606,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         measure = view.measure?.takeIf { canEditPlate },
         brimEars = view.brimEars?.takeIf { mode -> objects.any { it.mesh == mode.copy.mesh } && canEditPlate },
         canEditBrimEars = canEditPlate && selectedInstances.size == 1 && selectedPart == null,
+        assemblyView = AssemblyViewMode(view.explosionRatio, view.assemblyHidden).takeIf { view.assemblyView },
+        canOpenAssemblyView = hasAssembleView(),
         measuredCopies = selectedInstances,
         measuredVolumes = selectedPart?.let { part -> objects.firstOrNull { it.mesh == part.mesh }?.volumeAt(part.index)?.mesh }?.let(::setOf),
         canMeasure = canEditPlate && measuredVolumes().isNotEmpty(),

@@ -293,6 +293,8 @@ class ProjectLifecycleUseCase(
                 paPattern = null,
                 // "New Project" is a ProjectSeparator, which clears Undo.
                 history = PlateHistory(),
+                // Plater::priv::reset()
+                projectResets = current.projectResets + 1,
                 result = null,
                 problem = null,
                 project = PlateProject(

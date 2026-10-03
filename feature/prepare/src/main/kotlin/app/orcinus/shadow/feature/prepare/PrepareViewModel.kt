@@ -140,11 +140,13 @@ import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.TakePlateSnapshotUseCase
 import app.orcinus.shadow.domain.plate.TextFontsUseCase
 import app.orcinus.shadow.domain.plate.TextStyleList
 import app.orcinus.shadow.domain.plate.TextStylesUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.plate.embossKindOf
+import app.orcinus.shadow.domain.plate.hasAssembleView
 import app.orcinus.shadow.domain.plate.isTextVolume
 import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.makeUniqueName
@@ -180,6 +182,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -254,6 +257,7 @@ class PrepareViewModel(
     private val measureFeatures: MeasureUseCase,
     private val brimEarsTool: EditBrimEarsUseCase,
     private val enablePaintedBrim: EnablePaintedBrimUseCase,
+    private val takeSnapshot: TakePlateSnapshotUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
@@ -445,6 +449,15 @@ class PrepareViewModel(
                         null -> Unit
                     }
                 }
+            }
+        }
+        // Plater::priv::reset(): a project started afresh puts the assembly view's
+        // explosion ratio back (reset_explosion_ratio()) and its volumes show
+        // again; New Project returns to the 3D view (select_view_3D("3D")),
+        // which a plate with no place in the assembly view does too.
+        viewModelScope.launch {
+            plate.map { it.projectResets }.distinctUntilChanged().drop(1).collect {
+                view.update { it.copy(explosionRatio = 1.0, assemblyHidden = emptySet(), assemblyView = it.assemblyView && plate.value.hasAssembleView()) }
             }
         }
         // Plater::priv::selection_changed(): the variable layer height closes once
@@ -2251,6 +2264,53 @@ class PrepareViewModel(
         assemble(AssemblyAction.REVERSE_ROTATION, listOf(1.0))
     }
 
+    /**
+     * The toolbar's "Assembly View" (Plater::select_view_3D("Assemble")): the
+     * assembly view shows in the 3D view's place with the selection, the tools
+     * of the 3D view closing, as they are reset once it shows again.
+     */
+    fun openAssemblyView() {
+        if (view.value.assemblyView || !state.value.canOpenAssemblyView) return
+        closeCanvasTools()
+        view.update { it.copy(assemblyView = true) }
+    }
+
+    /** "Return" (_render_return_toolbar()): the 3D view shows again, every tool reset (reset_all_states()). */
+    fun returnFromAssemblyView() {
+        if (!view.value.assemblyView) return
+        closeCanvasTools()
+        view.update { it.copy(assemblyView = false) }
+    }
+
+    /** "Explosion Ratio" (bbl_slider_float_style("##ratio_slider", ..., 1.0f, 3.0f)). */
+    fun setExplosionRatio(ratio: Double) {
+        view.update { it.copy(explosionRatio = ratio.coerceIn(MIN_EXPLOSION_RATIO, MAX_EXPLOSION_RATIO)) }
+    }
+
+    /**
+     * The assembly view's "Hide" or "Show" (Plater::set_selected_visible()):
+     * the selected copies are drawn faint, or as they are again; a snapshot
+     * marks it.
+     */
+    fun setAssemblyVisible(visible: Boolean) {
+        val selected = plate.value.selectedInstances
+        if (selected.isEmpty() || !view.value.assemblyView) return
+        takeSnapshot()
+        view.update { it.copy(assemblyHidden = if (visible) it.assemblyHidden - selected else it.assemblyHidden + selected) }
+    }
+
+    /**
+     * GLGizmosManager::reset_all_states() of the canvas the view leaves; the
+     * variable layer height is the 3D view's and no gizmo, and stays.
+     */
+    private fun closeCanvasTools() {
+        closeCut()
+        closePainting()
+        closeEmbossTools()
+        openSimplify.close()
+        view.update { it.copy(gizmo = null, arrangeOptionsOpen = false) }
+    }
+
     /** "Done" (reset_all_gizmos()): the tool closes, and the engine lets the volumes go. */
     fun closeMeasure() {
         if (view.value.measure == null) return
@@ -2867,6 +2927,10 @@ class PrepareViewModel(
 
         /** GLGizmoSimplify's "static int reduction = 2": Medium. */
         const val DEFAULT_REDUCTION = 2
+
+        /** The assembly view's "Explosion Ratio" goes from 1 to 3. */
+        const val MIN_EXPLOSION_RATIO = 1.0
+        const val MAX_EXPLOSION_RATIO = 3.0
 
         /** Configuration::decimate_ratio when a volume is selected. */
         const val DEFAULT_DECIMATE_RATIO = 50f

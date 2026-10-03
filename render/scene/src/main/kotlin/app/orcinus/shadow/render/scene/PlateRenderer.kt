@@ -75,6 +75,11 @@ internal class SceneFrame(
     val layerEditing: SceneLayerEditing? = null,
     /** GLGizmosManager::is_running() for a tool that hides the selection's box: the measuring tool. */
     val selectionHidden: Boolean = false,
+    /**
+     * The assembly view's canvas (GLCanvas3D::CanvasAssembleView): no bed or
+     * plates under the volumes, and the selection's box in yellow (Selection::render()).
+     */
+    val assembly: Boolean = false,
 )
 
 /**
@@ -432,7 +437,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
         val bottom = !frame.lookingDownward
         val plates = plates
-        gpuBed?.let { bed ->
+        gpuBed?.takeUnless { frame.assembly }?.let { bed ->
             // Bed3D::render_internal(): the axes first.
             if (frame.showAxes) renderAxes(programs.flat, bed, frame)
             GLES30.glEnable(GLES30.GL_DEPTH_TEST)
@@ -781,7 +786,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         }
         // The painted triangles lie on the object's own surface, so they are
         // drawn with a bias that keeps them in front of it.
-        val painted = shown.filter(SceneObject::overlay)
+        val painted = shown.filter { it.overlay && !it.transparent }
         if (painted.isNotEmpty()) {
             GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)
             GLES30.glPolygonOffset(-1f, -1f)
@@ -796,7 +801,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
             GLES30.glDepthMask(false)
             for (sceneObject in transparent) {
+                // The faint paint of a volume the assembly view hides keeps its bias.
+                if (sceneObject.overlay) {
+                    GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)
+                    GLES30.glPolygonOffset(-1f, -1f)
+                }
                 drawVolume(program, frame, sceneObject)
+                if (sceneObject.overlay) GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
             }
             GLES30.glDepthMask(true)
             GLES30.glDisable(GLES30.GL_BLEND)
@@ -964,11 +975,16 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         } else {
             program.setInt("print_volume.type", -1)
         }
-        val color = VolumeColors.render(
-            sceneObject.color,
-            selected = sceneObject.index in frame.selectedIndexes && !sceneObject.paintedByTool,
-            printable = sceneObject.printable,
-        )
+        // GLVolume::set_render_color(): a volume the assembly view hides is MODEL_HIDDEN_COL whatever else it is.
+        val color = if (sceneObject.hidden) {
+            VolumeColors.HIDDEN
+        } else {
+            VolumeColors.render(
+                sceneObject.color,
+                selected = sceneObject.index in frame.selectedIndexes && !sceneObject.paintedByTool,
+                printable = sceneObject.printable,
+            )
+        }
         // GLGizmoPainterBase::render_triangles(): the slope of the object the
         // support painting tool draws; GLVolumeCollection::render(): the
         // canvas's overhangs on every other model part but the wipe tower.
@@ -1050,7 +1066,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         program.use()
         program.setMatrix4("view_model_matrix", frame.view.toFloatArray())
         program.setMatrix4("projection_matrix", frame.projection)
-        program.setVec4("uniform_color", 1f, 1f, 1f, 1f)
+        // ColorRGB::YELLOW() in the assembly view, WHITE() in the 3D view.
+        program.setVec4("uniform_color", 1f, 1f, if (frame.assembly) 0f else 1f, 1f)
         GLES30.glLineWidth(lineWidth(2f * frame.pixelScale))
         lines.draw()
         GLES30.glLineWidth(1f)

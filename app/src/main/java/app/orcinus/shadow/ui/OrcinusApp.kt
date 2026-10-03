@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -323,6 +324,14 @@ private fun Workspace(
         }
     }
 
+    // MainFrame's page change to the Prepare tab (tp3DEditor) posts
+    // EVT_GLVIEWTOOLBAR_3D: the tab shows the 3D view again, not the assembly view.
+    var prepareShown by rememberSaveable { mutableIntStateOf(0) }
+    fun showTab(destination: NavKey) {
+        if (destination == PrepareNavKey && backStack.lastOrNull() != PrepareNavKey) prepareShown++
+        backStack.showTab(destination)
+    }
+
     // Plater::priv::is_preview_shown()
     val shownTab = backStack.lastOrNull()
     LaunchedEffect(shownTab) { shell.showingPreview(shownTab == PreviewNavKey) }
@@ -344,7 +353,7 @@ private fun Workspace(
             OrcaTabBar(
                 tabs = tabs,
                 selectedIndex = destinations.indexOf(backStack.lastOrNull()).coerceAtLeast(0),
-                onSelect = { backStack.showTab(destinations[it]) },
+                onSelect = { showTab(destinations[it]) },
                 fillWidth = layout == OrcaWindowLayout.Compact,
             ) {
                 SliceButton(
@@ -387,7 +396,7 @@ private fun Workspace(
                 },
                 onShowPrepare = {
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
-                    backStack.showTab(PrepareNavKey)
+                    showTab(PrepareNavKey)
                 },
             )
         },
@@ -405,6 +414,7 @@ private fun Workspace(
             entryProvider = entryProvider {
                 prepareEntry(
                     createViewModel = container::prepareViewModel,
+                    shown = prepareShown,
                     onSliceRequested = onSliceRequested,
                     onOpenSidebar = { sidebarVisible = true },
                     onOpenSetting = onOpenSetting,
