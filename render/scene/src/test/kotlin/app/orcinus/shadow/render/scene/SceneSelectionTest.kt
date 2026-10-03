@@ -48,6 +48,26 @@ class SceneSelectionTest {
     }
 
     @Test
+    fun aPaintingTouchPassesByWhatTheSectionClipsAndWhatSinks() {
+        val cube = cubeAt(Vec3(100.0, 120.0, 10.0))
+        val upperHalf = { point: Vec3 -> point.z > 10.0 }
+        val fromAbove = Line3(Vec3(105.0, 115.0, 100.0), Vec3(105.0, 115.0, -100.0))
+
+        // The top is clipped: the bottom is left, met from inside the cube.
+        assertNull(cube.unproject(fromAbove, sinkingLimit = true, clipped = upperHalf))
+        assertEquals(20.0, assertNotNull(cube.unproject(fromAbove, sinkingLimit = true) { false }).z, 1e-9)
+        // Along X under the plane both sides are there, and the near one is met.
+        val alongX = Line3(Vec3(200.0, 115.0, 5.0), Vec3(0.0, 115.0, 5.0))
+        assertEquals(110.0, assertNotNull(cube.unproject(alongX, sinkingLimit = true, clipped = upperHalf)).x, 1e-9)
+
+        // A cube sunk half into the plate: from below, its bottom is passed by but in the assembly view.
+        val sunk = cubeAt(Vec3(100.0, 120.0, 0.0))
+        val fromBelow = Line3(Vec3(105.0, 115.0, -100.0), Vec3(105.0, 115.0, 100.0))
+        assertNull(sunk.unproject(fromBelow, sinkingLimit = true) { false })
+        assertEquals(-10.0, assertNotNull(sunk.unproject(fromBelow, sinkingLimit = false) { false }).z, 1e-9)
+    }
+
+    @Test
     fun theLowestPointFollowsThePlacement() {
         assertEquals(0.0, cubeAt(Vec3(100.0, 120.0, 10.0)).minZ(), 1e-9)
         assertEquals(15.0, cubeAt(Vec3(0.0, 0.0, 25.0)).minZ(), 1e-9)

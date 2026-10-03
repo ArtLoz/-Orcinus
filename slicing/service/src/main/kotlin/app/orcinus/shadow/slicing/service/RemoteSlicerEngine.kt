@@ -15,6 +15,7 @@ import app.orcinus.shadow.core.model.BrimEarsOutcome
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.ClippingPlane
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
@@ -124,6 +125,7 @@ import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
+import app.orcinus.shadow.core.model.values
 import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.BrimEarsEditor
 import app.orcinus.shadow.slicing.api.EmbossEditor
@@ -875,6 +877,17 @@ class RemoteSlicerEngine(
         assemblySection(plate.toParcels(), profiles.toParcel(), doubleArrayOf(normal.x, normal.y, normal.z, offset), explosionRatio, meshPath.value)?.let(::ScenePath)
     }
 
+    override suspend fun paintingSection(
+        plateObject: PlacedModel,
+        profiles: SlicingProfileSelection,
+        placement: Transform3,
+        plane: ClippingPlane,
+        meshPath: ScenePath,
+    ): ScenePath? = remote({ null }) {
+        paintingSection(listOf(plateObject).toParcels().first(), profiles.toParcel(), placement.columns.toDoubleArray(), plane.values(), meshPath.value)
+            ?.let(::ScenePath)
+    }
+
     override suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
         try {
             service().paintStroke(
@@ -886,6 +899,8 @@ class RemoteSlicerEngine(
                 stroke.angle,
                 stroke.overhangAngle,
                 stroke.startsStroke,
+                stroke.clipping.values(),
+                stroke.sinkingLimit,
                 meshPrefix.value,
             ).toOutcome()
         } catch (_: RemoteException) {

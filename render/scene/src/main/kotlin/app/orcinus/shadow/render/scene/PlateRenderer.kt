@@ -86,8 +86,16 @@ internal class SceneFrame(
      * plates under the volumes, and the selection's box in yellow (Selection::render()).
      */
     val assembly: Boolean = false,
-    /** ModelObjectsClipper::render_cut(): the cut of the assembly view's "Section View", GL_TRIANGLES corners. */
-    val assemblySection: FloatArray? = null,
+    /**
+     * The objects [clippingPlane] clips: those of this index alone (a painting
+     * tool's section of the copy it paints); null clips every object.
+     */
+    val clippedIndex: Int? = null,
+    /**
+     * The cut of the "Section View" of the assembly view (ModelObjectsClipper)
+     * or of a painting tool (ObjectClipper::render_cut()), GL_TRIANGLES corners.
+     */
+    val section: FloatArray? = null,
     /** Volumes a tool frames as the selection is framed (Selection::render_bounding_box() with its colour). */
     val framedVolumes: List<FramedVolume> = emptyList(),
 )
@@ -480,8 +488,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         layer?.draw(frame.view.toFloatArray(), frame.projection)
         // GLCanvas3D::_render_objects(): "phong" in the realistic view with Phong shading, "gouraud" otherwise.
         renderObjects(if (frame.phong) programs.phong else programs.gouraud, frame)
-        frame.assemblySection?.let { section ->
-            // render_painter_assemble_view(): the cut in dark grey, in the scene's depth.
+        frame.section?.let { section ->
+            // render_painter_assemble_view() and ObjectClipper::render_cut(): the cut in dark grey, in the scene's depth.
             GLES30.glEnable(GLES30.GL_DEPTH_TEST)
             programs.flat.use()
             programs.flat.setMatrix4("view_model_matrix", frame.view.toFloatArray())
@@ -994,6 +1002,11 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     /** GLVolume::render(): one volume with the shader's uniforms for it. */
     private fun drawVolume(program: GlProgram, frame: SceneFrame, sceneObject: SceneObject) {
         val mesh = gpuObjects[sceneObject.key]?.second ?: return
+        // GLGizmoPainterBase::render_triangles(): the plane clips the painted copy alone.
+        frame.clippedIndex?.let { index ->
+            val plane = frame.clippingPlane?.takeIf { sceneObject.index == index }
+            if (plane != null) program.setVec4("clipping_plane", plane[0], plane[1], plane[2], plane[3]) else program.setVec4("clipping_plane", 0f, 0f, 1f, Float.MAX_VALUE)
+        }
         // GLVolumeCollection::render(): a volume across the current plate's
         // boundary is darkened outside it; the others are drawn as they are.
         val volume = printVolume?.takeIf { sceneObject.partlyInside }

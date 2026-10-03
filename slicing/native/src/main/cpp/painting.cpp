@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <queue>
 #include <set>
 #include <memory>
@@ -647,13 +648,27 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
                 stroke.origin[2] + stroke.direction[2]
             );
         const Slic3r::Vec3d direction = (target - source).normalized();
-        const Slic3r::AABBMesh::hit_result hit = current.tree->query_ray_hit(source, direction);
+        const Slic3r::Vec3d clip_normal = Slic3r::Vec3d(stroke.clipping_plane[0], stroke.clipping_plane[1], stroke.clipping_plane[2]).normalized();
+        const double clip_offset = stroke.clipping_plane[3];
+        const bool clipping = clip_offset != std::numeric_limits<double>::max();
+        // MeshRaycaster::unproject_on_mesh(): the nearest hit above the bed
+        // (sinking objects) and not cut by the clipping plane; with an odd
+        // number of such hits the nearest is from inside the mesh.
+        const std::vector<Slic3r::AABBMesh::hit_result> hits = current.tree->query_ray_hits(source, direction);
+        std::size_t first = 0;
+        for (; first < hits.size(); ++first) {
+            const Slic3r::Vec3d transformed_hit = current.world * hits[first].position();
+            if (transformed_hit.z() >= (stroke.sinking_limit ? Slic3r::SINKING_Z_THRESHOLD : -std::numeric_limits<double>::max()) &&
+                (!clipping || -clip_normal.dot(transformed_hit) + clip_offset >= 0.))
+                break;
+        }
+        const bool met = first < hits.size() && (hits.size() - first) % 2 == 0;
         result.status = SceneStatus::success;
         if (stroke.starts) {
             current.stroke_pending = true;
             current.has_last = false;
         }
-        if (hit.face() < 0) {
+        if (!met) {
             // The finger missed the model, which leaves it as it was, and the
             // brush starts anew where it meets it again.
             current.has_last = false;
@@ -670,9 +685,22 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
             current.stroke_pending = false;
         }
 
+        const Slic3r::AABBMesh::hit_result& hit = hits[first];
         const Slic3r::Vec3f position = hit.position().cast<float>();
         const Slic3r::Transform3d no_translation = Slic3r::Transform3d(current.world.linear());
-        const Slic3r::TriangleSelector::ClippingPlane clipping_plane;
+        // get_clipping_plane_in_volume_coordinates()
+        Slic3r::TriangleSelector::ClippingPlane clipping_plane;
+        if (clipping) {
+            const Slic3r::Transform3d trafo_normal = Slic3r::Transform3d(current.world.linear().transpose());
+            const Slic3r::Transform3d trafo_inv = current.world.inverse();
+            const Slic3r::Vec3d point_on_plane = clip_normal * clip_offset;
+            const Slic3r::Vec3d point_on_plane_transformed = trafo_inv * point_on_plane;
+            const Slic3r::Vec3d normal_transformed = trafo_normal * clip_normal;
+            const auto offset_transformed = float(point_on_plane_transformed.dot(normal_transformed));
+            clipping_plane = Slic3r::TriangleSelector::ClippingPlane(
+                std::array<float, 4>{float(normal_transformed.x()), float(normal_transformed.y()), float(normal_transformed.z()), offset_transformed}
+            );
+        }
         const Slic3r::EnforcerBlockerType state = state_of(stroke.state);
         // m_paint_on_overhangs_only ? m_highlight_by_angle_threshold_deg : 0.f
         const auto overhang_angle = static_cast<float>(stroke.overhang_angle);

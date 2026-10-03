@@ -6,6 +6,7 @@ import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BrimEarsSetup
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.ClippingPlane
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CoordinateSystem
 import app.orcinus.shadow.core.model.CutConnector
@@ -80,11 +81,14 @@ import app.orcinus.shadow.domain.plate.sameStyleAs
 import app.orcinus.shadow.domain.plate.spiralVaseMode
 import app.orcinus.shadow.render.scene.AssemblyTransforms
 import app.orcinus.shadow.render.scene.CutPlanes
+import app.orcinus.shadow.render.scene.PaintSectionView
 import app.orcinus.shadow.render.scene.PlateClearance
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.VolumeScaleFrame
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 /** An object's instance offset, which OrcaSlicer's move window shows as its position, in millimetres. */
 data class ObjectPosition(val x: Double, val y: Double, val z: Double) {
@@ -251,6 +255,8 @@ data class PrepareUiState(
     val scaleCoordinates: CoordinateSystem? = null,
     /** The scale gizmo of the selected volume, once the engine measured it. */
     val volumeScale: VolumeScaleFrame? = null,
+    /** The painting tool's "Section view" on the painted copy. */
+    val paintSection: PaintSectionView? = null,
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
     val selectedRotation: Vector3?,
     /** GizmoObjectManipulation::update_reset_buttons_visibility(): the rotation differs from when the tool opened. */
@@ -362,6 +368,15 @@ data class PaintingMode(
     /** Whether the tool can undo or redo a stroke, which the Undo and Redo buttons do while it is open. */
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
+    /**
+     * "Section view" (ObjectClipper): how far its plane has gone through the
+     * copy, 0 to 1, 0 clipping nothing; how many times "Reset direction" was
+     * pressed; the plane the 3D view placed; and the cut the engine made.
+     */
+    val sectionPosition: Double = 0.0,
+    val sectionResets: Int = 0,
+    val sectionPlane: ClippingPlane? = null,
+    val section: ScenePath? = null,
 )
 
 /**
@@ -856,6 +871,23 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         },
         selectedSize = if (volume != null) volumeBox?.size else selected?.dimensions?.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) },
         scaleCoordinates = scaleCoordinates,
+        paintSection = view.painting?.let { mode ->
+            val copy = selectedObject?.let(copies::get) ?: return@let null
+            // ObjectClipper::set_position_by_ratio(): about the copy's offset, or in the
+            // assembly view its assemble offset spread by the explosion, as far as the
+            // radius of its box (m_active_inst_bb_radius) either side.
+            val center = if (view.assemblyView) {
+                val assemble = (copy.instance.assemble ?: Transform3.IDENTITY).translation
+                val spread = copy.instance.offsetToAssembly ?: Vector3(0.0, 0.0, 0.0)
+                val ratio = view.explosionRatio - 1.0
+                Vector3(assemble.x + spread.x * ratio, assemble.y + spread.y * ratio, assemble.z + spread.z * ratio)
+            } else {
+                copy.instance.inspection.placement.translation
+            }
+            val size = copy.instance.inspection.dimensions
+            val radius = 0.5 * sqrt(size.widthMillimeters.pow(2) + size.depthMillimeters.pow(2) + size.heightMillimeters.pow(2))
+            PaintSectionView(mode.sectionPosition, mode.sectionResets, center, radius, mode.section.takeIf { mode.sectionPosition > 0.0 })
+        },
         volumeScale = if (volume != null && selected != null && volumeBox != null) {
             val reference = when (scaleCoordinates) {
                 CoordinateSystem.WORLD -> Transform3.IDENTITY

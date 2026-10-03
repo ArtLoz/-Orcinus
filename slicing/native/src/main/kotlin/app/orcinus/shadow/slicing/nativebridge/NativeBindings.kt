@@ -1254,8 +1254,22 @@ internal object NativeBindings {
         angle: Double,
         overhangAngle: Double,
         starts: Boolean,
+        clippingPlane: DoubleArray,
+        sinkingLimit: Boolean,
         meshPrefix: String,
     ): NativePainting
+
+    /** painting_section(): the mesh written, empty while the plane meets nothing. */
+    external fun paintingSection(
+        plateObject: NativePlate,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        placement: DoubleArray,
+        plane: DoubleArray,
+        meshPath: String,
+    ): String
 
     /** The painting tool's own Undo and Redo of a stroke. */
     external fun undoPainting(meshPrefix: String): NativePainting

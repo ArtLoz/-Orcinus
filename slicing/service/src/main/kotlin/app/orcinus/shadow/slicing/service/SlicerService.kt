@@ -60,6 +60,7 @@ import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.clippingPlaneOf
 import app.orcinus.shadow.core.model.cutConnectors
 import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.BrimEarsEditor
@@ -808,6 +809,8 @@ abstract class SlicerService<E> : Service()
             angle: Double,
             overhangAngle: Double,
             starts: Boolean,
+            clippingPlane: DoubleArray,
+            sinkingLimit: Boolean,
             meshPrefix: String,
         ): PaintingParcel = runBlocking {
             engine.paint(
@@ -820,10 +823,24 @@ abstract class SlicerService<E> : Service()
                     angle = angle,
                     overhangAngle = overhangAngle,
                     startsStroke = starts,
+                    clipping = clippingPlaneOf(clippingPlane),
+                    sinkingLimit = sinkingLimit,
                 ),
                 ScenePath(meshPrefix),
             )
         }.toParcel()
+
+        override fun paintingSection(
+            plateObject: PlacedModelParcel,
+            profiles: ProfilesParcel,
+            placement: DoubleArray,
+            plane: DoubleArray,
+            meshPath: String,
+        ): String? = runBlocking {
+            val clipping = clippingPlaneOf(plane) ?: return@runBlocking null
+            engine.paintingSection(arrayOf(plateObject).toPlacedModels().first(), profiles.toProfiles(), Transform3(placement.toList()), clipping, ScenePath(meshPath))
+                ?.value
+        }
 
         override fun undoPainting(meshPrefix: String): PaintingParcel = runBlocking { engine.undoPainting(ScenePath(meshPrefix)) }.toParcel()
 

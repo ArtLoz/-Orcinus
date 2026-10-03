@@ -17,6 +17,7 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.ClippingPlane
 import app.orcinus.shadow.core.model.EmbossData
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.EmbossPlacement
@@ -178,6 +179,7 @@ import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.filamentUsagesOf
+import app.orcinus.shadow.core.model.values
 import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.BrimEarsEditor
 import app.orcinus.shadow.slicing.api.EmbossEditor
@@ -1619,9 +1621,31 @@ class NativeSlicerEngine(context: Context) :
                 angle = stroke.angle,
                 overhangAngle = stroke.overhangAngle,
                 starts = stroke.startsStroke,
+                clippingPlane = stroke.clipping.values(),
+                sinkingLimit = stroke.sinkingLimit,
                 meshPrefix = meshPrefix.value,
             ),
         )
+    }
+
+    override suspend fun paintingSection(
+        plateObject: PlacedModel,
+        profiles: SlicingProfileSelection,
+        placement: Transform3,
+        plane: ClippingPlane,
+        meshPath: ScenePath,
+    ): ScenePath? = withContext(Dispatchers.IO) {
+        if (!status().ready) return@withContext null
+        NativeBindings.paintingSection(
+            plateObject = nativePlate(listOf(plateObject)),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            placement = placement.columns.toDoubleArray(),
+            plane = plane.values(),
+            meshPath = meshPath.value,
+        ).takeIf { it.isNotEmpty() }?.let(::ScenePath)
     }
 
     override suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {

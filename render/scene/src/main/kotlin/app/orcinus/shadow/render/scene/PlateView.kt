@@ -263,6 +263,8 @@ fun PlateView(
     selectedVolumeSphere: BoundingSphere? = null,
     /** The scale gizmo of the selected volume: its reference system and box there; null until the engine measured it. */
     selectedVolumeScale: VolumeScaleFrame? = null,
+    /** The painting tool's section plane as the view placed it, its normal and offset. */
+    onPaintSection: (normal: Vector3, offset: Double) -> Unit = { _, _ -> },
     /**
      * GLCanvas3D::do_move() and do_rotate() of a volume: the selected volume
      * of the copy at [index] changed by [change] in the world; the app places it.
@@ -428,6 +430,14 @@ fun PlateView(
             }
             controller.setAssemblySection(loaded)
         }
+        // ObjectClipper::render_cut() of the painting tool's section.
+        val paintCutPath = painting?.section?.cut
+        LaunchedEffect(paintCutPath) {
+            val loaded = withContext(Dispatchers.IO) {
+                paintCutPath?.let { runCatching { MeshFiles.read(java.io.File(it.value)).cornerPositions() }.getOrNull() }
+            }
+            controller.setPaintSectionCut(loaded)
+        }
         // The dovetail's plane, and the pieces shown in the object's place.
         val dovetailPaths = listOfNotNull(cut?.groovePlane?.value) + cut?.previewParts?.map { it.mesh.value }.orEmpty()
         LaunchedEffect(dovetailPaths, smoothNormals) {
@@ -570,6 +580,8 @@ fun PlateView(
             controller.setSelectedVolume(selectedVolume)
             controller.volumeSphere = selectedVolumeSphere
             controller.volumeScale = selectedVolumeScale
+            controller.onPaintSection = onPaintSection
+            controller.setPaintSection(painting?.section)
             controller.settleVolume(editable, objects)
         }
 
@@ -1421,6 +1433,54 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         drag = null
     }
 
+    /**
+     * The painting tool's section (ObjectClipper): as the page has it, the
+     * normal its plane keeps, the plane itself (m_clp), and the cut.
+     */
+    private var paintSection: PaintSectionView? = null
+    private var paintSectionNormal: Vec3? = null
+    private var paintSectionPlane: Pair<Vec3, Double>? = null
+    private var paintSectionCut: FloatArray? = null
+    var onPaintSection: (Vector3, Double) -> Unit = { _, _ -> }
+
+    /**
+     * ObjectClipper::set_position_by_ratio(): the slider keeps the plane's
+     * normal, which the camera gives the first time, and "Reset direction"
+     * takes the camera's anew; the tool closing lets the plane go (on_release()).
+     */
+    fun setPaintSection(section: PaintSectionView?) {
+        val previous = paintSection
+        if (previous == section) return
+        paintSection = section
+        if (section == null) {
+            paintSectionNormal = null
+            paintSectionPlane = null
+        } else if (previous?.position != section.position || previous.resets != section.resets) {
+            val reset = previous != null && previous.resets != section.resets
+            if (section.position > 0.0 || paintSectionPlane != null || reset) {
+                val normal = paintSectionNormal?.takeIf { !reset } ?: -camera.dirForward()
+                paintSectionNormal = normal
+                val center = Vec3(section.center.x, section.center.y, section.center.z)
+                val plane = normal to (normal.dot(center) + section.radius - section.position * 2.0 * section.radius)
+                paintSectionPlane = plane
+                onPaintSection(Vector3(normal.x, normal.y, normal.z), plane.second)
+            }
+        }
+        invalidate()
+    }
+
+    fun setPaintSectionCut(cut: FloatArray?) {
+        paintSectionCut = cut
+        invalidate()
+    }
+
+    /** GLGizmoPainterBase::get_clipping_plane_data(): the section's plane while it is past 0, as the shader takes it. */
+    private fun paintingClippingPlane(): FloatArray? {
+        if (!painting || (paintSection?.position ?: 0.0) <= 0.0) return null
+        val (normal, offset) = paintSectionPlane ?: return null
+        return floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), offset.toFloat())
+    }
+
     /** The wipe tower stands in the scene beside the objects, and is picked and moved like one. */
     fun setWipeTower(tower: SceneObject?) {
         if (wipeTower?.key == tower?.key && wipeTower?.world == tower?.world && wipeTower?.color == tower?.color) return
@@ -1581,7 +1641,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // it; off the object the finger turns the camera, as the gizmo
             // leaves the mouse to the canvas.
             val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
-            if (objects.none { it.index == selectedIndex && it.raycast(ray) != null }) return false
+            // The raycasters of the object's model parts, which pass by what the
+            // section clips and, but in the assembly view, what sinks under the plate.
+            val plane = paintSectionPlane?.takeIf { (paintSection?.position ?: 0.0) > 0.0 }
+            val clipped = { point: Vec3 -> plane != null && plane.first.dot(point) > plane.second }
+            if (objects.none { it.index == selectedIndex && !it.modifier && !it.overlay && it.unproject(ray, assembly == null, clipped) != null }) return false
             paintingStroke = true
             strokeX = x
             onPaint(ray, true)
@@ -2622,7 +2686,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     // set_behavior(true, ...): the object is clipped on the camera's side.
                     val normal = gizmo.clippingNormal(lookingForward(gizmo))
                     floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), normal.dot(gizmo.center).toFloat())
-                } ?: assemblyClippingPlane(),
+                } ?: assemblyClippingPlane() ?: paintingClippingPlane(),
+                clippedIndex = selectedIndex.takeIf { cut?.editingConnectors != true && assemblyClippingPlane() == null && paintingClippingPlane() != null },
                 layerEditing = layerEditing,
                 selectionHidden = measure != null || brimEars != null,
                 // GLGizmoMeshBoolean::on_render(): the source in white, the tool in Orca's green.
@@ -2636,7 +2701,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     }
                 }.orEmpty(),
                 assembly = assembly != null,
-                assemblySection = sectionCut?.takeIf { assemblyClippingPlane() != null },
+                section = sectionCut?.takeIf { assemblyClippingPlane() != null } ?: paintSectionCut?.takeIf { paintingClippingPlane() != null },
             ),
         )
         surface.requestRender()
@@ -2832,7 +2897,18 @@ data class PaintingView(
     val overhangAngle: Double = 0.0,
     /** "Vertical" (m_vertical_only): a stroke keeps to the screen column where it met the model. */
     val verticalOnly: Boolean = false,
+    /** "Section view" of the painted copy; null for none. */
+    val section: PaintSectionView? = null,
 )
+
+/**
+ * A painting tool's "Section view" (ObjectClipper): how far its plane has
+ * gone through the copy, 0 to 1, 0 clipping nothing; how many times "Reset
+ * direction" was pressed; the point the plane passes at 0.5 and how far it
+ * goes either side ([center] and [radius]: the copy's offset and the radius
+ * of its box); and the cut the engine made, null for none.
+ */
+data class PaintSectionView(val position: Double, val resets: Int, val center: Vector3, val radius: Double, val cut: ScenePath?)
 
 /** Geometry::convex_hull() of points of the screen: Andrew's monotone chain, counterclockwise. */
 internal fun convexHull(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> {

@@ -206,6 +206,36 @@ internal class SceneObject(
     }
 
     /**
+     * MeshRaycaster::unproject_on_mesh(): the nearest point where [ray] meets
+     * the mesh above the bed (with [sinkingLimit]) and not [clipped], in world
+     * coordinates; none when an odd number of such hits is left, the nearest
+     * then being from inside the mesh. Hits as near as AABBMesh's are one.
+     */
+    fun unproject(ray: Line3, sinkingLimit: Boolean, clipped: (Vec3) -> Boolean): Vec3? {
+        val toObject = world.inverse()
+        val origin = toObject.transformPoint(ray.a)
+        val direction = toObject.transformPoint(ray.b) - origin
+        val vertices = mesh.vertices
+        val stride = MeshFiles.FLOATS_PER_CORNER
+        val hits = ArrayList<Double>()
+        for (corner in 0 until mesh.cornerCount step 3) {
+            rayTriangle(
+                origin,
+                direction,
+                vertexAt(vertices, corner * stride),
+                vertexAt(vertices, (corner + 1) * stride),
+                vertexAt(vertices, (corner + 2) * stride),
+            )?.let(hits::add)
+        }
+        hits.sort()
+        val distinct = hits.filterIndexed { index, t -> index == 0 || t - hits[index - 1] >= HIT_EPSILON }
+        val points = distinct.map { world.transformPoint(origin + direction * it) }
+        val first = points.indexOfFirst { point -> (!sinkingLimit || point.z >= SINKING_Z_THRESHOLD) && !clipped(point) }
+        if (first < 0 || (points.size - first) % 2 != 0) return null
+        return points[first]
+    }
+
+    /**
      * The nearest point where [ray] enters the mesh and the normal of the
      * triangle there, in world coordinates (RaycastManager's hit, whose normal
      * is that of the triangle transformed into the world).
@@ -559,3 +589,9 @@ internal object SceneLoader {
         }
     }
 }
+
+/** Model.hpp: a volume this far below the plate counts as sinking. */
+private const val SINKING_Z_THRESHOLD = -0.001
+
+/** AABBMesh::query_ray_hits(): hits closer than this along the ray are the same. */
+private const val HIT_EPSILON = 1e-9

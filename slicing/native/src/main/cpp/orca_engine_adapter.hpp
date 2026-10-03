@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -897,6 +898,14 @@ struct PaintStroke {
     // Undo returns to, once the stroke meets the model (the gizmo takes its
     // snapshot as the mouse button goes down on the object).
     bool starts{false};
+    // The tool's "Section view" (ObjectClipper::get_clipping_plane()): its
+    // normal and offset in world coordinates. The finger meets the model on
+    // the near side alone and paints nothing beyond it; the offset of
+    // ClippingPlane::ClipsNothing() clips nothing.
+    double clipping_plane[4]{0.0, 0.0, 1.0, std::numeric_limits<double>::max()};
+    // MeshRaycaster::unproject_on_mesh()'s sinking_limit: the finger passes by
+    // the model under the plate, except in the assembly view.
+    bool sinking_limit{true};
 };
 
 // What a painting session answers with: the triangles painted in each state,
@@ -1879,6 +1888,19 @@ struct AssemblySection {
     std::string message;
     std::string mesh;
 };
+
+// ObjectClipper::render_cut() of a painting tool's "Section view": the
+// sections of every volume of object, standing at the instance transformation
+// placement, with the plane (its normal and offset), kept above the plate,
+// written as one mesh in world coordinates; [mesh] is empty while the plane
+// meets nothing.
+AssemblySection painting_section(
+    const PlateObject& object,
+    const ProfileSelection& profiles,
+    const std::vector<double>& placement,
+    const std::vector<double>& plane,
+    const std::string& mesh_path
+);
 
 AssemblySection assembly_section(
     const std::vector<PlateObject>& plate,

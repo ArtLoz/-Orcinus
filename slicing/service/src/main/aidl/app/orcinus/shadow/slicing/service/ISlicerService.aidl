@@ -371,8 +371,12 @@ interface ISlicerService {
         double angle,
         double overhangAngle,
         boolean starts,
+        in double[] clippingPlane,
+        boolean sinkingLimit,
         String meshPrefix
     );
+    /** A painting tool's section: placement and plane (normal and offset); the mesh written, null for none. */
+    @nullable String paintingSection(in PlacedModelParcel plateObject, in ProfilesParcel profiles, in double[] placement, in double[] plane, String meshPath);
     PaintingParcel undoPainting(String meshPrefix);
     PaintingParcel redoPainting(String meshPrefix);
     PaintingParcel clearPainting(String meshPrefix);

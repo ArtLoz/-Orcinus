@@ -10,6 +10,7 @@ import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BrimEarsOutcome
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.model.ClippingPlane
 import app.orcinus.shadow.core.model.CoordinateSystem
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
@@ -124,6 +125,7 @@ import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PaintObjectUseCase
+import app.orcinus.shadow.domain.plate.PaintingSectionUseCase
 import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
 import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.PlaceInAssemblyUseCase
@@ -246,6 +248,7 @@ class PrepareViewModel(
     private val dismissPlateProblem: DismissPlateProblemUseCase,
     private val meshBooleans: MeshBooleanUseCase,
     private val placeObjectVolume: PlaceObjectVolumeUseCase,
+    private val paintingSection: PaintingSectionUseCase,
     private val describeVolume: DescribeVolumeUseCase,
     private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
     private val setExtruder: SetExtruderUseCase,
@@ -953,9 +956,45 @@ class PrepareViewModel(
 
     fun closePainting() {
         val open = view.value.painting ?: return
-        paintingTools[open.kind] = open
+        // ObjectClipper::on_release(): the section goes with the tool.
+        paintingTools[open.kind] = open.copy(sectionPosition = 0.0, sectionResets = 0, sectionPlane = null, section = null)
+        paintingSectionJob?.cancel()
+        paintingSection.clear()
         view.update { it.copy(painting = null) }
         closingPainting = viewModelScope.launch { paintObject.end() }
+    }
+
+    private var paintingSectionJob: Job? = null
+
+    /** The painting tool's "Section view" (ObjectClipper::set_position_by_ratio(ratio, true)). */
+    fun setPaintingSection(position: Double) {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(sectionPosition = position.coerceIn(0.0, 1.0))) } ?: state }
+    }
+
+    /** "Reset direction": the plane faces the camera anew (set_position_by_ratio(-1, false)). */
+    fun resetPaintingSectionDirection() {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(sectionResets = it.sectionResets + 1)) } ?: state }
+    }
+
+    /**
+     * The 3D view placed the section's plane: strokes keep to its near side
+     * while the section is past 0, and the engine cuts the copy there.
+     */
+    fun setPaintingSectionPlane(normal: Vector3, offset: Double) {
+        val plane = ClippingPlane(normal, offset)
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(sectionPlane = plane)) } ?: state }
+        paintingSectionJob?.cancel()
+        val mode = view.value.painting ?: return
+        if (mode.sectionPosition <= 0.0) {
+            paintingSection.clear()
+            view.update { state -> state.painting?.let { state.copy(painting = it.copy(section = null)) } ?: state }
+            return
+        }
+        val copy = state.value.selectedCopy?.id ?: return
+        paintingSectionJob = viewModelScope.launch {
+            val cut = paintingSection.section(copy, plane)
+            view.update { state -> state.painting?.takeIf { it.sectionPlane == plane }?.let { state.copy(painting = it.copy(section = cut)) } ?: state }
+        }
     }
 
     /** The state the finger paints: a filament, enforcing or blocking, or the eraser ([PaintState.NONE]). */
@@ -1476,6 +1515,8 @@ class PrepareViewModel(
                         angle = mode.fillAngle,
                         overhangAngle = if (mode.overhangsOnly) mode.highlightAngle else 0.0,
                         startsStroke = first,
+                        clipping = mode.sectionPlane.takeIf { mode.sectionPosition > 0.0 },
+                        sinkingLimit = !view.value.assemblyView,
                     ),
                 ).also(::showStrokes)
             } finally {

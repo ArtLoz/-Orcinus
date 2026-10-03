@@ -1361,6 +1361,72 @@ void apply_cut_connectors(Slic3r::ModelObject& object, const ObjectCut& cut, con
 
 }  // namespace detail
 
+AssemblySection painting_section(
+    const PlateObject& object,
+    const ProfileSelection& profiles,
+    const std::vector<double>& placement,
+    const std::vector<double>& plane,
+    const std::string& mesh_path
+)
+{
+    AssemblySection result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    if (detail::engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    if (plane.size() != 4 || placement.size() != 16) {
+        result.message = "The section needs a plane and a placement";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        if (detail::select_profiles(*detail::engine().bundle, profiles, config, result.message) != SliceStatus::success) {
+            result.status = SceneStatus::profile_not_found;
+            return result;
+        }
+        // The object at the painted copy's placement alone, which does not drop.
+        PlateObject placed = object;
+        placed.instances.clear();
+        ObjectPlacement& instance = placed.instances.emplace_back();
+        instance.matrix = placement;
+        instance.auto_drop = false;
+        Slic3r::Model model;
+        if (!detail::load_plate({placed}, config, model, result.message) || model.objects.empty()) {
+            return result;
+        }
+        // ObjectClipper::render_cut(): a clipper of every volume of the object
+        // at the active instance's transformation, limited to above the bed.
+        const Slic3r::ModelObject& mo = *model.objects.front();
+        const Slic3r::Geometry::Transformation inst_trafo = mo.instances.front()->get_transformation();
+        const ClippingPlane clipping_plane(Slic3r::Vec3d(plane[0], plane[1], plane[2]), plane[3]);
+        const ClippingPlane limiting_plane(Slic3r::Vec3d::UnitZ(), -Slic3r::SINKING_Z_THRESHOLD);
+        indexed_triangle_set section;
+        indexed_triangle_set contour;
+        for (const Slic3r::ModelVolume* volume : mo.volumes) {
+            const Slic3r::Geometry::Transformation trafo = inst_trafo * volume->get_transformation();
+            Slic3r::ExPolygons islands;
+            Slic3r::Transform3d island_trafo;
+            clip(volume->mesh().its, trafo, clipping_plane, limiting_plane, 0.0, islands, island_trafo, section, contour);
+        }
+        result.status = SceneStatus::success;
+        if (!section.indices.empty()) {
+            if (!detail::write_mesh(section, mesh_path)) {
+                result.status = SceneStatus::write_failed;
+                result.message = "Unable to write " + mesh_path;
+                return result;
+            }
+            result.mesh = mesh_path;
+        }
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
 AssemblySection assembly_section(
     const std::vector<PlateObject>& plate,
     const ProfileSelection& profiles,

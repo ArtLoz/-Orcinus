@@ -2021,6 +2021,51 @@ TEST_CASE("The flushing volumes of the plate reach the G-code", "[Adapter][Scene
     CHECK(matrix == "; flush_volumes_matrix = 0,300,200,0");
 }
 
+TEST_CASE("A painting tool's section view hides the model beyond its plane", "[Adapter][Scene][PaintSection]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("section.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const std::vector<double> center = matrix_of(cube);
+    // A plane across the middle of the cube facing up: its upper half is cut away.
+    const std::vector<double> plane{0.0, 0.0, 1.0, center[14]};
+
+    const orca::AssemblySection cut = orca::painting_section(plate.front(), k2_plus_profiles(), center, plane, output_path("section-cut.mesh"));
+    INFO(cut.message);
+    REQUIRE(cut.status == orca::SceneStatus::success);
+    CHECK_FALSE(cut.mesh.empty());
+    const orca::AssemblySection above =
+        orca::painting_section(plate.front(), k2_plus_profiles(), center, {0.0, 0.0, 1.0, center[14] + 50.0}, output_path("section-above.mesh"));
+    REQUIRE(above.status == orca::SceneStatus::success);
+    CHECK(above.mesh.empty());
+
+    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::color, k2_plus_profiles(), {}, output_path("section-paint")).status ==
+            orca::SceneStatus::success);
+    orca::PaintStroke stroke;
+    stroke.origin[0] = center[12];
+    stroke.origin[1] = center[13];
+    stroke.origin[2] = 100.0;
+    stroke.direction[2] = -1.0;
+    stroke.state = 1;
+    std::copy(plane.begin(), plane.end(), stroke.clipping_plane);
+    // From above, the top face is cut away: the nearest hit left is the bottom
+    // face from inside the cube, which the finger does not meet.
+    CHECK_FALSE(orca::paint(stroke, output_path("section-paint")).hit);
+    // Along X under the plane, both sides are there.
+    orca::PaintStroke below = stroke;
+    below.origin[0] = center[12] + 100.0;
+    below.origin[2] = center[14] - 5.0;
+    below.direction[0] = -1.0;
+    below.direction[2] = 0.0;
+    CHECK(orca::paint(below, output_path("section-paint")).hit);
+    // Over it, both are cut away.
+    orca::PaintStroke over = below;
+    over.origin[2] = center[14] + 5.0;
+    CHECK_FALSE(orca::paint(over, output_path("section-paint")).hit);
+    REQUIRE(orca::end_painting().status == orca::SceneStatus::success);
+}
+
 TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
 {
     require_engine();
@@ -5814,9 +5859,13 @@ TEST_CASE("Supports painted under an overhang print there alone, and keep the co
     profiles.filaments = {k2_plus_profiles().filament, k2_plus_profiles().filament};
     REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, {}, output_path("t-color")).status ==
             orca::SceneStatus::success);
+    // Beside the pillar: straight over the middle the ray meets the slab's
+    // underside and the pillar's top as one hit (AABBMesh::query_ray_hits()
+    // keeps one of equal hits), an odd count unproject_on_mesh() takes for
+    // a hit from inside the mesh.
     orca::PaintStroke dab;
-    dab.origin[0] = center[12];
-    dab.origin[1] = center[13];
+    dab.origin[0] = center[12] + 10.0;
+    dab.origin[1] = center[13] + 10.0;
     dab.origin[2] = 100.0;
     dab.direction[2] = -1.0;
     dab.state = 2;

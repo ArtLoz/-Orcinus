@@ -1496,9 +1496,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
     jdouble angle,
     jdouble overhang_angle,
     jboolean starts,
+    jdoubleArray clipping_plane,
+    jboolean sinking_limit,
     jstring mesh_prefix
 )
 {
+    const std::vector<double> plane = to_doubles(env, clipping_plane);
     const std::vector<double> from = to_doubles(env, origin);
     const std::vector<double> along = to_doubles(env, direction);
     orcinus::orca::PaintStroke stroke;
@@ -1512,6 +1515,10 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
     stroke.angle = angle;
     stroke.overhang_angle = overhang_angle;
     stroke.starts = starts == JNI_TRUE;
+    if (plane.size() == 4) {
+        std::copy(plane.begin(), plane.end(), stroke.clipping_plane);
+    }
+    stroke.sinking_limit = sinking_limit == JNI_TRUE;
     return to_java(env, orcinus::orca::paint(stroke, to_utf8(env, mesh_prefix)));
 }
 
@@ -4899,6 +4906,31 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_assemblySection(
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_doubles(env, plane),
         static_cast<double>(explosion_ratio),
+        to_utf8(env, mesh_path)
+    );
+    return to_java(env, section.mesh);
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintingSection(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject object,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jdoubleArray placement,
+    jdoubleArray plane,
+    jstring mesh_path
+)
+{
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
+    const orcinus::orca::AssemblySection section = orcinus::orca::painting_section(
+        plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+        to_doubles(env, placement),
+        to_doubles(env, plane),
         to_utf8(env, mesh_path)
     );
     return to_java(env, section.mesh);

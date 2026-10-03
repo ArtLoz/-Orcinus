@@ -287,6 +287,9 @@ internal fun PrepareRoute(
             enableFuzzySkin = viewModel::enablePaintedFuzzySkin,
             clear = viewModel::clearPainting,
             close = viewModel::closePainting,
+            setSection = viewModel::setPaintingSection,
+            resetSectionDirection = viewModel::resetPaintingSectionDirection,
+            sectionPlane = viewModel::setPaintingSectionPlane,
         ),
         onPlaceObject = viewModel::placeObject,
         onSetAutoDrop = viewModel::setAutoDrop,
@@ -578,6 +581,10 @@ internal class PaintingActions(
     /** "Erase all". */
     val clear: () -> Unit,
     val close: () -> Unit,
+    /** "Section view", "Reset direction", and the plane the 3D view placed for it. */
+    val setSection: (Double) -> Unit = {},
+    val resetSectionDirection: () -> Unit = {},
+    val sectionPlane: (normal: Vector3, offset: Double) -> Unit = { _, _ -> },
 ) {
     companion object {
         val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
@@ -684,7 +691,8 @@ internal fun PrepareScreen(
                 filamentColors = state.filamentColors,
                 builtWipeTower = state.builtWipeTower,
                 onMoveWipeTower = onMoveWipeTower,
-                painting = state.painting?.let { PaintingView(it.mesh, it.kind, it.highlightAngle, it.verticalOnly) },
+                painting = state.painting?.let { PaintingView(it.mesh, it.kind, it.highlightAngle, it.verticalOnly, state.paintSection) },
+                onPaintSection = paintingActions.sectionPlane,
                 onPaint = paintingActions.paint,
                 cut = state.cut?.let { mode ->
                     mode.plane?.let { plane ->
@@ -1752,7 +1760,31 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
                 )
             }
         }
+        PaintingSection(painting, actions)
     }
+}
+
+/**
+ * The painting tools' "Section view": its slider from 0 to 1, with "Reset
+ * direction" in place of the caption while it clips.
+ */
+@Composable
+private fun PaintingSection(painting: PaintingMode, actions: PaintingActions) {
+    if (painting.sectionPosition > 0.0) {
+        OrcaButton(
+            text = orcaString("Reset direction"),
+            size = OrcaButtonSize.Compact,
+            onClick = actions.resetSectionDirection,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+    PaintingSlider(
+        label = orcaString("Section view"),
+        value = painting.sectionPosition.toFloat(),
+        range = 0f..1f,
+        text = String.format(textLocale(), "%.2f", painting.sectionPosition),
+        onChange = { actions.setSection(it.toDouble()) },
+    )
 }
 
 /**
@@ -1831,6 +1863,7 @@ private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingAction
             text = String.format(textLocale(), "%.0f", painting.highlightAngle),
             onChange = { actions.setHighlightAngle(it.toDouble()) },
         )
+        PaintingSection(painting, actions)
         OrcaButton(
             text = orcaString("Erase all"),
             size = OrcaButtonSize.Compact,
@@ -1879,6 +1912,7 @@ private fun SeamPaintingPanel(painting: PaintingMode, actions: PaintingActions) 
             onChange = { actions.setRadius(it.toDouble()) },
         )
         PaintingCheck(orcaString("Vertical"), painting.verticalOnly, actions.setVerticalOnly)
+        PaintingSection(painting, actions)
         OrcaButton(
             text = orcaString("Erase all"),
             size = OrcaButtonSize.Compact,
@@ -1940,6 +1974,7 @@ private fun FuzzySkinPaintingPanel(painting: PaintingMode, actions: PaintingActi
                 onChange = { actions.setRadius(it.toDouble()) },
             )
         }
+        PaintingSection(painting, actions)
         OrcaButton(
             text = orcaString("Erase all"),
             size = OrcaButtonSize.Compact,

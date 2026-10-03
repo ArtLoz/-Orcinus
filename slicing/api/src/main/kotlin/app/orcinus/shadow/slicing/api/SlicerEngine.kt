@@ -5,6 +5,7 @@ import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.ClippingPlane
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
@@ -599,6 +600,20 @@ interface PlateInspector {
         normal: Vector3,
         offset: Double,
         explosionRatio: Double,
+        meshPath: ScenePath,
+    ): ScenePath? = null
+
+    /**
+     * ObjectClipper::render_cut() of a painting tool's "Section view": the
+     * sections of the volumes of [plateObject], standing at the instance
+     * transformation [placement], with [plane], kept above the plate, written
+     * to [meshPath]; null while the plane meets nothing.
+     */
+    suspend fun paintingSection(
+        plateObject: PlacedModel,
+        profiles: SlicingProfileSelection,
+        placement: Transform3,
+        plane: ClippingPlane,
         meshPath: ScenePath,
     ): ScenePath? = null
 

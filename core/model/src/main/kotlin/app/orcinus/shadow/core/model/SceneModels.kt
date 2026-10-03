@@ -443,7 +443,25 @@ data class PaintStroke(
     val overhangAngle: Double = 0.0,
     /** The first touch of a stroke, before which the tool keeps what its Undo returns to. */
     val startsStroke: Boolean = false,
+    /** The tool's "Section view": the finger meets and paints the model on its near side alone; null clips nothing. */
+    val clipping: ClippingPlane? = null,
+    /** MeshRaycaster::unproject_on_mesh()'s sinking_limit: the model under the plate is passed by, but in the assembly view. */
+    val sinkingLimit: Boolean = true,
 )
+
+/**
+ * ClippingPlane: its unit [normal] and [offset] in world coordinates; a point
+ * p with normal · p > offset is clipped (ClippingPlane::is_point_clipped()).
+ */
+data class ClippingPlane(val normal: Vector3, val offset: Double)
+
+/** The normal and the offset, as the engine takes them; ClippingPlane::ClipsNothing() for none. */
+fun ClippingPlane?.values(): DoubleArray =
+    this?.let { doubleArrayOf(it.normal.x, it.normal.y, it.normal.z, it.offset) } ?: doubleArrayOf(0.0, 0.0, 1.0, Double.MAX_VALUE)
+
+/** The plane of [values]; null for ClippingPlane::ClipsNothing(). */
+fun clippingPlaneOf(values: DoubleArray): ClippingPlane? =
+    values.takeIf { it.size == 4 && it[3] != Double.MAX_VALUE }?.let { ClippingPlane(Vector3(it[0], it[1], it[2]), it[3]) }
 
 /**
  * The copy a painting tool paints and where it stands (GLGizmoPainterBase's
