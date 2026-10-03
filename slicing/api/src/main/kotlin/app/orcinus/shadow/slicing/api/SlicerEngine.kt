@@ -590,6 +590,16 @@ interface AppConfigStore {
 
     /** AppConfig::set() and save(): the value the key has afterwards. */
     suspend fun setAppConfigValue(key: String, value: String): AppConfigOutcome
+
+    /**
+     * AppConfig::get_recent_projects(): MainFrame's recent projects as
+     * OrcaSlicer.conf keeps them, the most recent first; null when the engine
+     * could not answer.
+     */
+    suspend fun recentProjects(): List<String>? = null
+
+    /** AppConfig::set_recent_projects() and save(): what the list holds afterwards; null when it could not be written. */
+    suspend fun setRecentProjects(projects: List<String>): List<String>? = null
 }
 
 /**

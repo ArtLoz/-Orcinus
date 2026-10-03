@@ -54,6 +54,8 @@ class SaveProjectUseCase(
     private val documents: DocumentExport,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    /** set_project_filename() adds the project to the recent files. */
+    private val recentProjects: RecentProjects? = null,
     private val files: FileShare,
 ) {
     /** "Save Project" has no document to write again and asks for one, as "Save Project as" does. */
@@ -83,6 +85,7 @@ class SaveProjectUseCase(
                     current.copy(plateNotices = current.plateNotices + SAVE_FAILED)
                 }
             }
+            if (saved) recentProjects?.add(listOf(document))
             return saved
         } finally {
             sceneFiles.deleteImport(prefix)

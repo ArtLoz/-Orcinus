@@ -76,6 +76,15 @@ object ImperialUnits {
 object AppConfigKeys {
     /** wxLanguageInfo::CanonicalName of the app's language, which the Language combo box writes. */
     const val LANGUAGE = "language"
+
+    /** "Default page": the page opened on startup, "0" Home and "1" Prepare (AppConfig's default "0"). */
+    const val DEFAULT_PAGE = "default_page"
+
+    /** "Maximum recent files" (AppConfig's default "18"). */
+    const val MAX_RECENT_COUNT = "max_recent_count"
+
+    /** "Add STL/STEP files to recent files list": the models added join the recent files while it is "true". */
+    const val RECENT_MODELS = "recent_models"
     const val USE_INCHES = "use_inches"
     const val NO_WARN_WHEN_MODIFIED_GCODES = "no_warn_when_modified_gcodes"
     const val DRC_BITS = "drc_bits"
@@ -174,7 +183,16 @@ object AppConfigKeys {
         ENABLE_STEP_MESH_SETTING,
         BACKUP_SWITCH,
         BACKUP_INTERVAL,
+        DEFAULT_PAGE,
+        MAX_RECENT_COUNT,
+        RECENT_MODELS,
     )
+
+    /**
+     * MainFrame's max_recent_count: the number the value reads (ToLong()), 18
+     * when it reads none, kept between 0 and 999 (set_max_recent_count()).
+     */
+    fun maxRecentCount(value: String?): Int = (value?.trim()?.toLongOrNull() ?: 18L).coerceIn(0L, 999L).toInt()
 
     /**
      * MainFrame's set_backup_interval(): the seconds between backups while

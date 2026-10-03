@@ -493,6 +493,9 @@ interface ISlicerService {
     /** PreferencesDialog: the app configuration's values of the keys. */
     AppConfigParcel appConfigValues(in String[] keys);
     AppConfigParcel setAppConfigValue(String key, String value);
+    /** MainFrame's recent projects: the values, the most recent first. */
+    AppConfigParcel recentProjects();
+    AppConfigParcel setRecentProjects(in String[] projects);
 
     /** Returns at once; the result arrives through the callback. */
     void slice(in SliceRequestParcel request, ISliceCallback callback);

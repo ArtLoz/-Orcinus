@@ -2133,6 +2133,11 @@ internal object NativeBindings {
     external fun appConfigValues(keys: Array<String>): NativeAppConfigValues
 
     external fun setAppConfigValue(key: String, value: String): NativeAppConfigValues
+
+    /** recent_projects(): the values are the documents, the most recent first. */
+    external fun recentProjects(): NativeAppConfigValues
+
+    external fun setRecentProjects(projects: Array<String>): NativeAppConfigValues
 }
 
 /** Constructed by the native bridge; see AppConfigValues in orca_engine_adapter.hpp. */

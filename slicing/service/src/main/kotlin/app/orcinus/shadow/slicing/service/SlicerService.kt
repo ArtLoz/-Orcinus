@@ -1116,6 +1116,11 @@ abstract class SlicerService<E> : Service()
 
         override fun setAppConfigValue(key: String, value: String): AppConfigParcel = runBlocking { engine.setAppConfigValue(key, value) }.toParcel()
 
+        override fun recentProjects(): AppConfigParcel = runBlocking { engine.recentProjects() }.toRecentProjectsParcel()
+
+        override fun setRecentProjects(projects: Array<String>): AppConfigParcel =
+            runBlocking { engine.setRecentProjects(projects.toList()) }.toRecentProjectsParcel()
+
         override fun slice(request: SliceRequestParcel, callback: ISliceCallback) {
             startJob(request.toSliceRequest(), callback)
         }

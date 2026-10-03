@@ -2998,6 +2998,18 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setAppConfigValue(JN
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_recentProjects(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::recent_projects());
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setRecentProjects(JNIEnv* env, jobject /* this */, jobjectArray projects)
+{
+    return to_java(env, orcinus::orca::set_recent_projects(to_strings(env, projects)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_deletePreset(
     JNIEnv* env,
     jobject /* this */,

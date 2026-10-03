@@ -114,6 +114,7 @@ import app.orcinus.shadow.domain.plate.PrintHostDiscovery
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
+import app.orcinus.shadow.domain.plate.RecentProjectsUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.RemoveObjectPartUseCase
@@ -181,6 +182,7 @@ import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
 import app.orcinus.shadow.storage.android.AndroidSystemFonts
 import app.orcinus.shadow.storage.android.AppConfigFiles
+import app.orcinus.shadow.storage.android.AppDocumentAccess
 import app.orcinus.shadow.storage.android.AppDocumentExport
 import app.orcinus.shadow.storage.android.AppDocumentFolders
 import app.orcinus.shadow.storage.android.AppFileShare
@@ -306,8 +308,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     val setSliceMode = SetSliceModeUseCase(plateRepository)
     /** Android's share sheet for the G-code and the project. */
     private val fileShare = AppFileShare(applicationContext, "${applicationContext.packageName}.files")
+    /** MainFrame's recent projects, which the home page lists. */
+    val recentProjects = RecentProjectsUseCase(engine, appPreferences, AppDocumentAccess(applicationContext), plateRepository, applicationScope)
     private val saveProject =
-        SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope, fileShare)
+        SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope, recentProjects, fileShare)
     val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope, appPreferences)
 
     /** SavePresetDialog's check of a name, which the project's questions ask too. */
@@ -330,6 +334,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         preferences = appPreferences,
         stepMeshPrompt = stepMeshPrompt,
         editPlateObject = editPlateObject,
+        recentProjects = recentProjects,
     )
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)

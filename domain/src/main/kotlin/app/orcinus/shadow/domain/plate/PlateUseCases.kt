@@ -599,6 +599,7 @@ class AddModelToPlateUseCase(
     private val preferences: AppPreferences,
     private val stepMeshPrompt: StepMeshPrompt,
     private val editPlateObject: EditPlateObjectUseCase,
+    private val recentProjects: RecentProjects? = null,
 ) {
     operator fun invoke(reference: ExternalDocumentReference) = invoke(listOf(reference))
 
@@ -615,12 +616,14 @@ class AddModelToPlateUseCase(
             }
             val projects = picked.filter { (_, model) -> model.path.value.endsWith(".3mf", ignoreCase = true) }
             val models = picked.filterNot { it in projects }
+            // add_file(): with "Add STL/STEP files to recent files list" the models join the recent files once they load.
+            val recentModels = if (preferences[AppConfigKeys.RECENT_MODELS] == "true") models.map { it.first } else emptyList()
             when {
                 // LoadFilesType::SingleOther, and MultipleOther: the files load together,
                 // asking whether they make one object; a plate without a name takes the first one's.
                 projects.isEmpty() -> {
                     val (document, model) = picked.first()
-                    val files = ImportFiles(models.map { it.second.path }, askMulti = models.size > 1)
+                    val files = ImportFiles(models.map { it.second.path }, askMulti = models.size > 1, recentModels = recentModels)
                     load(files, ImportBatch(document = document, displayName = model.displayName), emptyMap(), emptyList())
                 }
                 // Single3MF, Multiple3MF and Multiple3MFOther: the first 3MF file opens
@@ -630,7 +633,7 @@ class AddModelToPlateUseCase(
                 else -> {
                     val (document, project) = projects.first()
                     val rest = projects.drop(1).map { ImportFiles(it.second.path) } +
-                        listOfNotNull(models.takeIf { it.isNotEmpty() }?.let { others -> ImportFiles(others.map { it.second.path }) })
+                        listOfNotNull(models.takeIf { it.isNotEmpty() }?.let { others -> ImportFiles(others.map { it.second.path }, recentModels = recentModels) })
                     open3mf(project.path, ImportBatch(rest = rest, document = document, displayName = project.displayName))
                 }
             }
@@ -928,6 +931,15 @@ class AddModelToPlateUseCase(
         // The plate follows the presets as any change of them: its description, the fit of its objects, the tabs.
         if (presets != null) {
             applicationScope.launch { platePresets.apply(before, presets) }
+        }
+        // set_project_filename() of a project that opened adds it to the recent files
+        // (add_to_recent_projects()), as add_file() adds its models that loaded.
+        if (outcome is ModelLoadOutcome.Success && outcome.objects.isNotEmpty()) {
+            if (outcome.project != null) {
+                batch.document?.let { recentProjects?.add(listOf(it)) }
+            } else {
+                files?.recentModels?.let { recentProjects?.add(it) }
+            }
         }
         val following = next
         if (following != null) {

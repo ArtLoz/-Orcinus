@@ -357,6 +357,13 @@ internal fun AppConfigParcel.toAppConfigOutcome(): AppConfigOutcome {
     return AppConfigOutcome.Success(keys.orEmpty().zip(values.orEmpty()).toMap())
 }
 
+/** The recent projects in the values, the most recent first; an error for none. */
+internal fun List<String>?.toRecentProjectsParcel() = AppConfigParcel().also {
+    if (this == null) it.error = "OrcaSlicer could not read its recent projects" else it.values = toTypedArray()
+}
+
+internal fun AppConfigParcel.toRecentProjects(): List<String>? = if (error != null) null else values.orEmpty().toList()
+
 internal fun PresetNamesOutcome.toParcel() = PresetNamesParcel().also {
     when (this) {
         is PresetNamesOutcome.Failure -> it.error = message

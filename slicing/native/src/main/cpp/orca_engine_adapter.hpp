@@ -3244,4 +3244,11 @@ AppConfigValues app_config_values(const std::vector<std::string>& keys);
 // value the key has after it. A new log level applies at once.
 AppConfigValues set_app_config_value(const std::string& key, const std::string& value);
 
+// MainFrame's recent projects as OrcaSlicer.conf keeps them
+// (AppConfig::get_recent_projects()), the most recent first.
+AppConfigValues recent_projects();
+
+// AppConfig::set_recent_projects() and save(): what the list holds afterwards.
+AppConfigValues set_recent_projects(const std::vector<std::string>& projects);
+
 }  // namespace orcinus::orca

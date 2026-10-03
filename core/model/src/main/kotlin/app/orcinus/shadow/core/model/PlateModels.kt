@@ -626,7 +626,12 @@ sealed interface PlateRequest {
  * asked whether they make one object of several parts, and whether it drops
  * onto the plate.
  */
-data class ImportFiles(val files: List<ModelPath>, val askMulti: Boolean = false) {
+data class ImportFiles(
+    val files: List<ModelPath>,
+    val askMulti: Boolean = false,
+    /** The documents of the files, which join the recent files once they load (add_file() with recent_models). */
+    val recentModels: List<ExternalDocumentReference> = emptyList(),
+) {
     constructor(file: ModelPath) : this(listOf(file))
 
     /** The file the load is known by: the first. */

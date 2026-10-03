@@ -1221,6 +1221,11 @@ class RemoteSlicerEngine(
     override suspend fun setAppConfigValue(key: String, value: String): AppConfigOutcome =
         remote(AppConfigOutcome::Failure) { setAppConfigValue(key, value).toAppConfigOutcome() }
 
+    override suspend fun recentProjects(): List<String>? = remote({ null }) { recentProjects().toRecentProjects() }
+
+    override suspend fun setRecentProjects(projects: List<String>): List<String>? =
+        remote({ null }) { setRecentProjects(projects.toTypedArray()).toRecentProjects() }
+
     private suspend fun <T> remote(failure: (String) -> T, call: ISlicerService.() -> T): T = withContext(Dispatchers.IO) {
         try {
             service().call()

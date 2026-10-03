@@ -2261,6 +2261,14 @@ class NativeSlicerEngine(context: Context) :
         NativeBindings.setAppConfigValue(key, value).toOutcome(listOf(key))
     }
 
+    override suspend fun recentProjects(): List<String>? = whenReady({ null }) {
+        NativeBindings.recentProjects().takeIf { it.status == NativeSceneStatus.SUCCESS }?.values?.toList()
+    }
+
+    override suspend fun setRecentProjects(projects: List<String>): List<String>? = whenReady({ null }) {
+        NativeBindings.setRecentProjects(projects.toTypedArray()).takeIf { it.status == NativeSceneStatus.SUCCESS }?.values?.toList()
+    }
+
     /** Runs [block] on the IO dispatcher once the engine is ready, or reports why it is not. */
     private suspend fun <T> whenReady(failure: (String) -> T, block: () -> T): T = withContext(Dispatchers.IO) {
         val engineStatus = status()

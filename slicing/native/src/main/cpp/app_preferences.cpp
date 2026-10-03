@@ -45,4 +45,32 @@ AppConfigValues set_app_config_value(const std::string& key, const std::string& 
     return result;
 }
 
+AppConfigValues recent_projects()
+{
+    AppConfigValues result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().config == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    result.values = engine().config->get_recent_projects();
+    result.status = SceneStatus::success;
+    return result;
+}
+
+AppConfigValues set_recent_projects(const std::vector<std::string>& projects)
+{
+    AppConfigValues result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().config == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    engine().config->set_recent_projects(projects);
+    detail::save_config(engine());
+    result.values = engine().config->get_recent_projects();
+    result.status = SceneStatus::success;
+    return result;
+}
+
 }  // namespace orcinus::orca
