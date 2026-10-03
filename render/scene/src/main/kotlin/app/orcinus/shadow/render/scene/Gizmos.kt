@@ -67,6 +67,11 @@ internal class GizmoFrame(
     val sceneFacesWorld: Affine3 = Affine3(),
     /** gouraud_light's emission_factor for the grabbers. */
     val emission: Float = 0.1f,
+    /**
+     * Meshes drawn over the scene after its depth is cleared, from both sides,
+     * each with its own emission: the measuring tool's features.
+     */
+    val meshes: List<GizmoMesh> = emptyList(),
 )
 
 /** GL_TRIANGLES of one colour, x, y, z per corner. */

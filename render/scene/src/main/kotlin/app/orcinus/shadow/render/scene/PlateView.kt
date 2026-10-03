@@ -55,6 +55,7 @@ import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PlateDescription
+import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ScenePath
@@ -192,6 +193,17 @@ fun PlateView(
     textDrag: TextDragView? = null,
     /** The text's transformation in its object where the finger let it go. */
     onTextDragged: (Transform3) -> Unit = {},
+    /**
+     * The measuring tool while it is open (GLGizmoMeasure): the view shows the
+     * measured volumes alone, a finger on them explores their features and
+     * selects one where it lets go, and the selections are highlighted and
+     * dimensioned. Null while it is closed.
+     */
+    measure: MeasureView? = null,
+    /** What a finger does with the measuring tool open. */
+    onMeasure: (MeasureTouch) -> Unit = {},
+    /** The distance label's "Edit to scale", with the distance it reads in millimetres. */
+    onEditMeasureDistance: (Double) -> Unit = {},
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -208,6 +220,7 @@ fun PlateView(
         LaunchedEffect(clearance) { controller.setClearance(clearance) }
         LaunchedEffect(labels.keys) { controller.setLabelled(labels.keys) }
         val labelPlacements by controller.labelPlacements.collectAsState()
+        val measureDimensions by controller.measureDimensions.collectAsState()
         SideEffect { controller.onPerspectiveChange = onPerspectiveChange }
         DisposableEffect(camera, controller) {
             camera?.controller = controller
@@ -364,6 +377,19 @@ fun PlateView(
             }
         }.orEmpty()
 
+        // The copies the measuring tool measures, numbered as the scene numbers the copies.
+        val measuredIndexes = measure?.let { open ->
+            var index = 0
+            buildSet {
+                for (plateObject in objects) {
+                    for (instance in plateObject.instances.indices) {
+                        if (PlateInstanceId(plateObject.mesh, instance) in open.copies) add(index)
+                        index++
+                    }
+                }
+            }
+        }.orEmpty()
+
         val haptics = LocalHapticFeedback.current
         SideEffect {
             controller.onSelectObject = onSelectObject
@@ -385,6 +411,8 @@ fun PlateView(
             controller.onCutLine = onCutLine
             controller.onTextDragged = { volume -> onTextDragged(Transform3(volume.elements().toList())) }
             controller.setTextDrag(textDrag)
+            controller.onMeasure = onMeasure
+            controller.setMeasure(measure, measuredIndexes)
             controller.onPixelSize = onPixelSize
             controller.setCut(cut, cutIndex)
             controller.setPainting(painting != null)
@@ -435,6 +463,17 @@ fun PlateView(
             )
             if (navigatorSlot != null && navigatorSquare != null) NavigatorCube(controller, navigatorInput, navigatorSquare, navigatorSlot.faceLabels)
             if (labels.isNotEmpty()) ObjectLabels(labelPlacements, labels, Modifier.fillMaxSize())
+            measureDimensions?.let { dimensions ->
+                MeasureDimensionsOverlay(
+                    dimensions = dimensions,
+                    imperial = measure?.imperial == true,
+                    units = measure?.units.orEmpty(),
+                    editDescription = measure?.editToScaleDescription.orEmpty(),
+                    dark = colors.isDark,
+                    onEditDistance = onEditMeasureDistance,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             // GLCanvas3D::_render_fps_overlay(): nothing until the first second is measured.
             if (graphics.fpsOverlay && fps >= 0) {
                 BasicText(
@@ -608,7 +647,7 @@ private suspend fun PointerInputScope.detectPlateGestures(
             val common = current.keys.intersect(positions.keys)
             if (pressed.size >= 2 && !multiTouch) {
                 multiTouch = true
-                controller.endMove()
+                controller.endMove(cancelled = true)
             }
             if (menuOpened) {
                 event.changes.forEach(PointerInputChange::consume)
@@ -650,7 +689,7 @@ private suspend fun PointerInputScope.detectPlateGestures(
             if (controller.isCutting) controller.tapCut(down.position.x, down.position.y)
             // A painting tool and the cut gizmo keep their object while the finger turns the camera around it,
             // and the variable layer height its selection (GLCanvas3D::on_mouse() for a left up).
-            if (!controller.isPainting && !controller.isCutting && !controller.isEditingLayers) {
+            if (!controller.isPainting && !controller.isCutting && !controller.isEditingLayers && !controller.isMeasuring) {
                 controller.clearSelection()
                 // A tap on another plate selects it.
                 controller.selectPlateAt(down.position.x, down.position.y)
@@ -687,6 +726,19 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     val isPainting: Boolean get() = painting
     private var paintingStroke = false
+
+    /** GLGizmoMeasure open on the copies at [measuredIndexes], which the scene shows alone. */
+    private var measure: MeasureView? = null
+    private var measuredIndexes: Set<Int> = emptySet()
+    private val measureMeshes = MeasureMeshes()
+    val isMeasuring: Boolean get() = measure != null
+    var onMeasure: (MeasureTouch) -> Unit = {}
+
+    /** The ray of the finger exploring the measured volumes, and how far around a selection's centre it takes the sphere, in millimetres. */
+    private var measureRay: Line3? = null
+    private var measureRadius = 0.0
+    private val measureDimensionsState = MutableStateFlow<MeasureDimensions?>(null)
+    val measureDimensions: StateFlow<MeasureDimensions?> = measureDimensionsState.asStateFlow()
 
     /** GLGizmoCut3D open on the copy at [cutIndex], which the scene shows alone. */
     private var cut: CutView? = null
@@ -803,7 +855,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * Whether a finger holds an object or a grabber it can move, or paints a
      * stroke that follows it, instead of orbiting the camera.
      */
-    val moving: Boolean get() = drag != null || paintingStroke
+    val moving: Boolean get() = drag != null || paintingStroke || measureRay != null
 
     /** Whether a finger holds an object it has not moved yet, which a long press turns into its context menu. */
     val holdsObject: Boolean
@@ -944,6 +996,19 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * The cut gizmo on the copy at [index], or none. While it is open the scene
      * shows that copy alone (InstancesHider and toggle_model_objects_visibility).
      */
+    /**
+     * GLGizmoMeasure opens, changes or closes: the scene shows the measured
+     * volumes alone (toggle_selected_volume_visibility()).
+     */
+    fun setMeasure(view: MeasureView?, indexes: Set<Int>) {
+        if (measure == view && measuredIndexes == indexes) return
+        val shownChanged = (measure == null) != (view == null) || measuredIndexes != indexes || measure?.volumes != view?.volumes
+        measure = view
+        measuredIndexes = indexes
+        if (view == null) measureRay = null
+        if (shownChanged) showObjects(plateObjects + listOfNotNull(wipeTower)) else invalidate()
+    }
+
     fun setCut(cut: CutView?, index: Int?) {
         if (this.cut == cut && cutIndex == index) return
         val opened = (this.cut == null) != (cut == null) || cutIndex != index
@@ -1052,6 +1117,25 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     fun press(x: Float, y: Float, grabberRadius: Float): Boolean {
         if (cut != null) return pressCut(x.toDouble(), y.toDouble(), grabberRadius.toDouble())
+        measure?.let { open ->
+            // GLGizmoMeasure::on_mouse(): over the measured volumes, or a
+            // selection's sphere, the finger is the tool's, which shows what is
+            // under it and selects that where it lets go; elsewhere it turns
+            // the camera, as the desktop tool leaves the mouse to the canvas.
+            val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
+            // The sphere is 7.5 pixels wide on the desktop; a fingertip takes it from further.
+            val radius = maxOf(MEASURE_SPHERE_RADIUS * pixel(), grabberRadius / camera.zoom)
+            val direction = ray.unitVector()
+            val onSphere = measureSpheres(open.measurement).any { center ->
+                val along = (center - ray.a).dot(direction)
+                along >= 0.0 && (center - ray.a - direction * along).norm() <= radius
+            }
+            if (!onSphere && objects.none { it.index != WIPE_TOWER_INDEX && it.raycast(ray) != null }) return false
+            measureRay = ray
+            measureRadius = radius
+            onMeasure(measureTouch(ray, select = false))
+            return true
+        }
         if (painting) {
             // GLGizmoPainterBase::gizmo_event(): a press on the painted object
             // starts a stroke there, and the engine finds the triangle under
@@ -1110,6 +1194,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * in the plane of the screen when the camera looks along the plate.
      */
     fun moveTo(x: Float, y: Float) {
+        if (measureRay != null) {
+            camera.mouseRay(x.toDouble(), y.toDouble())?.let { ray ->
+                measureRay = ray
+                onMeasure(measureTouch(ray, select = false))
+            }
+            return
+        }
         if (paintingStroke) {
             // The brush follows the finger, as the desktop gizmo paints while
             // the left button is held; "Vertical" keeps the finger's x where
@@ -1209,7 +1300,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * drops onto it unless its auto drop is off, one sunk into the plate stays,
      * and the placement goes to the app. A press that never moved changes nothing.
      */
-    fun endMove() {
+    /** The finger let go, or [cancelled] as another finger came. */
+    fun endMove(cancelled: Boolean = false) {
+        measureRay?.let { ray ->
+            measureRay = null
+            onMeasure(if (cancelled) MeasureTouch.Leave else measureTouch(ray, select = true))
+            return
+        }
         if (paintingStroke) {
             paintingStroke = false
             return
@@ -1814,6 +1911,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** OrcaSlicer's gizmo sizes are desktop pixels at the camera target. */
     private fun pixel() = density / camera.zoom
 
+    private fun measureTouch(ray: Line3, select: Boolean): MeasureTouch {
+        val origin = Vector3(ray.a.x, ray.a.y, ray.a.z)
+        val direction = (ray.b - ray.a).let { Vector3(it.x, it.y, it.z) }
+        return if (select) MeasureTouch.Select(origin, direction, measureRadius) else MeasureTouch.Explore(origin, direction, measureRadius)
+    }
+
     private fun moveGizmo(target: SceneObject) = MoveGizmo(target.bounds, pixel())
 
     private fun rotateGizmo(target: SceneObject) = RotateGizmo(target.sphereCenter(), target.sphereRadius, pixel())
@@ -1856,7 +1959,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private fun showObjects(objects: List<SceneObject>) {
         val preview = cut?.previewParts.orEmpty().let { parts -> parts.isNotEmpty() && parts.all { it.mesh.value in cutPartMeshes } }
         shownPreview = cut?.previewParts.orEmpty().isNotEmpty()
+        val measured = measure
         val shown = when {
+            // toggle_selected_volume_visibility() leaves the wipe tower as it is.
+            measured != null -> objects.filter { volume ->
+                volume.index == WIPE_TOWER_INDEX ||
+                    (volume.index in measuredIndexes && measured.volumes?.let { volumes -> volumes.any { it.value == volume.key } } != false)
+            }
             cut == null -> objects
             preview -> emptyList()
             else -> objects.filter { it.index == cutIndex }
@@ -1882,6 +1991,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         camera.sceneBox = box
         camera.applyProjection(box)
         placeLabels()
+        measureDimensionsState.value = measure?.let { open -> measureDimensions(open, camera::project, density, pixel()) }
         renderer.setFrame(
             SceneFrame(
                 view = camera.viewMatrix,
@@ -1917,12 +2027,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), normal.dot(gizmo.center).toFloat())
                 },
                 layerEditing = layerEditing,
+                selectionHidden = measure != null,
             ),
         )
         surface.requestRender()
     }
 
     private fun gizmoFrame(): GizmoFrame? {
+        measure?.let { open -> return measureFrame(open, pixel(), measureMeshes) }
         cutGizmo()?.let { gizmo ->
             val open = cut ?: return null
             val dragging = drag as? CutDrag
@@ -1986,6 +2098,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         const val ZOOM_TO_BED_MARGIN_FACTOR = 2.0
         // libslic3r.h and Model.hpp
         const val EPSILON = 1e-4
+        // GLGizmoMeasure's m_sphere: smooth_sphere(16, 7.5f), in pixels.
+        const val MEASURE_SPHERE_RADIUS = 7.5
         const val SINKING_Z_THRESHOLD = -0.001
         // GLGizmoCut.cpp: UPPER_PART_COLOR, LOWER_PART_COLOR and CUT_PLANE_DEF_COLOR.
         val UPPER_PART = floatArrayOf(0f, 1f, 1f, 1f)

@@ -93,6 +93,25 @@ internal object MeshFiles {
         build(FloatBuffer.wrap(positions), IntBuffer.wrap(indices), positions.size / 3, indices.size / 3, smooth)
 
     /**
+     * GLModel::Geometry of the EVertexLayout::P3N3 layout, as smooth_sphere()
+     * and its kind make it: x, y, z and the normal of every vertex, and three
+     * vertex indices per triangle.
+     */
+    fun fromVertexNormals(positions: FloatArray, normals: FloatArray, indices: IntArray): MeshData {
+        val vertices = ByteBuffer.allocateDirect(indices.size * FLOATS_PER_CORNER * Float.SIZE_BYTES)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+        for (index in indices) {
+            if (index < 0 || index * 3 + 2 >= positions.size || index * 3 + 2 >= normals.size) throw IOException("Mesh is corrupt")
+            vertices.put(positions, index * 3, 3).put(normals, index * 3, 3)
+        }
+        vertices.flip()
+        val corners = List(positions.size / 3) { Vec3(positions[it * 3].toDouble(), positions[it * 3 + 1].toDouble(), positions[it * 3 + 2].toDouble()) }
+        val bounds = if (corners.isEmpty()) Box3(Vec3.ZERO, Vec3.ZERO) else Box3.of(corners)
+        return MeshData(vertices, indices.size, bounds)
+    }
+
+    /**
      * GLModel::init_from(const indexed_triangle_set&): a vertex per corner,
      * with the face's normal, or in the realistic view with "Smooth normals"
      * ([smooth]) the corner's normal of igl::per_corner_normals() at 5 degrees.

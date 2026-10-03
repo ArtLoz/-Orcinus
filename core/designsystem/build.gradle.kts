@@ -111,6 +111,8 @@ val orcaIconNames = listOf(
     "align_vertical_top", "align_vertical_center", "align_vertical_bottom",
     "add_text_part", "add_text_negative", "add_text_modifier", "svg_part", "svg_negative", "svg_modifier",
     "menu_obj_text", "menu_obj_svg",
+    // GLGizmoMeasure: the reset buttons of its selections and the copy buttons of its measurements.
+    "revert_btn", "copy_menu",
     "param_acceleration", "param_adhension", "param_advanced", "param_bridge", "param_cooling", "param_filament_for_features",
     "param_flush", "param_gcode", "param_infill", "param_ironing", "param_jerk", "param_junction_deviation",
     "param_layer_height", "param_line_width", "param_ooze_prevention", "param_overhang", "param_overhang_speed",
@@ -158,6 +160,8 @@ val orcaDarkIconNames = listOf(
     "mmu_segmentation",
     // GLCanvas3D::_render_canvas_toolbar(): IC_CANVAS_MENU_DARK and IC_CANVAS_ZOOM_DARK.
     "canvas_menu", "canvas_zoom",
+    // GLGizmoMeasure: ImGui::ClipboardBtnDarkIcon.
+    "copy_menu",
 )
 
 /**

@@ -27,6 +27,12 @@ import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeasureHover
+import app.orcinus.shadow.core.model.MeasureHoverOutcome
+import app.orcinus.shadow.core.model.MeasureOutcome
+import app.orcinus.shadow.core.model.MeasureRay
+import app.orcinus.shadow.core.model.MeasureReset
+import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
@@ -92,6 +98,8 @@ import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
 import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
+import app.orcinus.shadow.domain.plate.MeasureTarget
+import app.orcinus.shadow.domain.plate.MeasureUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
@@ -133,6 +141,7 @@ import app.orcinus.shadow.domain.plate.embossKindOf
 import app.orcinus.shadow.domain.plate.isTextVolume
 import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.makeUniqueName
+import app.orcinus.shadow.domain.plate.measuredVolumes
 import app.orcinus.shadow.domain.plate.selectedEmbossVolume
 import app.orcinus.shadow.domain.plate.toggledBold
 import app.orcinus.shadow.domain.plate.toggledItalic
@@ -143,6 +152,7 @@ import app.orcinus.shadow.render.scene.CameraEye
 import app.orcinus.shadow.render.scene.CutConnectorEvent
 import app.orcinus.shadow.render.scene.CutLineEvent
 import app.orcinus.shadow.render.scene.CutPlanes
+import app.orcinus.shadow.render.scene.MeasureTouch
 import app.orcinus.shadow.render.scene.ObjectTransforms
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.SurfaceHit
@@ -233,6 +243,7 @@ class PrepareViewModel(
     private val textStyles: TextStylesUseCase,
     private val requestEmboss: RequestEmbossUseCase,
     private val removeObjectPart: RemoveObjectPartUseCase,
+    private val measureFeatures: MeasureUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
@@ -309,6 +320,9 @@ class PrepareViewModel(
 
     /** What each painting tool was left with, which it opens with again, as the desktop gizmos keep it. */
     private val paintingTools = mutableMapOf<PaintKind, PaintingMode>()
+
+    /** The measuring tool's touches and resets, which the engine works through in their order. */
+    private val measureCommands = Channel<MeasureCommand>(Channel.UNLIMITED)
     private val view = MutableStateFlow(PrepareViewState())
 
     /**
@@ -455,6 +469,49 @@ class PrepareViewModel(
                     is LayerEditingOutcome.Success -> showLayers(target.mesh, outcome.editing)
                     is LayerEditingOutcome.Failure -> view.update { it.copy(layerDescription = null) }
                     null -> Unit
+                }
+            }
+        }
+        // GLGizmoMeasure::data_changed(): while the tool is open the engine
+        // measures the selected volumes, registered anew with the selections
+        // reset whenever the selection or the plate changes; the tool closes
+        // once nothing is selected (GLGizmosManager::refresh_on_off_state()).
+        viewModelScope.launch {
+            combine(plate, view.map { it.measure != null }.distinctUntilChanged()) { state, open ->
+                when {
+                    !open -> MeasureChange.Closed
+                    state.measuredVolumes().isEmpty() -> MeasureChange.Lost
+                    else -> measureFeatures.targetOf(state)?.let(MeasureChange::Open) ?: MeasureChange.Waiting
+                }
+            }.distinctUntilChanged().collectLatest { change ->
+                when (change) {
+                    MeasureChange.Closed -> measureFeatures.end()
+                    MeasureChange.Lost -> closeMeasure()
+                    MeasureChange.Waiting -> Unit
+                    is MeasureChange.Open -> when (val outcome = measureFeatures.open(change.target)) {
+                        is MeasureOutcome.Success -> showMeasurement(outcome.measurement)
+                        is MeasureOutcome.Failure -> closeMeasure()
+                        null -> Unit
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            while (true) {
+                var command = measureCommands.receive()
+                // A finger moving faster than the engine answers: only its latest place is explored.
+                while (command is MeasureCommand.Touch && command.touch is MeasureTouch.Explore) {
+                    command = measureCommands.tryReceive().getOrNull() ?: break
+                }
+                val pointSelection = view.value.measure?.pointSelection ?: continue
+                when (command) {
+                    is MeasureCommand.Reset -> (measureFeatures.reset(command.reset) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
+                    is MeasureCommand.Touch -> when (val touch = command.touch) {
+                        is MeasureTouch.Explore -> (measureFeatures.hover(touch.ray(pointSelection)) as? MeasureHoverOutcome.Success)?.let { showMeasureHover(it.hover) }
+                        // on_mouse() for a left press, and the finger is gone: nothing is under it any more.
+                        is MeasureTouch.Select -> (measureFeatures.select(touch.ray(pointSelection)) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
+                        MeasureTouch.Leave -> view.update { state -> state.measure?.let { state.copy(measure = it.copy(hover = null)) } ?: state }
+                    }
                 }
             }
         }
@@ -1648,10 +1705,11 @@ class PrepareViewModel(
         view.update { it.copy(svg = null) }
     }
 
-    /** The text and SVG tools close, as another gizmo opens. */
+    /** The text and SVG tools close, as another gizmo opens; the measuring tool too. */
     private fun closeEmbossTools() {
         closeText()
         closeSvg()
+        closeMeasure()
     }
 
     /** What the engine tells of the SVG [volume] and its picture, for the window open on [open]. */
@@ -2055,9 +2113,87 @@ class PrepareViewModel(
     private fun closeOtherTools() {
         closeCut()
         closePainting()
+        closeMeasure()
         openSimplify.close()
         editLayerHeights.enable(false)
         view.update { it.copy(gizmo = null, arrangeOptionsOpen = false) }
+    }
+
+    /**
+     * The toolbar's Measure (GLGizmoMeasure): the tool opens on the selected
+     * volumes, the other tools of the canvas closing first, or closes.
+     */
+    fun toggleMeasure() {
+        if (view.value.measure != null) return closeMeasure()
+        if (!state.value.canMeasure) return
+        closeOtherTools()
+        closeEmbossTools()
+        view.update { it.copy(measure = MeasureMode()) }
+    }
+
+    /** "Done" (reset_all_gizmos()): the tool closes, and the engine lets the volumes go. */
+    fun closeMeasure() {
+        if (view.value.measure == null) return
+        view.update { it.copy(measure = null) }
+    }
+
+    /** What a finger does on the 3D view while the tool is open. */
+    fun measureTouch(touch: MeasureTouch) {
+        if (view.value.measure != null) measureCommands.trySend(MeasureCommand.Touch(touch))
+    }
+
+    /** The window's reset buttons (reset_feature1(), reset_feature2()), and Delete's "Restart selection" (reset_all_feature()). */
+    fun resetMeasure(reset: MeasureReset) {
+        if (view.value.measure != null) measureCommands.trySend(MeasureCommand.Reset(reset))
+    }
+
+    /**
+     * Esc (gizmo_event(SLAGizmoEventType::Escape)): the second selection
+     * goes, or else the first; with none, the tool closes.
+     */
+    fun escapeMeasure() {
+        val mode = view.value.measure ?: return
+        when {
+            mode.measurement.first == null -> closeMeasure()
+            mode.measurement.second != null -> resetMeasure(MeasureReset.SECOND)
+            else -> resetMeasure(MeasureReset.FIRST)
+        }
+    }
+
+    /** Shift held or let go: a finger selects points on the features (EMode::PointSelection), or the features. */
+    fun setMeasurePointSelection(on: Boolean) {
+        view.update { state -> state.measure?.let { state.copy(measure = it.copy(pointSelection = on)) } ?: state }
+    }
+
+    /** The selections and what they measure; nothing is under the finger once it let go. */
+    private fun showMeasurement(measurement: Measurement) {
+        view.update { state -> state.measure?.let { state.copy(measure = it.copy(measurement = measurement, hover = null)) } ?: state }
+    }
+
+    /**
+     * What the finger is on. A plane the engine told before comes without its
+     * triangles, which the tool still has from the hover, the selection or
+     * the measurement that told it.
+     */
+    private fun showMeasureHover(hover: MeasureHover) {
+        view.update { state ->
+            val mode = state.measure ?: return@update state
+            val feature = hover.feature
+            val shown = if (hover.unchanged && feature != null && feature.planeMesh == null) {
+                val known = listOfNotNull(
+                    mode.hover?.feature,
+                    mode.measurement.hovered,
+                    mode.measurement.first?.feature,
+                    mode.measurement.first?.source,
+                    mode.measurement.second?.feature,
+                    mode.measurement.second?.source,
+                ).firstOrNull { it.planeMesh != null && it.sameAs(feature) }
+                hover.copy(feature = feature.copy(planeMesh = known?.planeMesh))
+            } else {
+                hover
+            }
+            state.copy(measure = mode.copy(hover = shown))
+        }
     }
 
     /** The toolbar's "Variable layer height": the bar opens on the selected object, or closes. */
@@ -2480,6 +2616,31 @@ class PrepareViewModel(
         const val POSITION_EPSILON = 1e-4
     }
 }
+
+/** What the measuring tool's engine session follows: the volumes to measure, or none. */
+private sealed interface MeasureChange {
+    /** The tool is closed. */
+    data object Closed : MeasureChange
+
+    /** Nothing is selected any more, which closes the tool. */
+    data object Lost : MeasureChange
+
+    /** The plate cannot change for now: the session stays as it is. */
+    data object Waiting : MeasureChange
+
+    data class Open(val target: MeasureTarget) : MeasureChange
+}
+
+/** What the measuring tool asks the engine, in order. */
+private sealed interface MeasureCommand {
+    data class Touch(val touch: MeasureTouch) : MeasureCommand
+
+    data class Reset(val reset: MeasureReset) : MeasureCommand
+}
+
+private fun MeasureTouch.Explore.ray(pointSelection: Boolean) = MeasureRay(origin, direction, pointSelection, sphereRadius = sphereRadius)
+
+private fun MeasureTouch.Select.ray(pointSelection: Boolean) = MeasureRay(origin, direction, pointSelection, sphereRadius = sphereRadius)
 
 /**
  * What fuzzy skin of the object painted with it comes from: the object's own

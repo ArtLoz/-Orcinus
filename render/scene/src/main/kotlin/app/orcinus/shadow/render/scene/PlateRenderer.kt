@@ -73,6 +73,8 @@ internal class SceneFrame(
     val clippingPlane: FloatArray? = null,
     /** The variable layer height while it is on. */
     val layerEditing: SceneLayerEditing? = null,
+    /** GLGizmosManager::is_running() for a tool that hides the selection's box: the measuring tool. */
+    val selectionHidden: Boolean = false,
 )
 
 /**
@@ -1027,8 +1029,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
      * corners of the bounding box, with arrows under it when auto drop is off.
      */
     private fun renderSelection(program: GlProgram, frame: SceneFrame) {
-        // GLCanvas3D::_render_selection(): not while the cut gizmo runs.
-        if (frame.colorClipPlane != null) return
+        // GLCanvas3D::_render_selection(): not while the cut gizmo or the measuring tool runs.
+        if (frame.colorClipPlane != null || frame.selectionHidden) return
         // The desktop app draws one box around the whole selection; a plate of
         // a phone holds few objects, so each selected one gets its brackets,
         // around the copy and the parts that belong to it together.
@@ -1112,6 +1114,23 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         }
         GLES30.glClear(GLES30.GL_DEPTH_BUFFER_BIT)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+
+        if (gizmo.meshes.isNotEmpty()) {
+            // GLGizmoMeasure::on_render(): gouraud_light over the cleared depth, without culling.
+            val light = programs.gouraudLight
+            light.use()
+            light.setMatrix4("projection_matrix", frame.projection)
+            for (placed in gizmo.meshes) {
+                val array = gizmoMeshes[placed.key]?.takeIf { it.first === placed.mesh }?.second ?: meshArray(placed.mesh).also { made ->
+                    gizmoMeshes.put(placed.key, placed.mesh to made)?.second?.release()
+                }
+                light.setFloat("emission_factor", placed.emission ?: gizmo.emission)
+                light.setVec4("uniform_color", placed.color.red, placed.color.green, placed.color.blue, placed.color.alpha)
+                light.setMatrix4("view_model_matrix", (frame.view * placed.world).toFloatArray())
+                light.setMatrix3("view_normal_matrix", normalMatrix(frame.view, placed.world))
+                array.draw()
+            }
+        }
 
         if (gizmo.faces.isNotEmpty()) {
             // GLGizmoFlatten::on_render(): blended faces with the instance matrix, back faces culled.

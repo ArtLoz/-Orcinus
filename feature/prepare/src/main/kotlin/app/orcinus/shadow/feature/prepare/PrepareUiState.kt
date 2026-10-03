@@ -18,6 +18,8 @@ import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerHeightEdit
+import app.orcinus.shadow.core.model.MeasureHover
+import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintTool
@@ -53,6 +55,7 @@ import app.orcinus.shadow.core.model.placing
 import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.plateSettingsChoice
+import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withPainted
 import app.orcinus.shadow.core.model.withPartAt
@@ -61,6 +64,7 @@ import app.orcinus.shadow.domain.plate.canAddPlate
 import app.orcinus.shadow.domain.plate.canDeletePlate
 import app.orcinus.shadow.domain.plate.canWorkOnPlate
 import app.orcinus.shadow.domain.plate.layerEditingObject
+import app.orcinus.shadow.domain.plate.measuredVolumes
 import app.orcinus.shadow.domain.plate.presetValue
 import app.orcinus.shadow.domain.plate.sameStyleAs
 import app.orcinus.shadow.domain.plate.spiralVaseMode
@@ -137,6 +141,14 @@ data class PrepareUiState(
     val svg: SvgMode? = null,
     /** What the object list asks of the text or SVG tool, which the canvas places. */
     val embossRequest: EmbossRequest? = null,
+    /** The measuring tool (GLGizmoMeasure), while it is open. */
+    val measure: MeasureMode? = null,
+    /** The copies the measuring tool measures: the selected ones. */
+    val measuredCopies: Set<PlateInstanceId> = emptySet(),
+    /** The meshes of the volumes it measures when the selection is a part; null for all of the copies' volumes. */
+    val measuredVolumes: Set<ScenePath>? = null,
+    /** GLGizmoMeasure::on_is_activable(): something is selected to measure. */
+    val canMeasure: Boolean = false,
     /** Plater::can_layers_editing(): the toolbar's "Variable layer height" can open on the selection. */
     val canEditLayers: Boolean = false,
     /** The wipe tower of the plate; null when the plate prints with one filament. */
@@ -336,6 +348,20 @@ internal data class PrepareViewState(
     val layerDescription: Pair<ScenePath, LayerEditing>? = null,
     /** The height under the finger on the variable layer height bar. */
     val layerCursor: Double? = null,
+    /** The measuring tool, while it is open. */
+    val measure: MeasureMode? = null,
+)
+
+/**
+ * GLGizmoMeasure while it is open: the selections and what they measure as
+ * the engine told them last, what the finger is on while it explores, and
+ * whether a finger selects points (m_mode, which the desktop app's Shift
+ * switches).
+ */
+data class MeasureMode(
+    val measurement: Measurement = Measurement(),
+    val hover: MeasureHover? = null,
+    val pointSelection: Boolean = false,
 )
 
 /**
@@ -519,6 +545,10 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         text = view.text?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } && canEditPlate },
         svg = view.svg?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } && canEditPlate },
         embossRequest = embossRequest.takeIf { canEditPlate },
+        measure = view.measure?.takeIf { canEditPlate },
+        measuredCopies = selectedInstances,
+        measuredVolumes = selectedPart?.let { part -> objects.firstOrNull { it.mesh == part.mesh }?.volumeAt(part.index)?.mesh }?.let(::setOf),
+        canMeasure = canEditPlate && measuredVolumes().isNotEmpty(),
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,
         filamentColors = presets?.filamentColors.orEmpty().mapNotNull(::parseFilamentColor),

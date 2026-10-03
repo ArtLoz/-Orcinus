@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.prepare
 
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -160,6 +161,7 @@ import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.CutConnectorView
 import app.orcinus.shadow.render.scene.CutView
 import app.orcinus.shadow.render.scene.LayerHeightBar
+import app.orcinus.shadow.render.scene.MeasureView
 import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateGraphics
@@ -436,6 +438,14 @@ internal fun PrepareRoute(
             saveAs = { viewModel.svgSaveName()?.let(svgSaver::launch) },
             drag = viewModel::dragSvg,
         ),
+        measureActions = MeasureActions(
+            toggle = viewModel::toggleMeasure,
+            close = viewModel::closeMeasure,
+            touch = viewModel::measureTouch,
+            reset = viewModel::resetMeasure,
+            escape = viewModel::escapeMeasure,
+            setPointSelection = viewModel::setMeasurePointSelection,
+        ),
         layerActions = LayerEditingActions(
             toggle = viewModel::toggleLayerEditing,
             close = viewModel::closeLayerEditing,
@@ -534,6 +544,7 @@ internal fun PrepareScreen(
     textActions: TextActions = TextActions.NONE,
     textFamilies: List<TextFontFamily> = emptyList(),
     svgActions: SvgActions = SvgActions.NONE,
+    measureActions: MeasureActions = MeasureActions.NONE,
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
@@ -561,6 +572,8 @@ internal fun PrepareScreen(
                 textActions.addRequested(request, hit, defaultText)
             }
         }
+        // The desktop measuring tool's Esc: the phone's Back drops the last selection, and with none closes the tool.
+        BackHandler(enabled = state.measure != null) { measureActions.escape() }
         var renamingPlate by remember { mutableStateOf<Int?>(null) }
         // Plater::select_plate_by_hover_id(), action 5: the plate is selected, then its settings open.
         var customizingPlate by remember { mutableStateOf<Int?>(null) }
@@ -652,13 +665,27 @@ internal fun PrepareScreen(
                 labels = if (canvas.labels) objectLabels(state) else emptyMap(),
                 smoothNormals = canvas.realistic && canvas.smoothNormals,
                 // _render_sequential_clearance(): with no gizmo open, or the move, rotation or scale gizmo.
-                clearance = state.clearance.takeIf { state.painting == null && state.cut == null && state.simplify == null && state.gizmo != PlateGizmo.LAY_ON_FACE },
+                clearance = state.clearance.takeIf {
+                    state.painting == null && state.cut == null && state.simplify == null && state.measure == null && state.gizmo != PlateGizmo.LAY_ON_FACE
+                },
                 antialiasingSamples = canvas.antialiasingSamples,
                 layerEditing = state.layerEditing?.view(),
                 // SurfaceDrag: the text the tool is open on follows a finger over its object.
                 textDrag = state.text?.takeUnless { it.busy }?.let { embossDragOf(it.volume, it.described, keepUp = true, state.sceneCopies) }
                     ?: state.svg?.takeUnless { it.busy }?.let { embossDragOf(it.volume, it.described, keepUp = it.keepUp, state.sceneCopies) },
                 onTextDragged = { placement -> if (state.text != null) textActions.drag(placement) else svgActions.drag(placement) },
+                measure = state.measure?.let { mode ->
+                    MeasureView(
+                        copies = state.measuredCopies,
+                        volumes = state.measuredVolumes,
+                        pointSelection = mode.pointSelection,
+                        hover = mode.hover,
+                        measurement = mode.measurement,
+                        imperial = canvas.imperialUnits,
+                        units = orcaString(if (canvas.imperialUnits) "in" else "mm"),
+                    )
+                },
+                onMeasure = measureActions.touch,
             )
         }
         plateMenu?.let { position ->
@@ -831,6 +858,7 @@ internal fun PrepareScreen(
                             val hit = state.selectedObject?.let { viewCamera.surfaceHit(it) }
                             textActions.toggle(hit, viewCamera.bedPoint(), defaultText)
                         },
+                        onToggleMeasure = measureActions.toggle,
                     )
                 }
                 val position = state.selectedPosition
@@ -857,6 +885,7 @@ internal fun PrepareScreen(
                     state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
                     state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye)
                     state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye)
+                    state.measure != null -> MeasurePanel(state.measure, measureActions, canvas.imperialUnits)
                     state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
@@ -1287,6 +1316,7 @@ private fun CanvasToolbar(
     onToggleCut: () -> Unit = {},
     onToggleLayerEditing: () -> Unit = {},
     onToggleText: () -> Unit = {},
+    onToggleMeasure: () -> Unit = {},
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -1401,7 +1431,14 @@ private fun CanvasToolbar(
             enabled = state.canEditPlate,
             selected = state.text != null,
         )
-        gizmo(DesignR.drawable.orca_toolbar_measure, R.string.gizmo_measure, null)
+        // GLGizmoMeasure: the selected volumes are measured.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_measure,
+            contentDescription = stringResource(R.string.gizmo_measure),
+            onClick = onToggleMeasure,
+            enabled = state.canMeasure,
+            selected = state.measure != null,
+        )
         gizmo(DesignR.drawable.orca_toolbar_assembly, R.string.gizmo_assembly, null)
         gizmo(DesignR.drawable.orca_toolbar_brimears, R.string.gizmo_brim_ears, null)
         OrcaCanvasToolbarSeparator()

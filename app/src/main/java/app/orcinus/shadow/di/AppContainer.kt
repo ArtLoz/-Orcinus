@@ -88,6 +88,7 @@ import app.orcinus.shadow.domain.plate.ImportConfigUseCase
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import app.orcinus.shadow.domain.plate.ListHostPrintersUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
+import app.orcinus.shadow.domain.plate.MeasureUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObjectMeshRetention
@@ -220,6 +221,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val textFonts = TextFontsUseCase(AndroidSystemFonts(), engine)
     private val textStyles = TextStylesUseCase(engine, textFonts, sceneFiles, plateRepository)
     private val requestEmboss = RequestEmbossUseCase(plateRepository)
+    // GLGizmoMeasure: the engine keeps the features of the measured volumes while the tool is open.
+    private val measureFeatures = MeasureUseCase(engine, plateRepository)
     private val placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope)
     // Sidebar::auto_calc_flushing_volumes(), which filament, printer and settings changes ask for.
     private val flushVolumes = UpdateFlushVolumesUseCase(engine, plateRepository)
@@ -583,6 +586,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             textStyles = textStyles,
             requestEmboss = requestEmboss,
             removeObjectPart = removeObjectPart,
+            measureFeatures = measureFeatures,
             preferences = appPreferences,
             setPreference = setPreference,
             findValidationSetting = FindValidationSettingUseCase(settingsTabs),
