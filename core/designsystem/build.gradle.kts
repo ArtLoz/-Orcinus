@@ -103,6 +103,13 @@ val orcaIconNames = listOf(
     "height_range_layer", "height_range_modifier",
     // ObjectDataViewModel: the object's variable layer height (colHeight).
     "obj_variable_layer_height",
+    // GLGizmoEmboss and GLGizmoSVG: their windows' icons, and the icons of
+    // text and SVG volumes in the object list and the menus.
+    "make_bold", "make_italic", "make_unbold", "make_unitalic", "exclamation", "refresh", "reflection_x", "reflection_y",
+    "align_horizontal_left", "align_horizontal_center", "align_horizontal_right",
+    "align_vertical_top", "align_vertical_center", "align_vertical_bottom",
+    "add_text_part", "add_text_negative", "add_text_modifier", "svg_part", "svg_negative", "svg_modifier",
+    "menu_obj_text", "menu_obj_svg",
     "param_acceleration", "param_adhension", "param_advanced", "param_bridge", "param_cooling", "param_filament_for_features",
     "param_flush", "param_gcode", "param_infill", "param_ironing", "param_jerk", "param_junction_deviation",
     "param_layer_height", "param_line_width", "param_ooze_prevention", "param_overhang", "param_overhang_speed",

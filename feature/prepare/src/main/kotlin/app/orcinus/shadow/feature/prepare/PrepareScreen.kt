@@ -39,6 +39,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +102,8 @@ import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.model.EmbossKind
+import app.orcinus.shadow.core.model.EmbossRequest
 import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
@@ -111,6 +114,7 @@ import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintTool
@@ -125,11 +129,13 @@ import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SliceProgress
 import app.orcinus.shadow.core.model.SliceStage
+import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
+import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
@@ -177,6 +183,10 @@ internal fun PrepareRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel) { viewModel.settingToOpen.collect(onOpenSetting) }
     val canvas by viewModel.canvas.collectAsStateWithLifecycle()
+    val textFamilies by viewModel.textFamilies.collectAsStateWithLifecycle()
+    // The default styles of the text tool are named in the app's language (_u8L()).
+    val catalog = LocalOrcaCatalog.current
+    SideEffect { viewModel.styleNames = { name -> catalog.translate(name) } }
     // The file dialog of the desktop app takes several files at once.
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) viewModel.addModels(uris.map { it.toString() })
@@ -362,6 +372,23 @@ internal fun PrepareRoute(
                 settingsDone = viewModel::snapshotCutConnectors,
             ),
         ),
+        textActions = TextActions(
+            toggle = viewModel::toggleText,
+            add = viewModel::addText,
+            addRequested = viewModel::addRequestedText,
+            edit = viewModel::editText,
+            close = viewModel::closeText,
+            setText = viewModel::setText,
+            setStyle = viewModel::setTextStyle,
+            setFont = viewModel::setTextFont,
+            toggleItalic = viewModel::toggleTextItalic,
+            toggleBold = viewModel::toggleTextBold,
+            selectStyle = viewModel::selectTextStyle,
+            reset = viewModel::resetTextStyle,
+            setAdvanced = viewModel::setTextAdvanced,
+            setType = viewModel::setTextType,
+        ),
+        textFamilies = textFamilies,
         layerActions = LayerEditingActions(
             toggle = viewModel::toggleLayerEditing,
             close = viewModel::closeLayerEditing,
@@ -457,6 +484,8 @@ internal fun PrepareScreen(
     plateActions: PlateActions = PlateActions.NONE,
     cutActions: CutActions = CutActions.NONE,
     layerActions: LayerEditingActions = LayerEditingActions.NONE,
+    textActions: TextActions = TextActions.NONE,
+    textFamilies: List<TextFontFamily> = emptyList(),
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
@@ -467,7 +496,16 @@ internal fun PrepareScreen(
         var plateMenu by remember { mutableStateOf<Offset?>(null) }
         var askingCopies by remember { mutableStateOf<Int?>(null) }
         var cloning by remember { mutableStateOf<Int?>(null) }
-        var addingPart by remember { mutableStateOf<Pair<Int, VolumeType>?>(null) }
+        var addingPart by remember { mutableStateOf<Triple<Int, VolumeType, Offset>?>(null) }
+        // OrcaSlicer's "Embossed text", the text a new text starts with.
+        val defaultText = orcaString("Embossed text")
+        // The object list's "Add part" > "Text": the canvas places it on the
+        // object's first copy, as the desktop app does without a mouse position.
+        LaunchedEffect(state.embossRequest) {
+            val request = state.embossRequest as? EmbossRequest.Add ?: return@LaunchedEffect
+            val copy = state.sceneCopies.indexOfFirst { it.id == PlateInstanceId(request.mesh, 0) }
+            textActions.addRequested(request, copy.takeIf { it >= 0 }?.let { viewCamera.surfaceHit(it) }, defaultText)
+        }
         var renamingPlate by remember { mutableStateOf<Int?>(null) }
         // Plater::select_plate_by_hover_id(), action 5: the plate is selected, then its settings open.
         var customizingPlate by remember { mutableStateOf<Int?>(null) }
@@ -565,7 +603,16 @@ internal fun PrepareScreen(
             )
         }
         plateMenu?.let { position ->
-            PlateContextMenu(state, position, onDismiss = { plateMenu = null }, onAddModel = onAddModel, onPaste = onPaste, actions = plateMenuActions)
+            PlateContextMenu(
+                state,
+                position,
+                onDismiss = { plateMenu = null },
+                onAddModel = onAddModel,
+                onPaste = onPaste,
+                actions = plateMenuActions,
+                // An object of a text standing where the finger held the bed.
+                onAddText = { textActions.add(null, VolumeType.PART, null, viewCamera.bedPoint(position), defaultText) },
+            )
         }
         objectMenu?.let { menu ->
             ObjectContextMenu(
@@ -575,7 +622,8 @@ internal fun PrepareScreen(
                 onSetAutoDrop,
                 onDeleteObject,
                 objectMenuActions,
-                onChooseShape = { type -> addingPart = menu.index to type },
+                onChooseShape = { type -> addingPart = Triple(menu.index, type, menu.position) },
+                onEditText = { volume -> textActions.edit(volume) },
                 onAskNumberOfInstances = { askingCopies = menu.index },
                 onAskClone = { cloning = menu.index },
             )
@@ -639,13 +687,18 @@ internal fun PrepareScreen(
                 },
             )
         }
-        addingPart?.let { (index, type) ->
+        addingPart?.let { (index, type, at) ->
             PartShapeSheet(
                 type = type,
                 onDismiss = { addingPart = null },
                 onChoose = { shape, name ->
                     addingPart = null
                     objectMenuActions.addPart(index, shape, type, name)
+                },
+                // append_menu_item_add_text(): where the finger held the object, or beside it on a miss.
+                onText = {
+                    addingPart = null
+                    textActions.add(index, type, viewCamera.surfaceHit(index, at), null, defaultText)
                 },
             )
         }
@@ -704,6 +757,11 @@ internal fun PrepareScreen(
                         onToggleGizmo,
                         onToggleCut = cutActions.toggle,
                         onToggleLayerEditing = layerActions.toggle,
+                        onToggleText = {
+                            // GLGizmoEmboss::on_shortcut_key(): on the selected copy, where its volume nearest the view's centre is hit.
+                            val hit = state.selectedObject?.let { viewCamera.surfaceHit(it) }
+                            textActions.toggle(hit, viewCamera.bedPoint(), defaultText)
+                        },
                     )
                 }
                 val position = state.selectedPosition
@@ -728,6 +786,7 @@ internal fun PrepareScreen(
                     state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
+                    state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits)
                     state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
@@ -940,6 +999,7 @@ private fun PlateContextMenu(
     onAddModel: () -> Unit,
     onPaste: () -> Unit,
     actions: PlateMenuActions,
+    onAddText: () -> Unit = {},
 ) {
     OrcaContextMenu(
         expanded = true,
@@ -961,6 +1021,7 @@ private fun PlateContextMenu(
             addPrimitive = actions.addPrimitive,
             addHandyModel = actions.addHandyModel,
             addModels = onAddModel,
+            addText = onAddText,
         )
     }
 }
@@ -977,6 +1038,7 @@ private fun ObjectContextMenu(
     onChooseShape: (VolumeType) -> Unit,
     onAskNumberOfInstances: () -> Unit,
     onAskClone: () -> Unit,
+    onEditText: (ObjectPartId) -> Unit = {},
 ) {
     val copy = state.sceneCopies.getOrNull(menu.index)
     OrcaContextMenu(
@@ -1030,6 +1092,10 @@ private fun ObjectContextMenu(
                 replaceAll = { actions.replaceAll(index) },
                 export = { format -> actions.export(index, format, name) },
                 invalidateCutInfo = { actions.invalidateCutInfo(index) },
+                // append_menu_item_edit_text(): an object made of a text alone.
+                editText = ObjectPartId(copy.id.mesh, 0)
+                    .takeIf { copy.plateObject.parts.isEmpty() && copy.plateObject.volume.emboss?.kind == EmbossKind.TEXT }
+                    ?.let { volume -> { onEditText(volume) } },
             ),
             dismiss = onDismiss,
         )
@@ -1140,6 +1206,7 @@ private fun CanvasToolbar(
     onToggleGizmo: (PlateGizmo) -> Unit,
     onToggleCut: () -> Unit = {},
     onToggleLayerEditing: () -> Unit = {},
+    onToggleText: () -> Unit = {},
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -1246,7 +1313,14 @@ private fun CanvasToolbar(
             enabled = state.canManipulate,
             selected = state.painting?.kind == PaintKind.FUZZY_SKIN,
         )
-        gizmo(DesignR.drawable.orca_toolbar_text, R.string.gizmo_emboss, null)
+        // GLGizmoEmboss: the tool opens on the selected text, or adds a text.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_text,
+            contentDescription = stringResource(R.string.gizmo_emboss),
+            onClick = onToggleText,
+            enabled = state.canEditPlate,
+            selected = state.text != null,
+        )
         gizmo(DesignR.drawable.orca_toolbar_measure, R.string.gizmo_measure, null)
         gizmo(DesignR.drawable.orca_toolbar_assembly, R.string.gizmo_assembly, null)
         gizmo(DesignR.drawable.orca_toolbar_brimears, R.string.gizmo_brim_ears, null)

@@ -1371,9 +1371,10 @@ internal fun FontFace.toParcel() = FontFaceParcel().also {
     it.subfamily = subfamily
     it.weight = weight
     it.italic = italic
+    it.ascent = ascent
 }
 
-internal fun FontFaceParcel.toFontFace() = FontFace(path.orEmpty(), index, family.orEmpty(), subfamily.orEmpty(), weight, italic)
+internal fun FontFaceParcel.toFontFace() = FontFace(path.orEmpty(), index, family.orEmpty(), subfamily.orEmpty(), weight, italic, ascent)
 
 internal fun EmbossVolumeOutcome.toParcel() = EmbossVolumeParcel().also {
     when (this) {

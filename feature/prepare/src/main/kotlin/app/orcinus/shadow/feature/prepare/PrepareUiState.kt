@@ -12,6 +12,8 @@ import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPreviewPart
+import app.orcinus.shadow.core.model.EmbossRequest
+import app.orcinus.shadow.core.model.EmbossVolume
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.LayerEditing
@@ -37,6 +39,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.WipeTower
@@ -126,6 +129,10 @@ data class PrepareUiState(
     val cut: CutMode? = null,
     /** The variable layer height, while it is on and the plate can change. */
     val layerEditing: LayerEditingMode? = null,
+    /** The text tool (GLGizmoEmboss), while it is open on a text volume. */
+    val text: TextMode? = null,
+    /** What the object list asks of the text or SVG tool, which the canvas places. */
+    val embossRequest: EmbossRequest? = null,
     /** Plater::can_layers_editing(): the toolbar's "Variable layer height" can open on the selection. */
     val canEditLayers: Boolean = false,
     /** The wipe tower of the plate; null when the plate prints with one filament. */
@@ -317,11 +324,43 @@ internal data class PrepareViewState(
     val simplify: SimplifyMode? = null,
     /** The variable layer height window's tools, kept while it is closed. */
     val layerTools: LayerEditingTools = LayerEditingTools(),
+    /** The text tool, while it is open. */
+    val text: TextMode? = null,
     /** The layers of the object the variable layer height edits, as the engine described them last. */
     val layerDescription: Pair<ScenePath, LayerEditing>? = null,
     /** The height under the finger on the variable layer height bar. */
     val layerCursor: Double? = null,
 )
+
+/**
+ * GLGizmoEmboss while it is open on the text [volume]: the [text] and the
+ * [style] its window edits (the style's angle and distance measured from where
+ * the volume stands), what the engine said of the volume ([described]: its
+ * type, whether it is the object's only part, its scale), the styles the
+ * window offers with the one it started from ([styles], StyleManager's
+ * stored styles), whether the window's font is one the phone has not
+ * ([unknownFont]: only another font can be chosen), whether "Advanced" is
+ * open, and whether the engine is embossing it anew.
+ */
+data class TextMode(
+    val volume: ObjectPartId,
+    val text: String,
+    val style: TextStyle,
+    val described: EmbossVolume? = null,
+    val styles: List<TextStyle> = emptyList(),
+    val unknownFont: Boolean = false,
+    val advanced: Boolean = false,
+    val busy: Boolean = false,
+) {
+    /** Whether the text is white spaces alone, which embosses nothing (is_text_empty()). */
+    val blank: Boolean get() = text.isBlank()
+
+    /** ModelVolume::is_the_only_one_part(): the text is its object, which takes no other operation. */
+    val onlyPart: Boolean get() = described?.onlyPart != false
+
+    /** The style the window started from, which Reset loads (is_changed_from_default_style()). */
+    val defaultStyle: TextStyle? get() = styles.firstOrNull()
+}
 
 /**
  * What the variable layer height bar keeps from one opening to the next
@@ -418,6 +457,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             LayerEditingMode(target.mesh, view.layerDescription?.takeIf { it.first == target.mesh }?.second, view.layerTools, view.layerCursor)
         },
         canEditLayers = canEditPlate && layerEditingObject() != null,
+        text = view.text?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } && canEditPlate },
+        embossRequest = embossRequest.takeIf { canEditPlate },
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,
         filamentColors = presets?.filamentColors.orEmpty().mapNotNull(::parseFilamentColor),

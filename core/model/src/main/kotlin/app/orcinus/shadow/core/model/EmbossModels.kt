@@ -22,7 +22,15 @@ data class FontFace(
     val subfamily: String,
     val weight: Int,
     val italic: Boolean,
+    /** FontFile::Info::ascent in font units, which the advanced options scale their ranges by. */
+    val ascent: Int = 0,
 )
+
+/**
+ * A family of fonts, as the font list of the text tool names it (a face name
+ * of wxFontEnumerator), with its faces, the regular one first.
+ */
+data class TextFontFamily(val name: String, val faces: List<FontFace>)
 
 /** FontProp::HorizontalAlign */
 enum class TextHorizontalAlign { LEFT, CENTER, RIGHT }
@@ -100,6 +108,18 @@ data class EmbossVolume(
     val scaleHeight: Double,
     val scaleDepth: Double,
 )
+
+/**
+ * What the object list asks of the canvas's text or SVG tool: "Edit text" or
+ * "Edit SVG" of a volume, or a text or SVG added to an object as a volume of
+ * a type, which the canvas places on it as the desktop app places one without
+ * a mouse position (start_create_volume_without_position()).
+ */
+sealed interface EmbossRequest {
+    data class Edit(val volume: ObjectPartId) : EmbossRequest
+
+    data class Add(val kind: EmbossKind, val mesh: ScenePath, val type: VolumeType) : EmbossRequest
+}
 
 sealed interface EmbossVolumeOutcome {
     data class Success(val volume: EmbossVolume) : EmbossVolumeOutcome

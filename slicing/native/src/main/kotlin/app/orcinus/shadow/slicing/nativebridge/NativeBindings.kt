@@ -716,6 +716,7 @@ internal class NativeFontFace(
     @JvmField val subfamily: String,
     @JvmField val weight: Int,
     @JvmField val italic: Boolean,
+    @JvmField val ascent: Int,
 )
 
 /** TextStyle of orca_engine_adapter.hpp; NaN stands for an unset value. */

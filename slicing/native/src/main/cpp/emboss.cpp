@@ -1401,6 +1401,9 @@ std::vector<FontFace> describe_fonts(const std::vector<std::string>& paths)
             FontFace face;
             face.path = path;
             face.index = index;
+            int descent = 0;
+            int linegap = 0;
+            stbtt_GetFontVMetrics(&info, &face.ascent, &descent, &linegap);
             // The typographic family and subfamily, or the legacy ones.
             face.family = font_name(info, 16);
             if (face.family.empty()) {

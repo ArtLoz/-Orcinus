@@ -5,6 +5,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.ui.ExportResultDialog
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
@@ -230,6 +231,7 @@ import app.orcinus.shadow.domain.plate.RenamePlateItemUseCase
 import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
+import app.orcinus.shadow.domain.plate.RequestEmbossUseCase
 import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
@@ -396,6 +398,7 @@ class SidebarViewModel(
     private val renamePlate: RenamePlateUseCase,
     private val addPrimitive: AddPrimitiveUseCase,
     private val editLayerHeights: EditLayerHeightsUseCase,
+    private val requestEmboss: RequestEmbossUseCase,
     preferences: AppPreferences,
 ) : ViewModel() {
     /** What the Preferences change on the clone dialog. */
@@ -403,6 +406,12 @@ class SidebarViewModel(
 
     /** The variable layer height mark of an object's row: the bar opens on the object. */
     fun editLayersOf(mesh: ScenePath) = editLayerHeights.enableFor(mesh)
+
+    /** "Edit text" of a row: the canvas's text tool opens on the volume. */
+    fun editTextOf(volume: ObjectPartId) = requestEmboss.edit(volume)
+
+    /** "Text" of a row's "Add part": the canvas places a text on the object, as without a mouse position. */
+    fun addTextTo(mesh: ScenePath, type: VolumeType) = requestEmboss.add(EmbossKind.TEXT, mesh, type)
 
     /** A plate item of the object list: nothing stays selected and the plate becomes current (ObjectList::selection_changed). */
     fun choosePlate(index: Int) {
@@ -1562,6 +1571,15 @@ fun PlateSidebar(
                 viewModel.simplifyVolume(id)
                 onShowCanvas()
             },
+            // The text tool is a window of the canvas.
+            editText = { id ->
+                viewModel.editTextOf(id)
+                onShowCanvas()
+            },
+            addText = { mesh, type ->
+                viewModel.addTextTo(mesh, type)
+                onShowCanvas()
+            },
             changeVolumeType = viewModel::setVolumeType,
             selectPlate = viewModel::choosePlate,
             selectPlateSettings = viewModel::openPlateSettings,
@@ -2161,6 +2179,10 @@ internal fun PlateSidebarContent(
             onChoose = { shape, name ->
                 addingPart = null
                 objectList.addPart(mesh, shape, type, name)
+            },
+            onText = {
+                addingPart = null
+                objectList.addText(mesh, type)
             },
         )
     }

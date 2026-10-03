@@ -466,7 +466,7 @@ class NativeSlicerEngine(context: Context) :
 
     override suspend fun describeFonts(paths: List<String>): List<FontFace> = withContext(Dispatchers.IO) {
         NativeBindings.describeFonts(paths.toTypedArray()).map { face ->
-            FontFace(face.path, face.index, face.family, face.subfamily, face.weight, face.italic)
+            FontFace(face.path, face.index, face.family, face.subfamily, face.weight, face.italic, face.ascent)
         }
     }
 

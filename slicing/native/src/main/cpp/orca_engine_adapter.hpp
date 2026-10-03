@@ -1956,6 +1956,8 @@ struct FontFace {
     std::string subfamily;
     int weight{400};
     bool italic{false};
+    // FontFile::Info::ascent in font units, which the advanced options scale their ranges by.
+    int ascent{0};
 };
 
 // The faces of the font files at paths, which the desktop app enumerates

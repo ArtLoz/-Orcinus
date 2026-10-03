@@ -8,4 +8,5 @@ parcelable FontFaceParcel {
     String subfamily = "";
     int weight;
     boolean italic;
+    int ascent;
 }

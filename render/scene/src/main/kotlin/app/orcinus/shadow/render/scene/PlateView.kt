@@ -495,7 +495,23 @@ class PlateViewCamera {
     fun zoomToFit() {
         controller?.zoomToFit()
     }
+
+    /**
+     * Where a ray through [at] of the view (the copy's volume whose outline
+     * on the screen centres nearest the view's centre without it, as
+     * start_create_volume_without_position() looks) hits the copy [copy]
+     * first, with the surface's normal there; null where it misses.
+     */
+    fun surfaceHit(copy: Int, at: Offset? = null): SurfaceHit? = controller?.surfaceHit(copy, at?.x, at?.y)?.let { (point, normal) ->
+        SurfaceHit(Vector3(point.x, point.y, point.z), Vector3(normal.x, normal.y, normal.z))
+    }
+
+    /** CameraUtils::get_z0_position(): where a ray through [at] of the view, or through its centre, meets the bed. */
+    fun bedPoint(at: Offset? = null): Point2? = controller?.bedPoint(at?.x, at?.y)
 }
+
+/** A point of a surface, with the surface's normal there, in world coordinates. */
+data class SurfaceHit(val position: Vector3, val normal: Vector3)
 
 /** A [PlateViewCamera] for as long as the page is shown. */
 @Composable
@@ -1310,6 +1326,48 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var layerEditing: SceneLayerEditing? = null
     val isEditingLayers: Boolean get() = layerEditing != null
 
+    /**
+     * The point of the copy [copy] a ray through ([x], [y]) hits first, with
+     * the normal there; without a point, find_closest() of EmbossJob.cpp:
+     * the copy's model part whose outline on the screen (CameraUtils::create_hull2d())
+     * has its centroid nearest the view's centre, hit through that centroid.
+     */
+    fun surfaceHit(copy: Int, x: Float?, y: Float?): Pair<Vec3, Vec3>? {
+        val volumes = objects.filter { it.index == copy && !it.overlay }
+        if (x != null && y != null) {
+            val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return null
+            return volumes.mapNotNull { it.raycastHit(ray) }.minByOrNull { (point, _) -> (point - ray.a).norm() }
+        }
+        val centerX = camera.viewportWidth / 2.0
+        val centerY = camera.viewportHeight / 2.0
+        var centerSqDistance = Double.MAX_VALUE
+        var closest: Pair<SceneObject, Pair<Double, Double>>? = null
+        for (volume in volumes.filterNot(SceneObject::modifier)) {
+            val hull = convexHull(volume.worldPoints().mapNotNull(camera::project))
+            val center = polygonCentroid(hull) ?: continue
+            val dx = center.first - centerX
+            val dy = center.second - centerY
+            val biggerX = abs(dx) > abs(dy)
+            if ((biggerX && dx * dx > centerSqDistance) || (!biggerX && dy * dy > centerSqDistance)) continue
+            val distance = dx * dx + dy * dy
+            if (centerSqDistance < distance) continue
+            centerSqDistance = distance
+            closest = volume to center
+        }
+        val (volume, center) = closest ?: return null
+        val ray = camera.mouseRay(center.first, center.second) ?: return null
+        return volume.raycastHit(ray)
+    }
+
+    /** CameraUtils::get_z0_position() of ([x], [y]), or of the view's centre. */
+    fun bedPoint(x: Float?, y: Float?): Point2? {
+        val ray = camera.mouseRay(x?.toDouble() ?: (camera.viewportWidth / 2.0), y?.toDouble() ?: (camera.viewportHeight / 2.0)) ?: return null
+        val direction = ray.b - ray.a
+        if (abs(direction.z) < EPSILON) return null
+        val point = ray.intersectPlane(0.0)
+        return Point2(point.x, point.y)
+    }
+
     /** The variable layer height of [view] on the copies at [indexes], with its bar at [bar] in the view's pixels. */
     fun setLayerEditing(view: LayerEditingView?, indexes: Set<Int>, bar: Rect?) {
         val editing = view?.let { SceneLayerEditing(it, indexes, bar) }
@@ -1939,3 +1997,41 @@ data class PaintingView(
     /** "Vertical" (m_vertical_only): a stroke keeps to the screen column where it met the model. */
     val verticalOnly: Boolean = false,
 )
+
+/** Geometry::convex_hull() of points of the screen: Andrew's monotone chain, counterclockwise. */
+internal fun convexHull(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> {
+    val sorted = points.distinct().sortedWith(compareBy<Pair<Double, Double>>({ it.first }, { it.second }))
+    if (sorted.size < 3) return sorted
+    fun cross(o: Pair<Double, Double>, a: Pair<Double, Double>, b: Pair<Double, Double>) =
+        (a.first - o.first) * (b.second - o.second) - (a.second - o.second) * (b.first - o.first)
+    val lower = ArrayList<Pair<Double, Double>>()
+    for (point in sorted) {
+        while (lower.size >= 2 && cross(lower[lower.size - 2], lower[lower.size - 1], point) <= 0) lower.removeAt(lower.size - 1)
+        lower.add(point)
+    }
+    val upper = ArrayList<Pair<Double, Double>>()
+    for (point in sorted.asReversed()) {
+        while (upper.size >= 2 && cross(upper[upper.size - 2], upper[upper.size - 1], point) <= 0) upper.removeAt(upper.size - 1)
+        upper.add(point)
+    }
+    return lower.dropLast(1) + upper.dropLast(1)
+}
+
+/** Polygon::centroid(): the centre of the area of [polygon]; null for none. */
+internal fun polygonCentroid(polygon: List<Pair<Double, Double>>): Pair<Double, Double>? {
+    if (polygon.isEmpty()) return null
+    var area = 0.0
+    var x = 0.0
+    var y = 0.0
+    for (index in polygon.indices) {
+        val (x0, y0) = polygon[index]
+        val (x1, y1) = polygon[(index + 1) % polygon.size]
+        val cross = x0 * y1 - x1 * y0
+        area += cross
+        x += (x0 + x1) * cross
+        y += (y0 + y1) * cross
+    }
+    if (abs(area) < 1e-12) return polygon.first()
+    return x / (3.0 * area) to y / (3.0 * area)
+}
+

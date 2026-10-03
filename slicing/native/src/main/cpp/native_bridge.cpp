@@ -4052,7 +4052,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFonts(JNIEnv
         orcinus::orca::describe_fonts(to_strings(env, paths)),
         [](JNIEnv* face_env, const orcinus::orca::FontFace& face) {
             const jclass face_class = face_env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeFontFace");
-            const jmethodID constructor = face_env->GetMethodID(face_class, "<init>", "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;IZ)V");
+            const jmethodID constructor = face_env->GetMethodID(face_class, "<init>", "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;IZI)V");
             const jobject made = face_env->NewObject(
                 face_class,
                 constructor,
@@ -4061,7 +4061,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFonts(JNIEnv
                 to_java(face_env, face.family),
                 to_java(face_env, face.subfamily),
                 static_cast<jint>(face.weight),
-                face.italic ? JNI_TRUE : JNI_FALSE
+                face.italic ? JNI_TRUE : JNI_FALSE,
+                static_cast<jint>(face.ascent)
             );
             face_env->DeleteLocalRef(face_class);
             return made;

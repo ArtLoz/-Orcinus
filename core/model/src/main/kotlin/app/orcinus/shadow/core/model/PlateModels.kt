@@ -272,6 +272,7 @@ fun PlateObject.volumeAt(index: Int): ObjectPart? = when {
         convertedFromMeters = volume.convertedFromMeters,
         inputFile = volume.inputFile,
         cutInfo = volume.cutInfo,
+        emboss = volume.emboss,
     )
     else -> parts.getOrNull(index - 1)
 }
@@ -980,6 +981,8 @@ data class PlateState(
      * the selected object's layer heights are edited on the bar.
      */
     val layerEditing: Boolean = false,
+    /** What the object list asks of the canvas's text or SVG tool; null for nothing. */
+    val embossRequest: EmbossRequest? = null,
     /** The codes the preview's layer slider put on the layers of the current plate (Model::plates_custom_gcodes), by height. */
     val layerGcodes: List<LayerGcode> = emptyList(),
     /**

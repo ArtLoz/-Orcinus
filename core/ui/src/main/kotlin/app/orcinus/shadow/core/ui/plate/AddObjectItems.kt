@@ -23,6 +23,8 @@ fun AddObjectItems(
     addPrimitive: (shape: String, name: String) -> Unit,
     addHandyModel: (HandyModel) -> Unit,
     addModels: () -> Unit,
+    /** append_menu_item_add_text() of the shapes' submenu: an object of a text; null where the canvas places none. */
+    addText: (() -> Unit)? = null,
 ) {
     OrcaSubmenu(text = orcaString("Add Primitive"), enabled = enabled) {
         PRIMITIVES.forEach { shape ->
@@ -33,6 +35,16 @@ fun AddObjectItems(
                 onClick = {
                     dismiss()
                     addPrimitive(shape, name)
+                },
+            )
+        }
+        addText?.let { add ->
+            OrcaMenuItem(
+                text = orcaString("Text"),
+                enabled = enabled,
+                onClick = {
+                    dismiss()
+                    add()
                 },
             )
         }

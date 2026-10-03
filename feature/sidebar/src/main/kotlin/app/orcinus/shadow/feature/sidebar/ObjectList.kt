@@ -1,5 +1,7 @@
 package app.orcinus.shadow.feature.sidebar
 
+import app.orcinus.shadow.core.model.EmbossKind
+import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.ui.plate.conversionsOf
 import app.orcinus.shadow.core.model.isCut
@@ -179,6 +181,10 @@ internal class ObjectListActions(
     val invalidateCutInfo: (ScenePath) -> Unit = {},
     /** ObjectList::enable_layers_editing(): the variable layer height opens on the object. */
     val editLayers: (ScenePath) -> Unit = {},
+    /** append_menu_item_edit_text(): the canvas's text tool opens on the volume. */
+    val editText: (ObjectPartId) -> Unit = {},
+    /** "Text" of "Add part", "Add negative part" or "Add modifier": the canvas places a text on the object. */
+    val addText: (ScenePath, VolumeType) -> Unit = { _, _ -> },
 )
 
 /** An item the user renames: an object or one of its volumes, with the name it has. */
@@ -386,6 +392,10 @@ private fun LazyListScope.objectRows(
                             copies = plateObject.instances.indices.toSet(),
                             delete = { actions.delete(mesh) },
                             invalidateCutInfo = { actions.invalidateCutInfo(mesh) },
+                            // can_edit_text(): the row selects every copy, so one copy of an object of a text alone.
+                            editText = ObjectPartId(mesh, 0)
+                                .takeIf { plateObject.instances.size == 1 && plateObject.parts.isEmpty() && plateObject.volume.emboss?.kind == EmbossKind.TEXT }
+                                ?.let { id -> { actions.editText(id) } },
                             onChooseShape = onChooseShape,
                             onAskNumberOfInstances = onAskNumberOfInstances,
                             onAskClone = onAskClone,
@@ -426,7 +436,7 @@ private fun LazyListScope.objectRows(
                         at == 0 -> part.name.ifEmpty { plateObject.displayName() }
                         else -> part.name.ifEmpty { stringResource(partName(part.type), stringResource(shapeName(part.shape))) }
                     },
-                    icon = DesignR.drawable.orca_split_parts,
+                    icon = volumeIcon(part),
                     selected = partId == state.selectedPart,
                     hasSettings = part.settings.categories(partDefinitions).isNotEmpty(),
                     indent = true,
@@ -449,6 +459,9 @@ private fun LazyListScope.objectRows(
                             dismiss()
                             onAskRename(RenameRequest.Volume(partId, volumeName))
                         }
+                        // MenuFactory::text_part_menu() and svg_part_menu() of a volume embossed
+                        // from a text or an SVG: its tool, and fewer edits of its mesh.
+                        val embossed = part.emboss?.kind
                         // The Edit menu for the volume, which the list picks over the first
                         // copy; the object's own mesh cannot be cut out of it yet.
                         val first = PlateInstanceId(mesh, 0)
@@ -460,6 +473,16 @@ private fun LazyListScope.objectRows(
                             paste = { dismiss(); actions.paste(first) },
                         )
                         OrcaMenuSeparator()
+                        if (embossed == EmbossKind.TEXT) {
+                            OrcaMenuItem(
+                                text = orcaString("Edit text"),
+                                enabled = enabled,
+                                onClick = {
+                                    dismiss()
+                                    actions.editText(partId)
+                                },
+                            )
+                        }
                         // ObjectList::del_subobject_item(). The object's own
                         // mesh cannot go yet: the object would be its parts alone.
                         OrcaMenuItem(
@@ -488,11 +511,11 @@ private fun LazyListScope.objectRows(
                             },
                         )
                         // Plater::can_smooth_mesh() goes by the object's meshes.
-                        SmoothMeshItem(enabled = enabled && plateObject.instances.first().inspection.openEdges == 0L) {
+                        if (embossed == null) SmoothMeshItem(enabled = enabled && plateObject.instances.first().inspection.openEdges == 0L) {
                             dismiss()
                             actions.editObject(mesh, ObjectEdit.SMOOTH_MESH, at)
                         }
-                        OrcaSubmenu(text = orcaString("Split"), enabled = enabled && part.splittable) {
+                        if (embossed == null) OrcaSubmenu(text = orcaString("Split"), enabled = enabled && part.splittable) {
                             // ObjectList::is_splittable(true) refuses a volume.
                             OrcaMenuItem(text = orcaString("To objects"), enabled = false, onClick = {})
                             OrcaMenuItem(
@@ -514,13 +537,15 @@ private fun LazyListScope.objectRows(
                             copy = { dismiss(); actions.copyProcessSettings(item) },
                             paste = { dismiss(); actions.pasteProcessSettings(item) },
                         )
-                        // append_menu_item_change_type(): the kinds of volume, the volume's checked.
+                        // append_menu_item_change_type(): the kinds of volume, the volume's checked;
+                        // a text or an SVG is no support blocker or enforcer.
                         OrcaSubmenu(text = orcaString("Change type"), enabled = enabled) {
                             VOLUME_TYPES.forEach { (type, label) ->
+                                val support = type == VolumeType.SUPPORT_BLOCKER || type == VolumeType.SUPPORT_ENFORCER
                                 OrcaMenuCheckItem(
                                     text = orcaString(label),
                                     checked = part.type == type,
-                                    enabled = enabled,
+                                    enabled = enabled && !(support && embossed != null),
                                     onClick = {
                                         dismiss()
                                         actions.changeVolumeType(partId, type)
@@ -529,7 +554,7 @@ private fun LazyListScope.objectRows(
                             }
                         }
                         // Plater::can_replace_with_stl(): the list selects the volume alone.
-                        OrcaMenuItem(
+                        if (embossed == null) OrcaMenuItem(
                             text = orcaString("Replace 3D file") + "...",
                             enabled = enabled,
                             onClick = {
@@ -537,7 +562,7 @@ private fun LazyListScope.objectRows(
                                 actions.replaceVolume(first, at)
                             },
                         )
-                        conversionsOf(listOf(part)).forEach { conversion ->
+                        if (embossed == null) conversionsOf(listOf(part)).forEach { conversion ->
                             OrcaMenuItem(
                                 text = orcaString(conversionName(conversion)),
                                 enabled = enabled,
@@ -773,6 +798,25 @@ private val VOLUME_TYPES = listOf(
     VolumeType.SUPPORT_ENFORCER to "Support Enforcer",
 )
 
+/**
+ * ObjectDataViewModel's bitmap of a volume: a text or an SVG by its type
+ * (MenuFactory::get_text_volume_bitmaps(), get_svg_volume_bitmaps()), the
+ * part icon of the app otherwise.
+ */
+private fun volumeIcon(part: ObjectPart): Int = when (part.emboss?.kind) {
+    EmbossKind.TEXT -> when (part.type) {
+        VolumeType.NEGATIVE -> DesignR.drawable.orca_add_text_negative
+        VolumeType.MODIFIER -> DesignR.drawable.orca_add_text_modifier
+        else -> DesignR.drawable.orca_add_text_part
+    }
+    EmbossKind.SVG -> when (part.type) {
+        VolumeType.NEGATIVE -> DesignR.drawable.orca_svg_negative
+        VolumeType.MODIFIER -> DesignR.drawable.orca_svg_modifier
+        else -> DesignR.drawable.orca_svg_part
+    }
+    else -> DesignR.drawable.orca_split_parts
+}
+
 /** What a row of the list calls a part of an object (ObjectDataViewModel). */
 private fun partName(type: VolumeType): Int = when (type) {
     VolumeType.PART -> R.string.object_part_name
@@ -789,6 +833,7 @@ private fun ObjectListActions.menuOf(
     copies: Set<Int>,
     delete: () -> Unit,
     invalidateCutInfo: () -> Unit,
+    editText: (() -> Unit)?,
     onChooseShape: (ScenePath, VolumeType) -> Unit,
     onAskNumberOfInstances: (ScenePath) -> Unit,
     onAskClone: (ScenePath) -> Unit,
@@ -821,6 +866,7 @@ private fun ObjectListActions.menuOf(
     replaceAll = { replaceAllVolumes(id) },
     export = { exportObject(id.mesh, it, name) },
     invalidateCutInfo = invalidateCutInfo,
+    editText = editText,
 )
 
 /**

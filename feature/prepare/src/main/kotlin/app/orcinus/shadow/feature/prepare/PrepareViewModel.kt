@@ -14,6 +14,10 @@ import app.orcinus.shadow.core.model.CutObjectOutcome
 import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.CutPartsOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
+import app.orcinus.shadow.core.model.EmbossKind
+import app.orcinus.shadow.core.model.EmbossPlacement
+import app.orcinus.shadow.core.model.EmbossRequest
+import app.orcinus.shadow.core.model.EmbossVolumeOutcome
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlushOption
@@ -39,6 +43,7 @@ import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetSettings
 import app.orcinus.shadow.core.model.Presets
@@ -49,9 +54,12 @@ import app.orcinus.shadow.core.model.SettingsScope
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.TextFontFamily
+import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.domain.DescribeFlatteningPlanesUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
@@ -72,6 +80,7 @@ import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.EmbossTextUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
@@ -90,10 +99,12 @@ import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
+import app.orcinus.shadow.domain.plate.RemoveObjectPartUseCase
 import app.orcinus.shadow.domain.plate.RemovePlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
+import app.orcinus.shadow.domain.plate.RequestEmbossUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateUseCase
@@ -109,8 +120,11 @@ import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
+import app.orcinus.shadow.domain.plate.TextFontsUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.domain.plate.isTextVolume
 import app.orcinus.shadow.domain.plate.layerEditingObject
+import app.orcinus.shadow.domain.plate.selectedEmbossVolume
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import app.orcinus.shadow.render.scene.CutConnectorEvent
@@ -118,6 +132,7 @@ import app.orcinus.shadow.render.scene.CutLineEvent
 import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.ObjectTransforms
 import app.orcinus.shadow.render.scene.PlateGizmo
+import app.orcinus.shadow.render.scene.SurfaceHit
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
 import kotlinx.coroutines.Job
@@ -126,6 +141,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -193,6 +209,10 @@ class PrepareViewModel(
     private val plateJobs: PlateJobsUseCase,
     private val setPlateSettings: SetPlateSettingsUseCase,
     private val editLayerHeights: EditLayerHeightsUseCase,
+    private val embossText: EmbossTextUseCase,
+    private val textFonts: TextFontsUseCase,
+    private val requestEmboss: RequestEmbossUseCase,
+    private val removeObjectPart: RemoveObjectPartUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
@@ -230,6 +250,27 @@ class PrepareViewModel(
     private var viewPixel = 0.1
     private var openingCut: Job? = null
     private var closingCut: Job? = null
+
+    /**
+     * The text and style the text tool's window asks to be embossed; a typist
+     * sends many, so only the last one waiting is embossed (the job of
+     * GLGizmoEmboss::process() cancels the one before).
+     */
+    private val textEdits = Channel<TextMode>(Channel.CONFLATED)
+
+    /**
+     * The name of the style the text tool was left with (StyleManager's
+     * active style), which a new text takes as stored, without the changes
+     * the window made to it (discard_style_changes()).
+     */
+    private var lastTextStyle: String? = null
+
+    /** Translates the names of OrcaSlicer's default text styles (_u8L("NORMAL"), ...). */
+    var styleNames: (String) -> String = { it }
+
+    /** The fonts of the phone, by family, which the text tool offers once loaded. */
+    private val fontFamilies = MutableStateFlow<List<TextFontFamily>>(emptyList())
+    val textFamilies: StateFlow<List<TextFontFamily>> = fontFamilies.asStateFlow()
 
     /** The height under the finger on the variable layer height bar; null once it let go. */
     private val layerPress = MutableStateFlow<Double?>(null)
@@ -297,6 +338,29 @@ class PrepareViewModel(
                             ),
                         )
                     } ?: state
+                }
+            }
+        }
+        // GLGizmoEmboss::process(): the latest text and style the window asks
+        // for, embossed anew; the volume the engine wrote is the one edited next.
+        viewModelScope.launch {
+            for (asked in textEdits) {
+                val open = view.value.text ?: continue
+                if (open.volume != asked.volume || asked.blank || asked.unknownFont) continue
+                view.update { it.copy(text = it.text?.copy(busy = true)) }
+                val edited = embossText.update(asked.volume, asked.text, asked.style)
+                view.update { state ->
+                    val now = state.text ?: return@update state
+                    state.copy(text = now.copy(volume = edited?.takeIf { now.volume == asked.volume } ?: now.volume, busy = false))
+                }
+            }
+        }
+        // The object list's "Edit text": the tool opens on the volume.
+        viewModelScope.launch {
+            plate.map { it.embossRequest }.distinctUntilChanged().collect { request ->
+                if (request is EmbossRequest.Edit) {
+                    requestEmboss.done()
+                    if (plate.value.isTextVolume(request.volume)) openText(request.volume)
                 }
             }
         }
@@ -1176,6 +1240,240 @@ class PrepareViewModel(
         view.update { it.copy(arrangeOptionsOpen = !it.arrangeOptionsOpen, gizmo = null) }
     }
 
+    /**
+     * The toolbar's Text (GLGizmoEmboss::on_shortcut_key()): the tool closes
+     * when open; it opens on the selected text volume, or a text is added to
+     * the selected object where [hit] says, or the plate gets an object of a
+     * text standing at [bedPoint] when nothing is selected.
+     */
+    fun toggleText(hit: SurfaceHit?, bedPoint: Point2?, defaultText: String) {
+        if (view.value.text != null) return closeText()
+        val state = plate.value
+        state.selectedEmbossVolume(EmbossKind.TEXT)?.let { return openText(it) }
+        val copy = this.state.value.selectedCopy
+        if (copy == null) {
+            createText(EmbossPlacement.onBed(bedPoint), VolumeType.PART, defaultText)
+        } else {
+            createText(placementOn(copy.id, hit), VolumeType.PART, defaultText)
+        }
+    }
+
+    /**
+     * MenuFactory's "Text" of "Add part", "Add negative part" or "Add
+     * modifier" over the copy at [copy]: the text joins it where [hit] says,
+     * beside it without a hit; over empty space ([copy] null), an object of a
+     * text stands at [bedPoint].
+     */
+    fun addText(copy: Int?, type: VolumeType, hit: SurfaceHit?, bedPoint: Point2?, defaultText: String) {
+        val id = copy?.let { state.value.sceneCopies.getOrNull(it)?.id }
+        createText(if (id == null) EmbossPlacement.onBed(bedPoint) else placementOn(id, hit), type, defaultText)
+    }
+
+    /** The object list's "Add part" > "Text": the canvas places it as [addText] without a position. */
+    fun addRequestedText(request: EmbossRequest.Add, hit: SurfaceHit?, defaultText: String) {
+        requestEmboss.done()
+        if (request.kind != EmbossKind.TEXT) return
+        createText(placementOn(PlateInstanceId(request.mesh, 0), hit), request.type, defaultText)
+    }
+
+    /** The menus' "Edit text" over a volume. */
+    fun editText(volume: ObjectPartId) = openText(volume)
+
+    private fun placementOn(copy: PlateInstanceId, hit: SurfaceHit?): EmbossPlacement {
+        val index = plate.value.objects.indexOfFirst { it.mesh == copy.mesh }
+        return EmbossPlacement(index, copy.instance, hit?.position, hit?.normal)
+    }
+
+    /**
+     * GLGizmoEmboss::create_volume() with the style the tool was left with, or
+     * the first default style; init_create() makes no text on a part of a cut.
+     */
+    private fun createText(placement: EmbossPlacement, type: VolumeType, defaultText: String) {
+        if (!state.value.canEditPlate) return
+        if (placement.objectIndex >= 0 && plate.value.objects.getOrNull(placement.objectIndex)?.isCut == true) return
+        viewModelScope.launch {
+            val styles = textStyles()
+            val style = styles.firstOrNull { it.name == lastTextStyle } ?: styles.firstOrNull() ?: return@launch
+            closeOtherTools()
+            val created = embossText.create(placement, type, defaultText, style) ?: return@launch
+            openText(created, style)
+        }
+    }
+
+    /**
+     * The tool opens on the text [volume] (GLGizmoEmboss::set_volume_by_selection()):
+     * its text and style as the engine reads them, the font the phone's own
+     * when it has it, by its file or else its face name, or unknown.
+     */
+    private fun openText(volume: ObjectPartId, created: TextStyle? = null) {
+        closeOtherTools()
+        view.update { it.copy(text = TextMode(volume, text = "", style = created ?: TextStyle("", ""), busy = true)) }
+        viewModelScope.launch {
+            val described = (embossText.describe(volume) as? EmbossVolumeOutcome.Success)?.volume
+            if (described == null || described.kind != EmbossKind.TEXT) {
+                view.update { if (it.text?.volume == volume) it.copy(text = null) else it }
+                return@launch
+            }
+            val families = loadFamilies()
+            val faces = families.flatMap(TextFontFamily::faces)
+            var style = described.style
+            var unknown = false
+            if (faces.none { it.path == style.fontPath && it.index == (style.collectionNumber ?: 0) }) {
+                // get_installed_face_name(): another computer's font, found by its face name.
+                val installed = families.firstOrNull { it.name.equals(style.faceName, ignoreCase = true) }?.faces?.firstOrNull()
+                if (installed != null) {
+                    style = style.copy(fontPath = installed.path, collectionNumber = installed.index.takeIf { it > 0 })
+                } else {
+                    unknown = true
+                }
+            }
+            val styles = textStyles()
+            view.update { state ->
+                val open = state.text?.takeIf { it.volume == volume } ?: return@update state
+                state.copy(text = open.copy(text = described.text, style = style, described = described, styles = styles, unknownFont = unknown, busy = false))
+            }
+        }
+    }
+
+    /** GLGizmoEmboss::close(): an empty text goes, its object with it when it is the object's only part. */
+    fun closeText() {
+        val open = view.value.text ?: return
+        if (!open.unknownFont) lastTextStyle = open.style.name
+        view.update { it.copy(text = null) }
+        if (open.blank) {
+            val copy = PlateInstanceId(open.volume.mesh, 0)
+            if (open.onlyPart) deletePlateObject(copy.mesh) else removeObjectPart(open.volume)
+        }
+    }
+
+    /** The window's text input: the volume is embossed anew (when the text is not blank). */
+    fun setText(text: String) = editText { it.copy(text = text) }
+
+    /** A change of the style the window edits. */
+    fun setTextStyle(change: (TextStyle) -> TextStyle) = editText { it.copy(style = change(it.style)) }
+
+    /** GLGizmoEmboss::select_facename(): the regular face of the [family]. */
+    fun setTextFont(family: TextFontFamily) {
+        val face = family.faces.firstOrNull() ?: return
+        editText { mode ->
+            mode.copy(
+                unknownFont = false,
+                style = mode.style.copy(
+                    fontPath = face.path,
+                    collectionNumber = face.index.takeIf { it > 0 },
+                    faceName = family.name,
+                    // A new font is no longer italic or bold (WxFontUtils::update_property()).
+                    style = "",
+                    weight = "",
+                    skew = null,
+                    boldness = null,
+                ),
+            )
+        }
+    }
+
+    /**
+     * draw_italic_button(): italic sets the family's italic face, or skews the
+     * glyphs (0.2) when it has none; unset, the upright face again.
+     */
+    fun toggleTextItalic() = editText { mode ->
+        val family = fontFamilies.value.firstOrNull { family -> family.faces.any { it.path == mode.style.fontPath } }
+        val current = family?.faces?.firstOrNull { it.path == mode.style.fontPath && it.index == (mode.style.collectionNumber ?: 0) }
+        val italic = mode.style.skew != null || current?.italic == true
+        val wanted = family?.faces?.firstOrNull { it.italic != italic && it.weight == current?.weight }
+        mode.copy(
+            style = when {
+                italic && wanted != null -> mode.style.copy(fontPath = wanted.path, collectionNumber = wanted.index.takeIf { it > 0 }, skew = null, style = "")
+                italic -> mode.style.copy(skew = null, style = "")
+                wanted != null -> mode.style.copy(fontPath = wanted.path, collectionNumber = wanted.index.takeIf { it > 0 }, style = "italic")
+                else -> mode.style.copy(skew = ITALIC_SKEW)
+            },
+        )
+    }
+
+    /**
+     * draw_bold_button(): bold sets the family's bold face, or makes the
+     * glyphs wider (20 points) when it has none; unset, the regular face again.
+     */
+    fun toggleTextBold() = editText { mode ->
+        val family = fontFamilies.value.firstOrNull { family -> family.faces.any { it.path == mode.style.fontPath } }
+        val current = family?.faces?.firstOrNull { it.path == mode.style.fontPath && it.index == (mode.style.collectionNumber ?: 0) }
+        val bold = mode.style.boldness != null || (current?.weight ?: REGULAR_WEIGHT) > REGULAR_WEIGHT
+        val italic = current?.italic == true
+        val wanted = if (bold) {
+            family?.faces?.firstOrNull { it.italic == italic && it.weight == REGULAR_WEIGHT }
+        } else {
+            family?.faces?.filter { it.italic == italic && it.weight >= BOLD_WEIGHT }?.minByOrNull { it.weight }
+        }
+        mode.copy(
+            style = when {
+                bold && wanted != null -> mode.style.copy(fontPath = wanted.path, collectionNumber = wanted.index.takeIf { it > 0 }, boldness = null, weight = "")
+                bold -> mode.style.copy(boldness = null, weight = "")
+                wanted != null -> mode.style.copy(fontPath = wanted.path, collectionNumber = wanted.index.takeIf { it > 0 }, weight = "bold")
+                else -> mode.style.copy(boldness = BOLDNESS)
+            },
+        )
+    }
+
+    /** The window's "Style": a stored style, with the text's turn and distance kept (fix_transformation()). */
+    fun selectTextStyle(style: TextStyle) = editText { mode ->
+        mode.copy(unknownFont = false, style = style.copy(angle = mode.style.angle, distance = mode.style.distance))
+    }
+
+    /** Reset (reset_to_default_style()): the first style, all but the text and the operation. */
+    fun resetTextStyle() {
+        val default = view.value.text?.defaultStyle ?: return
+        selectTextStyle(default)
+    }
+
+    /** "Advanced" opens or closes. */
+    fun setTextAdvanced(open: Boolean) = view.update { it.copy(text = it.text?.copy(advanced = open)) }
+
+    /** draw_model_type(): Join, Cut or Modifier; the last solid part keeps its type. */
+    fun setTextType(type: VolumeType) {
+        val open = view.value.text ?: return
+        if (open.onlyPart || open.described?.type == type) return
+        viewModelScope.launch {
+            view.update { it.copy(text = it.text?.copy(busy = true)) }
+            val changed = embossText.changeType(open.volume, type, open.text, open.style)
+            view.update { state ->
+                val now = state.text ?: return@update state
+                state.copy(
+                    text = now.copy(
+                        volume = changed ?: now.volume,
+                        described = now.described?.copy(type = if (changed != null) type else now.described.type),
+                        busy = false,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun editText(change: (TextMode) -> TextMode) {
+        val open = view.value.text ?: return
+        val changed = change(open)
+        view.update { it.copy(text = changed) }
+        textEdits.trySend(changed)
+    }
+
+    private suspend fun loadFamilies(): List<TextFontFamily> =
+        fontFamilies.value.ifEmpty { textFonts.families().also { fontFamilies.value = it } }
+
+    /** The styles the tool offers: OrcaSlicer's default styles of the phone's fonts. */
+    private suspend fun textStyles(): List<TextStyle> {
+        loadFamilies()
+        return textFonts.defaultStyles(styleNames)
+    }
+
+    /** The text tool and the other tools of the canvas close each other, as GLGizmosManager opens one gizmo. */
+    private fun closeOtherTools() {
+        closeCut()
+        closePainting()
+        openSimplify.close()
+        editLayerHeights.enable(false)
+        view.update { it.copy(gizmo = null, arrangeOptionsOpen = false) }
+    }
+
     /** The toolbar's "Variable layer height": the bar opens on the selected object, or closes. */
     fun toggleLayerEditing() {
         if (plate.value.layerEditing) return editLayerHeights.enable(false)
@@ -1568,6 +1866,12 @@ class PrepareViewModel(
 
         // Keeps the upstream flow through configuration changes.
         const val STOP_TIMEOUT_MILLIS = 5_000L
+
+        /** draw_italic_button() and draw_bold_button() without an italic or bold face. */
+        const val ITALIC_SKEW = 0.2
+        const val BOLDNESS = 20.0
+        const val REGULAR_WEIGHT = 400
+        const val BOLD_WEIGHT = 600
 
         /** LayersEditing::strength, and the timer that repeats a press held on the bar (GLCanvas3D::_start_timer()). */
         const val LAYER_EDIT_STRENGTH = 0.005

@@ -288,6 +288,8 @@ class ObjectMenuActions(
     val export: (MeshFormat) -> Unit,
     /** ObjectList::invalidate_cut_info_for_selection() */
     val invalidateCutInfo: () -> Unit,
+    /** append_menu_item_edit_text(): the text tool opens on the object made of a text; null for none. */
+    val editText: (() -> Unit)? = null,
 )
 
 /**
@@ -414,6 +416,7 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
     }
     // MenuFactory::object_menu(): "Invalidate cut info" for a part of a cut.
     if (state.cut) OrcaMenuItem(text = orcaString("Invalidate cut info"), enabled = state.enabled, onClick = run(actions.invalidateCutInfo))
+    actions.editText?.let { edit -> OrcaMenuItem(text = orcaString("Edit text"), enabled = state.enabled, onClick = run(edit)) }
     ChangeFilamentItem(state.filaments, withDefault = false, enabled = state.enabled, onPick = { filament -> dismiss(); actions.setFilament(filament) })
 }
 
@@ -514,7 +517,7 @@ fun shapeName(shape: String): Int = when (shape) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PartShapeSheet(type: VolumeType, onDismiss: () -> Unit, onChoose: (shape: String, name: String) -> Unit) {
+fun PartShapeSheet(type: VolumeType, onDismiss: () -> Unit, onChoose: (shape: String, name: String) -> Unit, onText: (() -> Unit)? = null) {
     val colors = OrcaTheme.colors
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -538,6 +541,19 @@ fun PartShapeSheet(type: VolumeType, onDismiss: () -> Unit, onChoose: (shape: St
                     modifier = Modifier
                         .fillMaxWidth()
                         .orcaClickable(role = Role.Button, onClick = { onChoose(shape, name) })
+                        .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+            // append_menu_item_add_text(): a text of a part, a negative part or a modifier.
+            if (onText != null && (type == VolumeType.PART || type == VolumeType.NEGATIVE || type == VolumeType.MODIFIER)) {
+                Text(
+                    text = orcaString("Text"),
+                    color = colors.text,
+                    style = OrcaTheme.typography.body14,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .orcaClickable(role = Role.Button, onClick = onText)
                         .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 )

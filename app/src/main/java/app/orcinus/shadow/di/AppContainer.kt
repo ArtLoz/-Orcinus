@@ -71,6 +71,7 @@ import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
+import app.orcinus.shadow.domain.plate.EmbossTextUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.EngineLanguage
 import app.orcinus.shadow.domain.plate.EnginePlateSync
@@ -117,6 +118,7 @@ import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.RenderThumbnailsUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
+import app.orcinus.shadow.domain.plate.RequestEmbossUseCase
 import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
@@ -145,6 +147,7 @@ import app.orcinus.shadow.domain.plate.SlicePlateUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
 import app.orcinus.shadow.domain.plate.StepMeshPrompt
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.TextFontsUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.plate.UpdateFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.OverhangUpdates
@@ -169,6 +172,7 @@ import app.orcinus.shadow.network.printhost.FlashforgeDiscovery
 import app.orcinus.shadow.network.printhost.PrintHostUploader
 import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
+import app.orcinus.shadow.storage.android.AndroidSystemFonts
 import app.orcinus.shadow.storage.android.AppConfigFiles
 import app.orcinus.shadow.storage.android.AppDocumentExport
 import app.orcinus.shadow.storage.android.AppDocumentFolders
@@ -211,6 +215,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     // The variable layer height, which the canvas's toolbar and the object list open.
     private val editLayerHeights = EditLayerHeightsUseCase(engine, plateRepository)
+    // GLGizmoEmboss: the phone's fonts, read once, and the menus' requests of the canvas's text tool.
+    private val textFonts = TextFontsUseCase(AndroidSystemFonts(), engine)
+    private val requestEmboss = RequestEmbossUseCase(plateRepository)
     private val placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope)
     // Sidebar::auto_calc_flushing_volumes(), which filament, printer and settings changes ask for.
     private val flushVolumes = UpdateFlushVolumesUseCase(engine, plateRepository)
@@ -562,6 +569,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             plateJobs = plateJobs,
             setPlateSettings = SetPlateSettingsUseCase(plateRepository),
             editLayerHeights = editLayerHeights,
+            embossText = EmbossTextUseCase(engine, engine, sceneFiles, plateRepository),
+            textFonts = textFonts,
+            requestEmboss = requestEmboss,
+            removeObjectPart = removeObjectPart,
             preferences = appPreferences,
             setPreference = setPreference,
             findValidationSetting = FindValidationSettingUseCase(settingsTabs),
@@ -657,6 +668,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         renamePlate = renamePlate,
         addPrimitive = addPrimitive,
         editLayerHeights = editLayerHeights,
+        requestEmboss = requestEmboss,
         preferences = appPreferences,
     )
 
