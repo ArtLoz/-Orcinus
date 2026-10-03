@@ -359,6 +359,8 @@ data class TextMode(
     val notice: TextNotice? = null,
     /** draw_delete_style_button()'s question about the style of this name. */
     val deleting: String? = null,
+    /** GLGizmoEmboss::m_keep_up: the lock beside Rotation. */
+    val keepUp: Boolean = true,
 ) {
     /** Whether the text is white spaces alone, which embosses nothing (is_text_empty()). */
     val blank: Boolean get() = text.isBlank()

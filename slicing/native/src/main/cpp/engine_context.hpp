@@ -14,6 +14,7 @@
 namespace Slic3r {
 class AppConfig;
 class Model;
+class ModelInstance;
 class ModelObject;
 class ModelVolume;
 class PresetBundle;
@@ -128,6 +129,11 @@ bool read_emboss(const std::string& path, Slic3r::ModelVolume& volume);
 
 // ModelVolume::is_text() and is_svg().
 EmbossKind emboss_kind_of(const Slic3r::ModelVolume& volume);
+
+// Selection::get_bounding_sphere() of the copy instance of object: the centre
+// and radius of the smallest sphere around its volumes' convex hulls in world
+// coordinates.
+std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance);
 
 // Writes a mesh for the 3D view, in the format :render:scene reads
 // (mesh_file_magic of orca_engine_adapter.hpp).

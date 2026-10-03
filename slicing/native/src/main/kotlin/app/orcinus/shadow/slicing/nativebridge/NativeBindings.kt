@@ -765,6 +765,8 @@ internal class NativeEmbossVolume(
     @JvmField val onlyPart: Boolean,
     @JvmField val scaleHeight: Double,
     @JvmField val scaleDepth: Double,
+    /** EmbossShape::fix_3mf_tr, column-major; empty for none. */
+    @JvmField val fix: DoubleArray,
 )
 
 /** Constructed by the native bridge; see LayerEditing in orca_engine_adapter.hpp. */
@@ -1506,6 +1508,28 @@ internal object NativeBindings {
 
     /** load_text_styles() */
     external fun textStyles(): NativeTextStyles
+
+    /** transform_text(); [cameraPosition] and [cameraForward] are empty for none (TextTransform). */
+    external fun transformText(
+        plate: NativePlate,
+        objectIndex: Int,
+        instanceIndex: Int,
+        volumeIndex: Int,
+        rotate: Double,
+        move: Double,
+        cameraPosition: DoubleArray,
+        cameraForward: DoubleArray,
+        perspective: Boolean,
+        keepUp: Boolean,
+        text: String,
+        style: NativeTextStyle,
+        reEmboss: Boolean,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
 
     /** rename_text_style() */
     external fun renameTextStyle(

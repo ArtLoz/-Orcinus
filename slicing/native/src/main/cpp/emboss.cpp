@@ -1248,6 +1248,143 @@ void update_emboss(
     result.status = SceneStatus::success;
 }
 
+// GLGizmoEmboss::process() of a text volume: embossed anew from text and
+// style, matrix placing it first when given.
+void reemboss_text(
+    Slic3r::Model& model,
+    const Slic3r::DynamicPrintConfig& config,
+    Slic3r::ModelVolume& volume,
+    const std::string& text,
+    const TextStyle& style,
+    const std::vector<double>& matrix,
+    const std::string& output_prefix,
+    ImportedModels& result
+)
+{
+    using namespace Slic3r;
+    // is_text_empty() of GLGizmoEmboss.cpp: without text there is nothing to emboss.
+    if (text.empty() || text.find_first_not_of(" \n\t\r") == std::string::npos) {
+        result.message = "Embossed text cannot contain only white spaces.";
+        return;
+    }
+    std::optional<EmbossInput> input = text_input(text, style, volume.type(), result.message);
+    if (!input.has_value()) {
+        return;
+    }
+    // init_text_lines(): the lines along the object's surface, per glyph.
+    if (style.per_glyph && !volume.is_the_only_one_part()) {
+        Transform3d mv_trafo = volume.get_matrix();
+        if (matrix.size() == 16) {
+            std::copy(matrix.begin(), matrix.end(), mv_trafo.data());
+        } else if (volume.emboss_shape->fix_3mf_tr.has_value()) {
+            mv_trafo = mv_trafo * volume.emboss_shape->fix_3mf_tr->inverse();
+        }
+        const unsigned count_lines = Slic3r::Emboss::get_count_lines(text);
+        input->text_lines = create_text_lines(mv_trafo, prepare_volumes_to_slice(volume), *input->font.font_file, input->text->style.prop, count_lines);
+    }
+    update_emboss(model, config, volume, *input, matrix, output_prefix, result);
+}
+
+// get_volume_transformation() of SurfaceDrag.cpp: the volume's transformation
+// in its instance, world turned so that its Z axis looks along world_dir and
+// moved to world_position, its up kept within up_limit, current_angle turning
+// it about Z again.
+Slic3r::Transform3d get_volume_transformation(
+    Slic3r::Transform3d world, // from volume
+    const Slic3r::Vec3d& world_dir, // wanted new direction
+    const Slic3r::Vec3d& world_position, // wanted new position
+    const std::optional<Slic3r::Transform3d>& fix, // [optional] fix matrix
+    // Invers transformation of text volume instance
+    // Help convert world transformation to instance space
+    const Slic3r::Transform3d& instance_inv,
+    // initial rotation in Z axis
+    std::optional<float> current_angle,
+    const std::optional<double>& up_limit)
+{
+    using namespace Slic3r;
+    auto world_linear = world.linear().eval();
+    // Calculate offset: transformation to wanted position
+    {
+        // Reset skew of the text Z axis:
+        // Project the old Z axis into a new Z axis, which is perpendicular to the old XY plane.
+        Vec3d old_z         = world_linear.col(2);
+        Vec3d new_z         = world_linear.col(0).cross(world_linear.col(1));
+        world_linear.col(2) = new_z * (old_z.dot(new_z) / new_z.squaredNorm());
+    }
+
+    Vec3d       text_z_world     = world_linear.col(2); // world_linear * Vec3d::UnitZ()
+    auto        z_rotation       = Eigen::Quaternion<double, Eigen::DontAlign>::FromTwoVectors(text_z_world, world_dir);
+    Transform3d world_new        = z_rotation * world;
+    auto        world_new_linear = world_new.linear().eval();
+
+    // Fix direction of up vector to zero initial rotation
+    if(up_limit.has_value()){
+        Vec3d z_world = world_new_linear.col(2);
+        z_world.normalize();
+        Vec3d wanted_up = Emboss::suggest_up(z_world, *up_limit);
+
+        Vec3d y_world    = world_new_linear.col(1);
+        auto  y_rotation = Eigen::Quaternion<double, Eigen::DontAlign>::FromTwoVectors(y_world, wanted_up);
+
+        world_new        = y_rotation * world_new;
+        world_new_linear = world_new.linear();
+    }
+
+    // Edit position from right
+    Transform3d volume_new{Eigen::Translation<double, 3>(instance_inv * world_position)};
+    volume_new.linear() = instance_inv.linear() * world_new_linear;
+
+    // Check that transformation matrix is valid transformation
+    if (volume_new.matrix()(0, 0) != volume_new.matrix()(0, 0))
+        return Transform3d::Identity();
+
+    // fix baked transformation from .3mf store process
+    if (fix.has_value())
+        volume_new = volume_new * (*fix);
+
+    // apply move in Z direction and rotation by up vector
+    Emboss::apply_transformation(current_angle, {}, volume_new);
+
+    return volume_new;
+}
+
+// Selection::synchronize_unselected_instances(GENERAL) after the copy
+// instance of object turned from old_instance: the other copies turn alike,
+// and one that does not drop keeps its height with it.
+void synchronize_instances(Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance, const Slic3r::Transform3d& old_instance)
+{
+    using namespace Slic3r;
+    const Transform3d& curr_inst_trafo_i = instance.get_matrix();
+    for (ModelInstance* other : object.instances) {
+        if (other == &instance) {
+            continue;
+        }
+        Transform3d new_inst_trafo_j = other->get_matrix();
+        const Transform3d old_inst_trafo_j = new_inst_trafo_j;
+        new_inst_trafo_j.linear() = (old_inst_trafo_j.linear() * old_instance.linear().inverse()) * curr_inst_trafo_i.linear();
+        if (!other->auto_drop) {
+            new_inst_trafo_j.translation().z() = curr_inst_trafo_i.translation().z();
+        }
+        other->set_transformation(Geometry::Transformation(new_inst_trafo_j));
+    }
+}
+
+// The rotation part of a left-handed transformation as Selection::rotate()
+// takes it (Geometry::TransformationSVD's u * v^T); the rotation itself
+// turns the other way about any axis but X, which a Z rotation inverts.
+Slic3r::Transform3d rigid_rotation(const Slic3r::Geometry::Transformation& trafo, Slic3r::Transform3d& rotation_matrix)
+{
+    using namespace Slic3r;
+    Transform3d rotation = trafo.get_rotation_matrix();
+    if (trafo.is_left_handed()) {
+        Geometry::TransformationSVD svd(trafo);
+        rotation = svd.u * svd.v.transpose();
+        // ensure the rotation has the proper direction
+        rotation_matrix = rotation_matrix.inverse();
+    }
+    return rotation;
+}
+
 // calc_distance() of SurfaceDrag.cpp: how far the volume's origin stands from
 // the object's other volumes along its projection; none when it touches them,
 // is too far, or the object has no other part.
@@ -1498,27 +1635,7 @@ ImportedModels update_text(
             result.message = "The volume is no text";
             return result;
         }
-        // is_text_empty() of GLGizmoEmboss.cpp: without text there is nothing to emboss.
-        if (text.empty() || text.find_first_not_of(" \n\t\r") == std::string::npos) {
-            result.message = "Embossed text cannot contain only white spaces.";
-            return result;
-        }
-        std::optional<EmbossInput> input = text_input(text, style, volume->type(), result.message);
-        if (!input.has_value()) {
-            return result;
-        }
-        // init_text_lines(): the lines along the object's surface, per glyph.
-        if (style.per_glyph && !volume->is_the_only_one_part()) {
-            Transform3d mv_trafo = volume->get_matrix();
-            if (matrix.size() == 16) {
-                std::copy(matrix.begin(), matrix.end(), mv_trafo.data());
-            } else if (volume->emboss_shape->fix_3mf_tr.has_value()) {
-                mv_trafo = mv_trafo * volume->emboss_shape->fix_3mf_tr->inverse();
-            }
-            const unsigned count_lines = Slic3r::Emboss::get_count_lines(text);
-            input->text_lines = create_text_lines(mv_trafo, prepare_volumes_to_slice(*volume), *input->font.font_file, input->text->style.prop, count_lines);
-        }
-        update_emboss(model, config, *volume, *input, matrix, output_prefix, result);
+        reemboss_text(model, config, *volume, text, style, matrix, output_prefix, result);
         return result;
     } catch (const std::exception& error) {
         result.status = SceneStatus::model_read_failed;
@@ -1689,6 +1806,9 @@ EmbossVolume describe_emboss(
         }
         result.type = volume_type_from(volume->type());
         result.only_part = volume->is_the_only_one_part();
+        if (shape.fix_3mf_tr.has_value()) {
+            result.fix.assign(shape.fix_3mf_tr->data(), shape.fix_3mf_tr->data() + 16);
+        }
         result.status = SceneStatus::success;
         return result;
     } catch (const std::exception& error) {
@@ -2063,6 +2183,157 @@ TextStyles store_text_styles(const std::vector<TextStyle>& styles, std::int64_t 
     result.active = active;
     result.status = SceneStatus::success;
     return result;
+}
+
+ImportedModels transform_text(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t instance_index,
+    std::size_t volume_index,
+    const TextTransform& transform,
+    const std::string& text,
+    const TextStyle& style,
+    bool re_emboss,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    try {
+        DynamicPrintConfig config;
+        Model model;
+        if (!prepare(plate, profiles, config, model, result)) {
+            return result;
+        }
+        ModelVolume* volume = volume_at(model, object_index, volume_index, result.message);
+        if (volume == nullptr) {
+            return result;
+        }
+        if (!volume->text_configuration.has_value() || !volume->emboss_shape.has_value()) {
+            result.message = "The volume is no text";
+            return result;
+        }
+        ModelObject& object = *volume->get_object();
+        if (instance_index >= object.instances.size()) {
+            result.message = "The object has no such copy";
+            return result;
+        }
+        ModelInstance& instance = *object.instances[instance_index];
+        // is_embossed_object(): the text is the whole object, whose copy turns instead.
+        const bool embossed_object = object.volumes.size() == 1;
+        const std::optional<Transform3d>& fix = volume->emboss_shape->fix_3mf_tr;
+        // selection_transform(): the fix of a text from a 3MF file is left out while it turns.
+        auto unfixed = [&]() {
+            if (fix.has_value()) volume->set_transformation(Geometry::Transformation(volume->get_matrix() * fix->inverse()));
+        };
+        auto refixed = [&]() {
+            if (fix.has_value()) volume->set_transformation(Geometry::Transformation(volume->get_matrix() * (*fix)));
+        };
+
+        if (transform.rotate != 0.0) {
+            // do_local_z_rotate()
+            double relative_angle = transform.rotate;
+            // Fix angle for mirrored volume
+            const bool is_instance_mirrored = has_reflection(instance.get_matrix());
+            const bool is_mirrored = embossed_object ? is_instance_mirrored : (is_instance_mirrored != has_reflection(volume->get_matrix()));
+            if (is_mirrored)
+                relative_angle *= -1;
+            unfixed();
+            Transform3d rotation_matrix = Geometry::rotation_transform(Vec3d(0., 0., relative_angle));
+            const Geometry::Transformation inst_trafo = instance.get_transformation();
+            if (embossed_object) {
+                // Selection::rotate() of a full instance, Instance_Relative_Joint:
+                // the instance rotates as a rigid body about the selection's centre.
+                const Transform3d old_instance = instance.get_matrix();
+                const Transform3d inst_rotation_matrix = rigid_rotation(inst_trafo, rotation_matrix);
+                const Transform3d inst_matrix_no_offset = inst_trafo.get_matrix_no_offset();
+                rotation_matrix = inst_matrix_no_offset.inverse() * inst_rotation_matrix * rotation_matrix * inst_rotation_matrix.inverse() * inst_matrix_no_offset;
+                // rotate around selection center
+                const Vec3d pivot = detail::bounding_sphere(object, instance).first;
+                const Vec3d inst_pivot = inst_matrix_no_offset.inverse() * (pivot - inst_trafo.get_offset());
+                rotation_matrix = Geometry::translation_transform(inst_pivot) * rotation_matrix * Geometry::translation_transform(-inst_pivot);
+                // transform_instance_relative()
+                instance.set_transformation(Geometry::Transformation(inst_trafo.get_matrix() * rotation_matrix));
+                synchronize_instances(object, instance, old_instance);
+            } else {
+                // Selection::rotate() of a single volume, Local_Relative_Joint:
+                // the volume rotates as a rigid body.
+                const Geometry::Transformation vol_trafo = volume->get_transformation();
+                const Transform3d vol_matrix_no_offset = vol_trafo.get_matrix_no_offset();
+                const Transform3d inst_scale_matrix = inst_trafo.get_scaling_factor_matrix();
+                const Transform3d vol_rotation_matrix = rigid_rotation(vol_trafo, rotation_matrix);
+                rotation_matrix = vol_matrix_no_offset.inverse() * inst_scale_matrix.inverse() * vol_rotation_matrix * rotation_matrix *
+                    vol_rotation_matrix.inverse() * inst_scale_matrix * vol_matrix_no_offset;
+                // transform_volume_relative()
+                volume->set_transformation(Geometry::Transformation(vol_trafo.get_matrix() * rotation_matrix));
+            }
+            refixed();
+        }
+
+        // do_local_z_move(): Selection::translate() with Local, which moves a
+        // single volume and leaves a whole instance as it is.
+        if (transform.move != 0.0 && !embossed_object) {
+            unfixed();
+            const Geometry::Transformation vol_trafo = volume->get_transformation();
+            const Geometry::Transformation inst_trafo = instance.get_transformation();
+            const Vec3d displacement = Vec3d::UnitZ() * transform.move;
+            volume->set_offset(vol_trafo.get_offset() + inst_trafo.get_scaling_factor_matrix().inverse() * vol_trafo.get_rotation_matrix() * displacement);
+            refixed();
+        }
+
+        if (transform.camera_position.size() == 3 && transform.camera_forward.size() == 3) {
+            // face_selected_volume_to_camera()
+            const std::optional<double> wanted_up_limit = transform.keep_up ? std::optional<double>(UP_LIMIT) : std::optional<double>{};
+            Transform3d volume_tr = volume->get_matrix();
+            if (fix.has_value())
+                volume_tr = volume_tr * fix->inverse();
+            const Transform3d instance_tr     = instance.get_matrix();
+            const Transform3d instance_tr_inv = instance_tr.inverse();
+            const Transform3d world_tr        = instance_tr * volume_tr; // without sla !!!
+            std::optional<float> current_angle;
+            if (wanted_up_limit.has_value())
+                current_angle = Emboss::calc_up(world_tr, *wanted_up_limit);
+            const Vec3d world_position = (instance_tr * volume->get_matrix()) * Vec3d::Zero();
+            const Vec3d camera_position(transform.camera_position[0], transform.camera_position[1], transform.camera_position[2]);
+            const Vec3d camera_forward(transform.camera_forward[0], transform.camera_forward[1], transform.camera_forward[2]);
+            const Vec3d wanted_direction = transform.perspective ? Vec3d(camera_position - world_position) : Vec3d(-camera_forward);
+            const Transform3d new_volume_tr = get_volume_transformation(world_tr, wanted_direction, world_position,
+                fix, instance_tr_inv, current_angle, wanted_up_limit);
+            if (embossed_object) {
+                // transform instance instead of volume
+                const Transform3d old_instance = instance.get_matrix();
+                const Transform3d new_instance_tr = instance_tr * new_volume_tr * volume->get_matrix().inverse();
+                instance.set_transformation(Geometry::Transformation(new_instance_tr));
+                // set same transformation to other instances when instance is embossed object
+                synchronize_instances(object, instance, old_instance);
+            } else {
+                // write result transformation
+                volume->set_transformation(Geometry::Transformation(new_volume_tr));
+            }
+        }
+
+        // volume_transformation_changed(): a text on the surface or per glyph is embossed anew.
+        if (re_emboss || volume->emboss_shape->projection.use_surface || style.per_glyph) {
+            reemboss_text(model, config, *volume, text, style, {}, output_prefix, result);
+            return result;
+        }
+        // Plater::changed_object(): the object rests on the plate, as it may sink.
+        object.invalidate_bounding_box();
+        object.ensure_on_bed(true);
+        model.update_print_volume_state(detail::build_volume_of(config));
+        if (!detail::write_objects({&object}, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        result.objects.clear();
+        return result;
+    }
 }
 
 } // namespace orcinus::orca

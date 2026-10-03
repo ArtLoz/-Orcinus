@@ -15,6 +15,7 @@ import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.TextStyle
+import app.orcinus.shadow.core.model.TextTransform
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
@@ -249,6 +250,24 @@ class EmbossTextUseCase(
     }
 
     /**
+     * The text [volume], seen on its copy [instance], turned and moved as
+     * [transform] says (the Rotation and From surface sliders, "Set text to
+     * face camera", fix_transformation() of another style), and embossed anew
+     * from [text] and [style] when [reEmboss] is set or the engine has to.
+     */
+    suspend fun transform(volume: ObjectPartId, instance: Int, transform: TextTransform, text: String, style: TextStyle, reEmboss: Boolean): ObjectPartId? {
+        val state = repository.state.value
+        val profiles = state.profiles
+        val index = state.objects.indexOfFirst { it.mesh == volume.mesh }
+        if (state.busy || profiles == null || index < 0) return null
+        val prefix = sceneFiles.newImportPrefix()
+        val outcome = run(prefix) {
+            editor.transformText(state.objects.map { it.placed() }, index, instance, volume.index, transform, text, style, reEmboss, profiles, prefix)
+        }
+        return joined(outcome, prefix, state.objects[index], newObjectName = "")
+    }
+
+    /**
      * GLGizmoEmboss::draw_model_type(): the text [volume] takes [type] and the
      * volumes are sorted by type ("Change Text Type"); a text that goes into or
      * out of the part side is embossed anew for its side of the surface.
@@ -322,8 +341,15 @@ class EmbossTextUseCase(
  * the request waits for the canvas's tool, which takes it ([done]).
  */
 class RequestEmbossUseCase(private val repository: PlateRepository) {
+    /** The list selects the volume (its object's first copy), as a click on its row does, for the tool to open on. */
     fun edit(volume: ObjectPartId) = repository.update { state ->
-        if (state.objects.withMesh(volume.mesh) == null) state else state.copy(embossRequest = EmbossRequest.Edit(volume))
+        val target = state.objects.withMesh(volume.mesh) ?: return@update state
+        state.copy(
+            embossRequest = EmbossRequest.Edit(volume),
+            selectedInstances = setOf(PlateInstanceId(volume.mesh)),
+            selectedPart = volume.takeIf { target.parts.isNotEmpty() },
+            selectedRange = null,
+        )
     }
 
     fun add(kind: EmbossKind, mesh: ScenePath, type: VolumeType) = repository.update { state ->

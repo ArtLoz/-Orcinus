@@ -120,6 +120,7 @@ interface ISlicerService {
     ModelLoadParcel createSvg(in PlacedModelParcel[] plate, in EmbossPlacementParcel placement, String type, String svg, in ProfilesParcel profiles, String prefix);
     ModelLoadParcel updateSvg(in PlacedModelParcel[] plate, int index, int volume, double depth, boolean useSurface, @nullable String svg, in @nullable double[] placement, in ProfilesParcel profiles, String prefix);
     EmbossVolumeParcel describeEmboss(in PlacedModelParcel[] plate, int index, int volume, in ProfilesParcel profiles);
+    ModelLoadParcel transformText(in PlacedModelParcel[] plate, int index, int instance, int volume, double rotate, double move, in double[] cameraPosition, in double[] cameraForward, boolean perspective, boolean keepUp, String text, in TextStyleParcel style, boolean reEmboss, in ProfilesParcel profiles, String prefix);
     ModelLoadParcel renameTextStyle(in PlacedModelParcel[] plate, int index, String oldName, String newName, in ProfilesParcel profiles, String prefix);
     TextStylesParcel textStyles();
     TextStylesParcel storeTextStyles(in TextStyleParcel[] styles, int active);

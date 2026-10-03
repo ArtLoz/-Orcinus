@@ -2036,6 +2036,9 @@ struct EmbossVolume {
     // depth in the world, 1 for none.
     double scale_height{1.0};
     double scale_depth{1.0};
+    // EmbossShape::fix_3mf_tr, column-major: what a 3MF file baked into the
+    // volume's transformation, which the tool's turns leave out; empty for none.
+    std::vector<double> fix;
 };
 
 // GLGizmoEmboss::create_volume() with the jobs it starts
@@ -2103,6 +2106,38 @@ EmbossVolume describe_emboss(
     std::size_t object_index,
     std::size_t volume_index,
     const ProfileSelection& profiles
+);
+
+// How GLGizmoEmboss turns and moves a text (SurfaceDrag.cpp): about its own
+// Z axis by rotate, counterclockwise in radians (do_local_z_rotate()), along
+// it by move millimetres (do_local_z_move()), and towards the camera when
+// camera_position is given (face_selected_volume_to_camera()), which looks
+// along camera_forward, in perspective or not, keeping the text's up when
+// keep_up is set.
+struct TextTransform {
+    double rotate{0.0};
+    double move{0.0};
+    std::vector<double> camera_position;
+    std::vector<double> camera_forward;
+    bool perspective{true};
+    bool keep_up{false};
+};
+
+// The text at volume_index of the object at object_index, seen on its copy at
+// instance_index, turned and moved as transform says; then embossed anew from
+// text and style when re_emboss is set, or when it uses the surface or is
+// placed per glyph (volume_transformation_changed()).
+ImportedModels transform_text(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t instance_index,
+    std::size_t volume_index,
+    const TextTransform& transform,
+    const std::string& text,
+    const TextStyle& style,
+    bool re_emboss,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
 );
 
 // The text tool's styles as the app configuration keeps them (StyleManager):

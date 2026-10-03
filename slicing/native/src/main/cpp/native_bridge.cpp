@@ -4228,6 +4228,54 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::TextStyles& styles)
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_transformText(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint instance_index,
+    jint volume_index,
+    jdouble rotate,
+    jdouble move,
+    jdoubleArray camera_position,
+    jdoubleArray camera_forward,
+    jboolean perspective,
+    jboolean keep_up,
+    jstring text,
+    jobject style,
+    jboolean re_emboss,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    orcinus::orca::TextTransform transform;
+    transform.rotate = rotate;
+    transform.move = move;
+    transform.camera_position = to_doubles(env, camera_position);
+    transform.camera_forward = to_doubles(env, camera_forward);
+    transform.perspective = perspective == JNI_TRUE;
+    transform.keep_up = keep_up == JNI_TRUE;
+    return to_java(
+        env,
+        orcinus::orca::transform_text(
+            to_plate(env, plate),
+            static_cast<std::size_t>(object_index),
+            static_cast<std::size_t>(instance_index),
+            static_cast<std::size_t>(volume_index),
+            transform,
+            to_utf8(env, text),
+            to_text_style(env, style),
+            re_emboss == JNI_TRUE,
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_renameTextStyle(
     JNIEnv* env,
     jobject /* this */,
@@ -4298,7 +4346,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeEmboss(
     const jmethodID constructor = env->GetMethodID(
         volume_class,
         "<init>",
-        "(JLjava/lang/String;JLjava/lang/String;Lapp/orcinus/shadow/slicing/nativebridge/NativeTextStyle;Ljava/lang/String;ZDDJZDD)V"
+        "(JLjava/lang/String;JLjava/lang/String;Lapp/orcinus/shadow/slicing/nativebridge/NativeTextStyle;Ljava/lang/String;ZDDJZDD[D)V"
     );
     return env->NewObject(
         volume_class,
@@ -4315,7 +4363,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeEmboss(
         static_cast<jlong>(volume.type),
         volume.only_part ? JNI_TRUE : JNI_FALSE,
         static_cast<jdouble>(volume.scale_height),
-        static_cast<jdouble>(volume.scale_depth)
+        static_cast<jdouble>(volume.scale_depth),
+        to_java(env, volume.fix.data(), volume.fix.size())
     );
 }
 

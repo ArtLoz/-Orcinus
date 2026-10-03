@@ -26,6 +26,7 @@ import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.TextHorizontalAlign
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextStylesOutcome
+import app.orcinus.shadow.core.model.TextTransform
 import app.orcinus.shadow.core.model.TextVerticalAlign
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
@@ -576,6 +577,40 @@ class NativeSlicerEngine(context: Context) :
         )
     }
 
+    override suspend fun transformText(
+        plate: List<PlacedModel>,
+        index: Int,
+        instance: Int,
+        volume: Int,
+        transform: TextTransform,
+        text: String,
+        style: TextStyle,
+        reEmboss: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = emboss {
+        NativeBindings.transformText(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            instanceIndex = instance,
+            volumeIndex = volume,
+            rotate = transform.rotate,
+            move = transform.move,
+            cameraPosition = transform.cameraPosition?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0),
+            cameraForward = transform.cameraForward?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0),
+            perspective = transform.perspective,
+            keepUp = transform.keepUp,
+            text = text,
+            style = style.toNative(),
+            reEmboss = reEmboss,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        )
+    }
+
     override suspend fun renameTextStyle(
         plate: List<PlacedModel>,
         index: Int,
@@ -644,6 +679,7 @@ class NativeSlicerEngine(context: Context) :
                         onlyPart = described.onlyPart,
                         scaleHeight = described.scaleHeight,
                         scaleDepth = described.scaleDepth,
+                        fix = described.fix.takeIf { it.size == 16 }?.let { Transform3(it.toList()) },
                     ),
                 )
             }

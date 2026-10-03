@@ -179,14 +179,15 @@ internal class SceneObject(
 
     /**
      * The nearest point where [ray] enters the mesh and the normal of the
-     * triangle there, in world coordinates (RaycastManager's hit).
+     * triangle there, in world coordinates (RaycastManager's hit, whose normal
+     * is that of the triangle transformed into the world).
      */
     fun raycastHit(ray: Line3): Pair<Vec3, Vec3>? {
         val toObject = world.inverse()
         val origin = toObject.transformPoint(ray.a)
         val direction = toObject.transformPoint(ray.b) - origin
         var nearest = Double.MAX_VALUE
-        var normal: Vec3? = null
+        var triangle: Triple<Vec3, Vec3, Vec3>? = null
         val vertices = mesh.vertices
         val stride = MeshFiles.FLOATS_PER_CORNER
         for (corner in 0 until mesh.cornerCount step 3) {
@@ -196,17 +197,14 @@ internal class SceneObject(
             val t = rayTriangle(origin, direction, v0, v1, v2) ?: continue
             if (t < nearest) {
                 nearest = t
-                normal = (v1 - v0).cross(v2 - v0)
+                triangle = Triple(v0, v1, v2)
             }
         }
-        val local = normal ?: return null
-        // The normal goes into the world by the inverse transpose of the linear part.
-        val worldNormal = Vec3(
-            toObject[0, 0] * local.x + toObject[1, 0] * local.y + toObject[2, 0] * local.z,
-            toObject[0, 1] * local.x + toObject[1, 1] * local.y + toObject[2, 1] * local.z,
-            toObject[0, 2] * local.x + toObject[1, 2] * local.y + toObject[2, 2] * local.z,
-        ).normalized()
-        return world.transformPoint(origin + direction * nearest) to worldNormal
+        val (v0, v1, v2) = triangle ?: return null
+        // NOTE: Anisotropic scale of transformation cause change of normal
+        val w0 = world.transformPoint(v0)
+        val normal = (world.transformPoint(v1) - w0).cross(world.transformPoint(v2) - w0).normalized()
+        return world.transformPoint(origin + direction * nearest) to normal
     }
 
     /** The mesh's points in world coordinates, which CameraUtils::create_hull2d() projects. */

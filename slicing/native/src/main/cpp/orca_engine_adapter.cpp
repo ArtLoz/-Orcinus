@@ -2095,25 +2095,12 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
 
 namespace {
 
-// Selection::get_bounding_sphere(): the smallest sphere around the convex
-// hulls of the instance's volumes in world coordinates.
+// Selection::get_bounding_sphere() of the instance, as the app shows it.
 void bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance, ModelInspection& result)
 {
-    using Kernel = CGAL::Simple_cartesian<float>;
-    using Traits = CGAL::Min_sphere_of_points_d_traits_3<Kernel, float>;
-    using MinSphere = CGAL::Min_sphere_of_spheres_d<Traits>;
-    std::vector<Kernel::Point_3> points;
-    for (const Slic3r::ModelVolume* volume : object.volumes) {
-        const Slic3r::Transform3d matrix = instance.get_matrix() * volume->get_matrix();
-        for (const Slic3r::Vec3f& vertex : volume->get_convex_hull().its.vertices) {
-            const Slic3r::Vec3d point = matrix * vertex.cast<double>();
-            points.emplace_back(float(point.x()), float(point.y()), float(point.z()));
-        }
-    }
-    MinSphere sphere(points.begin(), points.end());
-    const float* center = sphere.center_cartesian_begin();
-    result.sphere_center = {center[0], center[1], center[2]};
-    result.sphere_radius = sphere.radius();
+    const auto [center, radius] = detail::bounding_sphere(object, instance);
+    result.sphere_center = {float(center.x()), float(center.y()), float(center.z())};
+    result.sphere_radius = radius;
 }
 
 // Selection::get_full_unscaled_instance_bounding_box()
@@ -5196,6 +5183,24 @@ ImportedModels paste_volumes(
 }
 
 namespace detail {
+
+std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance)
+{
+    using Kernel = CGAL::Simple_cartesian<float>;
+    using Traits = CGAL::Min_sphere_of_points_d_traits_3<Kernel, float>;
+    using MinSphere = CGAL::Min_sphere_of_spheres_d<Traits>;
+    std::vector<Kernel::Point_3> points;
+    for (const Slic3r::ModelVolume* volume : object.volumes) {
+        const Slic3r::Transform3d matrix = instance.get_matrix() * volume->get_matrix();
+        for (const Slic3r::Vec3f& vertex : volume->get_convex_hull().its.vertices) {
+            const Slic3r::Vec3d point = matrix * vertex.cast<double>();
+            points.emplace_back(float(point.x()), float(point.y()), float(point.z()));
+        }
+    }
+    MinSphere sphere(points.begin(), points.end());
+    const float* center = sphere.center_cartesian_begin();
+    return {Slic3r::Vec3d(center[0], center[1], center[2]), double(sphere.radius())};
+}
 
 SliceStatus select_profiles(
     Slic3r::PresetBundle& bundle,

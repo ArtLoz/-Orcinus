@@ -99,6 +99,7 @@ import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextStylesOutcome
+import app.orcinus.shadow.core.model.TextTransform
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
@@ -374,6 +375,37 @@ class RemoteSlicerEngine(
 
     override suspend fun describeEmboss(plate: List<PlacedModel>, index: Int, volume: Int, profiles: SlicingProfileSelection): EmbossVolumeOutcome =
         remote({ EmbossVolumeOutcome.Failure(it) }) { describeEmboss(plate.toParcels(), index, volume, profiles.toParcel()).toEmbossVolumeOutcome() }
+
+    override suspend fun transformText(
+        plate: List<PlacedModel>,
+        index: Int,
+        instance: Int,
+        volume: Int,
+        transform: TextTransform,
+        text: String,
+        style: TextStyle,
+        reEmboss: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        transformText(
+            plate.toParcels(),
+            index,
+            instance,
+            volume,
+            transform.rotate,
+            transform.move,
+            transform.cameraPosition?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0),
+            transform.cameraForward?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0),
+            transform.perspective,
+            transform.keepUp,
+            text,
+            style.toParcel(),
+            reEmboss,
+            profiles.toParcel(),
+            prefix.value,
+        ).toModelLoadOutcome()
+    }
 
     override suspend fun renameTextStyle(
         plate: List<PlacedModel>,

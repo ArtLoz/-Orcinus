@@ -46,6 +46,7 @@ import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SlicedPlates
+import app.orcinus.shadow.core.model.TextTransform
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.Transform3
@@ -294,6 +295,34 @@ abstract class SlicerService<E> : Service()
 
         override fun describeEmboss(plate: Array<PlacedModelParcel>, index: Int, volume: Int, profiles: ProfilesParcel): EmbossVolumeParcel =
             runBlocking { engine.describeEmboss(plate.toPlacedModels(), index, volume, profiles.toProfiles()) }.toParcel()
+
+        override fun transformText(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            instance: Int,
+            volume: Int,
+            rotate: Double,
+            move: Double,
+            cameraPosition: DoubleArray,
+            cameraForward: DoubleArray,
+            perspective: Boolean,
+            keepUp: Boolean,
+            text: String,
+            style: TextStyleParcel,
+            reEmboss: Boolean,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            val transform = TextTransform(
+                rotate = rotate,
+                move = move,
+                cameraPosition = cameraPosition.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) },
+                cameraForward = cameraForward.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) },
+                perspective = perspective,
+                keepUp = keepUp,
+            )
+            engine.transformText(plate.toPlacedModels(), index, instance, volume, transform, text, style.toTextStyle(), reEmboss, profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
 
         override fun renameTextStyle(
             plate: Array<PlacedModelParcel>,

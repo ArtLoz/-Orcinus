@@ -107,6 +107,8 @@ data class EmbossVolume(
     val onlyPart: Boolean,
     val scaleHeight: Double,
     val scaleDepth: Double,
+    /** EmbossShape::fix_3mf_tr: what a 3MF file baked into the volume's transformation; null for none. */
+    val fix: Transform3? = null,
 )
 
 /**
@@ -120,6 +122,22 @@ sealed interface EmbossRequest {
 
     data class Add(val kind: EmbossKind, val mesh: ScenePath, val type: VolumeType) : EmbossRequest
 }
+
+/**
+ * How the text tool turns and moves a text (SurfaceDrag.cpp): about its own Z
+ * axis by [rotate], counterclockwise in radians (do_local_z_rotate()), along it
+ * by [move] millimetres (do_local_z_move()), and towards the camera at
+ * [cameraPosition], which looks along [cameraForward], in perspective or not
+ * (face_selected_volume_to_camera()), keeping its up when [keepUp] is set.
+ */
+data class TextTransform(
+    val rotate: Double = 0.0,
+    val move: Double = 0.0,
+    val cameraPosition: Vector3? = null,
+    val cameraForward: Vector3? = null,
+    val perspective: Boolean = true,
+    val keepUp: Boolean = false,
+)
 
 /**
  * The text tool's styles the app configuration keeps (StyleManager's styles),

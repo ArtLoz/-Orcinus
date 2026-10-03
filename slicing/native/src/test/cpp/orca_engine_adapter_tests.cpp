@@ -6279,3 +6279,63 @@ TEST_CASE("The text tool's styles are kept in the app configuration and a style 
     CHECK(described.style.name == "Mine");
     CHECK(described.text == "Orca");
 }
+
+TEST_CASE("A text is turned, moved and faced to the camera as the text tool does", "[Adapter][Emboss]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    orca::TextStyle style;
+    style.name = "NORMAL";
+    style.font_path = "/system/fonts/Roboto-Regular.ttf";
+    style.face_name = "Roboto";
+    style.size_in_mm = 10.0;
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("turn-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    orca::EmbossPlacement front;
+    front.object_index = 0;
+    front.position = {cube.box_center[0], cube.box_center[1] - cube.size_y / 2, cube.box_center[2]};
+    front.normal = {0.0, -1.0, 0.0};
+    orca::ImportedModels result = orca::create_text(plate, front, orca::VolumeType::part, "Orca", style, k2_plus_profiles(), import_prefix("turn-text"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    orca::EmbossVolume described = orca::describe_emboss(plate, 0, 1, k2_plus_profiles());
+    REQUIRE(described.status == orca::SceneStatus::success);
+    CHECK_FALSE(described.style.angle.has_value());
+
+    // do_local_z_rotate(): calc_angle() measures the turn back, clockwise.
+    orca::TextTransform turn;
+    turn.rotate = 0.5;
+    result = orca::transform_text(plate, 0, 0, 1, turn, "Orca", style, false, k2_plus_profiles(), import_prefix("turned"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    described = orca::describe_emboss(plate, 0, 1, k2_plus_profiles());
+    REQUIRE(described.style.angle.has_value());
+    CHECK(std::abs(*described.style.angle) == Catch::Approx(0.5).margin(1e-3));
+
+    // do_local_z_move(): the text stands a millimetre off the face.
+    orca::TextTransform move;
+    move.move = 1.0;
+    result = orca::transform_text(plate, 0, 0, 1, move, "Orca", style, false, k2_plus_profiles(), import_prefix("moved"));
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    described = orca::describe_emboss(plate, 0, 1, k2_plus_profiles());
+    REQUIRE(described.style.distance.has_value());
+    CHECK(std::abs(*described.style.distance) == Catch::Approx(1.0).margin(1e-3));
+
+    // face_selected_volume_to_camera(): a camera straight above turns the text up.
+    orca::TextTransform face;
+    face.camera_position = {cube.box_center[0], cube.box_center[1], 500.0};
+    face.camera_forward = {0.0, 0.0, -1.0};
+    face.perspective = false;
+    face.keep_up = true;
+    result = orca::transform_text(plate, 0, 0, 1, face, "Orca", style, false, k2_plus_profiles(), import_prefix("faced"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    const orca::ImportedPart& faced = result.objects.front().parts.front();
+    REQUIRE(faced.matrix.size() == 16);
+    // The text's Z axis, the third column, looks up.
+    CHECK(faced.matrix[10] == Catch::Approx(1.0).margin(1e-6));
+}

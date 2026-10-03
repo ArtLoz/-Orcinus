@@ -166,6 +166,7 @@ import app.orcinus.shadow.render.scene.PlateLabel
 import app.orcinus.shadow.render.scene.PlateNavigator
 import app.orcinus.shadow.render.scene.PlateView
 import app.orcinus.shadow.render.scene.PlateViewOptions
+import app.orcinus.shadow.render.scene.TextDragView
 import app.orcinus.shadow.render.scene.rememberPlateViewCamera
 import java.util.Locale
 import kotlin.math.pow
@@ -394,6 +395,12 @@ internal fun PrepareRoute(
             deleteStyle = viewModel::deleteTextStyle,
             swapStyles = viewModel::swapTextStyles,
             dismissNotice = viewModel::dismissTextNotice,
+            moveText = viewModel::moveText,
+            rotateText = viewModel::rotateText,
+            setKeepUp = viewModel::setTextKeepUp,
+            faceCamera = viewModel::faceTextToCamera,
+            setCollection = viewModel::setTextCollection,
+            drag = viewModel::dragText,
         ),
         textFamilies = textFamilies,
         layerActions = LayerEditingActions(
@@ -607,6 +614,9 @@ internal fun PrepareScreen(
                 clearance = state.clearance.takeIf { state.painting == null && state.cut == null && state.simplify == null && state.gizmo != PlateGizmo.LAY_ON_FACE },
                 antialiasingSamples = canvas.antialiasingSamples,
                 layerEditing = state.layerEditing?.view(),
+                // SurfaceDrag: the text the tool is open on follows a finger over its object.
+                textDrag = state.text?.takeUnless { it.busy }?.let { textDragOf(it, state.sceneCopies) },
+                onTextDragged = textActions.drag,
             )
         }
         plateMenu?.let { position ->
@@ -793,7 +803,7 @@ internal fun PrepareScreen(
                     state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
-                    state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits)
+                    state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye)
                     state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
@@ -2203,3 +2213,23 @@ private fun objectLabels(state: PrepareUiState): Map<Int, PlateLabel> {
     }
 }
 
+/**
+ * The text the tool is open on as the canvas drags it: a part, drawn by its
+ * own mesh in its placement, or the object's own mesh, which the scene draws
+ * from each copy's mesh in place; null before the engine described it.
+ */
+private fun textDragOf(text: TextMode, copies: List<SceneCopy>): TextDragView? {
+    val described = text.described ?: return null
+    val plateObject = copies.firstOrNull { it.id.mesh == text.volume.mesh }?.plateObject ?: return null
+    if (text.volume.index == 0) {
+        return TextDragView(
+            keys = plateObject.instances.mapTo(HashSet()) { it.inspection.mesh.value },
+            placement = (plateObject as? PlateObject.ImportedModel)?.frame ?: Transform3.IDENTITY,
+            sceneFrame = Transform3.IDENTITY,
+            fix = described.fix,
+            onlyPart = described.onlyPart,
+        )
+    }
+    val part = plateObject.parts.getOrNull(text.volume.index - 1) ?: return null
+    return TextDragView(setOf(part.mesh.value), part.placement, part.placement, described.fix, described.onlyPart)
+}

@@ -188,6 +188,10 @@ fun PlateView(
      * [LayerHeightBar] shows them too.
      */
     layerEditing: LayerEditingView? = null,
+    /** The text tool's text, which a finger drags over its object's surface (SurfaceDrag); null while it is closed. */
+    textDrag: TextDragView? = null,
+    /** The text's transformation in its object where the finger let it go. */
+    onTextDragged: (Transform3) -> Unit = {},
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -379,6 +383,8 @@ fun PlateView(
                 onCutPart(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z))
             }
             controller.onCutLine = onCutLine
+            controller.onTextDragged = { volume -> onTextDragged(Transform3(volume.elements().toList())) }
+            controller.setTextDrag(textDrag)
             controller.onPixelSize = onPixelSize
             controller.setCut(cut, cutIndex)
             controller.setPainting(painting != null)
@@ -508,7 +514,13 @@ class PlateViewCamera {
 
     /** CameraUtils::get_z0_position(): where a ray through [at] of the view, or through its centre, meets the bed. */
     fun bedPoint(at: Offset? = null): Point2? = controller?.bedPoint(at?.x, at?.y)
+
+    /** Where the camera stands, where it looks and whether in perspective (Camera::get_position(), get_dir_forward()). */
+    fun eye(): CameraEye? = controller?.eye()
 }
+
+/** The camera's position and forward direction, in world coordinates, and whether it looks in perspective. */
+data class CameraEye(val position: Vector3, val forward: Vector3, val perspective: Boolean)
 
 /** A point of a surface, with the surface's normal there, in world coordinates. */
 data class SurfaceHit(val position: Vector3, val normal: Vector3)
@@ -754,6 +766,31 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private class CutLineDrag(index: Int, start: Affine3, val begin: Vec3) : Drag(index, start) {
         var end: Vec3 = begin
         var direction: Vec3 = Vec3.UNIT_Z
+    }
+
+    /**
+     * SurfaceDrag of the text tool's text, from [start], with the scene as it
+     * stood then; the transformation in its object it has taken.
+     */
+    private class TextDrag(val start: TextDragStart, startWorld: Affine3, val startScene: List<SceneObject>) : Drag(start.index, startWorld) {
+        var volume: Affine3? = null
+    }
+
+    /** The text tool's text, which a finger drags over its object's surface. */
+    private var textDrag: TextDragView? = null
+    var onTextDragged: (Affine3) -> Unit = {}
+
+    fun setTextDrag(view: TextDragView?) {
+        if (textDrag == view) return
+        textDrag = view
+        if (drag is TextDrag) drag = null
+    }
+
+    /** Where the camera stands and looks, for the text tool's "Set text to face camera". */
+    fun eye(): CameraEye {
+        val position = camera.position()
+        val forward = camera.dirForward()
+        return CameraEye(Vector3(position.x, position.y, position.z), Vector3(forward.x, forward.y, forward.z), !camera.orthographic)
     }
 
     /** The rotation gizmo's grabber of [axis], turning about the sphere [center] by [angle]. */
@@ -1027,6 +1064,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             onPaint(ray, true)
             return true
         }
+        textDrag?.let { text ->
+            pressText(text, x, y)?.let { start ->
+                drag = TextDrag(start, start.world, plateObjects)
+                return true
+            }
+        }
         if (gizmo == PlateGizmo.LAY_ON_FACE && editable) {
             val target = objects.firstOrNull { it.index == selectedIndex }
             val ray = camera.mouseRay(x.toDouble(), y.toDouble())
@@ -1076,6 +1119,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return
         }
         val drag = drag ?: return
+        if (drag is TextDrag) {
+            dragText(drag, x, y)
+            return
+        }
         if (drag is CutDrag) {
             camera.mouseRay(x.toDouble(), y.toDouble())?.let { dragCut(drag, it) }
             return
@@ -1169,6 +1216,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         val drag = drag ?: return
         this.drag = null
+        if (drag is TextDrag) {
+            // write transformation from UI into model
+            drag.volume?.let(onTextDragged)
+            return
+        }
         if (drag is CutConnectorDrag) {
             val position = drag.position
             if (drag.moved && position != null) {
@@ -1231,6 +1283,58 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         replaceObject(placed)
         onPlaceObject(placed.index, Transform3(placed.world.elements().toList()), manipulation)
+    }
+
+    /**
+     * start_dragging() of SurfaceDrag.cpp: a press on the text of the
+     * selected copy, the nearest of what the finger's ray meets, holds it;
+     * a text that is its object's only part moves with the object.
+     */
+    private fun pressText(text: TextDragView, x: Float, y: Float): TextDragStart? {
+        if (text.onlyPart || !editable) return null
+        val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return null
+        val hovered = objects
+            .mapNotNull { sceneObject -> sceneObject.raycast(ray)?.let { sceneObject to it } }
+            .minByOrNull { (_, hit) -> (hit - ray.a).norm() }
+            ?.first ?: return null
+        if (hovered.key !in text.keys || hovered.index != selectedIndex) return null
+        val placement = Affine3(text.placement.columns.toDoubleArray())
+        val fix = text.fix?.let { Affine3(it.columns.toDoubleArray()) }
+        // The copy, from the scene's transformation of the text's mesh.
+        val instance = hovered.world * Affine3(text.sceneFrame.columns.toDoubleArray()).inverse()
+        // world_matrix_fixed() without sla shift
+        val world = instance * (fix?.let { placement * it.inverse() } ?: placement)
+        // screen coordinate of volume center
+        val (screenX, screenY) = camera.project(world.translation()) ?: return null
+        val startAngle = calcUp(world, UP_LIMIT)?.let { if (world.isLeftHanded) -it else it }
+        return TextDragStart(hovered.index, screenX - x, screenY - y, world, instance.inverse(), startAngle, fix)
+    }
+
+    /**
+     * dragging() of SurfaceDrag.cpp: the text stands where the finger's ray,
+     * moved by the offset it was held at, meets the copy's other model parts,
+     * facing out of them with its up kept, on every copy of the object.
+     */
+    private fun dragText(drag: TextDrag, x: Float, y: Float) {
+        val text = textDrag ?: return
+        val start = drag.start
+        val ray = camera.mouseRay(x + start.offsetX, y + start.offsetY) ?: return
+        val (position, normal) = objects
+            .filter { it.index == start.index && !it.overlay && !it.modifier && it.key !in text.keys }
+            .mapNotNull { it.raycastHit(ray) }
+            .minByOrNull { (point, _) -> (point - ray.a).norm() }
+            ?: return
+        val volume = volumeTransformation(start.world, normal, position, start.fix, start.instanceInv, start.startAngle, UP_LIMIT)
+        drag.volume = volume
+        drag.moved = true
+        // Update transformation for all instances: the scene's mesh of the text after the copy's.
+        val placement = Affine3(text.placement.columns.toDoubleArray())
+        val sceneFrame = Affine3(text.sceneFrame.columns.toDoubleArray())
+        val toScene = volume * placement.inverse() * sceneFrame
+        plateObjects = drag.startScene.map { sceneObject ->
+            if (sceneObject.key in text.keys) sceneObject.withWorld(sceneObject.world * sceneFrame.inverse() * toScene) else sceneObject
+        }
+        showObjects(plateObjects + listOfNotNull(wipeTower))
     }
 
     /** GLCanvas3D::deselect_all() after a click on empty space. */

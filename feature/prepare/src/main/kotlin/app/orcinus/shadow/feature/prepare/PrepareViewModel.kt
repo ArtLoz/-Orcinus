@@ -56,6 +56,7 @@ import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.TextStyle
+import app.orcinus.shadow.core.model.TextTransform
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
@@ -133,6 +134,7 @@ import app.orcinus.shadow.domain.plate.toggledItalic
 import app.orcinus.shadow.domain.plate.withFamily
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
+import app.orcinus.shadow.render.scene.CameraEye
 import app.orcinus.shadow.render.scene.CutConnectorEvent
 import app.orcinus.shadow.render.scene.CutLineEvent
 import app.orcinus.shadow.render.scene.CutPlanes
@@ -141,6 +143,9 @@ import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.SurfaceHit
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -280,6 +285,9 @@ class PrepareViewModel(
     /** One change of the text's volume at a time: the window's edits and the renaming of a style. */
     private val textLock = Mutex()
 
+    /** GLGizmoEmboss::m_keep_up: the text's up is kept as it faces the camera; on from the start. */
+    private var textKeepUp = true
+
     /** Translates the names of OrcaSlicer's default text styles (_u8L("NORMAL"), ...). */
     var styleNames: (String) -> String = { it }
 
@@ -369,6 +377,19 @@ class PrepareViewModel(
                         val now = state.text ?: return@update state
                         state.copy(text = now.copy(volume = edited?.takeIf { now.volume == asked.volume } ?: now.volume, busy = false))
                     }
+                }
+            }
+        }
+        // GLGizmoEmboss::data_changed() and on_mouse_change_selection(): the
+        // tool follows the selection to another text, and closes on anything else.
+        viewModelScope.launch {
+            plate.map { it.selectedInstances to it.selectedPart }.distinctUntilChanged().collect {
+                val open = view.value.text ?: return@collect
+                if (open.busy || textLock.isLocked) return@collect
+                val selected = plate.value.selectedEmbossVolume(EmbossKind.TEXT)
+                when {
+                    selected == null -> closeText()
+                    selected != open.volume -> openText(selected)
                 }
             }
         }
@@ -1311,6 +1332,8 @@ class PrepareViewModel(
         viewModelScope.launch {
             loadFamilies()
             val style = discardStyleChanges() ?: return@launch
+            // The tool leaves the text it was open on for the new one.
+            closeText()
             closeOtherTools()
             val created = embossText.create(placement, type, defaultText, style) ?: return@launch
             openText(created, style)
@@ -1365,6 +1388,7 @@ class PrepareViewModel(
                         styles = styleList?.styles.orEmpty(),
                         styleIndex = styleIndex,
                         unknownFont = unknown,
+                        keepUp = textKeepUp,
                         busy = false,
                     ),
                 )
@@ -1420,16 +1444,113 @@ class PrepareViewModel(
                 view.update { it.copy(text = it.text?.copy(styles = styleList?.styles.orEmpty(), styleIndex = styleIndex, notice = TextNotice.InvalidStyle(name))) }
                 return@launch
             }
-            editText { mode ->
-                mode.copy(
-                    unknownFont = false,
-                    style = style.copy(angle = mode.style.angle, distance = mode.style.distance),
-                    styles = styleList?.styles.orEmpty(),
-                    styleIndex = styleIndex,
-                )
+            val open = view.value.text ?: return@launch
+            val changed = open.copy(unknownFont = false, style = style, styles = styleList?.styles.orEmpty(), styleIndex = styleIndex)
+            // fix_transformation(): the text turns and moves to the style's angle and distance.
+            val turn = (style.angle ?: 0.0) - (open.style.angle ?: 0.0)
+            val move = (style.distance ?: 0.0) - (open.style.distance ?: 0.0)
+            if (sameOptional(open.style.angle, style.angle) && sameOptional(open.style.distance, style.distance)) {
+                editText { changed }
+            } else {
+                view.update { it.copy(text = changed) }
+                transformText(TextTransform(rotate = turn, move = move), reEmboss = true, angleFromVolume = false)
             }
         }
     }
+
+    /**
+     * The Rotation slider let go: the text turns about its own Z axis to
+     * [degrees] clockwise (do_local_z_rotate()), and its angle is measured
+     * anew (calc_angle()).
+     */
+    fun rotateText(degrees: Double) {
+        val open = view.value.text ?: return
+        // convert back to radians and CCW
+        var angle = -Math.toRadians(degrees)
+        // Geometry::to_range_pi_pi()
+        angle = atan2(sin(angle), cos(angle))
+        val turn = angle - (open.style.angle ?: 0.0)
+        if (abs(turn) < ANGLE_EPSILON) return
+        transformText(TextTransform(rotate = turn), reEmboss = false, angleFromVolume = true)
+    }
+
+    /**
+     * The From surface slider let go: the text moves along its own Z axis to
+     * [distance] millimetres from the surface (do_local_z_move()); unset
+     * moves it back onto it.
+     */
+    fun moveText(distance: Double?) {
+        val open = view.value.text ?: return
+        val move = (distance ?: 0.0) - (open.style.distance ?: 0.0)
+        view.update { it.copy(text = it.text?.copy(style = open.style.copy(distance = distance))) }
+        if (move == 0.0) return
+        transformText(TextTransform(move = move), reEmboss = false, angleFromVolume = false)
+    }
+
+    /** The lock beside Rotation: whether the text's up is kept as it faces the camera. */
+    fun setTextKeepUp(keepUp: Boolean) {
+        textKeepUp = keepUp
+        view.update { it.copy(text = it.text?.copy(keepUp = keepUp)) }
+    }
+
+    /** "Set text to face camera" (face_selected_volume_to_camera()) with the camera at [eye]. */
+    fun faceTextToCamera(eye: CameraEye?) {
+        val camera = eye ?: return
+        transformText(
+            TextTransform(cameraPosition = camera.position, cameraForward = camera.forward, perspective = camera.perspective, keepUp = textKeepUp),
+            reEmboss = false,
+            angleFromVolume = !textKeepUp,
+        )
+    }
+
+    /** SurfaceDrag let go: the text takes [placement] in its object, and is embossed anew there (volume_transformation_changed()). */
+    fun dragText(placement: Transform3) {
+        val open = view.value.text ?: return
+        viewModelScope.launch {
+            textLock.withLock {
+                view.update { it.copy(text = it.text?.copy(busy = true)) }
+                val moved = embossText.update(open.volume, open.text, open.style, placement)
+                finishTransform(open.volume, moved, angleFromVolume = !textKeepUp)
+            }
+        }
+    }
+
+    /**
+     * The text turned and moved as [transform] says, embossed anew with the
+     * window's text and style when [reEmboss] is set; its angle measured
+     * anew from the volume when [angleFromVolume] is set.
+     */
+    private fun transformText(transform: TextTransform, reEmboss: Boolean, angleFromVolume: Boolean) {
+        val open = view.value.text ?: return
+        val instance = plate.value.selectedInstances.firstOrNull { it.mesh == open.volume.mesh }?.instance ?: 0
+        viewModelScope.launch {
+            textLock.withLock {
+                view.update { it.copy(text = it.text?.copy(busy = true)) }
+                val now = view.value.text ?: return@withLock
+                val moved = embossText.transform(open.volume, instance, transform, now.text, now.style, reEmboss)
+                finishTransform(open.volume, moved, angleFromVolume)
+            }
+        }
+    }
+
+    /** The volume the text became, with its angle as the engine measures it when [angleFromVolume] is set. */
+    private suspend fun finishTransform(volume: ObjectPartId, moved: ObjectPartId?, angleFromVolume: Boolean) {
+        val described = moved?.takeIf { angleFromVolume }?.let { (embossText.describe(it) as? EmbossVolumeOutcome.Success)?.volume }
+        view.update { state ->
+            val now = state.text?.takeIf { it.volume == volume } ?: return@update state.copy(text = state.text?.copy(busy = false))
+            state.copy(
+                text = now.copy(
+                    volume = moved ?: now.volume,
+                    style = if (described != null) now.style.copy(angle = described.style.angle) else now.style,
+                    described = described ?: now.described,
+                    busy = false,
+                ),
+            )
+        }
+    }
+
+    /** "Collection" of a font file of several faces: the face at [index]. */
+    fun setTextCollection(index: Int) = editText { it.copy(style = it.style.copy(collectionNumber = index.takeIf { at -> at > 0 })) }
 
     /** Reset (reset_to_default_style()): the first stored style. */
     fun resetTextStyle() = selectTextStyle(0)
@@ -2055,7 +2176,13 @@ class PrepareViewModel(
 
     fun dismissProblem() = dismissPlateProblem()
 
+    /** is_approx() of two optional values: both unset, or both set and alike. */
+    private fun sameOptional(a: Double?, b: Double?): Boolean = if (a == null || b == null) a == b else abs(a - b) < ANGLE_EPSILON
+
     private companion object {
+        /** libslic3r's EPSILON, which is_approx() compares the text's angles and distances by. */
+        const val ANGLE_EPSILON = 1e-4
+
         /** The gizmos that turn the realistic view off while they are open: Seam, FdmSupports and FuzzySkin. */
         val REALISTIC_OFF_PAINTING = setOf(PaintKind.SEAM, PaintKind.SUPPORTS, PaintKind.FUZZY_SKIN)
 

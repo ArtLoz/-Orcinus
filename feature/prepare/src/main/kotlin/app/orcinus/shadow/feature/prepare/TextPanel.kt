@@ -72,11 +72,13 @@ import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.TextHorizontalAlign
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextVerticalAlign
+import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
+import app.orcinus.shadow.render.scene.CameraEye
 import app.orcinus.shadow.render.scene.SurfaceHit
 import java.io.File
 import app.orcinus.shadow.core.designsystem.R as DesignR
@@ -115,11 +117,24 @@ internal class TextActions(
     /** A style dragged over its neighbour. */
     val swapStyles: (Int, Int) -> Unit,
     val dismissNotice: () -> Unit,
+    /** The From surface slider let go, in millimetres; null for none. */
+    val moveText: (Double?) -> Unit,
+    /** The Rotation slider let go, in degrees clockwise. */
+    val rotateText: (Double) -> Unit,
+    /** The lock beside Rotation. */
+    val setKeepUp: (Boolean) -> Unit,
+    /** "Set text to face camera", with the camera of the canvas. */
+    val faceCamera: (CameraEye?) -> Unit,
+    /** "Collection": a face of a font file of several. */
+    val setCollection: (Int) -> Unit,
+    /** The text where a finger left it on its object (SurfaceDrag). */
+    val drag: (Transform3) -> Unit,
 ) {
     companion object {
         val NONE = TextActions(
             { _, _, _ -> }, { _, _, _, _, _ -> }, { _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
             {}, {}, {}, {}, {}, { _, _ -> }, {},
+            {}, {}, {}, {}, {}, {},
         )
     }
 }
@@ -133,7 +148,7 @@ internal class TextActions(
  * the font is one the phone has not, only another font can be chosen.
  */
 @Composable
-internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: TextActions, imperial: Boolean) {
+internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: TextActions, imperial: Boolean, eye: () -> CameraEye?) {
     val colors = OrcaTheme.colors
     val style = mode.style
     val stored = mode.storedStyle
@@ -215,7 +230,9 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
             Text(orcaString("Advanced"), color = colors.onCanvasPanel, style = OrcaTheme.typography.body13, modifier = Modifier.padding(start = 6.dp))
         }
         if (mode.advanced && editable) {
-            Advanced(mode, face?.ascent ?: DEFAULT_ASCENT, stored, actions)
+            // ff.font_file->infos: the faces of the font's file.
+            val collection = families.sumOf { item -> item.faces.count { it.path == style.fontPath } }
+            Advanced(mode, face?.ascent ?: DEFAULT_ASCENT, stored, actions, imperial, collection, eye)
         }
         // draw_model_type(): not for a text that is its object.
         if (!mode.onlyPart) {
@@ -531,7 +548,7 @@ private fun StyleSheet(mode: TextMode, sample: String, onDismiss: () -> Unit, on
  * not the style's has its revert.
  */
 @Composable
-private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: TextActions) {
+private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: TextActions, imperial: Boolean, collection: Int, eye: () -> CameraEye?) {
     val style = mode.style
     val onlyPart = mode.onlyPart
     TextCheck(orcaString("Use surface"), style.useSurface, enabled = style.useSurface || !onlyPart) { use ->
@@ -590,6 +607,128 @@ private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: T
         revert = stored?.skew?.toFloat(),
         onChange = { value -> actions.setStyle { it.copy(skew = value?.toDouble()) } },
     )
+    // input surface distance, in inches with "use_inches"
+    val scale = if (imperial) MM_TO_IN else 1.0
+    val maxDistance = (2 * style.depth * scale).toFloat()
+    CommittedSlider(
+        label = orcaString("From surface"),
+        value = style.distance?.let { (it * scale).toFloat() },
+        range = -maxDistance..maxDistance,
+        text = { String.format(locale, if (imperial) "%.3f in" else "%.2f mm", it) },
+        revert = stored?.let { it.distance?.let { distance -> (distance * scale).toFloat() } },
+        hasRevert = stored != null,
+        enabled = !style.useSurface && !onlyPart && !mode.busy,
+        onCommit = { value -> actions.moveText(value?.let { it / scale }) },
+    )
+    // slider for Clockwise angle in degress; stored angle is optional CCW and in radians
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) {
+            CommittedSlider(
+                label = orcaString("Rotation"),
+                value = Math.toDegrees(-(style.angle ?: 0.0)).toFloat(),
+                range = ANGLE_MIN..ANGLE_MAX,
+                text = { String.format(locale, "%.2f °", it) },
+                revert = stored?.let { Math.toDegrees(-(it.angle ?: 0.0)).toFloat() },
+                hasRevert = stored != null,
+                enabled = !mode.busy,
+                onCommit = { value -> actions.rotateText((value ?: 0f).toDouble()) },
+            )
+        }
+        // Keep up - lock button icon
+        if (!onlyPart) {
+            OrcaIconButton(
+                icon = if (mode.keepUp) DesignR.drawable.orca_lock_closed else DesignR.drawable.orca_lock_open,
+                contentDescription = orcaString(
+                    if (mode.keepUp) "Unlock the text's rotation when moving text along the object's surface."
+                    else "Lock the text's rotation when moving text along the object's surface.",
+                ),
+                onClick = { actions.setKeepUp(!mode.keepUp) },
+                tint = Color.Unspecified,
+            )
+        }
+    }
+    // when more collection add selector
+    if (collection > 1) {
+        TextRow(orcaString("Collection")) {
+            var open by remember { mutableStateOf(false) }
+            Box(Modifier.weight(1f)) {
+                OrcaComboField(text = (style.collectionNumber ?: 0).toString(), onClick = { open = true })
+                if (open) {
+                    OrcaContextMenu(expanded = true, position = androidx.compose.ui.unit.IntOffset.Zero, onDismissRequest = { open = false }) {
+                        repeat(collection) { index ->
+                            OrcaMenuItem(text = index.toString(), onClick = {
+                                open = false
+                                actions.setCollection(index)
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+    OrcaButton(
+        text = orcaString("Set text to face camera"),
+        size = OrcaButtonSize.Compact,
+        style = OrcaButtonStyle.Regular,
+        enabled = !mode.busy,
+        onClick = { actions.faceCamera(eye()) },
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}
+
+/**
+ * rev_slider() of a value the text is moved by: the slider follows the
+ * finger, and the change applies once it lets go, as the desktop app moves
+ * the model once the slider is left (deactivated_after_edit); the revert to
+ * the stored style's value applies at once.
+ */
+@Composable
+private fun CommittedSlider(
+    label: String,
+    value: Float?,
+    range: ClosedFloatingPointRange<Float>,
+    text: (Float) -> String,
+    revert: Float?,
+    hasRevert: Boolean,
+    enabled: Boolean,
+    onCommit: (Float?) -> Unit,
+) {
+    var held by remember { mutableStateOf<Float?>(null) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = label,
+            color = if (enabled) OrcaTheme.colors.onCanvasPanel else OrcaTheme.colors.textDimmed,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier.width(LabelWidth),
+        )
+        Slider(
+            value = (held ?: value ?: 0f).coerceIn(range),
+            onValueChange = { held = it },
+            onValueChangeFinished = {
+                held?.let(onCommit)
+                held = null
+            },
+            valueRange = range,
+            enabled = enabled,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = text(held ?: value ?: 0f),
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier
+                .padding(start = 6.dp)
+                .width(ValueWidth),
+        )
+        if (hasRevert && value != revert) {
+            OrcaIconButton(
+                icon = DesignR.drawable.orca_undo,
+                contentDescription = orcaString("Reset"),
+                onClick = { onCommit(revert) },
+                enabled = enabled,
+            )
+        }
+    }
 }
 
 /** ImGui::InputTextMultiline("##Text"): the text in its own font, as the desktop input shows it. */
@@ -791,6 +930,10 @@ private const val BOLDNESS_GUI_MIN = -0.5f
 private const val BOLDNESS_GUI_MAX = 0.5f
 private const val SKEW_GUI_MIN = -1f
 private const val SKEW_GUI_MAX = 1f
+
+/** limits.angle of GLGizmoEmboss.cpp, in degrees. */
+private const val ANGLE_MIN = -180f
+private const val ANGLE_MAX = 180f
 
 /** An ascent for the sliders' ranges while the font is not known. */
 private const val DEFAULT_ASCENT = 1000

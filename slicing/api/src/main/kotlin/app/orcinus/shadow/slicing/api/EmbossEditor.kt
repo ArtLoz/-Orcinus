@@ -10,6 +10,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextStylesOutcome
+import app.orcinus.shadow.core.model.TextTransform
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 
@@ -70,6 +71,24 @@ interface EmbossEditor {
 
     /** What the text or SVG [volume] of the object at [index] is. */
     suspend fun describeEmboss(plate: List<PlacedModel>, index: Int, volume: Int, profiles: SlicingProfileSelection): EmbossVolumeOutcome
+
+    /**
+     * The text [volume] of the object at [index], seen on its copy [instance],
+     * turned and moved as [transform] says; then embossed anew from [text] and
+     * [style] when [reEmboss] is set, or when it uses the surface or is placed per glyph.
+     */
+    suspend fun transformText(
+        plate: List<PlacedModel>,
+        index: Int,
+        instance: Int,
+        volume: Int,
+        transform: TextTransform,
+        text: String,
+        style: TextStyle,
+        reEmboss: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
 
     /**
      * draw_style_rename_popup(): the texts of the object at [index] whose
