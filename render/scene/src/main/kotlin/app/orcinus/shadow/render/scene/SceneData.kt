@@ -500,43 +500,57 @@ internal object SceneLoader {
      * the plate; one volume takes the colour of the first, since the scene
      * moves a volume as a whole.
      */
+    /**
+     * The wipe tower's volumes, which move together. GLVolumeCollection::
+     * load_wipe_tower_preview(): before the plate is sliced, a box as deep as
+     * the tower in a stripe per filament the plate prints with, front to
+     * back, each in its filament's colour (the first's for a filament without
+     * one); load_real_wipe_tower_preview(): once it is sliced, the tower the
+     * slice built, with its ribs and brim, in the first filament's colour.
+     */
     fun loadWipeTower(
         tower: WipeTower,
         colors: List<ColorRgba>,
         built: ScenePath? = null,
         origin: Point2 = Point2(0.0, 0.0),
         smoothNormals: Boolean = false,
-    ): SceneObject? {
-        if (built == null && tower.depth < WIPE_TOWER_MIN_DEPTH) return null
+    ): List<SceneObject> {
+        if (built == null && tower.depth < WIPE_TOWER_MIN_DEPTH) return emptyList()
         val height = if (tower.height == 0.0) WIPE_TOWER_MIN_HEIGHT else tower.height
         val world = Affine3.assemble(
             Vec3(tower.x + origin.x, tower.y + origin.y, 0.0),
             Vec3(0.0, 0.0, Math.toRadians(tower.rotation)),
             Vec3(1.0, 1.0, 1.0),
         )
-        // load_real_wipe_tower_preview(): once the plate is sliced, the tower
-        // the slice built, with its ribs and brim, stands where the box stood.
-        val mesh = built?.let { runCatching { MeshFiles.read(File(it.value), smoothNormals) }.getOrNull() }
-            ?: MeshFiles.fromIndexed(boxPositions(tower.width, tower.depth, height), BOX_TRIANGLES, smoothNormals)
-        val filament = tower.filaments.firstOrNull() ?: 1
-        val color = colors.getOrNull(filament - 1) ?: colors.firstOrNull() ?: WIPE_TOWER_FALLBACK
-        return SceneObject(
-            index = WIPE_TOWER_INDEX,
-            key = built?.value ?: "wipe-tower:${tower.width}:${tower.depth}:$height",
-            mesh = mesh,
-            world = world,
-            color = color.copy(alpha = WIPE_TOWER_ALPHA),
-            sphereCenter = mesh.bounds.center(),
-            sphereRadius = 0.5 * mesh.bounds.maxSize(),
-            transparent = true,
-        )
+        val colorOf = { filament: Int -> colors.getOrNull(filament - 1) ?: colors.firstOrNull() ?: WIPE_TOWER_FALLBACK }
+        val volume = { key: String, mesh: MeshData, color: ColorRgba ->
+            SceneObject(
+                index = WIPE_TOWER_INDEX,
+                key = key,
+                mesh = mesh,
+                world = world,
+                color = color.copy(alpha = WIPE_TOWER_ALPHA),
+                sphereCenter = mesh.bounds.center(),
+                sphereRadius = 0.5 * mesh.bounds.maxSize(),
+                transparent = true,
+            )
+        }
+        built?.let { runCatching { MeshFiles.read(File(it.value), smoothNormals) }.getOrNull() }?.let { mesh ->
+            return listOf(volume(built.value, mesh, colorOf(tower.filaments.firstOrNull() ?: 1)))
+        }
+        val stripes = tower.filaments.size
+        return tower.filaments.mapIndexed { stripe, filament ->
+            val depth = tower.depth / stripes
+            val mesh = MeshFiles.fromIndexed(boxPositions(tower.width, depth, height, front = tower.depth * stripe / stripes), BOX_TRIANGLES, smoothNormals)
+            volume("wipe-tower:${tower.width}:${tower.depth}:$height:$stripe/$stripes", mesh, colorOf(filament))
+        }
     }
 
-    /** make_cube(): a box standing at the origin. */
-    private fun boxPositions(width: Double, depth: Double, height: Double): FloatArray {
+    /** make_cube(): a box standing at the origin, or moved back by [front]. */
+    private fun boxPositions(width: Double, depth: Double, height: Double, front: Double = 0.0): FloatArray {
         val x = width.toFloat()
-        val y0 = 0f
-        val y1 = depth.toFloat()
+        val y0 = front.toFloat()
+        val y1 = (front + depth).toFloat()
         val z = height.toFloat()
         return floatArrayOf(
             0f, y0, 0f, x, y0, 0f, x, y1, 0f, 0f, y1, 0f,

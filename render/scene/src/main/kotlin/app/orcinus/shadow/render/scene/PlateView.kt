@@ -340,7 +340,7 @@ fun PlateView(
         LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin, smoothNormals, inAssembly) {
             // GLCanvas3D::reload_scene(): the assembly view loads no wipe tower.
             val tower = withContext(Dispatchers.IO) {
-                wipeTower?.takeUnless { inAssembly }?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin, smoothNormals) }
+                wipeTower?.takeUnless { inAssembly }?.let { SceneLoader.loadWipeTower(it, filamentColors, builtWipeTower, towerOrigin, smoothNormals) }.orEmpty()
             }
             controller.setWipeTower(tower)
         }
@@ -872,7 +872,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var objects: List<SceneObject> = emptyList()
     /** The objects of the plate alone; the scene also draws the wipe tower. */
     private var plateObjects: List<SceneObject> = emptyList()
-    private var wipeTower: SceneObject? = null
+    /** The wipe tower's volumes (its stripes, or the tower the slice built), which move together. */
+    private var wipeTower: List<SceneObject> = emptyList()
     /** A painting tool is open, so a finger on the object paints (GLGizmoPainterBase). */
     private var painting = false
 
@@ -1267,7 +1268,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         volumeLeft = false
         objectsInAssembly = inAssembly
         plateObjects = if (inAssembly) objects.map { it.exploded((assembly?.explosionRatio ?: 1.0) - 1.0) } else objects
-        showObjects(plateObjects + listOfNotNull(wipeTower))
+        showObjects(plateObjects + wipeTower)
         // ModelObjectsClipper::on_update(): new meshes take the radius of the volumes' box.
         if (inAssembly) {
             val keys = objects.mapTo(HashSet()) { it.key }
@@ -1332,10 +1333,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 sectionPlane = null
                 sectionKeys = emptySet()
             }
-            showObjects(plateObjects + listOfNotNull(wipeTower))
+            showObjects(plateObjects + wipeTower)
         } else if (objectsInAssembly && previous != null && view != null && previous.explosionRatio != view.explosionRatio) {
             plateObjects = plateObjects.map { it.exploded(view.explosionRatio - previous.explosionRatio) }
-            showObjects(plateObjects + listOfNotNull(wipeTower))
+            showObjects(plateObjects + wipeTower)
         }
         if (view != null && (previous?.sectionPosition != view.sectionPosition || previous.sectionResets != view.sectionResets)) {
             // "Section View" keeps the plane's normal, which the camera gives the
@@ -1360,7 +1361,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         measure = view
         measuredIndexes = indexes
         if (view == null) measureRay = null
-        if (shownChanged) showObjects(plateObjects + listOfNotNull(wipeTower)) else invalidate()
+        if (shownChanged) showObjects(plateObjects + wipeTower) else invalidate()
     }
 
     /** GLGizmoBrimEars opens, changes or closes. */
@@ -1404,9 +1405,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         if (opened) {
             if (drag is CutDrag || cut != null) drag = null
-            showObjects(plateObjects + listOfNotNull(wipeTower))
+            showObjects(plateObjects + wipeTower)
         } else if (cut?.previewParts.orEmpty().isNotEmpty() != this.shownPreview) {
-            showObjects(plateObjects + listOfNotNull(wipeTower))
+            showObjects(plateObjects + wipeTower)
         } else {
             invalidate()
         }
@@ -1415,7 +1416,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     fun setCutPartMeshes(meshes: Map<String, MeshData>) {
         cutPartMeshes = meshes
         // The object gives way to its parts once they are there (toggle_model_objects_visibility()).
-        showObjects(plateObjects + listOfNotNull(wipeTower))
+        showObjects(plateObjects + wipeTower)
     }
 
     fun setCutConnectorMeshes(meshes: Map<String, MeshData>) {
@@ -1486,10 +1487,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     }
 
     /** The wipe tower stands in the scene beside the objects, and is picked and moved like one. */
-    fun setWipeTower(tower: SceneObject?) {
-        if (wipeTower?.key == tower?.key && wipeTower?.world == tower?.world && wipeTower?.color == tower?.color) return
+    fun setWipeTower(tower: List<SceneObject>) {
+        val same = wipeTower.size == tower.size && wipeTower.zip(tower).all { (shown, given) ->
+            shown.key == given.key && shown.color == given.color && shown.world.elements().contentEquals(given.world.elements())
+        }
+        if (same) return
         wipeTower = tower
-        showObjects(plateObjects + listOfNotNull(tower))
+        showObjects(plateObjects + tower)
     }
 
     fun setFlatteningPlanes(planes: List<FlatteningPlane>) {
@@ -2008,7 +2012,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         plateObjects = drag.startScene.map { sceneObject ->
             if (sceneObject.key in text.keys) sceneObject.withWorld(sceneObject.world * sceneFrame.inverse() * toScene) else sceneObject
         }
-        showObjects(plateObjects + listOfNotNull(wipeTower))
+        showObjects(plateObjects + wipeTower)
     }
 
     /** GLCanvas3D::deselect_all() after a click on empty space. */
@@ -2593,7 +2597,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     private fun replaceObject(sceneObject: SceneObject, alone: Boolean = false) {
         if (sceneObject.index == WIPE_TOWER_INDEX) {
-            wipeTower = sceneObject
+            // The tower moves whole, its stripes together.
+            val previous = wipeTower.firstOrNull { it.key == sceneObject.key }
+            val transform = previous?.let { sceneObject.world * it.world.inverse() }
+            wipeTower = wipeTower.map { stripe ->
+                when {
+                    stripe.key == sceneObject.key -> sceneObject
+                    transform == null -> stripe
+                    else -> stripe.withWorld(transform * stripe.world)
+                }
+            }
         } else {
             val previous = plateObjects.firstOrNull { it.index == sceneObject.index && it.key == sceneObject.key }
             val transform = previous?.let { sceneObject.world * it.world.inverse() }
@@ -2607,7 +2620,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 }
             }
         }
-        showObjects(plateObjects + listOfNotNull(wipeTower))
+        showObjects(plateObjects + wipeTower)
     }
 
     /** The dovetail's parts, or the pieces of a right click, stand in the object's place. */
