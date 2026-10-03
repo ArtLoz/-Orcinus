@@ -1,10 +1,11 @@
 package app.orcinus.shadow.slicing.api
 
+import app.orcinus.shadow.core.model.AssemblyAction
 import app.orcinus.shadow.core.model.MeasureHoverOutcome
 import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
-import app.orcinus.shadow.core.model.MeasureScaleOutcome
+import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.ScenePath
@@ -33,7 +34,20 @@ interface PlateMeasurer {
      * [ratio], the objects that changed written with [prefix], and the
      * selections following them.
      */
-    suspend fun scaleMeasure(plate: List<PlacedModel>, ratio: Double, profiles: SlicingProfileSelection, prefix: ScenePath): MeasureScaleOutcome
+    suspend fun scaleMeasure(plate: List<PlacedModel>, ratio: Double, profiles: SlicingProfileSelection, prefix: ScenePath): MeasureEditOutcome
+
+    /**
+     * The assembly tool's [action] with its [values] (a displacement in the
+     * world, a selection's index, degrees or millimetres), the objects that
+     * changed written with [prefix], and the selections following them.
+     */
+    suspend fun assembleMeasure(
+        plate: List<PlacedModel>,
+        action: AssemblyAction,
+        values: List<Double>,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): MeasureEditOutcome
 
     suspend fun endMeasure()
 }

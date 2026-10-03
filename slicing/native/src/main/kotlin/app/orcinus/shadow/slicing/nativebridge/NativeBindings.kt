@@ -856,6 +856,7 @@ internal class NativeMeasureState(
     @JvmField val showResetFirstTip: Boolean,
     @JvmField val hoverOnly: Boolean,
     @JvmField val hoveredUnchanged: Boolean,
+    @JvmField val wrongFeatureTip: Boolean,
 )
 
 /** Constructed by the native bridge; see BrimEars in orca_engine_adapter.hpp. */
@@ -867,8 +868,8 @@ internal class NativeBrimEars(
     @JvmField val painted: Boolean,
 )
 
-/** Constructed by the native bridge; see MeasureScale in orca_engine_adapter.hpp. */
-internal class NativeMeasureScale(
+/** Constructed by the native bridge; see MeasureEdit in orca_engine_adapter.hpp. */
+internal class NativeMeasureEdit(
     @JvmField val measure: NativeMeasureState,
     @JvmField val edit: NativeImportedModels,
     @JvmField val objectIndexes: IntArray,
@@ -1702,12 +1703,14 @@ internal object NativeBindings {
         processProfile: String,
     ): NativeMeasureState
 
+    /** hover_measure(): [assemblyMode] 0 for the measuring tool, 1 face to face, 2 point to point. */
     external fun hoverMeasure(
         origin: DoubleArray,
         direction: DoubleArray,
         pointSelection: Boolean,
         onlySelectPlane: Boolean,
         sphereRadius: Double,
+        assemblyMode: Int,
     ): NativeMeasureState
 
     external fun selectMeasure(
@@ -1716,6 +1719,7 @@ internal object NativeBindings {
         pointSelection: Boolean,
         onlySelectPlane: Boolean,
         sphereRadius: Double,
+        assemblyMode: Int,
     ): NativeMeasureState
 
     /** reset_measure(): 1 the first selection, 2 the second, 0 both. */
@@ -1730,7 +1734,19 @@ internal object NativeBindings {
         filamentProfiles: Array<String>,
         processProfile: String,
         outputPrefix: String,
-    ): NativeMeasureScale
+    ): NativeMeasureEdit
+
+    /** assemble_measure(): [action] is the AssemblyAction in orca_engine_adapter.hpp. */
+    external fun assembleMeasure(
+        plate: NativePlate,
+        action: Long,
+        values: DoubleArray,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeMeasureEdit
 
     external fun endMeasure()
 

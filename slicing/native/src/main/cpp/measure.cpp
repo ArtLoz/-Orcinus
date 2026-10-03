@@ -12,7 +12,9 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -84,6 +86,8 @@ struct MeasureSession {
     // m_hit_different_volumes: the volumes of the selections, the same one once.
     std::vector<int> hit_volumes;
     bool show_reset_first_tip{false};
+    // m_selected_wrong_feature_waring_tip
+    bool wrong_feature_tip{false};
 };
 
 MeasureSession& session()
@@ -359,6 +363,7 @@ MeasureState describe(const MeasureSession& current)
     result.first = to_item(current.first, current);
     result.second = to_item(current.second, current);
     result.show_reset_first_tip = current.show_reset_first_tip;
+    result.wrong_feature_tip = current.wrong_feature_tip;
     result.hit_volumes = int(current.hit_volumes.size());
     // is_two_volume_in_same_model_object()
     result.same_object = current.hit_volumes.size() == 2 &&
@@ -412,9 +417,35 @@ MeasureState describe(const MeasureSession& current)
 // requires_sphere_raycaster_for_picking() is the app's: the spheres are
 // where sphere_of() puts them.
 
+// on_render()'s filter of the features the assembly tool assembles: planes
+// face to face; points and circles point to point, and in point selection
+// the points of planes and edges too.
+bool assembles(const SurfaceFeature& feature, int assembly_mode, bool point_selection)
+{
+    const SurfaceFeatureType type = feature.get_type();
+    if (assembly_mode == 1)
+        return type == SurfaceFeatureType::Plane;
+    if (assembly_mode == 2)
+        return type == SurfaceFeatureType::Point || type == SurfaceFeatureType::Circle ||
+            (point_selection && (type == SurfaceFeatureType::Plane || type == SurfaceFeatureType::Edge));
+    return true;
+}
+
+// is_pick_meet_assembly_mode()
+bool meets_assembly_mode(const Item& item, int assembly_mode)
+{
+    const SurfaceFeatureType type = item.feature->get_type();
+    if (assembly_mode == 1)
+        return type == SurfaceFeatureType::Plane;
+    if (assembly_mode == 2)
+        return type == SurfaceFeatureType::Point || type == SurfaceFeatureType::Circle;
+    return true;
+}
+
 // reset_feature1(): the second selection becomes the first, or the first goes.
 void reset_feature1(MeasureSession& current)
 {
+    current.wrong_feature_tip = false;
     if (current.second.feature.has_value()) {
         if (current.hit_volumes.size() == 2)
             current.hit_volumes[0] = current.hit_volumes[1];
@@ -434,6 +465,7 @@ void reset_feature1(MeasureSession& current)
 // reset_feature2()
 void reset_feature2(MeasureSession& current)
 {
+    current.wrong_feature_tip = false;
     if (current.hit_volumes.size() == 2)
         current.hit_volumes.erase(current.hit_volumes.begin() + 1);
     current.second.reset();
@@ -539,6 +571,8 @@ MeasureState hover_measure(const MeasureRay& ray)
         const Vec3d origin(ray.origin[0], ray.origin[1], ray.origin[2]);
         const Vec3d direction(ray.direction[0], ray.direction[1], ray.direction[2]);
         Hovered hovered = hovered_feature(current, origin, direction, ray.only_select_plane);
+        if (hovered.feature.has_value() && !assembles(*hovered.feature, ray.assembly_mode, ray.point_selection))
+            hovered.feature.reset();
         MeasureState result;
         const int sphere = hovered_sphere(current, origin, direction, ray.sphere_radius);
         if (sphere != 0) {
@@ -586,6 +620,8 @@ MeasureState select_measure(const MeasureRay& ray)
         const Vec3d origin(ray.origin[0], ray.origin[1], ray.origin[2]);
         const Vec3d direction(ray.direction[0], ray.direction[1], ray.direction[2]);
         Hovered hovered = hovered_feature(current, origin, direction, ray.only_select_plane);
+        if (hovered.feature.has_value() && !assembles(*hovered.feature, ray.assembly_mode, ray.point_selection))
+            hovered.feature.reset();
         const int sphere = hovered_sphere(current, origin, direction, ray.sphere_radius);
         if (sphere == 0 && !hovered.feature.has_value()) {
             // A tap off the volumes changes nothing.
@@ -619,6 +655,12 @@ MeasureState select_measure(const MeasureRay& ray)
             item.feature->world_tran = volume.world;
         }
         const int hit_volume = item.volume;
+        if (!meets_assembly_mode(item, ray.assembly_mode)) {
+            // assembly deal
+            current.wrong_feature_tip = true;
+            return describe(current);
+        }
+        current.wrong_feature_tip = false;
 
         if (current.first.feature.has_value()) {
             if (current.first != item) {
@@ -701,11 +743,84 @@ MeasureState reset_measure(int selection)
     return describe(current);
 }
 
-MeasureScale scale_measure(const std::vector<PlateObject>& plate, double ratio, const ProfileSelection& profiles, const std::string& output_prefix)
+namespace {
+
+// SINKING_Z_THRESHOLD of Model.hpp
+constexpr double sinking_z_threshold = -0.001;
+
+// The minimum height of every copy, which do_rotate() keeps a sinking copy sinking by.
+std::map<std::pair<int, int>, double> min_zs_of(const Slic3r::Model& model)
+{
+    std::map<std::pair<int, int>, double> min_zs;
+    for (int i = 0; i < int(model.objects.size()); ++i) {
+        const Slic3r::ModelObject& object = *model.objects[std::size_t(i)];
+        for (int j = 0; j < int(object.instances.size()); ++j)
+            min_zs[{i, j}] = object.instance_bounding_box(std::size_t(j)).min.z();
+    }
+    return min_zs;
+}
+
+// do_move("") and do_rotate("") after a change: every copy that drops by
+// itself and floats rests on the plate, and after a rotation one that was
+// not sinking too; the objects that moved join changed.
+void rest_on_plate(Slic3r::Model& model, const std::map<std::pair<int, int>, double>* rotated_min_zs, std::set<int>& changed)
+{
+    for (std::size_t object_index = 0; object_index < model.objects.size(); ++object_index) {
+        Slic3r::ModelObject& object = *model.objects[object_index];
+        object.invalidate_bounding_box();
+        for (std::size_t instance_index = 0; instance_index < object.instances.size(); ++instance_index) {
+            if (!object.instances[instance_index]->auto_drop)
+                continue;
+            const double shift_z = object.get_instance_min_z(instance_index);
+            const bool drop = rotated_min_zs == nullptr ?
+                shift_z > sinking_z_threshold :
+                (rotated_min_zs->at({int(object_index), int(instance_index)}) >= sinking_z_threshold || shift_z > sinking_z_threshold);
+            if (drop && shift_z != 0.0) {
+                object.translate_instance(instance_index, Slic3r::Vec3d(0.0, 0.0, -shift_z));
+                changed.insert(int(object_index));
+            }
+        }
+    }
+}
+
+// The objects that changed written, the measured volumes following the
+// model (register_single_mesh_pick()), the given selections following
+// their volumes (update_feature_by_tran()) and the tool measuring anew
+// (update_measurement_result()).
+void finish_edit(MeasureSession& current, Slic3r::Model& model, const std::set<int>& changed, bool first, bool second, const Slic3r::DynamicPrintConfig& config,
+    const std::string& output_prefix, MeasureEdit& result)
+{
+    model.update_print_volume_state(detail::build_volume_of(config));
+    std::vector<Slic3r::ModelObject*> written;
+    for (const int object_index : changed) {
+        written.push_back(model.objects[std::size_t(object_index)]);
+        result.object_indexes.push_back(object_index);
+    }
+    if (!detail::write_objects(written, output_prefix, result.edit))
+        return;
+    result.edit.status = SceneStatus::success;
+    for (MeasuredVolume& measured : current.volumes) {
+        const Slic3r::ModelObject& object = *model.objects[std::size_t(measured.object_index)];
+        measured.world = object.instances[std::size_t(measured.instance_index)]->get_matrix() * object.volumes[std::size_t(measured.volume_index)]->get_matrix();
+    }
+    if (first)
+        update_feature_by_tran(current, current.first);
+    if (second)
+        update_feature_by_tran(current, current.second);
+    current.current.reset();
+    current.current_volume = -1;
+    current.told.reset();
+    current.model = std::move(model);
+    result.measure = describe(current);
+}
+
+} // namespace
+
+MeasureEdit scale_measure(const std::vector<PlateObject>& plate, double ratio, const ProfileSelection& profiles, const std::string& output_prefix)
 {
     using namespace Slic3r;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
-    MeasureScale result;
+    MeasureEdit result;
     MeasureSession& current = session();
     if (!current.open) {
         result.measure = failure(SceneStatus::model_read_failed, "The measuring tool is not open");
@@ -835,31 +950,189 @@ MeasureScale scale_measure(const std::vector<PlateObject>& plate, double ratio, 
                     }
                 }
             }
-            model.update_print_volume_state(detail::build_volume_of(config));
         }
-        std::vector<ModelObject*> written;
-        for (const int object_index : changed) {
-            written.push_back(model.objects[std::size_t(object_index)]);
-            result.object_indexes.push_back(object_index);
-        }
-        if (!detail::write_objects(written, output_prefix, result.edit))
-            return result;
-        result.edit.status = SceneStatus::success;
+        finish_edit(current, model, changed, true, true, config, output_prefix, result);
+        return result;
+    } catch (const std::exception& error) {
+        result.measure = failure(SceneStatus::model_read_failed, error.what());
+        result.edit.status = SceneStatus::model_read_failed;
+        result.edit.message = error.what();
+        result.edit.objects.clear();
+        return result;
+    }
+}
 
-        // register_single_mesh_pick() with the volumes' new transformations,
-        // update_feature_by_tran() of the selections, and on the data_changed()
-        // of m_pending_scale, update_measurement_result().
-        for (MeasuredVolume& measured : current.volumes) {
-            const ModelObject& object = *model.objects[std::size_t(measured.object_index)];
-            measured.world = object.instances[std::size_t(measured.instance_index)]->get_matrix() * object.volumes[std::size_t(measured.volume_index)]->get_matrix();
+MeasureEdit assemble_measure(
+    const std::vector<PlateObject>& plate,
+    AssemblyAction action,
+    const std::vector<double>& values,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    MeasureEdit result;
+    MeasureSession& current = session();
+    if (!current.open || current.hit_volumes.size() != 2 || !current.first.feature.has_value() || !current.second.feature.has_value()) {
+        result.measure = failure(SceneStatus::model_read_failed, "The assembly tool has no two volumes to assemble");
+        result.edit.message = result.measure.message;
+        return result;
+    }
+    if (detail::engine().bundle == nullptr) {
+        result.measure = failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+        result.edit.status = SceneStatus::engine_not_ready;
+        result.edit.message = result.measure.message;
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        std::string message;
+        if (detail::select_profiles(*detail::engine().bundle, profiles, config, message) != SliceStatus::success) {
+            result.measure = failure(SceneStatus::profile_not_found, message);
+            result.edit.status = SceneStatus::profile_not_found;
+            result.edit.message = message;
+            return result;
         }
-        update_feature_by_tran(current, current.first);
-        update_feature_by_tran(current, current.second);
-        current.current.reset();
-        current.current_volume = -1;
-        current.told.reset();
-        current.model = std::move(model);
-        result.measure = describe(current);
+        Model model;
+        if (!detail::load_plate(plate, config, model, message)) {
+            result.measure = failure(SceneStatus::model_read_failed, message);
+            result.edit.message = message;
+            return result;
+        }
+        // is_two_volume_in_same_model_object(): one object has both, so its volume moves, not its copy.
+        const MeasuredVolume& first_volume = current.volumes[std::size_t(current.hit_volumes[0])];
+        const MeasuredVolume& second_volume = current.volumes[std::size_t(current.hit_volumes[1])];
+        const bool same_model_object = first_volume.object_index == second_volume.object_index;
+        const auto parts = [&model](const MeasuredVolume& measured) {
+            ModelObject& object = *model.objects[std::size_t(measured.object_index)];
+            return std::make_pair(object.instances[std::size_t(measured.instance_index)], object.volumes[std::size_t(measured.volume_index)]);
+        };
+        std::set<int> changed;
+        bool update_first = same_model_object;
+        bool update_second = true;
+
+        // set_distance()
+        const auto set_distance = [&](const Vec3d& displacement) {
+            if (displacement.norm() <= 0.0)
+                return;
+            const auto [instance, volume] = parts(second_volume);
+            if (!same_model_object) {
+                const Vec3d object_displacement = instance->get_transformation().get_matrix_no_offset().inverse() * displacement;
+                instance->set_transformation(Geometry::Transformation(instance->get_matrix() * Geometry::translation_transform(object_displacement)));
+            } else {
+                const Geometry::Transformation tran(instance->get_matrix() * volume->get_matrix());
+                const Vec3d local_displacement = tran.get_matrix_no_offset().inverse() * displacement;
+                volume->set_transformation(Geometry::Transformation(volume->get_matrix() * Geometry::translation_transform(local_displacement)));
+            }
+            changed.insert(second_volume.object_index);
+            rest_on_plate(model, nullptr, changed);
+        };
+        // set_to_parallel(): the second face turned against the first unless it is already.
+        const auto set_to_parallel = [&](bool is_anti_parallel) {
+            const auto [idx1, normal1, pt1] = current.first.feature->get_plane();
+            const auto [idx2, normal2, pt2] = current.second.feature->get_plane();
+            if (!((is_anti_parallel && normal1.dot(normal2) > -1 + 1e-3) || (!is_anti_parallel && (normal1.dot(normal2) < 1 - 1e-3))))
+                return;
+            const std::map<std::pair<int, int>, double> min_zs = min_zs_of(model);
+            Vec3d axis;
+            double angle;
+            Matrix3d rotation_matrix;
+            Geometry::rotation_from_two_vectors(normal2, -normal1, axis, angle, &rotation_matrix);
+            const Transform3d r_m = (Transform3d) rotation_matrix;
+            const auto [instance, volume] = parts(second_volume);
+            if (!same_model_object) {
+                const Transform3d new_rotation_tran = r_m * instance->get_transformation().get_rotation_matrix();
+                instance->set_rotation(Geometry::extract_euler_angles(new_rotation_tran));
+            } else {
+                const Geometry::Transformation world_tran(instance->get_matrix() * volume->get_matrix());
+                const Transform3d new_tran = r_m * world_tran.get_rotation_matrix();
+                const Transform3d volume_rotation_tran = instance->get_transformation().get_rotation_matrix().inverse() * new_tran;
+                volume->set_rotation(Geometry::extract_euler_angles(volume_rotation_tran));
+            }
+            changed.insert(second_volume.object_index);
+            rest_on_plate(model, &min_zs, changed);
+        };
+        // mat_around_a_point_rotate() of the copy, or of the volume in the world.
+        const auto rotate_around = [&](const MeasuredVolume& measured, const Vec3d& point, const Vec3d& axis, double radian) {
+            const std::map<std::pair<int, int>, double> min_zs = min_zs_of(model);
+            const auto [instance, volume] = parts(measured);
+            if (!same_model_object) {
+                const Geometry::Transformation in_mat(instance->get_transformation());
+                instance->set_transformation(Geometry::mat_around_a_point_rotate(in_mat, point, axis, float(radian)));
+            } else {
+                const Geometry::Transformation in_mat(instance->get_matrix() * volume->get_matrix());
+                const Geometry::Transformation out_mat = Geometry::mat_around_a_point_rotate(in_mat, point, axis, float(radian));
+                volume->set_transformation(Geometry::Transformation(instance->get_matrix().inverse() * out_mat.get_matrix()));
+            }
+            changed.insert(measured.object_index);
+            rest_on_plate(model, &min_zs, changed);
+        };
+
+        switch (action) {
+        case AssemblyAction::distance:
+            if (values.size() >= 3)
+                set_distance(Vec3d(values[0], values[1], values[2]));
+            break;
+        case AssemblyAction::parallel:
+            set_to_parallel(false);
+            break;
+        case AssemblyAction::reverse_rotation: {
+            const int feature_index = values.empty() ? 1 : int(values[0]);
+            const Item& item = feature_index == 0 ? current.first : current.second;
+            const auto [idx, plane_normal, plane_center] = item.feature->get_plane();
+            const Vec3d new_pt = Slic3r::Measure::get_one_point_in_plane(plane_center, plane_normal);
+            const Vec3d axis = (new_pt - plane_center).normalized();
+            if (axis.norm() < 0.1)
+                throw std::runtime_error("The face has no axis to turn about");
+            rotate_around(feature_index == 0 ? first_volume : second_volume, plane_center, axis, PI);
+            if (!same_model_object) {
+                update_first = feature_index == 0;
+                update_second = feature_index != 0;
+            } else {
+                update_first = update_second = true;
+            }
+            break;
+        }
+        case AssemblyAction::around_center: {
+            const auto [idx2, normal2, pt2] = current.second.feature->get_plane();
+            rotate_around(second_volume, pt2, normal2, Geometry::deg2rad(values.empty() ? 0.0 : values[0]));
+            break;
+        }
+        case AssemblyAction::center_coincidence: {
+            set_to_parallel(true);
+            // The second face follows its volume before the centres meet.
+            for (MeasuredVolume& measured : current.volumes) {
+                const ModelObject& object = *model.objects[std::size_t(measured.object_index)];
+                measured.world = object.instances[std::size_t(measured.instance_index)]->get_matrix() * object.volumes[std::size_t(measured.volume_index)]->get_matrix();
+            }
+            if (same_model_object)
+                update_feature_by_tran(current, current.first);
+            update_feature_by_tran(current, current.second);
+            const auto [idx1, normal1, pt1] = current.first.feature->get_plane();
+            const auto [idx2, normal2, pt2] = current.second.feature->get_plane();
+            set_distance(pt1 - pt2);
+            break;
+        }
+        case AssemblyAction::parallel_distance: {
+            const double dist = values.empty() ? 0.0 : values[0];
+            const auto [idx1, normal1, pt1] = current.first.feature->get_plane();
+            const auto [idx2, normal2, pt2] = current.second.feature->get_plane();
+            Vec3d proj_pt2;
+            Slic3r::Measure::get_point_projection_to_plane(pt2, pt1, normal1, proj_pt2);
+            const Vec3d new_pt2 = proj_pt2 + normal1 * dist;
+            const Vec3d displacement = new_pt2 - pt2;
+            const auto [instance, volume] = parts(second_volume);
+            if (!same_model_object)
+                instance->set_offset(instance->get_offset() + displacement);
+            else
+                volume->set_offset(volume->get_offset() + displacement);
+            changed.insert(second_volume.object_index);
+            rest_on_plate(model, nullptr, changed);
+            break;
+        }
+        }
+        finish_edit(current, model, changed, update_first, update_second, config, output_prefix, result);
         return result;
     } catch (const std::exception& error) {
         result.measure = failure(SceneStatus::model_read_failed, error.what());

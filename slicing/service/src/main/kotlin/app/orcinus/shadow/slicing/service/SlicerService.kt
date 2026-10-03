@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import app.orcinus.shadow.core.model.AssemblyAction
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeKind
@@ -384,16 +385,33 @@ abstract class SlicerService<E> : Service()
         override fun beginMeasure(plate: Array<PlacedModelParcel>, volumes: IntArray, profiles: ProfilesParcel) =
             runBlocking { engine.beginMeasure(plate.toPlacedModels(), volumes.toMeasuredVolumes(), profiles.toProfiles()) }.toParcel()
 
-        override fun hoverMeasure(origin: DoubleArray, direction: DoubleArray, pointSelection: Boolean, onlySelectPlane: Boolean, sphereRadius: Double) =
-            runBlocking { engine.hoverMeasure(measureRay(origin, direction, pointSelection, onlySelectPlane, sphereRadius)) }.toParcel()
+        override fun hoverMeasure(
+            origin: DoubleArray,
+            direction: DoubleArray,
+            pointSelection: Boolean,
+            onlySelectPlane: Boolean,
+            sphereRadius: Double,
+            assemblyMode: String?,
+        ) = runBlocking { engine.hoverMeasure(measureRay(origin, direction, pointSelection, onlySelectPlane, sphereRadius, assemblyMode)) }.toParcel()
 
-        override fun selectMeasure(origin: DoubleArray, direction: DoubleArray, pointSelection: Boolean, onlySelectPlane: Boolean, sphereRadius: Double) =
-            runBlocking { engine.selectMeasure(measureRay(origin, direction, pointSelection, onlySelectPlane, sphereRadius)) }.toParcel()
+        override fun selectMeasure(
+            origin: DoubleArray,
+            direction: DoubleArray,
+            pointSelection: Boolean,
+            onlySelectPlane: Boolean,
+            sphereRadius: Double,
+            assemblyMode: String?,
+        ) = runBlocking { engine.selectMeasure(measureRay(origin, direction, pointSelection, onlySelectPlane, sphereRadius, assemblyMode)) }.toParcel()
 
         override fun resetMeasure(reset: String) = runBlocking { engine.resetMeasure(MeasureReset.valueOf(reset)) }.toParcel()
 
         override fun scaleMeasure(plate: Array<PlacedModelParcel>, ratio: Double, profiles: ProfilesParcel, prefix: String) =
             runBlocking { engine.scaleMeasure(plate.toPlacedModels(), ratio, profiles.toProfiles(), ScenePath(prefix)) }.toParcel()
+
+        override fun assembleMeasure(plate: Array<PlacedModelParcel>, action: String, values: DoubleArray, profiles: ProfilesParcel, prefix: String) =
+            runBlocking {
+                engine.assembleMeasure(plate.toPlacedModels(), AssemblyAction.valueOf(action), values.toList(), profiles.toProfiles(), ScenePath(prefix))
+            }.toParcel()
 
         override fun endMeasure() = runBlocking { engine.endMeasure() }
 

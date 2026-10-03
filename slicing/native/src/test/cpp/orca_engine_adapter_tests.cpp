@@ -6491,6 +6491,52 @@ TEST_CASE("The measuring tool selects a cube's faces and measures them", "[Adapt
     CHECK(orca::hover_measure(top).status != orca::SceneStatus::success);
 }
 
+TEST_CASE("The assembly tool sets the distance of two faces of two cubes", "[Adapter][Measure]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("assembly-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    // Two cubes along X, 20 mm apart.
+    std::vector<double> right = matrix_of(cube);
+    right[12] += 40.0;
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    plate.push_back(plate_of({}, right).front());
+    orca::MeasureState state = orca::begin_measure(plate, {0, 0, -1, 1, 0, -1}, k2_plus_profiles());
+    INFO(state.message);
+    REQUIRE(state.status == orca::SceneStatus::success);
+    const double cx = cube.box_center[0];
+    const double cy = cube.box_center[1];
+    const double cz = cube.box_center[2];
+
+    // Face to face: the left cube's right face, then the right cube's left face.
+    orca::MeasureRay left_face;
+    left_face.origin = {cx + 20.0, cy + 1.0, cz + 2.0};
+    left_face.direction = {-1.0, 0.0, 0.0};
+    left_face.only_select_plane = true;
+    left_face.sphere_radius = 0.5;
+    left_face.assembly_mode = 1;
+    REQUIRE(orca::select_measure(left_face).first.selected);
+    orca::MeasureRay right_face = left_face;
+    right_face.direction = {1.0, 0.0, 0.0};
+    state = orca::select_measure(right_face);
+    REQUIRE(state.second.selected);
+    CHECK(state.hit_volumes == 2);
+    CHECK_FALSE(state.same_object);
+    REQUIRE(state.has_parallel_distance);
+    CHECK(state.parallel_distance == Catch::Approx(20.0).margin(1e-3));
+
+    // "Parallel distance" 5: the right cube moves to 5 mm from the left one.
+    const orca::MeasureEdit moved = orca::assemble_measure(plate, orca::AssemblyAction::parallel_distance, {5.0}, k2_plus_profiles(), output_path("assembly-moved"));
+    INFO(moved.edit.message);
+    REQUIRE(moved.edit.status == orca::SceneStatus::success);
+    REQUIRE(moved.object_indexes == std::vector<int>{1});
+    REQUIRE(moved.measure.status == orca::SceneStatus::success);
+    REQUIRE(moved.measure.has_parallel_distance);
+    CHECK(moved.measure.parallel_distance == Catch::Approx(5.0).margin(1e-3));
+    orca::end_measure();
+}
+
 TEST_CASE("The brim ears of an object print with the painted brim and stay in a project", "[Adapter][BrimEars]")
 {
     require_engine();
@@ -6593,7 +6639,7 @@ TEST_CASE("The measuring tool scales the selection to a distance", "[Adapter][Me
 
     // "Scale all" to twice the height: the cube doubles, rests on the plate
     // again, and its planes, still selected, measure the new height.
-    const orca::MeasureScale scaled = orca::scale_measure(plate, 2.0, k2_plus_profiles(), output_path("measure-scale"));
+    const orca::MeasureEdit scaled = orca::scale_measure(plate, 2.0, k2_plus_profiles(), output_path("measure-scale"));
     INFO(scaled.edit.message);
     REQUIRE(scaled.edit.status == orca::SceneStatus::success);
     REQUIRE(scaled.object_indexes == std::vector<int>{0});

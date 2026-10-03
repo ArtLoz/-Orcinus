@@ -1980,14 +1980,18 @@ struct MeasureItem {
 
 // A ray of the finger into the measured copies (world coordinates), whether
 // it selects points (the desktop app's Shift), whether only planes are
-// features (the face-to-face assembly), and how far around a centre the
-// finger takes its sphere, in millimetres.
+// features (the face-to-face assembly), how far around a centre the finger
+// takes its sphere, in millimetres, and the tool it is for: the measuring
+// tool (0), or the assembly tool face to face (1) or point to point (2)
+// (EMeasureMode::ONLY_ASSEMBLY and AssemblyMode), which take only the
+// features they assemble.
 struct MeasureRay {
     std::vector<double> origin;
     std::vector<double> direction;
     bool point_selection{false};
     bool only_select_plane{false};
     double sphere_radius{1.0};
+    int assembly_mode{0};
 };
 
 // What the measuring tool shows: the feature under the finger and, in point
@@ -2039,6 +2043,9 @@ struct MeasureState {
     // is another plane than the one hover_measure() told last.
     bool hover_only{false};
     bool hovered_unchanged{false};
+    // m_selected_wrong_feature_waring_tip: the assembly tool was given a
+    // feature its mode does not assemble.
+    bool wrong_feature_tip{false};
 };
 
 // GLGizmoMeasure opens on the volumes of the plate the selection has
@@ -2057,17 +2064,48 @@ MeasureState select_measure(const MeasureRay& ray);
 // reset_feature1() (1), reset_feature2() (2) and reset_all_feature() (0).
 MeasureState reset_measure(int selection);
 
-// The dimensioning's "Edit to scale" ("Scale all"): the selection scaled by
-// ratio (Selection::scale() World, Relative, Joint, then do_scale()), the
-// objects that changed written as edit_object() writes them, with their
-// indexes on the plate, and the tool's selections following the volumes.
-struct MeasureScale {
+// What an edit of the measuring and assembly tools leaves: the tool's state
+// with its selections following the volumes, and the objects that changed
+// written as edit_object() writes them, with their indexes on the plate.
+struct MeasureEdit {
     MeasureState measure;
     ImportedModels edit;
     std::vector<int> object_indexes;
 };
 
-MeasureScale scale_measure(const std::vector<PlateObject>& plate, double ratio, const ProfileSelection& profiles, const std::string& output_prefix);
+// The dimensioning's "Edit to scale" ("Scale all"): the selection scaled by
+// ratio (Selection::scale() World, Relative, Joint, then do_scale()).
+MeasureEdit scale_measure(const std::vector<PlateObject>& plate, double ratio, const ProfileSelection& profiles, const std::string& output_prefix);
+
+// What the assembly tool does to the volume of the second selection (or of
+// the first, for reverse_rotation of feature 1), its object's copy or, when
+// one object has both selections, the volume itself:
+enum class AssemblyAction : std::int64_t {
+    // set_distance(): moved by values (x, y, z in the world), then do_move().
+    distance = 0,
+    // "Parallel" (set_to_parallel()): its face turned to face the first, then do_rotate().
+    parallel = 1,
+    // "Flip by Face 2" (set_to_reverse_rotation()): turned half round an axis
+    // in the face of selection values[0] (0 or 1) through its centre.
+    reverse_rotation = 2,
+    // "Rotate around center" (set_to_around_center_of_faces()): turned by
+    // values[0] degrees about the second face's normal through its centre.
+    around_center = 3,
+    // "Center coincidence" (set_to_center_coincidence()): turned to face the
+    // first face, then moved so the faces' centres meet.
+    center_coincidence = 4,
+    // "Parallel distance" (set_parallel_distance()): moved so the second face
+    // stands values[0] from the first along its normal.
+    parallel_distance = 5,
+};
+
+MeasureEdit assemble_measure(
+    const std::vector<PlateObject>& plate,
+    AssemblyAction action,
+    const std::vector<double>& values,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
 
 void end_measure();
 

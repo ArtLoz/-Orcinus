@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BoundingSphere
@@ -32,8 +33,8 @@ import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasurePlaneMesh
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureResult
-import app.orcinus.shadow.core.model.MeasureScale
-import app.orcinus.shadow.core.model.MeasureScaleOutcome
+import app.orcinus.shadow.core.model.MeasureEdit
+import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasureSelection
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.Measurement
@@ -1355,6 +1356,7 @@ internal fun MeasureOutcome.toParcel() = MeasurementParcel().also {
             it.sameObject = measurement.sameObject
             it.showResetFirstTip = measurement.showResetFirstTip
             it.hovered = measurement.hovered?.toParcel()
+            it.wrongFeatureTip = measurement.wrongFeatureTip
         }
     }
 }
@@ -1393,6 +1395,7 @@ internal fun MeasurementParcel.toMeasureOutcome(): MeasureOutcome = error?.let(M
             sameObject = sameObject,
             showResetFirstTip = showResetFirstTip,
             hovered = hovered?.toFeature(),
+            wrongFeatureTip = wrongFeatureTip,
         ),
     )
 
@@ -1418,22 +1421,22 @@ internal fun MeasureHoverParcel.toMeasureHoverOutcome(): MeasureHoverOutcome = e
         ),
     )
 
-internal fun MeasureScaleOutcome.toParcel() = MeasureScaleParcel().also {
+internal fun MeasureEditOutcome.toParcel() = MeasureEditParcel().also {
     when (this) {
-        is MeasureScaleOutcome.Failure -> it.error = message
-        is MeasureScaleOutcome.Success -> {
-            it.measurement = MeasureOutcome.Success(scale.measurement).toParcel()
-            it.edit = scale.edit.toParcel()
-            it.objectIndexes = scale.objectIndexes.toIntArray()
+        is MeasureEditOutcome.Failure -> it.error = message
+        is MeasureEditOutcome.Success -> {
+            it.measurement = MeasureOutcome.Success(edit.measurement).toParcel()
+            it.edit = edit.objects.toParcel()
+            it.objectIndexes = edit.objectIndexes.toIntArray()
         }
     }
 }
 
-internal fun MeasureScaleParcel.toMeasureScaleOutcome(): MeasureScaleOutcome {
-    error?.let { return MeasureScaleOutcome.Failure(it) }
-    val measured = measurement?.toMeasureOutcome() as? MeasureOutcome.Success ?: return MeasureScaleOutcome.Failure("The measuring tool sent nothing")
-    val written = edit?.toModelLoadOutcome() ?: return MeasureScaleOutcome.Failure("The measuring tool sent nothing")
-    return MeasureScaleOutcome.Success(MeasureScale(measured.measurement, written, objectIndexes?.toList().orEmpty()))
+internal fun MeasureEditParcel.toMeasureEditOutcome(): MeasureEditOutcome {
+    error?.let { return MeasureEditOutcome.Failure(it) }
+    val measured = measurement?.toMeasureOutcome() as? MeasureOutcome.Success ?: return MeasureEditOutcome.Failure("The measuring tool sent nothing")
+    val written = edit?.toModelLoadOutcome() ?: return MeasureEditOutcome.Failure("The measuring tool sent nothing")
+    return MeasureEditOutcome.Success(MeasureEdit(measured.measurement, written, objectIndexes?.toList().orEmpty()))
 }
 
 /** The measured volumes as the service takes them: triples of an object's, a copy's and a volume's index, -1 for all. */
@@ -1505,9 +1508,16 @@ internal fun BrimEarsOutcome.toParcel() = BrimEarsParcel().also {
 internal fun BrimEarsParcel.toBrimEarsOutcome(): BrimEarsOutcome = error?.let(BrimEarsOutcome::Failure)
     ?: BrimEarsOutcome.Success(BrimEarsSetup(detectionRadiusMax, defaultHeadDiameter, painted))
 
-/** The ray of a measuring call, as the service takes it. */
-internal fun measureRay(origin: DoubleArray, direction: DoubleArray, pointSelection: Boolean, onlySelectPlane: Boolean, sphereRadius: Double) =
-    MeasureRay(origin.vectorAt(0), direction.vectorAt(0), pointSelection, onlySelectPlane, sphereRadius)
+/** The ray of a measuring call, as the service takes it; [assemblyMode] is the AssemblyMode's name, or empty. */
+internal fun measureRay(origin: DoubleArray, direction: DoubleArray, pointSelection: Boolean, onlySelectPlane: Boolean, sphereRadius: Double, assemblyMode: String?) =
+    MeasureRay(
+        origin.vectorAt(0),
+        direction.vectorAt(0),
+        pointSelection,
+        onlySelectPlane,
+        sphereRadius,
+        assemblyMode?.takeIf(String::isNotEmpty)?.let(AssemblyMode::valueOf),
+    )
 
 internal fun TextStyle.toParcel() = TextStyleParcel().also {
     it.name = name

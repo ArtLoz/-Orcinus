@@ -26,4 +26,5 @@ parcelable MeasurementParcel {
     boolean sameObject;
     boolean showResetFirstTip;
     @nullable MeasureFeatureParcel hovered;
+    boolean wrongFeatureTip;
 }

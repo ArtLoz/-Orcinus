@@ -1,10 +1,11 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.AssemblyAction
 import app.orcinus.shadow.core.model.MeasureHoverOutcome
 import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
-import app.orcinus.shadow.core.model.MeasureScaleOutcome
+import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ObjectPartId
@@ -13,6 +14,7 @@ import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.domain.placed
@@ -85,31 +87,49 @@ class MeasureUseCase(
      * following it; the tool is not opened anew for the change it made itself
      * (m_pending_scale). Null when nothing was scaled.
      */
-    suspend fun scale(ratio: Double): MeasureOutcome? {
+    suspend fun scale(ratio: Double): MeasureOutcome? =
+        edit { target, prefix -> measurer.scaleMeasure(target.plate, ratio, target.profiles, prefix) }
+
+    /**
+     * The assembly tool's [action] with its [values] ("MoveInMeasure",
+     * "RotateInMeasure" and the other snapshots of GLGizmoMeasure's
+     * set_distance() and kin), the selections following the volumes. Null
+     * when nothing changed.
+     */
+    suspend fun assemble(action: AssemblyAction, values: List<Double> = emptyList()): MeasureOutcome? =
+        edit { target, prefix -> measurer.assembleMeasure(target.plate, action, values, target.profiles, prefix) }
+
+    /**
+     * An edit the engine makes to the volumes the tool is open on: the objects
+     * that changed take their places after a snapshot, the selection follows
+     * their new mesh files, and the engine's session, which follows the
+     * change already, is not opened anew for it.
+     */
+    private suspend fun edit(call: suspend (MeasureTarget, ScenePath) -> MeasureEditOutcome): MeasureOutcome? {
         val state = repository.state.value
         val target = opened?.takeIf { it == targetOf(state) } ?: return null
         val prefix = sceneFiles.newImportPrefix()
         val outcome = try {
-            measurer.scaleMeasure(target.plate, ratio, target.profiles, prefix)
+            call(target, prefix)
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation
         } catch (error: Exception) {
-            MeasureScaleOutcome.Failure(error.message.orEmpty())
+            MeasureEditOutcome.Failure(error.message.orEmpty())
         }
-        val scaled = (outcome as? MeasureScaleOutcome.Success)?.scale
-        val written = scaled?.edit as? ModelLoadOutcome.Success
-        if (scaled == null || written == null || written.objects.size != scaled.objectIndexes.size) {
+        val edited = (outcome as? MeasureEditOutcome.Success)?.edit
+        val written = edited?.objects as? ModelLoadOutcome.Success
+        if (edited == null || written == null || written.objects.size != edited.objectIndexes.size) {
             sceneFiles.deleteImport(prefix)
-            val message = (outcome as? MeasureScaleOutcome.Failure)?.message ?: (scaled?.edit as? ModelLoadOutcome.Failure)?.message
+            val message = (outcome as? MeasureEditOutcome.Failure)?.message ?: (edited?.objects as? ModelLoadOutcome.Failure)?.message
             repository.update { it.copy(problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, message)) }
             return null
         }
         if (written.objects.isEmpty()) {
             sceneFiles.deleteImport(prefix)
-            return MeasureOutcome.Success(scaled.measurement)
+            return MeasureOutcome.Success(edited.measurement)
         }
-        val sources = scaled.objectIndexes.map { state.objects[it] }
+        val sources = edited.objectIndexes.map { state.objects[it] }
         var applied = false
         repository.update { current ->
             applied = false
@@ -123,7 +143,7 @@ class MeasureUseCase(
                 selectedPart = current.selectedPart?.let { part -> meshes[part.mesh]?.let { ObjectPartId(it, part.index) } ?: part },
                 result = null,
             )
-            // The engine's session already measures the scaled volumes.
+            // The engine's session already measures the changed volumes.
             opened = targetOf(changed)
             applied = true
             changed
@@ -132,7 +152,7 @@ class MeasureUseCase(
             sceneFiles.deleteImport(prefix)
             return null
         }
-        return MeasureOutcome.Success(scaled.measurement)
+        return MeasureOutcome.Success(edited.measurement)
     }
 
     /** The tool closes, and the engine lets the volumes go. */

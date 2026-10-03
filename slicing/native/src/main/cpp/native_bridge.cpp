@@ -4569,7 +4569,7 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::MeasureState& state)
         "<init>",
         "(JLjava/lang/String;Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureFeature;[DI"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureItem;Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureItem;"
-        "[D[D[D[DZZZZZZZDIZZZZ)V"
+        "[D[D[D[DZZZZZZZDIZZZZZ)V"
     );
     const jobject result = env->NewObject(
         state_class,
@@ -4597,14 +4597,15 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::MeasureState& state)
         state.same_object ? JNI_TRUE : JNI_FALSE,
         state.show_reset_first_tip ? JNI_TRUE : JNI_FALSE,
         state.hover_only ? JNI_TRUE : JNI_FALSE,
-        state.hovered_unchanged ? JNI_TRUE : JNI_FALSE
+        state.hovered_unchanged ? JNI_TRUE : JNI_FALSE,
+        state.wrong_feature_tip ? JNI_TRUE : JNI_FALSE
     );
     env->DeleteLocalRef(state_class);
     return result;
 }
 
 static orcinus::orca::MeasureRay to_measure_ray(
-    JNIEnv* env, jdoubleArray origin, jdoubleArray direction, jboolean point_selection, jboolean only_select_plane, jdouble sphere_radius)
+    JNIEnv* env, jdoubleArray origin, jdoubleArray direction, jboolean point_selection, jboolean only_select_plane, jdouble sphere_radius, jint assembly_mode)
 {
     orcinus::orca::MeasureRay ray;
     ray.origin = to_doubles(env, origin);
@@ -4614,6 +4615,7 @@ static orcinus::orca::MeasureRay to_measure_ray(
     ray.point_selection = point_selection == JNI_TRUE;
     ray.only_select_plane = only_select_plane == JNI_TRUE;
     ray.sphere_radius = sphere_radius;
+    ray.assembly_mode = static_cast<int>(assembly_mode);
     return ray;
 }
 
@@ -4648,10 +4650,11 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_hoverMeasure(
     jdoubleArray direction,
     jboolean point_selection,
     jboolean only_select_plane,
-    jdouble sphere_radius
+    jdouble sphere_radius,
+    jint assembly_mode
 )
 {
-    return to_java(env, orcinus::orca::hover_measure(to_measure_ray(env, origin, direction, point_selection, only_select_plane, sphere_radius)));
+    return to_java(env, orcinus::orca::hover_measure(to_measure_ray(env, origin, direction, point_selection, only_select_plane, sphere_radius, assembly_mode)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL
@@ -4662,16 +4665,36 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_selectMeasure(
     jdoubleArray direction,
     jboolean point_selection,
     jboolean only_select_plane,
-    jdouble sphere_radius
+    jdouble sphere_radius,
+    jint assembly_mode
 )
 {
-    return to_java(env, orcinus::orca::select_measure(to_measure_ray(env, origin, direction, point_selection, only_select_plane, sphere_radius)));
+    return to_java(env, orcinus::orca::select_measure(to_measure_ray(env, origin, direction, point_selection, only_select_plane, sphere_radius, assembly_mode)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_resetMeasure(JNIEnv* env, jobject /* this */, jint selection)
 {
     return to_java(env, orcinus::orca::reset_measure(static_cast<int>(selection)));
+}
+
+// NativeMeasureEdit
+static jobject to_java(JNIEnv* env, const orcinus::orca::MeasureEdit& edited)
+{
+    const jintArray indexes = env->NewIntArray(static_cast<jsize>(edited.object_indexes.size()));
+    if (indexes != nullptr && !edited.object_indexes.empty()) {
+        std::vector<jint> values(edited.object_indexes.begin(), edited.object_indexes.end());
+        env->SetIntArrayRegion(indexes, 0, static_cast<jsize>(values.size()), values.data());
+    }
+    const jclass edit_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeMeasureEdit");
+    const jmethodID constructor = env->GetMethodID(
+        edit_class,
+        "<init>",
+        "(Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureState;Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedModels;[I)V"
+    );
+    const jobject result = env->NewObject(edit_class, constructor, to_java(env, edited.measure), to_java(env, edited.edit), indexes);
+    env->DeleteLocalRef(edit_class);
+    return result;
 }
 
 extern "C" JNIEXPORT jobject JNICALL
@@ -4687,26 +4710,41 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_scaleMeasure(
     jstring output_prefix
 )
 {
-    const orcinus::orca::MeasureScale scaled = orcinus::orca::scale_measure(
-        to_plate(env, plate),
-        ratio,
-        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
-        to_utf8(env, output_prefix)
+    return to_java(
+        env,
+        orcinus::orca::scale_measure(
+            to_plate(env, plate),
+            ratio,
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
     );
-    const jintArray indexes = env->NewIntArray(static_cast<jsize>(scaled.object_indexes.size()));
-    if (indexes != nullptr && !scaled.object_indexes.empty()) {
-        std::vector<jint> values(scaled.object_indexes.begin(), scaled.object_indexes.end());
-        env->SetIntArrayRegion(indexes, 0, static_cast<jsize>(values.size()), values.data());
-    }
-    const jclass scale_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeMeasureScale");
-    const jmethodID constructor = env->GetMethodID(
-        scale_class,
-        "<init>",
-        "(Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureState;Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedModels;[I)V"
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_assembleMeasure(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jlong action,
+    jdoubleArray values,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::assemble_measure(
+            to_plate(env, plate),
+            static_cast<orcinus::orca::AssemblyAction>(action),
+            to_doubles(env, values),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
     );
-    const jobject result = env->NewObject(scale_class, constructor, to_java(env, scaled.measure), to_java(env, scaled.edit), indexes);
-    env->DeleteLocalRef(scale_class);
-    return result;
 }
 
 extern "C" JNIEXPORT void JNICALL

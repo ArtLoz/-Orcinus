@@ -76,7 +76,7 @@
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureFeature { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureItem { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureState { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureScale { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureEdit { <init>(...); }
 # The brim ears tool.
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeBrimEars { <init>(...); }
 # The bridge looks onProgress up on the listener object, which is usually a

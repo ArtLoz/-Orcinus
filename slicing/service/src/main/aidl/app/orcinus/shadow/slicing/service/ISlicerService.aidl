@@ -20,7 +20,7 @@ import app.orcinus.shadow.slicing.service.EmbossVolumeParcel;
 import app.orcinus.shadow.slicing.service.FontFaceParcel;
 import app.orcinus.shadow.slicing.service.LayerEditingParcel;
 import app.orcinus.shadow.slicing.service.MeasureHoverParcel;
-import app.orcinus.shadow.slicing.service.MeasureScaleParcel;
+import app.orcinus.shadow.slicing.service.MeasureEditParcel;
 import app.orcinus.shadow.slicing.service.MeasurementParcel;
 import app.orcinus.shadow.slicing.service.PlateValidationParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
@@ -141,10 +141,13 @@ interface ISlicerService {
     void endLayerEditing();
     /** begin_measure() and the calls of the measuring tool; volumes are triples of an object's, a copy's and a volume's index (-1 for all), reset is the MeasureReset's name. */
     MeasurementParcel beginMeasure(in PlacedModelParcel[] plate, in int[] volumes, in ProfilesParcel profiles);
-    MeasureHoverParcel hoverMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius);
-    MeasurementParcel selectMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius);
+    /** assemblyMode: the AssemblyMode's name, or empty for the measuring tool. */
+    MeasureHoverParcel hoverMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius, String assemblyMode);
+    MeasurementParcel selectMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius, String assemblyMode);
     MeasurementParcel resetMeasure(String reset);
-    MeasureScaleParcel scaleMeasure(in PlacedModelParcel[] plate, double ratio, in ProfilesParcel profiles, String prefix);
+    MeasureEditParcel scaleMeasure(in PlacedModelParcel[] plate, double ratio, in ProfilesParcel profiles, String prefix);
+    /** action: the AssemblyAction's name. */
+    MeasureEditParcel assembleMeasure(in PlacedModelParcel[] plate, String action, in double[] values, in ProfilesParcel profiles, String prefix);
     void endMeasure();
     /** begin_brim_ears() and the calls of the brim ears tool; points hold x, y, z and the radius of every ear. */
     BrimEarsParcel beginBrimEars(in PlacedModelParcel[] plate, int index, int instance, in ProfilesParcel profiles);

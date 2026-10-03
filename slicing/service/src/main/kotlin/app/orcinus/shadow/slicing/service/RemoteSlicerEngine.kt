@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.RemoteException
 import app.orcinus.shadow.core.model.AppConfigOutcome
+import app.orcinus.shadow.core.model.AssemblyAction
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.BrimEarHit
@@ -52,7 +53,7 @@ import app.orcinus.shadow.core.model.MeasureHoverOutcome
 import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
-import app.orcinus.shadow.core.model.MeasureScaleOutcome
+import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
@@ -484,18 +485,30 @@ class RemoteSlicerEngine(
         remote({ MeasureOutcome.Failure(it) }) { beginMeasure(plate.toParcels(), volumes.toTriples(), profiles.toParcel()).toMeasureOutcome() }
 
     override suspend fun hoverMeasure(ray: MeasureRay): MeasureHoverOutcome = remote({ MeasureHoverOutcome.Failure(it) }) {
-        hoverMeasure(ray.origin.toDoubles(), ray.direction.toDoubles(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius).toMeasureHoverOutcome()
+        hoverMeasure(ray.origin.toDoubles(), ray.direction.toDoubles(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius, ray.assemblyMode?.name.orEmpty())
+            .toMeasureHoverOutcome()
     }
 
     override suspend fun selectMeasure(ray: MeasureRay): MeasureOutcome = remote({ MeasureOutcome.Failure(it) }) {
-        selectMeasure(ray.origin.toDoubles(), ray.direction.toDoubles(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius).toMeasureOutcome()
+        selectMeasure(ray.origin.toDoubles(), ray.direction.toDoubles(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius, ray.assemblyMode?.name.orEmpty())
+            .toMeasureOutcome()
     }
 
     override suspend fun resetMeasure(reset: MeasureReset): MeasureOutcome =
         remote({ MeasureOutcome.Failure(it) }) { resetMeasure(reset.name).toMeasureOutcome() }
 
-    override suspend fun scaleMeasure(plate: List<PlacedModel>, ratio: Double, profiles: SlicingProfileSelection, prefix: ScenePath): MeasureScaleOutcome =
-        remote({ MeasureScaleOutcome.Failure(it) }) { scaleMeasure(plate.toParcels(), ratio, profiles.toParcel(), prefix.value).toMeasureScaleOutcome() }
+    override suspend fun scaleMeasure(plate: List<PlacedModel>, ratio: Double, profiles: SlicingProfileSelection, prefix: ScenePath): MeasureEditOutcome =
+        remote({ MeasureEditOutcome.Failure(it) }) { scaleMeasure(plate.toParcels(), ratio, profiles.toParcel(), prefix.value).toMeasureEditOutcome() }
+
+    override suspend fun assembleMeasure(
+        plate: List<PlacedModel>,
+        action: AssemblyAction,
+        values: List<Double>,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): MeasureEditOutcome = remote({ MeasureEditOutcome.Failure(it) }) {
+        assembleMeasure(plate.toParcels(), action.name, values.toDoubleArray(), profiles.toParcel(), prefix.value).toMeasureEditOutcome()
+    }
 
     override suspend fun endMeasure() = remote({}) { endMeasure() }
 

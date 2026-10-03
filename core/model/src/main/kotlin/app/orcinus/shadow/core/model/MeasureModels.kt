@@ -123,6 +123,8 @@ data class Measurement(
     val sameObject: Boolean = false,
     val showResetFirstTip: Boolean = false,
     val hovered: MeasureFeature? = null,
+    /** m_selected_wrong_feature_waring_tip: the assembly tool was given a feature its mode does not assemble. */
+    val wrongFeatureTip: Boolean = false,
 )
 
 /**
@@ -150,7 +152,22 @@ data class MeasureRay(
     val pointSelection: Boolean = false,
     val onlySelectPlane: Boolean = false,
     val sphereRadius: Double = 1.0,
+    /** The assembly tool's mode (EMeasureMode::ONLY_ASSEMBLY), which takes only the features it assembles; null for the measuring tool. */
+    val assemblyMode: AssemblyMode? = null,
 )
+
+/** GLGizmoMeasure's AssemblyMode: two faces made to meet, or two points or circles a distance apart. */
+enum class AssemblyMode { FACE_FACE, POINT_POINT }
+
+/**
+ * What the assembly tool does to the volume of the second selection, its
+ * object's copy or, with one object having both, the volume itself: moves
+ * it (set_distance()), turns its face against the first ("Parallel"), turns
+ * it half round in a face ("Flip by Face 2"), turns it about its face's
+ * centre ("Rotate around center"), makes the faces' centres meet ("Center
+ * coincidence"), or sets the faces' distance ("Parallel distance").
+ */
+enum class AssemblyAction { DISTANCE, PARALLEL, REVERSE_ROTATION, AROUND_CENTER, CENTER_COINCIDENCE, PARALLEL_DISTANCE }
 
 /** reset_feature1(), reset_feature2() and reset_all_feature(). */
 enum class MeasureReset { ALL, FIRST, SECOND }
@@ -169,16 +186,18 @@ sealed interface MeasureOutcome {
 }
 
 /**
- * The dimensioning's "Edit to scale": the tool after the selection was
- * scaled ([measurement]), and the objects that changed ([edit], written as
- * an edit of objects writes them) with their indexes on the plate.
+ * What an edit of the measuring and assembly tools leaves ("Edit to scale",
+ * the assembly's moves and turns): the tool with its selections following
+ * the volumes ([measurement]), and the objects that changed ([objects],
+ * written as an edit of objects writes them) with their indexes on the
+ * plate.
  */
-data class MeasureScale(val measurement: Measurement, val edit: ModelLoadOutcome, val objectIndexes: List<Int>)
+data class MeasureEdit(val measurement: Measurement, val objects: ModelLoadOutcome, val objectIndexes: List<Int>)
 
-sealed interface MeasureScaleOutcome {
-    data class Success(val scale: MeasureScale) : MeasureScaleOutcome
+sealed interface MeasureEditOutcome {
+    data class Success(val edit: MeasureEdit) : MeasureEditOutcome
 
-    data class Failure(val message: String) : MeasureScaleOutcome
+    data class Failure(val message: String) : MeasureEditOutcome
 }
 
 sealed interface MeasureHoverOutcome {

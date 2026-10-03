@@ -1,5 +1,6 @@
 package app.orcinus.shadow.slicing.nativebridge
 
+import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.MeasureAngle
 import app.orcinus.shadow.core.model.MeasureAssembly
 import app.orcinus.shadow.core.model.MeasureDistance
@@ -9,6 +10,7 @@ import app.orcinus.shadow.core.model.MeasureHover
 import app.orcinus.shadow.core.model.MeasureHoverOutcome
 import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasurePlaneMesh
+import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureResult
 import app.orcinus.shadow.core.model.MeasureSelection
 import app.orcinus.shadow.core.model.Measurement
@@ -50,8 +52,16 @@ internal fun NativeMeasureState.toMeasureOutcome(): MeasureOutcome = if (status 
             sameObject = sameObject,
             showResetFirstTip = showResetFirstTip,
             hovered = hovered.toFeature(),
+            wrongFeatureTip = wrongFeatureTip,
         ),
     )
+}
+
+/** The engine's AssemblyMode of a ray: 0 for the measuring tool. */
+internal fun MeasureRay.assemblyModeValue(): Int = when (assemblyMode) {
+    null -> 0
+    AssemblyMode.FACE_FACE -> 1
+    AssemblyMode.POINT_POINT -> 2
 }
 
 internal fun NativeMeasureState.toMeasureHoverOutcome(): MeasureHoverOutcome = if (status != NativeSceneStatus.SUCCESS) {
