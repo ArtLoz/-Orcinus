@@ -690,6 +690,24 @@ double size_proportional_to_max_bed_size(const Slic3r::DynamicPrintConfig& confi
     return factor * std::max(bed.size().x(), bed.size().y());
 }
 
+// ModelVolume::source's object, volume and mesh offset, as the app keeps them.
+VolumeOrigin origin_of(const Slic3r::ModelVolume::Source& source)
+{
+    return {source.object_idx, source.volume_idx, {source.mesh_offset.x(), source.mesh_offset.y(), source.mesh_offset.z()}};
+}
+
+// A volume the app knows no origin of (ModelVolume::Source's defaults) keeps
+// the one it got as it was made, as the calibration cube's centred mesh.
+void apply_origin(Slic3r::ModelVolume& volume, const VolumeOrigin& origin)
+{
+    if (origin.object_idx < 0 && origin.volume_idx < 0 && origin.mesh_offset == std::array<double, 3>{0.0, 0.0, 0.0}) {
+        return;
+    }
+    volume.source.object_idx = origin.object_idx;
+    volume.source.volume_idx = origin.volume_idx;
+    volume.source.mesh_offset = Slic3r::Vec3d(origin.mesh_offset[0], origin.mesh_offset[1], origin.mesh_offset[2]);
+}
+
 // Loads one object of the plate into model: its own mesh in its frame, its
 // copies, its settings, painting and parts, its height ranges; then its copies
 // drop onto the plate. An object without a placement is placed as an object
@@ -726,6 +744,7 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         if (!object.volume_input_file.empty()) {
             own.source.input_file = object.volume_input_file;
         }
+        apply_origin(own, object.volume_origin);
         own.cut_info = detail::cut_info_of(object.volume_cut_info);
     }
     // The cut the object is a part of (as _BBS_3MF_Importer applies it).
@@ -777,6 +796,7 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         volume->source.is_converted_from_inches = part.from_inches;
         volume->source.is_converted_from_meters = part.from_meters;
         volume->source.input_file = part.input_file;
+        apply_origin(*volume, part.origin);
         volume->cut_info = detail::cut_info_of(part.cut_info);
         if (!apply_painted_facets(*volume, part.painted)) {
             message = "The painted facets of a part could not be read";
@@ -3452,6 +3472,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
         out.volume_from_inches = own.source.is_converted_from_inches;
         out.volume_from_meters = own.source.is_converted_from_meters;
         out.volume_input_file = own.source.input_file;
+        out.volume_origin = origin_of(own.source);
         out.volume_cut_info = detail::cut_info_from(own.cut_info);
         out.volume_emboss = detail::write_emboss(own, base + ".emboss");
         out.volume_emboss_kind = detail::emboss_kind_of(own);
@@ -3482,6 +3503,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             part.from_inches = source.source.is_converted_from_inches;
             part.from_meters = source.source.is_converted_from_meters;
             part.input_file = source.source.input_file;
+            part.origin = origin_of(source.source);
             part.cut_info = detail::cut_info_from(source.cut_info);
             part.emboss = detail::write_emboss(source, base + "-part-" + std::to_string(volume) + ".emboss");
             part.emboss_kind = detail::emboss_kind_of(source);
@@ -4862,6 +4884,123 @@ ImportedModels replace_volume(
         if (!write_objects({old_model_object}, output_prefix, result)) {
             return result;
         }
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.notices = dialogs.take_notices();
+        result.objects.clear();
+        return result;
+    }
+}
+
+ImportedModels load_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    const std::string& source_path,
+    const std::string& name,
+    VolumeType type,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix,
+    const StepMeshChoice& step_mesh
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    detail::SettingsDialogs dialogs({});
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size()) {
+            result.message = "The object is not on the plate";
+            return result;
+        }
+        ModelObject& model_object = *model.objects[object_index];
+
+        Model loaded;
+        try {
+            if (boost::algorithm::iends_with(source_path, ".stp") || boost::algorithm::iends_with(source_path, ".step")) {
+                // The deflections and split of the app configuration or of StepMeshDialog.
+                const detail::StepMeshParameters mesh = detail::step_mesh_parameters(source_path, step_mesh, false);
+                loaded = Model::read_from_step(source_path, LoadStrategy::LoadModel, nullptr, nullptr, nullptr, mesh.linear_deflection,
+                                               mesh.angle_deflection, mesh.split_compound);
+            } else {
+                loaded = Model::read_from_file(source_path, nullptr, nullptr, LoadStrategy::LoadModel);
+            }
+        } catch (const detail::StepMeshPending&) {
+            throw;
+        } catch (const std::exception&) {
+            dialogs.error("load_volume_failed",
+                          {detail::ui_text("Error!"), detail::ui_text(" "), detail::ui_text("Failed to get the model data in the current file.")});
+            result.notices = dialogs.take_notices();
+            result.status = SceneStatus::success;
+            return result;
+        }
+
+        for (ModelObject* object : loaded.objects) {
+            if (model_object.origin_translation != Vec3d::Zero()) {
+                object->center_around_origin();
+                const Vec3d delta = model_object.origin_translation - object->origin_translation;
+                for (ModelVolume* volume : object->volumes) {
+                    volume->translate(delta);
+                }
+            }
+        }
+
+        loaded.add_default_instances();
+        TriangleMesh mesh = loaded.mesh();
+        // Mesh will be centered when loading.
+        ModelVolume* new_volume = model_object.add_volume(std::move(mesh), volume_type_of(type));
+        new_volume->name = name;
+
+        // set a default extruder value, since user can't add it manually
+        int extruder_id = 0;
+        if (new_volume->type() == ModelVolumeType::MODEL_PART && model_object.config.has("extruder"))
+            extruder_id = model_object.config.opt_int("extruder");
+        new_volume->config.set_key_value("extruder", new ConfigOptionInt(extruder_id));
+        // update source data
+        new_volume->source.input_file = source_path;
+        new_volume->source.object_idx = int(object_index);
+        new_volume->source.volume_idx = int(model_object.volumes.size()) - 1;
+        if (loaded.objects.size() == 1 && loaded.objects.front()->volumes.size() == 1)
+            new_volume->source.mesh_offset = loaded.objects.front()->volumes.front()->source.mesh_offset;
+        new_volume->set_offset(new_volume->source.mesh_offset - model_object.volumes.front()->source.mesh_offset);
+
+        // ObjectList::load_subobject(): reorder_volumes_and_get_selection(), and
+        // Plater::changed_object() rests the object on the plate.
+        model_object.sort_volumes(true);
+        model_object.invalidate_bounding_box();
+        model_object.ensure_on_bed(true);
+        const auto added = std::find(model_object.volumes.begin(), model_object.volumes.end(), new_volume);
+        result.selected_volume = added == model_object.volumes.end() ? -1 : int(added - model_object.volumes.begin());
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects({&model_object}, output_prefix, result)) {
+            return result;
+        }
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const detail::StepMeshPending& pending) {
+        result.step_mesh = true;
+        result.step_linear_deflection = pending.linear_deflection;
+        result.step_angle_deflection = pending.angle_deflection;
+        result.step_split_compound = pending.split_compound;
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;
         return result;

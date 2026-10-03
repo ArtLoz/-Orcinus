@@ -167,6 +167,7 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.VolumeOrigin
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -1105,6 +1106,38 @@ class NativeSlicerEngine(context: Context) :
             objectIndex = index,
             volume = volume,
             sourcePath = source.value,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+            stepChosen = stepMesh != null,
+            stepLinear = stepMesh?.linearDeflection ?: 0.0,
+            stepAngle = stepMesh?.angleDeflection ?: 0.0,
+            stepSplit = stepMesh?.splitCompound ?: false,
+        ).toOutcome()
+    }
+
+    override suspend fun loadVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        source: ModelPath,
+        name: String,
+        type: VolumeType,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        stepMesh: StepMeshOptions?,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.loadVolume(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            sourcePath = source.value,
+            name = name,
+            type = type.ordinal.toLong(),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
@@ -2454,6 +2487,7 @@ class NativeSlicerEngine(context: Context) :
                     inputFile = partInputFiles[part],
                     cutInfo = CutInfo.of(partCutInfo, CutInfo.SIZE * part),
                     emboss = embossData(partEmboss[part], partEmbossKinds[part]),
+                    origin = VolumeOrigin.of(partOrigins, VolumeOrigin.SIZE * part),
                 )
             },
             settings = ModelSettings(settingKeys.zip(settingValues).toMap()),
@@ -2466,6 +2500,7 @@ class NativeSlicerEngine(context: Context) :
                 inputFile = volumeInputFile,
                 cutInfo = CutInfo.of(volumeCutInfo),
                 emboss = embossData(volumeEmboss, volumeEmbossKind),
+                origin = VolumeOrigin.of(volumeOrigin),
             ),
             cutId = CutId.of(cutId),
             instances = instances.mapIndexed { index, instance ->
@@ -2656,6 +2691,8 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
             .toDoubleArray(),
         volumeEmboss = Array(objects.size) { objects[it].volume.emboss?.file?.value.orEmpty() },
         partEmboss = Array(parts.size) { parts[it].emboss?.file?.value.orEmpty() },
+        volumeOrigins = objects.flatMap { it.volume.origin.values().asList() }.toDoubleArray(),
+        partOrigins = parts.flatMap { it.origin.values().asList() }.toDoubleArray(),
     )
 }
 

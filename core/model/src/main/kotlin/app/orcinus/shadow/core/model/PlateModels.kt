@@ -67,7 +67,33 @@ data class ObjectPart(
     val cutInfo: CutInfo = CutInfo(),
     /** The text or the SVG the part was embossed from; null for a part of neither. */
     val emboss: EmbossData? = null,
+    /** ModelVolume::source: where the volume was in its file. */
+    val origin: VolumeOrigin = VolumeOrigin(),
 )
+
+/**
+ * ModelVolume::source of a volume read from a file: the object and the volume
+ * it was there, and where the centre of its mesh stood in the file
+ * (mesh_offset), by which a volume loaded or replaced from a file keeps its
+ * place (ObjectList::load_modifier(), Plater::priv::replace_volume_with_stl()).
+ */
+data class VolumeOrigin(
+    val objectIndex: Int = -1,
+    val volumeIndex: Int = -1,
+    val meshOffset: Vector3 = Vector3(0.0, 0.0, 0.0),
+) {
+    /** Flattened as the engine reads it (VolumeOrigin of orca_engine_adapter.hpp). */
+    fun values(): DoubleArray = doubleArrayOf(objectIndex.toDouble(), volumeIndex.toDouble(), meshOffset.x, meshOffset.y, meshOffset.z)
+
+    companion object {
+        const val SIZE = 5
+
+        fun of(values: DoubleArray?, at: Int = 0): VolumeOrigin {
+            if (values == null || values.size < at + SIZE) return VolumeOrigin()
+            return VolumeOrigin(values[at].toInt(), values[at + 1].toInt(), Vector3(values[at + 2], values[at + 3], values[at + 4]))
+        }
+    }
+}
 
 /**
  * ModelVolume::CutInfo: what a cut made of a volume — a connector of the
@@ -156,6 +182,7 @@ data class ObjectVolume(
     val cutInfo: CutInfo = CutInfo(),
     /** The text or the SVG the object's own mesh was embossed from (an object made of a text). */
     val emboss: EmbossData? = null,
+    val origin: VolumeOrigin = VolumeOrigin(),
 )
 
 /**
@@ -282,6 +309,7 @@ fun PlateObject.volumeAt(index: Int): ObjectPart? = when {
         inputFile = volume.inputFile,
         cutInfo = volume.cutInfo,
         emboss = volume.emboss,
+        origin = volume.origin,
     )
     else -> parts.getOrNull(index - 1)
 }

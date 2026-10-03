@@ -671,6 +671,22 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
         }
         plate[index].volume_cut_info = cut_info_at(volume_cut_info, index);
     }
+    // Where every own mesh and every part was in its file, five each (VolumeOrigin).
+    const std::vector<double> volume_origins = to_doubles(env, static_cast<jdoubleArray>(field("volumeOrigins", "[D")));
+    const std::vector<double> part_origins = to_doubles(env, static_cast<jdoubleArray>(field("partOrigins", "[D")));
+    const auto origin_at = [](const std::vector<double>& values, const std::size_t index) {
+        orcinus::orca::VolumeOrigin origin;
+        if (5 * (index + 1) <= values.size()) {
+            const double* value = values.data() + 5 * index;
+            origin.object_idx = int(value[0]);
+            origin.volume_idx = int(value[1]);
+            origin.mesh_offset = {value[2], value[3], value[4]};
+        }
+        return origin;
+    };
+    for (std::size_t index = 0; index < plate.size(); ++index) {
+        plate[index].volume_origin = origin_at(volume_origins, index);
+    }
     // The mesh file and the name of every part, in the plate's order.
     const std::vector<std::string> sources = to_strings(env, static_cast<jobjectArray>(field("partSources", strings)));
     const std::vector<std::string> names = to_strings(env, static_cast<jobjectArray>(field("partNames", strings)));
@@ -689,6 +705,7 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
                 added.input_file = part_inputs[part];
             }
             added.cut_info = cut_info_at(part_cut_info, part);
+            added.origin = origin_at(part_origins, part);
             ++part;
         }
     }
@@ -3087,7 +3104,7 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
         "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;[D"
-        "Ljava/lang/String;J[Ljava/lang/String;[J[D[D[Z[D)V"
+        "Ljava/lang/String;J[Ljava/lang/String;[J[D[D[Z[D[D[D)V"
     );
     // The cut the object is a part of, and the cut info of its own mesh and of every part.
     const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
@@ -3123,6 +3140,16 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
     std::vector<double> part_cut_info;
     for (const orcinus::orca::ImportedPart& part : object.parts) {
         cut_info_values(part.cut_info, part_cut_info);
+    }
+    // Where its own mesh and every part was in its file, five each (VolumeOrigin).
+    const auto origin_values = [](const orcinus::orca::VolumeOrigin& origin, std::vector<double>& values) {
+        values.insert(values.end(), {double(origin.object_idx), double(origin.volume_idx), origin.mesh_offset[0], origin.mesh_offset[1], origin.mesh_offset[2]});
+    };
+    std::vector<double> volume_origin;
+    origin_values(object.volume_origin, volume_origin);
+    std::vector<double> part_origins;
+    for (const orcinus::orca::ImportedPart& part : object.parts) {
+        origin_values(part.origin, part_origins);
     }
     return env->NewObject(
         object_class,
@@ -3170,7 +3197,9 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         to_java(env, object.brim_points.data(), object.brim_points.size()),
         to_java(env, assemble_matrices.data(), assemble_matrices.size()),
         to_java_bools(env, assembled),
-        to_java(env, offsets_to_assembly.data(), offsets_to_assembly.size())
+        to_java(env, offsets_to_assembly.data(), offsets_to_assembly.size()),
+        to_java(env, volume_origin.data(), volume_origin.size()),
+        to_java(env, part_origins.data(), part_origins.size())
     );
 }
 
@@ -3517,6 +3546,41 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_replaceVolume(
             static_cast<std::size_t>(object),
             static_cast<std::size_t>(volume),
             to_utf8(env, source_path),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix),
+            to_step_mesh(step_chosen, step_linear, step_angle, step_split)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_loadVolume(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object,
+    jstring source_path,
+    jstring name,
+    jlong type,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix,
+    jboolean step_chosen,
+    jdouble step_linear,
+    jdouble step_angle,
+    jboolean step_split
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::load_volume(
+            to_plate(env, plate),
+            static_cast<std::size_t>(object),
+            to_utf8(env, source_path),
+            to_utf8(env, name),
+            static_cast<orcinus::orca::VolumeType>(type),
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
             to_utf8(env, output_prefix),
             to_step_mesh(step_chosen, step_linear, step_angle, step_split)

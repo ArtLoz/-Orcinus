@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -491,8 +492,8 @@ private fun MenuIcon(icon: Int) {
     Icon(painterResource(icon), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(OrcaTheme.dimensions.iconSmall))
 }
 
-/** The shapes OrcaSlicer generates (create_mesh of GUI_ObjectList.cpp), in its order. */
-val PART_SHAPES = listOf("Cube", "Cylinder", "Sphere", "Slab", "Cone", "Disc", "Torus")
+/** The shapes of the submenus that add a part (MenuFactory::append_submenu_add_generic), in their order. */
+val PART_SHAPES = listOf("Cube", "Cylinder", "Sphere", "Cone", "Disc", "Torus")
 
 /** What the menu calls adding a part of that kind (MenuFactory). */
 fun addPartName(type: VolumeType): Int = when (type) {
@@ -508,15 +509,15 @@ fun shapeName(shape: String): Int = when (shape) {
     "Cube" -> R.string.object_shape_cube
     "Cylinder" -> R.string.object_shape_cylinder
     "Sphere" -> R.string.object_shape_sphere
-    "Slab" -> R.string.object_shape_slab
     "Cone" -> R.string.object_shape_cone
     "Disc" -> R.string.object_shape_disc
     else -> R.string.object_shape_torus
 }
 
 /**
- * The shapes a part can have (create_mesh of GUI_ObjectList.cpp), which the
- * desktop app offers in the submenu of its "Add part" items.
+ * The submenu of the desktop app's "Add part" items
+ * (MenuFactory::append_submenu_add_generic): "Load..." (ObjectList::load_subobject),
+ * then the shapes a part can have (create_mesh of GUI_ObjectList.cpp).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -526,6 +527,7 @@ fun PartShapeSheet(
     onChoose: (shape: String, name: String) -> Unit,
     onText: (() -> Unit)? = null,
     onSvg: (() -> Unit)? = null,
+    onLoad: (() -> Unit)? = null,
 ) {
     val colors = OrcaTheme.colors
     ModalBottomSheet(
@@ -540,6 +542,19 @@ fun PartShapeSheet(
                 style = OrcaTheme.typography.head16,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
+            if (onLoad != null) {
+                Text(
+                    text = orcaString("Load..."),
+                    color = colors.text,
+                    style = OrcaTheme.typography.body14,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .orcaClickable(role = Role.Button, onClick = onLoad)
+                        .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+                HorizontalDivider(color = colors.separator, thickness = 1.dp)
+            }
             PART_SHAPES.forEach { shape ->
                 // ObjectList::load_generic_subobject() names the volume "Generic-<shape>", translated.
                 val name = orcaString("Generic") + "-" + orcaString(shape)

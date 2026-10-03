@@ -12,6 +12,7 @@ import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
+import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.ui.settings.PrinterConnectionSheet
@@ -362,6 +363,7 @@ class SidebarViewModel(
     private val renamePlateItem: RenamePlateItemUseCase,
     private val editPlateObject: EditPlateObjectUseCase,
     private val addObjectPart: AddObjectPartUseCase,
+    private val loadObjectVolumes: LoadObjectVolumesUseCase,
     private val removeObjectPart: RemoveObjectPartUseCase,
     private val invalidateCutInfo: InvalidateCutInfoUseCase,
     private val removePlateInstance: RemovePlateInstanceUseCase,
@@ -709,6 +711,9 @@ class SidebarViewModel(
     fun editObject(mesh: ScenePath, edit: ObjectEdit, volume: Int?) = editPlateObject(mesh, edit, volume)
 
     fun addPart(mesh: ScenePath, shape: String, type: VolumeType, name: String) = addObjectPart(mesh, shape, type, name)
+
+    /** ObjectList::load_subobject() of the documents the file picker gave. */
+    fun loadPart(mesh: ScenePath, type: VolumeType, documents: List<ExternalDocumentReference>) = loadObjectVolumes(mesh, type, documents)
 
     fun removePart(id: ObjectPartId) = removeObjectPart(id)
 
@@ -1409,6 +1414,15 @@ fun PlateSidebar(
         replacingPlate = null
         if (uri != null && index != null) viewModel.replaceAllOnPlate(index, ExternalDocumentReference(uri.toString()))
     }
+    // ObjectList::load_subobject()'s file dialog (GUI_App::import_model), which takes several files at once.
+    var loadingPart by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
+    val partPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val target = loadingPart
+        loadingPart = null
+        if (uris.isNotEmpty() && target != null) {
+            viewModel.loadPart(ScenePath(target.first), VolumeType.valueOf(target.second), uris.map { ExternalDocumentReference(it.toString()) })
+        }
+    }
     var replacing by rememberSaveable { mutableStateOf<Triple<String, Int, Int>?>(null) }
     val replacementPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val target = replacing
@@ -1538,6 +1552,10 @@ fun PlateSidebar(
             renamePart = viewModel::renamePart,
             editObject = viewModel::editObject,
             addPart = viewModel::addPart,
+            loadPart = { mesh, type ->
+                loadingPart = mesh.value to type.name
+                partPicker.launch(arrayOf("*/*"))
+            },
             removePart = viewModel::removePart,
             invalidateCutInfo = viewModel::invalidateCutInfoOf,
             selectPart = viewModel::chooseSettingsPart,
@@ -2201,6 +2219,10 @@ internal fun PlateSidebarContent(
             onSvg = {
                 addingPart = null
                 objectList.addSvg(mesh, type)
+            },
+            onLoad = {
+                addingPart = null
+                objectList.loadPart(mesh, type)
             },
         )
     }

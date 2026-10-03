@@ -121,6 +121,8 @@ internal class ObjectListActions(
     val editObject: (ScenePath, ObjectEdit, Int?) -> Unit,
     /** ObjectList::load_generic_subobject(): a shape joins the object. */
     val addPart: (ScenePath, shape: String, type: VolumeType, name: String) -> Unit,
+    /** ObjectList::load_subobject(): opens the file picker for volumes of the kind. */
+    val loadPart: (ScenePath, VolumeType) -> Unit = { _, _ -> },
     /** ObjectList::del_subobject_item(): the part leaves the object. */
     val removePart: (ObjectPartId) -> Unit,
     /** ObjectList::part_selection_changed(): the parameter panel edits the part. */

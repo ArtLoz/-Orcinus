@@ -228,6 +228,15 @@ internal fun PrepareRoute(
         replaceAllTarget = null
         if (uri != null && mesh != null) viewModel.replaceAllVolumes(PlateInstanceId(ScenePath(mesh), replaceAllInstance), uri.toString())
     }
+    // ObjectList::load_subobject()'s file dialog (GUI_App::import_model), which takes several files at once.
+    var loadTarget by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
+    val volumePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val target = loadTarget
+        loadTarget = null
+        if (uris.isNotEmpty() && target != null) {
+            viewModel.loadVolumes(ScenePath(target.first), VolumeType.valueOf(target.second), uris.map { it.toString() })
+        }
+    }
     var replaceTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var replaceInstance by rememberSaveable { mutableStateOf(0) }
     val replacement = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -307,6 +316,12 @@ internal fun PrepareRoute(
                     replaceTarget = copy.mesh.value
                     replaceInstance = copy.instance
                     replacement.launch(arrayOf("*/*"))
+                }
+            },
+            loadPart = { index, type ->
+                viewModel.copyOf(index)?.let { copy ->
+                    loadTarget = copy.mesh.value to type.name
+                    volumePicker.launch(arrayOf("*/*"))
                 }
             },
             replaceAll = { index ->
@@ -880,6 +895,10 @@ internal fun PrepareScreen(
                     svgActions.choose(index, type, viewCamera.surfaceHit(index, at), null)
                     svgActions.pickFile()
                 },
+                onLoad = {
+                    addingPart = null
+                    objectMenuActions.loadPart(index, type)
+                },
             )
         }
         // The bottoms of the controls at the top and the top of those at the
@@ -1165,6 +1184,8 @@ internal class PrepareObjectMenuActions(
     val export: (index: Int, MeshFormat, name: String) -> Unit,
     /** "Invalidate cut info" of a part of a cut. */
     val invalidateCutInfo: (index: Int) -> Unit = {},
+    /** "Load..." of the submenus that add a part: opens the file picker for the volumes. */
+    val loadPart: (index: Int, type: VolumeType) -> Unit = { _, _ -> },
 ) {
     companion object {
         val NONE = PrepareObjectMenuActions(

@@ -123,6 +123,7 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.VolumeOrigin
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -304,6 +305,7 @@ private fun ObjectVolume.toParcel() = ObjectVolumeParcel().also {
     it.convertedFromMeters = convertedFromMeters
     it.inputFile = inputFile
     it.cutInfo = cutInfo.values()
+    it.origin = origin.values()
     it.emboss = emboss?.file?.value
     it.embossKind = emboss?.kind?.name
 }
@@ -321,6 +323,7 @@ private fun ObjectVolumeParcel?.toObjectVolume(): ObjectVolume = this?.let {
         inputFile = it.inputFile.orEmpty(),
         cutInfo = CutInfo.of(it.cutInfo),
         emboss = embossOf(it.emboss, it.embossKind),
+        origin = VolumeOrigin.of(it.origin),
     )
 } ?: ObjectVolume()
 
@@ -364,6 +367,7 @@ private fun ObjectPart.toParcel() = ObjectPartParcel().also {
     it.convertedFromMeters = convertedFromMeters
     it.inputFile = inputFile
     it.cutInfo = cutInfo.values()
+    it.origin = origin.values()
     it.emboss = emboss?.file?.value
     it.embossKind = emboss?.kind?.name
 }
@@ -383,6 +387,7 @@ private fun ObjectPartParcel.toObjectPart() = ObjectPart(
     inputFile = inputFile.orEmpty(),
     cutInfo = CutInfo.of(cutInfo),
     emboss = embossOf(emboss, embossKind),
+    origin = VolumeOrigin.of(origin),
 )
 
 internal fun ProjectPlate.toParcel() = ProjectPlateParcel().also {

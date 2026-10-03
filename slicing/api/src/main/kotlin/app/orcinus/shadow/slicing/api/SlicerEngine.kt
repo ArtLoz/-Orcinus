@@ -285,6 +285,24 @@ interface PlateInspector {
     ): ModelLoadOutcome
 
     /**
+     * ObjectList::load_modifier() of one file: [source] joins the object at
+     * [index] as one volume of [type] named [name]; the engine writes the
+     * object anew, named after [prefix], and tells the new volume
+     * (ModelLoadOutcome.Success.selectedVolume). A STEP file waits for
+     * StepMeshDialog without [stepMesh].
+     */
+    suspend fun loadVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        source: ModelPath,
+        name: String,
+        type: VolumeType,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        stepMesh: StepMeshOptions? = null,
+    ): ModelLoadOutcome = ModelLoadOutcome.Failure("Loading a volume from a file is not supported")
+
+    /**
      * StepMeshDialog::update_mesh_number_text(): the triangles the STEP file
      * [source] that waits for the dialog makes at these deflections; 0 when
      * the count was stopped.

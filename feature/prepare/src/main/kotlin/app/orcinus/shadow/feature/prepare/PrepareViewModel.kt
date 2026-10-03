@@ -106,6 +106,7 @@ import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
 import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
+import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MeasureTarget
 import app.orcinus.shadow.domain.plate.MeasureUseCase
@@ -210,6 +211,7 @@ class PrepareViewModel(
     private val removeLastPlateInstances: RemoveLastPlateInstancesUseCase,
     private val setNumberOfInstances: SetNumberOfInstancesUseCase,
     private val addObjectPart: AddObjectPartUseCase,
+    private val loadObjectVolumes: LoadObjectVolumesUseCase,
     private val addLayerRange: AddLayerRangeUseCase,
     private val selectLayerRange: SelectLayerRangeUseCase,
     private val setSettingsScope: SetSettingsScopeUseCase,
@@ -2720,6 +2722,10 @@ class PrepareViewModel(
     fun manipulate(index: Int, manipulation: Manipulation) = copyAt(index)?.let { placePlateObject(it, manipulation) }
 
     fun addPartTo(index: Int, shape: String, type: VolumeType, name: String) = copyAt(index)?.let { addObjectPart(it.mesh, shape, type, name) }
+
+    /** ObjectList::load_subobject() of the documents the file picker gave. */
+    fun loadVolumes(mesh: ScenePath, type: VolumeType, documents: List<String>) =
+        loadObjectVolumes(mesh, type, documents.map(::ExternalDocumentReference))
 
     /** ObjectList::layers_editing(): the new range is selected with its settings. */
     fun addHeightRangeTo(index: Int) {

@@ -3374,6 +3374,7 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
     object.cut_id = imported.cut_id;
     object.volume_cut_info = imported.volume_cut_info;
     object.volume_emboss = imported.volume_emboss;
+    object.volume_origin = imported.volume_origin;
     for (const orca::ImportedPart& part : imported.parts) {
         orca::ObjectPart& added = object.parts.emplace_back();
         added.model_path = part.model_path;
@@ -3387,6 +3388,7 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
         added.input_file = part.input_file;
         added.cut_info = part.cut_info;
         added.emboss = part.emboss;
+        added.origin = part.origin;
     }
     for (std::size_t index = 0; index < imported.instances.size(); ++index) {
         orca::ObjectPlacement& instance = object.instances.emplace_back();
@@ -4648,6 +4650,72 @@ TEST_CASE("Replace 3D file gives a volume the mesh of another file", "[Adapter][
     {
         CHECK(orca::replace_volume(plate, 0, 2, device_dir + "/data/2x20x10.obj", k2_plus_profiles(), import_prefix("replace-none")).status
               != orca::SceneStatus::success);
+    }
+}
+
+TEST_CASE("Load... adds a volume from a file where it stood beside the object's own mesh", "[Adapter][Edit][LoadVolume]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("load-volume-cube"), {});
+    INFO(imported.message);
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    REQUIRE(imported.objects.size() == 1);
+    const orca::ImportedObject& cube = imported.objects.front();
+    // ModelVolume::source of the cube's mesh: its centre in the file, which the app keeps.
+    CHECK(cube.volume_origin.mesh_offset[0] == Catch::Approx(10.0));
+    CHECK(cube.volume_origin.mesh_offset[2] == Catch::Approx(10.0));
+    const std::vector<orca::PlateObject> plate{plate_object_of(cube)};
+    const auto extruder_of = [](const orca::ModelSettings& settings) {
+        const auto found = std::find(settings.keys.begin(), settings.keys.end(), "extruder");
+        return found == settings.keys.end() ? std::string() : settings.values[found - settings.keys.begin()];
+    };
+
+    SECTION("a part: the block stands on the cube's left and bottom faces, as in the files")
+    {
+        const orca::ImportedModels loaded = orca::load_volume(plate, 0, device_dir + "/data/2x20x10.obj", "2x20x10.obj",
+                                                              orca::VolumeType::part, k2_plus_profiles(), import_prefix("load-volume-part"));
+        INFO(loaded.message);
+        REQUIRE(loaded.status == orca::SceneStatus::success);
+        CHECK(loaded.notices.empty());
+        REQUIRE(loaded.objects.size() == 1);
+        const orca::ImportedObject& object = loaded.objects.front();
+        REQUIRE(object.parts.size() == 1);
+        const orca::ImportedPart& part = object.parts.front();
+        CHECK(part.name == "2x20x10.obj");
+        CHECK(part.type == orca::VolumeType::part);
+        CHECK(loaded.selected_volume == 1);
+        // The block's mesh_offset (1, 10, 5) less the cube's (10, 10, 10).
+        CHECK(object.matrix[12] == Catch::Approx(0.0).margin(1e-4));
+        CHECK(part.matrix[12] == Catch::Approx(-9.0).margin(1e-4));
+        CHECK(part.matrix[13] == Catch::Approx(0.0).margin(1e-4));
+        CHECK(part.matrix[14] == Catch::Approx(-5.0).margin(1e-4));
+        CHECK(part.origin.mesh_offset[0] == Catch::Approx(1.0));
+        CHECK(part.origin.object_idx == 0);
+        CHECK(part.origin.volume_idx == 1);
+        // A part prints with the object's filament.
+        const std::string object_extruder = extruder_of(object.settings);
+        CHECK(extruder_of(part.settings) == (object_extruder.empty() ? "0" : object_extruder));
+    }
+    SECTION("a modifier has no filament of its own")
+    {
+        const orca::ImportedModels loaded = orca::load_volume(plate, 0, device_dir + "/data/2x20x10.obj", "2x20x10.obj",
+                                                              orca::VolumeType::modifier, k2_plus_profiles(), import_prefix("load-volume-modifier"));
+        INFO(loaded.message);
+        REQUIRE(loaded.status == orca::SceneStatus::success);
+        REQUIRE(loaded.objects.size() == 1);
+        REQUIRE(loaded.objects.front().parts.size() == 1);
+        CHECK(loaded.objects.front().parts.front().type == orca::VolumeType::modifier);
+        CHECK(extruder_of(loaded.objects.front().parts.front().settings) == "0");
+    }
+    SECTION("a file that cannot be read adds nothing and says so")
+    {
+        const orca::ImportedModels missing = orca::load_volume(plate, 0, device_dir + "/data/missing.obj", "missing.obj",
+                                                               orca::VolumeType::part, k2_plus_profiles(), import_prefix("load-volume-missing"));
+        CHECK(missing.status == orca::SceneStatus::success);
+        CHECK(missing.objects.empty());
+        REQUIRE(missing.notices.size() == 1);
+        CHECK(missing.notices.front().id == "load_volume_failed");
     }
 }
 

@@ -1618,7 +1618,14 @@ class AddObjectPartUseCase(
                     outcome is ModelInspectionOutcome.Success -> state.recorded().copy(
                         objects = state.objects.replaced(
                             current.withPart(
-                                ObjectPart(shape = shape, type = type, mesh = partMesh, placement = outcome.inspection.placement, name = name),
+                                ObjectPart(
+                                    shape = shape,
+                                    type = type,
+                                    mesh = partMesh,
+                                    placement = outcome.inspection.placement,
+                                    settings = newVolumeSettings(current, type),
+                                    name = name,
+                                ),
                             ),
                         ),
                         result = null,
@@ -1634,6 +1641,16 @@ class AddObjectPartUseCase(
         }
     }
 }
+
+/**
+ * load_generic_subobject() and load_modifier(): a new part prints with the
+ * object's filament ("extruder" of the object), any other volume with none of
+ * its own (0, which the app keeps as no value).
+ */
+internal fun newVolumeSettings(target: PlateObject, type: VolumeType): ModelSettings =
+    ModelSettings(listOfNotNull(target.settings.values[EXTRUDER_SETTING]?.takeIf { type == VolumeType.PART }?.let { EXTRUDER_SETTING to it }).toMap())
+
+private const val EXTRUDER_SETTING = "extruder"
 
 /**
  * ObjectList::del_subobject_item(): the part leaves the object ("Delete part"),

@@ -543,6 +543,28 @@ abstract class SlicerService<E> : Service()
             engine.replaceVolume(plate.toPlacedModels(), index, volume, ModelPath(source), profiles.toProfiles(), ScenePath(prefix), stepMesh?.toStepMeshOptions())
         }.toParcel()
 
+        override fun loadVolume(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            source: String,
+            name: String,
+            type: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+            stepMesh: DoubleArray?,
+        ): ModelLoadParcel = runBlocking {
+            engine.loadVolume(
+                plate.toPlacedModels(),
+                index,
+                ModelPath(source),
+                name,
+                VolumeType.valueOf(type),
+                profiles.toProfiles(),
+                ScenePath(prefix),
+                stepMesh?.toStepMeshOptions(),
+            )
+        }.toParcel()
+
         override fun stepTriangleCount(source: String, linear: Double, angle: Double): Long =
             runBlocking { engine.stepTriangleCount(ModelPath(source), linear, angle) }
 

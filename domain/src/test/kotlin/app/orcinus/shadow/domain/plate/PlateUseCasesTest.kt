@@ -3019,6 +3019,41 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `Load adds a volume per file into the object the engine wrote before, keeping them when a file fails, as one step of Undo`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        inspector.volumeLoads += ModelLoadOutcome.Success(listOf(LOADED), emptyList(), selectedVolume = 1)
+        inspector.volumeLoads += ModelLoadOutcome.Failure("broken")
+        val files = listOf(ImportedModelFile(ModelPath("/imports/a.stl"), "a.stl"), ImportedModelFile(ModelPath("/imports/b.stl"), "b.stl"))
+        val documents = listOf(ExternalDocumentReference("content://a"), ExternalDocumentReference("content://b"))
+        val load = LoadObjectVolumesUseCase(
+            ImportModelUseCase(object : ModelFileImporter {
+                override suspend fun importModel(reference: ExternalDocumentReference) = ModelImportOutcome.Success(files[documents.indexOf(reference)])
+            }),
+            inspector,
+            FakeSceneFiles(),
+            StepMeshPrompt(inspector, preferences(), repository),
+            repository,
+            scope,
+        )
+
+        load(CUBE.mesh, VolumeType.MODIFIER, documents)
+
+        // Each file named after itself, the second into the object the first made.
+        assertEquals(listOf("a.stl", "b.stl"), inspector.loadedVolumes.map { it.name })
+        assertEquals(listOf(VolumeType.MODIFIER, VolumeType.MODIFIER), inspector.loadedVolumes.map { it.type })
+        assertEquals(LOADED.instances.single().inspection.mesh, inspector.loadedVolumes[1].plate.single().mesh)
+        val state = repository.state.value
+        assertFalse(state.editing)
+        val loaded = state.objects.single()
+        assertEquals(LOADED.instances.single().inspection.mesh, loaded.mesh)
+        // The new volume is selected; the file that failed says why.
+        assertEquals(ObjectPartId(loaded.mesh, 1), state.selectedPart)
+        assertEquals(PlateProblemKind.IMPORT_FAILED, state.problem?.kind)
+        assertEquals(listOf(listOf(CUBE)), state.history.undo.map { it.objects })
+    }
+
+    @Test
     fun `copied process settings of an object carry its own, and those of a part carry the object's under them`() {
         val part = ObjectPart("Cube", VolumeType.MODIFIER, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement, ModelSettings(mapOf("wall_loops" to "5")))
         val cube = CUBE.withSettings(ModelSettings(mapOf("layer_height" to "0.1", "wall_loops" to "3"))).withParts(listOf(part))
@@ -3643,6 +3678,27 @@ class PlateUseCasesTest {
         }
 
         data class Replacement(val index: Int, val volume: Int, val source: ModelPath)
+
+        data class VolumeLoad(val plate: List<PlacedModel>, val index: Int, val source: ModelPath, val name: String, val type: VolumeType)
+
+        val loadedVolumes = mutableListOf<VolumeLoad>()
+
+        /** The answers to loadVolume(), one per call. */
+        val volumeLoads = ArrayDeque<ModelLoadOutcome>()
+
+        override suspend fun loadVolume(
+            plate: List<PlacedModel>,
+            index: Int,
+            source: ModelPath,
+            name: String,
+            type: VolumeType,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+            stepMesh: StepMeshOptions?,
+        ): ModelLoadOutcome {
+            loadedVolumes += VolumeLoad(plate, index, source, name, type)
+            return volumeLoads.removeFirst()
+        }
 
         val replacements = mutableListOf<Replacement>()
         var replacement: ModelLoadOutcome = ModelLoadOutcome.Success(listOf(LOADED), emptyList())

@@ -662,6 +662,9 @@ internal class NativePlate(
     /** The text or the SVG every object's own mesh and every part was embossed from; empty for none. */
     @JvmField val volumeEmboss: Array<String>,
     @JvmField val partEmboss: Array<String>,
+    /** Where every own mesh and every part was in its file, five each (VolumeOrigin.values). */
+    @JvmField val volumeOrigins: DoubleArray,
+    @JvmField val partOrigins: DoubleArray,
 )
 
 /** Constructed by the native bridge; see ImportedObject in orca_engine_adapter.hpp. */
@@ -723,6 +726,9 @@ internal class NativeImportedObject(
     @JvmField val assembleMatrices: DoubleArray,
     @JvmField val assembled: BooleanArray,
     @JvmField val offsetsToAssembly: DoubleArray,
+    /** Where its own mesh and every part was in its file (VolumeOrigin.values). */
+    @JvmField val volumeOrigin: DoubleArray,
+    @JvmField val partOrigins: DoubleArray,
 )
 
 /** Constructed by the native bridge; see SvgWarning in orca_engine_adapter.hpp. */
@@ -1409,6 +1415,24 @@ internal object NativeBindings {
         objectIndex: Int,
         volume: Int,
         sourcePath: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+        stepChosen: Boolean,
+        stepLinear: Double,
+        stepAngle: Double,
+        stepSplit: Boolean,
+    ): NativeImportedModels
+
+    /** load_volume(): [type] is VolumeType, the step values a StepMeshChoice. */
+    external fun loadVolume(
+        plate: NativePlate,
+        objectIndex: Int,
+        sourcePath: String,
+        name: String,
+        type: Long,
         printerProfile: String,
         filamentProfile: String,
         filamentProfiles: Array<String>,

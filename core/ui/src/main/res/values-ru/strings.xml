@@ -96,7 +96,6 @@
     <string name="object_shape_cube">Куб</string>
     <string name="object_shape_cylinder">Цилиндр</string>
     <string name="object_shape_sphere">Сфера</string>
-    <string name="object_shape_slab">Плита</string>
     <string name="object_shape_cone">Конус</string>
     <string name="object_shape_disc">Диск</string>
     <string name="object_shape_torus">Тор</string>

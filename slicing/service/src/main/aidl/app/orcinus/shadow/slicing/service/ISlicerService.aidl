@@ -215,6 +215,17 @@ interface ISlicerService {
         String prefix,
         in @nullable double[] stepMesh
     );
+    /** load_volume(): type is VolumeType's name. */
+    ModelLoadParcel loadVolume(
+        in PlacedModelParcel[] plate,
+        int index,
+        String source,
+        String name,
+        String type,
+        in ProfilesParcel profiles,
+        String prefix,
+        in @nullable double[] stepMesh
+    );
     /** StepMeshDialog: the triangles of the STEP file it asks about; stopping runs beside the count. */
     long stepTriangleCount(String source, double linear, double angle);
     oneway void stopStepTriangleCount();

@@ -96,7 +96,6 @@
     <string name="object_shape_cube">Cube</string>
     <string name="object_shape_cylinder">Cylinder</string>
     <string name="object_shape_sphere">Sphere</string>
-    <string name="object_shape_slab">Slab</string>
     <string name="object_shape_cone">Cone</string>
     <string name="object_shape_disc">Disc</string>
     <string name="object_shape_torus">Torus</string>

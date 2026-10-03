@@ -636,6 +636,19 @@ class RemoteSlicerEngine(
         replaceVolume(plate.toParcels(), index, volume, source.value, profiles.toParcel(), prefix.value, stepMesh?.toArray()).toModelLoadOutcome()
     }
 
+    override suspend fun loadVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        source: ModelPath,
+        name: String,
+        type: VolumeType,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        stepMesh: StepMeshOptions?,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        loadVolume(plate.toParcels(), index, source.value, name, type.name, profiles.toParcel(), prefix.value, stepMesh?.toArray()).toModelLoadOutcome()
+    }
+
     override suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double): Long =
         remote({ 0L }) { stepTriangleCount(source.value, linearDeflection, angleDeflection) }
 

@@ -183,6 +183,16 @@ struct VolumeCutInfo {
     double height_tolerance{0.0};
 };
 
+// ModelVolume::source of a volume read from a file: the object and the volume
+// it was there (-1 for none), and where the centre of its mesh stood in the
+// file (mesh_offset), by which a volume loaded or replaced from a file keeps
+// its place (ObjectList::load_modifier(), replace_volume_with_stl()).
+struct VolumeOrigin {
+    int object_idx{-1};
+    int volume_idx{-1};
+    std::array<double, 3> mesh_offset{0.0, 0.0, 0.0};
+};
+
 // CutObjectBase (ModelObject::cut_id): the cut an object is a part of; the
 // objects of one cut share id, which 0 leaves invalid (not a part of a cut).
 struct ObjectCutId {
@@ -228,6 +238,7 @@ struct ObjectPart {
     // ModelVolume::source.input_file: the file the volume was read from, which
     // "Replace all with 3D files" looks for by name; empty for a generated shape.
     std::string input_file;
+    VolumeOrigin origin;
     VolumeCutInfo cut_info;
     // The file holding the text or the SVG the part was embossed from
     // (ModelVolume::text_configuration and emboss_shape), as write_objects()
@@ -282,10 +293,11 @@ struct PlateObject {
     // The settings of the object's own mesh (the config of its first
     // ModelVolume), which the object list edits once the object has parts.
     ModelSettings volume_settings;
-    // ModelVolume::source of its own mesh, as ObjectPart::from_inches and input_file.
+    // ModelVolume::source of its own mesh, as ObjectPart::from_inches, input_file and origin.
     bool volume_from_inches{false};
     bool volume_from_meters{false};
     std::string volume_input_file;
+    VolumeOrigin volume_origin;
     // The cut the object is a part of, and what the cut made of its own mesh.
     ObjectCutId cut_id;
     VolumeCutInfo volume_cut_info;
@@ -1484,6 +1496,7 @@ struct ImportedPart {
     bool from_meters{false};
     // ModelVolume::source.input_file
     std::string input_file;
+    VolumeOrigin origin;
     VolumeCutInfo cut_info;
     // The text or the SVG the volume was embossed from, as ObjectPart::emboss,
     // and which of them it is.
@@ -1514,6 +1527,7 @@ struct ImportedObject {
     bool volume_from_inches{false};
     bool volume_from_meters{false};
     std::string volume_input_file;
+    VolumeOrigin volume_origin;
     // ModelObject::layer_config_ranges
     std::vector<LayerRange> layer_ranges;
     // ModelObject::layer_height_profile
@@ -2595,6 +2609,27 @@ ImportedModels replace_volume(
     std::size_t object_index,
     std::size_t volume_index,
     const std::string& source_path,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix,
+    const StepMeshChoice& step_mesh = {}
+);
+
+// ObjectList::load_modifier() of one file: the file at source_path joins the
+// object at object_index of plate as one volume of type, the meshes of its
+// objects merged (Model::mesh()), named name (the file's name), with the
+// object's filament when it is a part and 0 otherwise. It keeps the place it
+// had in its file beside the object's own mesh (source.mesh_offset). A STEP
+// file is meshed as StepMeshDialog says, and waits for it with step_mesh not
+// chosen. A file that cannot be read adds nothing, and the notices carry
+// Orca's error. The object is written as import_model() writes objects, its
+// volumes sorted (reorder_volumes_and_get_selection()), resting on the plate
+// (Plater::changed_object()); selected_volume is the new volume.
+ImportedModels load_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    const std::string& source_path,
+    const std::string& name,
+    VolumeType type,
     const ProfileSelection& profiles,
     const std::string& output_prefix,
     const StepMeshChoice& step_mesh = {}

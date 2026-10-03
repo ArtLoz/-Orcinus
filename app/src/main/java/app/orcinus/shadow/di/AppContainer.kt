@@ -91,6 +91,7 @@ import app.orcinus.shadow.domain.plate.GetSetupPrintersUseCase
 import app.orcinus.shadow.domain.plate.ImportConfigUseCase
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import app.orcinus.shadow.domain.plate.ListHostPrintersUseCase
+import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MeasureUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
@@ -467,6 +468,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val deletePlateObject = DeletePlateObjectUseCase(plateRepository)
     private val addPlateInstance = AddPlateInstanceUseCase(plateRepository, placePlateObject, selectPlateObject)
     private val addObjectPart = AddObjectPartUseCase(engine, sceneFiles, plateRepository, applicationScope)
+    private val loadObjectVolumes = LoadObjectVolumesUseCase(
+        ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
+        engine,
+        sceneFiles,
+        stepMeshPrompt,
+        plateRepository,
+        applicationScope,
+    )
     private val removeObjectPart = RemoveObjectPartUseCase(plateRepository)
     private val removePlateInstance = RemovePlateInstanceUseCase(plateRepository, deletePlateObject)
     private val removeLastPlateInstances = RemoveLastPlateInstancesUseCase(plateRepository, deletePlateObject)
@@ -546,6 +555,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             removeLastPlateInstances = removeLastPlateInstances,
             setNumberOfInstances = setNumberOfInstances,
             addObjectPart = addObjectPart,
+            loadObjectVolumes = loadObjectVolumes,
             addLayerRange = addLayerRange,
             selectLayerRange = selectLayerRange,
             setSettingsScope = setSettingsScope,
@@ -666,6 +676,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         plateFilaments = plateFilaments,
         addPlateInstance = addPlateInstance,
         addObjectPart = addObjectPart,
+        loadObjectVolumes = loadObjectVolumes,
         removeObjectPart = removeObjectPart,
         invalidateCutInfo = invalidateCutInfo,
         removePlateInstance = removePlateInstance,
