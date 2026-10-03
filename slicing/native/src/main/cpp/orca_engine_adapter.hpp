@@ -642,6 +642,10 @@ struct PlateInspection {
     // The number of plates afterwards: arranging every plate adds plates for
     // what the others do not hold.
     int plate_count{1};
+    // After arranging, PartPlateList::rebuild_plates_after_arrangement()'s
+    // order of the objects, by their first copy's arrange_order: the plate's
+    // indexes in their new order; empty when the order stays.
+    std::vector<int> object_order;
 };
 
 // ObjectList::load_generic_subobject(): a shape added to the object as a part,

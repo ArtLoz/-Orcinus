@@ -3664,6 +3664,19 @@ PlateInspection place_objects(
             return result;
         }
 
+        if (manipulation == PlateManipulation::arrange || manipulation == PlateManipulation::arrange_plate) {
+            // ArrangeJob::finalize(), rebuild_plates_after_arrangement(): sort
+            // by arrange_order (FillBedJob does not).
+            std::vector<int> order(model.objects.size());
+            std::iota(order.begin(), order.end(), 0);
+            std::stable_sort(order.begin(), order.end(), [&model](const int a, const int b) {
+                return model.objects[std::size_t(a)]->instances[0]->arrange_order < model.objects[std::size_t(b)]->instances[0]->arrange_order;
+            });
+            if (!std::is_sorted(order.begin(), order.end())) {
+                result.object_order = std::move(order);
+            }
+        }
+
         model.update_print_volume_state(build_volume_of(config));
         for (const Slic3r::ModelObject* object : model.objects) {
             PlateObjectInspection& described = result.objects.emplace_back();

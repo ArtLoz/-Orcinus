@@ -1364,8 +1364,17 @@ class PlacePlateObjectsUseCase(
                         } + added,
                     )
                 }
+                // rebuild_plates_after_arrangement(): the objects sorted by their first
+                // copy's arrange order; one added meanwhile stays after them.
+                val order = (outcome as? PlateInspectionOutcome.Success)?.objectOrder.orEmpty()
+                val sorted = if (order.size == plate.size) {
+                    val rank = order.withIndex().associate { (position, index) -> plate[index].mesh to position }
+                    objects.sortedBy { rank[it.mesh] ?: Int.MAX_VALUE }
+                } else {
+                    objects
+                }
                 val placed = state.copy(
-                    objects = objects,
+                    objects = sorted,
                     result = state.result.takeIf { !moved },
                     problem = if (outcome is PlateInspectionOutcome.Failure) {
                         PlateProblem(PlateProblemKind.PLACEMENT_FAILED, outcome.message)

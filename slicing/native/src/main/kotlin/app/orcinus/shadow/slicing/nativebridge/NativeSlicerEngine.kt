@@ -1740,6 +1740,7 @@ class NativeSlicerEngine(context: Context) :
         PlateInspectionOutcome.Success(
             result.objects.mapIndexed { index, copies -> copies.map { it.toInspection(plate[index].mesh) } },
             plates = result.plates,
+            objectOrder = result.objectOrder.toList(),
         )
     }
 

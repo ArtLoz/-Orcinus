@@ -656,6 +656,22 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `arranging sorts the objects by their first copy's arrange order`() {
+        val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val inspector = FakeInspector(
+            placedObjects = null,
+            arranged = CompletableDeferred(
+                PlateInspectionOutcome.Success(listOf(listOf(INSPECTION), listOf(other.inspection)), objectOrder = listOf(1, 0)),
+            ),
+        )
+        val repository = FakeRepository(readyState(CUBE, other))
+
+        placePlateObjects(inspector, repository)(PlateManipulation.Arrange(ArrangeSettings()))
+
+        assertEquals(listOf(other.mesh, CUBE.mesh), repository.state.value.objects.map { it.mesh })
+    }
+
+    @Test
     fun `auto orient with a selected object places only that object`() {
         val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
         val inspector = FakeInspector(placedObjects = null)

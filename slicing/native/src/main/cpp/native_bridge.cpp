@@ -1740,15 +1740,18 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
     const jmethodID constructor = env->GetMethodID(
         result_class,
         "<init>",
-        "(JLjava/lang/String;[[Lapp/orcinus/shadow/slicing/nativebridge/NativeModelInspection;I)V"
+        "(JLjava/lang/String;[[Lapp/orcinus/shadow/slicing/nativebridge/NativeModelInspection;I[I)V"
     );
+    const jintArray object_order = env->NewIntArray(static_cast<jsize>(inspection.object_order.size()));
+    env->SetIntArrayRegion(object_order, 0, static_cast<jsize>(inspection.object_order.size()), reinterpret_cast<const jint*>(inspection.object_order.data()));
     return env->NewObject(
         result_class,
         constructor,
         static_cast<jlong>(inspection.status),
         to_java(env, inspection.message),
         objects,
-        static_cast<jint>(inspection.plate_count)
+        static_cast<jint>(inspection.plate_count),
+        object_order
     );
 }
 

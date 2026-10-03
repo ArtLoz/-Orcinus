@@ -131,6 +131,8 @@ internal class NativePlateInspection(
     @JvmField val objects: Array<Array<NativeModelInspection>>,
     /** The number of plates afterwards. */
     @JvmField val plates: Int,
+    /** After arranging, the plate's indexes in the objects' new order; empty when it stays. */
+    @JvmField val objectOrder: IntArray,
 )
 
 /** Constructed by the native bridge: describe_volume(), its numbers as VolumeDescription.values(). */

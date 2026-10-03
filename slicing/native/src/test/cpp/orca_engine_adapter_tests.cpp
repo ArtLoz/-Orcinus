@@ -1907,6 +1907,34 @@ TEST_CASE("Arranging the plates keeps clear of the wipe tower", "[Adapter][Scene
     }
 }
 
+TEST_CASE("Arranging sorts the objects in the order they were laid out", "[Adapter][Scene][ArrangeOrder]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("arrange-order.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    // A small cube first, a cube three times as large second: the arrangement
+    // lays the large one out first.
+    std::vector<orca::PlateObject> two = plate_of({}, matrix_of(cube));
+    orca::PlateObject large;
+    large.instances.push_back(orca::ObjectPlacement{matrix_of(cube), true, true});
+    large.instances.front().matrix[0] = 3.0;
+    large.instances.front().matrix[5] = 3.0;
+    large.instances.front().matrix[10] = 3.0;
+    large.instances.front().matrix[12] = 100.0;
+    two.push_back(large);
+
+    // rebuild_plates_after_arrangement(): the large cube comes first.
+    const orca::PlateInspection arranged = orca::place_objects(two, {}, k2_plus_profiles(), orca::PlateManipulation::arrange, {});
+    INFO(arranged.message);
+    REQUIRE(arranged.status == orca::SceneStatus::success);
+    CHECK(arranged.object_order == std::vector<int>{1, 0});
+    // FillBedJob keeps the order.
+    const orca::PlateInspection filled = orca::place_objects(two, {false, true}, k2_plus_profiles(), orca::PlateManipulation::fill_bed, {});
+    REQUIRE(filled.status == orca::SceneStatus::success);
+    CHECK(filled.object_order.empty());
+}
+
 TEST_CASE("libslic3r's messages come in the language of the catalogue the app gives", "[Adapter]")
 {
     orca::set_translations(

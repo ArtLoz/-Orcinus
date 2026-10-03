@@ -108,8 +108,15 @@ sealed interface PlateInspectionOutcome {
      * The copies of every object as placed, in the order the plate listed
      * them, and the number of [plates] afterwards, when the engine reports it:
      * arranging every plate adds plates for what the others do not hold.
+     * After arranging, [objectOrder] gives the plate's indexes in the order
+     * rebuild_plates_after_arrangement() sorts the objects in; empty when the
+     * order stays.
      */
-    data class Success(val inspections: List<List<ModelInspection>>, val plates: Int? = null) : PlateInspectionOutcome
+    data class Success(
+        val inspections: List<List<ModelInspection>>,
+        val plates: Int? = null,
+        val objectOrder: List<Int> = emptyList(),
+    ) : PlateInspectionOutcome
 
     data class Failure(val message: String) : PlateInspectionOutcome
 }

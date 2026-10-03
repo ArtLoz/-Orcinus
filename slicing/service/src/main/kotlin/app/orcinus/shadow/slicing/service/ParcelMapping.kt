@@ -677,6 +677,7 @@ internal fun PlateInspectionOutcome.toParcel() = PlateInspectionParcel().also {
                 }
             }
             it.plates = plates ?: 0
+            it.objectOrder = objectOrder.toIntArray()
         }
     }
 }
@@ -686,6 +687,7 @@ internal fun PlateInspectionParcel.toPlateInspectionOutcome(): PlateInspectionOu
     return PlateInspectionOutcome.Success(
         checkNotNull(inspections).map { object_ -> object_.instances.orEmpty().map { it.toInspection() } },
         plates = plates.takeIf { it > 0 },
+        objectOrder = objectOrder?.toList().orEmpty(),
     )
 }
 

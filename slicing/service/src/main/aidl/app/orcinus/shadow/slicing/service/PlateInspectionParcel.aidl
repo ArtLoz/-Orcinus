@@ -9,4 +9,6 @@ parcelable PlateInspectionParcel {
     @nullable PlateObjectInspectionParcel[] inspections;
     /** PlateInspectionOutcome.Success.plates; 0 when unknown. */
     int plates;
+    /** PlateInspectionOutcome.Success.objectOrder. */
+    @nullable int[] objectOrder;
 }
