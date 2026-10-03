@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BrimEarsSetup
 import app.orcinus.shadow.core.model.BrimPoint
@@ -151,6 +152,8 @@ data class PrepareUiState(
     val measuredVolumes: Set<ScenePath>? = null,
     /** GLGizmoMeasure::on_is_activable(): something is selected to measure. */
     val canMeasure: Boolean = false,
+    /** GLGizmoAssembly::on_is_activable(): at least two volumes are selected. */
+    val canAssemble: Boolean = false,
     /** The brim ears tool (GLGizmoBrimEars), while it is open. */
     val brimEars: BrimEarsMode? = null,
     /** GLGizmoBrimEars::on_is_activable(): a single copy is selected whole. */
@@ -394,6 +397,10 @@ data class MeasureMode(
     val pointSelection: Boolean = false,
     /** m_editing_distance: "Edit to scale" asks for the distance the label read, in millimetres. */
     val editingDistance: Double? = null,
+    /** The assembly tool's mode (GLGizmoAssembly); null for the measuring tool. */
+    val assembly: AssemblyMode? = null,
+    /** m_flip_volume_2: "Flip by Face 2", which turns the second volume over each time it changes. */
+    val flipVolume2: Boolean = false,
 )
 
 /**
@@ -583,6 +590,9 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         measuredCopies = selectedInstances,
         measuredVolumes = selectedPart?.let { part -> objects.firstOrNull { it.mesh == part.mesh }?.volumeAt(part.index)?.mesh }?.let(::setOf),
         canMeasure = canEditPlate && measuredVolumes().isNotEmpty(),
+        canAssemble = canEditPlate && measuredVolumes().sumOf { volume ->
+            if (volume.volumeIndex != null) 1 else objects.getOrNull(volume.objectIndex)?.let { 1 + it.parts.size } ?: 0
+        } >= 2,
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,
         filamentColors = presets?.filamentColors.orEmpty().mapNotNull(::parseFilamentColor),

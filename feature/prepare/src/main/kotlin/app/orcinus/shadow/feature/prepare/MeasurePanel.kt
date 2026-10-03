@@ -34,6 +34,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.AssemblyAction
+import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.core.model.MeasureFeatureType
 import app.orcinus.shadow.core.model.MeasureReset
@@ -326,3 +328,193 @@ private val AXIS_Z_COLOR = Color(47 / 255f, 136 / 255f, 233 / 255f)
 private val SELECTION_TITLE_WIDTH = 88.dp
 private val AXIS_LABEL_WIDTH = 32.dp
 private val RESET_PLACE = 40.dp
+
+/** What the assembly tool's window does besides the measuring tool's (GLGizmoAssembly). */
+internal class AssemblyActions(
+    /** The toolbar's Assemble. */
+    val toggle: () -> Unit,
+    val setMode: (AssemblyMode) -> Unit,
+    val assemble: (AssemblyAction, List<Double>) -> Unit,
+    /** "Flip by Face 2". */
+    val flip: () -> Unit,
+) {
+    companion object {
+        val NONE = AssemblyActions({}, {}, { _, _ -> }, {})
+    }
+}
+
+/**
+ * GLGizmoAssembly::on_render_input_window(): "Mode", the selections as
+ * fixed and moving with the mode's tip, face to face "Center coincidence"
+ * and "Parallel" (show_face_face_assembly_common()), "Flip by Face 2",
+ * "Parallel distance" and "Rotate around center"
+ * (show_face_face_assembly_senior()), point to point the direct distance and
+ * the distance along the axes, which moves the second volume (the second
+ * object only along X and Y, as objects stand on the plate), "Done", and the
+ * window's warnings. The desktop app's Shift is "Select point", point to point.
+ */
+@Composable
+internal fun AssemblyPanel(mode: MeasureMode, actions: MeasureActions, assembly: AssemblyActions, imperial: Boolean) {
+    val assemblyMode = mode.assembly ?: return
+    val measurement = mode.measurement
+    val faceToFace = assemblyMode == AssemblyMode.FACE_FACE
+    val units = " " + orcaString(if (imperial) "in" else "mm")
+    val scale = if (imperial) ImperialUnits.MM_TO_IN else 1.0
+    PaintingPanelFrame(orcaString("Assemble"), orcaString("Done"), actions.close) {
+        // render_assembly_mode_combo()
+        TextRow(orcaString("Mode")) {
+            OrcaButton(
+                text = orcaString("Face and face assembly"),
+                size = OrcaButtonSize.Compact,
+                style = if (faceToFace) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
+                onClick = { assembly.setMode(AssemblyMode.FACE_FACE) },
+            )
+            OrcaButton(
+                text = orcaString("Point and point assembly"),
+                size = OrcaButtonSize.Compact,
+                style = if (faceToFace) OrcaButtonStyle.Regular else OrcaButtonStyle.Confirm,
+                onClick = { assembly.setMode(AssemblyMode.POINT_POINT) },
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        }
+        // show_selection_ui() of the assembly
+        Text(
+            text = orcaString(
+                if (faceToFace) "Select 2 faces on objects and \n make objects assemble together." else "Select 2 points or circles on objects and \n specify distance between them.",
+            ),
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        val kind = orcaString(if (faceToFace) "Face" else "Point")
+        SelectionRow(
+            title = kind + " 1" + orcaString(" (Fixed)"),
+            text = selectionText(measurement.first, units, scale),
+            color = SELECTED_1ST_COLOR,
+            onReset = { actions.reset(MeasureReset.FIRST) }.takeIf { measurement.first != null },
+        )
+        SelectionRow(
+            title = kind + " 2" + orcaString(" (Moving)"),
+            text = selectionText(measurement.second, units, scale),
+            color = SELECTED_2ND_COLOR,
+            onReset = { actions.reset(MeasureReset.SECOND) }.takeIf { measurement.first != null && measurement.second != null },
+        )
+        if (measurement.showResetFirstTip && measurement.second == null) {
+            Text(
+                text = orcaString("Feature 1 has been reset, \nfeature 2 has been feature 1"),
+                color = OrcaTheme.colors.onCanvasPanel,
+                style = OrcaTheme.typography.body12,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        // Face to face the features are the planes, which point selection does not pick.
+        if (!faceToFace) TextCheck(orcaString("Select point"), mode.pointSelection, enabled = true, onChange = actions.setPointSelection)
+        if (measurement.first != null) {
+            OrcaButton(
+                text = orcaString("Restart selection"),
+                size = OrcaButtonSize.Compact,
+                style = OrcaButtonStyle.Regular,
+                onClick = { actions.reset(MeasureReset.ALL) },
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        val faces = faceToFace && measurement.hitVolumes == 2 &&
+            measurement.first?.feature?.type == MeasureFeatureType.PLANE && measurement.second?.feature?.type == MeasureFeatureType.PLANE
+        val action = measurement.assembly
+        if (faces) {
+            // show_face_face_assembly_common()
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                OrcaButton(
+                    text = orcaString("Center coincidence"),
+                    size = OrcaButtonSize.Compact,
+                    style = OrcaButtonStyle.Confirm,
+                    onClick = { assembly.assemble(AssemblyAction.CENTER_COINCIDENCE, emptyList()) },
+                    enabled = action.canSetToCenterCoincidence,
+                )
+                OrcaButton(
+                    text = orcaString("Parallel"),
+                    size = OrcaButtonSize.Compact,
+                    style = OrcaButtonStyle.Regular,
+                    onClick = { assembly.assemble(AssemblyAction.PARALLEL, emptyList()) },
+                    enabled = action.canSetToParallel,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+        Separator()
+        if (faces) {
+            // show_face_face_assembly_senior()
+            TextCheck(orcaString("Flip by Face 2"), mode.flipVolume2, enabled = true) { assembly.flip() }
+            if (action.hasParallelDistance) {
+                TextRow(orcaString("Parallel distance:")) {
+                    PositionField(
+                        value = action.parallelDistance,
+                        onValue = { assembly.assemble(AssemblyAction.PARALLEL_DISTANCE, listOf(it)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            if (action.canAroundCenterOfFaces) {
+                TextRow(orcaString("Rotate around center:")) {
+                    PositionField(
+                        value = 0.0,
+                        onValue = { degrees -> if (abs(degrees) > EPSILON) assembly.assemble(AssemblyAction.AROUND_CENTER, listOf(degrees)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("°", color = OrcaTheme.colors.onCanvasPanel, style = OrcaTheme.typography.body12, modifier = Modifier.padding(start = 6.dp))
+                }
+            }
+        }
+        if (!faceToFace && measurement.second != null) {
+            // show_distance_xyz_ui() of the assembly point to point: the direct distance, and the boxes along the axes.
+            val result = measurement.result
+            val strict = result.distanceStrict
+            val infinite = result.distanceInfinite
+            if (strict != null && (infinite == null || abs(strict.distance - infinite.distance) > EPSILON)) {
+                MeasureRow(orcaString("Direct distance"), formatDouble(strict.distance * scale) + units)
+            }
+            val distance = distanceOf(measurement)?.let { Vector3(it.x * scale, it.y * scale, it.z * scale) }
+            if (distance != null && norm(distance) > 0.01) {
+                val oneVolume = measurement.hitVolumes == 1
+                // add_edit_distance_xyz_box(): a changed box moves the second volume along its axis by the change.
+                // As the desktop app, the change is in the label's units, which it moves by in millimetres.
+                AxisBox("X:", AXIS_X_COLOR, distance.x, enabled = !oneVolume && measurement.canSetXyzDistance) {
+                    assembly.assemble(AssemblyAction.DISTANCE, listOf(it - distance.x, 0.0, 0.0))
+                }
+                AxisBox("Y:", AXIS_Y_COLOR, distance.y, enabled = !oneVolume && measurement.canSetXyzDistance) {
+                    assembly.assemble(AssemblyAction.DISTANCE, listOf(0.0, it - distance.y, 0.0))
+                }
+                AxisBox("Z:", AXIS_Z_COLOR, distance.z, enabled = !oneVolume && measurement.sameObject && measurement.canSetXyzDistance) {
+                    assembly.assemble(AssemblyAction.DISTANCE, listOf(0.0, 0.0, it - distance.z))
+                }
+            }
+        }
+        // render_input_window_warning()
+        val warnings = buildList {
+            if (measurement.hitVolumes == 1) add(orcaString("Warning: please select two different meshes."))
+            if (measurement.wrongFeatureTip) {
+                add(orcaString(if (faceToFace) "Warning: please select Plane's feature." else "Warning: please select Point's or Circle's feature."))
+            }
+            if (measurement.hitVolumes == 2 && !measurement.sameObject) {
+                add(
+                    orcaString("Warning") + ": " +
+                        orcaString("It is recommended to assemble objects first,\nbecause they are restricted to the bed \nand only parts can be lifted."),
+                )
+            }
+        }
+        if (warnings.isNotEmpty()) {
+            Separator()
+            warnings.forEach { Text(it, color = OrcaTheme.colors.warning, style = OrcaTheme.typography.body12) }
+        }
+    }
+}
+
+/** A box of the distance along an axis, which the assembly tool lets edit where it can move the volume so. */
+@Composable
+private fun AxisBox(axis: String, color: Color, value: Double, enabled: Boolean, onValue: (Double) -> Unit) {
+    if (!enabled) return AxisRow(axis, color, value)
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Text(axis, color = color, style = OrcaTheme.typography.body13, modifier = Modifier.width(AXIS_LABEL_WIDTH))
+        PositionField(value = value, onValue = onValue, modifier = Modifier.weight(1f))
+    }
+}

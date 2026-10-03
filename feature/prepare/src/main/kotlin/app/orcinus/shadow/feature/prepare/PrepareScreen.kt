@@ -100,6 +100,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
@@ -452,6 +453,12 @@ internal fun PrepareRoute(
             scale = viewModel::scaleMeasure,
             cancelScale = viewModel::cancelMeasureScale,
         ),
+        assemblyActions = AssemblyActions(
+            toggle = viewModel::toggleAssembly,
+            setMode = viewModel::setAssemblyMode,
+            assemble = viewModel::assemble,
+            flip = viewModel::flipByFace2,
+        ),
         brimEarsActions = BrimEarsActions(
             toggle = viewModel::toggleBrimEars,
             close = viewModel::closeBrimEars,
@@ -564,6 +571,7 @@ internal fun PrepareScreen(
     svgActions: SvgActions = SvgActions.NONE,
     measureActions: MeasureActions = MeasureActions.NONE,
     brimEarsActions: BrimEarsActions = BrimEarsActions.NONE,
+    assemblyActions: AssemblyActions = AssemblyActions.NONE,
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
@@ -706,6 +714,7 @@ internal fun PrepareScreen(
                         editToScale = mode.measurement.hitVolumes < 2,
                         editToScaleDescription = orcaString("Edit to scale"),
                         editingDistance = mode.editingDistance != null,
+                        faceToFace = mode.assembly == AssemblyMode.FACE_FACE,
                     )
                 },
                 onMeasure = measureActions.touch,
@@ -889,6 +898,7 @@ internal fun PrepareScreen(
                         },
                         onToggleMeasure = measureActions.toggle,
                         onToggleBrimEars = brimEarsActions.toggle,
+                        onToggleAssembly = assemblyActions.toggle,
                     )
                 }
                 val position = state.selectedPosition
@@ -915,6 +925,7 @@ internal fun PrepareScreen(
                     state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
                     state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye)
                     state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye)
+                    state.measure?.assembly != null -> AssemblyPanel(state.measure, measureActions, assemblyActions, canvas.imperialUnits)
                     state.measure != null -> MeasurePanel(state.measure, measureActions, canvas.imperialUnits)
                     state.brimEars != null -> BrimEarsPanel(
                         state.brimEars,
@@ -1353,6 +1364,7 @@ private fun CanvasToolbar(
     onToggleText: () -> Unit = {},
     onToggleMeasure: () -> Unit = {},
     onToggleBrimEars: () -> Unit = {},
+    onToggleAssembly: () -> Unit = {},
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -1473,9 +1485,16 @@ private fun CanvasToolbar(
             contentDescription = stringResource(R.string.gizmo_measure),
             onClick = onToggleMeasure,
             enabled = state.canMeasure,
-            selected = state.measure != null,
+            selected = state.measure != null && state.measure.assembly == null,
         )
-        gizmo(DesignR.drawable.orca_toolbar_assembly, R.string.gizmo_assembly, null)
+        // GLGizmoAssembly: two selected volumes are assembled.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_assembly,
+            contentDescription = stringResource(R.string.gizmo_assembly),
+            onClick = onToggleAssembly,
+            enabled = state.canAssemble,
+            selected = state.measure?.assembly != null,
+        )
         // GLGizmoBrimEars: ears of the brim placed under the selected copy.
         OrcaCanvasTool(
             icon = DesignR.drawable.orca_toolbar_brimears,

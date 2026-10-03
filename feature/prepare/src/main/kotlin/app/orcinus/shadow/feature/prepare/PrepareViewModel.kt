@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.AssemblyAction
+import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BrimEarsOutcome
 import app.orcinus.shadow.core.model.BrimPoint
@@ -514,14 +516,20 @@ class PrepareViewModel(
                 while (command is MeasureCommand.Touch && command.touch is MeasureTouch.Explore) {
                     command = measureCommands.tryReceive().getOrNull() ?: break
                 }
-                val pointSelection = view.value.measure?.pointSelection ?: continue
+                val open = view.value.measure ?: continue
+                val pointSelection = open.pointSelection
+                val assembly = open.assembly
                 when (command) {
                     is MeasureCommand.Reset -> (measureFeatures.reset(command.reset) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
                     is MeasureCommand.Scale -> (measureFeatures.scale(command.ratio) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
+                    is MeasureCommand.Assemble ->
+                        (measureFeatures.assemble(command.action, command.values) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
                     is MeasureCommand.Touch -> when (val touch = command.touch) {
-                        is MeasureTouch.Explore -> (measureFeatures.hover(touch.ray(pointSelection)) as? MeasureHoverOutcome.Success)?.let { showMeasureHover(it.hover) }
+                        is MeasureTouch.Explore ->
+                            (measureFeatures.hover(touch.ray(pointSelection, assembly)) as? MeasureHoverOutcome.Success)?.let { showMeasureHover(it.hover) }
                         // on_mouse() for a left press, and the finger is gone: nothing is under it any more.
-                        is MeasureTouch.Select -> (measureFeatures.select(touch.ray(pointSelection)) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
+                        is MeasureTouch.Select ->
+                            (measureFeatures.select(touch.ray(pointSelection, assembly)) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
                         MeasureTouch.Leave -> view.update { state -> state.measure?.let { state.copy(measure = it.copy(hover = null)) } ?: state }
                     }
                 }
@@ -2194,11 +2202,53 @@ class PrepareViewModel(
      * volumes, the other tools of the canvas closing first, or closes.
      */
     fun toggleMeasure() {
-        if (view.value.measure != null) return closeMeasure()
+        val open = view.value.measure
+        if (open != null && open.assembly == null) return closeMeasure()
         if (!state.value.canMeasure) return
-        closeOtherTools()
-        closeEmbossTools()
-        view.update { it.copy(measure = MeasureMode()) }
+        openMeasure(MeasureMode())
+    }
+
+    /**
+     * The toolbar's Assemble (GLGizmoAssembly): the measuring tool's
+     * selections in face to face mode, which assemble the selected volumes;
+     * it opens on two volumes or more, or closes.
+     */
+    fun toggleAssembly() {
+        val open = view.value.measure
+        if (open?.assembly != null) return closeMeasure()
+        if (!state.value.canAssemble) return
+        openMeasure(MeasureMode(assembly = AssemblyMode.FACE_FACE))
+    }
+
+    /** One of the two tools opens, the other tools of the canvas closing; the other of the two starts over. */
+    private fun openMeasure(mode: MeasureMode) {
+        val switching = view.value.measure != null
+        if (!switching) {
+            closeOtherTools()
+            closeEmbossTools()
+        }
+        view.update { it.copy(measure = mode) }
+        if (switching) measureCommands.trySend(MeasureCommand.Reset(MeasureReset.ALL))
+    }
+
+    /** "Mode" (switch_to_mode()): face to face or point to point, the selections starting over. */
+    fun setAssemblyMode(mode: AssemblyMode) {
+        val open = view.value.measure ?: return
+        if (open.assembly == null || open.assembly == mode) return
+        view.update { state -> state.measure?.let { state.copy(measure = it.copy(assembly = mode, pointSelection = false)) } ?: state }
+        measureCommands.trySend(MeasureCommand.Reset(MeasureReset.ALL))
+    }
+
+    /** The assembly tool's buttons and boxes: [action] on the second volume with its [values]. */
+    fun assemble(action: AssemblyAction, values: List<Double> = emptyList()) {
+        if (view.value.measure?.assembly != null) measureCommands.trySend(MeasureCommand.Assemble(action, values))
+    }
+
+    /** "Flip by Face 2": the box changes, and the second volume turns over (set_to_reverse_rotation()). */
+    fun flipByFace2() {
+        val open = view.value.measure?.takeIf { it.assembly != null } ?: return
+        view.update { state -> state.measure?.let { state.copy(measure = it.copy(flipVolume2 = !open.flipVolume2)) } ?: state }
+        assemble(AssemblyAction.REVERSE_ROTATION, listOf(1.0))
     }
 
     /** "Done" (reset_all_gizmos()): the tool closes, and the engine lets the volumes go. */
@@ -2872,11 +2922,16 @@ private sealed interface MeasureCommand {
     data class Reset(val reset: MeasureReset) : MeasureCommand
 
     data class Scale(val ratio: Double) : MeasureCommand
+
+    data class Assemble(val action: AssemblyAction, val values: List<Double>) : MeasureCommand
 }
 
-private fun MeasureTouch.Explore.ray(pointSelection: Boolean) = MeasureRay(origin, direction, pointSelection, sphereRadius = sphereRadius)
+// m_only_select_plane: face to face, the features are the planes.
+private fun MeasureTouch.Explore.ray(pointSelection: Boolean, assembly: AssemblyMode?) =
+    MeasureRay(origin, direction, pointSelection, assembly == AssemblyMode.FACE_FACE, sphereRadius, assembly)
 
-private fun MeasureTouch.Select.ray(pointSelection: Boolean) = MeasureRay(origin, direction, pointSelection, sphereRadius = sphereRadius)
+private fun MeasureTouch.Select.ray(pointSelection: Boolean, assembly: AssemblyMode?) =
+    MeasureRay(origin, direction, pointSelection, assembly == AssemblyMode.FACE_FACE, sphereRadius, assembly)
 
 /**
  * What fuzzy skin of the object painted with it comes from: the object's own

@@ -45,6 +45,8 @@ data class MeasureView(
     val editToScaleDescription: String = "",
     /** m_editing_distance: the distance's label gives way to the box that edits it. */
     val editingDistance: Boolean = false,
+    /** The assembly tool face to face, whose dimensioning has no run along the axes. */
+    val faceToFace: Boolean = false,
 )
 
 /** What a finger does with the measuring tool open, along a ray in world coordinates. */
@@ -550,7 +552,7 @@ internal fun measureDimensions(view: MeasureView, project: (Vec3) -> Pair<Double
         // Render the arrow between the points that the backend passed:
         val from = distance.from.vec()
         val to = distance.to.vec()
-        if (second != null) {
+        if (second != null && !view.faceToFace) {
             val xTo = Vec3(to.x, from.y, from.z)
             pointPoint(from, xTo, xTo.x - from.x, MeasureColors.RED, showLabel = false, showFirstTri = false)
             val yTo = Vec3(xTo.x, to.y, xTo.z)
