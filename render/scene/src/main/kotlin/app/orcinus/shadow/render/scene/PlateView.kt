@@ -194,6 +194,8 @@ fun PlateView(
     smoothNormals: Boolean = false,
     /** The sequential printing's clearances while the plate's validation fails; null for none. */
     clearance: PlateClearance? = null,
+    /** The height range the object list edits (Selection::render_sidebar_layers_hints()); null for none. */
+    layerRangeHint: LayerRangeHint? = null,
     /**
      * The variable layer height while it is on: the object it edits is drawn
      * in the colours of its layers, and the bar the page placed with
@@ -288,6 +290,7 @@ fun PlateView(
         val shownLabels = if (inAssembly) emptyMap() else labels
         LaunchedEffect(overhangNormalZ, inAssembly) { controller.setOverhangs(overhangNormalZ.takeUnless { inAssembly }) }
         LaunchedEffect(clearance, inAssembly) { controller.setClearance(clearance.takeUnless { inAssembly }) }
+        LaunchedEffect(layerRangeHint, inAssembly) { controller.setLayerRangeHint(layerRangeHint.takeUnless { inAssembly }) }
         LaunchedEffect(shownLabels.keys) { controller.setLabelled(shownLabels.keys) }
         val labelPlacements by controller.labelPlacements.collectAsState()
         val measureDimensions by controller.measureDimensions.collectAsState()
@@ -2106,6 +2109,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** GLCanvas3D::m_sequential_print_clearance, visible while it is set. */
     private var clearance: SceneClearance? = null
 
+    /** GLCanvas3D::m_sidebar_field of a height range. */
+    private var layerRangeHint: LayerRangeHint? = null
+
     /** GLCanvas3D::m_layers_editing while it is on. */
     private var layerEditing: SceneLayerEditing? = null
     val isEditingLayers: Boolean get() = layerEditing != null
@@ -2162,6 +2168,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     fun setClearance(value: PlateClearance?) {
         clearance = value?.let(::SceneClearance)
+        invalidate()
+    }
+
+    fun setLayerRangeHint(value: LayerRangeHint?) {
+        if (layerRangeHint == value) return
+        layerRangeHint = value
         invalidate()
     }
 
@@ -2689,6 +2701,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 outline = options.outline,
                 // _render_sequential_clearance(): not while a gizmo's grabber is dragged.
                 clearance = clearance.takeIf { drag !is MoveGrabberDrag && drag !is RotateGrabberDrag && drag !is ScaleGrabberDrag },
+                layerRangeHint = layerRangeHint,
                 phong = options.phong,
                 // _render_cast_shadows_on_plate(): the 3D view's alone.
                 shadows = options.shadows && assembly == null,

@@ -32,7 +32,9 @@ import app.orcinus.shadow.core.model.ImportFiles
 import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerRange
+import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.LayerRangeId
+import app.orcinus.shadow.core.model.ListClipboard
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.ModelImportOutcome
@@ -2135,7 +2137,8 @@ class EditLayerRangeUseCase(private val repository: PlateRepository) {
 /**
  * The object list selects one height range of an object (its itLayer row),
  * whose own settings the parameter panel then edits; the object it belongs to
- * is selected with it, as the desktop list selects both.
+ * is selected with it, as the desktop list selects both. The 3D view shows the
+ * range, none of its fields focused yet (ObjectLayers::reset_selection()).
  */
 class SelectLayerRangeUseCase(private val repository: PlateRepository) {
     operator fun invoke(id: LayerRangeId?) = repository.update { state ->
@@ -2143,10 +2146,43 @@ class SelectLayerRangeUseCase(private val repository: PlateRepository) {
         if (target == null) {
             if (state.selectedRange == null) state else state.copy(selectedRange = null)
         } else {
-            state.copy(selectedInstances = setOf(PlateInstanceId(target.mesh)), selectedPart = null, selectedRange = target)
+            state.copy(
+                selectedInstances = setOf(PlateInstanceId(target.mesh)),
+                selectedPart = null,
+                selectedRange = target,
+                layerRangeEditor = LayerRangeEditor.LAYER_HEIGHT,
+            )
         }
     }
+
+    /** LayerRangeEditor's wxEVT_SET_FOCUS: a field of the selected range takes the focus. */
+    fun focus(field: LayerRangeEditor) = repository.update { state ->
+        if (state.selectedRange == null || state.layerRangeEditor == field) state else state.copy(layerRangeEditor = field)
+    }
 }
+
+/**
+ * ObjectList::copy_layers_to_clipboard(): Copy over the height ranges of the
+ * object list. The "Layers" row takes every range of its object in place of
+ * what the clipboard kept; a range row adds its range to them, in place of
+ * one of the same heights.
+ */
+class CopyLayerRangesUseCase(private val repository: PlateRepository) {
+    operator fun invoke(id: LayerRangeId) = repository.update { state ->
+        val range = state.objects.withMesh(id.mesh)?.layerRanges?.getOrNull(id.index) ?: return@update state
+        val kept = state.listClipboard?.ranges.orEmpty().filterNot { it.bottom == range.bottom && it.top == range.top }
+        state.copy(listClipboard = ListClipboard(holdsRanges = true, ranges = (kept + range).sortedWith(RANGE_ORDER)))
+    }
+
+    /** The "Layers" row: every range of the object with the [mesh] file. */
+    fun all(mesh: ScenePath) = repository.update { state ->
+        val ranges = state.objects.withMesh(mesh)?.layerRanges?.takeIf { it.isNotEmpty() } ?: return@update state
+        state.copy(listClipboard = ListClipboard(holdsRanges = true, ranges = ranges.sortedWith(RANGE_ORDER)))
+    }
+}
+
+/** t_layer_config_ranges' order: by the bottom, then by the top of a range. */
+internal val RANGE_ORDER: Comparator<LayerRange> = compareBy(LayerRange::bottom, LayerRange::top)
 
 /**
  * Plater::increase_instances(): [count] more copies of the object, each offset

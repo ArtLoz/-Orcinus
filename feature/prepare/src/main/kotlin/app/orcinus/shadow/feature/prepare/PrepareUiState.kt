@@ -23,6 +23,7 @@ import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerHeightEdit
+import app.orcinus.shadow.core.model.ListClipboard
 import app.orcinus.shadow.core.model.MeasureHover
 import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.MeshBooleanOperation
@@ -81,6 +82,7 @@ import app.orcinus.shadow.domain.plate.sameStyleAs
 import app.orcinus.shadow.domain.plate.spiralVaseMode
 import app.orcinus.shadow.render.scene.AssemblyTransforms
 import app.orcinus.shadow.render.scene.CutPlanes
+import app.orcinus.shadow.render.scene.LayerRangeHint
 import app.orcinus.shadow.render.scene.PaintSectionView
 import app.orcinus.shadow.render.scene.PlateClearance
 import app.orcinus.shadow.render.scene.PlateGizmo
@@ -195,6 +197,10 @@ data class PrepareUiState(
     val flushing: WipeTower = WipeTower(),
     /** What "Copy Process Settings" took. */
     val settingsClipboard: SettingsClipboard? = null,
+    /** The height ranges the object list copied, which Paste puts into the selected object. */
+    val listClipboard: ListClipboard? = null,
+    /** The height range the object list edits, which the 3D view draws (Selection::render_sidebar_layers_hints()). */
+    val layerRangeHint: LayerRangeHint? = null,
     /** The Simplify gizmo, while it is open on a volume. */
     val simplify: SimplifyMode? = null,
     /** The meshes the 3D view draws with their triangle edges over them (the gizmo's "Show wireframe"). */
@@ -311,7 +317,8 @@ data class PrepareUiState(
      * Plater::can_paste_from_clipboard() with nothing held: objects the
      * clipboard holds, which go on the plate; volumes need an object to join.
      */
-    val canPasteOnPlate: Boolean get() = canEditPlate && clipboard is PlateClipboard.Objects
+    val canPasteOnPlate: Boolean
+        get() = canEditPlate && (clipboard is PlateClipboard.Objects || listClipboard?.holdsRanges == true && selectedPlateObject != null)
 
     /** Whether another copy can be made of the selected one (Plater::can_increase_instances). */
     val canCopy: Boolean get() = selectedCopy != null && canEditPlate && selectedCopy?.plateObject?.instances.orEmpty().all { it.printable }
@@ -874,6 +881,11 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         filamentDisplayTypes = presets?.filamentDisplayTypes.orEmpty(),
         flushing = flushing,
         settingsClipboard = settingsClipboard,
+        listClipboard = listClipboard,
+        layerRangeHint = selectedLayerRange?.takeIf { !view.assemblyView }?.let { range ->
+            val owner = selectedRange?.mesh
+            LayerRangeHint(range.bottom, range.top, layerRangeEditor, copies.indices.filterTo(mutableSetOf()) { copies[it].id.mesh == owner })
+        },
         simplify = view.simplify?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } },
         wireframes = view.simplify?.takeIf { it.wireframe }?.preview?.let { setOf(it.mesh) }.orEmpty(),
         overhangNormalZ = overhangNormalZ,

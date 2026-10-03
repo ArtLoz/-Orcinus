@@ -2,14 +2,18 @@ package app.orcinus.shadow.feature.sidebar
 
 import android.content.res.Configuration
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.EmbossKind
+import app.orcinus.shadow.core.model.LayerRangeEditor
+import app.orcinus.shadow.core.model.ListClipboard
 import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.ui.ExportResultDialog
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.shareDocument
+import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
 import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
@@ -298,6 +302,8 @@ data class SidebarUiState(
     val flushing: WipeTower = WipeTower(),
     /** What "Copy Process Settings" took. */
     val settingsClipboard: SettingsClipboard? = null,
+    /** The height ranges the object list copied. */
+    val listClipboard: ListClipboard? = null,
     /** The Simplify gizmo is open on the canvas. */
     val simplifying: Boolean = false,
     /** The project's name, none while it is "Untitled". */
@@ -349,6 +355,7 @@ class SidebarViewModel(
     private val removeLayerRange: RemoveLayerRangeUseCase,
     private val selectLayerRange: SelectLayerRangeUseCase,
     private val editLayerRange: EditLayerRangeUseCase,
+    private val copyLayerRanges: CopyLayerRangesUseCase,
     private val setExtruder: SetExtruderUseCase,
     private val describeFlush: DescribeFlushVolumesUseCase,
     private val setFlush: SetFlushVolumesUseCase,
@@ -558,6 +565,13 @@ class SidebarViewModel(
     }
 
     fun editRange(id: LayerRangeId, bottom: Double, top: Double) = editLayerRange(id, bottom, top)
+
+    /** A field of the range being edited took the focus, whose plane the 3D view shows solid. */
+    fun focusRangeField(field: LayerRangeEditor) = selectLayerRange.focus(field)
+
+    fun copyRange(id: LayerRangeId) = copyLayerRanges(id)
+
+    fun copyRanges(mesh: ScenePath) = copyLayerRanges.all(mesh)
 
     /** The filament column of the object list (set_extruder_for_selected_items). */
     fun setObjectExtruder(mesh: ScenePath, extruder: Int) = setExtruder(mesh, extruder)
@@ -889,6 +903,7 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     clipboard = clipboard,
     flushing = flushing,
     settingsClipboard = settingsClipboard,
+    listClipboard = listClipboard,
     simplifying = simplifyTarget != null,
     projectName = project.name,
     projectDirty = projectDirty,
@@ -932,7 +947,7 @@ data class ObjectListPlate(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LayerRangeSheet(range: LayerRange, onDismiss: () -> Unit, onApply: (Double, Double) -> Unit) {
+private fun LayerRangeSheet(range: LayerRange, onFocus: (LayerRangeEditor) -> Unit, onDismiss: () -> Unit, onApply: (Double, Double) -> Unit) {
     val colors = OrcaTheme.colors
     var bottom by rememberSaveable(range) { mutableStateOf(formatHeight(range.bottom)) }
     var top by rememberSaveable(range) { mutableStateOf(formatHeight(range.top)) }
@@ -972,7 +987,10 @@ private fun LayerRangeSheet(range: LayerRange, onDismiss: () -> Unit, onApply: (
                         unit = stringResource(R.string.object_range_unit),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { apply() }),
-                        modifier = Modifier.width(160.dp),
+                        modifier = Modifier
+                            .width(160.dp)
+                            // LayerRangeEditor's wxEVT_SET_FOCUS: the 3D view shows this height's plane solid.
+                            .onFocusChanged { if (it.isFocused) onFocus(if (isBottom) LayerRangeEditor.MIN_Z else LayerRangeEditor.MAX_Z) },
                     )
                 }
             }
@@ -1582,6 +1600,9 @@ fun PlateSidebar(
             toggleFlushOption = viewModel::toggleFlushOption,
             editProcessSettings = viewModel::editProcessSettings,
             copyProcessSettings = viewModel::copyProcessSettings,
+            copyRange = viewModel::copyRange,
+            copyRanges = viewModel::copyRanges,
+            focusRangeField = viewModel::focusRangeField,
             pasteProcessSettings = viewModel::pasteProcessSettings,
             replaceVolume = { copy, volume ->
                 replacing = Triple(copy.mesh.value, copy.instance, volume)
@@ -2034,7 +2055,11 @@ internal fun PlateSidebarContent(
             menuFilaments = menuFilaments,
             actions = objectList,
             onChooseShape = { mesh, type -> addingPart = mesh to type },
-            onEditRange = { editingRange = it },
+            // The desktop app edits the heights of the selected range.
+            onEditRange = {
+                objectList.selectRange(it)
+                editingRange = it
+            },
             onAskNumberOfInstances = { askingCopies = it },
             onAskClone = { cloning = it },
             onAskRename = { renaming = it },
@@ -2160,6 +2185,7 @@ internal fun PlateSidebarContent(
         } else {
             LayerRangeSheet(
                 range = range,
+                onFocus = objectList.focusRangeField,
                 onDismiss = { editingRange = null },
                 onApply = { bottom, top ->
                     editingRange = null

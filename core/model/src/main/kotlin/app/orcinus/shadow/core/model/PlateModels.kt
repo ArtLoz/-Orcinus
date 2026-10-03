@@ -525,6 +525,20 @@ data class ObjectPartId(val mesh: ScenePath, val index: Int)
 /** A height range of an object, as the object list names it (itLayer). */
 data class LayerRangeId(val mesh: ScenePath, val index: Int)
 
+/**
+ * ObjectLayers' EditorType: the field of the selected height range that has
+ * the focus — its bottom, its top, or none of the two (etLayerHeight).
+ */
+enum class LayerRangeEditor { MIN_Z, MAX_Z, LAYER_HEIGHT }
+
+/**
+ * ObjectList::Clipboard: whether Copy in the object list last took height
+ * ranges ([holdsRanges]) rather than process settings, and the height ranges
+ * it keeps (m_layer_config_ranges_cache), which copying single ranges adds
+ * to. The settings it keeps are [SettingsClipboard].
+ */
+data class ListClipboard(val holdsRanges: Boolean, val ranges: List<LayerRange> = emptyList())
+
 /** An item of the object list with settings of its own (ObjectList::get_item_config). */
 sealed interface SettingsItem {
     val mesh: ScenePath
@@ -1074,6 +1088,13 @@ data class PlateState(
     val arrangeSettings: ArrangeSettings = ArrangeSettings(),
     /** What Copy and Cut took (Selection::Clipboard); null while nothing was copied. */
     val clipboard: PlateClipboard? = null,
+    /** The height ranges Copy took in the object list (ObjectList's clipboard); null while it holds none. */
+    val listClipboard: ListClipboard? = null,
+    /**
+     * GLCanvas3D::m_sidebar_field of the selected height range: the field of
+     * it that has the focus, whose plane the 3D view draws solid.
+     */
+    val layerRangeEditor: LayerRangeEditor = LayerRangeEditor.LAYER_HEIGHT,
     /** What "Copy Process Settings" took (ObjectList's clipboard); null while nothing was copied. */
     val settingsClipboard: SettingsClipboard? = null,
     /** The volume the Simplify gizmo is open on (GLGizmoSimplify::m_volume); null while it is closed. */

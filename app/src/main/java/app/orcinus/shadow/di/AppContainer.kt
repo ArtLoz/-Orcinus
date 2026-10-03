@@ -55,6 +55,7 @@ import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
 import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
 import app.orcinus.shadow.domain.plate.CloudLoginUseCase
+import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
 import app.orcinus.shadow.domain.plate.DevicePageUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
@@ -694,6 +695,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         removeLayerRange = removeLayerRange,
         selectLayerRange = selectLayerRange,
         editLayerRange = editLayerRange,
+        copyLayerRanges = CopyLayerRangesUseCase(plateRepository),
         setExtruder = setExtruder,
         describeFlush = DescribeFlushVolumesUseCase(engine, plateRepository),
         setFlush = SetFlushVolumesUseCase(plateRepository),

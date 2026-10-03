@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.sidebar
 
 import app.orcinus.shadow.core.model.EmbossKind
+import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.reloadableVolumes
@@ -149,6 +150,11 @@ internal class ObjectListActions(
     /** switch_to_object_process(), copy_settings_to_clipboard() and paste_settings_into_list() of an item. */
     val editProcessSettings: (SettingsItem) -> Unit = {},
     val copyProcessSettings: (SettingsItem) -> Unit = {},
+    /** LayerRangeEditor's wxEVT_SET_FOCUS: a field of the selected range takes the focus. */
+    val focusRangeField: (LayerRangeEditor) -> Unit = {},
+    /** ObjectList::copy_layers_to_clipboard() of a range row, and of the "Layers" row. */
+    val copyRange: (LayerRangeId) -> Unit = {},
+    val copyRanges: (ScenePath) -> Unit = {},
     val pasteProcessSettings: (SettingsItem) -> Unit = {},
     /** Opens the document picker for the new mesh of a volume of an object (Plater::replace_with_stl). */
     val replaceVolume: (PlateInstanceId, volume: Int) -> Unit = { _, _ -> },
@@ -395,6 +401,7 @@ private fun LazyListScope.objectRows(
                             filaments = menuFilaments,
                             flushing = state.flushing,
                             settingsClipboard = state.settingsClipboard,
+                            listClipboard = state.listClipboard,
                         ),
                         actions.menuOf(
                             id = ids.first(),
@@ -620,6 +627,17 @@ private fun LazyListScope.objectRows(
                     deeper = true,
                     enabled = enabled,
                     onClick = { actions.addRange(mesh, null) },
+                    // The desktop list copies its ranges with the keyboard, which a phone offers from the row's menu.
+                    menu = { dismiss ->
+                        OrcaMenuItem(
+                            text = orcaString("Copy"),
+                            enabled = enabled,
+                            onClick = {
+                                dismiss()
+                                actions.copyRanges(mesh)
+                            },
+                        )
+                    },
                 )
             }
             plateObject.layerRanges.forEachIndexed { at, range ->
@@ -663,6 +681,15 @@ private fun LazyListScope.objectRows(
                                 onClick = {
                                     dismiss()
                                     actions.removeRange(rangeId)
+                                },
+                            )
+                            // ObjectList::copy_to_clipboard() of the range, by the keyboard on the desktop.
+                            OrcaMenuItem(
+                                text = orcaString("Copy"),
+                                enabled = enabled,
+                                onClick = {
+                                    dismiss()
+                                    actions.copyRange(rangeId)
                                 },
                             )
                             // The desktop list copies a range's settings with the keyboard

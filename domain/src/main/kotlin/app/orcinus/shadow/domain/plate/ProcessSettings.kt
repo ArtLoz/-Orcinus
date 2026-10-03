@@ -27,7 +27,8 @@ class CopyProcessSettingsUseCase(private val repository: PlateRepository) {
         val owner = state.objects.withMesh(item.mesh) ?: return@update state
         val own = owner.settingsOf(item) ?: return@update state
         val settings = if (item is SettingsItem.Object) own else ModelSettings(owner.settings.values + own.values)
-        state.copy(settingsClipboard = SettingsClipboard(item.kind, settings))
+        // The object list's clipboard holds settings now; the ranges it kept stay.
+        state.copy(settingsClipboard = SettingsClipboard(item.kind, settings), listClipboard = state.listClipboard?.copy(holdsRanges = false))
     }
 }
 

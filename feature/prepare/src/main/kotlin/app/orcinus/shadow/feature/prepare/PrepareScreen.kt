@@ -802,6 +802,7 @@ internal fun PrepareScreen(
                 clearance = state.clearance.takeIf {
                     state.painting == null && state.cut == null && state.simplify == null && state.measure == null && state.gizmo != PlateGizmo.LAY_ON_FACE
                 },
+                layerRangeHint = state.layerRangeHint,
                 antialiasingSamples = canvas.antialiasingSamples,
                 layerEditing = state.layerEditing?.view(),
                 // SurfaceDrag: the text the tool is open on follows a finger over its object.
@@ -1393,6 +1394,7 @@ private fun ObjectContextMenu(
                 state.plate,
                 state.canEditPlate,
                 clipboard = state.clipboard,
+                listClipboard = state.listClipboard,
                 simplifying = state.simplify != null,
                 filaments = state.filamentNames.zip(state.filamentColors) { filament, color ->
                     MenuFilament(filament, Color(color.red, color.green, color.blue, color.alpha))

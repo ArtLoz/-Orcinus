@@ -62,6 +62,8 @@ internal class SceneFrame(
     val shadows: Boolean = false,
     /** The sequential printing's clearances while the plate's validation fails (GLCanvas3D::_render_sequential_clearance()). */
     val clearance: SceneClearance? = null,
+    /** The height range the object list edits (Selection::render_sidebar_layers_hints()). */
+    val layerRangeHint: LayerRangeHint? = null,
     /** The realistic view with "SSAO ambient occlusion" (opengl_phong_ssao): the frame goes through the SSAO pass. */
     val ssao: Boolean = false,
     /**
@@ -500,6 +502,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         renderWireframes(programs.flat, frame)
         renderSelection(programs.flat, frame)
         frame.clearance?.let { renderClearance(programs.flat, it, frame) }
+        // _render_selection_sidebar_hints(): before the gizmos, which may clear the depth.
+        frame.layerRangeHint?.let { renderLayerRangeHint(programs.flat, it, frame) }
         frame.gizmo?.let { renderGizmo(programs, it, frame) }
     }
 
@@ -1257,6 +1261,22 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
                 GrabberShape.SPHERE -> sphere.draw()
             }
         }
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+    }
+
+    /** Selection::render_sidebar_layers_hints(): the range's planes around its copies, blended in the scene's depth. */
+    private fun renderLayerRangeHint(flat: GlProgram, hint: LayerRangeHint, frame: SceneFrame) {
+        val volumes = objects.filter { it.index in hint.indexes }
+        if (volumes.isEmpty()) return
+        val box = volumes.map(SceneObject::bounds).reduce(Box3::merge)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        flat.use()
+        flat.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+        flat.setMatrix4("projection_matrix", frame.projection)
+        for (face in layerRangePlanes(hint, box, frame.lookingDownward)) drawFace(flat, face)
+        GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
     }
 

@@ -2398,6 +2398,39 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `copied ranges join another object, which keeps its own range of the same heights, and copying objects forgets them`() {
+        val settings = ModelSettings(mapOf("layer_height" to "0.1"))
+        val cube = CUBE.copy(layerRanges = listOf(LayerRange(0.0, 2.0), LayerRange(2.0, 4.0), LayerRange(6.0, 8.0)))
+        val other = CUBE.copy(
+            instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))),
+            layerRanges = listOf(LayerRange(0.0, 2.0, settings)),
+        )
+        val repository = FakeRepository(readyState(cube, other))
+        val copy = CopyLayerRangesUseCase(repository)
+
+        // copy_layers_to_clipboard(): single ranges add up; the "Layers" row takes them all.
+        copy(LayerRangeId(cube.mesh, 2))
+        copy(LayerRangeId(cube.mesh, 0))
+        assertEquals(listOf(0.0 to 2.0, 6.0 to 8.0), repository.state.value.listClipboard?.ranges?.map { it.bottom to it.top })
+        copy.all(cube.mesh)
+        assertEquals(3, repository.state.value.listClipboard?.ranges?.size)
+
+        PasteFromClipboardUseCase(FakeInspector(), FakeSceneFiles(), repository, scope)(PlateInstanceId(other.mesh))
+
+        val state = repository.state.value
+        val pasted = state.objects.last().layerRanges
+        assertEquals(listOf(0.0 to 2.0, 2.0 to 4.0, 6.0 to 8.0), pasted.map { it.bottom to it.top })
+        assertEquals(settings, pasted.first().settings)
+        assertEquals(setOf(PlateInstanceId(other.mesh)), state.selectedInstances)
+        assertTrue(state.canUndo)
+
+        // ObjectList::copy_to_clipboard() of objects resets the list's clipboard.
+        CopyToClipboardUseCase(FakeInspector(), FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), scope)
+            .objects(setOf(PlateInstanceId(cube.mesh)))
+        assertNull(repository.state.value.listClipboard)
+    }
+
+    @Test
     fun `a removed range takes the selection with it and the G-code no longer applies`() {
         val cube = CUBE.copy(layerRanges = listOf(LayerRange(0.0, 2.0), LayerRange(2.0, 4.0)))
         val repository = FakeRepository(

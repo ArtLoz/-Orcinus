@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.CopyPlacement
+import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PlateClipboard
@@ -10,10 +11,12 @@ import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.placing
 import app.orcinus.shadow.core.model.withInstances
+import app.orcinus.shadow.core.model.withLayerRanges
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.storage.api.SceneFiles
@@ -74,7 +77,8 @@ class CopyToClipboardUseCase(
             val taken = if (state.busy || profiles == null || state.objects.any(PlateObject::placing)) emptyList() else sources(state)
             if (profiles == null || taken.isEmpty()) return@update state
             request = CopyRequest(state.objects, taken, profiles)
-            state.copy(editing = true, problem = null)
+            // ObjectList::copy_to_clipboard() of no settings or ranges resets its clipboard.
+            state.copy(editing = true, problem = null, listClipboard = null, settingsClipboard = null)
         }
         return request
     }
@@ -127,10 +131,13 @@ class CopyToClipboardUseCase(
 }
 
 /**
- * Plater::paste_from_clipboard(): objects the clipboard holds join the plate,
- * each in the empty cell nearest to where it was copied from, and are selected
- * (Selection::paste_objects_from_clipboard); volumes it holds join the object
- * of the [target] copy (paste_volumes_from_clipboard), which then needs one.
+ * Plater::paste_from_clipboard(): height ranges the object list copied join
+ * the object of the [target] copy, or of the selected one
+ * (ObjectList::paste_layers_into_list); otherwise objects the clipboard holds
+ * join the plate, each in the empty cell nearest to where it was copied from,
+ * and are selected (Selection::paste_objects_from_clipboard), and volumes it
+ * holds join the object of the [target] copy (paste_volumes_from_clipboard),
+ * which then needs one.
  */
 class PasteFromClipboardUseCase(
     private val inspector: PlateInspector,
@@ -140,11 +147,36 @@ class PasteFromClipboardUseCase(
 ) {
     operator fun invoke(target: PlateInstanceId? = null) {
         val state = repository.state.value
+        val list = state.listClipboard
+        if (list != null && list.holdsRanges) {
+            pasteRanges(list.ranges, target?.mesh ?: state.selectedInstances.firstOrNull()?.mesh)
+            return
+        }
         when (val clipboard = state.clipboard) {
             is PlateClipboard.Objects -> pasteObjects(clipboard)
             is PlateClipboard.Volumes -> target?.let { pasteVolumes(clipboard, it) }
             null -> Unit
         }
+    }
+
+    /**
+     * ObjectList::paste_layers_into_list(): the copied ranges join the ranges
+     * of the object with the [mesh] file, which keeps a range of the same
+     * heights as it is; the object is selected with its "Layers" row. One
+     * step of Undo ("Paste From Clipboard").
+     */
+    private fun pasteRanges(ranges: List<LayerRange>, mesh: ScenePath?) = repository.update { state ->
+        val target = mesh?.let { state.objects.withMesh(it) }
+        if (target == null || state.busy) return@update state
+        val added = ranges.filter { range -> target.layerRanges.none { it.bottom == range.bottom && it.top == range.top } }
+        val pasted = target.withLayerRanges((target.layerRanges + added).sortedWith(RANGE_ORDER))
+        state.recorded().copy(
+            objects = state.objects.replaced(pasted),
+            selectedInstances = setOf(PlateInstanceId(target.mesh)),
+            selectedPart = null,
+            selectedRange = null,
+            result = if (added.isEmpty()) state.result else null,
+        )
     }
 
     private fun pasteObjects(clipboard: PlateClipboard.Objects) {

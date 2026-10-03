@@ -47,6 +47,7 @@ import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.FlushOption
+import app.orcinus.shadow.core.model.ListClipboard
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
@@ -149,6 +150,8 @@ fun objectMenuState(
     /** The wipe tower as the engine last described it, with the process preset's flush options. */
     flushing: WipeTower? = null,
     settingsClipboard: SettingsClipboard? = null,
+    /** The object list's clipboard: height ranges it holds go into the object. */
+    listClipboard: ListClipboard? = null,
 ): ObjectMenuState {
     val inspection = instance.inspection
     val area = plate?.geometry?.printableArea.orEmpty()
@@ -187,8 +190,9 @@ fun objectMenuState(
         conversions = conversionsOf((0..plateObject.parts.size).mapNotNull { plateObject.volumeAt(it) }.ifEmpty {
             listOf(plateObject.ownVolume())
         }),
-        // Volumes join a single copy (Selection::is_from_single_instance).
-        canPaste = enabled && when (clipboard) {
+        // Volumes join a single copy (Selection::is_from_single_instance);
+        // the object list's height ranges come first.
+        canPaste = enabled && listClipboard?.holdsRanges == true || enabled && when (clipboard) {
             is PlateClipboard.Objects -> true
             is PlateClipboard.Volumes -> !wholeObject || plateObject.instances.size == 1
             null -> false
