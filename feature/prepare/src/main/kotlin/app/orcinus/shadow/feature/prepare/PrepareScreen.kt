@@ -477,6 +477,8 @@ internal fun PrepareRoute(
             back = viewModel::returnFromAssemblyView,
             setExplosionRatio = viewModel::setExplosionRatio,
             setVisible = viewModel::setAssemblyVisible,
+            fillColor = viewModel::fillColor,
+            place = viewModel::placeObjectInAssembly,
         ),
         brimEarsActions = BrimEarsActions(
             toggle = viewModel::toggleBrimEars,
@@ -747,6 +749,7 @@ internal fun PrepareScreen(
                 onBrimEars = brimEarsActions.touch,
                 assembly = state.assemblyView?.let { AssemblyView(it.explosionRatio, it.hidden) },
                 onAssemblySelection = { assemblySelection = it },
+                onPlaceInAssembly = assemblyViewActions.place,
             )
             state.measure?.editingDistance?.let { distance ->
                 MeasureScaleDialog(distance, canvas.imperialUnits, measureActions.scale, measureActions.cancelScale)
@@ -917,7 +920,7 @@ internal fun PrepareScreen(
                 // The toolbar starts after the sidebar button; the gizmo windows below may use the whole width.
                 Box(Modifier.padding(start = OrcaSidebarToggleSpace - CanvasMargin)) {
                     if (state.assemblyView != null) {
-                        AssemblyViewToolbar(assemblyViewActions)
+                        AssemblyViewToolbar(state, assemblyViewActions, onToggleGizmo)
                     } else CanvasToolbar(
                         state,
                         onTogglePainting,
@@ -943,6 +946,8 @@ internal fun PrepareScreen(
                         onOpenAssemblyView = assemblyViewActions.open,
                     )
                 }
+                // _render_paint_toolbar(): the assembly view's filament buttons.
+                if (state.assemblyView != null) AssemblyPaintToolbar(state, assemblyViewActions.fillColor)
                 val position = state.selectedPosition
                 val rotation = state.selectedRotation
                 val scale = state.selectedScale

@@ -1412,7 +1412,30 @@ class SelectPlateObjectUseCase(private val repository: PlateRepository) {
  */
 class SetExtruderUseCase(private val repository: PlateRepository) {
     /** The object itself, which its volumes of the model then follow, its own mesh included. */
-    operator fun invoke(mesh: ScenePath, extruder: Int) = write(mesh, extruder) { target ->
+    operator fun invoke(mesh: ScenePath, extruder: Int) = write(mesh, extruder) { target -> objectWith(target, extruder) }
+
+    /** One volume of an object (an itVolume row): its own mesh or one of its parts. */
+    operator fun invoke(id: ObjectPartId, extruder: Int) = write(id.mesh, extruder) { target -> volumeWith(target, id.index, extruder) }
+
+    /**
+     * The selected items at once, as the assembly view's filament buttons give
+     * them one (Plater::fill_color()): the selected part, or every selected
+     * object, after one "Change Filaments" snapshot.
+     */
+    fun selected(extruder: Int) = repository.update { state ->
+        val filaments = state.profiles?.allFilaments?.size ?: 0
+        val part = state.selectedPart
+        val meshes = if (part != null) listOf(part.mesh) else state.selectedInstances.map { it.mesh }.distinct()
+        if (state.busy || extruder > filaments || extruder < 0 || meshes.isEmpty()) return@update state
+        val edited = meshes.mapNotNull { mesh ->
+            val target = state.objects.withMesh(mesh) ?: return@mapNotNull null
+            if (part != null) volumeWith(target, part.index, extruder) else objectWith(target, extruder)
+        }
+        val recorded = state.recorded()
+        if (edited.isEmpty()) recorded else recorded.copy(objects = edited.fold(state.objects) { objects, updated -> objects.replaced(updated) }, result = null)
+    }
+
+    private fun objectWith(target: PlateObject, extruder: Int): PlateObject =
         // "default" on an object is filament 1, as the desktop app writes it.
         target.withSettings(target.settings.withExtruder(if (extruder == 0) 1 else extruder))
             .withVolume(target.volume.copy(settings = target.volume.settings.withExtruder(0)))
@@ -1421,16 +1444,14 @@ class SetExtruderUseCase(private val repository: PlateRepository) {
                     if (part.type == VolumeType.PART) part.copy(settings = part.settings.withExtruder(0)) else part
                 },
             )
-    }
 
-    /** One volume of an object (an itVolume row): its own mesh or one of its parts. */
-    operator fun invoke(id: ObjectPartId, extruder: Int) = write(id.mesh, extruder) { target ->
-        val part = target.volumeAt(id.index) ?: return@write null
-        if (part.type != VolumeType.PART && part.type != VolumeType.MODIFIER) return@write null
+    private fun volumeWith(target: PlateObject, index: Int, extruder: Int): PlateObject? {
+        val part = target.volumeAt(index) ?: return null
+        if (part.type != VolumeType.PART && part.type != VolumeType.MODIFIER) return null
         // "default" on a part of the model is the filament of its object; a
         // modifier keeps the default it was given.
         val number = if (extruder == 0 && part.type == VolumeType.PART) target.extruderNumber else extruder
-        target.withVolumeAt(id.index, part.copy(settings = part.settings.withExtruder(number)))
+        return target.withVolumeAt(index, part.copy(settings = part.settings.withExtruder(number)))
     }
 
     /** One height range of an object (an itLayer row). */

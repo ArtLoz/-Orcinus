@@ -72,6 +72,7 @@ import app.orcinus.shadow.domain.plate.measuredVolumes
 import app.orcinus.shadow.domain.plate.presetValue
 import app.orcinus.shadow.domain.plate.sameStyleAs
 import app.orcinus.shadow.domain.plate.spiralVaseMode
+import app.orcinus.shadow.render.scene.AssemblyTransforms
 import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.PlateClearance
 import app.orcinus.shadow.render.scene.PlateGizmo
@@ -173,6 +174,8 @@ data class PrepareUiState(
     val filamentColors: List<ColorRgba> = emptyList(),
     /** What the sidebar calls every filament of the plate: its preset, as its combo box shows it. */
     val filamentNames: List<String> = emptyList(),
+    /** The displayed type of every filament of the plate, which the assembly view's filament buttons show. */
+    val filamentDisplayTypes: List<String> = emptyList(),
     /** The tower as the engine last described it, which the object menu's Flush Options go by. */
     val flushing: WipeTower = WipeTower(),
     /** What "Copy Process Settings" took. */
@@ -581,6 +584,9 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     // The tower is drawn selected while it is the picked volume.
     if (wipeTower != null && view.wipeTowerSelected) selectedIndexes += WIPE_TOWER_INDEX
     val selected = selectedObject?.let(copies::get)?.instance?.inspection
+    // GizmoObjectManipulation in the assembly view: the copy's assemble transformation.
+    val assembled = selectedObject?.let(copies::get)?.instance?.takeIf { view.assemblyView }?.let { it.assemble ?: Transform3.IDENTITY }
+    val assembledRotation = assembled?.let(AssemblyTransforms::rotationDegrees)
     // The plate changes once OrcaSlicer has the presets it places objects with.
     val canEditPlate = !busy && !slicingAll && engine.availability == EngineAvailability.READY && profiles != null
     return PrepareUiState(
@@ -620,6 +626,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         filamentNames = profiles?.allFilaments.orEmpty().map { id ->
             presets?.filaments?.firstOrNull { it.name == id.value }?.label ?: id.value
         },
+        filamentDisplayTypes = presets?.filamentDisplayTypes.orEmpty(),
         flushing = flushing,
         settingsClipboard = settingsClipboard,
         simplify = view.simplify?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } },
@@ -650,10 +657,15 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         bedTypes = presets?.bedTypes.orEmpty(),
         spiralVaseMode = spiralVaseMode(),
         printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",
-        selectedPosition = selected?.placement?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
-        selectedRotation = selected?.rotationDegrees,
-        canResetRotation = selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart),
-        canResetRotationToZero = selected != null && with(selected.rotationDegrees) { listOf(x, y, z).any { abs(it) > 0.001 } },
+        selectedPosition = (if (view.assemblyView) assembled else selected?.placement)?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
+        selectedRotation = if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
+        canResetRotation = if (view.assemblyView) {
+            assembled != null && rotationStart != null && !assembled.hasLinearPartOf(rotationStart)
+        } else {
+            selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart)
+        },
+        canResetRotationToZero = (if (view.assemblyView) assembledRotation else selected?.rotationDegrees)
+            ?.let { rotation -> listOf(rotation.x, rotation.y, rotation.z).any { abs(it) > 0.001 } } == true,
         selectedScale = selected?.let {
             // update_settings_value() in world coordinates: size over the unscaled size.
             with(it.dimensions) {

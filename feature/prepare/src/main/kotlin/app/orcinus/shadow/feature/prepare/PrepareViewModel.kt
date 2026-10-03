@@ -114,6 +114,7 @@ import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PaintObjectUseCase
 import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
 import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.PlaceInAssemblyUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
@@ -157,6 +158,7 @@ import app.orcinus.shadow.domain.plate.toggledItalic
 import app.orcinus.shadow.domain.plate.withFamily
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
+import app.orcinus.shadow.render.scene.AssemblyTransforms
 import app.orcinus.shadow.render.scene.BrimEarsTouch
 import app.orcinus.shadow.render.scene.CameraEye
 import app.orcinus.shadow.render.scene.CutConnectorEvent
@@ -258,6 +260,7 @@ class PrepareViewModel(
     private val brimEarsTool: EditBrimEarsUseCase,
     private val enablePaintedBrim: EnablePaintedBrimUseCase,
     private val takeSnapshot: TakePlateSnapshotUseCase,
+    private val placeInAssembly: PlaceInAssemblyUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
@@ -1416,7 +1419,7 @@ class PrepareViewModel(
         selectPlateObject(id)
         view.update { view ->
             view.copy(
-                rotationStart = if (id != before) selected?.placement else view.rotationStart,
+                rotationStart = if (id != before) (if (view.assemblyView) id?.let(::assembleOf) else selected?.placement) else view.rotationStart,
                 gizmo = if (id == null) null else view.gizmo,
             )
         }
@@ -1433,7 +1436,7 @@ class PrepareViewModel(
         view.update { view ->
             view.copy(
                 gizmo = if (state.gizmo == type) null else type,
-                rotationStart = state.selectedCopy?.instance?.inspection?.placement,
+                rotationStart = state.selectedCopy?.let { copy -> if (view.assemblyView) assembleOf(copy.id) else copy.instance.inspection.placement },
                 // Another toolbar item closes the arrange options.
                 arrangeOptionsOpen = false,
             )
@@ -2299,6 +2302,11 @@ class PrepareViewModel(
         view.update { it.copy(assemblyHidden = if (visible) it.assemblyHidden - selected else it.assemblyHidden + selected) }
     }
 
+    /** The assembly view's filament buttons (Plater::fill_color()): the selection prints with [filament]. */
+    fun fillColor(filament: Int) {
+        if (view.value.assemblyView) setExtruder.selected(filament)
+    }
+
     /**
      * GLGizmosManager::reset_all_states() of the canvas the view leaves; the
      * variable layer height is the 3D view's and no gizmo, and stays.
@@ -2785,26 +2793,45 @@ class PrepareViewModel(
     fun rotateBy(axis: Int, degrees: Double) {
         if (degrees == 0.0) return
         val target = selected() ?: return
+        if (view.value.assemblyView) {
+            // In the assembly view, about the copy's sphere where it stands there (do_rotate("Set Orientation")).
+            val copy = state.value.selectedCopy ?: return
+            val assemble = assembleOf(copy.id) ?: return
+            val own = (copy.plateObject as? PlateObject.ImportedModel)?.frame ?: Transform3.IDENTITY
+            val pivot = AssemblyTransforms.pivot(copy.instance, own, target.boundingSphere.center, view.value.explosionRatio)
+            placeInAssembly(copy.id, ObjectTransforms.rotated(assemble, axis, degrees, pivot), Manipulation.Rotate)
+            return
+        }
         placePlateObject(selectedId() ?: return, ObjectTransforms.rotated(target.placement, axis, degrees, target.boundingSphere.center), Manipulation.Rotate)
     }
 
     /** GizmoObjectManipulation::change_absolute_rotation_value(): turns by the difference to the rotation shown. */
     fun setRotation(axis: Int, degrees: Double) {
-        val target = selected() ?: return
-        rotateBy(axis, degrees - target.rotationDegrees[axis])
+        val shown = state.value.selectedRotation ?: return
+        rotateBy(axis, degrees - shown[axis])
     }
 
     /** GizmoObjectManipulation::reset_rotation_value(true): the rotation from when the tool opened. */
     fun resetRotation() {
         val target = selected() ?: return
         val start = view.value.rotationStart ?: return
-        placePlateObject(selectedId() ?: return, ObjectTransforms.withLinearPartOf(target.placement, start), Manipulation.Rotate)
+        val id = selectedId() ?: return
+        if (view.value.assemblyView) {
+            placeInAssembly(id, ObjectTransforms.withLinearPartOf(assembleOf(id) ?: return, start), Manipulation.Rotate)
+            return
+        }
+        placePlateObject(id, ObjectTransforms.withLinearPartOf(target.placement, start), Manipulation.Rotate)
     }
 
-    /** GizmoObjectManipulation::reset_rotation_value(false): no rotation. */
+    /** GizmoObjectManipulation::reset_rotation_value(false): no rotation (Transformation::reset_rotation()). */
     fun resetRotationToZero() {
         val target = selected() ?: return
-        placePlateObject(selectedId() ?: return, target.placement, Manipulation.ResetRotation)
+        val id = selectedId() ?: return
+        if (view.value.assemblyView) {
+            placeInAssembly(id, AssemblyTransforms.withoutRotation(assembleOf(id) ?: return), Manipulation.Rotate)
+            return
+        }
+        placePlateObject(id, target.placement, Manipulation.ResetRotation)
     }
 
     fun setUniformScale(uniform: Boolean) {
@@ -2866,15 +2893,30 @@ class PrepareViewModel(
         view.update { it.copy(gizmo = null) }
     }
 
-    /** GizmoObjectManipulation::change_position_value(): the object moves so its position on [axis] is [value]. */
+    /**
+     * GizmoObjectManipulation::change_position_value(): the object moves so its
+     * position on [axis] is [value]; in the assembly view, its place there.
+     */
     fun setPosition(axis: Int, value: Double) {
         val state = state.value
         val index = state.selectedObject ?: return
-        val current = state.sceneCopies[index].instance.inspection.placement.columns
+        val copy = state.sceneCopies[index]
+        val assembly = view.value.assemblyView
+        val current = (if (assembly) assembleOf(copy.id) ?: return else copy.instance.inspection.placement).columns
         val clamped = value.coerceIn(-MAX_NUM, MAX_NUM)
         if (abs(current[12 + axis] - clamped) < POSITION_EPSILON) return
-        placeObject(index, Transform3(current.toMutableList().also { it[12 + axis] = clamped }), Manipulation.Move)
+        val placement = Transform3(current.toMutableList().also { it[12 + axis] = clamped })
+        if (assembly) placeInAssembly(copy.id, placement, Manipulation.Move) else placeObject(index, placement, Manipulation.Move)
     }
+
+    /** A gizmo of the assembly view placed the copy at [index] there. */
+    fun placeObjectInAssembly(index: Int, assemble: Transform3, manipulation: Manipulation) {
+        copyAt(index)?.let { placeInAssembly(it, assemble, manipulation) }
+    }
+
+    /** ModelInstance::get_assemble_transformation() of the copy [id], the identity while it has none. */
+    private fun assembleOf(id: PlateInstanceId): Transform3? =
+        plate.value.objects.firstOrNull { it.mesh == id.mesh }?.instances?.getOrNull(id.instance)?.let { it.assemble ?: Transform3.IDENTITY }
 
     fun placeObject(index: Int, placement: Transform3, manipulation: Manipulation) {
         state.value.sceneCopies.getOrNull(index)?.let { placePlateObject(it.id, placement, manipulation) }

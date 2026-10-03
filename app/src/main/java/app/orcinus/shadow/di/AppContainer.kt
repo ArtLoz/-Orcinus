@@ -100,6 +100,7 @@ import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PaintObjectUseCase
 import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
 import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
+import app.orcinus.shadow.domain.plate.PlaceInAssemblyUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlateFilamentsUseCase
@@ -595,6 +596,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             brimEarsTool = brimEarsTool,
             enablePaintedBrim = EnablePaintedBrimUseCase(plateRepository, settingsTabs, applicationScope),
             takeSnapshot = TakePlateSnapshotUseCase(plateRepository),
+            placeInAssembly = PlaceInAssemblyUseCase(plateRepository),
             preferences = appPreferences,
             setPreference = setPreference,
             findValidationSetting = FindValidationSettingUseCase(settingsTabs),

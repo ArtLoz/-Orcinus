@@ -2270,6 +2270,7 @@ class NativeSlicerEngine(context: Context) :
         processes = processes.map { it.toItem() },
         filamentColors = filamentColors.toList(),
         filamentTypes = filamentTypes.toList(),
+        filamentDisplayTypes = filamentDisplayTypes.toList(),
         nozzleDiameters = nozzleDiameters.toList(),
         nozzleDiameter = nozzleDiameter,
         bedTypes = bedTypeValues.zip(bedTypeLabels, ::BedTypeChoice),

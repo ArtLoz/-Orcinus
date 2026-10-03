@@ -45,6 +45,8 @@ data class Presets(
     val filamentColors: List<String> = emptyList(),
     /** filament_type of every filament of the plate ("PLA", "PETG" ...), in the same order. */
     val filamentTypes: List<String> = emptyList(),
+    /** DynamicPrintConfig::get_filament_type()'s displayed type of every filament ("Sup.PLA" for a support PLA). */
+    val filamentDisplayTypes: List<String> = emptyList(),
     /** The nozzle diameters of the selected printer model, "0.4". */
     val nozzleDiameters: List<String>,
     /** The nozzle diameter of the selected printer. */

@@ -16,6 +16,8 @@ parcelable PresetsParcel {
     @nullable String[] filamentColors;
     /** filament_type of every filament of the plate. */
     @nullable String[] filamentTypes;
+    /** The displayed type of every filament of the plate. */
+    @nullable String[] filamentDisplayTypes;
     @nullable String[] nozzleDiameters;
     @nullable String nozzleDiameter;
     /** Presets.bedTypes: the values and their labels. */

@@ -2,7 +2,9 @@ package app.orcinus.shadow.feature.prepare
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -24,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasTool
@@ -35,9 +39,12 @@ import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.extruderNumber
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.render.scene.PlateGizmo
 import java.util.Locale
 import kotlin.math.roundToInt
 import app.orcinus.shadow.core.designsystem.R as DesignR
@@ -51,9 +58,13 @@ internal class AssemblyViewActions(
     val setExplosionRatio: (Double) -> Unit,
     /** The menu's "Hide" (false) and "Show" (true) of the selected copies. */
     val setVisible: (Boolean) -> Unit,
+    /** A filament button (Plater::fill_color()): the selection prints with that filament. */
+    val fillColor: (Int) -> Unit,
+    /** A gizmo placed the copy at an index of the scene in the assembly. */
+    val place: (index: Int, assemble: Transform3, manipulation: Manipulation) -> Unit,
 ) {
     companion object {
-        val NONE = AssemblyViewActions({}, {}, {}, {})
+        val NONE = AssemblyViewActions({}, {}, {}, {}, {}, { _, _, _ -> })
     }
 }
 
@@ -65,15 +76,68 @@ internal class AssemblyViewActions(
  * disabled.
  */
 @Composable
-internal fun AssemblyViewToolbar(actions: AssemblyViewActions) {
+internal fun AssemblyViewToolbar(state: PrepareUiState, actions: AssemblyViewActions, onToggleGizmo: (PlateGizmo) -> Unit) {
+    @Composable
+    fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo) = OrcaCanvasTool(
+        icon = icon,
+        contentDescription = stringResource(name),
+        onClick = { onToggleGizmo(gizmo) },
+        enabled = state.canManipulate,
+        selected = state.gizmo == gizmo,
+    )
+
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         AssemblyReturnButton(actions.back)
         OrcaCanvasToolbar {
-            OrcaCanvasTool(DesignR.drawable.orca_toolbar_move, stringResource(R.string.gizmo_move), onClick = {}, enabled = false)
-            OrcaCanvasTool(DesignR.drawable.orca_toolbar_rotate, stringResource(R.string.gizmo_rotate), onClick = {}, enabled = false)
+            gizmo(DesignR.drawable.orca_toolbar_move, R.string.gizmo_move, PlateGizmo.MOVE)
+            gizmo(DesignR.drawable.orca_toolbar_rotate, R.string.gizmo_rotate, PlateGizmo.ROTATE)
             OrcaCanvasTool(DesignR.drawable.orca_toolbar_measure, stringResource(R.string.gizmo_measure), onClick = {}, enabled = false)
             OrcaCanvasTool(DesignR.drawable.orca_toolbar_assembly, stringResource(R.string.gizmo_assembly), onClick = {}, enabled = false)
             OrcaCanvasTool(DesignR.drawable.orca_mmu_segmentation, stringResource(R.string.gizmo_color_painting), onClick = {}, enabled = false)
+        }
+    }
+}
+
+/**
+ * GLCanvas3D::_render_paint_toolbar(): a button of every filament of the
+ * plate in its colour, with its number and its displayed type split at the
+ * first space, which gives the selection that filament (Plater::fill_color()).
+ * The row scrolls where the filaments are more than the screen is wide.
+ */
+@Composable
+internal fun AssemblyPaintToolbar(state: PrepareUiState, onFill: (Int) -> Unit) {
+    if (state.filamentColors.isEmpty()) return
+    val colors = OrcaTheme.colors
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .shadow(2.dp, OrcaTheme.shapes.canvasPanel)
+            .clip(OrcaTheme.shapes.canvasPanel)
+            .background(colors.canvasPanel)
+            .horizontalScroll(rememberScrollState())
+            .padding(4.dp),
+    ) {
+        state.filamentColors.forEachIndexed { index, color ->
+            val type = state.filamentDisplayTypes.getOrNull(index).orEmpty()
+            val space = type.indexOf(' ')
+            val first = if (space >= 0) type.substring(0, space) else type
+            val second = if (space >= 0) type.substring(space + 1) else ""
+            // The text is white over a filament darker than a grey of 80.
+            val gray = 0.299f * color.red * 255f + 0.587f * color.green * 255f + 0.114f * color.blue * 255f
+            val ink = if (gray < 80f) Color.White else Color.Black
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .size(width = 64.dp, height = 48.dp)
+                    .clip(OrcaTheme.shapes.control)
+                    .background(Color(color.red, color.green, color.blue, color.alpha))
+                    .clickable(role = Role.Button, onClick = { onFill(index + 1) }),
+            ) {
+                Text((index + 1).toString(), color = ink, style = OrcaTheme.typography.body12.copy(fontWeight = FontWeight.Bold))
+                Text(first, color = ink, style = OrcaTheme.typography.body10, maxLines = 1)
+                if (second.isNotEmpty()) Text(second, color = ink, style = OrcaTheme.typography.body10, maxLines = 1)
+            }
         }
     }
 }

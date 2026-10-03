@@ -349,6 +349,12 @@ PresetState preset_state(Slic3r::PresetBundle& bundle)
         const Slic3r::Preset* const filament = bundle.filaments.find_preset(name, false);
         const auto* const types = filament == nullptr ? nullptr : filament->config.option<Slic3r::ConfigOptionStrings>("filament_type");
         state.filament_types.push_back(types == nullptr || types->values.empty() ? std::string() : types->values.front());
+        std::string displayed;
+        if (filament != nullptr) {
+            Slic3r::DynamicPrintConfig config = filament->config;
+            config.get_filament_type(displayed);
+        }
+        state.filament_display_types.push_back(displayed);
     }
     state.printers = plater_combo_items(bundle, Slic3r::Preset::TYPE_PRINTER);
     state.filaments = plater_combo_items(bundle, Slic3r::Preset::TYPE_FILAMENT);

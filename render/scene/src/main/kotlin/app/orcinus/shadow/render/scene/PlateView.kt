@@ -220,6 +220,8 @@ fun PlateView(
     assembly: AssemblyView? = null,
     /** The size of the assembly view's selection, which its "Assembly Info" tells; null while nothing is selected. */
     onAssemblySelection: (Vector3?) -> Unit = {},
+    /** A gizmo of the assembly view placed the copy at [index]: its new assemble transformation. */
+    onPlaceInAssembly: (index: Int, assemble: Transform3, manipulation: Manipulation) -> Unit = { _, _, _ -> },
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -486,6 +488,7 @@ fun PlateView(
                 }
             }
             controller.onAssemblySelection = onAssemblySelection
+            controller.onPlaceInAssembly = onPlaceInAssembly
             controller.setAssembly(assembly)
             controller.setSelection(selectedObject)
             controller.setSelected(selectedObjects)
@@ -854,6 +857,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** _render_assemble_info(): the size of the assembly view's selection, told as it changes. */
     var onAssemblySelection: (Vector3?) -> Unit = {}
+    var onPlaceInAssembly: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
     private var assemblySelection: Vector3? = null
 
     var onSelectObject: (Int?) -> Unit = {}
@@ -1562,6 +1566,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             is RotateGrabberDrag -> Manipulation.Rotate
             is ScaleGrabberDrag -> Manipulation.Scale
             else -> Manipulation.Move
+        }
+        assembly?.let { view ->
+            // do_move() and do_rotate() of the assembly view: the copy's assemble
+            // transformation, the explosion's offsets turned with it and taken off,
+            // with nothing dropped on the plate.
+            val spread = (target.world * drag.startWorld.inverse()).transformVector(target.explosion) * (view.explosionRatio - 1.0)
+            val assemble = target.world.withTranslation(target.world.translation() - spread)
+            onPlaceInAssembly(target.index, Transform3(assemble.elements().toList()), manipulation)
+            return
         }
         val shiftZ = target.minZ()
         val drops = target.autoDrop && when (manipulation) {

@@ -1023,6 +1023,10 @@ struct PresetState {
     // filament_type of every filament's preset ("PLA", "PETG" ...), which the
     // send dialog of a printer with material boxes matches its slots by.
     std::vector<std::string> filament_types;
+    // DynamicPrintConfig::get_filament_type()'s displayed type of every
+    // filament's preset ("Sup.PLA" for a support PLA), which the assembly
+    // view's filament buttons show.
+    std::vector<std::string> filament_display_types;
     // PlaterPresetComboBox::update() for printers and the first filament.
     std::vector<PresetItem> printers;
     std::vector<PresetItem> filaments;

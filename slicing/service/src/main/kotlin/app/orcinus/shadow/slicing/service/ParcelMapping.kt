@@ -922,6 +922,7 @@ private fun PresetsParcel.fill(presets: Presets) {
     processes = presets.processes.toParcels()
     filamentColors = presets.filamentColors.toTypedArray()
     filamentTypes = presets.filamentTypes.toTypedArray()
+    filamentDisplayTypes = presets.filamentDisplayTypes.toTypedArray()
     nozzleDiameters = presets.nozzleDiameters.toTypedArray()
     nozzleDiameter = presets.nozzleDiameter
     bedTypeValues = presets.bedTypes.map(BedTypeChoice::value).toTypedArray()
@@ -988,6 +989,7 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         processes = processes.toItems(),
         filamentColors = filamentColors.orEmpty().toList(),
         filamentTypes = filamentTypes.orEmpty().toList(),
+        filamentDisplayTypes = filamentDisplayTypes.orEmpty().toList(),
         nozzleDiameters = nozzleDiameters.orEmpty().toList(),
         nozzleDiameter = nozzleDiameter.orEmpty(),
         bedTypes = bedTypeValues.orEmpty().zip(bedTypeLabels.orEmpty(), ::BedTypeChoice),
