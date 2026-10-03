@@ -2036,6 +2036,8 @@ struct EmbossVolume {
     // depth in the world, 1 for none.
     double scale_height{1.0};
     double scale_depth{1.0};
+    // GLGizmoSVG::calculate_scale(): the scale of the volume's width in the world, 1 for none.
+    double scale_width{1.0};
     // EmbossShape::fix_3mf_tr, column-major: what a 3MF file baked into the
     // volume's transformation, which the tool's turns leave out; empty for none.
     std::vector<double> fix;

@@ -4438,7 +4438,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeEmboss(
     const jmethodID constructor = env->GetMethodID(
         volume_class,
         "<init>",
-        "(JLjava/lang/String;JLjava/lang/String;Lapp/orcinus/shadow/slicing/nativebridge/NativeTextStyle;Ljava/lang/String;ZDDJZDD[D)V"
+        "(JLjava/lang/String;JLjava/lang/String;Lapp/orcinus/shadow/slicing/nativebridge/NativeTextStyle;Ljava/lang/String;ZDDJZDD[DD)V"
     );
     return env->NewObject(
         volume_class,
@@ -4456,7 +4456,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeEmboss(
         volume.only_part ? JNI_TRUE : JNI_FALSE,
         static_cast<jdouble>(volume.scale_height),
         static_cast<jdouble>(volume.scale_depth),
-        to_java(env, volume.fix.data(), volume.fix.size())
+        to_java(env, volume.fix.data(), volume.fix.size()),
+        static_cast<jdouble>(volume.scale_width)
     );
 }
 

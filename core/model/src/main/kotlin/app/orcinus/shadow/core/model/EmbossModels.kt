@@ -107,6 +107,8 @@ data class EmbossVolume(
     val onlyPart: Boolean,
     val scaleHeight: Double,
     val scaleDepth: Double,
+    /** GLGizmoSVG::calculate_scale(): how much the world scales the SVG's width; 1 for none. */
+    val scaleWidth: Double = 1.0,
     /** EmbossShape::fix_3mf_tr: what a 3MF file baked into the volume's transformation; null for none. */
     val fix: Transform3? = null,
 )

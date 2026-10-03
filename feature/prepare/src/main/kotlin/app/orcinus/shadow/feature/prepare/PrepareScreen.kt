@@ -104,6 +104,7 @@ import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.EmbossRequest
+import app.orcinus.shadow.core.model.EmbossVolume
 import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.core.model.CutConnectorStyle
 import app.orcinus.shadow.core.model.CutConnectorType
@@ -214,6 +215,11 @@ internal fun PrepareRoute(
         val mesh = replaceTarget
         replaceTarget = null
         if (uri != null && mesh != null) viewModel.replaceMesh(PlateInstanceId(ScenePath(mesh), replaceInstance), uri.toString())
+    }
+    // choose_svg_file() and "Save as" of the SVG tool.
+    val svgPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> viewModel.svgPicked(uri?.toString()) }
+    val svgSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(SVG_MIME_TYPE)) { uri ->
+        if (uri != null) viewModel.saveSvgAs(uri.toString())
     }
     PrepareScreen(
         state = state,
@@ -403,6 +409,33 @@ internal fun PrepareRoute(
             drag = viewModel::dragText,
         ),
         textFamilies = textFamilies,
+        svgActions = SvgActions(
+            choose = viewModel::chooseSvg,
+            chooseRequested = viewModel::chooseRequestedSvg,
+            pickFile = { svgPicker.launch(arrayOf(SVG_MIME_TYPE)) },
+            changeFile = {
+                viewModel.chooseSvgFile()
+                svgPicker.launch(arrayOf(SVG_MIME_TYPE))
+            },
+            edit = viewModel::editSvg,
+            close = viewModel::closeSvg,
+            setDepth = viewModel::setSvgDepth,
+            setUseSurface = viewModel::setSvgUseSurface,
+            setSize = viewModel::setSvgSize,
+            resetSize = viewModel::resetSvgSize,
+            setKeepRatio = viewModel::setSvgKeepRatio,
+            move = viewModel::moveSvg,
+            rotate = viewModel::rotateSvg,
+            setKeepUp = viewModel::setSvgKeepUp,
+            mirror = viewModel::mirrorSvg,
+            faceCamera = viewModel::faceSvgToCamera,
+            setType = viewModel::setSvgType,
+            reload = viewModel::reloadSvg,
+            forgetPath = viewModel::forgetSvgPath,
+            bake = viewModel::bakeSvg,
+            saveAs = { viewModel.svgSaveName()?.let(svgSaver::launch) },
+            drag = viewModel::dragSvg,
+        ),
         layerActions = LayerEditingActions(
             toggle = viewModel::toggleLayerEditing,
             close = viewModel::closeLayerEditing,
@@ -500,6 +533,7 @@ internal fun PrepareScreen(
     layerActions: LayerEditingActions = LayerEditingActions.NONE,
     textActions: TextActions = TextActions.NONE,
     textFamilies: List<TextFontFamily> = emptyList(),
+    svgActions: SvgActions = SvgActions.NONE,
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
@@ -518,7 +552,14 @@ internal fun PrepareScreen(
         LaunchedEffect(state.embossRequest) {
             val request = state.embossRequest as? EmbossRequest.Add ?: return@LaunchedEffect
             val copy = state.sceneCopies.indexOfFirst { it.id == PlateInstanceId(request.mesh, 0) }
-            textActions.addRequested(request, copy.takeIf { it >= 0 }?.let { viewCamera.surfaceHit(it) }, defaultText)
+            val hit = copy.takeIf { it >= 0 }?.let { viewCamera.surfaceHit(it) }
+            if (request.kind == EmbossKind.SVG) {
+                // choose_svg_file() first.
+                svgActions.chooseRequested(request, hit)
+                svgActions.pickFile()
+            } else {
+                textActions.addRequested(request, hit, defaultText)
+            }
         }
         var renamingPlate by remember { mutableStateOf<Int?>(null) }
         // Plater::select_plate_by_hover_id(), action 5: the plate is selected, then its settings open.
@@ -615,8 +656,9 @@ internal fun PrepareScreen(
                 antialiasingSamples = canvas.antialiasingSamples,
                 layerEditing = state.layerEditing?.view(),
                 // SurfaceDrag: the text the tool is open on follows a finger over its object.
-                textDrag = state.text?.takeUnless { it.busy }?.let { textDragOf(it, state.sceneCopies) },
-                onTextDragged = textActions.drag,
+                textDrag = state.text?.takeUnless { it.busy }?.let { embossDragOf(it.volume, it.described, keepUp = true, state.sceneCopies) }
+                    ?: state.svg?.takeUnless { it.busy }?.let { embossDragOf(it.volume, it.described, keepUp = it.keepUp, state.sceneCopies) },
+                onTextDragged = { placement -> if (state.text != null) textActions.drag(placement) else svgActions.drag(placement) },
             )
         }
         plateMenu?.let { position ->
@@ -629,6 +671,10 @@ internal fun PrepareScreen(
                 actions = plateMenuActions,
                 // An object of a text standing where the finger held the bed.
                 onAddText = { textActions.add(null, VolumeType.PART, null, viewCamera.bedPoint(position), defaultText) },
+                onAddSvg = {
+                    svgActions.choose(null, VolumeType.PART, null, viewCamera.bedPoint(position))
+                    svgActions.pickFile()
+                },
             )
         }
         objectMenu?.let { menu ->
@@ -641,6 +687,7 @@ internal fun PrepareScreen(
                 objectMenuActions,
                 onChooseShape = { type -> addingPart = Triple(menu.index, type, menu.position) },
                 onEditText = { volume -> textActions.edit(volume) },
+                onEditSvg = { volume -> svgActions.edit(volume) },
                 onAskNumberOfInstances = { askingCopies = menu.index },
                 onAskClone = { cloning = menu.index },
             )
@@ -716,6 +763,11 @@ internal fun PrepareScreen(
                 onText = {
                     addingPart = null
                     textActions.add(index, type, viewCamera.surfaceHit(index, at), null, defaultText)
+                },
+                onSvg = {
+                    addingPart = null
+                    svgActions.choose(index, type, viewCamera.surfaceHit(index, at), null)
+                    svgActions.pickFile()
                 },
             )
         }
@@ -804,6 +856,7 @@ internal fun PrepareScreen(
                     state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
                     state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye)
+                    state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye)
                     state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
@@ -930,6 +983,9 @@ internal fun PrepareScreen(
  */
 private const val MESH_MIME_TYPE = "application/octet-stream"
 
+/** FT_SVG of the desktop app's file dialogs. */
+private const val SVG_MIME_TYPE = "image/svg+xml"
+
 /** The context menu asked for over the object [index], at [position] in the plate view. */
 private data class ObjectMenu(val index: Int, val position: Offset)
 
@@ -1017,6 +1073,7 @@ private fun PlateContextMenu(
     onPaste: () -> Unit,
     actions: PlateMenuActions,
     onAddText: () -> Unit = {},
+    onAddSvg: () -> Unit = {},
 ) {
     OrcaContextMenu(
         expanded = true,
@@ -1039,6 +1096,7 @@ private fun PlateContextMenu(
             addHandyModel = actions.addHandyModel,
             addModels = onAddModel,
             addText = onAddText,
+            addSvg = onAddSvg,
         )
     }
 }
@@ -1056,6 +1114,7 @@ private fun ObjectContextMenu(
     onAskNumberOfInstances: () -> Unit,
     onAskClone: () -> Unit,
     onEditText: (ObjectPartId) -> Unit = {},
+    onEditSvg: (ObjectPartId) -> Unit = {},
 ) {
     val copy = state.sceneCopies.getOrNull(menu.index)
     OrcaContextMenu(
@@ -1113,6 +1172,10 @@ private fun ObjectContextMenu(
                 editText = ObjectPartId(copy.id.mesh, 0)
                     .takeIf { copy.plateObject.parts.isEmpty() && copy.plateObject.volume.emboss?.kind == EmbossKind.TEXT }
                     ?.let { volume -> { onEditText(volume) } },
+                // append_menu_item_edit_svg(): an object made of an SVG alone.
+                editSvg = ObjectPartId(copy.id.mesh, 0)
+                    .takeIf { copy.plateObject.parts.isEmpty() && copy.plateObject.volume.emboss?.kind == EmbossKind.SVG }
+                    ?.let { volume -> { onEditSvg(volume) } },
             ),
             dismiss = onDismiss,
         )
@@ -2214,22 +2277,24 @@ private fun objectLabels(state: PrepareUiState): Map<Int, PlateLabel> {
 }
 
 /**
- * The text the tool is open on as the canvas drags it: a part, drawn by its
- * own mesh in its placement, or the object's own mesh, which the scene draws
- * from each copy's mesh in place; null before the engine described it.
+ * The text or SVG [volume] the tool is open on as the canvas drags it: a part,
+ * drawn by its own mesh in its placement, or the object's own mesh, which the
+ * scene draws from each copy's mesh in place; null before the engine
+ * described it.
  */
-private fun textDragOf(text: TextMode, copies: List<SceneCopy>): TextDragView? {
-    val described = text.described ?: return null
-    val plateObject = copies.firstOrNull { it.id.mesh == text.volume.mesh }?.plateObject ?: return null
-    if (text.volume.index == 0) {
+private fun embossDragOf(volume: ObjectPartId, described: EmbossVolume?, keepUp: Boolean, copies: List<SceneCopy>): TextDragView? {
+    described ?: return null
+    val plateObject = copies.firstOrNull { it.id.mesh == volume.mesh }?.plateObject ?: return null
+    if (volume.index == 0) {
         return TextDragView(
             keys = plateObject.instances.mapTo(HashSet()) { it.inspection.mesh.value },
             placement = (plateObject as? PlateObject.ImportedModel)?.frame ?: Transform3.IDENTITY,
             sceneFrame = Transform3.IDENTITY,
             fix = described.fix,
             onlyPart = described.onlyPart,
+            keepUp = keepUp,
         )
     }
-    val part = plateObject.parts.getOrNull(text.volume.index - 1) ?: return null
-    return TextDragView(setOf(part.mesh.value), part.placement, part.placement, described.fix, described.onlyPart)
+    val part = plateObject.parts.getOrNull(volume.index - 1) ?: return null
+    return TextDragView(setOf(part.mesh.value), part.placement, part.placement, described.fix, described.onlyPart, keepUp)
 }

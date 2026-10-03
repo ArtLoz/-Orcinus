@@ -18,6 +18,7 @@ parcelable EmbossVolumeParcel {
     boolean onlyPart;
     double scaleHeight;
     double scaleDepth;
+    double scaleWidth = 1.0;
     /** EmbossShape::fix_3mf_tr, column-major; empty for none. */
     double[] fix = {};
 }

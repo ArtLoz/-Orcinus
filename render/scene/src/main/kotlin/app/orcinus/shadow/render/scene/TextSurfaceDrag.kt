@@ -16,8 +16,9 @@ import kotlin.math.sqrt
  * ([placement]), the transformation the scene puts its mesh in after the
  * copy's ([sceneFrame]: the placement for a part, none for the object's own
  * mesh, which the engine writes in place), the fix of a text from a 3MF file
- * (EmbossShape::fix_3mf_tr), and whether it is its object's only part, which
- * moves as the object.
+ * (EmbossShape::fix_3mf_tr), whether it is its object's only part, which
+ * moves as the object, and whether its up is kept within UP_LIMIT (always for
+ * a text, by the SVG tool's lock for an SVG).
  */
 data class TextDragView(
     val keys: Set<String>,
@@ -25,6 +26,7 @@ data class TextDragView(
     val sceneFrame: Transform3,
     val fix: Transform3?,
     val onlyPart: Boolean,
+    val keepUp: Boolean = true,
 )
 
 /** SurfaceDrag.hpp's UP_LIMIT: a text's up keeps between the sides and the top of a model. */
@@ -34,7 +36,8 @@ internal const val UP_LIMIT = 0.9
  * SurfaceDrag: the text held at the copy [index], the screen offset of its
  * origin from the finger ([offsetX], [offsetY]), its transformation to the
  * world ([world], without the fix) and the copy's inverse ([instanceInv]),
- * its angle about its own Z when the drag began, and the fix.
+ * its angle about its own Z when the drag began, the fix, and the limit of
+ * its up; none keeps no up.
  */
 internal class TextDragStart(
     val index: Int,
@@ -44,6 +47,7 @@ internal class TextDragStart(
     val instanceInv: Affine3,
     val startAngle: Double?,
     val fix: Affine3?,
+    val upLimit: Double?,
 )
 
 /** Eigen's Quaternion::FromTwoVectors(): the shortest rotation that turns [a] into [b]. */

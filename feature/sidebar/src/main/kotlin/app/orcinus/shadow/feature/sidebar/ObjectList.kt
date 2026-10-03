@@ -185,6 +185,10 @@ internal class ObjectListActions(
     val editText: (ObjectPartId) -> Unit = {},
     /** "Text" of "Add part", "Add negative part" or "Add modifier": the canvas places a text on the object. */
     val addText: (ScenePath, VolumeType) -> Unit = { _, _ -> },
+    /** append_menu_item_edit_svg(): the canvas's SVG tool opens on the volume. */
+    val editSvg: (ObjectPartId) -> Unit = {},
+    /** "SVG" of the same submenus: the canvas places an SVG on the object, once a file is picked. */
+    val addSvg: (ScenePath, VolumeType) -> Unit = { _, _ -> },
 )
 
 /** An item the user renames: an object or one of its volumes, with the name it has. */
@@ -396,6 +400,10 @@ private fun LazyListScope.objectRows(
                             editText = ObjectPartId(mesh, 0)
                                 .takeIf { plateObject.instances.size == 1 && plateObject.parts.isEmpty() && plateObject.volume.emboss?.kind == EmbossKind.TEXT }
                                 ?.let { id -> { actions.editText(id) } },
+                            // can_edit_svg(), as can_edit_text().
+                            editSvg = ObjectPartId(mesh, 0)
+                                .takeIf { plateObject.instances.size == 1 && plateObject.parts.isEmpty() && plateObject.volume.emboss?.kind == EmbossKind.SVG }
+                                ?.let { id -> { actions.editSvg(id) } },
                             onChooseShape = onChooseShape,
                             onAskNumberOfInstances = onAskNumberOfInstances,
                             onAskClone = onAskClone,
@@ -473,13 +481,13 @@ private fun LazyListScope.objectRows(
                             paste = { dismiss(); actions.paste(first) },
                         )
                         OrcaMenuSeparator()
-                        if (embossed == EmbossKind.TEXT) {
+                        if (embossed != null) {
                             OrcaMenuItem(
-                                text = orcaString("Edit text"),
+                                text = orcaString(if (embossed == EmbossKind.TEXT) "Edit text" else "Edit SVG"),
                                 enabled = enabled,
                                 onClick = {
                                     dismiss()
-                                    actions.editText(partId)
+                                    if (embossed == EmbossKind.TEXT) actions.editText(partId) else actions.editSvg(partId)
                                 },
                             )
                         }
@@ -834,6 +842,7 @@ private fun ObjectListActions.menuOf(
     delete: () -> Unit,
     invalidateCutInfo: () -> Unit,
     editText: (() -> Unit)?,
+    editSvg: (() -> Unit)?,
     onChooseShape: (ScenePath, VolumeType) -> Unit,
     onAskNumberOfInstances: (ScenePath) -> Unit,
     onAskClone: (ScenePath) -> Unit,
@@ -867,6 +876,7 @@ private fun ObjectListActions.menuOf(
     export = { exportObject(id.mesh, it, name) },
     invalidateCutInfo = invalidateCutInfo,
     editText = editText,
+    editSvg = editSvg,
 )
 
 /**

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
@@ -29,6 +30,7 @@ import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
@@ -54,6 +56,8 @@ import app.orcinus.shadow.core.model.SettingsScope
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.SvgFileEdit
+import app.orcinus.shadow.core.model.SvgPreviewOutcome
 import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.EmbossTransform
@@ -125,6 +129,7 @@ import app.orcinus.shadow.domain.plate.TextFontsUseCase
 import app.orcinus.shadow.domain.plate.TextStyleList
 import app.orcinus.shadow.domain.plate.TextStylesUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.domain.plate.embossKindOf
 import app.orcinus.shadow.domain.plate.isTextVolume
 import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.makeUniqueName
@@ -142,6 +147,7 @@ import app.orcinus.shadow.render.scene.ObjectTransforms
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.SurfaceHit
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
+import java.io.File
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -384,12 +390,20 @@ class PrepareViewModel(
         // tool follows the selection to another text, and closes on anything else.
         viewModelScope.launch {
             plate.map { it.selectedInstances to it.selectedPart }.distinctUntilChanged().collect {
-                val open = view.value.text ?: return@collect
-                if (open.busy || textLock.isLocked) return@collect
-                val selected = plate.value.selectedEmbossVolume(EmbossKind.TEXT)
-                when {
-                    selected == null -> closeText()
-                    selected != open.volume -> openText(selected)
+                if (textLock.isLocked) return@collect
+                view.value.text?.takeUnless { it.busy }?.let { open ->
+                    val selected = plate.value.selectedEmbossVolume(EmbossKind.TEXT)
+                    when {
+                        selected == null -> closeText()
+                        selected != open.volume -> openText(selected)
+                    }
+                }
+                view.value.svg?.takeUnless { it.busy }?.let { open ->
+                    val selected = plate.value.selectedEmbossVolume(EmbossKind.SVG)
+                    when {
+                        selected == null -> closeSvg()
+                        selected != open.volume -> openSvg(selected)
+                    }
                 }
             }
         }
@@ -398,7 +412,11 @@ class PrepareViewModel(
             plate.map { it.embossRequest }.distinctUntilChanged().collect { request ->
                 if (request is EmbossRequest.Edit) {
                     requestEmboss.done()
-                    if (plate.value.isTextVolume(request.volume)) openText(request.volume)
+                    when (plate.value.embossKindOf(request.volume)) {
+                        EmbossKind.TEXT -> openText(request.volume)
+                        EmbossKind.SVG -> openSvg(request.volume)
+                        null -> Unit
+                    }
                 }
             }
         }
@@ -416,6 +434,7 @@ class PrepareViewModel(
                 if (!on) return@collect
                 closeCut()
                 closePainting()
+                closeEmbossTools()
                 openSimplify.close()
                 view.update { it.copy(gizmo = null, arrangeOptionsOpen = false) }
             }
@@ -602,6 +621,7 @@ class PrepareViewModel(
      */
     fun togglePainting(kind: PaintKind = PaintKind.COLOR) {
         closeCut()
+        closeEmbossTools()
         editLayerHeights.enable(false)
         val open = view.value.painting
         if (open != null) {
@@ -637,6 +657,7 @@ class PrepareViewModel(
             return
         }
         current.simplify?.preview?.let(previewSimplify::discard)
+        closeEmbossTools()
         // A gizmo running closes the variable layer height (_deactivate_layersediting_menu()).
         editLayerHeights.enable(false)
         // A volume selected anew: half the triangles taken away, and the detail level kept.
@@ -766,6 +787,7 @@ class PrepareViewModel(
         if (!state.canManipulate) return
         closePainting()
         openSimplify.close()
+        closeEmbossTools()
         editLayerHeights.enable(false)
         val left = lastCut
         val placement = copy.instance.inspection.placement.columns
@@ -1260,6 +1282,7 @@ class PrepareViewModel(
         if (!state.canManipulate) return
         openSimplify.close()
         closeCut()
+        closeEmbossTools()
         editLayerHeights.enable(false)
         view.update { view ->
             view.copy(
@@ -1346,6 +1369,7 @@ class PrepareViewModel(
      * when it has it, by its file or else its face name, or unknown.
      */
     private fun openText(volume: ObjectPartId, created: TextStyle? = null) {
+        closeSvg()
         closeOtherTools()
         view.update { it.copy(text = TextMode(volume, text = "", style = created ?: TextStyle("", ""), busy = true)) }
         viewModelScope.launch {
@@ -1547,6 +1571,243 @@ class PrepareViewModel(
                 ),
             )
         }
+    }
+
+    /** GLGizmoSVG::m_keep_up and m_keep_ratio, kept from one opening to the next. */
+    private var svgKeepUp = true
+    private var svgKeepRatio = true
+
+    /** What the SVG document the picker gives next is for: a new SVG placed so, or another file of the open one. */
+    private sealed interface SvgPick {
+        data class Create(val placement: EmbossPlacement, val type: VolumeType) : SvgPick
+
+        data class Change(val volume: ObjectPartId) : SvgPick
+    }
+
+    private var svgPick: SvgPick? = null
+
+    /**
+     * MenuFactory's "SVG" of "Add Primitive", "Add part", "Add negative part"
+     * or "Add modifier": the SVG goes over the copy at [copy] where [hit] says,
+     * beside it without a hit, or as an object at [bedPoint], once the picker
+     * gives its file (choose_svg_file()).
+     */
+    fun chooseSvg(copy: Int?, type: VolumeType, hit: SurfaceHit?, bedPoint: Point2?) {
+        val id = copy?.let { state.value.sceneCopies.getOrNull(it)?.id }
+        svgPick = SvgPick.Create(if (id == null) EmbossPlacement.onBed(bedPoint) else placementOn(id, hit), type)
+    }
+
+    /** The object list's "Add part" > "SVG", which the canvas places as without a position. */
+    fun chooseRequestedSvg(request: EmbossRequest.Add, hit: SurfaceHit?) {
+        requestEmboss.done()
+        if (request.kind != EmbossKind.SVG) return
+        svgPick = SvgPick.Create(placementOn(PlateInstanceId(request.mesh, 0), hit), request.type)
+    }
+
+    /** "Change file" of the SVG window: the picker's file replaces the open SVG's. */
+    fun chooseSvgFile() {
+        val open = view.value.svg ?: return
+        svgPick = SvgPick.Change(open.volume)
+    }
+
+    /** The SVG document the picker gave, or none when it was cancelled. */
+    fun svgPicked(document: String?) {
+        val pick = svgPick ?: return
+        svgPick = null
+        if (document == null) return
+        viewModelScope.launch {
+            val file = emboss.importSvg(ExternalDocumentReference(document)) ?: return@launch
+            when (pick) {
+                is SvgPick.Create -> {
+                    if (!state.value.canEditPlate) return@launch
+                    closeText()
+                    closeSvg()
+                    closeOtherTools()
+                    val created = emboss.createSvg(pick.placement, pick.type, file) ?: return@launch
+                    openSvg(created)
+                }
+                is SvgPick.Change -> svgOperation { open -> emboss.updateSvg(open.volume, open.depth, open.useSurface, file.path) }
+            }
+        }
+    }
+
+    /** "Edit SVG" of the menus. */
+    fun editSvg(volume: ObjectPartId) = openSvg(volume)
+
+    /** GLGizmoSVG::set_volume_by_selection(): the window opens on the SVG [volume]. */
+    private fun openSvg(volume: ObjectPartId) {
+        closeText()
+        closeOtherTools()
+        view.update { it.copy(svg = SvgMode(volume, keepUp = svgKeepUp, keepRatio = svgKeepRatio)) }
+        viewModelScope.launch { refreshSvg(volume, volume) }
+    }
+
+    /** The window closes (GLGizmoSVG::close()). */
+    fun closeSvg() {
+        if (view.value.svg == null) return
+        view.update { it.copy(svg = null) }
+    }
+
+    /** The text and SVG tools close, as another gizmo opens. */
+    private fun closeEmbossTools() {
+        closeText()
+        closeSvg()
+    }
+
+    /** What the engine tells of the SVG [volume] and its picture, for the window open on [open]. */
+    private suspend fun refreshSvg(open: ObjectPartId, volume: ObjectPartId) {
+        val described = (emboss.describe(volume) as? EmbossVolumeOutcome.Success)?.volume
+        if (described == null || described.kind != EmbossKind.SVG) {
+            view.update { if (it.svg?.volume == open) it.copy(svg = null) else it }
+            return
+        }
+        val preview = (emboss.previewSvg(volume, SVG_PREVIEW_SIZE) as? SvgPreviewOutcome.Success)?.preview
+        view.update { state ->
+            val now = state.svg?.takeIf { it.volume == open } ?: return@update state
+            state.copy(svg = now.copy(volume = volume, described = described, preview = preview, previewVersion = now.previewVersion + 1, busy = false))
+        }
+    }
+
+    /** An edit of the open SVG by the engine; the window tells what the SVG became. */
+    private fun svgOperation(edit: suspend (SvgMode) -> ObjectPartId?) {
+        val open = view.value.svg ?: return
+        viewModelScope.launch {
+            textLock.withLock {
+                view.update { it.copy(svg = it.svg?.copy(busy = true)) }
+                val edited = edit(open) ?: open.volume
+                refreshSvg(open.volume, edited)
+            }
+        }
+    }
+
+    /** The SVG turned, moved, sized or mirrored as [transform] says. */
+    private fun transformSvg(transform: EmbossTransform) = svgOperation { open ->
+        val instance = plate.value.selectedInstances.firstOrNull { it.mesh == open.volume.mesh }?.instance ?: 0
+        emboss.transform(open.volume, instance, transform, "", TextStyle("", ""), reEmboss = false)
+    }
+
+    /** draw_depth() */
+    fun setSvgDepth(depth: Double) {
+        val open = view.value.svg ?: return
+        val value = depth.coerceIn(SVG_DEPTH_MIN, SVG_DEPTH_MAX)
+        if (abs(value - open.depth) < 1e-4) return
+        svgOperation { emboss.updateSvg(it.volume, value, it.useSurface) }
+    }
+
+    /** draw_use_surface() */
+    fun setSvgUseSurface(use: Boolean) = svgOperation { emboss.updateSvg(it.volume, it.depth, use) }
+
+    /**
+     * draw_size(): the SVG [width] or [height] millimetres, the other with it
+     * while the ratio is locked; a change too small or too big is no change.
+     */
+    fun setSvgSize(width: Double?, height: Double?) {
+        val open = view.value.svg ?: return
+        val described = open.described ?: return
+        val scale = when {
+            width != null && described.width > 0.0 -> (width / described.width).let { ratio ->
+                if (open.keepRatio) Vector3(ratio, ratio, 1.0) else Vector3(ratio, 1.0, 1.0)
+            }
+            height != null && described.height > 0.0 -> Vector3(1.0, height / described.height, 1.0)
+            else -> return
+        }
+        if (!isValidScaleRatio(if (width != null) scale.x else scale.y)) return
+        transformSvg(EmbossTransform(scale = scale))
+    }
+
+    /** The size's reset: the SVG unscaled again. */
+    fun resetSvgSize() {
+        val described = view.value.svg?.described ?: return
+        transformSvg(EmbossTransform(scale = Vector3(1.0 / described.scaleWidth, 1.0 / described.scaleHeight, 1.0)))
+    }
+
+    /** The lock of the size: the ratio of width and height kept. */
+    fun setSvgKeepRatio(keep: Boolean) {
+        svgKeepRatio = keep
+        view.update { it.copy(svg = it.svg?.copy(keepRatio = keep)) }
+    }
+
+    /** draw_distance(): the SVG [distance] millimetres from the surface; none moves it back onto it. */
+    fun moveSvg(distance: Double?) {
+        val open = view.value.svg ?: return
+        val move = (distance ?: 0.0) - (open.distance ?: 0.0)
+        if (move == 0.0) return
+        transformSvg(EmbossTransform(move = move))
+    }
+
+    /** draw_rotation(): the SVG turned to [degrees] clockwise. */
+    fun rotateSvg(degrees: Double) {
+        val open = view.value.svg ?: return
+        var angle = -Math.toRadians(degrees)
+        angle = atan2(sin(angle), cos(angle))
+        val turn = angle - (open.angle ?: 0.0)
+        if (abs(turn) < ANGLE_EPSILON) return
+        transformSvg(EmbossTransform(rotate = turn))
+    }
+
+    /** The rotation's reset. */
+    fun resetSvgRotation() {
+        val angle = view.value.svg?.angle ?: return
+        transformSvg(EmbossTransform(rotate = -angle))
+    }
+
+    /** The lock beside Rotation: the SVG's up kept as it is dragged and faced to the camera. */
+    fun setSvgKeepUp(keep: Boolean) {
+        svgKeepUp = keep
+        view.update { it.copy(svg = it.svg?.copy(keepUp = keep)) }
+    }
+
+    /** draw_mirroring() */
+    fun mirrorSvg(axis: Axis) = transformSvg(EmbossTransform(mirror = axis))
+
+    /** draw_face_the_camera() with the camera at [eye]. */
+    fun faceSvgToCamera(eye: CameraEye?) {
+        val camera = eye ?: return
+        transformSvg(EmbossTransform(cameraPosition = camera.position, cameraForward = camera.forward, perspective = camera.perspective, keepUp = svgKeepUp))
+    }
+
+    /** SurfaceDrag let go: the SVG takes [placement] in its object, embossed anew on the surface. */
+    fun dragSvg(placement: Transform3) = svgOperation { emboss.updateSvg(it.volume, it.depth, it.useSurface, placement = placement) }
+
+    /** draw_model_type(): Join, Cut or Modifier; the last solid part keeps its type. */
+    fun setSvgType(type: VolumeType) {
+        val open = view.value.svg ?: return
+        if (open.onlyPart || open.described?.type == type) return
+        svgOperation { emboss.changeSvgType(it.volume, type, it.depth, it.useSurface) }
+    }
+
+    /** The reload button: the SVG from its file anew, or its path forgotten when the file is gone. */
+    fun reloadSvg() {
+        val path = view.value.svg?.preview?.svgPath?.takeIf(String::isNotEmpty) ?: return
+        if (File(path).exists()) {
+            svgOperation { emboss.updateSvg(it.volume, it.depth, it.useSurface, ModelPath(path)) }
+        } else {
+            forgetSvgPath()
+        }
+    }
+
+    /** "Forget the file path" */
+    fun forgetSvgPath() = svgOperation { emboss.editSvgFile(it.volume, SvgFileEdit.FORGET_PATH) }
+
+    /** "Bake": the SVG becomes a part of no SVG, and the window closes. */
+    fun bakeSvg() {
+        val open = view.value.svg ?: return
+        viewModelScope.launch {
+            textLock.withLock {
+                view.update { it.copy(svg = it.svg?.copy(busy = true)) }
+                emboss.editSvgFile(open.volume, SvgFileEdit.BAKE)
+                closeSvg()
+            }
+        }
+    }
+
+    /** The name "Save as" offers: the file's name, ".svg" after it. */
+    fun svgSaveName(): String? = view.value.svg?.described?.svgName?.let { "$it.svg" }
+
+    /** "Save as" into the [document] the user created. */
+    fun saveSvgAs(document: String) {
+        val name = svgSaveName() ?: return
+        svgOperation { emboss.saveSvgAs(it.volume, name, ExternalDocumentReference(document)) }
     }
 
     /** "Collection" of a font file of several faces: the face at [index]. */
@@ -2176,12 +2437,24 @@ class PrepareViewModel(
 
     fun dismissProblem() = dismissPlateProblem()
 
+    /** is_valid_scale_ratio() of draw_size(): a ratio of effect, not too big, and positive. */
+    private fun isValidScaleRatio(ratio: Double): Boolean = abs(ratio - 1.0) >= SVG_SCALE_RATIO_MIN && ratio <= SVG_SCALE_RATIO_MAX && ratio >= 1e-4
+
     /** is_approx() of two optional values: both unset, or both set and alike. */
     private fun sameOptional(a: Double?, b: Double?): Boolean = if (a == null || b == null) a == b else abs(a - b) < ANGLE_EPSILON
 
     private companion object {
         /** libslic3r's EPSILON, which is_approx() compares the text's angles and distances by. */
         const val ANGLE_EPSILON = 1e-4
+
+        /** The longer side of the SVG window's picture (GuiCfg::texture_max_size_px), in pixels. */
+        const val SVG_PREVIEW_SIZE = 512
+
+        /** GLGizmoSVG's limits: depth, and the relative scale ratio of a change of size. */
+        const val SVG_DEPTH_MIN = 0.01
+        const val SVG_DEPTH_MAX = 1e4
+        const val SVG_SCALE_RATIO_MIN = 1e-5
+        const val SVG_SCALE_RATIO_MAX = 1e4
 
         /** The gizmos that turn the realistic view off while they are open: Seam, FdmSupports and FuzzySkin. */
         val REALISTIC_OFF_PAINTING = setOf(PaintKind.SEAM, PaintKind.SUPPORTS, PaintKind.FUZZY_SKIN)

@@ -25,6 +25,8 @@ fun AddObjectItems(
     addModels: () -> Unit,
     /** append_menu_item_add_text() of the shapes' submenu: an object of a text; null where the canvas places none. */
     addText: (() -> Unit)? = null,
+    /** append_menu_item_add_svg(): an object of an SVG; null where the canvas places none. */
+    addSvg: (() -> Unit)? = null,
 ) {
     OrcaSubmenu(text = orcaString("Add Primitive"), enabled = enabled) {
         PRIMITIVES.forEach { shape ->
@@ -38,9 +40,9 @@ fun AddObjectItems(
                 },
             )
         }
-        addText?.let { add ->
+        listOfNotNull(addText?.let { "Text" to it }, addSvg?.let { "SVG" to it }).forEach { (label, add) ->
             OrcaMenuItem(
-                text = orcaString("Text"),
+                text = orcaString(label),
                 enabled = enabled,
                 onClick = {
                     dismiss()

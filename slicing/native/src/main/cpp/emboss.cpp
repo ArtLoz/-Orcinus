@@ -1844,6 +1844,8 @@ EmbossVolume describe_emboss(
         const double depth = (linear * Vec3d::UnitZ()).norm();
         result.scale_height = std::abs(height - 1.) < EPSILON ? 1. : height;
         result.scale_depth = std::abs(depth - 1.) < EPSILON ? 1. : depth;
+        const double width = (linear * Vec3d::UnitX()).norm();
+        result.scale_width = std::abs(width - 1.) < EPSILON ? 1. : width;
         if (shape.svg_file.has_value()) {
             const Slic3r::EmbossShape::SvgFile& svg = *shape.svg_file;
             result.svg_name = file_name_of(!svg.path.empty() ? svg.path : svg.path_in_3mf);

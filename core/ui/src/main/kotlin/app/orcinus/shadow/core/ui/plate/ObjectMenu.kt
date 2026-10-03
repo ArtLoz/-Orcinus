@@ -290,6 +290,8 @@ class ObjectMenuActions(
     val invalidateCutInfo: () -> Unit,
     /** append_menu_item_edit_text(): the text tool opens on the object made of a text; null for none. */
     val editText: (() -> Unit)? = null,
+    /** append_menu_item_edit_svg(): the SVG tool opens on the object made of an SVG; null for none. */
+    val editSvg: (() -> Unit)? = null,
 )
 
 /**
@@ -417,6 +419,7 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
     // MenuFactory::object_menu(): "Invalidate cut info" for a part of a cut.
     if (state.cut) OrcaMenuItem(text = orcaString("Invalidate cut info"), enabled = state.enabled, onClick = run(actions.invalidateCutInfo))
     actions.editText?.let { edit -> OrcaMenuItem(text = orcaString("Edit text"), enabled = state.enabled, onClick = run(edit)) }
+    actions.editSvg?.let { edit -> OrcaMenuItem(text = orcaString("Edit SVG"), enabled = state.enabled, onClick = run(edit)) }
     ChangeFilamentItem(state.filaments, withDefault = false, enabled = state.enabled, onPick = { filament -> dismiss(); actions.setFilament(filament) })
 }
 
@@ -517,7 +520,13 @@ fun shapeName(shape: String): Int = when (shape) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PartShapeSheet(type: VolumeType, onDismiss: () -> Unit, onChoose: (shape: String, name: String) -> Unit, onText: (() -> Unit)? = null) {
+fun PartShapeSheet(
+    type: VolumeType,
+    onDismiss: () -> Unit,
+    onChoose: (shape: String, name: String) -> Unit,
+    onText: (() -> Unit)? = null,
+    onSvg: (() -> Unit)? = null,
+) {
     val colors = OrcaTheme.colors
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -545,18 +554,21 @@ fun PartShapeSheet(type: VolumeType, onDismiss: () -> Unit, onChoose: (shape: St
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 )
             }
-            // append_menu_item_add_text(): a text of a part, a negative part or a modifier.
-            if (onText != null && (type == VolumeType.PART || type == VolumeType.NEGATIVE || type == VolumeType.MODIFIER)) {
-                Text(
-                    text = orcaString("Text"),
-                    color = colors.text,
-                    style = OrcaTheme.typography.body14,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .orcaClickable(role = Role.Button, onClick = onText)
-                        .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                )
+            // append_menu_item_add_text() and append_menu_item_add_svg(): a text or an
+            // SVG of a part, a negative part or a modifier.
+            if (type == VolumeType.PART || type == VolumeType.NEGATIVE || type == VolumeType.MODIFIER) {
+                listOfNotNull(onText?.let { "Text" to it }, onSvg?.let { "SVG" to it }).forEach { (label, onClick) ->
+                    Text(
+                        text = orcaString(label),
+                        color = colors.text,
+                        style = OrcaTheme.typography.body14,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .orcaClickable(role = Role.Button, onClick = onClick)
+                            .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
             }
         }
     }

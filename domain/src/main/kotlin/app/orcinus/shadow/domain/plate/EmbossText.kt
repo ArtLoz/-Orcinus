@@ -4,8 +4,10 @@ import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.EmbossPlacement
 import app.orcinus.shadow.core.model.EmbossRequest
 import app.orcinus.shadow.core.model.EmbossVolumeOutcome
+import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.ImportedModelFile
+import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ObjectPartId
@@ -25,9 +27,11 @@ import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.placing
 import app.orcinus.shadow.core.model.volumeAt
+import app.orcinus.shadow.domain.ImportModelUseCase
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.storage.api.DocumentExport
 import app.orcinus.shadow.storage.api.SceneFiles
 import app.orcinus.shadow.storage.api.SystemFonts
 import kotlin.math.abs
@@ -216,6 +220,8 @@ class EmbossUseCase(
     private val inspector: PlateInspector,
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
+    private val importModel: ImportModelUseCase,
+    private val documents: DocumentExport,
 ) {
     /** GLGizmoEmboss::set_volume_by_selection(): what the text [volume] is. */
     suspend fun describe(volume: ObjectPartId): EmbossVolumeOutcome {
@@ -291,16 +297,63 @@ class EmbossUseCase(
      * GLGizmoSVG::process(): the SVG [volume] [depth] deep, on the surface or
      * not, from another file [svg] when given ("Change file", reload).
      */
-    suspend fun updateSvg(volume: ObjectPartId, depth: Double, useSurface: Boolean, svg: ModelPath? = null): ObjectPartId? {
+    suspend fun updateSvg(volume: ObjectPartId, depth: Double, useSurface: Boolean, svg: ModelPath? = null, placement: Transform3? = null): ObjectPartId? {
         val state = repository.state.value
         val profiles = state.profiles
         val index = state.objects.indexOfFirst { it.mesh == volume.mesh }
         if (state.busy || profiles == null || index < 0) return null
         val prefix = sceneFiles.newImportPrefix()
         val outcome = run(prefix) {
-            editor.updateSvg(state.objects.map { it.placed() }, index, volume.index, depth, useSurface, svg, null, profiles, prefix)
+            editor.updateSvg(state.objects.map { it.placed() }, index, volume.index, depth, useSurface, svg, placement, profiles, prefix)
         }
         return joined(outcome, prefix, state.objects[index], newObjectName = "")
+    }
+
+    /**
+     * choose_svg_file(): the SVG [document] the user picked, copied into the
+     * app; null, with the reason shown, for a document of no ".svg" name.
+     */
+    suspend fun importSvg(document: ExternalDocumentReference): ImportedModelFile? {
+        val message = when (val outcome = importModel(document)) {
+            is ModelImportOutcome.Success -> {
+                if (outcome.model.displayName.endsWith(SVG_EXTENSION, ignoreCase = true)) return outcome.model
+                "Filename has to end with \".svg\" but you selected ${outcome.model.displayName}"
+            }
+            is ModelImportOutcome.Failure -> outcome.message
+        }
+        repository.update { state -> state.copy(problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, message)) }
+        return null
+    }
+
+    /**
+     * "Save as" of the SVG window: the SVG [volume] written to a file named
+     * [name], which it reloads from afterwards, and that file into [document].
+     */
+    suspend fun saveSvgAs(volume: ObjectPartId, name: String, document: ExternalDocumentReference): ObjectPartId? {
+        val path = sceneFiles.newSavedSvg(name)
+        val saved = editSvgFile(volume, SvgFileEdit.SAVE_AS, path.value) ?: return null
+        if (!documents.copyTo(path.value, document)) {
+            repository.update { state -> state.copy(problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, "Opening file: \"$name\" Failed")) }
+        }
+        return saved
+    }
+
+    /**
+     * GLGizmoSVG::draw_model_type(): the SVG [volume] takes [type] ("Change SVG
+     * Type"); one that goes into or out of the part side is embossed anew.
+     */
+    suspend fun changeSvgType(volume: ObjectPartId, type: VolumeType, depth: Double, useSurface: Boolean): ObjectPartId? {
+        val state = repository.state.value
+        val profiles = state.profiles
+        val index = state.objects.indexOfFirst { it.mesh == volume.mesh }
+        val old = state.objects.getOrNull(index)?.volumeAt(volume.index)?.type
+        if (state.busy || profiles == null || old == null || old == type) return null
+        val prefix = sceneFiles.newImportPrefix()
+        val outcome = run(prefix) { inspector.setVolumeType(state.objects.map { it.placed() }, index, volume.index, type, profiles, prefix) }
+        val changed = joined(outcome, prefix, state.objects[index], newObjectName = "") ?: return null
+        // Update volume position when switch (from part) or (into part)
+        if (old != VolumeType.PART && type != VolumeType.PART) return changed
+        return updateSvg(changed, depth, useSurface) ?: changed
     }
 
     /**
@@ -423,6 +476,9 @@ class RequestEmbossUseCase(private val repository: PlateRepository) {
 
 /** The list with [made] in the place of the object with the [mesh] file. */
 private fun List<PlateObject>.replaced(mesh: ScenePath, made: PlateObject): List<PlateObject> = map { if (it.mesh == mesh) made else it }
+
+/** FT_SVG of the desktop app's file dialogs. */
+private const val SVG_EXTENSION = ".svg"
 
 /**
  * ModelVolume::is_text() of the [volume] (0 for the object's own mesh) of the

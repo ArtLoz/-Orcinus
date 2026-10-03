@@ -784,6 +784,7 @@ internal class NativeEmbossVolume(
     @JvmField val scaleDepth: Double,
     /** EmbossShape::fix_3mf_tr, column-major; empty for none. */
     @JvmField val fix: DoubleArray,
+    @JvmField val scaleWidth: Double,
 )
 
 /** Constructed by the native bridge; see LayerEditing in orca_engine_adapter.hpp. */

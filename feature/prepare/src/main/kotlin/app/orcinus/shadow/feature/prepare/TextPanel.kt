@@ -236,23 +236,7 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
         }
         // draw_model_type(): not for a text that is its object.
         if (!mode.onlyPart) {
-            val type = mode.described?.type
-            Text(orcaString("Operation"), color = colors.onCanvasPanel, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                listOf(
-                    VolumeType.PART to orcaString("Join"),
-                    VolumeType.NEGATIVE to orcaString("Cut", "EmbossOperation"),
-                    VolumeType.MODIFIER to orcaString("Modifier"),
-                ).forEach { (item, label) ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.selectable(selected = type == item, role = Role.RadioButton, enabled = editable && !mode.busy, onClick = { actions.setType(item) }),
-                    ) {
-                        OrcaRadioButton(selected = type == item, onClick = null)
-                        Text(label, color = colors.onCanvasPanel, style = OrcaTheme.typography.body12)
-                    }
-                }
-            }
+            EmbossOperation(mode.described?.type, enabled = editable && !mode.busy, onType = actions.setType)
         }
         // Reset: every option of the first style but the text and the operation.
         OrcaButton(
@@ -683,7 +667,7 @@ private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: T
  * the stored style's value applies at once.
  */
 @Composable
-private fun CommittedSlider(
+internal fun CommittedSlider(
     label: String,
     value: Float?,
     range: ClosedFloatingPointRange<Float>,
@@ -692,12 +676,18 @@ private fun CommittedSlider(
     hasRevert: Boolean,
     enabled: Boolean,
     onCommit: (Float?) -> Unit,
+    /** The label in ImGuiWrapper::COL_MODIFIED, as the SVG window marks a value it has. */
+    modified: Boolean = false,
 ) {
     var held by remember { mutableStateOf<Float?>(null) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = label,
-            color = if (enabled) OrcaTheme.colors.onCanvasPanel else OrcaTheme.colors.textDimmed,
+            color = when {
+                !enabled -> OrcaTheme.colors.textDimmed
+                modified -> OrcaTheme.colors.labelModified
+                else -> OrcaTheme.colors.onCanvasPanel
+            },
             style = OrcaTheme.typography.body12,
             modifier = Modifier.width(LabelWidth),
         )
@@ -754,7 +744,7 @@ private fun TextInput(text: String, onChange: (String) -> Unit, enabled: Boolean
 
 /** A field of millimetres, or of inches with the Preferences' "use_inches", as rev_input_mm() takes it. */
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.LengthField(millimetres: Double, imperial: Boolean, enabled: Boolean, onValue: (Double) -> Unit) {
+internal fun androidx.compose.foundation.layout.RowScope.LengthField(millimetres: Double, imperial: Boolean, enabled: Boolean, onValue: (Double) -> Unit) {
     val scale = if (imperial) MM_TO_IN else 1.0
     PositionField(
         value = millimetres * scale,
@@ -770,7 +760,7 @@ private fun androidx.compose.foundation.layout.RowScope.LengthField(millimetres:
 }
 
 @Composable
-private fun TextRow(
+internal fun TextRow(
     label: String,
     labelColor: Color = OrcaTheme.colors.onCanvasPanel,
     content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
@@ -784,7 +774,7 @@ private fun TextRow(
 }
 
 @Composable
-private fun TextCheck(text: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+internal fun TextCheck(text: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -859,8 +849,33 @@ private fun OptionalSlider(
     }
 }
 
+/**
+ * draw_model_type() of the text and SVG tools: Join, Cut or Modifier, the
+ * volume's [type] chosen.
+ */
 @Composable
-private fun Warning(text: String) {
+internal fun EmbossOperation(type: VolumeType?, enabled: Boolean, onType: (VolumeType) -> Unit) {
+    val colors = OrcaTheme.colors
+    Text(orcaString("Operation"), color = colors.onCanvasPanel, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        listOf(
+            VolumeType.PART to orcaString("Join"),
+            VolumeType.NEGATIVE to orcaString("Cut", "EmbossOperation"),
+            VolumeType.MODIFIER to orcaString("Modifier"),
+        ).forEach { (item, label) ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.selectable(selected = type == item, role = Role.RadioButton, enabled = enabled, onClick = { onType(item) }),
+            ) {
+                OrcaRadioButton(selected = type == item, onClick = null)
+                Text(label, color = colors.onCanvasPanel, style = OrcaTheme.typography.body12)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun Warning(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
         Icon(painterResource(DesignR.drawable.orca_obj_warning), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(16.dp))
         Text(text, color = OrcaTheme.colors.onCanvasPanel, style = OrcaTheme.typography.body12, modifier = Modifier.padding(start = 6.dp))
@@ -939,7 +954,7 @@ private const val ANGLE_MAX = 180f
 private const val DEFAULT_ASCENT = 1000
 
 /** GizmoObjectManipulation::mm_to_in */
-private const val MM_TO_IN = 0.0393700787
+internal const val MM_TO_IN = 0.0393700787
 
 private val ALIGN_ICONS_HORIZONTAL = mapOf(
     TextHorizontalAlign.LEFT to DesignR.drawable.orca_align_horizontal_left,

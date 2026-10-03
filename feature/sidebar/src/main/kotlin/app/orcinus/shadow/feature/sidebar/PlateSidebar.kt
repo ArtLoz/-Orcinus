@@ -413,6 +413,12 @@ class SidebarViewModel(
     /** "Text" of a row's "Add part": the canvas places a text on the object, as without a mouse position. */
     fun addTextTo(mesh: ScenePath, type: VolumeType) = requestEmboss.add(EmbossKind.TEXT, mesh, type)
 
+    /** "Edit SVG" of a row: the canvas's SVG tool opens on the volume. */
+    fun editSvgOf(volume: ObjectPartId) = requestEmboss.edit(volume)
+
+    /** "SVG" of a row's "Add part": the canvas asks for the file and places the SVG on the object. */
+    fun addSvgTo(mesh: ScenePath, type: VolumeType) = requestEmboss.add(EmbossKind.SVG, mesh, type)
+
     /** A plate item of the object list: nothing stays selected and the plate becomes current (ObjectList::selection_changed). */
     fun choosePlate(index: Int) {
         selectPlateObject(null)
@@ -1580,6 +1586,14 @@ fun PlateSidebar(
                 viewModel.addTextTo(mesh, type)
                 onShowCanvas()
             },
+            editSvg = { id ->
+                viewModel.editSvgOf(id)
+                onShowCanvas()
+            },
+            addSvg = { mesh, type ->
+                viewModel.addSvgTo(mesh, type)
+                onShowCanvas()
+            },
             changeVolumeType = viewModel::setVolumeType,
             selectPlate = viewModel::choosePlate,
             selectPlateSettings = viewModel::openPlateSettings,
@@ -2183,6 +2197,10 @@ internal fun PlateSidebarContent(
             onText = {
                 addingPart = null
                 objectList.addText(mesh, type)
+            },
+            onSvg = {
+                addingPart = null
+                objectList.addSvg(mesh, type)
             },
         )
     }

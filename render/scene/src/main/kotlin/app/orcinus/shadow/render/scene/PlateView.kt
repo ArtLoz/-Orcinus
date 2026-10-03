@@ -1306,8 +1306,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val world = instance * (fix?.let { placement * it.inverse() } ?: placement)
         // screen coordinate of volume center
         val (screenX, screenY) = camera.project(world.translation()) ?: return null
-        val startAngle = calcUp(world, UP_LIMIT)?.let { if (world.isLeftHanded) -it else it }
-        return TextDragStart(hovered.index, screenX - x, screenY - y, world, instance.inverse(), startAngle, fix)
+        val upLimit = UP_LIMIT.takeIf { text.keepUp }
+        val startAngle = upLimit?.let { calcUp(world, it) }?.let { if (world.isLeftHanded) -it else it }
+        return TextDragStart(hovered.index, screenX - x, screenY - y, world, instance.inverse(), startAngle, fix, upLimit)
     }
 
     /**
@@ -1324,7 +1325,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             .mapNotNull { it.raycastHit(ray) }
             .minByOrNull { (point, _) -> (point - ray.a).norm() }
             ?: return
-        val volume = volumeTransformation(start.world, normal, position, start.fix, start.instanceInv, start.startAngle, UP_LIMIT)
+        val volume = volumeTransformation(start.world, normal, position, start.fix, start.instanceInv, start.startAngle, start.upLimit)
         drag.volume = volume
         drag.moved = true
         // Update transformation for all instances: the scene's mesh of the text after the copy's.

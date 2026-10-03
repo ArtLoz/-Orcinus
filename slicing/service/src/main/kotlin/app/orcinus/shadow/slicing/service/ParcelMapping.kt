@@ -1440,6 +1440,7 @@ internal fun EmbossVolumeOutcome.toParcel() = EmbossVolumeParcel().also {
             it.onlyPart = volume.onlyPart
             it.scaleHeight = volume.scaleHeight
             it.scaleDepth = volume.scaleDepth
+            it.scaleWidth = volume.scaleWidth
             it.fix = volume.fix?.columns?.toDoubleArray() ?: DoubleArray(0)
         }
     }
@@ -1459,6 +1460,7 @@ internal fun EmbossVolumeParcel.toEmbossVolumeOutcome(): EmbossVolumeOutcome = e
             onlyPart = onlyPart,
             scaleHeight = scaleHeight,
             scaleDepth = scaleDepth,
+            scaleWidth = scaleWidth,
             fix = fix?.takeIf { it.size == 16 }?.let { Transform3(it.toList()) },
         ),
     )

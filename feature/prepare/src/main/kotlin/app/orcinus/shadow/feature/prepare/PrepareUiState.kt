@@ -39,6 +39,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
@@ -132,6 +133,8 @@ data class PrepareUiState(
     val layerEditing: LayerEditingMode? = null,
     /** The text tool (GLGizmoEmboss), while it is open on a text volume. */
     val text: TextMode? = null,
+    /** The SVG tool (GLGizmoSVG), while it is open on an SVG volume. */
+    val svg: SvgMode? = null,
     /** What the object list asks of the text or SVG tool, which the canvas places. */
     val embossRequest: EmbossRequest? = null,
     /** Plater::can_layers_editing(): the toolbar's "Variable layer height" can open on the selection. */
@@ -327,6 +330,8 @@ internal data class PrepareViewState(
     val layerTools: LayerEditingTools = LayerEditingTools(),
     /** The text tool, while it is open. */
     val text: TextMode? = null,
+    /** The SVG tool, while it is open. */
+    val svg: SvgMode? = null,
     /** The layers of the object the variable layer height edits, as the engine described them last. */
     val layerDescription: Pair<ScenePath, LayerEditing>? = null,
     /** The height under the finger on the variable layer height bar. */
@@ -376,6 +381,35 @@ data class TextMode(
 
     /** Reset loads the first style, while the window's is another (is_changed_from_default_style()). */
     val resettable: Boolean get() = styles.firstOrNull()?.let { !it.sameStyleAs(style) } == true
+}
+
+/**
+ * GLGizmoSVG while it is open on the SVG [volume]: what the engine tells of it
+ * ([described]: the file's name, its size, depth, use of the surface, angle,
+ * distance and type), its picture and warnings ([preview]; [previewVersion]
+ * counts the pictures written into the same file), the locks of its up and
+ * of its ratio, and whether the engine works on it.
+ */
+data class SvgMode(
+    val volume: ObjectPartId,
+    val described: EmbossVolume? = null,
+    val preview: SvgPreview? = null,
+    val previewVersion: Int = 0,
+    val keepUp: Boolean = true,
+    val keepRatio: Boolean = true,
+    val busy: Boolean = true,
+) {
+    /** ModelVolume::is_the_only_one_part(): the SVG is its object, which takes no other operation. */
+    val onlyPart: Boolean get() = described?.onlyPart != false
+    val depth: Double get() = described?.style?.depth ?: 0.0
+    val useSurface: Boolean get() = described?.style?.useSurface == true
+
+    /** m_angle and m_distance: calc_angle() and calc_distance() of where it stands. */
+    val angle: Double? get() = described?.style?.angle
+    val distance: Double? get() = described?.style?.distance
+
+    /** draw_size()'s can_reset: the world scales its width or height. */
+    val scaled: Boolean get() = described?.let { it.scaleWidth != 1.0 || it.scaleHeight != 1.0 } == true
 }
 
 /** The message boxes of the text tool's style list. */
@@ -483,6 +517,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         },
         canEditLayers = canEditPlate && layerEditingObject() != null,
         text = view.text?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } && canEditPlate },
+        svg = view.svg?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } && canEditPlate },
         embossRequest = embossRequest.takeIf { canEditPlate },
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,

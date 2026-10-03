@@ -743,6 +743,7 @@ class NativeSlicerEngine(context: Context) :
                         onlyPart = described.onlyPart,
                         scaleHeight = described.scaleHeight,
                         scaleDepth = described.scaleDepth,
+                        scaleWidth = described.scaleWidth,
                         fix = described.fix.takeIf { it.size == 16 }?.let { Transform3(it.toList()) },
                     ),
                 )
