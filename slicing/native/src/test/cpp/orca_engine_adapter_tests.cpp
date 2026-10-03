@@ -6647,19 +6647,22 @@ TEST_CASE("The brim ears of an object print with the painted brim and stay in a 
     plate.front().settings.keys.push_back("brim_type");
     plate.front().settings.values.push_back("painted");
     // A painted brim without ears prints no brim.
-    orca::SliceResult result =
-        orca::slice("brim-ears-none", plate, output_path("brim-ears-none.gcode"), {}, k2_plus_profiles(), {}, {});
+    const std::string none = output_path("brim-ears-none.gcode");
+    orca::SliceResult result = orca::slice("brim-ears-none", plate, none, {}, k2_plus_profiles(), {}, {});
     INFO(result.message);
     REQUIRE(result.status == orca::SliceStatus::success);
-    CHECK(read_file(output_path("brim-ears-none.gcode")).find(";TYPE:Brim") == std::string::npos);
+    const std::string none_gcode = read_file(none);
+    REQUIRE_FALSE(none_gcode.empty());
+    CHECK(none_gcode.find(";TYPE:Brim") == std::string::npos);
 
     // An ear at a corner of the 20 mm cube, on the plate under it as the
     // gizmo places one (z -0.0001 in the world): the brim prints there.
     plate.front().brim_points = {10.0, 10.0, -10.0001, 4.0};
-    result = orca::slice("brim-ears", plate, output_path("brim-ears.gcode"), {}, k2_plus_profiles(), {}, {});
+    const std::string eared = output_path("brim-ears.gcode");
+    result = orca::slice("brim-ears", plate, eared, {}, k2_plus_profiles(), {}, {});
     INFO(result.message);
     REQUIRE(result.status == orca::SliceStatus::success);
-    CHECK(read_file(output_path("brim-ears.gcode")).find(";TYPE:Brim") != std::string::npos);
+    CHECK(read_file(eared).find(";TYPE:Brim") != std::string::npos);
 
     // A project keeps the ears.
     const std::string project = output_path("brim-ears.3mf");
