@@ -200,6 +200,9 @@ sealed interface PlateObject {
      */
     val layerHeightProfile: List<Double>
 
+    /** ModelObject::brim_points: the brim ears GLGizmoBrimEars placed; empty for none. */
+    val brimPoints: List<BrimPoint>
+
     /** The facets of the object's own mesh painted with the filaments of the plate. */
     val painted: PaintedFacets
 
@@ -221,6 +224,7 @@ sealed interface PlateObject {
         override val parts: List<ObjectPart> = emptyList(),
         override val layerRanges: List<LayerRange> = emptyList(),
         override val layerHeightProfile: List<Double> = emptyList(),
+        override val brimPoints: List<BrimPoint> = emptyList(),
         override val painted: PaintedFacets = PaintedFacets(),
         override val paintedMeshes: List<PaintedMesh> = emptyList(),
         val frame: Transform3? = null,
@@ -237,6 +241,7 @@ sealed interface PlateObject {
         override val parts: List<ObjectPart> = emptyList(),
         override val layerRanges: List<LayerRange> = emptyList(),
         override val layerHeightProfile: List<Double> = emptyList(),
+        override val brimPoints: List<BrimPoint> = emptyList(),
         override val painted: PaintedFacets = PaintedFacets(),
         override val paintedMeshes: List<PaintedMesh> = emptyList(),
         override val volume: ObjectVolume = ObjectVolume(),
@@ -338,6 +343,27 @@ fun PlateObject.withLayerRanges(ranges: List<LayerRange>): PlateObject {
 fun PlateObject.withLayerHeightProfile(profile: List<Double>): PlateObject = when (this) {
     is PlateObject.ImportedModel -> copy(layerHeightProfile = profile)
     is PlateObject.CalibrationCube -> copy(layerHeightProfile = profile)
+}
+
+/** The brim ears of the object replaced (GLGizmoBrimEars::update_model_object()). */
+fun PlateObject.withBrimPoints(points: List<BrimPoint>): PlateObject = when (this) {
+    is PlateObject.ImportedModel -> copy(brimPoints = points)
+    is PlateObject.CalibrationCube -> copy(brimPoints = points)
+}
+
+/**
+ * BrimPoint: a brim ear at [position] in the object's coordinates (on the
+ * plate, under the object), [radius] (head_front_radius) wide.
+ */
+data class BrimPoint(val position: Vector3, val radius: Double) {
+    companion object {
+        /** The ears as the engine takes them: x, y, z and the radius of each. */
+        fun List<BrimPoint>.values(): DoubleArray = flatMap { listOf(it.position.x, it.position.y, it.position.z, it.radius) }.toDoubleArray()
+
+        fun of(values: DoubleArray): List<BrimPoint> = List(values.size / 4) { index ->
+            BrimPoint(Vector3(values[index * 4], values[index * 4 + 1], values[index * 4 + 2]), values[index * 4 + 3])
+        }
+    }
 }
 
 /**

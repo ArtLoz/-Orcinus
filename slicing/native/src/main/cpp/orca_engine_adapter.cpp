@@ -788,6 +788,11 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
     if (!object.layer_height_profile.empty()) {
         loaded->layer_height_profile.set(object.layer_height_profile);
     }
+    // The brim ears of the object (GLGizmoBrimEars).
+    for (std::size_t index = 0; index + 3 < object.brim_points.size(); index += 4) {
+        loaded->brim_points.emplace_back(float(object.brim_points[index]), float(object.brim_points[index + 1]), float(object.brim_points[index + 2]),
+            float(object.brim_points[index + 3]));
+    }
     drop_instances(*loaded);
     return loaded;
 }
@@ -3484,6 +3489,9 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             layers.settings = settings_of(config);
         }
         out.layer_height_profile = object.layer_height_profile.get();
+        for (const Slic3r::BrimPoint& point : object.brim_points) {
+            out.brim_points.insert(out.brim_points.end(), {point.pos.x(), point.pos.y(), point.pos.z(), point.head_front_radius});
+        }
         // The own mesh in object coordinates for the 3D view.
         Slic3r::TriangleMesh shown = own.mesh();
         shown.transform(own.get_matrix(), true);

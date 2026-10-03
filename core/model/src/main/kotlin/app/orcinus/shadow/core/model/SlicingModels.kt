@@ -159,6 +159,8 @@ data class PlacedModel(
     val layerHeightProfile: List<Double> = emptyList(),
     /** ModelObject::cut_id: the cut the object is a part of. */
     val cutId: CutId? = null,
+    /** ModelObject::brim_points; empty for none. */
+    val brimPoints: List<BrimPoint> = emptyList(),
 )
 
 /**
@@ -187,6 +189,8 @@ data class LoadedObject(
     val inputFile: String = "",
     /** ModelObject::layer_height_profile; empty for none. */
     val layerHeightProfile: List<Double> = emptyList(),
+    /** ModelObject::brim_points; empty for none. */
+    val brimPoints: List<BrimPoint> = emptyList(),
 )
 
 /** The file formats "Export as one STL" and "Export as one DRC" write. */

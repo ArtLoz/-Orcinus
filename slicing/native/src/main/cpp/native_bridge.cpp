@@ -714,6 +714,14 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
             env->DeleteLocalRef(profile);
         }
     }
+    // The brim ears of every object.
+    if (const auto points = static_cast<jobjectArray>(field("brimPoints", "[[D"))) {
+        for (std::size_t index = 0; index < plate.size() && static_cast<std::size_t>(env->GetArrayLength(points)) > index; ++index) {
+            const auto values = static_cast<jdoubleArray>(env->GetObjectArrayElement(points, static_cast<jsize>(index)));
+            plate[index].brim_points = to_doubles(env, values);
+            env->DeleteLocalRef(values);
+        }
+    }
     env->DeleteLocalRef(plate_class);
     return plate;
 }
@@ -3032,7 +3040,7 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
         "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;[D"
-        "Ljava/lang/String;J[Ljava/lang/String;[J)V"
+        "Ljava/lang/String;J[Ljava/lang/String;[J[D)V"
     );
     // The cut the object is a part of, and the cut info of its own mesh and of every part.
     const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
@@ -3094,7 +3102,8 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         to_java(env, object.volume_emboss),
         static_cast<jlong>(object.volume_emboss_kind),
         to_java(env, part_emboss),
-        to_java(env, part_emboss_kinds)
+        to_java(env, part_emboss_kinds),
+        to_java(env, object.brim_points.data(), object.brim_points.size())
     );
 }
 

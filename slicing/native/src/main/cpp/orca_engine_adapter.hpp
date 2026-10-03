@@ -264,6 +264,9 @@ struct PlateObject {
     // ModelObject::layer_height_profile: the variable layer height, z and
     // layer height pairs from the bed up; empty for none.
     std::vector<double> layer_height_profile;
+    // ModelObject::brim_points: x, y and z in the object's coordinates and
+    // head_front_radius of every brim ear; empty for none.
+    std::vector<double> brim_points;
     // The file holding the facets painted on the object's own mesh, of every
     // kind (PaintKind): ModelVolume's mmu_segmentation_facets,
     // supported_facets, seam_facets and fuzzy_skin_facets. The painting of a
@@ -1495,6 +1498,8 @@ struct ImportedObject {
     std::vector<LayerRange> layer_ranges;
     // ModelObject::layer_height_profile
     std::vector<double> layer_height_profile;
+    // ModelObject::brim_points, as PlateObject::brim_points.
+    std::vector<double> brim_points;
     // The object's own mesh in object coordinates for the 3D view, as
     // inspect_model() writes it.
     std::string mesh_path;

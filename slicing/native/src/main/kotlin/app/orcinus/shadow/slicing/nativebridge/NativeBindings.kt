@@ -648,6 +648,8 @@ internal class NativePlate(
     @JvmField val partCutInfo: DoubleArray,
     /** The variable layer height of every object (ModelObject::layer_height_profile); empty for none. */
     @JvmField val layerHeightProfiles: Array<DoubleArray>,
+    /** The brim ears of every object (ModelObject::brim_points): x, y, z and the radius of each. */
+    @JvmField val brimPoints: Array<DoubleArray>,
     /** The text or the SVG every object's own mesh and every part was embossed from; empty for none. */
     @JvmField val volumeEmboss: Array<String>,
     @JvmField val partEmboss: Array<String>,
@@ -706,6 +708,8 @@ internal class NativeImportedObject(
     @JvmField val volumeEmbossKind: Long,
     @JvmField val partEmboss: Array<String>,
     @JvmField val partEmbossKinds: LongArray,
+    /** ModelObject::brim_points: x, y, z and the radius of each. */
+    @JvmField val brimPoints: DoubleArray,
 )
 
 /** Constructed by the native bridge; see SvgWarning in orca_engine_adapter.hpp. */

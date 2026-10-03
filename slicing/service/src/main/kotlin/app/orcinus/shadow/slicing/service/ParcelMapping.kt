@@ -4,6 +4,7 @@ import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BoundingSphere
+import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
 import app.orcinus.shadow.core.model.CalibrationMode
@@ -274,6 +275,7 @@ internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(siz
         parcel.layerRanges = placed.layerRanges.toParcels()
         parcel.cutId = placed.cutId?.values()
         parcel.layerHeightProfile = placed.layerHeightProfile.toDoubleArray()
+        parcel.brimPoints = with(BrimPoint) { placed.brimPoints.values() }
     }
 }
 
@@ -333,6 +335,7 @@ internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map 
         name = parcel.name.orEmpty(),
         cutId = CutId.of(parcel.cutId),
         layerHeightProfile = parcel.layerHeightProfile?.toList().orEmpty(),
+        brimPoints = parcel.brimPoints?.let(BrimPoint::of).orEmpty(),
     )
 }
 
@@ -452,6 +455,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
                 parcel.cutId = loaded.cutId?.values()
                 parcel.inputFile = loaded.inputFile.takeUnless(String::isEmpty)
                 parcel.layerHeightProfile = loaded.layerHeightProfile.toDoubleArray()
+                parcel.brimPoints = with(BrimPoint) { loaded.brimPoints.values() }
             }
         }.toTypedArray()
     }
@@ -483,6 +487,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
                 cutId = CutId.of(parcel.cutId),
                 inputFile = parcel.inputFile.orEmpty(),
                 layerHeightProfile = parcel.layerHeightProfile?.toList().orEmpty(),
+                brimPoints = parcel.brimPoints?.let(BrimPoint::of).orEmpty(),
             )
         },
         shown,

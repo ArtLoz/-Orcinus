@@ -7,6 +7,7 @@ import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BoundingSphere
+import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
@@ -2378,6 +2379,7 @@ class NativeSlicerEngine(context: Context) :
             },
             inputFile = inputFile,
             layerHeightProfile = layerHeightProfile.toList(),
+            brimPoints = BrimPoint.of(brimPoints),
         )
     }
 
@@ -2536,6 +2538,7 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
         volumeCutInfo = objects.flatMap { it.volume.cutInfo.values().asList() }.toDoubleArray(),
         partCutInfo = parts.flatMap { it.cutInfo.values().asList() }.toDoubleArray(),
         layerHeightProfiles = Array(objects.size) { objects[it].layerHeightProfile.toDoubleArray() },
+        brimPoints = Array(objects.size) { with(BrimPoint) { objects[it].brimPoints.values() } },
         volumeEmboss = Array(objects.size) { objects[it].volume.emboss?.file?.value.orEmpty() },
         partEmboss = Array(parts.size) { parts[it].emboss?.file?.value.orEmpty() },
     )

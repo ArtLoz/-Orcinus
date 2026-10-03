@@ -27,4 +27,6 @@ parcelable LoadedObjectParcel {
     @nullable String inputFile;
     /** ModelObject::layer_height_profile; null for none. */
     @nullable double[] layerHeightProfile;
+    /** ModelObject::brim_points: x, y, z and the radius of each; null for none. */
+    @nullable double[] brimPoints;
 }
