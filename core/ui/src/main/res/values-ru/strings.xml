@@ -4,8 +4,6 @@
     <string name="duration_hours_minutes">%1$d ч %2$d мин</string>
     <string name="duration_minutes">%1$d мин</string>
     <string name="length_meters">%1$s м</string>
-    <string name="size_millimeters">%1$s × %2$s × %3$s мм</string>
-    <string name="size_inches">%1$s × %2$s × %3$s дюйм</string>
 
     <!-- The list of an OrcaSlicer preset combo box. -->
     <string name="user_presets">Пользовательские профили</string>
@@ -99,6 +97,12 @@
     <string name="object_shape_cone">Конус</string>
     <string name="object_shape_disc">Диск</string>
     <string name="object_shape_torus">Тор</string>
+    <!-- ObjectDataViewModel: what a part of an object is called in the list. -->
+    <string name="object_part_name">Деталь (%1$s)</string>
+    <string name="object_part_negative">Вычитание (%1$s)</string>
+    <string name="object_part_modifier">Модификатор (%1$s)</string>
+    <string name="object_part_support_blocker">Блокатор поддержек (%1$s)</string>
+    <string name="object_part_support_enforcer">Усилитель поддержек (%1$s)</string>
     <!-- The state of a plate's number in the strip of plates, whose icon shows the lock. -->
     <string name="plate_locked">Стол заблокирован</string>
 </resources>

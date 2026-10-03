@@ -716,10 +716,11 @@ class PrepareViewModel(
                 .distinctUntilChanged { old, new -> old?.index == new?.index }
                 .collect { volume -> view.update { it.copy(volumeRotationStart = volume?.matrix) } }
         }
-        // Selection::get_bounding_sphere() and the boxes of a volume selected alone, while the rotation or the scale gizmo is open.
+        // Selection::get_bounding_sphere() and the boxes of a volume selected alone, which the rotation and the scale
+        // gizmo work with, and its size, volume and triangles, which the info notification shows (Plater::show_object_info()).
         viewModelScope.launch {
             combine(plate, view) { plate, view ->
-                val volume = plate.selectedVolume(view)?.takeIf { view.gizmo == PlateGizmo.ROTATE || view.gizmo == PlateGizmo.SCALE }
+                val volume = plate.selectedVolume(view)
                 val target = plate.selected
                 val copy = plate.selectedCopy
                 val profiles = plate.profiles
@@ -2953,6 +2954,20 @@ class PrepareViewModel(
 
     /** The object menu's commands that change the meshes of the object of the copy at [index]. */
     fun editObjectAt(index: Int, edit: ObjectEdit) = copyAt(index)?.let { editPlateObject(it.mesh, edit) }
+
+    /**
+     * The info notification's " (Repair)" (Plater::priv::on_repair_model()):
+     * ObjectList::fix_through_cgal() of the volume selected alone, or of the
+     * selected object.
+     */
+    fun repairSelected() {
+        val state = plate.value
+        val volume = state.selectedVolume(view.value)
+        when {
+            volume != null -> editPlateObject(volume.id.mesh, ObjectEdit.FIX, volume.id.index)
+            else -> state.selected?.let { editPlateObject(it.mesh, ObjectEdit.FIX) }
+        }
+    }
 
     /** "Invalidate cut info" over a copy of a part of a cut. */
     fun invalidateCutInfoAt(index: Int) = copyAt(index)?.let { invalidateCutInfo(it.mesh) }

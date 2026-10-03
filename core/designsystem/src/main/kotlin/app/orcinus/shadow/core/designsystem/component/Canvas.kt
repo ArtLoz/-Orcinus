@@ -245,13 +245,17 @@ fun OrcaNotificationLink(text: String, onClick: () -> Unit) {
     )
 }
 
-/** Body text line of a notification. */
+/**
+ * Body text line of a notification; an [error] line is in OrcaSlicer's error
+ * colour, as PopNotification draws the text between <Error> marks.
+ */
 @Composable
-fun OrcaNotificationText(text: String, emphasized: Boolean = false) {
+fun OrcaNotificationText(text: String, emphasized: Boolean = false, error: Boolean = false) {
     Text(
         text = text,
         color = when {
             LocalNotificationLevel.current == OrcaNotificationLevel.Error -> Color.White
+            error -> NotificationErrorColor
             emphasized -> OrcaTheme.colors.onCanvasPanel
             else -> OrcaTheme.colors.textSoft
         },

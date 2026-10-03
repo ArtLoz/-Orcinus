@@ -12,7 +12,7 @@ import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.conversionName
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
-import app.orcinus.shadow.core.ui.plate.shapeName
+import app.orcinus.shadow.core.ui.plate.volumeName
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.plate.ClipboardItems
 import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
@@ -444,12 +444,7 @@ private fun LazyListScope.objectRows(
             val partId = ObjectPartId(mesh, at)
             item(key = "objects:${mesh.value}:part:$at") {
                 ObjectListRow(
-                    // ObjectDataViewModel names a volume by its own name; the
-                    // object's own mesh is named after the object unless the file named it.
-                    name = when {
-                        at == 0 -> part.name.ifEmpty { plateObject.displayName() }
-                        else -> part.name.ifEmpty { stringResource(partName(part.type), stringResource(shapeName(part.shape))) }
-                    },
+                    name = plateObject.volumeName(at),
                     icon = volumeIcon(part),
                     selected = partId == state.selectedPart,
                     hasSettings = part.settings.categories(partDefinitions).isNotEmpty(),
@@ -465,10 +460,7 @@ private fun LazyListScope.objectRows(
                         },
                     onClick = { actions.selectPart(partId) },
                     menu = { dismiss ->
-                        val volumeName = when {
-                            at == 0 -> part.name.ifEmpty { plateObject.displayName() }
-                            else -> part.name.ifEmpty { stringResource(partName(part.type), stringResource(shapeName(part.shape))) }
-                        }
+                        val volumeName = plateObject.volumeName(at)
                         RenameItem(enabled) {
                             dismiss()
                             onAskRename(RenameRequest.Volume(partId, volumeName))
@@ -838,15 +830,6 @@ private fun volumeIcon(part: ObjectPart): Int = when (part.emboss?.kind) {
         else -> DesignR.drawable.orca_svg_part
     }
     else -> DesignR.drawable.orca_split_parts
-}
-
-/** What a row of the list calls a part of an object (ObjectDataViewModel). */
-private fun partName(type: VolumeType): Int = when (type) {
-    VolumeType.PART -> R.string.object_part_name
-    VolumeType.NEGATIVE -> R.string.object_part_negative
-    VolumeType.MODIFIER -> R.string.object_part_modifier
-    VolumeType.SUPPORT_BLOCKER -> R.string.object_part_support_blocker
-    VolumeType.SUPPORT_ENFORCER -> R.string.object_part_support_enforcer
 }
 
 /** What the object menu does for the object of the copy [id], selected with its [copies], in the list. */

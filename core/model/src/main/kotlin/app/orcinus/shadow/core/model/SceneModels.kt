@@ -183,22 +183,46 @@ data class VolumeBox(val size: Vector3, val center: Vector3)
  * and its boxes in the world's axes, in its copy's and in its own
  * (ECoordinatesType World, Instance and Local).
  */
-data class VolumeDescription(val sphere: BoundingSphere, val world: VolumeBox, val instance: VolumeBox, val local: VolumeBox) {
-    /** As the engine writes it: the sphere's centre and radius, then each box's size and centre. */
+data class VolumeDescription(
+    val sphere: BoundingSphere,
+    val world: VolumeBox,
+    val instance: VolumeBox,
+    val local: VolumeBox,
+    /**
+     * Plater::show_object_info() of the volume: its mesh's volume in cubic
+     * millimetres, scaled where it stands, its triangles and its open edges.
+     */
+    val volume: Double = 0.0,
+    val facets: Long = 0,
+    val openEdges: Long = 0,
+) {
+    /**
+     * As the engine writes it: the sphere's centre and radius, then each box's
+     * size and centre, then the volume, the triangles and the open edges.
+     */
     fun values(): DoubleArray = (
         listOf(sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius) +
-            listOf(world, instance, local).flatMap { box -> listOf(box.size.x, box.size.y, box.size.z, box.center.x, box.center.y, box.center.z) }
+            listOf(world, instance, local).flatMap { box -> listOf(box.size.x, box.size.y, box.size.z, box.center.x, box.center.y, box.center.z) } +
+            listOf(volume, facets.toDouble(), openEdges.toDouble())
         ).toDoubleArray()
 
     companion object {
         /** The numbers of [values]. */
-        const val SIZE = 22
+        const val SIZE = 25
 
         fun of(values: DoubleArray): VolumeDescription {
             require(values.size == SIZE) { "A volume is described by $SIZE numbers" }
             fun vector(at: Int) = Vector3(values[at], values[at + 1], values[at + 2])
             fun box(at: Int) = VolumeBox(vector(at), vector(at + 3))
-            return VolumeDescription(BoundingSphere(vector(0), values[3]), box(4), box(10), box(16))
+            return VolumeDescription(
+                BoundingSphere(vector(0), values[3]),
+                box(4),
+                box(10),
+                box(16),
+                volume = values[22],
+                facets = values[23].toLong(),
+                openEdges = values[24].toLong(),
+            )
         }
     }
 }

@@ -630,6 +630,7 @@ internal fun ModelInspectionOutcome.toParcel() = InspectionParcel().also {
         is ModelInspectionOutcome.Success -> {
             it.facetCount = inspection.facetCount
             it.openEdges = inspection.openEdges
+            it.volume = inspection.volume
             it.widthMillimeters = inspection.dimensions.widthMillimeters
             it.depthMillimeters = inspection.dimensions.depthMillimeters
             it.heightMillimeters = inspection.dimensions.heightMillimeters
@@ -655,6 +656,7 @@ internal fun InspectionParcel.toInspectionOutcome(): ModelInspectionOutcome {
 private fun InspectionParcel.toInspection() = ModelInspection(
     facetCount = facetCount,
     openEdges = openEdges,
+    volume = volume,
     dimensions = ModelDimensions(widthMillimeters, depthMillimeters, heightMillimeters),
     boxCenter = checkNotNull(boxCenter).toVector(),
     mesh = ScenePath(checkNotNull(meshPath)),

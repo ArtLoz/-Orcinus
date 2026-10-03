@@ -478,6 +478,9 @@ struct ModelInspection {
     // ModelObject::get_object_stl_stats().open_edges: the edges of the
     // object's meshes that bound one triangle only.
     std::int64_t open_edges{0};
+    // ... and its volume: the model parts' meshes scaled by the first copy,
+    // whatever copy this is, as Plater::show_object_info() shows it.
+    double volume{0.0};
     // Size of the placed object's bounding box, in millimetres.
     double size_x{0.0};
     double size_y{0.0};
@@ -592,6 +595,11 @@ struct VolumeDescription {
     // world.
     std::array<std::array<double, 3>, 3> box_sizes{};
     std::array<std::array<double, 3>, 3> box_centers{};
+    // Plater::show_object_info() of the volume: its mesh's volume scaled by
+    // its world transformation, its triangles and its open edges.
+    double mesh_volume{0.0};
+    std::int64_t facet_count{0};
+    std::int64_t open_edges{0};
 };
 
 VolumeDescription describe_volume(

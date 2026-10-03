@@ -25,12 +25,6 @@
     <string name="config_imported">Импортировано профилей: %1$d</string>
     <string name="config_exported">Экспортировано файлов: %1$d</string>
     <string name="config_import_hint">Только пользовательские профили, совместимые с установленными принтерами. Профиль с тем же именем будет заменён.</string>
-    <!-- ObjectDataViewModel: what a part of an object is called in the list. -->
-    <string name="object_part_name">Деталь (%1$s)</string>
-    <string name="object_part_negative">Вычитание (%1$s)</string>
-    <string name="object_part_modifier">Модификатор (%1$s)</string>
-    <string name="object_part_support_blocker">Блокатор поддержек (%1$s)</string>
-    <string name="object_part_support_enforcer">Усилитель поддержек (%1$s)</string>
     <string name="collapse_sidebar">Свернуть боковую панель</string>
     <string name="expand_sidebar">Развернуть боковую панель</string>
 

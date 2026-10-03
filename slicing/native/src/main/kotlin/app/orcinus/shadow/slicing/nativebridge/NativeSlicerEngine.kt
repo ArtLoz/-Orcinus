@@ -2511,6 +2511,7 @@ class NativeSlicerEngine(context: Context) :
     private fun NativeModelInspection.toInspection(mesh: ScenePath) = ModelInspection(
         facetCount = facetCount,
         openEdges = openEdges,
+        volume = volume,
         dimensions = ModelDimensions(sizeX, sizeY, sizeZ),
         boxCenter = boxCenter.toVector(),
         mesh = mesh,

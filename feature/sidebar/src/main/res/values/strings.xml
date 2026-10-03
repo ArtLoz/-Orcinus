@@ -25,12 +25,6 @@
     <string name="config_imported">Presets imported: %1$d</string>
     <string name="config_exported">Files exported: %1$d</string>
     <string name="config_import_hint">Only user presets compatible with the installed printers. A preset with the same name is replaced.</string>
-    <!-- ObjectDataViewModel: what a part of an object is called in the list. -->
-    <string name="object_part_name">Part (%1$s)</string>
-    <string name="object_part_negative">Negative part (%1$s)</string>
-    <string name="object_part_modifier">Modifier (%1$s)</string>
-    <string name="object_part_support_blocker">Support blocker (%1$s)</string>
-    <string name="object_part_support_enforcer">Support enforcer (%1$s)</string>
     <string name="collapse_sidebar">Collapse sidebar</string>
     <string name="expand_sidebar">Expand sidebar</string>
 

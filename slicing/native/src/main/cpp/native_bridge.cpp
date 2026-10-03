@@ -774,7 +774,7 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
 jobject to_java(JNIEnv* env, const orcinus::orca::ModelInspection& inspection)
 {
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeModelInspection");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJDDD[DJ[DD[D[D[D)V");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJDDDD[DJ[DD[D[D[D)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -782,6 +782,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::ModelInspection& inspection)
         to_java(env, inspection.message),
         static_cast<jlong>(inspection.facet_count),
         static_cast<jlong>(inspection.open_edges),
+        static_cast<jdouble>(inspection.volume),
         static_cast<jdouble>(inspection.size_x),
         static_cast<jdouble>(inspection.size_y),
         static_cast<jdouble>(inspection.size_z),
@@ -1838,13 +1839,17 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeVolume(
         to_doubles(env, placement),
         static_cast<std::size_t>(volume)
     );
-    // The sphere's centre and radius, then size and centre per reference system.
+    // The sphere's centre and radius, then size and centre per reference
+    // system, then the volume, the triangles and the open edges.
     std::vector<double> values(result.sphere_center.begin(), result.sphere_center.end());
     values.push_back(result.sphere_radius);
     for (std::size_t type = 0; type < result.box_sizes.size(); ++type) {
         values.insert(values.end(), result.box_sizes[type].begin(), result.box_sizes[type].end());
         values.insert(values.end(), result.box_centers[type].begin(), result.box_centers[type].end());
     }
+    values.push_back(result.mesh_volume);
+    values.push_back(static_cast<double>(result.facet_count));
+    values.push_back(static_cast<double>(result.open_edges));
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeVolumeDescription");
     const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[D)V");
     return env->NewObject(

@@ -2174,6 +2174,10 @@ void describe_placed(const Slic3r::ModelObject& object, const std::size_t index,
     }
     const Slic3r::Vec3d unscaled = unscaled_instance_size(object, instance);
     result.unscaled_size = {unscaled.x(), unscaled.y(), unscaled.z()};
+    result.facet_count = static_cast<std::int64_t>(object.facets_count());
+    const Slic3r::TriangleMeshStats stats = object.get_object_stl_stats();
+    result.open_edges = static_cast<std::int64_t>(stats.open_edges);
+    result.volume = stats.volume;
     switch (instance.print_volume_state) {
     case Slic3r::ModelInstancePVS_Inside:
     case Slic3r::ModelInstancePVS_Limited:
@@ -2243,7 +2247,6 @@ ModelInspection inspect_model(
         model.update_print_volume_state(build_volume_of(config));
         describe_placed(*object, 0, result);
         result.status = SceneStatus::success;
-        result.facet_count = static_cast<std::int64_t>(mesh.indices.size());
         return result;
     } catch (const std::exception& error) {
         result.message = error.what();
@@ -3383,6 +3386,11 @@ VolumeDescription describe_volume(
                 result.box_centers[type][i] = world_center[i];
             }
         }
+        // Plater::show_object_info() of a volume.
+        const TriangleMeshStats& stats = volume.mesh().stats();
+        result.mesh_volume = stats.volume * std::abs(world.matrix().block(0, 0, 3, 3).determinant());
+        result.facet_count = static_cast<std::int64_t>(volume.mesh().facets_count());
+        result.open_edges = static_cast<std::int64_t>(stats.open_edges);
         result.status = SceneStatus::success;
         return result;
     } catch (const std::exception& error) {
@@ -3510,8 +3518,6 @@ ModelInspection place_model(
         model.update_print_volume_state(build_volume_of(config));
         describe_placed(object, 0, result);
         result.status = SceneStatus::success;
-        result.facet_count = static_cast<std::int64_t>(object.facets_count());
-        result.open_edges = static_cast<std::int64_t>(object.get_object_stl_stats().open_edges);
         return result;
     } catch (const std::exception& error) {
         result.message = error.what();
@@ -3684,8 +3690,6 @@ PlateInspection place_objects(
                 ModelInspection& instance = described.instances.emplace_back();
                 describe_placed(*object, index, instance);
                 instance.status = SceneStatus::success;
-                instance.facet_count = static_cast<std::int64_t>(object->facets_count());
-                instance.open_edges = static_cast<std::int64_t>(object->get_object_stl_stats().open_edges);
             }
         }
         result.status = SceneStatus::success;
@@ -3886,8 +3890,6 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             ModelInspection& described = out.instances.emplace_back();
             describe_placed(object, instance, described);
             described.status = SceneStatus::success;
-            described.facet_count = static_cast<std::int64_t>(object.facets_count());
-            described.open_edges = static_cast<std::int64_t>(object.get_object_stl_stats().open_edges);
             out.auto_drops.push_back(object.instances[instance]->auto_drop);
             out.printables.push_back(object.instances[instance]->printable);
             Slic3r::ModelInstance& copy = *object.instances[instance];

@@ -237,6 +237,8 @@ data class PrepareUiState(
     val spiralVaseMode: Boolean = false,
     /** The printer's structure is I3 (printer_structure). */
     val printerI3: Boolean = false,
+    /** What the info notification shows of the selection (Plater::show_object_info()); null for nothing. */
+    val objectInfo: ObjectInfo? = null,
     /** Position of the selected object. */
     val selectedPosition: ObjectPosition?,
     /** The move window shows "Object coordinates" for the selected copy (ECoordinatesType::Instance). */
@@ -716,6 +718,55 @@ data class VolumeCoordinates(val index: VolumeIndex, val coordinates: Coordinate
 /** A volume selected alone, by [index], as the engine measured it last. */
 data class DescribedVolume(val index: VolumeIndex, val description: VolumeDescription)
 
+/** What Plater::show_object_info() shows of the selection. */
+sealed interface ObjectInfo {
+    /** "Number of currently selected objects": the objects of the selected copies. */
+    data class Count(val objects: Int) : ObjectInfo
+
+    /**
+     * One copy of [plateObject], or its volume [part] selected alone: the size
+     * in the world, the volume in cubic millimetres, the triangles and the
+     * open edges (ObjectList::get_mesh_errors_info()).
+     */
+    data class Single(
+        val plateObject: PlateObject,
+        val part: Int?,
+        val size: Vector3,
+        val volume: Double,
+        val facets: Long,
+        val openEdges: Long,
+    ) : ObjectInfo
+}
+
+/**
+ * Plater::show_object_info(), which the assembly view hides: several volumes
+ * selected count the objects (a copy of an object of several volumes counts
+ * as several, as there); one copy, or a model part selected alone, is
+ * described; all copies of one object, a modifier alone or the wipe tower
+ * alone show nothing.
+ */
+internal fun PlateState.objectInfo(view: PrepareViewState, volume: SelectedVolume?): ObjectInfo? {
+    if (view.assemblyView) return null
+    if (volume != null) {
+        // Selection::is_single_volume(): a model part.
+        val owner = objects.getOrNull(volume.index.objectIndex) ?: return null
+        if (owner.volumeAt(volume.index.volume)?.type != VolumeType.PART) return null
+        val described = volume.description ?: return null
+        return ObjectInfo.Single(owner, volume.index.volume, described.world.size, described.volume, described.facets, described.openEdges)
+    }
+    val owners = selectedObjects()
+    // Selection::get_volume_idxs(): every volume of every selected copy, and the tower.
+    val tower = wipeTower != null && view.wipeTowerSelected
+    val volumes = selectedInstances.sumOf { id -> owners.firstOrNull { it.mesh == id.mesh }?.let { it.parts.size + 1 } ?: 0 } + (if (tower) 1 else 0)
+    val owner = owners.singleOrNull()?.takeIf { !tower }
+    val fullObject = owner != null && selectedInstances.size == owner.instances.size
+    if (volumes > 1 && !fullObject) return ObjectInfo.Count(owners.size + (if (tower) 1 else 0))
+    if (owner == null || (fullObject && owner.instances.size > 1)) return null
+    val inspection = selectedCopy?.inspection ?: return null
+    val size = inspection.dimensions.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) }
+    return ObjectInfo.Single(owner, null, size, inspection.volume, inspection.facetCount, inspection.openEdges)
+}
+
 /**
  * Selection::Volume: the volume of the one selected copy the object list
  * selected alone; the assembly view moves copies only.
@@ -861,6 +912,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         canMoveObjectCoordinates = selectedObject != null && selectedInstances.size == 1 && !view.wipeTowerSelected,
         moveFrame = (if (view.assemblyView) assembled else selected?.placement)?.takeIf { moveObjectCoordinates },
         selectedVolume = volume,
+        objectInfo = objectInfo(view, volume),
         selectedRotation = volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
         canResetRotation = when {
             // update_reset_buttons_visibility() of a volume: its own rotation against the one it started from.

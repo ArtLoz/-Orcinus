@@ -5,6 +5,7 @@ parcelable InspectionParcel {
     @nullable String error;
     long facetCount;
     long openEdges;
+    double volume;
     double widthMillimeters;
     double depthMillimeters;
     double heightMillimeters;

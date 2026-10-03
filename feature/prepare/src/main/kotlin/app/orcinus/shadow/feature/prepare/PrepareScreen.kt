@@ -125,6 +125,7 @@ import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintTool
@@ -148,7 +149,9 @@ import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
+import app.orcinus.shadow.core.ui.orca.cppNumber
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.CloneDialog
@@ -166,7 +169,7 @@ import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
-import app.orcinus.shadow.core.ui.sizeText
+import app.orcinus.shadow.core.ui.plate.volumeName
 import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.AssemblyView
 import app.orcinus.shadow.render.scene.BrimEarState
@@ -400,6 +403,7 @@ internal fun PrepareRoute(
         onUndo = viewModel::undo,
         onRedo = viewModel::redo,
         onDismissProblem = viewModel::dismissProblem,
+        onRepairObject = viewModel::repairSelected,
         onJumpTo = viewModel::jumpTo,
         canvas = canvas,
         onSetCanvas = viewModel::setCanvasOption,
@@ -640,6 +644,8 @@ internal fun PrepareScreen(
     onSlice: () -> Unit,
     onCancelSlicing: () -> Unit,
     onDismissProblem: () -> Unit,
+    /** The info notification's " (Repair)". */
+    onRepairObject: () -> Unit = {},
     /** "Jump to" of a validation notification. */
     onJumpTo: (ValidationNotice) -> Unit = {},
     onSliceModeChange: (SliceMode) -> Unit = {},
@@ -1215,7 +1221,7 @@ internal fun PrepareScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         // GLCanvas3D::_render() renders no notifications over the assembly view.
-                        if (state.assemblyView == null) Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onJumpTo)
+                        if (state.assemblyView == null) Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onRepairObject, onJumpTo)
                         // In a wide window the slice button sits in the tab bar, as on desktop.
                         if (layout == OrcaWindowLayout.Compact) {
                             SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
@@ -1444,6 +1450,7 @@ private fun Notifications(
     imperial: Boolean,
     onCancelSlicing: () -> Unit,
     onDismissProblem: () -> Unit,
+    onRepairObject: () -> Unit,
     onJumpTo: (ValidationNotice) -> Unit,
 ) {
     // Plater::priv::process_validation_warning() and push_validate_error_notification().
@@ -1487,7 +1494,7 @@ private fun Notifications(
             onCancel = onCancelSlicing,
         )
     } else {
-        state.selectedCopy?.let { ObjectInfo(it, imperial) }
+        state.objectInfo?.let { ObjectInfoNotification(it, imperial, onRepairObject) }
     }
 }
 
@@ -1510,12 +1517,53 @@ private fun ValidationNotification(notice: ValidationNotice, level: OrcaNotifica
     }
 }
 
+/**
+ * Plater::show_object_info(): the texts of OrcaSlicer's catalogue, line by
+ * line, the mesh errors in the error colour; open edges colour the notification
+ * as a warning with " (Repair)" (bbl_show_objectsinfo_notification()).
+ */
 @Composable
-private fun ObjectInfo(copy: SceneCopy, imperial: Boolean) {
-    OrcaNotification {
-        OrcaNotificationText(stringResource(R.string.object_name, copy.plateObject.displayName()), emphasized = true)
-        OrcaNotificationText(stringResource(R.string.object_size, copy.instance.inspection.dimensions.sizeText(imperial)))
-        OrcaNotificationText(stringResource(R.string.object_triangles, copy.instance.inspection.facetCount))
+private fun ObjectInfoNotification(info: ObjectInfo, imperial: Boolean, onRepair: () -> Unit) {
+    when (info) {
+        is ObjectInfo.Count -> OrcaNotification {
+            val text = orcaText(OrcaText("Number of currently selected objects: %1%\n", listOf(info.objects.toString())))
+            OrcaNotificationText(text.trimEnd('\n'))
+        }
+        is ObjectInfo.Single -> {
+            val koef = if (imperial) ImperialUnits.MM_TO_IN else 1.0
+            val name = info.part?.let { info.plateObject.volumeName(it) } ?: info.plateObject.displayName()
+            val text = orcaText(
+                listOf(
+                    OrcaText(if (info.part != null) "Part name: %1%\n" else "Object name: %1%\n", listOf(name)),
+                    OrcaText(
+                        if (imperial) "Size: %1% x %2% x %3% in\n" else "Size: %1% x %2% x %3% mm\n",
+                        listOf(info.size.x, info.size.y, info.size.z).map { cppNumber(it * koef) },
+                    ),
+                    OrcaText(if (imperial) "Volume: %1% in³\n" else "Volume: %1% mm³\n", listOf(cppNumber(info.volume * koef.pow(3)))),
+                    OrcaText("Triangles: %1%\n", listOf(info.facets.toString())),
+                ),
+            )
+            // ObjectList::get_mesh_errors_info(): the open edges, and the tip while there are any.
+            val errors = if (info.openEdges > 0) {
+                orcaText(
+                    OrcaText(
+                        "Error: %1\$d non-manifold edge.",
+                        listOf(info.openEdges.toString()),
+                        msgidPlural = "Error: %1\$d non-manifold edges.",
+                        count = info.openEdges,
+                    ),
+                ) + "\n" + orcaString("Tips:") + "\n" + orcaString("Use \"Fix Model\" to repair the mesh.")
+            } else {
+                ""
+            }
+            OrcaNotification(level = if (info.openEdges > 0) OrcaNotificationLevel.Warning else OrcaNotificationLevel.Regular) {
+                text.trimEnd('\n').split('\n').forEachIndexed { index, line -> OrcaNotificationText(line, emphasized = index == 0) }
+                if (errors.isNotEmpty()) {
+                    errors.split('\n').forEach { OrcaNotificationText(it, error = true) }
+                    OrcaNotificationLink(orcaString(" (Repair)").trim(), onClick = onRepair)
+                }
+            }
+        }
     }
 }
 

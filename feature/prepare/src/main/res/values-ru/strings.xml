@@ -61,10 +61,6 @@
     <string name="unit_mm">мм</string>
     <string name="object_clashed">Модель выходит за границы стола или превышает высоту печати.\nУместите всю модель в границы стола (или за его пределы) и убедитесь, что высота модели находится в пределах области печати.</string>
 
-    <string name="object_name">Имя модели: %1$s</string>
-    <string name="object_size">Размер: %1$s</string>
-    <string name="object_triangles">Треугольники: %1$d</string>
-
     <string name="slicing_progress">Нарезка: %1$d%%</string>
     <string name="slicing_cancelling">Отмена…</string>
     <string name="cancel">Отмена</string>

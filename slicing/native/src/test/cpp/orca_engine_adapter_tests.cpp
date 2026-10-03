@@ -5104,6 +5104,14 @@ TEST_CASE("A volume selected alone is described by its own sphere and boxes", "[
         CHECK(described.box_sizes[type][1] == Catch::Approx(20.0).margin(0.001));
         CHECK(described.box_sizes[type][2] == Catch::Approx(10.0).margin(0.001));
     }
+    // Plater::show_object_info(): the block's own volume, triangles and open edges.
+    CHECK(described.mesh_volume == Catch::Approx(2.0 * 20.0 * 10.0).margin(0.01));
+    CHECK(described.facet_count == 12);
+    CHECK(described.open_edges == 0);
+    // ... and the object's: both its model parts.
+    CHECK(imported.objects.front().instances.front().volume == Catch::Approx(8000.0).margin(0.01));
+    CHECK(object.instances.front().volume == Catch::Approx(8400.0).margin(0.01));
+    CHECK(object.instances.front().facet_count == 24);
     CHECK(orca::describe_volume(plate_object_of(object), k2_plus_profiles(), placement, 2).status != orca::SceneStatus::success);
 }
 

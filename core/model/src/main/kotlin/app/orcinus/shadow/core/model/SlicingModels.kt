@@ -91,6 +91,12 @@ data class ModelInspection(
     val unscaledDimensions: ModelDimensions,
     /** ModelObject::get_object_stl_stats().open_edges: edges of its meshes that bound one triangle only. */
     val openEdges: Long = 0,
+    /**
+     * ... and its volume in cubic millimetres: the model parts' meshes scaled
+     * by the first copy, whatever copy this is, as Plater::show_object_info()
+     * shows it.
+     */
+    val volume: Double = 0.0,
 ) {
     init {
         require(facetCount > 0) { "A valid model must contain facets" }

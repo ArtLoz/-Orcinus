@@ -110,6 +110,7 @@ internal class NativeModelInspection(
     @JvmField val message: String,
     @JvmField val facetCount: Long,
     @JvmField val openEdges: Long,
+    @JvmField val volume: Double,
     @JvmField val sizeX: Double,
     @JvmField val sizeY: Double,
     @JvmField val sizeZ: Double,
