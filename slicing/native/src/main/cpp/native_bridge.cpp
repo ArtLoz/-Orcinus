@@ -4714,3 +4714,77 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endMeasure(JNIEnv* /
 {
     orcinus::orca::end_measure();
 }
+
+// NativeBrimEars
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginBrimEars(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint instance_index,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    const orcinus::orca::BrimEars ears = orcinus::orca::begin_brim_ears(
+        to_plate(env, plate),
+        static_cast<int>(object_index),
+        static_cast<int>(instance_index),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles)
+    );
+    const jclass ears_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeBrimEars");
+    const jmethodID constructor = env->GetMethodID(ears_class, "<init>", "(JLjava/lang/String;DDZ)V");
+    const jobject result = env->NewObject(
+        ears_class,
+        constructor,
+        static_cast<jlong>(ears.status),
+        to_java(env, ears.message),
+        static_cast<jdouble>(ears.detection_radius_max),
+        static_cast<jdouble>(ears.default_head_diameter),
+        ears.painted ? JNI_TRUE : JNI_FALSE
+    );
+    env->DeleteLocalRef(ears_class);
+    return result;
+}
+
+// The hit's position and the ear's, one after the other; empty without a hit.
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_hitBrimEars(JNIEnv* env, jobject /* this */, jdoubleArray origin, jdoubleArray direction)
+{
+    const orcinus::orca::BrimEarHit hit = orcinus::orca::hit_brim_ears(to_doubles(env, origin), to_doubles(env, direction));
+    std::vector<double> values;
+    if (hit.hit) {
+        values = hit.position;
+        values.insert(values.end(), hit.ear.begin(), hit.ear.end());
+    }
+    return to_java(env, values.data(), values.size());
+}
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_generateBrimEars(
+    JNIEnv* env, jobject /* this */, jdoubleArray points, jdouble max_angle, jdouble detection_radius, jdouble head_diameter)
+{
+    const std::vector<double> generated = orcinus::orca::generate_brim_ears(to_doubles(env, points), max_angle, detection_radius, head_diameter);
+    return to_java(env, generated.data(), generated.size());
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_checkBrimEars(JNIEnv* env, jobject /* this */, jdoubleArray points)
+{
+    const std::vector<int> invalid = orcinus::orca::check_brim_ears(to_doubles(env, points));
+    const jintArray result = env->NewIntArray(static_cast<jsize>(invalid.size()));
+    if (result != nullptr && !invalid.empty()) {
+        std::vector<jint> values(invalid.begin(), invalid.end());
+        env->SetIntArrayRegion(result, 0, static_cast<jsize>(values.size()), values.data());
+    }
+    return result;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endBrimEars(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::end_brim_ears();
+}

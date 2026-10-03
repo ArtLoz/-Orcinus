@@ -2071,6 +2071,46 @@ MeasureScale scale_measure(const std::vector<PlateObject>& plate, double ratio, 
 
 void end_measure();
 
+// GLGizmoBrimEars opens on the copy instance of the object at index: the
+// first layer of its model parts less its negative volumes
+// (first_layer_slicer()), the detection radius the window allows
+// (get_detection_radius_max()), the head diameter of a new ear
+// (get_brim_default_radius()), and whether the object's brim is "painted"
+// (the window warns that the ears take no effect otherwise); until
+// end_brim_ears().
+struct BrimEars {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    double detection_radius_max{100.0};
+    double default_head_diameter{0.0};
+    bool painted{false};
+};
+
+BrimEars begin_brim_ears(const std::vector<PlateObject>& plate, int index, int instance, const ProfileSelection& profiles);
+
+// unproject_on_mesh2(): where a ray (world coordinates) hits the copy's model
+// parts, in the object's coordinates, and where an ear placed there stands,
+// on the plate under the point.
+struct BrimEarHit {
+    bool hit{false};
+    std::vector<double> position;
+    std::vector<double> ear;
+};
+
+BrimEarHit hit_brim_ears(const std::vector<double>& origin, const std::vector<double>& direction);
+
+// auto_generate(): points (x, y, z and the radius of each, in the object's
+// coordinates) with ears added along the corners of the first layer sharper
+// than max_angle, its outline simplified within detection_radius,
+// head_diameter wide; a point there already is is left out.
+std::vector<double> generate_brim_ears(const std::vector<double>& points, double max_angle, double detection_radius, double head_diameter);
+
+// find_single(): the indexes of the ears among points that touch neither
+// the first layer nor an ear that does.
+std::vector<int> check_brim_ears(const std::vector<double>& points);
+
+void end_brim_ears();
+
 // A face of a font file, as the font list of the text tool shows it: the
 // names of its naming table (the typographic family and subfamily, or the
 // legacy ones), its weight (OS/2 usWeightClass) and whether it is italic.

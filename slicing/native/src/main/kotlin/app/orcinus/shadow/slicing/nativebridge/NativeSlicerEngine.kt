@@ -7,6 +7,9 @@ import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BoundingSphere
+import app.orcinus.shadow.core.model.BrimEarHit
+import app.orcinus.shadow.core.model.BrimEarsOutcome
+import app.orcinus.shadow.core.model.BrimEarsSetup
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CalibrationMode
@@ -169,6 +172,7 @@ import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.filamentUsagesOf
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.BrimEarsEditor
 import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
@@ -196,7 +200,8 @@ class NativeSlicerEngine(context: Context) :
     AppConfigStore,
     LayerHeightEditor,
     EmbossEditor,
-    PlateMeasurer {
+    PlateMeasurer,
+    BrimEarsEditor {
     private val applicationContext = context.applicationContext
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
@@ -850,6 +855,43 @@ class NativeSlicerEngine(context: Context) :
         }
 
     override suspend fun endMeasure() = withContext(Dispatchers.IO) { NativeBindings.endMeasure() }
+
+    override suspend fun beginBrimEars(plate: List<PlacedModel>, index: Int, instance: Int, profiles: SlicingProfileSelection): BrimEarsOutcome =
+        withContext(Dispatchers.IO) {
+            val engineStatus = status()
+            if (!engineStatus.ready) return@withContext BrimEarsOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+            val ears = NativeBindings.beginBrimEars(
+                plate = nativePlate(plate),
+                objectIndex = index,
+                instanceIndex = instance,
+                printerProfile = profiles.printer.value,
+                filamentProfile = profiles.filament.value,
+                filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                processProfile = profiles.process.value,
+            )
+            if (ears.status != NativeSceneStatus.SUCCESS) {
+                BrimEarsOutcome.Failure(ears.message.ifBlank { "OrcaSlicer could not open the brim ears" })
+            } else {
+                BrimEarsOutcome.Success(BrimEarsSetup(ears.detectionRadiusMax, ears.defaultHeadDiameter, ears.painted))
+            }
+        }
+
+    override suspend fun hitBrimEars(origin: Vector3, direction: Vector3): BrimEarHit? = withContext(Dispatchers.IO) {
+        NativeBindings.hitBrimEars(origin.values(), direction.values()).takeIf { it.size >= 6 }?.let { values ->
+            BrimEarHit(Vector3(values[0], values[1], values[2]), Vector3(values[3], values[4], values[5]))
+        }
+    }
+
+    override suspend fun generateBrimEars(points: List<BrimPoint>, maxAngle: Double, detectionRadius: Double, headDiameter: Double): List<BrimPoint> =
+        withContext(Dispatchers.IO) {
+            BrimPoint.of(NativeBindings.generateBrimEars(with(BrimPoint) { points.values() }, maxAngle, detectionRadius, headDiameter))
+        }
+
+    override suspend fun checkBrimEars(points: List<BrimPoint>): List<Int> = withContext(Dispatchers.IO) {
+        NativeBindings.checkBrimEars(with(BrimPoint) { points.values() }).toList()
+    }
+
+    override suspend fun endBrimEars() = withContext(Dispatchers.IO) { NativeBindings.endBrimEars() }
 
     private suspend fun layerEditing(call: () -> NativeLayerEditing): LayerEditingOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()

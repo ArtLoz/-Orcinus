@@ -10,6 +10,7 @@ import android.util.Log
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeKind
+import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
@@ -57,6 +58,7 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.cutConnectors
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.BrimEarsEditor
 import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
@@ -83,7 +85,7 @@ import kotlinx.coroutines.runBlocking
  * itself when the job ends.
  */
 abstract class SlicerService<E> : Service()
-    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor, E : PlateMeasurer {
+    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor, E : PlateMeasurer, E : BrimEarsEditor {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -394,6 +396,21 @@ abstract class SlicerService<E> : Service()
             runBlocking { engine.scaleMeasure(plate.toPlacedModels(), ratio, profiles.toProfiles(), ScenePath(prefix)) }.toParcel()
 
         override fun endMeasure() = runBlocking { engine.endMeasure() }
+
+        override fun beginBrimEars(plate: Array<PlacedModelParcel>, index: Int, instance: Int, profiles: ProfilesParcel) =
+            runBlocking { engine.beginBrimEars(plate.toPlacedModels(), index, instance, profiles.toProfiles()) }.toParcel()
+
+        override fun hitBrimEars(origin: DoubleArray, direction: DoubleArray): DoubleArray = runBlocking {
+            engine.hitBrimEars(origin.toVector3(), direction.toVector3())?.let { hit -> listOf(hit.position, hit.ear).flatMap { listOf(it.x, it.y, it.z) }.toDoubleArray() }
+                ?: DoubleArray(0)
+        }
+
+        override fun generateBrimEars(points: DoubleArray, maxAngle: Double, detectionRadius: Double, headDiameter: Double): DoubleArray =
+            runBlocking { with(BrimPoint) { engine.generateBrimEars(BrimPoint.of(points), maxAngle, detectionRadius, headDiameter).values() } }
+
+        override fun checkBrimEars(points: DoubleArray): IntArray = runBlocking { engine.checkBrimEars(BrimPoint.of(points)).toIntArray() }
+
+        override fun endBrimEars() = runBlocking { engine.endBrimEars() }
 
         override fun saveProject(
             path: String,

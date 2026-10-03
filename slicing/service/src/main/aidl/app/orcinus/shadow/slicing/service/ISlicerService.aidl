@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.service;
 
 import app.orcinus.shadow.slicing.service.AppConfigParcel;
+import app.orcinus.shadow.slicing.service.BrimEarsParcel;
 import app.orcinus.shadow.slicing.service.CalibrationParcel;
 import app.orcinus.shadow.slicing.service.CalibrationPrinterParcel;
 import app.orcinus.shadow.slicing.service.DirtyPresetsParcel;
@@ -145,6 +146,13 @@ interface ISlicerService {
     MeasurementParcel resetMeasure(String reset);
     MeasureScaleParcel scaleMeasure(in PlacedModelParcel[] plate, double ratio, in ProfilesParcel profiles, String prefix);
     void endMeasure();
+    /** begin_brim_ears() and the calls of the brim ears tool; points hold x, y, z and the radius of every ear. */
+    BrimEarsParcel beginBrimEars(in PlacedModelParcel[] plate, int index, int instance, in ProfilesParcel profiles);
+    /** The hit's position and the ear's, one after the other; empty without a hit. */
+    double[] hitBrimEars(in double[] origin, in double[] direction);
+    double[] generateBrimEars(in double[] points, double maxAngle, double detectionRadius, double headDiameter);
+    int[] checkBrimEars(in double[] points);
+    void endBrimEars();
     /** save_project(): the error message, null once saved; sliced is the SlicedPlates' name. */
     @nullable String saveProject(
         String path,

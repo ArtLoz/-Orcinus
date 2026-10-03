@@ -6525,6 +6525,48 @@ TEST_CASE("The brim ears of an object print with the painted brim and stay in a 
     CHECK(reopened.objects.front().brim_points[3] == Catch::Approx(4.0));
 }
 
+TEST_CASE("The brim ears tool places, generates and checks ears on the first layer of a cube", "[Adapter][BrimEars]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("brim-ears-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const orca::BrimEars opened = orca::begin_brim_ears(plate, 0, 0, k2_plus_profiles());
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    CHECK_FALSE(opened.painted);
+    CHECK(opened.default_head_diameter > 0.0);
+    CHECK(opened.detection_radius_max > 0.0);
+
+    // A press on the top of the cube places an ear on the plate under it.
+    const double cx = cube.box_center[0];
+    const double cy = cube.box_center[1];
+    const orca::BrimEarHit hit = orca::hit_brim_ears({cx + 2.0, cy + 3.0, 100.0}, {0.0, 0.0, -1.0});
+    REQUIRE(hit.hit);
+    REQUIRE(hit.position.size() == 3);
+    REQUIRE(hit.ear.size() == 3);
+    CHECK(hit.position[2] == Catch::Approx(10.0).margin(1e-3));
+    CHECK(hit.ear[2] == Catch::Approx(-10.0001).margin(1e-3));
+    CHECK_FALSE(orca::hit_brim_ears({cx + 50.0, cy, 100.0}, {0.0, 0.0, -1.0}).hit);
+
+    // Auto-generate at 125 degrees: an ear at each of the cube's four corners, which touch its first layer.
+    const std::vector<double> generated = orca::generate_brim_ears({}, 125.0, 1.0, opened.default_head_diameter);
+    REQUIRE(generated.size() == 4 * 4);
+    CHECK(orca::check_brim_ears(generated).empty());
+    // Again: the same ears are not added twice.
+    CHECK(orca::generate_brim_ears(generated, 125.0, 1.0, opened.default_head_diameter).size() == generated.size());
+
+    // An ear far off the cube touches nothing.
+    std::vector<double> with_single = generated;
+    with_single.insert(with_single.end(), {40.0, 0.0, -10.0001, 2.0});
+    const std::vector<int> invalid = orca::check_brim_ears(with_single);
+    REQUIRE(invalid.size() == 1);
+    CHECK(invalid.front() == 4);
+    orca::end_brim_ears();
+    CHECK(orca::check_brim_ears(with_single).empty());
+}
+
 TEST_CASE("The measuring tool scales the selection to a distance", "[Adapter][Measure]")
 {
     require_engine();

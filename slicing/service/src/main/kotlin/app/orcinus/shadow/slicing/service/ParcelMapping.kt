@@ -4,6 +4,8 @@ import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BoundingSphere
+import app.orcinus.shadow.core.model.BrimEarsOutcome
+import app.orcinus.shadow.core.model.BrimEarsSetup
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
@@ -1486,6 +1488,22 @@ private fun List<Vector3>.values(): DoubleArray = flatMap { listOf(it.x, it.y, i
 private fun DoubleArray.vectorAt(at: Int) = Vector3(this[at], this[at + 1], this[at + 2])
 
 internal fun Vector3.toDoubles() = doubleArrayOf(x, y, z)
+
+internal fun DoubleArray.toVector3() = Vector3(getOrElse(0) { 0.0 }, getOrElse(1) { 0.0 }, getOrElse(2) { 0.0 })
+
+internal fun BrimEarsOutcome.toParcel() = BrimEarsParcel().also {
+    when (this) {
+        is BrimEarsOutcome.Failure -> it.error = message
+        is BrimEarsOutcome.Success -> {
+            it.detectionRadiusMax = setup.detectionRadiusMax
+            it.defaultHeadDiameter = setup.defaultHeadDiameter
+            it.painted = setup.painted
+        }
+    }
+}
+
+internal fun BrimEarsParcel.toBrimEarsOutcome(): BrimEarsOutcome = error?.let(BrimEarsOutcome::Failure)
+    ?: BrimEarsOutcome.Success(BrimEarsSetup(detectionRadiusMax, defaultHeadDiameter, painted))
 
 /** The ray of a measuring call, as the service takes it. */
 internal fun measureRay(origin: DoubleArray, direction: DoubleArray, pointSelection: Boolean, onlySelectPlane: Boolean, sphereRadius: Double) =

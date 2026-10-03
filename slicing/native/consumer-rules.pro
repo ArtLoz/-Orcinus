@@ -77,6 +77,8 @@
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureItem { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureState { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureScale { <init>(...); }
+# The brim ears tool.
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeBrimEars { <init>(...); }
 # The bridge looks onProgress up on the listener object, which is usually a
 # lambda that R8 synthesizes; a rule on implementing classes does not reach it.
 # Keeping the interface method keeps its name in every implementation.

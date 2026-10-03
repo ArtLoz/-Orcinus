@@ -9,6 +9,9 @@ import android.os.RemoteException
 import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.BrimEarHit
+import app.orcinus.shadow.core.model.BrimEarsOutcome
+import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
 import app.orcinus.shadow.core.model.ComparedPresets
@@ -117,6 +120,7 @@ import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.BrimEarsEditor
 import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
@@ -142,7 +146,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor, PlateMeasurer {
+) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor, PlateMeasurer, BrimEarsEditor {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -494,6 +498,23 @@ class RemoteSlicerEngine(
         remote({ MeasureScaleOutcome.Failure(it) }) { scaleMeasure(plate.toParcels(), ratio, profiles.toParcel(), prefix.value).toMeasureScaleOutcome() }
 
     override suspend fun endMeasure() = remote({}) { endMeasure() }
+
+    override suspend fun beginBrimEars(plate: List<PlacedModel>, index: Int, instance: Int, profiles: SlicingProfileSelection): BrimEarsOutcome =
+        remote({ BrimEarsOutcome.Failure(it) }) { beginBrimEars(plate.toParcels(), index, instance, profiles.toParcel()).toBrimEarsOutcome() }
+
+    override suspend fun hitBrimEars(origin: Vector3, direction: Vector3): BrimEarHit? = remote({ null }) {
+        hitBrimEars(origin.toDoubles(), direction.toDoubles())?.takeIf { it.size >= 6 }?.let { values ->
+            BrimEarHit(Vector3(values[0], values[1], values[2]), Vector3(values[3], values[4], values[5]))
+        }
+    }
+
+    override suspend fun generateBrimEars(points: List<BrimPoint>, maxAngle: Double, detectionRadius: Double, headDiameter: Double): List<BrimPoint> =
+        remote({ points }) { BrimPoint.of(generateBrimEars(with(BrimPoint) { points.values() }, maxAngle, detectionRadius, headDiameter) ?: DoubleArray(0)) }
+
+    override suspend fun checkBrimEars(points: List<BrimPoint>): List<Int> =
+        remote({ emptyList() }) { checkBrimEars(with(BrimPoint) { points.values() })?.toList().orEmpty() }
+
+    override suspend fun endBrimEars() = remote({}) { endBrimEars() }
 
     override suspend fun saveProject(
         path: ScenePath,

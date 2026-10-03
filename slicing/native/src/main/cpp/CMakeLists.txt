@@ -13,6 +13,7 @@ add_library(orca_engine_adapter STATIC
     cut.cpp
     emboss.cpp
     measure.cpp
+    brim_ears.cpp
     layer_editing.cpp
     engine_context.cpp
     flush_volumes.cpp

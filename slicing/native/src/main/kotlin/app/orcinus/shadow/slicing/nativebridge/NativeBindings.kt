@@ -858,6 +858,15 @@ internal class NativeMeasureState(
     @JvmField val hoveredUnchanged: Boolean,
 )
 
+/** Constructed by the native bridge; see BrimEars in orca_engine_adapter.hpp. */
+internal class NativeBrimEars(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val detectionRadiusMax: Double,
+    @JvmField val defaultHeadDiameter: Double,
+    @JvmField val painted: Boolean,
+)
+
 /** Constructed by the native bridge; see MeasureScale in orca_engine_adapter.hpp. */
 internal class NativeMeasureScale(
     @JvmField val measure: NativeMeasureState,
@@ -1724,6 +1733,27 @@ internal object NativeBindings {
     ): NativeMeasureScale
 
     external fun endMeasure()
+
+    /** begin_brim_ears() */
+    external fun beginBrimEars(
+        plate: NativePlate,
+        objectIndex: Int,
+        instanceIndex: Int,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): NativeBrimEars
+
+    /** hit_brim_ears(): the hit's position and the ear's, one after the other; empty without a hit. */
+    external fun hitBrimEars(origin: DoubleArray, direction: DoubleArray): DoubleArray
+
+    /** generate_brim_ears(): x, y, z and the radius of every ear. */
+    external fun generateBrimEars(points: DoubleArray, maxAngle: Double, detectionRadius: Double, headDiameter: Double): DoubleArray
+
+    external fun checkBrimEars(points: DoubleArray): IntArray
+
+    external fun endBrimEars()
 
     /**
      * Commits [manipulation] (Manipulation in orca_engine_adapter.hpp) of the
