@@ -1018,6 +1018,34 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a model file of the recent files takes the plate's place, as load_project() opens it`() {
+        val file = ImportedModelFile(ModelPath("/imports/part.stl"), "part.stl")
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        val recent = mutableListOf<List<ExternalDocumentReference>>()
+        addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles(), recentProjects = RecentProjects { recent += it })
+            .openRecent(REFERENCE)
+
+        val load = inspector.loads.single()
+        assertEquals(ModelLoad.PROJECT, load.load)
+        // Not ProjectDropDialog's choice, which the engine would remember.
+        assertFalse(load.chosen)
+        val state = repository.state.value
+        assertFalse(state.importing)
+        // The plate was reset: the cube is gone, Undo starts afresh, and Prepare shows.
+        assertEquals(1, state.objects.size)
+        assertFalse(state.objects.single() is PlateObject.CalibrationCube)
+        assertTrue(state.history.undo.isEmpty())
+        assertEquals(1, state.projectResets)
+        // The project goes by the file's name, unsaved into the model's document, and is not dirty.
+        assertEquals("part", state.project.name)
+        assertNull(state.project.document)
+        assertTrue(state.projectUpToDate)
+        // set_project_filename() puts the file on top of the recent files.
+        assertEquals(listOf(listOf(REFERENCE)), recent)
+    }
+
+    @Test
     fun `the Preferences' load behaviour decides how a 3MF file opens`() {
         val file = ImportedModelFile(ModelPath("/imports/p.3mf"), "p.3mf")
         fun opened(plate: PlateState, behaviour: String): Pair<FakeRepository, FakeInspector> {
@@ -2831,6 +2859,7 @@ class PlateUseCasesTest {
         files: FakeSceneFiles,
         preferences: AppPreferences = preferences(),
         stepMeshPrompt: StepMeshPrompt = StepMeshPrompt(inspector, preferences, repository),
+        recentProjects: RecentProjects? = null,
         /** The file of every document picked; [imported] for all by default. */
         importedBy: ((ExternalDocumentReference) -> ModelImportOutcome)? = null,
     ) =
@@ -2849,6 +2878,7 @@ class PlateUseCasesTest {
             preferences = preferences,
             stepMeshPrompt = stepMeshPrompt,
             editPlateObject = EditPlateObjectUseCase(inspector, files, repository, scope),
+            recentProjects = recentProjects,
         )
 
     private fun assertIsCube(plateObject: PlateObject?) {

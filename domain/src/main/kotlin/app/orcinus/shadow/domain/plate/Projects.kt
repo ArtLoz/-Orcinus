@@ -277,9 +277,7 @@ class ProjectLifecycleUseCase(
         val before = repository.state.value.profiles
         val presets = presetManager.resetProjectPresets()
         repository.update { current ->
-            // PartPlateList::reinit(): the plate loses its own settings; the
-            // flushing volumes are the project config's, which stays.
-            val kept = ModelSettings(current.plateSettings.values.filterKeys { it in PROJECT_CONFIG_KEYS })
+            val kept = current.projectConfigSettings()
             val selected = (presets as? PresetsOutcome.Success)?.presets ?: current.presets
             current.copy(
                 presets = selected,
@@ -446,9 +444,6 @@ class ProjectLifecycleUseCase(
     }
 
     private companion object {
-        /** The project config's own values the plate keeps, which a new project keeps. */
-        val PROJECT_CONFIG_KEYS = setOf("flush_volumes_matrix", "flush_multiplier")
-
         // UnsavedChangesDialog's ActionButtons and Action, as save_preset_choise keeps an action.
         const val KEEP = 2
         const val SAVE = 4
@@ -466,6 +461,15 @@ class ProjectLifecycleUseCase(
 }
 
 /** Plater::priv::set_project_filename(): a project goes by its file's name without the extension. */
+/**
+ * PartPlateList::reinit() of Plater::priv::reset(): the plate loses its own
+ * settings; the flushing volumes are the project config's, which stays.
+ */
+internal fun PlateState.projectConfigSettings(): ModelSettings = ModelSettings(plateSettings.values.filterKeys { it in PROJECT_CONFIG_KEYS })
+
+/** The project config's own values the plate keeps, which a reset plate keeps. */
+private val PROJECT_CONFIG_KEYS = setOf("flush_volumes_matrix", "flush_multiplier")
+
 internal fun projectNameOf(displayName: String): String = displayName.substringBeforeLast('.').ifEmpty { displayName }
 
 /** The project with what [this] plate holds now and the presets it has, as the project's saved state. */

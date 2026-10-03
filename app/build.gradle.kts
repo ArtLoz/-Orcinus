@@ -130,6 +130,7 @@ dependencies {
     implementation(project(":data:plate"))
     implementation(project(":domain"))
     implementation(project(":feature:about"))
+    implementation(project(":feature:home"))
     implementation(project(":feature:preferences"))
     implementation(project(":feature:prepare"))
     implementation(project(":feature:device"))

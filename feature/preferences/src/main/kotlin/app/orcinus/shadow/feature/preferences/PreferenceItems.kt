@@ -71,6 +71,9 @@ internal sealed interface PreferenceItem {
     /** create_item_button() of "Clear my choice on...": the button empties the remembered choice. */
     data class Clear(override val key: String, override val title: String, override val tooltip: String) : PreferenceItem
 
+    /** create_item_input(): digits only (wxFILTER_DIGITS), written as they are typed. */
+    data class Digits(override val key: String, override val title: String, override val tooltip: String) : PreferenceItem
+
     /** create_camera_orbit_mult_input(): a number kept within [min]..[max], written with two decimals. */
     data class Decimal(
         override val key: String,
@@ -113,6 +116,12 @@ internal val PREFERENCE_PAGES = listOf(
                         labels = listOf("Metric", "Imperial"),
                         suffixes = listOf(" (mm, g)", " (in, oz)"),
                     ),
+                    PreferenceItem.Choice(
+                        AppConfigKeys.DEFAULT_PAGE,
+                        "Default page",
+                        "Set the page opened on startup.",
+                        labels = listOf("Home", "Prepare"),
+                    ),
                 ),
             ),
             PreferenceSection(
@@ -137,6 +146,8 @@ internal val PREFERENCE_PAGES = listOf(
                         "Backup your project periodically to help with restoring from an occasional crash.",
                         "The period of backup in seconds.",
                     ),
+                    PreferenceItem.Digits(AppConfigKeys.MAX_RECENT_COUNT, "Maximum recent files", "Maximum count of recent files"),
+                    PreferenceItem.Check(AppConfigKeys.RECENT_MODELS, "Add STL/STEP files to recent files list"),
                     PreferenceItem.Check(AppConfigKeys.NO_WARN_WHEN_MODIFIED_GCODES, "Don't warn when loading 3MF with modified G-code"),
                     PreferenceItem.Check(
                         AppConfigKeys.ENABLE_STEP_MESH_SETTING,

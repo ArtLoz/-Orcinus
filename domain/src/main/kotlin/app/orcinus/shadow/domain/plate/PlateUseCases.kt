@@ -669,6 +669,39 @@ class AddModelToPlateUseCase(
     }
 
     /**
+     * MainFrame::open_recent_project(): Plater::load_project() of a file of the
+     * home page's list. A 3MF file opens as Open Project opens it. A model
+     * file, which the list holds with "Add STL/STEP files to recent files
+     * list", takes the plate's place once the project before let it:
+     * load_project() resets the plate (Plater::priv::reset(), which takes away
+     * the presets the project before brought) and loads the file, and the
+     * project then goes by the file's name.
+     */
+    fun openRecent(reference: ExternalDocumentReference) {
+        if (!start()) return
+        applicationScope.launch {
+            when (val imported = importModel(reference)) {
+                is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
+                is ModelImportOutcome.Success -> {
+                    val path = imported.model.path
+                    val picked = ImportBatch(document = reference, displayName = imported.model.displayName)
+                    when {
+                        path.value.endsWith(".3mf", ignoreCase = true) -> openProject(path, picked)
+                        !confirmClose.confirm(newProject = false) -> repository.update { it.copy(importing = false) }
+                        else -> {
+                            val before = repository.state.value.profiles
+                            val presets = presetManager.resetProjectPresets()
+                            (presets as? PresetsOutcome.Success)?.let { reset -> repository.update { it.copy(presets = reset.presets) } }
+                            platePresets.apply(before, presets)
+                            load(ImportFiles(path), picked.copy(load = ModelLoad.PROJECT), emptyMap(), emptyList())
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Plater::load_project() of a backup with its origin (LoadStrategy::Restore):
      * the project loads under the name of the document it came from, or as
      * "Untitled" when it had none, and stays unsaved. The app has just
@@ -890,6 +923,35 @@ class AddModelToPlateUseCase(
                                 },
                             )
                         }
+                    } else if (batch.load == ModelLoad.PROJECT) {
+                        // Plater::load_project() of a file that brings no project, such
+                        // as a model file of the recent files: the reset plate holds the
+                        // file's objects alone (Plater::priv::reset()), Undo starts
+                        // afresh, and the project goes by the file's name. Orca saves
+                        // the project of a model file beside it as a 3MF file; the
+                        // document of a model takes no project, so Save asks for one.
+                        val settings = state.projectConfigSettings()
+                        val document = batch.document?.takeIf { batch.displayName?.endsWith(".3mf", ignoreCase = true) == true }
+                        informed.copy(
+                            importing = batch.rest.isNotEmpty(),
+                            objects = added,
+                            selectedInstances = loaded,
+                            selectedPart = null,
+                            selectedRange = null,
+                            simplifyTarget = null,
+                            plates = listOf(PartPlate(settings = settings)),
+                            currentPlate = 0,
+                            plateSettings = settings,
+                            layerGcodes = emptyList(),
+                            paPattern = null,
+                            history = PlateHistory(),
+                            projectResets = state.projectResets + 1,
+                            result = null,
+                            project = PlateProject(name = batch.displayName?.let(::projectNameOf), document = document),
+                        ).let { loaded ->
+                            val opened = loaded.projectBaseline()
+                            loaded.copy(project = if (batch.restore) opened.copy(baseline = ProjectContent()) else opened)
+                        }
                     } else {
                         // Plater::add_file(): an untitled plate takes the name of the
                         // first model file it loads, a 3MF file's geometry aside.
@@ -935,7 +997,7 @@ class AddModelToPlateUseCase(
         // set_project_filename() of a project that opened adds it to the recent files
         // (add_to_recent_projects()), as add_file() adds its models that loaded.
         if (outcome is ModelLoadOutcome.Success && outcome.objects.isNotEmpty()) {
-            if (outcome.project != null) {
+            if (batch.load == ModelLoad.PROJECT) {
                 batch.document?.let { recentProjects?.add(listOf(it)) }
             } else {
                 files?.recentModels?.let { recentProjects?.add(it) }

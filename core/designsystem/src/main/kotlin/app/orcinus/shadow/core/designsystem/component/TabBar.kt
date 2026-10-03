@@ -30,11 +30,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 
-/** A page of the main tab bar, as Prepare and Preview in OrcaSlicer. */
+/**
+ * A page of the main tab bar, as Prepare and Preview in OrcaSlicer. A tab
+ * without a [title], as Home, shows its icon alone, which [description] names.
+ */
 @Immutable
 data class OrcaTab(
     val title: String,
     @param:DrawableRes val icon: Int,
+    val description: String? = null,
 )
 
 /**
@@ -66,7 +70,7 @@ fun OrcaTabBar(
             val content = if (selected) colors.onTabBar else colors.onTabBarInactive
             Row(
                 modifier = Modifier
-                    .then(if (fillWidth) Modifier.weight(1f) else Modifier)
+                    .then(if (fillWidth && tab.title.isNotEmpty()) Modifier.weight(1f) else Modifier)
                     .fillMaxHeight()
                     .background(if (selected) colors.accent else Color.Transparent)
                     .selectable(selected = selected, role = Role.Tab, onClick = { onSelect(index) })
@@ -74,15 +78,17 @@ fun OrcaTabBar(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(painterResource(tab.icon), contentDescription = null, tint = content, modifier = Modifier.size(OrcaTheme.dimensions.icon))
-                Text(
-                    text = tab.title,
-                    color = content,
-                    style = OrcaTheme.typography.body15,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                Icon(painterResource(tab.icon), contentDescription = tab.description, tint = content, modifier = Modifier.size(OrcaTheme.dimensions.icon))
+                if (tab.title.isNotEmpty()) {
+                    Text(
+                        text = tab.title,
+                        color = content,
+                        style = OrcaTheme.typography.body15,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
         }
         if (!fillWidth) {

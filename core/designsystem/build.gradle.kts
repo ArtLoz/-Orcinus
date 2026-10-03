@@ -138,7 +138,7 @@ val orcaIconNames = listOf(
     "plate_close", "plate_orient", "plate_arrange", "plate_locked", "plate_unlocked", "plate_move_front", "plate_name_edit",
     "plate_settings_changed",
     "plate_settings", "printer", "process", "save", "search", "seperator",
-    "spin_dec", "spin_inc", "split_objects", "split_parts", "tab_3d_active", "tab_monitor_active",
+    "spin_dec", "spin_inc", "split_objects", "split_parts", "tab_3d_active", "tab_home_active", "tab_monitor_active",
     "tab_preview_active", "toolbar_add_plate", "toolbar_arrange", "toolbar_assemble",
     "toolbar_assembly", "toolbar_brimears", "toolbar_cut", "toolbar_flatten",
     "toolbar_fuzzy_skin_paint", "toolbar_measure", "toolbar_meshboolean", "toolbar_move",

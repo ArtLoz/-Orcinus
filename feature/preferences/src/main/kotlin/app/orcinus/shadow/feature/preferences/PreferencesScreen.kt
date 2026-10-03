@@ -255,6 +255,7 @@ private fun PreferenceRow(
                 modifier = Modifier.width(CONTROL_WIDTH),
             )
             is PreferenceItem.Decimal -> DecimalField(item, value, enabled) { onChange(item.key, it) }
+            is PreferenceItem.Digits -> DigitsField(value, enabled) { onChange(item.key, it) }
             is PreferenceItem.Language -> OrcaComboBox(
                 items = ORCA_LANGUAGES.indices.toList(),
                 selected = ORCA_LANGUAGES.indexOf(language),
@@ -297,6 +298,27 @@ private fun DecimalField(item: PreferenceItem.Decimal, value: String, enabled: B
             .width(CONTROL_WIDTH)
             .onFocusChanged { state ->
                 if (focused && !state.isFocused) commit()
+                focused = state.isFocused
+            },
+    )
+}
+
+/** create_item_input(): digits only (wxFILTER_DIGITS), written as they are when it is done or loses the focus. */
+@Composable
+private fun DigitsField(value: String, enabled: Boolean, onChange: (String) -> Unit) {
+    val focusManager = LocalFocusManager.current
+    var text by remember(value) { mutableStateOf(value) }
+    var focused by remember { mutableStateOf(false) }
+    OrcaTextField(
+        value = text,
+        onValueChange = { typed -> text = typed.filter(Char::isDigit) },
+        enabled = enabled,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+        modifier = Modifier
+            .width(CONTROL_WIDTH)
+            .onFocusChanged { state ->
+                if (focused && !state.isFocused && text != value) onChange(text)
                 focused = state.isFocused
             },
     )

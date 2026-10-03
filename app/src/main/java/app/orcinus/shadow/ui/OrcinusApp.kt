@@ -80,6 +80,8 @@ import app.orcinus.shadow.feature.about.navigation.AboutNavKey
 import app.orcinus.shadow.feature.about.navigation.aboutEntries
 import app.orcinus.shadow.feature.device.navigation.DeviceNavKey
 import app.orcinus.shadow.feature.device.navigation.deviceEntry
+import app.orcinus.shadow.feature.home.navigation.HomeNavKey
+import app.orcinus.shadow.feature.home.navigation.homeEntry
 import app.orcinus.shadow.feature.preferences.navigation.PreferencesNavKey
 import app.orcinus.shadow.feature.preferences.navigation.preferencesEntry
 import app.orcinus.shadow.feature.prepare.R as PrepareR
@@ -96,6 +98,7 @@ import app.orcinus.shadow.feature.setup.navigation.setupEntry
 import app.orcinus.shadow.feature.sidebar.PlateSidebar
 import app.orcinus.shadow.feature.sidebar.PresetWizardPage
 import app.orcinus.shadow.feature.sidebar.R as SidebarR
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -114,6 +117,8 @@ class AppShellViewModel(
     private val stepMeshPrompt: StepMeshPrompt,
     private val autoSlice: AutoSliceUseCase,
     private val projectBackup: ProjectBackupUseCase,
+    /** The Preferences' "Default page" once it is read; null before. */
+    val defaultPage: Flow<String?>,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -183,6 +188,7 @@ fun OrcinusApp(
             container.stepMeshPrompt,
             container.autoSlice,
             container.projectBackup,
+            container.defaultPage,
         )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
@@ -255,9 +261,10 @@ fun OrcinusApp(
  * OrcaSlicer's tab bar over the feature destinations, and its sidebar, which
  * Prepare and Preview share. On a phone the sidebar is a modal drawer over the
  * whole screen; in a wide window it is docked under the tab bar. The tabs are
- * top-level pages; Preview sits on top of Prepare in their back stack, so Back
- * returns to Prepare. Features do not know each other; the workspace opens
- * Preview when a slice finishes, as OrcaSlicer does.
+ * top-level pages; Home, Preview and Device sit on top of Prepare in their
+ * back stack, so Back returns to Prepare. Features do not know each other; the
+ * workspace opens Preview when a slice finishes, and Prepare when a project is
+ * created or opened, as OrcaSlicer does.
  */
 @Composable
 private fun Workspace(
@@ -271,7 +278,8 @@ private fun Workspace(
     onOpenPreferences: () -> Unit,
 ) {
     val plate by shell.plate.collectAsStateWithLifecycle()
-    val backStack = rememberNavBackStack(PrepareNavKey)
+    // GUI_App::on_init_inner() selects the Home tab first (MainFrame::tpHome).
+    val backStack = rememberNavBackStack(PrepareNavKey, HomeNavKey)
     // The message boxes OrcaSlicer showed while it changed the plate, in their
     // order, then the question it waits on, over whichever tab is open.
     val notice = plate.plateNotices.firstOrNull()
@@ -332,12 +340,34 @@ private fun Workspace(
         backStack.showTab(destination)
     }
 
+    // ...and then Prepare, when the Preferences' "Default page" says so.
+    var startPageChosen by rememberSaveable { mutableStateOf(false) }
+    val defaultPage by shell.defaultPage.collectAsStateWithLifecycle(initialValue = null)
+    LaunchedEffect(defaultPage) {
+        val page = defaultPage ?: return@LaunchedEffect
+        if (startPageChosen) return@LaunchedEffect
+        startPageChosen = true
+        if (page == DEFAULT_PAGE_PREPARE && backStack.lastOrNull() == HomeNavKey) showTab(PrepareNavKey)
+    }
+
+    // Plater::new_project() and load_project() select the Prepare tab: the
+    // plate was reset (Plater::priv::reset()) for a new or an opened project.
+    var projectResets by remember { mutableIntStateOf(plate.projectResets) }
+    LaunchedEffect(plate.projectResets) {
+        if (plate.projectResets != projectResets) {
+            projectResets = plate.projectResets
+            showTab(PrepareNavKey)
+        }
+    }
+
     // Plater::priv::is_preview_shown()
     val shownTab = backStack.lastOrNull()
     LaunchedEffect(shownTab) { shell.showingPreview(shownTab == PreviewNavKey) }
 
-    val destinations = listOf(PrepareNavKey, PreviewNavKey, DeviceNavKey)
+    val destinations = listOf(HomeNavKey, PrepareNavKey, PreviewNavKey, DeviceNavKey)
     val tabs = listOf(
+        // MainFrame's Home tab has its icon alone.
+        OrcaTab("", DesignR.drawable.orca_tab_home_active, description = orcaString("Home")),
         OrcaTab(stringResource(PrepareR.string.prepare_title), DesignR.drawable.orca_tab_3d_active),
         OrcaTab(stringResource(PreviewR.string.preview_title), DesignR.drawable.orca_tab_preview_active),
         // MainFrame::show_device(): the Device tab, after the preview.
@@ -412,6 +442,7 @@ private fun Workspace(
             transitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
             popTransitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
             entryProvider = entryProvider {
+                homeEntry(createViewModel = container::homeViewModel, onShowPrepare = { showTab(PrepareNavKey) })
                 prepareEntry(
                     createViewModel = container::prepareViewModel,
                     shown = prepareShown,
@@ -455,3 +486,6 @@ private fun NavBackStack<NavKey>.showTab(destination: NavKey) {
 
 /** The media type of a 3MF project. */
 private const val PROJECT_MIME_TYPE = "model/3mf"
+
+/** default_page: the Prepare tab, the second of DefaultPage's entries. */
+private const val DEFAULT_PAGE_PREPARE = "1"

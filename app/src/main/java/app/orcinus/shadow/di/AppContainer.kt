@@ -7,6 +7,7 @@ import app.orcinus.shadow.BuildConfig
 import app.orcinus.shadow.NetworkWork
 import app.orcinus.shadow.OrcaSlicerService
 import app.orcinus.shadow.R
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.AppInfo
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.CloudLoginOutcome
@@ -167,6 +168,7 @@ import app.orcinus.shadow.feature.about.NoticeViewModel
 import app.orcinus.shadow.feature.about.ThirdPartyViewModel
 import app.orcinus.shadow.feature.about.navigation.AboutViewModelFactory
 import app.orcinus.shadow.feature.device.DeviceViewModel
+import app.orcinus.shadow.feature.home.HomeViewModel
 import app.orcinus.shadow.feature.preferences.PreferencesViewModel
 import app.orcinus.shadow.feature.prepare.PrepareViewModel
 import app.orcinus.shadow.feature.preview.PreviewViewModel
@@ -197,6 +199,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onCompletion
@@ -626,6 +629,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     )
 
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)
+
+    fun homeViewModel() = HomeViewModel(recentProjects, projectLifecycle, addModelToPlate, observePlate)
+
+    /** The Preferences' "Default page" once OrcaSlicer.conf is read: "0" for Home, "1" for Prepare; null before. */
+    val defaultPage: Flow<String?> = appPreferences.values.map { values -> if (values.isEmpty()) null else values[AppConfigKeys.DEFAULT_PAGE].orEmpty() }
 
     /** An item of the Preferences or of a canvas's View menu, written into OrcaSlicer.conf. */
     private val setPreference by lazy { SetPreferenceUseCase(appPreferences, settingsTabs, engine, platePresets, plateRepository, applicationScope) }
