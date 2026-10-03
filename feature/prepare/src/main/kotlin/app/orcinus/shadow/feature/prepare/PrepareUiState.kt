@@ -257,6 +257,11 @@ data class PrepareUiState(
     val volumeScale: VolumeScaleFrame? = null,
     /** The painting tool's "Section view" on the painted copy. */
     val paintSection: PaintSectionView? = null,
+    /**
+     * GLGizmoMmuSegmentation::update_used_filaments(): the filaments, 0-based,
+     * the painted object uses, as its model parts' own and as paint.
+     */
+    val paintedFilaments: List<Int> = emptyList(),
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
     val selectedRotation: Vector3?,
     /** GizmoObjectManipulation::update_reset_buttons_visibility(): the rotation differs from when the tool opened. */
@@ -363,6 +368,11 @@ data class PaintingMode(
     val edgeDetection: Boolean = true,
     /** The height range's height in millimetres (m_cursor_height). */
     val cursorHeight: Double = 0.2,
+    /**
+     * "Remap filaments" (m_extruder_remap): the filament, 0-based, each one
+     * becomes; none or the filament itself for one left as it is.
+     */
+    val remap: List<Int> = emptyList(),
     /**
      * The fuzzy skin tool's warning: fuzzy skin is disabled for the object, by
      * its settings or the process preset, so what is painted does not take effect.
@@ -879,6 +889,16 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         },
         selectedSize = if (volume != null) volumeBox?.size else selected?.dimensions?.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) },
         scaleCoordinates = scaleCoordinates,
+        paintedFilaments = view.painting?.takeIf { it.kind == PaintKind.COLOR }?.let { mode ->
+            val target = objects.firstOrNull { it.mesh == mode.mesh } ?: return@let emptyList()
+            val count = presets?.filamentColors.orEmpty().size
+            // ModelVolume::extruder_id() of the model parts, then the painted states.
+            fun used(own: Int) = (own.takeIf { it > 0 } ?: target.settings.extruderNumber).let { if (it > 0) it - 1 else 0 }
+            val bases = listOf(used(target.volume.settings.extruderNumber)) +
+                target.parts.filter { it.type == VolumeType.PART }.map { used(it.settings.extruderNumber) }
+            val painted = target.paintedMeshes.filter { it.kind == PaintKind.COLOR }.map { it.state - 1 }
+            (bases + painted).filter { it in 0 until count }.toSortedSet().toList()
+        }.orEmpty(),
         paintSection = view.painting?.let { mode ->
             val copy = selectedObject?.let(copies::get) ?: return@let null
             // ObjectClipper::set_position_by_ratio(): about the copy's offset, or in the

@@ -846,6 +846,9 @@ abstract class SlicerService<E> : Service()
 
         override fun clearPainting(meshPrefix: String): PaintingParcel = runBlocking { engine.clearPainting(ScenePath(meshPrefix)) }.toParcel()
 
+        override fun remapPainting(remap: IntArray, meshPrefix: String): PaintingParcel =
+            runBlocking { engine.remapPainting(remap.toList(), ScenePath(meshPrefix)) }.toParcel()
+
         override fun setGapFill(gapArea: Double, meshPrefix: String): PaintingParcel = runBlocking {
             engine.setGapFill(gapArea.takeIf { it >= 0.0 }, ScenePath(meshPrefix))
         }.toParcel()

@@ -32,11 +32,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -293,6 +295,9 @@ internal fun PrepareRoute(
             setHorizontalOnly = viewModel::setHorizontalOnly,
             setEdgeDetection = viewModel::setEdgeDetection,
             setCursorHeight = viewModel::setCursorHeight,
+            setRemap = viewModel::setRemap,
+            resetRemap = viewModel::resetRemap,
+            remap = viewModel::remapFilaments,
             resetSectionDirection = viewModel::resetPaintingSectionDirection,
             sectionPlane = viewModel::setPaintingSectionPlane,
         ),
@@ -594,6 +599,10 @@ internal class PaintingActions(
     val setHorizontalOnly: (Boolean) -> Unit = {},
     val setEdgeDetection: (Boolean) -> Unit = {},
     val setCursorHeight: (Double) -> Unit = {},
+    /** "Remap filaments": a filament's target, "Reset" and "Remap". */
+    val setRemap: (source: Int, target: Int) -> Unit = { _, _ -> },
+    val resetRemap: () -> Unit = {},
+    val remap: () -> Unit = {},
 ) {
     companion object {
         val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
@@ -1735,6 +1744,7 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
                 onClick = { actions.setState(PaintState.NONE) },
             )
         }
+        FilamentRemap(state, painting, actions)
         Text(
             text = orcaString("Tool type"),
             color = OrcaTheme.colors.onCanvasPanel,
@@ -1809,6 +1819,93 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
             onClick = actions.clear,
             modifier = Modifier.padding(top = 4.dp),
         )
+    }
+}
+
+/**
+ * render_filament_remap_ui(): "Remap filaments", folded until opened, with a
+ * swatch per filament the object uses, which shows the one it is to become;
+ * a tap opens "To:" with every filament. "Remap" applies the mapping, "Reset"
+ * drops it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilamentRemap(state: PrepareUiState, painting: PaintingMode, actions: PaintingActions) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    var choosing by remember { mutableStateOf<Int?>(null) }
+    val colors = state.filamentColors.map { Color(it.red, it.green, it.blue, it.alpha) }
+    val hasMapping = painting.remap.withIndex().any { (source, target) -> source != target }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { open = !open }
+            .padding(vertical = 4.dp),
+    ) {
+        Text(
+            text = orcaString("Remap filaments"),
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier.weight(1f),
+        )
+        Text(text = if (open) "▴" else "▾", color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body12)
+    }
+    if (!open) return
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        state.paintedFilaments.forEach { source ->
+            val target = painting.remap.getOrElse(source) { source }
+            Box {
+                OrcaFilamentSlot(
+                    number = source + 1,
+                    color = colors.getOrElse(source) { OrcaTheme.colors.accent },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .border(width = if (choosing == source) 2.dp else 1.dp, color = if (choosing == source) OrcaTheme.colors.accent else OrcaTheme.colors.border)
+                        .clickable { choosing = source },
+                )
+                // The bubble of the filament it is to become.
+                if (target != source) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .size(12.dp)
+                            .background(colors.getOrElse(target) { OrcaTheme.colors.accent }, CircleShape)
+                            .border(1.dp, OrcaTheme.colors.border, CircleShape),
+                    )
+                }
+                DropdownMenu(expanded = choosing == source, onDismissRequest = { choosing = null }) {
+                    Text(
+                        text = orcaString("To:"),
+                        color = OrcaTheme.colors.onCanvasPanel,
+                        style = OrcaTheme.typography.body12,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    ) {
+                        colors.forEachIndexed { index, color ->
+                            OrcaFilamentSlot(
+                                number = index + 1,
+                                color = color,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .border(width = if (index == target) 2.dp else 1.dp, color = if (index == target) OrcaTheme.colors.accent else OrcaTheme.colors.border)
+                                    .clickable {
+                                        actions.setRemap(source, index)
+                                        choosing = null
+                                    },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+        OrcaButton(text = orcaString("Remap"), size = OrcaButtonSize.Compact, enabled = hasMapping, onClick = actions.remap)
+        if (hasMapping) OrcaButton(text = orcaString("Reset"), size = OrcaButtonSize.Compact, onClick = actions.resetRemap)
     }
 }
 

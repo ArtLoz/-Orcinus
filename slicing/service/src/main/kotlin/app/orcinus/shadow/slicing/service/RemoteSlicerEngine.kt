@@ -924,6 +924,9 @@ class RemoteSlicerEngine(
     override suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome =
         remote(PaintingOutcome::Failure) { clearPainting(meshPrefix.value).toOutcome() }
 
+    override suspend fun remapPainting(remap: List<Int>, meshPrefix: ScenePath): PaintingOutcome =
+        remote(PaintingOutcome::Failure) { remapPainting(remap.toIntArray(), meshPrefix.value).toOutcome() }
+
     override suspend fun setGapFill(gapArea: Double?, meshPrefix: ScenePath): PaintingOutcome =
         remote(PaintingOutcome::Failure) { setGapFill(gapArea ?: -1.0, meshPrefix.value).toOutcome() }
 

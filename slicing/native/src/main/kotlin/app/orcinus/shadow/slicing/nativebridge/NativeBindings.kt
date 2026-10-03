@@ -1280,6 +1280,9 @@ internal object NativeBindings {
     /** "Erase all" of the painting tool. */
     external fun clearPainting(meshPrefix: String): NativePainting
 
+    /** remap_painting(): [remap] gives each filament, 0-based, the one it becomes. */
+    external fun remapPainting(remap: IntArray, meshPrefix: String): NativePainting
+
     /** The gap fill tool with its gap area; a negative area leaves it. */
     external fun setGapFill(gapArea: Double, meshPrefix: String): NativePainting
 

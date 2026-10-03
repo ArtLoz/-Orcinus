@@ -1529,6 +1529,14 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_remapPainting(JNIEnv* env, jobject /* this */, jintArray remap, jstring mesh_prefix)
+{
+    std::vector<int> values(static_cast<std::size_t>(env->GetArrayLength(remap)));
+    env->GetIntArrayRegion(remap, 0, static_cast<jsize>(values.size()), reinterpret_cast<jint*>(values.data()));
+    return to_java(env, orcinus::orca::remap_painting(values, to_utf8(env, mesh_prefix)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_undoPainting(JNIEnv* env, jobject /* this */, jstring mesh_prefix)
 {
     return to_java(env, orcinus::orca::undo_painting(to_utf8(env, mesh_prefix)));

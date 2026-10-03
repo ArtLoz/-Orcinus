@@ -4929,6 +4929,19 @@ TEST_CASE("A painting tool paints every model part of its object", "[Adapter][Sc
     }
     CHECK(painted_states.count({0, 2}) == 1);
     CHECK(painted_states.count({1, 2}) == 1);
+    // Remap filaments: what filament 2 painted, filament 3 paints, on every part.
+    const orca::PaintingState remapped = orca::remap_painting({0, 2}, output_path("paint-parts"));
+    REQUIRE(remapped.status == orca::SceneStatus::success);
+    CHECK(remapped.can_undo);
+    std::set<std::pair<int, int>> remapped_states;
+    for (std::size_t index = 0; index < remapped.meshes.size(); ++index) {
+        remapped_states.emplace(remapped.volumes[index], remapped.states[index]);
+    }
+    CHECK(remapped_states.count({0, 2}) == 0);
+    CHECK(remapped_states.count({0, 3}) == 1);
+    CHECK(remapped_states.count({1, 3}) == 1);
+    // The block's stroke of filament 1 stays.
+    CHECK(remapped_states.count({1, 1}) == 1);
     const orca::PaintingState closed = orca::end_painting();
     REQUIRE(closed.status == orca::SceneStatus::success);
     // Both have their painting now.

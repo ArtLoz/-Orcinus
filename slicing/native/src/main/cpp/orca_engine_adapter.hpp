@@ -981,6 +981,12 @@ PaintingState redo_painting(const std::string& mesh_prefix);
 // (TriangleSelector::reset()), which Undo brings back.
 PaintingState clear_painting(const std::string& mesh_prefix);
 
+// GLGizmoMmuSegmentation::remap_filament_assignments() of the painting: the
+// facets of every model part painted with filament i + 1 take filament
+// remap[i] + 1 (TriangleSelector::remap_triangle_state()), which Undo brings
+// back; a remap that changes nothing leaves the painting as it is.
+PaintingState remap_painting(const std::vector<int>& remap, const std::string& mesh_prefix);
+
 // The gap fill tool (TriangleSelectorPatch::set_filter_state() and
 // gap_area): while it is chosen, with a gap area of 0 or more in square
 // millimetres, the meshes show the painting as the gap fill would leave it,

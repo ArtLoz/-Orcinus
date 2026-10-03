@@ -1881,6 +1881,29 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `remapping filaments moves the model parts' own filaments too, a step of Undo once the tool closes`() {
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement, ModelSettings(mapOf("extruder" to "2")))
+        val cube = CUBE.withParts(listOf(part))
+        val repository = FakeRepository(readyState(cube))
+        val inspector = FakeInspector()
+        inspector.ended = PaintedSurface(facets = cube.painted, partFacets = listOf(part.painted))
+        val paint = PaintObjectUseCase(inspector, FakeSceneFiles(), repository)
+
+        runSuspend { paint.begin(cube.mesh) }
+        // Filament 1 becomes 3, filament 2 becomes 1.
+        runSuspend { paint.remap(listOf(2, 0)) }
+
+        assertEquals(listOf(listOf(2, 0)), inspector.remaps)
+        val remapped = repository.state.value.objects.single()
+        // The cube's own mesh follows the object (no filament counts as 1), which takes 3; the part's own 2 becomes 1.
+        assertEquals(3, remapped.settings.extruderNumber)
+        assertEquals(0, remapped.volume.settings.extruderNumber)
+        assertEquals(1, remapped.parts.single().settings.extruderNumber)
+        runSuspend { paint.end() }
+        assertEquals(listOf(cube), repository.state.value.history.undo.map { it.objects.single() })
+    }
+
+    @Test
     fun `a painted part keeps its facets, and its paint is drawn on it`() {
         val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement)
         val cube = CUBE.withParts(listOf(part))
@@ -3523,6 +3546,14 @@ class PlateUseCasesTest {
         /** What the tool closes with, and the volume a stroke paints. */
         var ended = PaintedSurface(facets = PaintedFacets("painted"))
         var paintedVolume = 0
+
+        /** The filament remaps asked for. */
+        val remaps = mutableListOf<List<Int>>()
+
+        override suspend fun remapPainting(remap: List<Int>, meshPrefix: ScenePath): PaintingOutcome {
+            remaps += remap
+            return PaintingOutcome.Success(painted(meshPrefix))
+        }
 
         override suspend fun endPainting(): PaintingOutcome = PaintingOutcome.Success(ended)
 

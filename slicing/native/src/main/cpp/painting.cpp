@@ -959,6 +959,52 @@ PaintingState clear_painting(const std::string& mesh_prefix)
     }
 }
 
+PaintingState remap_painting(const std::vector<int>& remap, const std::string& mesh_prefix)
+{
+    PaintingState result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    Session& current = session();
+    if (!current.open || current.volumes.empty()) {
+        result.message = "No painting session is open";
+        return result;
+    }
+    try {
+        // Identity mapping by default; filament i + 1 (Extruder1 + i) goes to remap[i] + 1.
+        constexpr std::size_t max_state = std::size_t(Slic3r::EnforcerBlockerType::ExtruderMax);
+        Slic3r::EnforcerBlockerStateMap state_map;
+        for (std::size_t state = 0; state <= max_state; ++state) {
+            state_map[state] = static_cast<Slic3r::EnforcerBlockerType>(state);
+        }
+        const int start_extruder = int(Slic3r::EnforcerBlockerType::Extruder1);
+        bool any_change = false;
+        for (std::size_t src = 0; src < std::min(remap.size(), max_state); ++src) {
+            const int dst = remap[src];
+            if (dst != int(src) && dst >= 0 && std::size_t(dst) < max_state) {
+                state_map[src + start_extruder] = static_cast<Slic3r::EnforcerBlockerType>(dst + start_extruder);
+                any_change = true;
+            }
+        }
+        if (any_change) {
+            // Plater::TakeSnapshot(... "Remap filament assignments", GizmoAction),
+            // which the gizmo's stack keeps here.
+            current.undo.push_back(snapshot_of(current));
+            current.redo.clear();
+            current.stroke_pending = false;
+            current.has_last = false;
+            for (PaintedVolume& volume : current.volumes) {
+                volume.selector->remap_triangle_state(state_map);
+            }
+        }
+        result.status = SceneStatus::success;
+        write_painted_meshes(mesh_prefix, result);
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
 PaintingState set_gap_fill(const double gap_area, const std::string& mesh_prefix)
 {
     PaintingState result;

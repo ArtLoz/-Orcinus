@@ -379,6 +379,8 @@ interface ISlicerService {
     PaintingParcel undoPainting(String meshPrefix);
     PaintingParcel redoPainting(String meshPrefix);
     PaintingParcel clearPainting(String meshPrefix);
+    /** remap_painting(): remap gives each filament, 0-based, the one it becomes. */
+    PaintingParcel remapPainting(in int[] remap, String meshPrefix);
     /** The gap fill tool with its gap area; a negative area leaves it. */
     PaintingParcel setGapFill(double gapArea, String meshPrefix);
     PaintingParcel fillGaps(String meshPrefix);

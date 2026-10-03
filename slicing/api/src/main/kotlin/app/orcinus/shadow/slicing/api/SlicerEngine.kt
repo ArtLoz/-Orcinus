@@ -624,6 +624,14 @@ interface PlateInspector {
     suspend fun clearPainting(meshPrefix: ScenePath): PaintingOutcome
 
     /**
+     * GLGizmoMmuSegmentation::remap_filament_assignments() of the painting:
+     * the facets painted with filament i + 1 take filament remap[i] + 1, on
+     * every model part, which the tool's Undo brings back.
+     */
+    suspend fun remapPainting(remap: List<Int>, meshPrefix: ScenePath): PaintingOutcome =
+        PaintingOutcome.Failure("Remapping filaments is not supported")
+
+    /**
      * The gap fill tool (TriangleSelectorPatch's filter state): while [gapArea]
      * is set, in square millimetres, the painted meshes show the painting as
      * the gap fill would leave it; null leaves the tool.

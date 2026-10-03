@@ -1504,6 +1504,29 @@ class PrepareViewModel(
         view.update { state -> state.painting?.let { state.copy(painting = it.copy(edgeDetection = detect)) } ?: state }
     }
 
+    /** "Remap filaments": filament [source] (0-based) is to become [target]. */
+    fun setRemap(source: Int, target: Int) {
+        view.update { state ->
+            state.painting?.let { mode ->
+                val count = maxOf(mode.remap.size, source + 1)
+                val remap = List(count) { index -> if (index == source) target else mode.remap.getOrElse(index) { index } }
+                state.copy(painting = mode.copy(remap = remap))
+            } ?: state
+        }
+    }
+
+    /** "Reset" of "Remap filaments": every filament stays itself. */
+    fun resetRemap() {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(remap = emptyList())) } ?: state }
+    }
+
+    /** "Remap": the mapping applies, and every filament stays itself again. */
+    fun remapFilaments() {
+        val remap = view.value.painting?.remap ?: return
+        resetRemap()
+        viewModelScope.launch { paintObject.remap(remap).also(::showStrokes) }
+    }
+
     /** The height range's height. */
     fun setCursorHeight(height: Double) {
         view.update { state -> state.painting?.let { state.copy(painting = it.copy(cursorHeight = height)) } ?: state }

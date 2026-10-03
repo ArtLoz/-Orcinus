@@ -1657,6 +1657,10 @@ class NativeSlicerEngine(context: Context) :
         painting(NativeBindings.clearPainting(meshPrefix.value))
     }
 
+    override suspend fun remapPainting(remap: List<Int>, meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
+        painting(NativeBindings.remapPainting(remap.toIntArray(), meshPrefix.value))
+    }
+
     override suspend fun setGapFill(gapArea: Double?, meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
         painting(NativeBindings.setGapFill(gapArea ?: -1.0, meshPrefix.value))
     }
