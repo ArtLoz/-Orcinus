@@ -4727,6 +4727,38 @@ ImportedModels edit_object(
             result.appended = true;
             break;
         }
+        case ObjectEdit::delete_volume: {
+            // ObjectList::del_subobject_from_object() of a volume; the app asks
+            // about a part of a cut itself (del_from_cut_object()).
+            if (volume_index < 0) {
+                result.message = "The object has no such volume";
+                return result;
+            }
+            const Slic3r::ModelVolume* volume = object->volumes[std::size_t(volume_index)];
+            int solid_cnt = 0;
+            for (const Slic3r::ModelVolume* vol : object->volumes) {
+                if (vol->is_model_part()) {
+                    ++solid_cnt;
+                }
+            }
+            if (volume->is_model_part() && solid_cnt == 1) {
+                dialogs.error("delete_last_solid_part", {detail::ui_text("Deleting the last solid part is not allowed.")});
+                break;
+            }
+            object->delete_volume(std::size_t(volume_index));
+            if (object->volumes.size() == 1) {
+                Slic3r::ModelVolume* last_volume = object->volumes[0];
+                if (!last_volume->config.empty()) {
+                    object->config.apply(last_volume->config);
+                    last_volume->config.reset();
+                }
+            }
+            // Plater::changed_object(): an FFF printer lets the object sink.
+            object->invalidate_bounding_box();
+            object->ensure_on_bed(true);
+            edited.push_back(object);
+            break;
+        }
         case ObjectEdit::cut: {
             // GLGizmoCut3D::perform_cut() with a plane; the app keeps to can_perform_cut().
             if (cut.instance < 0 || std::size_t(cut.instance) >= object->instances.size() || cut.plane.size() != 16) {

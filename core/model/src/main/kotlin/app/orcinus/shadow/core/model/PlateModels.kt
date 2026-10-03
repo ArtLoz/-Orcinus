@@ -868,6 +868,12 @@ enum class ObjectEdit {
 
     /** GLGizmoCut3D::perform_cut() with a plane ([ObjectCut]). */
     CUT,
+
+    /**
+     * ObjectList::del_subobject_from_object() of the volume: the object keeps
+     * its other volumes, the first of them in its place.
+     */
+    DELETE_VOLUME,
 }
 
 /**

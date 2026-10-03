@@ -496,11 +496,10 @@ private fun LazyListScope.objectRows(
                                 },
                             )
                         }
-                        // ObjectList::del_subobject_item(). The object's own
-                        // mesh cannot go yet: the object would be its parts alone.
+                        // ObjectList::del_subobject_item(), the object's own mesh too.
                         OrcaMenuItem(
                             text = stringResource(UiR.string.object_menu_delete),
-                            enabled = enabled && at > 0,
+                            enabled = enabled,
                             onClick = {
                                 dismiss()
                                 actions.removePart(partId)

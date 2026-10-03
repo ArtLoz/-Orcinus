@@ -737,7 +737,8 @@ class SidebarViewModel(
     /** ObjectList::load_subobject() of the documents the file picker gave. */
     fun loadPart(mesh: ScenePath, type: VolumeType, documents: List<ExternalDocumentReference>) = loadObjectVolumes(mesh, type, documents)
 
-    fun removePart(id: ObjectPartId) = removeObjectPart(id)
+    /** ObjectList::del_subobject_item() of a volume: the object's own mesh goes through the engine. */
+    fun removePart(id: ObjectPartId) = if (id.index == 0) editPlateObject.deleteOwnVolume(id.mesh) else removeObjectPart(id)
 
     /** "Invalidate cut info" of an object's menu. */
     fun invalidateCutInfoOf(mesh: ScenePath) = invalidateCutInfo(mesh)

@@ -1675,8 +1675,7 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
     operator fun invoke(id: ObjectPartId) {
         repository.update { state ->
             val target = state.objects.withMesh(id.mesh)
-            // The object's own mesh stays: deleting it would leave the object
-            // made of its parts, which the app cannot load yet.
+            // The object's own mesh goes through the engine (EditPlateObjectUseCase.deleteOwnVolume()).
             val part = target?.parts?.getOrNull(id.index - 1)
             if (target == null || part == null || state.busy) return@update state
             // A solid part or a negative volume of a part of a cut stays; the user is asked to invalidate the cut first.

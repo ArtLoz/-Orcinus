@@ -1810,6 +1810,9 @@ enum class ObjectEdit : std::int64_t {
     // GLGizmoCut3D::perform_cut() with a plane: the parts ObjectCut keeps join
     // the end of the list, as objects of their own or as the parts of one.
     cut = 9,
+    // ObjectList::del_subobject_from_object() of a volume: the object keeps
+    // its other volumes, the first of them in the volume's place.
+    delete_volume = 10,
 };
 
 // A connector of the cut (CutConnector of Model.hpp) as the gizmo places it on

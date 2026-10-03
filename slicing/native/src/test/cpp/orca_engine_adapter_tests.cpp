@@ -5115,6 +5115,36 @@ TEST_CASE("A volume selected alone is described by its own sphere and boxes", "[
     CHECK(orca::describe_volume(plate_object_of(object), k2_plus_profiles(), placement, 2).status != orca::SceneStatus::success);
 }
 
+TEST_CASE("The object's own mesh is deleted and its part takes its place, but not the last solid part", "[Adapter][Edit][DeleteVolume]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("delete-cube"), {});
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    const orca::ImportedModels with_part = orca::load_volume({plate_object_of(imported.objects.front())}, 0, device_dir + "/data/2x20x10.obj",
+                                                             "2x20x10.obj", orca::VolumeType::part, k2_plus_profiles(), import_prefix("delete-part"));
+    REQUIRE(with_part.status == orca::SceneStatus::success);
+    REQUIRE(with_part.objects.front().parts.size() == 1);
+
+    // del_subobject_from_object(): the block alone is left, and lands on the bed.
+    const orca::ImportedModels deleted = orca::edit_object({plate_object_of(with_part.objects.front())}, 0, orca::ObjectEdit::delete_volume, 0,
+                                                           k2_plus_profiles(), import_prefix("delete-own"), {});
+    INFO(deleted.message);
+    REQUIRE(deleted.status == orca::SceneStatus::success);
+    REQUIRE(deleted.objects.size() == 1);
+    const orca::ImportedObject& block = deleted.objects.front();
+    CHECK(block.parts.empty());
+    CHECK(block.instances.front().volume == Catch::Approx(400.0).margin(0.01));
+    CHECK(block.instances.front().box_center[2] - 0.5 * block.instances.front().size_z == Catch::Approx(0.0).margin(0.001));
+
+    // The last solid part stays, with OrcaSlicer's message.
+    const orca::ImportedModels refused = orca::edit_object({plate_object_of(block)}, 0, orca::ObjectEdit::delete_volume, 0,
+                                                           k2_plus_profiles(), import_prefix("delete-last"), {});
+    CHECK(refused.objects.empty());
+    REQUIRE(refused.notices.size() == 1);
+    CHECK(refused.notices.front().id == "delete_last_solid_part");
+}
+
 // The value of key among settings; empty when they do not set it.
 std::string setting_of(const orca::ModelSettings& settings, const std::string& key)
 {

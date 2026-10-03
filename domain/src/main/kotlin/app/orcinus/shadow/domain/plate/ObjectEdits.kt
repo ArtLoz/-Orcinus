@@ -15,6 +15,7 @@ import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsRequest
+import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.withName
 import app.orcinus.shadow.domain.placed
@@ -47,6 +48,25 @@ class EditPlateObjectUseCase(
      * [cut]; the parts it keeps join the end of the plate's list, selected.
      */
     fun cut(mesh: ScenePath, cut: ObjectCut) = start(PlateRequest.Edit(mesh, ObjectEdit.CUT, cut = cut))
+
+    /**
+     * ObjectList::del_subobject_from_object() of the object's own mesh, which
+     * the engine takes out of the object with the [mesh] file (its other
+     * volumes stay, the first of them in its place; the last solid part
+     * stays). An object that is a part of a cut asks to invalidate the cut
+     * first, and keeps the mesh (del_from_cut_object()).
+     */
+    fun deleteOwnVolume(mesh: ScenePath) {
+        var asked = false
+        repository.update { state ->
+            val target = state.objects.withMesh(mesh)
+            if (target == null || state.busy) return@update state
+            val question = target.cutVolumeQuestion(VolumeType.PART) ?: return@update state
+            asked = true
+            state.copy(plateQuestion = question)
+        }
+        if (!asked) start(PlateRequest.Edit(mesh, ObjectEdit.DELETE_VOLUME, 0))
+    }
 
     private fun start(request: PlateRequest.Edit) {
         var started = false
