@@ -1779,6 +1779,43 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFlatteningPl
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeVolume(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject object,
+    jstring printer_profile,
+    jstring filament_profile,
+    jstring process_profile,
+    jdoubleArray placement,
+    jint volume
+)
+{
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
+    const orcinus::orca::VolumeDescription result = orcinus::orca::describe_volume(
+        plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
+        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_doubles(env, placement),
+        static_cast<std::size_t>(volume)
+    );
+    // The sphere's centre and radius, then size and centre per reference system.
+    std::vector<double> values(result.sphere_center.begin(), result.sphere_center.end());
+    values.push_back(result.sphere_radius);
+    for (std::size_t type = 0; type < result.box_sizes.size(); ++type) {
+        values.insert(values.end(), result.box_sizes[type].begin(), result.box_sizes[type].end());
+        values.insert(values.end(), result.box_centers[type].begin(), result.box_centers[type].end());
+    }
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeVolumeDescription");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;[D)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(result.status),
+        to_java(env, result.message),
+        to_java(env, values.data(), values.size())
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describePresets(JNIEnv* env, jobject /* this */)
 {
     return to_java(env, orcinus::orca::describe_presets());

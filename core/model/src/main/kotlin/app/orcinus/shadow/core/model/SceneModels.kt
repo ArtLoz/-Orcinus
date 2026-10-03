@@ -141,6 +141,46 @@ data class FlatteningPlane(
     val polygon: List<Vector3>,
 )
 
+/**
+ * One box of a volume selected alone
+ * (Selection::get_bounding_box_in_reference_system()): its size along the
+ * axes of the reference system, and its centre in the world.
+ */
+data class VolumeBox(val size: Vector3, val center: Vector3)
+
+/**
+ * A volume selected alone (Selection::Volume) as the engine measures it where
+ * its copy stands: the smallest sphere around it in the world
+ * (Selection::get_bounding_sphere()), which the rotation gizmo turns it about,
+ * and its boxes in the world's axes, in its copy's and in its own
+ * (ECoordinatesType World, Instance and Local).
+ */
+data class VolumeDescription(val sphere: BoundingSphere, val world: VolumeBox, val instance: VolumeBox, val local: VolumeBox) {
+    /** As the engine writes it: the sphere's centre and radius, then each box's size and centre. */
+    fun values(): DoubleArray = (
+        listOf(sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius) +
+            listOf(world, instance, local).flatMap { box -> listOf(box.size.x, box.size.y, box.size.z, box.center.x, box.center.y, box.center.z) }
+        ).toDoubleArray()
+
+    companion object {
+        /** The numbers of [values]. */
+        const val SIZE = 22
+
+        fun of(values: DoubleArray): VolumeDescription {
+            require(values.size == SIZE) { "A volume is described by $SIZE numbers" }
+            fun vector(at: Int) = Vector3(values[at], values[at + 1], values[at + 2])
+            fun box(at: Int) = VolumeBox(vector(at), vector(at + 3))
+            return VolumeDescription(BoundingSphere(vector(0), values[3]), box(4), box(10), box(16))
+        }
+    }
+}
+
+sealed interface VolumeDescriptionOutcome {
+    data class Success(val description: VolumeDescription) : VolumeDescriptionOutcome
+
+    data class Failure(val message: String) : VolumeDescriptionOutcome
+}
+
 sealed interface FlatteningPlanesOutcome {
     /** Largest faces first. */
     data class Success(val planes: List<FlatteningPlane>) : FlatteningPlanesOutcome

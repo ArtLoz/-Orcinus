@@ -89,6 +89,7 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeDescriptionOutcome
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -649,6 +650,18 @@ interface PlateInspector {
         profiles: SlicingProfileSelection,
         placement: Transform3,
     ): FlatteningPlanesOutcome
+
+    /**
+     * The volume [volume] (ModelObject::volumes) of [plateObject] selected
+     * alone, its copy standing at the instance transformation [placement]:
+     * its sphere and boxes, as the gizmos and their windows take them.
+     */
+    suspend fun describeVolume(
+        plateObject: PlacedModel,
+        profiles: SlicingProfileSelection,
+        placement: Transform3,
+        volume: Int,
+    ): VolumeDescriptionOutcome = VolumeDescriptionOutcome.Failure("Describing a volume is not supported")
 }
 
 /**

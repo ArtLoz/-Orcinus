@@ -48,6 +48,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.CameraView
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.FlatteningPlane
@@ -246,8 +247,14 @@ fun PlateView(
      */
     selectedVolume: String? = null,
     /**
-     * GLCanvas3D::do_move() of a volume: the selected volume of the copy at
-     * [index] changed by [change] in the world; the app places it.
+     * Selection::get_bounding_sphere() of the selected volume in the world,
+     * which the rotation gizmo turns it about; null until the engine measured
+     * it, when the gizmo waits.
+     */
+    selectedVolumeSphere: BoundingSphere? = null,
+    /**
+     * GLCanvas3D::do_move() and do_rotate() of a volume: the selected volume
+     * of the copy at [index] changed by [change] in the world; the app places it.
      */
     onPlaceVolume: (index: Int, change: Transform3, manipulation: VolumeManipulation) -> Unit = { _, _, _ -> },
 ) {
@@ -550,6 +557,7 @@ fun PlateView(
             controller.setFlatteningPlanes(flatteningPlanes)
             controller.setEditable(editable)
             controller.setSelectedVolume(selectedVolume)
+            controller.volumeSphere = selectedVolumeSphere
             controller.settleVolume(editable, objects)
         }
 
@@ -892,6 +900,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** Selection::Volume: the mesh of the selected copy's volume selected alone; null while copies are. */
     private var selectedVolume: String? = null
+
+    /** The selected volume's sphere in the world, which the rotation gizmo turns it about; null until known. */
+    var volumeSphere: BoundingSphere? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
     private var gizmo: PlateGizmo? = null
     private var flatteningPlanes: List<FlatteningPlane> = emptyList()
     private var layOnFace = LayOnFaceGizmo(emptyList())
@@ -1031,8 +1047,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     }
 
     /** The rotation gizmo's grabber of [axis], turning about the sphere [center] by [angle]. */
-    private class RotateGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val center: Vec3, val sphereRadius: Double) :
-        Drag(index, startWorld) {
+    private class RotateGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val center: Vec3, val sphereRadius: Double, key: String?) :
+        Drag(index, startWorld, key) {
         var angle = 0.0
     }
 
@@ -1436,12 +1452,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     }
 
     /**
-     * Selection::Volume in the 3D view: the volume the move gizmo and a
-     * finger move alone. The rotation and the scale gizmos, and the assembly
-     * view, still work on the copy.
+     * Selection::Volume in the 3D view: the volume the move and rotation
+     * gizmos and a finger move alone. The scale gizmo, and the assembly view,
+     * still work on the copy.
      */
     private fun volumeMode(): String? =
-        selectedVolume?.takeIf { assembly == null && gizmo != PlateGizmo.ROTATE && gizmo != PlateGizmo.SCALE && gizmo != PlateGizmo.LAY_ON_FACE }
+        selectedVolume?.takeIf { assembly == null && gizmo != PlateGizmo.SCALE && gizmo != PlateGizmo.LAY_ON_FACE }
 
     /** What the gizmos stand around: the selected volume, or the selected copy. */
     private fun selectedTarget(): SceneObject? =
@@ -1548,7 +1564,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         grabberAt(x.toDouble(), y.toDouble(), grabberRadius.toDouble())?.let { (target, axis) ->
             drag = when (gizmo) {
-                PlateGizmo.ROTATE -> RotateGrabberDrag(target.index, target.world, axis, target.sphereCenter(), target.sphereRadius)
+                PlateGizmo.ROTATE -> rotationSphere(target)?.let { (center, radius) -> RotateGrabberDrag(target.index, target.world, axis, center, radius, volumeMode()) }
                 PlateGizmo.SCALE -> scaleGizmo(target).let {
                     ScaleGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.grabberCenter(4), it.center)
                 }
@@ -1648,7 +1664,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // GLGizmoRotate3D::on_mouse(): the object turns about the sphere's centre by the ring's angle.
             drag.angle = RotateGizmo(drag.center, drag.sphereRadius, pixel()).dragAngle(drag.axis, ray)
             drag.moved = true
-            replaceObject(target.withWorld(RotateGizmo.rotated(drag.startWorld, drag.axis, drag.angle, drag.center)))
+            replaceObject(target.withWorld(RotateGizmo.rotated(drag.startWorld, drag.axis, drag.angle, drag.center)), alone = drag.key != null)
             return
         }
         if (drag is ScaleGrabberDrag) {
@@ -1785,7 +1801,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // GLCanvas3D::do_move() of a volume: the app places it and drops the
             // copies; the volume stands where it was left until then.
             volumeLeft = true
-            onPlaceVolume(target.index, Transform3((target.world * drag.startWorld.inverse()).elements().toList()), VolumeManipulation.MOVE)
+            val manipulation = if (drag is RotateGrabberDrag) VolumeManipulation.ROTATE else VolumeManipulation.MOVE
+            onPlaceVolume(target.index, Transform3((target.world * drag.startWorld.inverse()).elements().toList()), manipulation)
             return
         }
         val manipulation = when (drag) {
@@ -2213,7 +2230,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val target = selectedTarget() ?: return null
         val ends: (Int) -> Pair<Vec3, Vec3> = when (gizmo) {
             PlateGizmo.MOVE -> moveGizmo(target).let { move -> { axis -> move.grabberCenter(axis) to move.grabberTip(axis) } }
-            PlateGizmo.ROTATE -> rotateGizmo(target).let { rotate -> { axis -> rotate.grabberEnds(axis, 0.0) } }
+            PlateGizmo.ROTATE -> rotateGizmo(target)?.let { rotate -> { axis: Int -> rotate.grabberEnds(axis, 0.0) } } ?: return null
             PlateGizmo.SCALE -> scaleGizmo(target).let { scale -> { id -> scale.grabberCenter(id).let { it to it } } }
             PlateGizmo.LAY_ON_FACE, null -> return null
         }
@@ -2400,7 +2417,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         return MoveGizmo(target.mesh.bounds.transformed(rotation.inverse() * target.world), pixel(), rotation, placement)
     }
 
-    private fun rotateGizmo(target: SceneObject) = RotateGizmo(target.sphereCenter(), target.sphereRadius, pixel())
+    /** The sphere the rotation gizmo turns [target] about: the copy's, or the selected volume's once the engine measured it. */
+    private fun rotationSphere(target: SceneObject): Pair<Vec3, Double>? {
+        if (volumeMode() == null) return target.sphereCenter() to target.sphereRadius
+        val sphere = volumeSphere ?: return null
+        return Vec3(sphere.center.x, sphere.center.y, sphere.center.z) to sphere.radius
+    }
+
+    private fun rotateGizmo(target: SceneObject): RotateGizmo? = rotationSphere(target)?.let { (center, radius) -> RotateGizmo(center, radius, pixel()) }
 
     private fun scaleGizmo(target: SceneObject) = ScaleGizmo(target.bounds, pixel())
 
@@ -2581,7 +2605,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             PlateGizmo.ROTATE -> {
                 // The rings stay where the drag began while the object turns inside them.
                 val rotating = drag as? RotateGrabberDrag
-                val gizmo = rotating?.let { RotateGizmo(it.center, it.sphereRadius, pixel()) } ?: rotateGizmo(target)
+                val gizmo = rotating?.let { RotateGizmo(it.center, it.sphereRadius, pixel()) } ?: rotateGizmo(target) ?: return null
                 gizmo.frame(rotating?.axis, rotating?.angle ?: 0.0, density)
             }
             PlateGizmo.SCALE -> scaleGizmo(target).frame((drag as? ScaleGrabberDrag)?.id, density)

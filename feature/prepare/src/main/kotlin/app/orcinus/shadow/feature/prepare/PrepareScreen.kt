@@ -805,6 +805,7 @@ internal fun PrepareScreen(
                 onPlaceInAssembly = assemblyViewActions.place,
                 onAssemblySection = assemblyViewActions.sectionPlane,
                 selectedVolume = state.selectedVolume?.mesh?.value,
+                selectedVolumeSphere = state.selectedVolume?.description?.sphere,
                 onPlaceVolume = onPlaceVolume,
             )
             state.measure?.editingDistance?.let { distance ->

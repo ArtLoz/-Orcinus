@@ -30,6 +30,7 @@ import app.orcinus.shadow.data.notices.AboutLibrariesNoticeCatalog
 import app.orcinus.shadow.data.plate.InMemoryPlateRepository
 import app.orcinus.shadow.domain.CancelSliceUseCase
 import app.orcinus.shadow.domain.DescribeFlatteningPlanesUseCase
+import app.orcinus.shadow.domain.DescribeVolumeUseCase
 import app.orcinus.shadow.domain.GetEngineStatusUseCase
 import app.orcinus.shadow.domain.ImportModelUseCase
 import app.orcinus.shadow.domain.InspectModelUseCase
@@ -601,6 +602,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             dismissPlateProblem = dismissPlateProblem,
             meshBooleans = MeshBooleanUseCase(engine, sceneFiles, plateRepository, applicationScope),
             placeObjectVolume = PlaceObjectVolumeUseCase(engine, sceneFiles, plateRepository, applicationScope),
+            describeVolume = DescribeVolumeUseCase(engine),
             setPlateObjectPrintable = setPlateObjectPrintable,
             setExtruder = setExtruder,
             setFlushOption = setFlushOption,

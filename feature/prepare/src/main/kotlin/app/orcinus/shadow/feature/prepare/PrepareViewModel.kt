@@ -76,6 +76,7 @@ import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.EmbossTransform
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeDescriptionOutcome
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.isCut
@@ -83,6 +84,7 @@ import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.times
 import app.orcinus.shadow.core.model.translationTransform
 import app.orcinus.shadow.domain.DescribeFlatteningPlanesUseCase
+import app.orcinus.shadow.domain.DescribeVolumeUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
@@ -243,6 +245,7 @@ class PrepareViewModel(
     private val dismissPlateProblem: DismissPlateProblemUseCase,
     private val meshBooleans: MeshBooleanUseCase,
     private val placeObjectVolume: PlaceObjectVolumeUseCase,
+    private val describeVolume: DescribeVolumeUseCase,
     private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
     private val setExtruder: SetExtruderUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
@@ -703,6 +706,29 @@ class PrepareViewModel(
                 if (added) view.update { it.copy(rotationStart = state.selectedCopy?.inspection?.placement) }
             }
         }
+        // GLGizmoRotate3D::data_changed(): another volume selected starts the rotation window from where it stands.
+        viewModelScope.launch {
+            combine(plate, view) { plate, view -> plate.selectedVolume(view) }
+                .distinctUntilChanged { old, new -> old?.index == new?.index }
+                .collect { volume -> view.update { it.copy(volumeRotationStart = volume?.matrix) } }
+        }
+        // Selection::get_bounding_sphere() of a volume selected alone, while the rotation gizmo is open.
+        viewModelScope.launch {
+            combine(plate, view) { plate, view ->
+                val volume = plate.selectedVolume(view)?.takeIf { view.gizmo == PlateGizmo.ROTATE }
+                val target = plate.selected
+                val copy = plate.selectedCopy
+                val profiles = plate.profiles
+                if (volume == null || target == null || copy == null || profiles == null) null else VolumeKey(volume.index, target, copy, profiles)
+            }
+                .distinctUntilChanged()
+                .collectLatest { key ->
+                    view.update { view -> view.copy(volumeDescription = view.volumeDescription?.takeIf { key != null && it.index == key.index }) }
+                    if (key == null) return@collectLatest
+                    val outcome = describeVolume(key.plateObject, key.instance, key.index.volume, key.profiles)
+                    if (outcome is VolumeDescriptionOutcome.Success) view.update { it.copy(volumeDescription = DescribedVolume(key.index, outcome.description)) }
+                }
+        }
         // GLGizmoFlatten::is_plane_update_necessary(): the faces follow the object and its scale.
         viewModelScope.launch {
             combine(plate, view) { plate, view ->
@@ -724,6 +750,14 @@ class PrepareViewModel(
                 }
         }
     }
+
+    /** What a volume's description depends on: the volume, its object and copy as they stand, and the presets. */
+    private data class VolumeKey(
+        val index: VolumeIndex,
+        val plateObject: PlateObject,
+        val instance: PlateInstance,
+        val profiles: SlicingProfileSelection,
+    )
 
     private class FlatteningKey(
         val plateObject: PlateObject,
@@ -1482,6 +1516,7 @@ class PrepareViewModel(
             view.copy(
                 gizmo = if (state.gizmo == type) null else type,
                 rotationStart = state.selectedCopy?.let { copy -> if (view.assemblyView) assembleOf(copy.id) else copy.instance.inspection.placement },
+                volumeRotationStart = state.selectedVolume?.matrix,
                 // Another toolbar item closes the arrange options.
                 arrangeOptionsOpen = false,
             )
@@ -2945,6 +2980,13 @@ class PrepareViewModel(
      */
     fun rotateBy(axis: Int, degrees: Double) {
         if (degrees == 0.0) return
+        state.value.selectedVolume?.let { volume ->
+            // Selection::rotate() of a volume in world coordinates: about the world axis through its sphere's centre.
+            val pivot = volume.description?.sphere?.center ?: return
+            val copy = selectedId() ?: return
+            placeObjectVolume.changedInWorld(copy, volume.id.index, ObjectTransforms.rotated(Transform3.IDENTITY, axis, degrees, pivot), VolumeManipulation.ROTATE)
+            return
+        }
         val target = selected() ?: return
         if (view.value.assemblyView) {
             // In the assembly view, about the copy's sphere where it stands there (do_rotate("Set Orientation")).
@@ -2966,6 +3008,11 @@ class PrepareViewModel(
 
     /** GizmoObjectManipulation::reset_rotation_value(true): the rotation from when the tool opened. */
     fun resetRotation() {
+        state.value.selectedVolume?.let { volume ->
+            val start = view.value.volumeRotationStart ?: return
+            placeObjectVolume(selectedId() ?: return, volume.id.index, ObjectTransforms.withLinearPartOf(volume.matrix, start), VolumeManipulation.ROTATE)
+            return
+        }
         val target = selected() ?: return
         val start = view.value.rotationStart ?: return
         val id = selectedId() ?: return
@@ -2978,6 +3025,10 @@ class PrepareViewModel(
 
     /** GizmoObjectManipulation::reset_rotation_value(false): no rotation (Transformation::reset_rotation()). */
     fun resetRotationToZero() {
+        state.value.selectedVolume?.let { volume ->
+            placeObjectVolume(selectedId() ?: return, volume.id.index, AssemblyTransforms.withoutRotation(volume.matrix), VolumeManipulation.ROTATE)
+            return
+        }
         val target = selected() ?: return
         val id = selectedId() ?: return
         if (view.value.assemblyView) {

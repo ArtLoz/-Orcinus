@@ -49,6 +49,7 @@ import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeDescription
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.isCut
@@ -417,6 +418,18 @@ internal data class PrepareViewState(
      */
     val moveWorldVolume: VolumeIndex? = null,
     /**
+     * The selected volume as the engine measured it last, which the rotation
+     * gizmo turns about; kept while the same volume stays selected, as a turn
+     * about its sphere's centre leaves the sphere where it was.
+     */
+    val volumeDescription: DescribedVolume? = null,
+    /**
+     * GizmoObjectManipulation::m_init_rotation_scale_tran of the selected
+     * volume: its transformation when the rotation tool opened or it was
+     * selected, which "Reset current rotation" goes back to.
+     */
+    val volumeRotationStart: Transform3? = null,
+    /**
      * Its "Delete input" of the difference and of the intersection, which the
      * desktop tool keeps from one opening to the next.
      */
@@ -644,18 +657,29 @@ data class VolumeIndex(val objectIndex: Int, val volume: Int)
  * it from, [index] as the desktop selection counts it, and [matrix] its
  * transformation in the object.
  */
-data class SelectedVolume(val id: ObjectPartId, val mesh: ScenePath, val index: VolumeIndex, val matrix: Transform3)
+data class SelectedVolume(
+    val id: ObjectPartId,
+    val mesh: ScenePath,
+    val index: VolumeIndex,
+    val matrix: Transform3,
+    /** Its sphere and boxes where it stands, once the engine measured them; null until then. */
+    val description: VolumeDescription? = null,
+)
+
+/** A volume selected alone, by [index], as the engine measured it last. */
+data class DescribedVolume(val index: VolumeIndex, val description: VolumeDescription)
 
 /**
  * Selection::Volume: the volume of the one selected copy the object list
  * selected alone; the assembly view moves copies only.
  */
-private fun PlateState.selectedVolume(view: PrepareViewState): SelectedVolume? {
+internal fun PlateState.selectedVolume(view: PrepareViewState): SelectedVolume? {
     val part = selectedPart ?: return null
     if (view.assemblyView || view.wipeTowerSelected || selectedInstances.singleOrNull()?.mesh != part.mesh) return null
     val objectIndex = objects.indexOfFirst { it.mesh == part.mesh }
     val volume = objects.getOrNull(objectIndex)?.volumeAt(part.index) ?: return null
-    return SelectedVolume(part, volume.mesh, VolumeIndex(objectIndex, part.index), volume.placement)
+    val index = VolumeIndex(objectIndex, part.index)
+    return SelectedVolume(part, volume.mesh, index, volume.placement, view.volumeDescription?.takeIf { it.index == index }?.description)
 }
 
 internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState {
@@ -675,6 +699,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     val assembled = selectedObject?.let(copies::get)?.instance?.takeIf { view.assemblyView }?.let { it.assemble ?: Transform3.IDENTITY }
     val assembledRotation = assembled?.let(AssemblyTransforms::rotationDegrees)
     val volume = selectedVolume(view)
+    // update_settings_value() of a volume: the rotation of its own transformation.
+    val volumeRotation = volume?.matrix?.let(AssemblyTransforms::rotationDegrees)
     // GLGizmoMove3D::change_cs_by_selection(): a volume shows object coordinates, a copy world coordinates, until the other is picked.
     val moveObjectCoordinates = if (volume != null) {
         view.moveWorldVolume != volume.index
@@ -779,13 +805,14 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         canMoveObjectCoordinates = selectedObject != null && selectedInstances.size == 1 && !view.wipeTowerSelected,
         moveFrame = (if (view.assemblyView) assembled else selected?.placement)?.takeIf { moveObjectCoordinates },
         selectedVolume = volume,
-        selectedRotation = if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
-        canResetRotation = if (view.assemblyView) {
-            assembled != null && rotationStart != null && !assembled.hasLinearPartOf(rotationStart)
-        } else {
-            selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart)
+        selectedRotation = volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
+        canResetRotation = when {
+            // update_reset_buttons_visibility() of a volume: its own rotation against the one it started from.
+            volume != null -> view.volumeRotationStart?.let { start -> !volume.matrix.hasLinearPartOf(start) } == true
+            view.assemblyView -> assembled != null && rotationStart != null && !assembled.hasLinearPartOf(rotationStart)
+            else -> selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart)
         },
-        canResetRotationToZero = (if (view.assemblyView) assembledRotation else selected?.rotationDegrees)
+        canResetRotationToZero = (volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees)
             ?.let { rotation -> listOf(rotation.x, rotation.y, rotation.z).any { abs(it) > 0.001 } } == true,
         selectedScale = selected?.let {
             // update_settings_value() in world coordinates: size over the unscaled size.

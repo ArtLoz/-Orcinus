@@ -168,6 +168,8 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.VolumeDescription
+import app.orcinus.shadow.core.model.VolumeDescriptionOutcome
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeOrigin
 import app.orcinus.shadow.core.model.VolumeType
@@ -1763,6 +1765,30 @@ class NativeSlicerEngine(context: Context) :
                 FlatteningPlane(Vector3(result.normals[plane * 3], result.normals[plane * 3 + 1], result.normals[plane * 3 + 2]), polygon)
             },
         )
+    }
+
+    override suspend fun describeVolume(
+        plateObject: PlacedModel,
+        profiles: SlicingProfileSelection,
+        placement: Transform3,
+        volume: Int,
+    ): VolumeDescriptionOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext VolumeDescriptionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        val result = NativeBindings.describeVolume(
+            plateObject = nativePlate(listOf(plateObject)),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            processProfile = profiles.process.value,
+            placement = placement.columns.toDoubleArray(),
+            volume = volume,
+        )
+        if (result.status != NativeSceneStatus.SUCCESS) {
+            return@withContext VolumeDescriptionOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not describe the volume" })
+        }
+        VolumeDescriptionOutcome.Success(VolumeDescription.of(result.values))
     }
 
     override suspend fun presets(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {

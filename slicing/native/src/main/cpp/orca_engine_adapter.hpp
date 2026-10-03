@@ -576,6 +576,30 @@ struct FlatteningPlanes {
 // GLGizmoFlatten::update_planes() takes the convex hull of the object's parts.
 FlatteningPlanes describe_flattening_planes(const PlateObject& object, const ProfileSelection& profiles, const std::vector<double>& placement);
 
+// Selection::get_bounding_sphere() and get_bounding_box_in_reference_system()
+// of the volume at volume_index of object selected alone (Selection::Volume),
+// its instance standing at placement.
+struct VolumeDescription {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    // The smallest sphere around the volume's convex hull in the world, which
+    // the rotation gizmo turns it about.
+    std::array<double, 3> sphere_center{};
+    double sphere_radius{0.0};
+    // Its box in ECoordinatesType World, Instance and Local, in that order:
+    // the size along the axes of the reference system, and the centre in the
+    // world.
+    std::array<std::array<double, 3>, 3> box_sizes{};
+    std::array<std::array<double, 3>, 3> box_centers{};
+};
+
+VolumeDescription describe_volume(
+    const PlateObject& object,
+    const ProfileSelection& profiles,
+    const std::vector<double>& placement,
+    std::size_t volume_index
+);
+
 // Loads an STL file, or the built-in 20 mm calibration cube when model_path is
 // empty, places it as the desktop app places an object added to the plate that
 // holds plate (Plater::priv::load_model_objects), and writes its mesh in object

@@ -11,6 +11,7 @@
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeModelInspection { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativePlateInspection { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeFlatteningPlanes { <init>(...); }
+-keep class app.orcinus.shadow.slicing.nativebridge.NativeVolumeDescription { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeImportedObject { <init>(...); }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeImportedModels { <init>(...); }
 # The bridge reads the plate's fields by name.

@@ -4889,6 +4889,38 @@ TEST_CASE("A volume moved, turned or scaled drops its object as GLCanvas3D does"
     }
 }
 
+TEST_CASE("A volume selected alone is described by its own sphere and boxes", "[Adapter][Edit][DescribeVolume]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("describe-cube"), {});
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    const orca::ImportedModels with_part = orca::load_volume({plate_object_of(imported.objects.front())}, 0, device_dir + "/data/2x20x10.obj",
+                                                             "2x20x10.obj", orca::VolumeType::part, k2_plus_profiles(), import_prefix("describe-part"));
+    REQUIRE(with_part.status == orca::SceneStatus::success);
+    const orca::ImportedObject& object = with_part.objects.front();
+    REQUIRE(object.parts.size() == 1);
+    const std::array<double, 16>& instance = object.instances.front().instance_matrix;
+    const std::vector<double> placement(instance.begin(), instance.end());
+
+    const orca::VolumeDescription described = orca::describe_volume(plate_object_of(object), k2_plus_profiles(), placement, 1);
+    INFO(described.message);
+    REQUIRE(described.status == orca::SceneStatus::success);
+    // The block's sphere is the one through its corners, about its own centre.
+    const std::vector<double>& part = object.parts.front().matrix;
+    for (int i = 0; i < 3; ++i) {
+        CHECK(described.sphere_center[i] == Catch::Approx(instance[12 + i] + part[12 + i]).margin(0.001));
+    }
+    CHECK(described.sphere_radius == Catch::Approx(0.5 * std::sqrt(2.0 * 2.0 + 20.0 * 20.0 + 10.0 * 10.0)).margin(0.001));
+    // World, Instance and Local: the copy and the block are not turned.
+    for (int type = 0; type < 3; ++type) {
+        CHECK(described.box_sizes[type][0] == Catch::Approx(2.0).margin(0.001));
+        CHECK(described.box_sizes[type][1] == Catch::Approx(20.0).margin(0.001));
+        CHECK(described.box_sizes[type][2] == Catch::Approx(10.0).margin(0.001));
+    }
+    CHECK(orca::describe_volume(plate_object_of(object), k2_plus_profiles(), placement, 2).status != orca::SceneStatus::success);
+}
+
 // The value of key among settings; empty when they do not set it.
 std::string setting_of(const orca::ModelSettings& settings, const std::string& key)
 {

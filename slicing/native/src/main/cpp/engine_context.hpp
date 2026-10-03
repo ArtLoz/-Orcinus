@@ -135,6 +135,9 @@ EmbossKind emboss_kind_of(const Slic3r::ModelVolume& volume);
 // coordinates.
 std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance);
 
+// ... and of volume alone, standing at the world transformation matrix.
+std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelVolume& volume, const Slic3r::Transform3d& matrix);
+
 // An RGBA picture of width x height, rows from the top, written as a PNG to path.
 bool write_png_rgba(const std::string& path, int width, int height, const std::vector<unsigned char>& rgba);
 

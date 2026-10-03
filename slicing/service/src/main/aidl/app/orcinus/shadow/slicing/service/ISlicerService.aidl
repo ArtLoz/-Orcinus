@@ -28,6 +28,7 @@ import app.orcinus.shadow.slicing.service.FilamentPresetsParcel;
 import app.orcinus.shadow.slicing.service.ConfigTransferParcel;
 import app.orcinus.shadow.slicing.service.EngineStatusParcel;
 import app.orcinus.shadow.slicing.service.FlatteningPlanesParcel;
+import app.orcinus.shadow.slicing.service.VolumeDescriptionParcel;
 import app.orcinus.shadow.slicing.service.InspectionParcel;
 import app.orcinus.shadow.slicing.service.ISliceCallback;
 import app.orcinus.shadow.slicing.service.ModelLoadParcel;
@@ -380,6 +381,7 @@ interface ISlicerService {
     PaintingParcel fillGaps(String meshPrefix);
     PaintingParcel endPainting();
     FlatteningPlanesParcel flatteningPlanes(in PlacedModelParcel plateObject, in ProfilesParcel profiles, in double[] placement);
+    VolumeDescriptionParcel describeVolume(in PlacedModelParcel plateObject, in ProfilesParcel profiles, in double[] placement, int volume);
     /** ObjectList::load_generic_subobject(); type is the VolumeType's name. */
     InspectionParcel addObjectPart(in PlacedModelParcel object, String shape, String type, in ProfilesParcel profiles, String meshPath);
 

@@ -852,6 +852,11 @@ abstract class SlicerService<E> : Service()
                 engine.flatteningPlanes(arrayOf(plateObject).toPlacedModels().first(), profiles.toProfiles(), Transform3(placement.toList()))
             }.toParcel()
 
+        override fun describeVolume(plateObject: PlacedModelParcel, profiles: ProfilesParcel, placement: DoubleArray, volume: Int): VolumeDescriptionParcel =
+            runBlocking {
+                engine.describeVolume(arrayOf(plateObject).toPlacedModels().first(), profiles.toProfiles(), Transform3(placement.toList()), volume)
+            }.toParcel()
+
         override fun addObjectPart(
             plateObject: PlacedModelParcel,
             shape: String,

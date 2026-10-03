@@ -123,6 +123,8 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.VolumeDescription
+import app.orcinus.shadow.core.model.VolumeDescriptionOutcome
 import app.orcinus.shadow.core.model.VolumeOrigin
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
@@ -1110,6 +1112,18 @@ internal fun SetupFilamentsParcel.toSetupFilamentsOutcome(): SetupFilamentsOutco
     return SetupFilamentsOutcome.Success(
         checkNotNull(filaments).map { SetupFilament(it.name, it.vendor, it.type, it.models.toList(), it.selected) },
     )
+}
+
+internal fun VolumeDescriptionOutcome.toParcel() = VolumeDescriptionParcel().also {
+    when (this) {
+        is VolumeDescriptionOutcome.Failure -> it.error = message
+        is VolumeDescriptionOutcome.Success -> it.values = description.values()
+    }
+}
+
+internal fun VolumeDescriptionParcel.toOutcome(): VolumeDescriptionOutcome {
+    error?.let { return VolumeDescriptionOutcome.Failure(it) }
+    return VolumeDescriptionOutcome.Success(VolumeDescription.of(checkNotNull(values)))
 }
 
 internal fun FlatteningPlanesOutcome.toParcel() = FlatteningPlanesParcel().also {

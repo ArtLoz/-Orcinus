@@ -130,6 +130,13 @@ internal class NativePlateInspection(
     @JvmField val plates: Int,
 )
 
+/** Constructed by the native bridge: describe_volume(), its numbers as VolumeDescription.values(). */
+internal class NativeVolumeDescription(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val values: DoubleArray,
+)
+
 internal class NativeFlatteningPlanes(
     @JvmField val status: Long,
     @JvmField val message: String,
@@ -1927,6 +1934,15 @@ internal object NativeBindings {
         processProfile: String,
         placement: DoubleArray,
     ): NativeFlatteningPlanes
+
+    external fun describeVolume(
+        plateObject: NativePlate,
+        printerProfile: String,
+        filamentProfile: String,
+        processProfile: String,
+        placement: DoubleArray,
+        volume: Int,
+    ): NativeVolumeDescription
 
     /** select_plate(): the plate the next requests are for, among [count] plates. */
     external fun selectPlate(index: Int, count: Int)

@@ -118,6 +118,7 @@ import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeDescriptionOutcome
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -946,6 +947,19 @@ class RemoteSlicerEngine(
             service().flatteningPlanes(listOf(plateObject).toParcels().first(), profiles.toParcel(), placement.columns.toDoubleArray()).toOutcome()
         } catch (_: RemoteException) {
             FlatteningPlanesOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun describeVolume(
+        plateObject: PlacedModel,
+        profiles: SlicingProfileSelection,
+        placement: Transform3,
+        volume: Int,
+    ): VolumeDescriptionOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().describeVolume(listOf(plateObject).toParcels().first(), profiles.toParcel(), placement.columns.toDoubleArray(), volume).toOutcome()
+        } catch (_: RemoteException) {
+            VolumeDescriptionOutcome.Failure(PROCESS_DIED)
         }
     }
 

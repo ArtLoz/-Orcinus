@@ -3055,6 +3055,92 @@ FlatteningPlanes describe_flattening_planes(const PlateObject& object, const Pro
     }
 }
 
+VolumeDescription describe_volume(
+    const PlateObject& object,
+    const ProfileSelection& profiles,
+    const std::vector<double>& placement,
+    std::size_t volume_index
+)
+{
+    using namespace Slic3r;
+    VolumeDescription result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    if (placement.size() != 16) {
+        result.message = "The placement is not a 4 x 4 matrix";
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        const ModelObject* loaded = load_placed(object, placement, config, model, result.message);
+        if (loaded == nullptr) {
+            return result;
+        }
+        if (volume_index >= loaded->volumes.size()) {
+            result.message = "The object has no such volume";
+            return result;
+        }
+        const ModelVolume& volume = *loaded->volumes[volume_index];
+        const Transform3d instance_matrix = loaded->instances.front()->get_matrix();
+        // GLVolume::world_matrix()
+        const Transform3d world = instance_matrix * volume.get_matrix();
+        const auto [center, radius] = detail::bounding_sphere(volume, world);
+        result.sphere_center = {center.x(), center.y(), center.z()};
+        result.sphere_radius = radius;
+
+        // get_bounding_box_in_reference_system() for World, Instance and Local.
+        const std::vector<Vec3f>& vertices = volume.get_convex_hull().its.vertices;
+        const Transform3d trafos[3] = {Transform3d::Identity(), instance_matrix, world};
+        for (int type = 0; type < 3; ++type) {
+            Geometry::Transformation t(trafos[type]);
+            t.reset_scaling_factor();
+            const Transform3d basis_trafo = t.get_matrix_no_offset();
+            const Vec3d axes[3] = {basis_trafo * Vec3d::UnitX(), basis_trafo * Vec3d::UnitY(), basis_trafo * Vec3d::UnitZ()};
+            Vec3d min = Vec3d::Constant(std::numeric_limits<double>::max());
+            Vec3d max = Vec3d::Constant(-std::numeric_limits<double>::max());
+            for (const Vec3f& v : vertices) {
+                const Vec3d world_v = world * v.cast<double>();
+                for (int i = 0; i < 3; ++i) {
+                    const double i_comp = world_v.dot(axes[i]);
+                    min(i) = std::min(min(i), i_comp);
+                    max(i) = std::max(max(i), i_comp);
+                }
+            }
+            Vec3d half_box_size = 0.5 * (max - min);
+            Vec3d box_center = 0.5 * (min + max);
+            // Fix for non centered volume
+            // by move with calculated center(to volume center) and extend half box size
+            if (type == 2) {
+                const Vec3d world_zero = world * Vec3d::Zero();
+                for (int i = 0; i < 3; ++i) {
+                    box_center[i] = world_zero.dot(axes[i]);
+                    half_box_size[i] = std::max(std::abs(box_center[i] - min[i]), std::abs(box_center[i] - max[i]));
+                }
+            }
+            const Vec3d world_center = basis_trafo * box_center;
+            for (int i = 0; i < 3; ++i) {
+                result.box_sizes[type][i] = 2.0 * half_box_size[i];
+                result.box_centers[type][i] = world_center[i];
+            }
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        return result;
+    }
+}
+
 ModelInspection place_model(
     const PlateObject& plate_object,
     const ProfileSelection& profiles,
@@ -5790,14 +5876,17 @@ bool write_png_rgba(const std::string& path, int width, int height, const std::v
     return write_rgba_png(path, width, height, rgba);
 }
 
-std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance)
+// The smallest sphere around the convex hulls of the volumes, each standing at
+// its matrix in the world, as Selection::get_bounding_sphere() finds it.
+static std::pair<Slic3r::Vec3d, double> bounding_sphere_of(
+    const std::vector<std::pair<const Slic3r::ModelVolume*, Slic3r::Transform3d>>& volumes
+)
 {
     using Kernel = CGAL::Simple_cartesian<float>;
     using Traits = CGAL::Min_sphere_of_points_d_traits_3<Kernel, float>;
     using MinSphere = CGAL::Min_sphere_of_spheres_d<Traits>;
     std::vector<Kernel::Point_3> points;
-    for (const Slic3r::ModelVolume* volume : object.volumes) {
-        const Slic3r::Transform3d matrix = instance.get_matrix() * volume->get_matrix();
+    for (const auto& [volume, matrix] : volumes) {
         for (const Slic3r::Vec3f& vertex : volume->get_convex_hull().its.vertices) {
             const Slic3r::Vec3d point = matrix * vertex.cast<double>();
             points.emplace_back(float(point.x()), float(point.y()), float(point.z()));
@@ -5806,6 +5895,20 @@ std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& obje
     MinSphere sphere(points.begin(), points.end());
     const float* center = sphere.center_cartesian_begin();
     return {Slic3r::Vec3d(center[0], center[1], center[2]), double(sphere.radius())};
+}
+
+std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance)
+{
+    std::vector<std::pair<const Slic3r::ModelVolume*, Slic3r::Transform3d>> volumes;
+    for (const Slic3r::ModelVolume* volume : object.volumes) {
+        volumes.emplace_back(volume, instance.get_matrix() * volume->get_matrix());
+    }
+    return bounding_sphere_of(volumes);
+}
+
+std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelVolume& volume, const Slic3r::Transform3d& matrix)
+{
+    return bounding_sphere_of({{&volume, matrix}});
 }
 
 SliceStatus select_profiles(
