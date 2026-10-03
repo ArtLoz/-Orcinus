@@ -34,15 +34,10 @@
     <string name="gizmo_cut">Cut</string>
     <string name="gizmo_mesh_boolean">Mesh boolean</string>
     <string name="gizmo_color_painting">Color Painting</string>
-    <string name="painting_filament">Filament</string>
-    <string name="painting_brush">Brush</string>
     <string name="painting_eraser">Erase</string>
     <string name="painting_done">Done</string>
     <string name="painting_collapse">Collapse the panel</string>
     <string name="painting_expand">Expand the panel</string>
-    <string name="painting_tool_brush">Brush</string>
-    <string name="painting_tool_fill">Fill</string>
-    <string name="painting_tool_bucket">Whole face</string>
     <string name="gizmo_support_painting">Support Painting</string>
     <string name="gizmo_seam_painting">Seam painting</string>
     <string name="gizmo_fuzzy_skin_painting">Paint-on fuzzy skin</string>

@@ -874,6 +874,9 @@ enum class PaintTool : std::int64_t {
     // Triangles (the brush with CursorType::POINTER): the one triangle of the
     // painting under the finger, as the painting split it.
     triangle = 5,
+    // Height range (CursorType::HEIGHT_RANGE): every facet of the object from
+    // the height the finger meets it at up PaintStroke::cursor_height.
+    height_range = 6,
 };
 
 // One touch of the finger on a model being painted.
@@ -887,6 +890,8 @@ struct PaintStroke {
     int state{0};
     // The brush's radius in millimetres (GLGizmoPainterBase::m_cursor_radius).
     double radius{2.0};
+    // The height range's height in millimetres (m_cursor_height).
+    double cursor_height{0.2};
     PaintTool tool{PaintTool::brush};
     // The angle the fills keep to (m_smart_fill_angle), in degrees.
     double angle{30.0};

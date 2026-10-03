@@ -1617,6 +1617,7 @@ class NativeSlicerEngine(context: Context) :
                 angle = stroke.angle,
                 overhangAngle = stroke.overhangAngle,
                 starts = stroke.startsStroke,
+                cursorHeight = stroke.cursorHeight,
                 clippingPlane = stroke.clipping.values(),
                 sinkingLimit = stroke.sinkingLimit,
                 meshPrefix = meshPrefix.value,

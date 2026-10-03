@@ -432,8 +432,9 @@ struct PaintedVolume {
     // Its place in ModelObject::volumes.
     std::size_t index{0};
     // Its mesh in its own coordinates, with the tree that finds the triangle
-    // under the finger.
-    Slic3r::TriangleMesh mesh;
+    // under the finger; both hold on to the mesh, which keeps its place while
+    // the session's volumes grow.
+    std::unique_ptr<Slic3r::TriangleMesh> mesh;
     std::unique_ptr<Slic3r::AABBMesh> tree;
     std::unique_ptr<PatchSelector> selector;
     // Where it stands in the world (the gizmo's trafo matrices), which the
@@ -641,9 +642,9 @@ PaintingState begin_painting(
             }
             PaintedVolume& painted = current.volumes.emplace_back();
             painted.index = index;
-            painted.mesh = volume.mesh();
-            painted.tree = std::make_unique<Slic3r::AABBMesh>(painted.mesh);
-            painted.selector = std::make_unique<PatchSelector>(painted.mesh);
+            painted.mesh = std::make_unique<Slic3r::TriangleMesh>(volume.mesh());
+            painted.tree = std::make_unique<Slic3r::AABBMesh>(*painted.mesh);
+            painted.selector = std::make_unique<PatchSelector>(*painted.mesh);
             painted.in_object = volume.get_matrix();
             if (loaded.instances.empty()) {
                 painted.world = volume.get_matrix();
@@ -754,24 +755,27 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
             current.stroke_pending = false;
         }
 
+        // get_clipping_plane_in_volume_coordinates()
+        const auto clipping_plane_of = [&](const PaintedVolume& painted) {
+            if (!clipping) {
+                return Slic3r::TriangleSelector::ClippingPlane();
+            }
+            const Slic3r::Transform3d trafo_normal = Slic3r::Transform3d(painted.world.linear().transpose());
+            const Slic3r::Transform3d trafo_inv = painted.world.inverse();
+            const Slic3r::Vec3d point_on_plane = clip_normal * clip_offset;
+            const Slic3r::Vec3d point_on_plane_transformed = trafo_inv * point_on_plane;
+            const Slic3r::Vec3d normal_transformed = trafo_normal * clip_normal;
+            const auto offset_transformed = float(point_on_plane_transformed.dot(normal_transformed));
+            return Slic3r::TriangleSelector::ClippingPlane(
+                std::array<float, 4>{float(normal_transformed.x()), float(normal_transformed.y()), float(normal_transformed.z()), offset_transformed}
+            );
+        };
         PaintedVolume& volume = current.volumes[nearest->volume];
         const Slic3r::Vec3f& position = nearest->position;
         const int face = nearest->face;
         const Slic3r::Vec3d& source = nearest->source;
         const Slic3r::Transform3d no_translation = Slic3r::Transform3d(volume.world.linear());
-        // get_clipping_plane_in_volume_coordinates()
-        Slic3r::TriangleSelector::ClippingPlane clipping_plane;
-        if (clipping) {
-            const Slic3r::Transform3d trafo_normal = Slic3r::Transform3d(volume.world.linear().transpose());
-            const Slic3r::Transform3d trafo_inv = volume.world.inverse();
-            const Slic3r::Vec3d point_on_plane = clip_normal * clip_offset;
-            const Slic3r::Vec3d point_on_plane_transformed = trafo_inv * point_on_plane;
-            const Slic3r::Vec3d normal_transformed = trafo_normal * clip_normal;
-            const auto offset_transformed = float(point_on_plane_transformed.dot(normal_transformed));
-            clipping_plane = Slic3r::TriangleSelector::ClippingPlane(
-                std::array<float, 4>{float(normal_transformed.x()), float(normal_transformed.y()), float(normal_transformed.z()), offset_transformed}
-            );
-        }
+        const Slic3r::TriangleSelector::ClippingPlane clipping_plane = clipping_plane_of(volume);
         const Slic3r::EnforcerBlockerType state = state_of(stroke.state);
         // m_paint_on_overhangs_only ? m_highlight_by_angle_threshold_deg : 0.f
         const auto overhang_angle = static_cast<float>(stroke.overhang_angle);
@@ -819,6 +823,43 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         case PaintTool::gap_fill:
             // The gap fill paints no strokes (GLGizmoPainterBase::gizmo_event()).
             break;
+        case PaintTool::height_range: {
+            // get_projected_height_range(): from the height the finger meets the
+            // model at up the cursor's height, on the part it meets and on every
+            // other part with a facet within that band, from its first such facet.
+            const float z_bot_world = float((volume.world * position.cast<double>()).z());
+            const float z_top_world = z_bot_world + float(stroke.cursor_height);
+            for (std::size_t index = 0; index < current.volumes.size(); ++index) {
+                PaintedVolume& painted = current.volumes[index];
+                int first_hit_facet_idx = index == nearest->volume ? face : -1;
+                if (index != nearest->volume) {
+                    const indexed_triangle_set& its = painted.mesh->its;
+                    for (int facet_idx = 0; facet_idx < int(its.indices.size()); ++facet_idx) {
+                        float z[3];
+                        for (int corner = 0; corner < 3; ++corner) {
+                            const Slic3r::Vec3f& v = its.vertices[its.indices[facet_idx](corner)];
+                            z[corner] = float((painted.world * Slic3r::Vec3d(v(0), v(1), v(2))).z());
+                        }
+                        const bool outside_range = (z[0] < z_bot_world && z[1] < z_bot_world && z[2] < z_bot_world) ||
+                                                   (z[0] > z_top_world && z[1] > z_top_world && z[2] > z_top_world);
+                        if (!outside_range) {
+                            first_hit_facet_idx = facet_idx;
+                            break;
+                        }
+                    }
+                }
+                if (first_hit_facet_idx < 0) {
+                    continue;
+                }
+                // The camera at the ray's origin, in the part's coordinates.
+                const Slic3r::Vec3f camera_pos = (painted.world.inverse() * origin).cast<float>();
+                std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor = Slic3r::TriangleSelector::SinglePointCursor::cursor_factory(
+                    z_bot_world, camera_pos, float(stroke.cursor_height), painted.world, clipping_plane_of(painted));
+                painted.selector->select_patch(
+                    first_hit_facet_idx, std::move(cursor), state, Slic3r::Transform3d(painted.world.linear()), true, overhang_angle);
+            }
+            break;
+        }
         case PaintTool::triangle:
             // The Triangles tool: the triangle under the finger alone, which the
             // stroke paints as it passes over one after another.

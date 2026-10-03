@@ -369,6 +369,7 @@ interface ISlicerService {
         double angle,
         double overhangAngle,
         boolean starts,
+        double cursorHeight,
         in double[] clippingPlane,
         boolean sinkingLimit,
         String meshPrefix

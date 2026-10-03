@@ -895,6 +895,7 @@ class RemoteSlicerEngine(
                 stroke.angle,
                 stroke.overhangAngle,
                 stroke.startsStroke,
+                stroke.cursorHeight,
                 stroke.clipping.values(),
                 stroke.sinkingLimit,
                 meshPrefix.value,

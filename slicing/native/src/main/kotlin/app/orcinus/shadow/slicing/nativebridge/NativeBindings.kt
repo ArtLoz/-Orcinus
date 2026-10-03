@@ -1254,6 +1254,7 @@ internal object NativeBindings {
         angle: Double,
         overhangAngle: Double,
         starts: Boolean,
+        cursorHeight: Double,
         clippingPlane: DoubleArray,
         sinkingLimit: Boolean,
         meshPrefix: String,

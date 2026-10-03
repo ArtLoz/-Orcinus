@@ -410,6 +410,9 @@ enum class PaintTool {
 
     /** Triangles: the one triangle of the painting under the finger. */
     TRIANGLE,
+
+    /** Height range: every facet from the height the finger meets the model at up the cursor's height. */
+    HEIGHT_RANGE,
 }
 
 /** EnforcerBlockerType: the states a stroke paints; a filament's number paints colour. */
@@ -434,6 +437,8 @@ data class PaintStroke(
     /** The brush's radius in millimetres. */
     val radius: Double = 2.0,
     val tool: PaintTool = PaintTool.BRUSH,
+    /** The height range's height in millimetres (m_cursor_height). */
+    val cursorHeight: Double = 0.2,
     /** The angle the fills keep to (m_smart_fill_angle), in degrees. */
     val angle: Double = 30.0,
     /**

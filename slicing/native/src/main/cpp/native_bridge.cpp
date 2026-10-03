@@ -1500,6 +1500,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
     jdouble angle,
     jdouble overhang_angle,
     jboolean starts,
+    jdouble cursor_height,
     jdoubleArray clipping_plane,
     jboolean sinking_limit,
     jstring mesh_prefix
@@ -1519,6 +1520,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
     stroke.angle = angle;
     stroke.overhang_angle = overhang_angle;
     stroke.starts = starts == JNI_TRUE;
+    stroke.cursor_height = cursor_height;
     if (plane.size() == 4) {
         std::copy(plane.begin(), plane.end(), stroke.clipping_plane);
     }

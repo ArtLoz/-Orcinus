@@ -956,8 +956,10 @@ class PrepareViewModel(
 
     fun closePainting() {
         val open = view.value.painting ?: return
-        // ObjectClipper::on_release(): the section goes with the tool.
-        paintingTools[open.kind] = open.copy(sectionPosition = 0.0, sectionResets = 0, sectionPlane = null, section = null)
+        // ObjectClipper::on_release(): the section goes with the tool; GLGizmoMmuSegmentation::on_set_state()
+        // leaves the gap fill for the circle.
+        val tool = if (open.kind == PaintKind.COLOR && open.tool == PaintTool.GAP_FILL) PaintTool.CIRCLE else open.tool
+        paintingTools[open.kind] = open.copy(tool = tool, sectionPosition = 0.0, sectionResets = 0, sectionPlane = null, section = null)
         paintingSectionJob?.cancel()
         paintingSection.clear()
         view.update { it.copy(painting = null) }
@@ -1483,9 +1485,28 @@ class PrepareViewModel(
         view.update { state -> state.painting?.let { state.copy(painting = it.copy(overhangsOnly = only)) } ?: state }
     }
 
-    /** The seam tool's "Vertical". */
+    /** "Vertical", which takes "Horizontal" off. */
     fun setVerticalOnly(vertical: Boolean) {
-        view.update { state -> state.painting?.let { state.copy(painting = it.copy(verticalOnly = vertical)) } ?: state }
+        view.update { state ->
+            state.painting?.let { state.copy(painting = it.copy(verticalOnly = vertical, horizontalOnly = it.horizontalOnly && !vertical)) } ?: state
+        }
+    }
+
+    /** The colour tool's "Horizontal", which takes "Vertical" off. */
+    fun setHorizontalOnly(horizontal: Boolean) {
+        view.update { state ->
+            state.painting?.let { state.copy(painting = it.copy(horizontalOnly = horizontal, verticalOnly = it.verticalOnly && !horizontal)) } ?: state
+        }
+    }
+
+    /** The colour tool's "Edge detection" of its fill. */
+    fun setEdgeDetection(detect: Boolean) {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(edgeDetection = detect)) } ?: state }
+    }
+
+    /** The height range's height. */
+    fun setCursorHeight(height: Double) {
+        view.update { state -> state.painting?.let { state.copy(painting = it.copy(cursorHeight = height)) } ?: state }
     }
 
     /**
@@ -1512,7 +1533,9 @@ class PrepareViewModel(
                         state = mode.state,
                         radius = mode.radius,
                         tool = mode.tool,
-                        angle = mode.fillAngle,
+                        // The colour tool's fill without "Edge detection" takes no angle (m_smart_fill_angle = -1).
+                        angle = if (mode.tool == PaintTool.BUCKET && !mode.edgeDetection) -1.0 else mode.fillAngle,
+                        cursorHeight = mode.cursorHeight,
                         overhangAngle = if (mode.overhangsOnly) mode.highlightAngle else 0.0,
                         startsStroke = first,
                         clipping = mode.sectionPlane.takeIf { mode.sectionPosition > 0.0 },

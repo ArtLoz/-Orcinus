@@ -356,8 +356,13 @@ data class PaintingMode(
     val overhangsOnly: Boolean = false,
     /** The gap fill's area (TriangleSelectorPatch::gap_area), in square millimetres. */
     val gapArea: Double = 0.0,
-    /** The seam tool's "Vertical" (m_vertical_only): a stroke keeps to a screen column. */
+    /** "Vertical" (m_vertical_only): a stroke keeps to a screen column; "Horizontal" (m_horizontal_only), to a row. */
     val verticalOnly: Boolean = false,
+    val horizontalOnly: Boolean = false,
+    /** The colour tool's "Edge detection" (m_detect_geometry_edge): its fill keeps to the smart fill angle. */
+    val edgeDetection: Boolean = true,
+    /** The height range's height in millimetres (m_cursor_height). */
+    val cursorHeight: Double = 0.2,
     /**
      * The fuzzy skin tool's warning: fuzzy skin is disabled for the object, by
      * its settings or the process preset, so what is painted does not take effect.
@@ -377,7 +382,10 @@ data class PaintingMode(
     val sectionResets: Int = 0,
     val sectionPlane: ClippingPlane? = null,
     val section: ScenePath? = null,
-)
+) {
+    /** ToolType::BRUSH: the strokes "Vertical" and "Horizontal" keep to a column or a row. */
+    val brushing: Boolean get() = tool == PaintTool.BRUSH || tool == PaintTool.CIRCLE || tool == PaintTool.TRIANGLE || tool == PaintTool.HEIGHT_RANGE
+}
 
 /**
  * The assembly view while it shows (AssembleView): its explosion ratio

@@ -557,6 +557,7 @@ fun PlateView(
             controller.setCut(cut, cutIndex)
             controller.setPainting(painting != null)
             controller.setVerticalOnly(painting?.verticalOnly == true)
+            controller.setHorizontalOnly(painting?.horizontalOnly == true)
             // GLGizmoFdmSupports::on_opening() turns the slope on; the painting's
             // highlight angle sets it (-cos of m_highlight_by_angle_threshold_deg).
             controller.setSlope(painting?.takeIf { it.kind == PaintKind.SUPPORTS }?.let { -cos(Math.toRadians(it.overhangAngle)).toFloat() })
@@ -1520,12 +1521,18 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The support painting tool's overhang highlight, slope.normal_z; null while it is closed. */
     private var slopeNormalZ: Float? = null
 
-    /** The seam tool's "Vertical", and the screen column the stroke started in. */
+    /** "Vertical" and "Horizontal", and the screen column and row the stroke started in. */
     private var verticalOnly = false
+    private var horizontalOnly = false
     private var strokeX = 0f
+    private var strokeY = 0f
 
     fun setVerticalOnly(vertical: Boolean) {
         verticalOnly = vertical
+    }
+
+    fun setHorizontalOnly(horizontal: Boolean) {
+        horizontalOnly = horizontal
     }
 
     fun setSlope(normalZ: Float?) {
@@ -1646,6 +1653,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             if (objects.none { it.index == selectedIndex && !it.modifier && !it.overlay && it.unproject(ray, assembly == null, clipped) != null }) return false
             paintingStroke = true
             strokeX = x
+            strokeY = y
             onPaint(ray, true)
             return true
         }
@@ -1730,9 +1738,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (paintingStroke) {
             // The brush follows the finger, as the desktop gizmo paints while
             // the left button is held; "Vertical" keeps the finger's x where
-            // the stroke started (_mouse_position.x() = m_last_mouse_click.x()).
+            // the stroke started (_mouse_position.x() = m_last_mouse_click.x()),
+            // "Horizontal" its y.
             val column = if (verticalOnly) strokeX else x
-            camera.mouseRay(column.toDouble(), y.toDouble())?.let { onPaint(it, false) }
+            val row = if (horizontalOnly) strokeY else y
+            camera.mouseRay(column.toDouble(), row.toDouble())?.let { onPaint(it, false) }
             return
         }
         val drag = drag ?: return
@@ -2895,6 +2905,8 @@ data class PaintingView(
     val verticalOnly: Boolean = false,
     /** "Section view" of the painted copy; null for none. */
     val section: PaintSectionView? = null,
+    /** "Horizontal" (m_horizontal_only): a stroke keeps to the screen row where it met the model. */
+    val horizontalOnly: Boolean = false,
 )
 
 /**

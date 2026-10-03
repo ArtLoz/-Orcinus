@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -288,6 +290,9 @@ internal fun PrepareRoute(
             clear = viewModel::clearPainting,
             close = viewModel::closePainting,
             setSection = viewModel::setPaintingSection,
+            setHorizontalOnly = viewModel::setHorizontalOnly,
+            setEdgeDetection = viewModel::setEdgeDetection,
+            setCursorHeight = viewModel::setCursorHeight,
             resetSectionDirection = viewModel::resetPaintingSectionDirection,
             sectionPlane = viewModel::setPaintingSectionPlane,
         ),
@@ -585,6 +590,10 @@ internal class PaintingActions(
     val setSection: (Double) -> Unit = {},
     val resetSectionDirection: () -> Unit = {},
     val sectionPlane: (normal: Vector3, offset: Double) -> Unit = { _, _ -> },
+    /** The colour tool's "Horizontal", "Edge detection" and the height range's height. */
+    val setHorizontalOnly: (Boolean) -> Unit = {},
+    val setEdgeDetection: (Boolean) -> Unit = {},
+    val setCursorHeight: (Double) -> Unit = {},
 ) {
     companion object {
         val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
@@ -691,7 +700,10 @@ internal fun PrepareScreen(
                 filamentColors = state.filamentColors,
                 builtWipeTower = state.builtWipeTower,
                 onMoveWipeTower = onMoveWipeTower,
-                painting = state.painting?.let { PaintingView(it.mesh, it.kind, it.highlightAngle, it.verticalOnly, state.paintSection) },
+                painting = state.painting?.let {
+                    // The brush alone keeps to a column or a row (ToolType::BRUSH).
+                    PaintingView(it.mesh, it.kind, it.highlightAngle, it.verticalOnly && it.brushing, state.paintSection, it.horizontalOnly && it.brushing)
+                },
                 onPaintSection = paintingActions.sectionPlane,
                 onPaint = paintingActions.paint,
                 cut = state.cut?.let { mode ->
@@ -1680,16 +1692,18 @@ private fun CanvasToolbar(
 }
 
 /**
- * The colour painting tool while it is open (GLGizmoMmuSegmentation's window):
- * which filament the finger paints with, how wide the brush is and which tool
- * paints. The desktop window has a row per filament with its colour; a phone
- * shows them as chips a thumb can reach.
+ * GLGizmoMmuSegmentation's window while it is open: the filaments, with the
+ * eraser in place of the desktop's Shift, the tool — circle, sphere,
+ * triangles, height range, fill or gap fill — with its brush size and
+ * "Vertical" / "Horizontal", the fill's "Edge detection" and smart fill angle,
+ * the height range's height, or the gap area and "Perform", "Section view",
+ * "Erase all" and "Done".
  */
 @Composable
 private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions: PaintingActions) {
     PaintingPanelFrame(stringResource(R.string.gizmo_color_painting), stringResource(R.string.painting_done), actions.close) {
         Text(
-            text = stringResource(R.string.painting_filament),
+            text = orcaString("Filaments"),
             color = OrcaTheme.colors.onCanvasPanel,
             style = OrcaTheme.typography.body12,
         )
@@ -1713,7 +1727,7 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
                 )
             }
             // The eraser takes the paint off again, as the desktop gizmo does
-            // with the right button (EnforcerBlockerType::NONE).
+            // with Shift (EnforcerBlockerType::NONE).
             OrcaButton(
                 text = stringResource(R.string.painting_eraser),
                 style = if (painting.state == PaintState.NONE) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
@@ -1721,46 +1735,80 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
                 onClick = { actions.setState(PaintState.NONE) },
             )
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Text(
+            text = orcaString("Tool type"),
+            color = OrcaTheme.colors.onCanvasPanel,
+            style = OrcaTheme.typography.body12,
+        )
+        PaintingChoices(
             listOf(
-                PaintTool.BRUSH to R.string.painting_tool_brush,
-                PaintTool.FILL to R.string.painting_tool_fill,
-                PaintTool.BUCKET to R.string.painting_tool_bucket,
-            ).forEach { (tool, label) ->
+                PaintTool.CIRCLE to orcaString("Circle"),
+                PaintTool.BRUSH to orcaString("Sphere"),
+                PaintTool.TRIANGLE to orcaString("Triangle"),
+                PaintTool.HEIGHT_RANGE to orcaString("Height Range"),
+                PaintTool.BUCKET to orcaString("Fill"),
+                PaintTool.GAP_FILL to orcaString("Gap Fill"),
+            ),
+            selected = painting.tool,
+            onSelect = actions.setTool,
+        )
+        when (painting.tool) {
+            PaintTool.CIRCLE, PaintTool.BRUSH, PaintTool.TRIANGLE -> {
+                if (painting.tool != PaintTool.TRIANGLE) {
+                    PaintingSlider(
+                        label = orcaString("Brush size"),
+                        value = painting.radius.toFloat(),
+                        range = BRUSH_MIN..BRUSH_MAX,
+                        text = String.format(textLocale(), "%.2f", painting.radius),
+                        onChange = { actions.setRadius(it.toDouble()) },
+                    )
+                }
+                PaintingCheck(orcaString("Vertical"), painting.verticalOnly, actions.setVerticalOnly)
+                PaintingCheck(orcaString("Horizontal"), painting.horizontalOnly, actions.setHorizontalOnly)
+            }
+            PaintTool.BUCKET -> {
+                if (painting.edgeDetection) {
+                    PaintingSlider(
+                        label = orcaString("Smart fill angle"),
+                        value = painting.fillAngle.toFloat(),
+                        range = SMART_FILL_ANGLE_MIN..SMART_FILL_ANGLE_MAX,
+                        text = String.format(textLocale(), "%.0f°", painting.fillAngle),
+                        onChange = { actions.setFillAngle(it.toDouble()) },
+                    )
+                }
+                PaintingCheck(orcaString("Edge detection"), painting.edgeDetection, actions.setEdgeDetection)
+            }
+            PaintTool.HEIGHT_RANGE -> PaintingSlider(
+                label = orcaString("Height range"),
+                value = painting.cursorHeight.toFloat(),
+                range = CURSOR_HEIGHT_MIN..CURSOR_HEIGHT_MAX,
+                text = String.format(textLocale(), "%.2f", painting.cursorHeight) + " " + stringResource(R.string.unit_mm),
+                onChange = { actions.setCursorHeight(it.toDouble()) },
+            )
+            PaintTool.GAP_FILL -> {
+                PaintingSlider(
+                    label = orcaString("Gap area"),
+                    value = painting.gapArea.toFloat(),
+                    range = GAP_AREA_MIN..GAP_AREA_MAX,
+                    text = String.format(textLocale(), "%.2f", painting.gapArea),
+                    onChange = { actions.setGapArea(it.toDouble()) },
+                )
                 OrcaButton(
-                    text = stringResource(label),
-                    style = if (painting.tool == tool) OrcaButtonStyle.Confirm else OrcaButtonStyle.Regular,
+                    text = orcaString("Perform"),
                     size = OrcaButtonSize.Compact,
-                    onClick = { actions.setTool(tool) },
+                    onClick = actions.fillGaps,
                 )
             }
-        }
-        if (painting.tool == PaintTool.BRUSH) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                Text(
-                    text = stringResource(R.string.painting_brush),
-                    color = OrcaTheme.colors.onCanvasPanel,
-                    style = OrcaTheme.typography.body12,
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-                Slider(
-                    value = painting.radius.toFloat(),
-                    onValueChange = { actions.setRadius(it.toDouble()) },
-                    valueRange = BRUSH_MIN..BRUSH_MAX,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = String.format(textLocale(), "%.1f", painting.radius) + " " + stringResource(R.string.unit_mm),
-                    color = OrcaTheme.colors.onCanvasPanel,
-                    style = OrcaTheme.typography.body12,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
+            PaintTool.FILL -> Unit
         }
         PaintingSection(painting, actions)
+        OrcaButton(
+            text = orcaString("Erase all"),
+            size = OrcaButtonSize.Compact,
+            enabled = painting.painted,
+            onClick = actions.clear,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -2057,12 +2105,13 @@ internal fun PaintingPanelFrame(title: String, done: String, onDone: () -> Unit,
 /** How much of the screen's height a tool's window takes at most before it scrolls. */
 private const val TOOL_WINDOW_HEIGHT = 0.6f
 
-/** A row of a painting tool's choices, the chosen one filled. */
+/** A painting tool's choices, the chosen one filled, wrapping onto more rows as the window needs. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun <T> PaintingChoices(items: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
-    Row(
+    FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.padding(vertical = 4.dp),
     ) {
         items.forEach { (item, label) ->
@@ -2118,6 +2167,10 @@ private const val BRUSH_MAX = 8.0f
 /** GLGizmoPainterBase::SmartFillAngleMin and SmartFillAngleMax. */
 private const val SMART_FILL_ANGLE_MIN = 0f
 private const val SMART_FILL_ANGLE_MAX = 90f
+
+/** GLGizmoPainterBase::CursorHeightMin and CursorHeightMax. */
+private const val CURSOR_HEIGHT_MIN = 0.1f
+private const val CURSOR_HEIGHT_MAX = 8f
 
 /** TriangleSelectorPatch::GapAreaMin and GapAreaMax. */
 private const val GAP_AREA_MIN = 0f

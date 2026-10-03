@@ -4909,10 +4909,30 @@ TEST_CASE("A painting tool paints every model part of its object", "[Adapter][Sc
     CHECK(painted.hit);
     REQUIRE(painted.volumes.size() == painted.meshes.size());
     CHECK(painted.volumes == std::vector<int>{1});
+    // The height range from the plate up a millimetre paints the cube's foot
+    // and the block's together, met on the cube.
+    orca::PaintStroke band = stroke;
+    band.origin[0] = instance[12] + 100.0;
+    band.origin[1] = instance[13];
+    band.origin[2] = 0.5;
+    band.direction[0] = -1.0;
+    band.direction[2] = 0.0;
+    band.state = 2;
+    band.tool = orca::PaintTool::height_range;
+    band.cursor_height = 1.0;
+    const orca::PaintingState banded = orca::paint(band, output_path("paint-parts"));
+    REQUIRE(banded.status == orca::SceneStatus::success);
+    CHECK(banded.hit);
+    std::set<std::pair<int, int>> painted_states;
+    for (std::size_t index = 0; index < banded.meshes.size(); ++index) {
+        painted_states.emplace(banded.volumes[index], banded.states[index]);
+    }
+    CHECK(painted_states.count({0, 2}) == 1);
+    CHECK(painted_states.count({1, 2}) == 1);
     const orca::PaintingState closed = orca::end_painting();
     REQUIRE(closed.status == orca::SceneStatus::success);
-    // The cube is as it was; the block has its painting.
-    CHECK(closed.facets.empty());
+    // Both have their painting now.
+    CHECK_FALSE(closed.facets.empty());
     REQUIRE(closed.part_facets.size() == 1);
     CHECK_FALSE(closed.part_facets.front().empty());
 }
