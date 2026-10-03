@@ -20,8 +20,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.PlateObject
-import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.plate.volumeName
 
 /** What the mesh boolean tool's window does (GLGizmoMeshBoolean). */
 internal class MeshBooleanActions(
@@ -67,14 +67,14 @@ internal fun MeshBooleanPanel(mode: MeshBooleanMode, plateObject: PlateObject?, 
         VolumeRow(
             caption = orcaString(if (difference) "Subtract from" else "Part 1"),
             selecting = !mode.selectingTool,
-            name = mode.source?.let { nameOf(plateObject, it) },
+            name = mode.source?.let { plateObject?.volumeName(it) },
             onSelect = { actions.selectTool(false) },
             onClear = { actions.clear(false) },
         )
         VolumeRow(
             caption = orcaString(if (difference) "Subtract with" else "Part 2"),
             selecting = mode.selectingTool,
-            name = mode.tool?.let { nameOf(plateObject, it) },
+            name = mode.tool?.let { plateObject?.volumeName(it) },
             onSelect = { actions.selectTool(true) },
             onClear = { actions.clear(true) },
         )
@@ -132,10 +132,5 @@ private fun VolumeRow(caption: String, selecting: Boolean, name: String?, onSele
         }
     }
 }
-
-/** ModelVolume::name of the volume at [index]: the object's own mesh goes by its object's name without one. */
-private fun nameOf(plateObject: PlateObject?, index: Int): String =
-    plateObject?.volumeAt(index)?.name?.takeIf(String::isNotEmpty)
-        ?: plateObject?.let { (it as? PlateObject.ImportedModel)?.file?.displayName ?: it.volume.name }.orEmpty()
 
 private val CAPTION_WIDTH = 96.dp

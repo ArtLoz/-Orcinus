@@ -35,6 +35,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -49,6 +50,15 @@ class PlatesTest {
         // compute_origin_for_unprintable(): a full square of plates puts it in a new column.
         assertEquals(Point2(840.0, -420.0), grid.unprintableOrigin(4))
         assertEquals(Point2(0.0, -420.0), grid.unprintableOrigin(2))
+    }
+
+    @Test
+    fun `a copy sinking below the plate stands on it by its part above the plate`() {
+        // PartPlate::check_outside(): 3 mm below the plate, inside it, or over its edge.
+        val grid = PlateGrid(AREA)
+        val sinking = cubeAt(175.0, 175.0).instances.single().inspection.copy(boxCenter = Vector3(175.0, 175.0, 7.0))
+        assertTrue(grid.contains(sinking, Point2(0.0, 0.0), 300.0))
+        assertFalse(grid.contains(sinking.copy(boxCenter = Vector3(345.0, 175.0, 7.0)), Point2(0.0, 0.0), 300.0))
     }
 
     @Test

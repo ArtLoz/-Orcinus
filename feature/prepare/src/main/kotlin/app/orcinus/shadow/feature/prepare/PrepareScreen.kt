@@ -68,6 +68,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -2352,25 +2353,29 @@ private fun MoveGizmoPanel(
             onSelect = onCoordinates,
             modifier = Modifier.padding(bottom = 4.dp),
         )
+        // The captions' column is as wide as both captions need, as the window measures them.
+        val translate = orcaString("Translate(Relative)")
+        val positionCaption = stringResource(R.string.gizmo_position)
+        val labelWidth = captionWidth(listOf(translate, positionCaption), PositionLabelWidth)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.width(PositionLabelWidth))
+            Spacer(Modifier.width(labelWidth))
             AxisHeaders()
         }
         if (objectCoordinates && relative) {
             // In object coordinates the copy moves by what is typed along its own axes.
             GizmoValueRow(
-                label = orcaString("Translate(Relative)"),
+                label = translate,
                 values = listOf(0.0, 0.0, 0.0),
                 unit = lengthUnit(imperial),
-                labelWidth = PositionLabelWidth,
+                labelWidth = labelWidth,
                 onValue = { axis, value -> onTranslate(axis, value * inputKoef(imperial)) },
             )
         } else {
             GizmoValueRow(
-                label = stringResource(R.string.gizmo_position),
+                label = positionCaption,
                 values = listOf(position.x, position.y, position.z).map { it * displayKoef(imperial) },
                 unit = lengthUnit(imperial),
-                labelWidth = PositionLabelWidth,
+                labelWidth = labelWidth,
                 onValue = { axis, value -> onSetPosition(axis, value * inputKoef(imperial)) },
             )
         }
@@ -2726,6 +2731,20 @@ private val LayerBarMinHeight = 120.dp
 
 // A gizmo window fits a phone: label, three fields, unit, and reset button in 360 dp.
 private val PositionLabelWidth = 64.dp
+
+/**
+ * The width a column of [captions] needs so that none breaks inside a word:
+ * the widest word among them, and at least [minimum]; a caption still wraps
+ * between its words.
+ */
+@Composable
+private fun captionWidth(captions: List<String>, minimum: Dp): Dp {
+    val measurer = rememberTextMeasurer()
+    val style = OrcaTheme.typography.body13
+    val density = LocalDensity.current
+    val widest = captions.flatMap { it.split(' ') }.maxOfOrNull { word -> measurer.measure(word, style, softWrap = false).size.width } ?: 0
+    return maxOf(minimum, with(density) { widest.toDp() })
+}
 private val RotationLabelWidth = 76.dp
 internal val PositionFieldWidth = 60.dp
 private val UnitWidth = 24.dp

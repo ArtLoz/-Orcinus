@@ -710,6 +710,13 @@ class PrepareViewModel(
                 if (added) view.update { it.copy(rotationStart = state.selectedCopy?.inspection?.placement) }
             }
         }
+        // Selection::add_instance() and the like replace the selection: copies the
+        // list, a load or an edit selected take it off the wipe tower.
+        viewModelScope.launch {
+            plate.map { it.selectedInstances }.distinctUntilChanged().collect { copies ->
+                if (copies.isNotEmpty()) view.update { if (it.wipeTowerSelected) it.copy(wipeTowerSelected = false) else it }
+            }
+        }
         // GLGizmoRotate3D::data_changed(): another volume selected starts the rotation window from where it stands.
         viewModelScope.launch {
             combine(plate, view) { plate, view -> plate.selectedVolume(view) }

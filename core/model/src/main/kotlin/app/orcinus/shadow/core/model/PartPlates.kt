@@ -97,14 +97,27 @@ class PlateGrid(printableArea: List<Point2>) {
             min.z < center.z + half.heightMillimeters / 2 && max.z > center.z - half.heightMillimeters / 2
     }
 
-    /** Whether the copy lies inside the plate at [origin] whole (PartPlate::check_outside of a copy above the plate). */
+    /**
+     * Whether the copy lies inside the plate at [origin] whole
+     * (PartPlate::check_outside()): of a copy sinking below the plate only the
+     * part above it counts, as ModelInstance::calc_print_volume_state() takes
+     * it against the rectangular plate.
+     */
     fun contains(inspection: ModelInspection, origin: Point2, height: Double): Boolean {
-        val (min, max) = box(origin, height)
+        val (plateMin, max) = box(origin, height)
         val center = inspection.boxCenter
         val half = inspection.dimensions
-        return center.x - half.widthMillimeters / 2 >= min.x && center.x + half.widthMillimeters / 2 <= max.x &&
-            center.y - half.depthMillimeters / 2 >= min.y && center.y + half.depthMillimeters / 2 <= max.y &&
-            center.z - half.heightMillimeters / 2 >= min.z && center.z + half.heightMillimeters / 2 <= max.z
+        val min = Vector3(center.x - half.widthMillimeters / 2, center.y - half.depthMillimeters / 2, center.z - half.heightMillimeters / 2)
+        val top = Vector3(center.x + half.widthMillimeters / 2, center.y + half.depthMillimeters / 2, center.z + half.heightMillimeters / 2)
+        // Not considering outside if sinking.
+        val bottom = if (top.z > plateMin.z) plateMin.z + min.z else plateMin.z
+        val insideXy = min.x >= plateMin.x && top.x <= max.x && min.y >= plateMin.y && top.y <= max.y
+        if (min.z < -SINKING_Z_THRESHOLD) {
+            val crosses = plateMin.x < top.x && max.x > min.x && plateMin.y < top.y && max.y > min.y && bottom < top.z && max.z > min.z
+            // BuildVolume::object_state() without the plate's bottom.
+            return crosses && insideXy && top.z <= max.z
+        }
+        return insideXy && min.z >= bottom && top.z <= max.z
     }
 
     companion object {
@@ -113,6 +126,9 @@ class PlateGrid(printableArea: List<Point2>) {
 
         private const val LOGICAL_PART_PLATE_GAP = 1.0 / 5.0
         private const val SCENE_EPSILON = 1e-4
+
+        /** SINKING_Z_THRESHOLD of libslic3r, as a distance below the plate. */
+        private const val SINKING_Z_THRESHOLD = 0.001
 
         /** compute_colum_count(): as close to a square as the plates fill. */
         fun columns(count: Int): Int {
