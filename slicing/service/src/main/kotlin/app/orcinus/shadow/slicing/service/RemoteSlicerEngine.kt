@@ -811,6 +811,17 @@ class RemoteSlicerEngine(
     override suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean =
         remote({ false }) { fuzzySkinDisabled(listOf(plateObject).toParcels().first(), profiles.toParcel()) }
 
+    override suspend fun assemblySection(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        normal: Vector3,
+        offset: Double,
+        explosionRatio: Double,
+        meshPath: ScenePath,
+    ): ScenePath? = remote({ null }) {
+        assemblySection(plate.toParcels(), profiles.toParcel(), doubleArrayOf(normal.x, normal.y, normal.z, offset), explosionRatio, meshPath.value)?.let(::ScenePath)
+    }
+
     override suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome = withContext(Dispatchers.IO) {
         try {
             service().paintStroke(

@@ -340,10 +340,18 @@ data class PaintingMode(
 
 /**
  * The assembly view while it shows (AssembleView): its explosion ratio
- * (GLCanvas3D::m_explosion_ratio, 1 to 3), and the copies its menu's "Hide"
- * made faint (GLCanvas3D::set_selected_visible()).
+ * (GLCanvas3D::m_explosion_ratio, 1 to 3), the copies its menu's "Hide" made
+ * faint (GLCanvas3D::set_selected_visible()), and "Section View"
+ * (ModelObjectsClipper): its position from 0 to 1, how many times "Reset
+ * direction" was pressed, and the cut the engine made.
  */
-data class AssemblyViewMode(val explosionRatio: Double = 1.0, val hidden: Set<PlateInstanceId> = emptySet())
+data class AssemblyViewMode(
+    val explosionRatio: Double = 1.0,
+    val hidden: Set<PlateInstanceId> = emptySet(),
+    val sectionPosition: Double = 0.0,
+    val sectionResets: Int = 0,
+    val section: ScenePath? = null,
+)
 
 internal data class PrepareViewState(
     val gizmo: PlateGizmo? = null,
@@ -383,6 +391,10 @@ internal data class PrepareViewState(
     val explosionRatio: Double = 1.0,
     /** The copies the assembly view's "Hide" made faint, which it keeps while it shows them. */
     val assemblyHidden: Set<PlateInstanceId> = emptySet(),
+    /** The assembly view's "Section View" (m_clp_ratio), the times "Reset direction" was pressed, and the cut the engine made. */
+    val sectionPosition: Double = 0.0,
+    val sectionResets: Int = 0,
+    val assemblySection: ScenePath? = null,
 )
 
 /**
@@ -613,7 +625,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         measure = view.measure?.takeIf { canEditPlate },
         brimEars = view.brimEars?.takeIf { mode -> objects.any { it.mesh == mode.copy.mesh } && canEditPlate },
         canEditBrimEars = canEditPlate && selectedInstances.size == 1 && selectedPart == null,
-        assemblyView = AssemblyViewMode(view.explosionRatio, view.assemblyHidden).takeIf { view.assemblyView },
+        assemblyView = AssemblyViewMode(view.explosionRatio, view.assemblyHidden, view.sectionPosition, view.sectionResets, view.assemblySection)
+            .takeIf { view.assemblyView },
         canOpenAssemblyView = hasAssembleView(),
         measuredCopies = selectedInstances,
         measuredVolumes = selectedPart?.let { part -> objects.firstOrNull { it.mesh == part.mesh }?.volumeAt(part.index)?.mesh }?.let(::setOf),

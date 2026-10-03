@@ -4,6 +4,7 @@ import android.content.res.AssetManager
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import androidx.compose.ui.geometry.Rect
+import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.render.scene.gl.GlDepthTarget
 import app.orcinus.shadow.render.scene.gl.GlOffscreenFrame
 import app.orcinus.shadow.render.scene.gl.GlProgram
@@ -80,6 +81,8 @@ internal class SceneFrame(
      * plates under the volumes, and the selection's box in yellow (Selection::render()).
      */
     val assembly: Boolean = false,
+    /** ModelObjectsClipper::render_cut(): the cut of the assembly view's "Section View", GL_TRIANGLES corners. */
+    val assemblySection: FloatArray? = null,
 )
 
 /**
@@ -112,6 +115,9 @@ internal class ScenePlates(val origins: List<Vec3>, val current: Int, val names:
  * data and frames arrive from the main thread; everything else happens on the
  * GL thread.
  */
+/** ModelObjectsClipper::render_cut()'s colour of the assembly view's section. */
+private val ASSEMBLY_SECTION_COLOR = ColorRgba(0.25f, 0.25f, 0.25f, 1f)
+
 internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.Renderer {
     private val lock = Any()
     private var pendingBed: SceneBed? = null
@@ -454,6 +460,15 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         layer?.draw(frame.view.toFloatArray(), frame.projection)
         // GLCanvas3D::_render_objects(): "phong" in the realistic view with Phong shading, "gouraud" otherwise.
         renderObjects(if (frame.phong) programs.phong else programs.gouraud, frame)
+        frame.assemblySection?.let { section ->
+            // render_painter_assemble_view(): the cut in dark grey, in the scene's depth.
+            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+            programs.flat.use()
+            programs.flat.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+            programs.flat.setMatrix4("projection_matrix", frame.projection)
+            drawFace(programs.flat, GizmoFace(section, ASSEMBLY_SECTION_COLOR))
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        }
         renderWireframes(programs.flat, frame)
         renderSelection(programs.flat, frame)
         frame.clearance?.let { renderClearance(programs.flat, it, frame) }

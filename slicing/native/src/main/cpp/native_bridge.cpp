@@ -4674,6 +4674,30 @@ static orcinus::orca::MeasureRay to_measure_ray(
     return ray;
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_assemblySection(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jdoubleArray plane,
+    jdouble explosion_ratio,
+    jstring mesh_path
+)
+{
+    const orcinus::orca::AssemblySection section = orcinus::orca::assembly_section(
+        to_plate(env, plate),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+        to_doubles(env, plane),
+        static_cast<double>(explosion_ratio),
+        to_utf8(env, mesh_path)
+    );
+    return to_java(env, section.mesh);
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginMeasure(
     JNIEnv* env,

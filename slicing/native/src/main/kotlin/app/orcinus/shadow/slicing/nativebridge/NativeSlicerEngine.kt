@@ -1457,6 +1457,27 @@ class NativeSlicerEngine(context: Context) :
         )
     }
 
+    override suspend fun assemblySection(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        normal: Vector3,
+        offset: Double,
+        explosionRatio: Double,
+        meshPath: ScenePath,
+    ): ScenePath? = withContext(Dispatchers.IO) {
+        if (!status().ready) return@withContext null
+        NativeBindings.assemblySection(
+            plate = nativePlate(plate),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            plane = doubleArrayOf(normal.x, normal.y, normal.z, offset),
+            explosionRatio = explosionRatio,
+            meshPath = meshPath.value,
+        ).takeIf { it.isNotEmpty() }?.let(::ScenePath)
+    }
+
     override suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean = withContext(Dispatchers.IO) {
         status().ready &&
             NativeBindings.fuzzySkinDisabled(

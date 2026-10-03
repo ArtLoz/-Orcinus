@@ -222,6 +222,8 @@ fun PlateView(
     onAssemblySelection: (Vector3?) -> Unit = {},
     /** A gizmo of the assembly view placed the copy at [index]: its new assemble transformation. */
     onPlaceInAssembly: (index: Int, assemble: Transform3, manipulation: Manipulation) -> Unit = { _, _, _ -> },
+    /** The plane of the assembly view's "Section View", its normal and offset, as it changes; null while it clips nothing. */
+    onAssemblySection: (normal: Vector3, offset: Double) -> Unit = { _, _ -> },
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -374,6 +376,14 @@ fun PlateView(
             }
             controller.setCutMeshes(loaded[0], loaded[1])
         }
+        // ModelObjectsClipper::render_cut(): the cut the engine made of the assembly view's section.
+        val sectionPath = assembly?.section
+        LaunchedEffect(sectionPath) {
+            val loaded = withContext(Dispatchers.IO) {
+                sectionPath?.let { runCatching { MeshFiles.read(java.io.File(it.value)).cornerPositions() }.getOrNull() }
+            }
+            controller.setAssemblySection(loaded)
+        }
         // The dovetail's plane, and the pieces shown in the object's place.
         val dovetailPaths = listOfNotNull(cut?.groovePlane?.value) + cut?.previewParts?.map { it.mesh.value }.orEmpty()
         LaunchedEffect(dovetailPaths, smoothNormals) {
@@ -489,6 +499,7 @@ fun PlateView(
             }
             controller.onAssemblySelection = onAssemblySelection
             controller.onPlaceInAssembly = onPlaceInAssembly
+            controller.onAssemblySection = onAssemblySection
             controller.setAssembly(assembly)
             controller.setSelection(selectedObject)
             controller.setSelected(selectedObjects)
@@ -858,6 +869,19 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** _render_assemble_info(): the size of the assembly view's selection, told as it changes. */
     var onAssemblySelection: (Vector3?) -> Unit = {}
     var onPlaceInAssembly: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
+
+    /**
+     * ModelObjectsClipper of the assembly view: the normal of its plane, kept
+     * until "Reset direction" or until the view goes; the radius of the
+     * volumes' box when they last changed; the plane, normal and offset; and
+     * the cut the engine made of it.
+     */
+    private var sectionNormal: Vec3? = null
+    private var sectionRadius = 0.0
+    private var sectionKeys: Set<String> = emptySet()
+    private var sectionPlane: Pair<Vec3, Double>? = null
+    private var sectionCut: FloatArray? = null
+    var onAssemblySection: (Vector3, Double) -> Unit = { _, _ -> }
     private var assemblySelection: Vector3? = null
 
     var onSelectObject: (Int?) -> Unit = {}
@@ -1099,6 +1123,36 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         objectsInAssembly = inAssembly
         plateObjects = if (inAssembly) objects.map { it.exploded((assembly?.explosionRatio ?: 1.0) - 1.0) } else objects
         showObjects(plateObjects + listOfNotNull(wipeTower))
+        // ModelObjectsClipper::on_update(): new meshes take the radius of the volumes' box.
+        if (inAssembly) {
+            val keys = objects.mapTo(HashSet()) { it.key }
+            if (keys != sectionKeys) {
+                sectionKeys = keys
+                sectionRadius = objectsBox()?.let { 0.5 * it.size().norm() } ?: 0.0
+            }
+        }
+    }
+
+    /** The cut of the assembly view's section the engine made, GL_TRIANGLES corners; null for none. */
+    fun setAssemblySection(cut: FloatArray?) {
+        sectionCut = cut
+        invalidate()
+    }
+
+    /**
+     * ModelObjectsClipper::set_position(): the plane at [position] of the
+     * volumes' box along its normal, which [keepNormal] keeps and the camera
+     * gives otherwise, through the box's centre now and as far as its radius
+     * spread by the explosion ratio; told to the page while it clips.
+     */
+    private fun setSectionPosition(position: Double, keepNormal: Boolean) {
+        val normal = sectionNormal?.takeIf { keepNormal } ?: -camera.dirForward()
+        val center = objectsBox()?.center() ?: Vec3.ZERO
+        val ratio = assembly?.explosionRatio ?: 1.0
+        sectionNormal = normal
+        val plane = normal to (normal.dot(center) + sectionRadius * ratio - position * 2.0 * sectionRadius * ratio)
+        sectionPlane = plane
+        if (position > 0.0) onAssemblySection(Vector3(normal.x, normal.y, normal.z), plane.second)
     }
 
     /**
@@ -1127,10 +1181,23 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 plateCameraView?.let(camera::loadView)
                 zoomToVolumes = false
             }
+            // The clipper goes with the view (AssembleViewDataPool::update(0) releases it).
+            if (view == null) {
+                sectionNormal = null
+                sectionPlane = null
+                sectionKeys = emptySet()
+            }
             showObjects(plateObjects + listOfNotNull(wipeTower))
         } else if (objectsInAssembly && previous != null && view != null && previous.explosionRatio != view.explosionRatio) {
             plateObjects = plateObjects.map { it.exploded(view.explosionRatio - previous.explosionRatio) }
             showObjects(plateObjects + listOfNotNull(wipeTower))
+        }
+        if (view != null && (previous?.sectionPosition != view.sectionPosition || previous.sectionResets != view.sectionResets)) {
+            // "Section View" keeps the plane's normal, which the camera gives the
+            // first time; "Reset direction" takes the camera's anew.
+            val reset = previous != null && previous.sectionResets != view.sectionResets
+            if (view.sectionPosition > 0.0 || sectionPlane != null || reset) setSectionPosition(view.sectionPosition, keepNormal = !reset)
+            invalidate()
         }
     }
 
@@ -1926,6 +1993,17 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
     }
 
+    /**
+     * GLGizmosManager::get_assemble_view_clipping_plane(): the section's plane
+     * with its normal turned, which hides what lies beyond it; none while the
+     * section is at 0.
+     */
+    private fun assemblyClippingPlane(): FloatArray? {
+        val position = assembly?.sectionPosition ?: return null
+        val (normal, offset) = sectionPlane?.takeIf { position > 0.0 } ?: return null
+        return floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), offset.toFloat())
+    }
+
     /** Selection::get_bounding_box(): every volume of the selected copies. */
     private fun selectionBox(): Box3? =
         objects.filter { it.index in selectedIndexes || it.index == selectedIndex }.map(SceneObject::bounds).reduceOrNull(Box3::merge)
@@ -2269,10 +2347,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     // set_behavior(true, ...): the object is clipped on the camera's side.
                     val normal = gizmo.clippingNormal(lookingForward(gizmo))
                     floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), normal.dot(gizmo.center).toFloat())
-                },
+                } ?: assemblyClippingPlane(),
                 layerEditing = layerEditing,
                 selectionHidden = measure != null || brimEars != null,
                 assembly = assembly != null,
+                assemblySection = sectionCut?.takeIf { assemblyClippingPlane() != null },
             ),
         )
         surface.requestRender()

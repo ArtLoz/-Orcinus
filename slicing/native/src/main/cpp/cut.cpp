@@ -46,9 +46,11 @@ public:
         m_data[3] = offset;
     }
 
+    bool operator!=(const ClippingPlane& other) const { return m_data != other.m_data; }
     double distance(const Slic3r::Vec3d& pt) const { return (-get_normal().dot(pt) + m_data[3]); }
     Slic3r::Vec3d get_normal() const { return Slic3r::Vec3d(m_data[0], m_data[1], m_data[2]); }
     const std::array<double, 4>& get_data() const { return m_data; }
+    static ClippingPlane ClipsNothing() { return ClippingPlane(Slic3r::Vec3d(0., 0., 1.), DBL_MAX); }
 };
 
 // GLGizmoCut3D::PartSelection: the object cut by the plane it was built at
@@ -609,7 +611,7 @@ void clip(
     tr = m_trafo.get_matrix() * tr;
     trafo = tr;
 
-    {
+    if (m_limiting_plane != ClippingPlane::ClipsNothing()) {
         // Now remove whatever ended up below the limiting plane (e.g. sinking objects).
         // First transform the limiting plane from world to mesh coords.
         // Note that inverse of tr transforms the plane from world to horizontal.
@@ -1358,6 +1360,72 @@ void apply_cut_connectors(Slic3r::ModelObject& object, const ObjectCut& cut, con
 }
 
 }  // namespace detail
+
+AssemblySection assembly_section(
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const std::vector<double>& plane,
+    const double explosion_ratio,
+    const std::string& mesh_path
+)
+{
+    AssemblySection result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    if (detail::engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    if (plane.size() != 4) {
+        result.message = "The section needs a plane";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        if (detail::select_profiles(*detail::engine().bundle, profiles, config, result.message) != SliceStatus::success) {
+            result.status = SceneStatus::profile_not_found;
+            return result;
+        }
+        Slic3r::Model model;
+        if (!detail::load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        // ModelObjectsClipper::render_cut(): a clipper of every volume of every
+        // object, at its first copy's assemble transformation with the
+        // explosion's offsets, and no limiting plane.
+        const ClippingPlane clipping_plane(Slic3r::Vec3d(plane[0], plane[1], plane[2]), plane[3]);
+        indexed_triangle_set section;
+        indexed_triangle_set contour;
+        for (const Slic3r::ModelObject* object : model.objects) {
+            if (object->instances.empty())
+                continue;
+            const Slic3r::Geometry::Transformation assemble_objects_trafo = object->instances.front()->get_assemble_transformation();
+            const Slic3r::Vec3d offset_to_assembly = object->instances.front()->get_offset_to_assembly();
+            for (const Slic3r::ModelVolume* volume : object->volumes) {
+                const Slic3r::Geometry::Transformation vol_trafo = volume->get_transformation();
+                Slic3r::Geometry::Transformation trafo = assemble_objects_trafo * vol_trafo;
+                trafo.set_offset(trafo.get_offset() + vol_trafo.get_offset() * (explosion_ratio - 1.0) + offset_to_assembly * (explosion_ratio - 1.0));
+                Slic3r::ExPolygons islands;
+                Slic3r::Transform3d island_trafo;
+                clip(volume->mesh().its, trafo, clipping_plane, ClippingPlane::ClipsNothing(), 0.0, islands, island_trafo, section, contour);
+            }
+        }
+        result.status = SceneStatus::success;
+        if (!section.indices.empty()) {
+            if (!detail::write_mesh(section, mesh_path)) {
+                result.status = SceneStatus::write_failed;
+                result.message = "Unable to write " + mesh_path;
+                return result;
+            }
+            result.mesh = mesh_path;
+        }
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
 
 void end_cut()
 {

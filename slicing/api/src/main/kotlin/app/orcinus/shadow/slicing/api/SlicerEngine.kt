@@ -514,6 +514,22 @@ interface PlateInspector {
      */
     suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean
 
+    /**
+     * ModelObjectsClipper::render_cut() of the assembly view: the sections of
+     * every volume of [plate] with the "Section View" plane ([normal] and
+     * [offset]), every object at its first copy's assemble transformation
+     * spread by [explosionRatio], written to [meshPath]; null while the plane
+     * meets nothing.
+     */
+    suspend fun assemblySection(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        normal: Vector3,
+        offset: Double,
+        explosionRatio: Double,
+        meshPath: ScenePath,
+    ): ScenePath? = null
+
     /** The painting tool's own Undo and Redo: the painting before the last stroke, or after the one undone. */
     suspend fun undoPainting(meshPrefix: ScenePath): PaintingOutcome
 

@@ -1217,6 +1217,18 @@ internal object NativeBindings {
         processProfile: String,
     ): Boolean
 
+    /** assembly_section(): [plane] is the normal and the offset; the mesh written, empty for none. */
+    external fun assemblySection(
+        plate: NativePlate,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        plane: DoubleArray,
+        explosionRatio: Double,
+        meshPath: String,
+    ): String
+
     /** One touch of the finger on the model being painted. */
     external fun paintStroke(
         origin: DoubleArray,

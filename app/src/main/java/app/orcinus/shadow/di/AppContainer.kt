@@ -47,6 +47,7 @@ import app.orcinus.shadow.domain.plate.AddPlateUseCase
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
 import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
 import app.orcinus.shadow.domain.plate.ApplySetupUseCase
+import app.orcinus.shadow.domain.plate.AssemblySectionUseCase
 import app.orcinus.shadow.domain.plate.AutoSliceUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
 import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
@@ -597,6 +598,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             enablePaintedBrim = EnablePaintedBrimUseCase(plateRepository, settingsTabs, applicationScope),
             takeSnapshot = TakePlateSnapshotUseCase(plateRepository),
             placeInAssembly = PlaceInAssemblyUseCase(plateRepository),
+            assemblySection = AssemblySectionUseCase(engine, sceneFiles, plateRepository),
             preferences = appPreferences,
             setPreference = setPreference,
             findValidationSetting = FindValidationSettingUseCase(settingsTabs),

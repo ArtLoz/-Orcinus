@@ -705,6 +705,23 @@ abstract class SlicerService<E> : Service()
             engine.fuzzySkinDisabled(arrayOf(plateObject).toPlacedModels().first(), profiles.toProfiles())
         }
 
+        override fun assemblySection(
+            plate: Array<PlacedModelParcel>,
+            profiles: ProfilesParcel,
+            plane: DoubleArray,
+            explosionRatio: Double,
+            meshPath: String,
+        ): String? = runBlocking {
+            engine.assemblySection(
+                plate = plate.toPlacedModels(),
+                profiles = profiles.toProfiles(),
+                normal = Vector3(plane[0], plane[1], plane[2]),
+                offset = plane[3],
+                explosionRatio = explosionRatio,
+                meshPath = ScenePath(meshPath),
+            )?.value
+        }
+
         override fun paintStroke(
             origin: DoubleArray,
             direction: DoubleArray,

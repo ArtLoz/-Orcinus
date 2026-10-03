@@ -318,6 +318,8 @@ interface ISlicerService {
     );
     /** GLGizmoFuzzySkin's warning: fuzzy skin is disabled for the object. */
     boolean fuzzySkinDisabled(in PlacedModelParcel plateObject, in ProfilesParcel profiles);
+    /** The assembly view's section: plane holds the normal and the offset; the mesh written, null for none. */
+    @nullable String assemblySection(in PlacedModelParcel[] plate, in ProfilesParcel profiles, in double[] plane, double explosionRatio, String meshPath);
     PaintingParcel paintStroke(
         in double[] origin,
         in double[] direction,

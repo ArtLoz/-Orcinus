@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -30,6 +31,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import app.orcinus.shadow.core.designsystem.component.OrcaButton
+import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
+import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasTool
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasToolbar
 import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
@@ -63,9 +67,13 @@ internal class AssemblyViewActions(
     val fillColor: (Int) -> Unit,
     /** A gizmo placed the copy at an index of the scene in the assembly. */
     val place: (index: Int, assemble: Transform3, manipulation: Manipulation) -> Unit,
+    /** "Section View", "Reset direction", and the plane the view put the section at. */
+    val setSectionPosition: (Double) -> Unit,
+    val resetSectionDirection: () -> Unit,
+    val sectionPlane: (normal: Vector3, offset: Double) -> Unit,
 ) {
     companion object {
-        val NONE = AssemblyViewActions({}, {}, {}, {}, {}, { _, _, _ -> })
+        val NONE = AssemblyViewActions({}, {}, {}, {}, {}, { _, _, _ -> }, {}, {}, { _, _ -> })
     }
 }
 
@@ -212,6 +220,37 @@ internal fun AssemblyViewPanel(
     val colors = OrcaTheme.colors
     OrcaGizmoPanel(modifier.widthIn(max = ASSEMBLY_PANEL_WIDTH).fillMaxWidth()) {
         if (!painting) {
+            // "Section View", which gives way to "Reset direction" once the volumes are clipped.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (mode.sectionPosition == 0.0) {
+                    Text(
+                        text = orcaString("Section View"),
+                        color = colors.onCanvasPanel,
+                        style = OrcaTheme.typography.body12,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                } else {
+                    OrcaButton(
+                        text = orcaString("Reset direction"),
+                        size = OrcaButtonSize.Compact,
+                        style = OrcaButtonStyle.Regular,
+                        onClick = actions.resetSectionDirection,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
+                Slider(
+                    value = mode.sectionPosition.toFloat(),
+                    onValueChange = { actions.setSectionPosition(it.toDouble()) },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = String.format(Locale.ROOT, "%.2f", mode.sectionPosition),
+                    color = colors.onCanvasPanel,
+                    style = OrcaTheme.typography.body12,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
             PaintingSlider(
                 label = orcaString("Explosion Ratio"),
                 value = mode.explosionRatio.toFloat(),

@@ -3,8 +3,13 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.withInstance
+import app.orcinus.shadow.domain.placed
+import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.storage.api.SceneFiles
 
 /**
  * Plater::priv::has_assemble_view(): a copy has its place in the assembly view
@@ -30,6 +35,33 @@ class TakePlateSnapshotUseCase(private val repository: PlateRepository) {
  * a millimetre or less leaves it; nothing drops on the plate (ensure_on_bed()
  * skips the assembly view), and the G-code still applies.
  */
+class AssemblySectionUseCase(
+    private val inspector: PlateInspector,
+    private val sceneFiles: SceneFiles,
+    private val repository: PlateRepository,
+) {
+    private var prefix: ScenePath? = null
+    private var made = 0
+    private var shown: ScenePath? = null
+
+    /**
+     * ModelObjectsClipper::render_cut() of the assembly view: the cut of the
+     * plate's volumes at the plane of [normal] and [offset], the objects
+     * spread by [explosionRatio], as a mesh named anew each time; the one
+     * shown before goes. Null while the plane meets nothing.
+     */
+    suspend fun section(normal: Vector3, offset: Double, explosionRatio: Double): ScenePath? {
+        val state = repository.state.value
+        val profiles = state.profiles ?: return null
+        val base = prefix ?: sceneFiles.newCutMeshes().also { prefix = it }
+        val path = ScenePath("${base.value}-${made++}-section.mesh")
+        val cut = inspector.assemblySection(state.objects.map { it.placed() }, profiles, normal, offset, explosionRatio, path)
+        shown?.takeIf { it != cut }?.let(sceneFiles::deleteObjectMesh)
+        shown = cut
+        return cut
+    }
+}
+
 class PlaceInAssemblyUseCase(private val repository: PlateRepository) {
     operator fun invoke(id: PlateInstanceId, assemble: Transform3, manipulation: Manipulation) = repository.update { state ->
         val target = state.objects.withMesh(id.mesh)

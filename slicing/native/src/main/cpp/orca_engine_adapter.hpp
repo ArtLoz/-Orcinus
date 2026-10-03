@@ -1828,6 +1828,25 @@ struct CutObject {
 // the object until end_cut(), as the gizmo's clippers keep its meshes.
 CutObject begin_cut(const PlateObject& object, int instance, const ProfileSelection& profiles);
 
+// ModelObjectsClipper::render_cut() of the assembly view: the sections of
+// every volume of every object with the "Section View" plane (its normal and
+// offset), each object at its first copy's assemble transformation spread by
+// the explosion ratio, written as one mesh in world coordinates; [mesh] is
+// empty while the plane meets nothing.
+struct AssemblySection {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    std::string mesh;
+};
+
+AssemblySection assembly_section(
+    const std::vector<PlateObject>& plate,
+    const ProfileSelection& profiles,
+    const std::vector<double>& plane,
+    double explosion_ratio,
+    const std::string& mesh_path
+);
+
 // What the cut gizmo shows of a plane (ObjectCut::plane).
 struct CutPlane {
     SceneStatus status{SceneStatus::model_read_failed};

@@ -479,6 +479,9 @@ internal fun PrepareRoute(
             setVisible = viewModel::setAssemblyVisible,
             fillColor = viewModel::fillColor,
             place = viewModel::placeObjectInAssembly,
+            setSectionPosition = viewModel::setSectionPosition,
+            resetSectionDirection = viewModel::resetSectionDirection,
+            sectionPlane = viewModel::setSectionPlane,
         ),
         brimEarsActions = BrimEarsActions(
             toggle = viewModel::toggleBrimEars,
@@ -748,9 +751,10 @@ internal fun PrepareScreen(
                 onEditMeasureDistance = measureActions.editDistance,
                 brimEars = state.brimEars?.let { mode -> brimEarsViewOf(state, mode) },
                 onBrimEars = brimEarsActions.touch,
-                assembly = state.assemblyView?.let { AssemblyView(it.explosionRatio, it.hidden) },
+                assembly = state.assemblyView?.let { AssemblyView(it.explosionRatio, it.hidden, it.sectionPosition, it.sectionResets, it.section) },
                 onAssemblySelection = { assemblySelection = it },
                 onPlaceInAssembly = assemblyViewActions.place,
+                onAssemblySection = assemblyViewActions.sectionPlane,
             )
             state.measure?.editingDistance?.let { distance ->
                 MeasureScaleDialog(distance, canvas.imperialUnits, measureActions.scale, measureActions.cancelScale)

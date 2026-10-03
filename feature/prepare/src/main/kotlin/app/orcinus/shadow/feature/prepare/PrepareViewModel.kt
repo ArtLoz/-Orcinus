@@ -86,6 +86,7 @@ import app.orcinus.shadow.domain.plate.AddPlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.AddPlateUseCase
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
+import app.orcinus.shadow.domain.plate.AssemblySectionUseCase
 import app.orcinus.shadow.domain.plate.BrimEarsTarget
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
@@ -262,6 +263,7 @@ class PrepareViewModel(
     private val enablePaintedBrim: EnablePaintedBrimUseCase,
     private val takeSnapshot: TakePlateSnapshotUseCase,
     private val placeInAssembly: PlaceInAssemblyUseCase,
+    private val assemblySection: AssemblySectionUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
@@ -341,6 +343,13 @@ class PrepareViewModel(
 
     /** The measuring tool's touches and resets, which the engine works through in their order. */
     private val measureCommands = Channel<MeasureCommand>(Channel.UNLIMITED)
+
+    /**
+     * The planes of the assembly view's "Section View" the engine cuts the
+     * volumes at; a slider sends many, so only the last one waiting is cut.
+     */
+    private val sectionPlanes = Channel<Pair<Vector3, Double>>(Channel.CONFLATED)
+    private var sectionPlane: Pair<Vector3, Double>? = null
 
     /** The brim ears tool's touches, which the engine works through in their order. */
     private val brimEarsTouches = Channel<BrimEarsTouch>(Channel.UNLIMITED)
@@ -461,7 +470,24 @@ class PrepareViewModel(
         // which a plate with no place in the assembly view does too.
         viewModelScope.launch {
             plate.map { it.projectResets }.distinctUntilChanged().drop(1).collect {
-                view.update { it.copy(explosionRatio = 1.0, assemblyHidden = emptySet(), assemblyView = it.assemblyView && plate.value.hasAssembleView()) }
+                view.update {
+                    it.copy(
+                        explosionRatio = 1.0,
+                        assemblyHidden = emptySet(),
+                        assemblyView = it.assemblyView && plate.value.hasAssembleView(),
+                        sectionPosition = 0.0,
+                        assemblySection = null,
+                    )
+                }
+            }
+        }
+        // ModelObjectsClipper::render_cut(): the engine cuts the volumes at the section's plane.
+        viewModelScope.launch {
+            for ((normal, offset) in sectionPlanes) {
+                val shown = view.value
+                if (!shown.assemblyView || shown.sectionPosition <= 0.0) continue
+                val cut = assemblySection.section(normal, offset, shown.explosionRatio)
+                view.update { if (it.assemblyView && it.sectionPosition > 0.0) it.copy(assemblySection = cut) else it }
             }
         }
         // Plater::priv::selection_changed(): the variable layer height closes once
@@ -782,6 +808,8 @@ class PrepareViewModel(
         val mesh = copy.plateObject.mesh
         // GLGizmoPainterBase paints the selected copy, in the assembly view where it stands there.
         val placement = PaintPlacement(copy.id.instance, view.value.assemblyView, view.value.explosionRatio)
+        // _render_assemble_control() of colour painting: the section goes back to 0.
+        if (view.value.assemblyView) view.update { it.copy(sectionPosition = 0.0, assemblySection = null) }
         openSimplify.close()
         // GLGizmoFdmSupports::on_shutdown() left the highlight at 0.
         val mode = paintingTools[kind]?.copy(mesh = mesh, painted = false, canUndo = false, canRedo = false, highlightAngle = 0.0) ?: PaintingMode(
@@ -2282,16 +2310,39 @@ class PrepareViewModel(
         view.update { it.copy(assemblyView = true) }
     }
 
-    /** "Return" (_render_return_toolbar()): the 3D view shows again, every tool reset (reset_all_states()). */
+    /**
+     * "Return" (_render_return_toolbar()): the 3D view shows again, every tool
+     * reset (reset_all_states()), and the section with the clipper the view
+     * releases.
+     */
     fun returnFromAssemblyView() {
         if (!view.value.assemblyView) return
         closeCanvasTools()
-        view.update { it.copy(assemblyView = false) }
+        sectionPlane = null
+        view.update { it.copy(assemblyView = false, sectionPosition = 0.0, assemblySection = null) }
     }
 
-    /** "Explosion Ratio" (bbl_slider_float_style("##ratio_slider", ..., 1.0f, 3.0f)). */
+    /** "Explosion Ratio" (bbl_slider_float_style("##ratio_slider", ..., 1.0f, 3.0f)); the section's cut follows the volumes. */
     fun setExplosionRatio(ratio: Double) {
         view.update { it.copy(explosionRatio = ratio.coerceIn(MIN_EXPLOSION_RATIO, MAX_EXPLOSION_RATIO)) }
+        if (view.value.sectionPosition > 0.0) sectionPlane?.let(sectionPlanes::trySend)
+    }
+
+    /** "Section View" (bbl_slider_float_style("##clp_dist", ..., 0.f, 1.f)): the volumes are clipped there. */
+    fun setSectionPosition(position: Double) {
+        val clamped = position.coerceIn(0.0, 1.0)
+        view.update { it.copy(sectionPosition = clamped, assemblySection = it.assemblySection.takeIf { clamped > 0.0 }) }
+    }
+
+    /** "Reset direction": the section's plane faces the camera again. */
+    fun resetSectionDirection() {
+        view.update { it.copy(sectionResets = it.sectionResets + 1) }
+    }
+
+    /** The plane the 3D view puts the section at, which the engine cuts the volumes at. */
+    fun setSectionPlane(normal: Vector3, offset: Double) {
+        sectionPlane = normal to offset
+        sectionPlanes.trySend(normal to offset)
     }
 
     /**

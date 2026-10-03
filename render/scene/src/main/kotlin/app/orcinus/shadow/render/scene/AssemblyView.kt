@@ -2,6 +2,7 @@ package app.orcinus.shadow.render.scene
 
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.render.scene.math.Affine3
@@ -20,10 +21,18 @@ import kotlin.math.sqrt
  * [explosionRatio] (GLVolume::explosion_ratio), with no plate, wipe tower,
  * labels or clearance, and a camera of its own. [hidden] are the copies its
  * menu's "Hide" made faint (GLCanvas3D::set_selected_visible()).
+ *
+ * "Section View" (ModelObjectsClipper) clips the volumes at [sectionPosition],
+ * 0 for none to 1, across their box along the plane's normal, which the
+ * camera gave and [sectionResets] takes from it anew ("Reset direction");
+ * [section] is the engine's mesh of the cut, drawn dark grey.
  */
 data class AssemblyView(
     val explosionRatio: Double = 1.0,
     val hidden: Set<PlateInstanceId> = emptySet(),
+    val sectionPosition: Double = 0.0,
+    val sectionResets: Int = 0,
+    val section: ScenePath? = null,
 )
 
 /**
