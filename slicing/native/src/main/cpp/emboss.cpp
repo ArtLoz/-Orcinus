@@ -8,11 +8,13 @@
 // of its own and goes into a project as the desktop app stores it.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <fstream>
 #include <limits>
 #include <list>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -22,8 +24,10 @@
 #include <boost/filesystem.hpp>
 #include <boost/nowide/convert.hpp>
 #include <cereal/archives/binary.hpp>
+#include <fast_float/fast_float.h>
 
 #include "libslic3r/AABBMesh.hpp"
+#include "libslic3r/AppConfig.hpp"
 #include "libslic3r/AABBTreeLines.hpp"
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/CutSurface.hpp"
@@ -1692,6 +1696,373 @@ EmbossVolume describe_emboss(
         result.message = error.what();
         return result;
     }
+}
+
+// EmbossStyleManager.cpp's StylesSerializable: a style's section of the app
+// configuration. The desktop app names a style's font by its wxFont
+// descriptor, of the system's own type (WxFontUtils::get_current_type());
+// the phone's fonts are files, so a style names its font by the file's path.
+namespace {
+
+using Section = std::map<std::string, std::string>;
+
+const std::string APP_CONFIG_FONT_NAME        = "name";
+const std::string APP_CONFIG_FONT_DESCRIPTOR  = "descriptor";
+const std::string APP_CONFIG_FONT_LINE_HEIGHT = "line_height";
+const std::string APP_CONFIG_FONT_DEPTH       = "depth";
+const std::string APP_CONFIG_FONT_USE_SURFACE = "use_surface";
+const std::string APP_CONFIG_PER_GLYPH        = "per_glyph";
+const std::string APP_CONFIG_VERTICAL_ALIGN   = "vertical_align";
+const std::string APP_CONFIG_HORIZONTAL_ALIGN = "horizontal_align";
+const std::string APP_CONFIG_FONT_BOLDNESS    = "boldness";
+const std::string APP_CONFIG_FONT_SKEW        = "skew";
+const std::string APP_CONFIG_FONT_DISTANCE    = "distance";
+const std::string APP_CONFIG_FONT_ANGLE       = "angle";
+const std::string APP_CONFIG_FONT_COLLECTION  = "collection";
+const std::string APP_CONFIG_FONT_CHAR_GAP    = "char_gap";
+const std::string APP_CONFIG_FONT_LINE_GAP    = "line_gap";
+
+const std::string APP_CONFIG_ACTIVE_FONT = "active_font";
+
+// FontProp::HorizontalAlign (left, center, right) and VerticalAlign (top,
+// center, bottom) by their names, as the bimaps horizontal_align_to_name and
+// vertical_align_to_name have them.
+const std::array<const char*, 3> horizontal_align_names{"left", "center", "right"};
+const std::array<const char*, 3> vertical_align_names{"top", "middle", "bottom"};
+
+std::string create_section_name(unsigned index)
+{
+    return Slic3r::AppConfig::SECTION_EMBOSS_STYLE + ':' + std::to_string(index);
+}
+
+// check only existence of flag
+bool read_flag(const Section& section, const std::string& key, bool& value)
+{
+    auto item = section.find(key);
+    if (item == section.end())
+        return false;
+
+    value = true;
+    return true;
+}
+
+bool read_align(const Section& section, const std::string& key, const std::array<const char*, 3>& names, int& value)
+{
+    auto item = section.find(key);
+    if (item == section.end())
+        return false;
+
+    const std::string& data = item->second;
+    if (data.empty())
+        return false;
+
+    const auto it = std::find_if(names.begin(), names.end(), [&data](const char* name) { return data == name; });
+    // An unknown name is the centre.
+    value = (it != names.end()) ? int(it - names.begin()) : 1;
+    return true;
+}
+
+bool read_float(const Section& section, const std::string& key, float& value)
+{
+    auto item = section.find(key);
+    if (item == section.end())
+        return false;
+    const std::string& data = item->second;
+    if (data.empty())
+        return false;
+    float value_;
+    fast_float::from_chars(data.c_str(), data.c_str() + data.length(), value_);
+    // read only non zero value
+    if (std::fabs(value_) <= std::numeric_limits<float>::epsilon())
+        return false;
+
+    value = value_;
+    return true;
+}
+
+bool read_float(const Section& section, const std::string& key, std::optional<double>& value)
+{
+    float value_ = 0.f;
+    if (!read_float(section, key, value_))
+        return false;
+    value = value_;
+    return true;
+}
+
+bool read_int(const Section& section, const std::string& key, std::optional<int>& value)
+{
+    auto item = section.find(key);
+    if (item == section.end())
+        return false;
+    const std::string& data = item->second;
+    if (data.empty())
+        return false;
+    int value_ = std::atoi(data.c_str());
+    if (value_ == 0)
+        return false;
+
+    value = value_;
+    return true;
+}
+
+// The collection number: read only a positive one.
+bool read_unsigned(const Section& section, const std::string& key, std::optional<int>& value)
+{
+    auto item = section.find(key);
+    if (item == section.end())
+        return false;
+    const std::string& data = item->second;
+    if (data.empty())
+        return false;
+    int value_ = std::atoi(data.c_str());
+    if (value_ <= 0)
+        return false;
+
+    value = value_;
+    return true;
+}
+
+std::optional<TextStyle> load_style(const Section& app_cfg_section)
+{
+    auto path_it = app_cfg_section.find(APP_CONFIG_FONT_DESCRIPTOR);
+    if (path_it == app_cfg_section.end())
+        return {};
+
+    TextStyle s;
+    s.font_path = path_it->second;
+    auto name_it = app_cfg_section.find(APP_CONFIG_FONT_NAME);
+    const std::string default_name = "font_name";
+    s.name = (name_it == app_cfg_section.end()) ? default_name : name_it->second;
+
+    // FontProp's and EmbossProjection's defaults.
+    float size_in_mm = 10.f;
+    read_float(app_cfg_section, APP_CONFIG_FONT_LINE_HEIGHT, size_in_mm);
+    s.size_in_mm = size_in_mm;
+    float depth = 1.;
+    read_float(app_cfg_section, APP_CONFIG_FONT_DEPTH, depth);
+    s.depth = depth;
+    read_flag(app_cfg_section, APP_CONFIG_FONT_USE_SURFACE, s.use_surface);
+    read_flag(app_cfg_section, APP_CONFIG_PER_GLYPH, s.per_glyph);
+    read_align(app_cfg_section, APP_CONFIG_HORIZONTAL_ALIGN, horizontal_align_names, s.horizontal_align);
+    read_align(app_cfg_section, APP_CONFIG_VERTICAL_ALIGN, vertical_align_names, s.vertical_align);
+    read_float(app_cfg_section, APP_CONFIG_FONT_BOLDNESS, s.boldness);
+    read_float(app_cfg_section, APP_CONFIG_FONT_SKEW, s.skew);
+    read_float(app_cfg_section, APP_CONFIG_FONT_DISTANCE, s.distance);
+    read_float(app_cfg_section, APP_CONFIG_FONT_ANGLE, s.angle);
+    read_unsigned(app_cfg_section, APP_CONFIG_FONT_COLLECTION, s.collection_number);
+    read_int(app_cfg_section, APP_CONFIG_FONT_CHAR_GAP, s.char_gap);
+    read_int(app_cfg_section, APP_CONFIG_FONT_LINE_GAP, s.line_gap);
+    return s;
+}
+
+void store_style(Slic3r::AppConfig& cfg, const TextStyle& s, unsigned index)
+{
+    // The style's values are floats, written as std::to_string() writes them.
+    auto to_string = [](double value) { return std::to_string(static_cast<float>(value)); };
+    Section data;
+    data[APP_CONFIG_FONT_NAME]        = s.name;
+    data[APP_CONFIG_FONT_DESCRIPTOR]  = s.font_path;
+    data[APP_CONFIG_FONT_LINE_HEIGHT] = to_string(s.size_in_mm);
+    data[APP_CONFIG_FONT_DEPTH]       = to_string(s.depth);
+    if (s.use_surface)
+        data[APP_CONFIG_FONT_USE_SURFACE] = "true";
+    if (s.per_glyph)
+        data[APP_CONFIG_PER_GLYPH] = "true";
+    if (s.horizontal_align != 1 && s.horizontal_align >= 0 && s.horizontal_align < 3)
+        data[APP_CONFIG_HORIZONTAL_ALIGN] = horizontal_align_names[std::size_t(s.horizontal_align)];
+    if (s.vertical_align != 1 && s.vertical_align >= 0 && s.vertical_align < 3)
+        data[APP_CONFIG_VERTICAL_ALIGN] = vertical_align_names[std::size_t(s.vertical_align)];
+    if (s.boldness.has_value())
+        data[APP_CONFIG_FONT_BOLDNESS] = to_string(*s.boldness);
+    if (s.skew.has_value())
+        data[APP_CONFIG_FONT_SKEW] = to_string(*s.skew);
+    if (s.distance.has_value())
+        data[APP_CONFIG_FONT_DISTANCE] = to_string(*s.distance);
+    if (s.angle.has_value())
+        data[APP_CONFIG_FONT_ANGLE] = to_string(*s.angle);
+    if (s.collection_number.has_value())
+        data[APP_CONFIG_FONT_COLLECTION] = std::to_string(static_cast<unsigned>(*s.collection_number));
+    if (s.char_gap.has_value())
+        data[APP_CONFIG_FONT_CHAR_GAP] = std::to_string(*s.char_gap);
+    if (s.line_gap.has_value())
+        data[APP_CONFIG_FONT_LINE_GAP] = std::to_string(*s.line_gap);
+    cfg.set_section(create_section_name(index), std::move(data));
+}
+
+void store_style_index(Slic3r::AppConfig& cfg, std::size_t index)
+{
+    // store actual font index
+    // active font first index is +1 to correspond with section name
+    Section data;
+    // OrcaSlicer writes the index from 0, which load_style_index() reads as from 1.
+    data[APP_CONFIG_ACTIVE_FONT] = std::to_string(index);
+    cfg.set_section(Slic3r::AppConfig::SECTION_EMBOSS_STYLE, std::move(data));
+}
+
+std::optional<std::size_t> load_style_index(const Slic3r::AppConfig& cfg)
+{
+    if (!cfg.has_section(Slic3r::AppConfig::SECTION_EMBOSS_STYLE))
+        return {};
+
+    auto section = cfg.get_section(Slic3r::AppConfig::SECTION_EMBOSS_STYLE);
+    auto it      = section.find(APP_CONFIG_ACTIVE_FONT);
+    if (it == section.end())
+        return {};
+
+    std::size_t active_font = static_cast<std::size_t>(std::atoi(it->second.c_str()));
+    // order in config starts with number 1
+    return active_font - 1;
+}
+
+void make_unique_name(const std::vector<TextStyle>& styles, std::string& name)
+{
+    auto is_unique = [&styles](const std::string& name) {
+        for (const TextStyle& it : styles)
+            if (it.name == name) return false;
+        return true;
+    };
+
+    // Style name can't be empty so default name is set
+    if (name.empty()) name = "Text style";
+
+    // When name is already unique, nothing need to be changed
+    if (is_unique(name)) return;
+
+    // when there is previous version of style name only find number
+    const char* prefix = " (";
+    const char  suffix = ')';
+    auto pos = name.find_last_of(prefix);
+    if (name.c_str()[name.size() - 1] == suffix &&
+        pos != std::string::npos) {
+        // short name by ord number
+        name = name.substr(0, pos);
+    }
+
+    int order = 1; // start with value 2 to represents same font name
+    std::string new_name;
+    do {
+        new_name = name + prefix + std::to_string(++order) + suffix;
+    } while (!is_unique(new_name));
+    name = new_name;
+}
+
+std::vector<TextStyle> load_styles(const Slic3r::AppConfig& cfg)
+{
+    std::vector<TextStyle> result;
+    // human readable index inside of config starts from 1 !!
+    unsigned    index        = 1;
+    std::string section_name = create_section_name(index);
+    while (cfg.has_section(section_name)) {
+        std::optional<TextStyle> style_opt = load_style(cfg.get_section(section_name));
+        if (style_opt.has_value()) {
+            make_unique_name(result, style_opt->name);
+            result.emplace_back(*style_opt);
+        }
+
+        section_name = create_section_name(++index);
+    }
+    return result;
+}
+
+void store_styles(Slic3r::AppConfig& cfg, const std::vector<TextStyle>& styles)
+{
+    // store styles
+    unsigned index = 1;
+    for (const TextStyle& style : styles) {
+        store_style(cfg, style, index);
+        ++index;
+    }
+
+    // remove rest of font sections (after deletation)
+    std::string section_name = create_section_name(index);
+    while (cfg.has_section(section_name)) {
+        cfg.clear_section(section_name);
+        section_name = create_section_name(index);
+        ++index;
+    }
+}
+
+} // namespace
+
+ImportedModels rename_text_style(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    const std::string& old_name,
+    const std::string& new_name,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    try {
+        Slic3r::DynamicPrintConfig config;
+        Slic3r::Model model;
+        if (!prepare(plate, profiles, config, model, result)) {
+            return result;
+        }
+        if (object_index >= model.objects.size()) {
+            result.message = "The object is not on the plate";
+            return result;
+        }
+        Slic3r::ModelObject& object = *model.objects[object_index];
+        // rename style in all objects and volumes
+        bool renamed = false;
+        for (Slic3r::ModelVolume* mv : object.volumes) {
+            if (!mv->text_configuration.has_value()) continue;
+            std::string& name = mv->text_configuration->style.name;
+            if (name != old_name) continue;
+            name = new_name;
+            renamed = true;
+        }
+        if (renamed && !detail::write_objects({&object}, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        result.objects.clear();
+        return result;
+    }
+}
+
+TextStyles load_text_styles()
+{
+    TextStyles result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    if (detail::engine().config == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    const Slic3r::AppConfig& config = *detail::engine().config;
+    result.styles = load_styles(config);
+    if (std::optional<std::size_t> active = load_style_index(config); active.has_value() && *active < result.styles.size()) {
+        result.active = static_cast<std::int64_t>(*active);
+    }
+    result.status = SceneStatus::success;
+    return result;
+}
+
+TextStyles store_text_styles(const std::vector<TextStyle>& styles, std::int64_t active)
+{
+    TextStyles result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    if (detail::engine().config == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    Slic3r::AppConfig& config = *detail::engine().config;
+    if (active >= 0) {
+        store_style_index(config, static_cast<std::size_t>(active));
+    }
+    store_styles(config, styles);
+    detail::save_config(detail::engine());
+    result.styles = styles;
+    result.active = active;
+    result.status = SceneStatus::success;
+    return result;
 }
 
 } // namespace orcinus::orca

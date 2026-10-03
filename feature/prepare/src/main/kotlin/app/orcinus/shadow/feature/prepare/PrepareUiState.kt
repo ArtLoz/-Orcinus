@@ -61,6 +61,7 @@ import app.orcinus.shadow.domain.plate.canDeletePlate
 import app.orcinus.shadow.domain.plate.canWorkOnPlate
 import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.presetValue
+import app.orcinus.shadow.domain.plate.sameStyleAs
 import app.orcinus.shadow.domain.plate.spiralVaseMode
 import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.PlateClearance
@@ -347,10 +348,17 @@ data class TextMode(
     val text: String,
     val style: TextStyle,
     val described: EmbossVolume? = null,
+    /** StyleManager's styles, which the style list offers. */
     val styles: List<TextStyle> = emptyList(),
+    /** The stored style [style] comes from (StyleManager's style_index); null for a temporary style. */
+    val styleIndex: Int? = null,
     val unknownFont: Boolean = false,
     val advanced: Boolean = false,
     val busy: Boolean = false,
+    /** A message box of the window. */
+    val notice: TextNotice? = null,
+    /** draw_delete_style_button()'s question about the style of this name. */
+    val deleting: String? = null,
 ) {
     /** Whether the text is white spaces alone, which embosses nothing (is_text_empty()). */
     val blank: Boolean get() = text.isBlank()
@@ -358,8 +366,23 @@ data class TextMode(
     /** ModelVolume::is_the_only_one_part(): the text is its object, which takes no other operation. */
     val onlyPart: Boolean get() = described?.onlyPart != false
 
-    /** The style the window started from, which Reset loads (is_changed_from_default_style()). */
-    val defaultStyle: TextStyle? get() = styles.firstOrNull()
+    /** StyleManager::get_stored_style() */
+    val storedStyle: TextStyle? get() = styleIndex?.let(styles::getOrNull)
+
+    /** draw_style_list()'s is_modified: the window changed the stored style it shows. */
+    val styleModified: Boolean get() = storedStyle?.let { !it.sameStyleAs(style) } == true
+
+    /** Reset loads the first style, while the window's is another (is_changed_from_default_style()). */
+    val resettable: Boolean get() = styles.firstOrNull()?.let { !it.sameStyleAs(style) } == true
+}
+
+/** The message boxes of the text tool's style list. */
+sealed interface TextNotice {
+    /** "Not valid style.": the style's font does not load, and it left the list. */
+    data class InvalidStyle(val name: String) : TextNotice
+
+    /** "Can't remove the last existing style." */
+    data object LastStyle : TextNotice
 }
 
 /**

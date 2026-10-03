@@ -3,6 +3,7 @@ package app.orcinus.shadow.feature.prepare
 import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -25,8 +31,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,9 +43,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
@@ -50,15 +62,21 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.textLocale
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.EmbossRequest
 import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.TextHorizontalAlign
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextVerticalAlign
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.orca.orcaText
+import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
+import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import app.orcinus.shadow.render.scene.SurfaceHit
 import java.io.File
 import app.orcinus.shadow.core.designsystem.R as DesignR
@@ -83,13 +101,26 @@ internal class TextActions(
     val setFont: (TextFontFamily) -> Unit,
     val toggleItalic: () -> Unit,
     val toggleBold: () -> Unit,
-    val selectStyle: (TextStyle) -> Unit,
+    /** The style list: the stored style at the index. */
+    val selectStyle: (Int) -> Unit,
     val reset: () -> Unit,
     val setAdvanced: (Boolean) -> Unit,
     val setType: (VolumeType) -> Unit,
+    /** The style list's buttons: save, save as a new style, rename, and delete with its answer. */
+    val saveStyle: () -> Unit,
+    val addStyle: (String) -> Unit,
+    val renameStyle: (String) -> Unit,
+    val askDeleteStyle: () -> Unit,
+    val deleteStyle: (Boolean) -> Unit,
+    /** A style dragged over its neighbour. */
+    val swapStyles: (Int, Int) -> Unit,
+    val dismissNotice: () -> Unit,
 ) {
     companion object {
-        val NONE = TextActions({ _, _, _ -> }, { _, _, _, _, _ -> }, { _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+        val NONE = TextActions(
+            { _, _, _ -> }, { _, _, _, _, _ -> }, { _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+            {}, {}, {}, {}, {}, { _, _ -> }, {},
+        )
     }
 }
 
@@ -105,38 +136,33 @@ internal class TextActions(
 internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: TextActions, imperial: Boolean) {
     val colors = OrcaTheme.colors
     val style = mode.style
-    val stored = mode.styles.firstOrNull { it.name == style.name }
+    val stored = mode.storedStyle
     val face = families.flatMap(TextFontFamily::faces).firstOrNull { it.path == style.fontPath && it.index == (style.collectionNumber ?: 0) }
     val family = families.firstOrNull { it.faces.any { face -> face.path == style.fontPath } }
     val editable = !mode.unknownFont
     var choosingFont by remember { mutableStateOf(false) }
+    var choosingStyle by remember { mutableStateOf(false) }
+    var naming by remember { mutableStateOf<StyleNaming?>(null) }
+    // draw_style_list()'s question before a modified style is left.
+    var leavingFor by remember { mutableStateOf<Int?>(null) }
     PaintingPanelFrame(orcaString("Emboss"), orcaString("Done"), actions.close) {
         TextInput(mode.text, actions.setText, enabled = editable, font = face?.let { typefaceOf(it.path, it.index) })
         // draw_text_input()'s warning.
         if (mode.blank) {
             Warning(orcaString("Embossed text cannot contain only white spaces."))
         }
-        // draw_style_list()
-        TextRow(orcaString("Style")) {
-            var open by remember { mutableStateOf(false) }
+        // draw_style_list(): the label in OrcaSlicer's colour while the style is a temporary one.
+        TextRow(orcaString("Style"), labelColor = if (mode.styleIndex == null) colors.accent else colors.onCanvasPanel) {
             Box(Modifier.weight(1f)) {
                 OrcaComboField(
-                    text = style.name.ifEmpty { "—" } + if (stored != null && stored.copy(angle = style.angle, distance = style.distance) != style) "*" else "",
+                    // add_text_modify(): the mark of a modified preset.
+                    text = style.name.ifEmpty { "—" } + if (mode.styleModified) orcaString("*") else "",
                     enabled = editable && mode.styles.isNotEmpty(),
-                    onClick = { open = true },
+                    onClick = { choosingStyle = true },
                 )
-                if (open) {
-                    OrcaContextMenu(expanded = true, position = androidx.compose.ui.unit.IntOffset.Zero, onDismissRequest = { open = false }) {
-                        mode.styles.forEach { item ->
-                            OrcaMenuItem(text = item.name, onClick = {
-                                open = false
-                                actions.selectStyle(item)
-                            })
-                        }
-                    }
-                }
             }
         }
+        StyleButtons(mode, editable, onRename = { naming = StyleNaming.RENAME }, onSaveAs = { naming = StyleNaming.SAVE_AS }, actions)
         // draw_font_list_line(): the font, then italic and bold.
         TextRow(orcaString("Font")) {
             Box(Modifier.weight(1f)) {
@@ -216,7 +242,7 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
             text = orcaString("Reset"),
             size = OrcaButtonSize.Compact,
             style = OrcaButtonStyle.Regular,
-            enabled = editable && mode.defaultStyle?.let { default -> default.copy(angle = style.angle, distance = style.distance) != style } == true,
+            enabled = editable && mode.resettable,
             onClick = actions.reset,
             modifier = Modifier.padding(top = 8.dp),
         )
@@ -226,6 +252,274 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
             choosingFont = false
             actions.setFont(chosen)
         })
+    }
+    if (choosingStyle) {
+        StyleSheet(mode, sample = mode.text, onDismiss = { choosingStyle = false }, onSwap = actions.swapStyles, onChoose = { index ->
+            choosingStyle = false
+            // Check whether user wants lose actual style modification
+            if (mode.styleModified) leavingFor = index else actions.selectStyle(index)
+        })
+    }
+    StyleDialogs(mode, naming, leavingFor, onNamed = { naming = null }, onLeft = { leavingFor = null }, actions)
+}
+
+/** The popups of draw_style_rename_button() and draw_style_add_button(). */
+private enum class StyleNaming { RENAME, SAVE_AS }
+
+/**
+ * draw_style_rename_button(), draw_style_save_button(), draw_style_add_button()
+ * and draw_delete_style_button(), under the style list; their tooltips name them.
+ */
+@Composable
+private fun StyleButtons(mode: TextMode, editable: Boolean, onRename: () -> Unit, onSaveAs: () -> Unit, actions: TextActions) {
+    val stored = mode.styleIndex != null
+    val name = mode.style.name
+    val last = mode.styles.size == 1
+    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_edit_button,
+            contentDescription = orcaString(if (stored) "Rename current style." else "Can't rename temporary style."),
+            onClick = onRename,
+            enabled = editable && stored,
+            tint = Color.Unspecified,
+        )
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_save,
+            contentDescription = when {
+                !stored -> orcaString("First Add style to list.")
+                mode.styleModified -> orcaText(OrcaText("Save %1% style", listOf(name)))
+                else -> orcaString("No changes to save.")
+            },
+            onClick = actions.saveStyle,
+            enabled = editable && mode.styleModified,
+            tint = Color.Unspecified,
+        )
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_add_copies,
+            contentDescription = orcaString(if (stored) "Save as new style." else "Add style to my list."),
+            // A temporary style joins the list as it is.
+            onClick = { if (stored) onSaveAs() else actions.saveStyle() },
+            enabled = editable,
+            tint = Color.Unspecified,
+        )
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_delete,
+            contentDescription = when {
+                stored && !last -> orcaText(OrcaText("Delete \"%1%\" style.", listOf(name)))
+                last -> orcaText(OrcaText("Can't delete \"%1%\". It is last style.", listOf(name)))
+                else -> orcaText(OrcaText("Can't delete temporary style \"%1%\".", listOf(name)))
+            },
+            onClick = actions.askDeleteStyle,
+            enabled = editable && stored && !last,
+            tint = Color.Unspecified,
+        )
+    }
+}
+
+/**
+ * The window's popups and message boxes: a style's new name (rename, or save
+ * as a new style), leaving a modified style, removing a style, and the
+ * messages of the style list.
+ */
+@Composable
+private fun StyleDialogs(mode: TextMode, naming: StyleNaming?, leavingFor: Int?, onNamed: () -> Unit, onLeft: () -> Unit, actions: TextActions) {
+    when (naming) {
+        StyleNaming.RENAME -> {
+            val old = mode.storedStyle?.name.orEmpty()
+            StyleNameDialog(
+                title = orcaString("Rename style"),
+                label = orcaText(OrcaText("Rename style (%1%) for embossing text", listOf(old))) + ": ",
+                initial = mode.style.name,
+                // could be same as before rename
+                unique = { name -> name == old || mode.styles.none { it.name == name } },
+                onDismiss = onNamed,
+                onConfirm = { name ->
+                    onNamed()
+                    actions.renameStyle(name)
+                },
+            )
+        }
+        StyleNaming.SAVE_AS -> StyleNameDialog(
+            title = orcaString("Save as new style"),
+            label = orcaString("New name of style") + ": ",
+            initial = mode.style.name,
+            unique = { name -> mode.styles.none { it.name == name } },
+            onDismiss = onNamed,
+            onConfirm = { name ->
+                onNamed()
+                actions.addStyle(name)
+            },
+        )
+        null -> Unit
+    }
+    leavingFor?.let { index ->
+        val name = mode.styles.getOrNull(index)?.name.orEmpty()
+        SettingsQuestionDialog(
+            SettingsDialog(
+                id = "emboss_style_change",
+                icon = DialogIcon.WARNING,
+                title = listOf(OrcaText("Warning")),
+                text = listOf(OrcaText("Changing style to \"%1%\" will discard current style modification.\n\nWould you like to continue anyway?", listOf(name))),
+                question = true,
+                yes = null,
+                no = null,
+            ),
+        ) { yes ->
+            onLeft()
+            if (yes) actions.selectStyle(index)
+        }
+    }
+    mode.deleting?.let { name ->
+        SettingsQuestionDialog(
+            SettingsDialog(
+                id = "emboss_style_remove",
+                icon = DialogIcon.WARNING,
+                title = listOf(OrcaText("Remove style")),
+                text = listOf(OrcaText("Are you sure you want to permanently remove the \"%1%\" style?", listOf(name))),
+                question = true,
+                yes = null,
+                no = null,
+            ),
+            onAnswer = actions.deleteStyle,
+        )
+    }
+    when (val notice = mode.notice) {
+        is TextNotice.InvalidStyle -> SettingsNoticeDialog(
+            SettingsDialog(
+                id = "emboss_style_invalid",
+                icon = DialogIcon.INFO,
+                title = listOf(OrcaText("Not valid style.")),
+                text = listOf(OrcaText("Style \"%1%\" can't be used and will be removed from a list.", listOf(notice.name))),
+                question = false,
+                yes = null,
+                no = null,
+            ),
+            onDismiss = actions.dismissNotice,
+        )
+        TextNotice.LastStyle -> SettingsNoticeDialog(
+            SettingsDialog(
+                id = "emboss_style_last",
+                icon = DialogIcon.ERROR,
+                title = listOf(OrcaText("Remove style")),
+                text = listOf(OrcaText("Can't remove the last existing style.")),
+                question = false,
+                yes = null,
+                no = null,
+            ),
+            onDismiss = actions.dismissNotice,
+        )
+        null -> Unit
+    }
+}
+
+/**
+ * The popups of the style list's names: an empty name or one another style
+ * has can't be taken ([unique]), as the popups tell under the field.
+ */
+@Composable
+private fun StyleNameDialog(title: String, label: String, initial: String, unique: (String) -> Boolean, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    val colors = OrcaTheme.colors
+    var name by rememberSaveable { mutableStateOf(initial) }
+    val problem = when {
+        name.isEmpty() -> orcaString("Name can't be empty.")
+        !unique(name) -> orcaString("Name has to be unique.")
+        else -> null
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { OrcaButton(orcaString("OK"), onClick = { onConfirm(name) }, enabled = problem == null) },
+        dismissButton = { OrcaButton(orcaString("Cancel"), onClick = onDismiss, style = OrcaButtonStyle.Regular) },
+        title = { Text(title, style = OrcaTheme.typography.head16) },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Text(label, style = OrcaTheme.typography.body14)
+                OrcaTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (problem == null) onConfirm(name) }),
+                )
+                if (problem != null) {
+                    Text(problem, color = colors.warning, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+        },
+        containerColor = colors.window,
+        titleContentColor = colors.text,
+        textContentColor = colors.text,
+        shape = OrcaTheme.shapes.window,
+    )
+}
+
+/**
+ * draw_style_list()'s combo box: the stored styles, the text written in each
+ * one's font (init_style_images()), the tool's marked. After a long press a
+ * style is dragged over its neighbours, as the desktop list reorders them.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StyleSheet(mode: TextMode, sample: String, onDismiss: () -> Unit, onSwap: (Int, Int) -> Unit, onChoose: (Int) -> Unit) {
+    val colors = OrcaTheme.colors
+    val rowHeight = with(LocalDensity.current) { StyleRowHeight.toPx() }
+    val count by rememberUpdatedState(mode.styles.size)
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text(orcaString("Style"), color = colors.text, style = OrcaTheme.typography.head16, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            mode.styles.forEachIndexed { index, item ->
+                key(item.name) {
+                    val at by rememberUpdatedState(index)
+                    var dragged by remember { mutableFloatStateOf(0f) }
+                    val font = remember(item.fontPath, item.collectionNumber) { typefaceOf(item.fontPath, item.collectionNumber ?: 0) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = StyleRowHeight)
+                            .background(if (index == mode.styleIndex) colors.accentSelected else Color.Transparent)
+                            .pointerInput(Unit) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragEnd = { dragged = 0f },
+                                    onDragCancel = { dragged = 0f },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        dragged += amount.y
+                                        // reorder items
+                                        if (dragged > rowHeight / 2 && at + 1 < count) {
+                                            onSwap(at, at + 1)
+                                            dragged -= rowHeight
+                                        } else if (dragged < -rowHeight / 2 && at > 0) {
+                                            onSwap(at, at - 1)
+                                            dragged += rowHeight
+                                        }
+                                    },
+                                )
+                            }
+                            .selectable(selected = index == mode.styleIndex, role = Role.Button, onClick = { onChoose(at) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(item.name, color = colors.text, style = OrcaTheme.typography.body14, maxLines = 1, modifier = Modifier.weight(1f))
+                        if (font != null) {
+                            Text(
+                                text = sample.lineSequence().firstOrNull()?.takeIf(String::isNotBlank) ?: item.name,
+                                color = colors.textSide,
+                                style = OrcaTheme.typography.body14.copy(fontFamily = font),
+                                maxLines = 1,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 12.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -337,11 +631,15 @@ private fun androidx.compose.foundation.layout.RowScope.LengthField(millimetres:
 }
 
 @Composable
-private fun TextRow(label: String, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+private fun TextRow(
+    label: String,
+    labelColor: Color = OrcaTheme.colors.onCanvasPanel,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier
         .fillMaxWidth()
         .padding(top = 6.dp)) {
-        Text(label, color = OrcaTheme.colors.onCanvasPanel, style = OrcaTheme.typography.body13, modifier = Modifier.width(LabelWidth))
+        Text(label, color = labelColor, style = OrcaTheme.typography.body13, modifier = Modifier.width(LabelWidth))
         content()
     }
 }
@@ -425,7 +723,7 @@ private fun OptionalSlider(
 @Composable
 private fun Warning(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-        Icon(painterResource(DesignR.drawable.orca_exclamation), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(16.dp))
+        Icon(painterResource(DesignR.drawable.orca_obj_warning), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(16.dp))
         Text(text, color = OrcaTheme.colors.onCanvasPanel, style = OrcaTheme.typography.body12, modifier = Modifier.padding(start = 6.dp))
     }
 }
@@ -514,4 +812,7 @@ private val ALIGN_NAMES_HORIZONTAL = mapOf(TextHorizontalAlign.LEFT to "Left", T
 private val ALIGN_NAMES_VERTICAL = mapOf(TextVerticalAlign.TOP to "Top", TextVerticalAlign.CENTER to "Middle", TextVerticalAlign.BOTTOM to "Bottom")
 
 private val LabelWidth = 96.dp
+
+/** A row of the style list, which a dragged style passes over half of to change places. */
+private val StyleRowHeight = 48.dp
 private val ValueWidth = 72.dp

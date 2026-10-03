@@ -105,7 +105,8 @@ val orcaIconNames = listOf(
     "obj_variable_layer_height",
     // GLGizmoEmboss and GLGizmoSVG: their windows' icons, and the icons of
     // text and SVG volumes in the object list and the menus.
-    "make_bold", "make_italic", "make_unbold", "make_unitalic", "exclamation", "refresh", "reflection_x", "reflection_y",
+    // Its warning is obj_warning, which OrcaSlicer draws in place of exclamation.
+    "make_bold", "make_italic", "make_unbold", "make_unitalic", "obj_warning", "edit_button", "refresh", "reflection_x", "reflection_y",
     "align_horizontal_left", "align_horizontal_center", "align_horizontal_right",
     "align_vertical_top", "align_vertical_center", "align_vertical_bottom",
     "add_text_part", "add_text_negative", "add_text_modifier", "svg_part", "svg_negative", "svg_modifier",

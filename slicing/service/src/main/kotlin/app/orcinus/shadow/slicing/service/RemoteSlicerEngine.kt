@@ -98,6 +98,7 @@ import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.StepMeshOptions
 import app.orcinus.shadow.core.model.TextStyle
+import app.orcinus.shadow.core.model.TextStylesOutcome
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
@@ -373,6 +374,23 @@ class RemoteSlicerEngine(
 
     override suspend fun describeEmboss(plate: List<PlacedModel>, index: Int, volume: Int, profiles: SlicingProfileSelection): EmbossVolumeOutcome =
         remote({ EmbossVolumeOutcome.Failure(it) }) { describeEmboss(plate.toParcels(), index, volume, profiles.toParcel()).toEmbossVolumeOutcome() }
+
+    override suspend fun renameTextStyle(
+        plate: List<PlacedModel>,
+        index: Int,
+        oldName: String,
+        newName: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        renameTextStyle(plate.toParcels(), index, oldName, newName, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
+    override suspend fun textStyles(): TextStylesOutcome =
+        remote({ TextStylesOutcome.Failure(it) }) { textStyles().toTextStylesOutcome() }
+
+    override suspend fun storeTextStyles(styles: List<TextStyle>, active: Int?): TextStylesOutcome =
+        remote({ TextStylesOutcome.Failure(it) }) { storeTextStyles(styles.map { it.toParcel() }.toTypedArray(), active ?: -1).toTextStylesOutcome() }
 
     override suspend fun begin(plate: List<PlacedModel>, index: Int, profiles: SlicingProfileSelection, plateSettings: ModelSettings) =
         remote({ LayerEditingOutcome.Failure(it) }) { beginLayerEditing(plate.toParcels(), index, profiles.toParcel(), plateSettings.toParcel()).toLayerEditingOutcome() }

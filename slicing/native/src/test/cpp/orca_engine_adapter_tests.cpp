@@ -6204,3 +6204,78 @@ TEST_CASE("Text and SVG are embossed on an object, edited, sliced and kept in a 
     CHECK(described.text == "Hi");
     CHECK(described.style.font_path == font);
 }
+
+TEST_CASE("The text tool's styles are kept in the app configuration and a style is renamed in the texts", "[Adapter][Emboss]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    orca::TextStyle normal;
+    normal.name = "NORMAL";
+    normal.font_path = "/system/fonts/Roboto-Regular.ttf";
+    normal.face_name = "Roboto";
+    normal.size_in_mm = 9.0;
+    orca::TextStyle italic = normal;
+    italic.name = "ITALIC";
+    italic.skew = 0.2;
+    italic.horizontal_align = 0;
+    italic.vertical_align = 2;
+    italic.use_surface = true;
+    italic.char_gap = 3;
+    italic.angle = 0.5;
+    italic.depth = 2.0;
+
+    // store_styles(): a shorter list empties the sections after it.
+    REQUIRE(orca::store_text_styles({normal, italic, normal}, 2).status == orca::SceneStatus::success);
+    REQUIRE(orca::store_text_styles({normal, italic}, 1).status == orca::SceneStatus::success);
+    orca::TextStyles loaded = orca::load_text_styles();
+    REQUIRE(loaded.status == orca::SceneStatus::success);
+    REQUIRE(loaded.styles.size() == 2);
+    CHECK(loaded.styles[0].name == "NORMAL");
+    CHECK_FALSE(loaded.styles[0].skew.has_value());
+    CHECK(loaded.styles[0].horizontal_align == 1);
+    CHECK(loaded.styles[1].name == "ITALIC");
+    CHECK(loaded.styles[1].font_path == normal.font_path);
+    CHECK(loaded.styles[1].size_in_mm == Catch::Approx(9.0));
+    CHECK(loaded.styles[1].depth == Catch::Approx(2.0));
+    REQUIRE(loaded.styles[1].skew.has_value());
+    CHECK(*loaded.styles[1].skew == Catch::Approx(0.2));
+    CHECK(loaded.styles[1].horizontal_align == 0);
+    CHECK(loaded.styles[1].vertical_align == 2);
+    CHECK(loaded.styles[1].use_surface);
+    CHECK(loaded.styles[1].char_gap == std::optional<int>(3));
+    REQUIRE(loaded.styles[1].angle.has_value());
+    CHECK(*loaded.styles[1].angle == Catch::Approx(0.5));
+    // OrcaSlicer writes the active index from 0 and reads it from 1.
+    CHECK(loaded.active == 0);
+    // load_styles() gives a repeated name a number.
+    REQUIRE(orca::store_text_styles({normal, normal}, 0).status == orca::SceneStatus::success);
+    loaded = orca::load_text_styles();
+    REQUIRE(loaded.styles.size() == 2);
+    CHECK(loaded.styles[1].name == "NORMAL (2)");
+
+    // draw_style_rename_popup(): the texts in the style take the new name.
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("style-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    orca::EmbossPlacement front;
+    front.object_index = 0;
+    front.position = {cube.box_center[0], cube.box_center[1] - cube.size_y / 2, cube.box_center[2]};
+    front.normal = {0.0, -1.0, 0.0};
+    orca::ImportedModels result = orca::create_text(plate, front, orca::VolumeType::part, "Orca", normal, k2_plus_profiles(), import_prefix("style-text"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    // A name no text has writes nothing.
+    result = orca::rename_text_style(plate, 0, "SMALL", "Mine", k2_plus_profiles(), import_prefix("style-none"));
+    REQUIRE(result.status == orca::SceneStatus::success);
+    CHECK(result.objects.empty());
+    result = orca::rename_text_style(plate, 0, "NORMAL", "Mine", k2_plus_profiles(), import_prefix("style-renamed"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    REQUIRE(result.objects.size() == 1);
+    plate = {plate_object_of(result.objects.front())};
+    const orca::EmbossVolume described = orca::describe_emboss(plate, 0, 1, k2_plus_profiles());
+    REQUIRE(described.status == orca::SceneStatus::success);
+    CHECK(described.style.name == "Mine");
+    CHECK(described.text == "Orca");
+}

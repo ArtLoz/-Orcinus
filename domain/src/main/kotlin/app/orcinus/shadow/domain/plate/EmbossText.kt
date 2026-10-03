@@ -89,6 +89,100 @@ class TextFontsUseCase(
 }
 
 /**
+ * StyleManager::set_wx_font() with a [face] of the phone: the style takes its
+ * file, and WxFontUtils::update_property() its family's name, and its style
+ * and weight where they are not the normal ones, which leave the style's.
+ */
+fun TextStyle.withFace(face: FontFace): TextStyle = copy(
+    fontPath = face.path,
+    collectionNumber = face.index.takeIf { it > 0 },
+    faceName = face.family.ifEmpty { faceName },
+    style = if (face.italic) ITALIC else style,
+    weight = weightName(face.weight) ?: weight,
+)
+
+/** GLGizmoEmboss::select_facename(): the family's face of normal style and weight, the style's skew and boldness kept. */
+fun TextStyle.withFamily(family: TextFontFamily): TextStyle? = family.match(italic = false, weight = REGULAR_WEIGHT)?.let(::withFace)
+
+/**
+ * draw_italic_button(): an italic style (skewed, or of an italic face) is
+ * unset: no skew, and the family's upright face of its weight; otherwise the
+ * family's italic face of its weight (WxFontUtils::set_italic()), or a skew
+ * of 0.2 when the family has none.
+ */
+fun TextStyle.toggledItalic(families: List<TextFontFamily>): TextStyle {
+    val (family, face) = faceOf(families) ?: return this
+    if (skew != null || face.italic) {
+        val upright = family.match(italic = false, weight = face.weight)
+        val unskewed = copy(skew = null)
+        return if (face.italic && upright != null) unskewed.withFace(upright) else unskewed
+    }
+    val italic = family.match(italic = true, weight = face.weight)?.takeIf { it != face }
+    return italic?.let(::withFace) ?: copy(skew = ITALIC_SKEW)
+}
+
+/**
+ * draw_bold_button(): a bold style (with boldness, or of a face of other
+ * than the normal weight, WxFontUtils::is_bold()) is unset: no boldness, and
+ * the family's face of normal weight; otherwise the family's face for bold,
+ * heavy, extra bold or extra heavy that is another face
+ * (WxFontUtils::set_bold()), or a boldness of 20 when there is none.
+ */
+fun TextStyle.toggledBold(families: List<TextFontFamily>): TextStyle {
+    val (family, face) = faceOf(families) ?: return this
+    if (boldness != null || weightName(face.weight) != null) {
+        val regular = family.match(italic = face.italic, weight = REGULAR_WEIGHT)
+        val unbold = copy(boldness = null)
+        return if (weightName(face.weight) != null && regular != null) unbold.withFace(regular) else unbold
+    }
+    val bold = BOLD_WEIGHTS.firstNotNullOfOrNull { weight -> family.match(italic = face.italic, weight = weight)?.takeIf { it != face } }
+    return bold?.let(::withFace) ?: copy(boldness = BOLDNESS)
+}
+
+/** The family and face of the style's font among [families]; null for a font the phone has not. */
+private fun TextStyle.faceOf(families: List<TextFontFamily>): Pair<TextFontFamily, FontFace>? {
+    for (family in families) {
+        val face = family.faces.firstOrNull { it.path == fontPath && it.index == (collectionNumber ?: 0) } ?: continue
+        return family to face
+    }
+    return null
+}
+
+/**
+ * The face the system's font matching gives for a style and a weight: of the
+ * family's faces of that style, the one of the nearest weight; null for none.
+ */
+private fun TextFontFamily.match(italic: Boolean, weight: Int): FontFace? =
+    faces.filter { it.italic == italic }.minByOrNull { abs(it.weight - weight) }
+
+/**
+ * WxFontUtils::type_to_weight of the wxFontWeight a face's weight rounds to
+ * (wxFontInfo::GetWeightClosestToNumericValue()); null for the normal one.
+ */
+private fun weightName(weight: Int): String? = when (((weight + 50) / 100 * 100).coerceIn(100, 1000)) {
+    100 -> "thin"
+    200 -> "extraLight"
+    300 -> "light"
+    400 -> null
+    500 -> "medium"
+    600 -> "semibold"
+    700 -> "bold"
+    800 -> "extraBold"
+    900 -> "heavy"
+    else -> "extraHeavy"
+}
+
+private const val ITALIC = "italic"
+private const val REGULAR_WEIGHT = 400
+
+/** The weights WxFontUtils::set_bold() asks for in turn: bold, heavy, extra bold, extra heavy. */
+private val BOLD_WEIGHTS = listOf(700, 900, 800, 1000)
+
+/** draw_italic_button()'s skew and draw_bold_button()'s boldness of a family without such a face. */
+private const val ITALIC_SKEW = 0.2
+private const val BOLDNESS = 20.0
+
+/**
  * WxFontUtils::create_emboss_style() for a [face] of the phone: the style
  * [name] of the font file, [size] millimetres high, with the font's
  * description (FontProp::face_name, family, style and weight).

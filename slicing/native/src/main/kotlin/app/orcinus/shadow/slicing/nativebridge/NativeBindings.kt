@@ -708,6 +708,14 @@ internal class NativeImportedObject(
     @JvmField val partEmbossKinds: LongArray,
 )
 
+/** Constructed by the native bridge; see TextStyles in orca_engine_adapter.hpp. */
+internal class NativeTextStyles(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val styles: Array<NativeTextStyle>,
+    @JvmField val active: Long,
+)
+
 /** Constructed by the native bridge; see FontFace in orca_engine_adapter.hpp. */
 internal class NativeFontFace(
     @JvmField val path: String,
@@ -1495,6 +1503,25 @@ internal object NativeBindings {
         filamentProfiles: Array<String>,
         processProfile: String,
     ): NativeEmbossVolume
+
+    /** load_text_styles() */
+    external fun textStyles(): NativeTextStyles
+
+    /** rename_text_style() */
+    external fun renameTextStyle(
+        plate: NativePlate,
+        objectIndex: Int,
+        oldName: String,
+        newName: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** store_text_styles(); [active] is -1 for none. */
+    external fun storeTextStyles(styles: Array<NativeTextStyle>, active: Long): NativeTextStyles
 
     /** begin_layer_editing() */
     external fun beginLayerEditing(

@@ -121,6 +121,18 @@ sealed interface EmbossRequest {
     data class Add(val kind: EmbossKind, val mesh: ScenePath, val type: VolumeType) : EmbossRequest
 }
 
+/**
+ * The text tool's styles the app configuration keeps (StyleManager's styles),
+ * with the index of the active one it names; null for none.
+ */
+data class StoredTextStyles(val styles: List<TextStyle>, val active: Int?)
+
+sealed interface TextStylesOutcome {
+    data class Success(val stored: StoredTextStyles) : TextStylesOutcome
+
+    data class Failure(val message: String) : TextStylesOutcome
+}
+
 sealed interface EmbossVolumeOutcome {
     data class Success(val volume: EmbossVolume) : EmbossVolumeOutcome
 

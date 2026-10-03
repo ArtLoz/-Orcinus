@@ -37,6 +37,7 @@ import app.orcinus.shadow.slicing.service.MeshExportParcel;
 import app.orcinus.shadow.slicing.service.FlushVolumesParcel;
 import app.orcinus.shadow.slicing.service.PaintingParcel;
 import app.orcinus.shadow.slicing.service.TextStyleParcel;
+import app.orcinus.shadow.slicing.service.TextStylesParcel;
 import app.orcinus.shadow.slicing.service.WipeTowerParcel;
 import app.orcinus.shadow.slicing.service.PresetNameParcel;
 import app.orcinus.shadow.slicing.service.PresetNamesParcel;
@@ -119,6 +120,9 @@ interface ISlicerService {
     ModelLoadParcel createSvg(in PlacedModelParcel[] plate, in EmbossPlacementParcel placement, String type, String svg, in ProfilesParcel profiles, String prefix);
     ModelLoadParcel updateSvg(in PlacedModelParcel[] plate, int index, int volume, double depth, boolean useSurface, @nullable String svg, in @nullable double[] placement, in ProfilesParcel profiles, String prefix);
     EmbossVolumeParcel describeEmboss(in PlacedModelParcel[] plate, int index, int volume, in ProfilesParcel profiles);
+    ModelLoadParcel renameTextStyle(in PlacedModelParcel[] plate, int index, String oldName, String newName, in ProfilesParcel profiles, String prefix);
+    TextStylesParcel textStyles();
+    TextStylesParcel storeTextStyles(in TextStyleParcel[] styles, int active);
     /** begin_layer_editing() and the calls of the variable layer height; action is the LayerHeightEdit's name. */
     LayerEditingParcel beginLayerEditing(in PlacedModelParcel[] plate, int index, in ProfilesParcel profiles, in ModelSettingsParcel plateSettings);
     LayerEditingParcel editLayerHeights(String action, double z, double strength, double bandWidth);

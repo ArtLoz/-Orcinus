@@ -4202,6 +4202,79 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_updateSvg(
     );
 }
 
+// TextStyles of orca_engine_adapter.hpp as a NativeTextStyles.
+static jobject to_java(JNIEnv* env, const orcinus::orca::TextStyles& styles)
+{
+    const jobjectArray items = to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativeTextStyle",
+        styles.styles,
+        [](JNIEnv* style_env, const orcinus::orca::TextStyle& style) { return to_java(style_env, style); }
+    );
+    const jclass styles_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeTextStyles");
+    const jmethodID constructor = env->GetMethodID(
+        styles_class,
+        "<init>",
+        "(JLjava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeTextStyle;J)V"
+    );
+    return env->NewObject(
+        styles_class,
+        constructor,
+        static_cast<jlong>(styles.status),
+        to_java(env, styles.message),
+        items,
+        static_cast<jlong>(styles.active)
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_renameTextStyle(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jstring old_name,
+    jstring new_name,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::rename_text_style(
+            to_plate(env, plate),
+            static_cast<std::size_t>(object_index),
+            to_utf8(env, old_name),
+            to_utf8(env, new_name),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_textStyles(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::load_text_styles());
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_storeTextStyles(JNIEnv* env, jobject /* this */, jobjectArray styles, jlong active)
+{
+    std::vector<orcinus::orca::TextStyle> stored;
+    const jsize count = env->GetArrayLength(styles);
+    stored.reserve(static_cast<std::size_t>(count));
+    for (jsize index = 0; index < count; ++index) {
+        const jobject style = env->GetObjectArrayElement(styles, index);
+        stored.push_back(to_text_style(env, style));
+        env->DeleteLocalRef(style);
+    }
+    return to_java(env, orcinus::orca::store_text_styles(stored, static_cast<std::int64_t>(active)));
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeEmboss(
     JNIEnv* env,

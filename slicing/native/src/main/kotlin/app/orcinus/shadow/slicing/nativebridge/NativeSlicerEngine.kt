@@ -22,8 +22,10 @@ import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.SlicedPlates
+import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.TextHorizontalAlign
 import app.orcinus.shadow.core.model.TextStyle
+import app.orcinus.shadow.core.model.TextStylesOutcome
 import app.orcinus.shadow.core.model.TextVerticalAlign
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
@@ -572,6 +574,40 @@ class NativeSlicerEngine(context: Context) :
             processProfile = profiles.process.value,
             outputPrefix = prefix.value,
         )
+    }
+
+    override suspend fun renameTextStyle(
+        plate: List<PlacedModel>,
+        index: Int,
+        oldName: String,
+        newName: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = emboss {
+        NativeBindings.renameTextStyle(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            oldName = oldName,
+            newName = newName,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        )
+    }
+
+    override suspend fun textStyles(): TextStylesOutcome = whenReady(TextStylesOutcome::Failure) {
+        NativeBindings.textStyles().toOutcome()
+    }
+
+    override suspend fun storeTextStyles(styles: List<TextStyle>, active: Int?): TextStylesOutcome = whenReady(TextStylesOutcome::Failure) {
+        NativeBindings.storeTextStyles(styles.map { it.toNative() }.toTypedArray(), active?.toLong() ?: -1L).toOutcome()
+    }
+
+    private fun NativeTextStyles.toOutcome(): TextStylesOutcome {
+        if (status != NativeSceneStatus.SUCCESS) return TextStylesOutcome.Failure(message.ifBlank { "OrcaSlicer could not keep the text styles" })
+        return TextStylesOutcome.Success(StoredTextStyles(styles.map { it.toStyle() }, active.toInt().takeIf { it >= 0 }))
     }
 
     override suspend fun describeEmboss(plate: List<PlacedModel>, index: Int, volume: Int, profiles: SlicingProfileSelection) =

@@ -9,6 +9,7 @@ import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.TextStyle
+import app.orcinus.shadow.core.model.TextStylesOutcome
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 
@@ -69,4 +70,23 @@ interface EmbossEditor {
 
     /** What the text or SVG [volume] of the object at [index] is. */
     suspend fun describeEmboss(plate: List<PlacedModel>, index: Int, volume: Int, profiles: SlicingProfileSelection): EmbossVolumeOutcome
+
+    /**
+     * draw_style_rename_popup(): the texts of the object at [index] whose
+     * style is [oldName] take [newName]; the object anew when one did, none otherwise.
+     */
+    suspend fun renameTextStyle(
+        plate: List<PlacedModel>,
+        index: Int,
+        oldName: String,
+        newName: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /** StyleManager's styles as the app configuration keeps them (load_styles(), load_style_index()). */
+    suspend fun textStyles(): TextStylesOutcome
+
+    /** store_styles() and store_style_index(): [styles] kept, with [active] the active one's index. */
+    suspend fun storeTextStyles(styles: List<TextStyle>, active: Int?): TextStylesOutcome
 }

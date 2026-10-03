@@ -18,8 +18,10 @@ import app.orcinus.shadow.core.model.EmbossVolumeOutcome
 import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
+import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.TextHorizontalAlign
 import app.orcinus.shadow.core.model.TextStyle
+import app.orcinus.shadow.core.model.TextStylesOutcome
 import app.orcinus.shadow.core.model.TextVerticalAlign
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
@@ -1375,6 +1377,19 @@ internal fun FontFace.toParcel() = FontFaceParcel().also {
 }
 
 internal fun FontFaceParcel.toFontFace() = FontFace(path.orEmpty(), index, family.orEmpty(), subfamily.orEmpty(), weight, italic, ascent)
+
+internal fun TextStylesOutcome.toParcel() = TextStylesParcel().also {
+    when (this) {
+        is TextStylesOutcome.Failure -> it.error = message
+        is TextStylesOutcome.Success -> {
+            it.styles = stored.styles.map { style -> style.toParcel() }.toTypedArray()
+            it.active = stored.active ?: -1
+        }
+    }
+}
+
+internal fun TextStylesParcel.toTextStylesOutcome(): TextStylesOutcome = error?.let(TextStylesOutcome::Failure)
+    ?: TextStylesOutcome.Success(StoredTextStyles(styles.orEmpty().map(TextStyleParcel::toTextStyle), active.takeIf { it >= 0 }))
 
 internal fun EmbossVolumeOutcome.toParcel() = EmbossVolumeParcel().also {
     when (this) {

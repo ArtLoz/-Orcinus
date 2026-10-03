@@ -148,6 +148,7 @@ import app.orcinus.shadow.domain.plate.StartEngineUseCase
 import app.orcinus.shadow.domain.plate.StepMeshPrompt
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.TextFontsUseCase
+import app.orcinus.shadow.domain.plate.TextStylesUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.plate.UpdateFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.OverhangUpdates
@@ -217,6 +218,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val editLayerHeights = EditLayerHeightsUseCase(engine, plateRepository)
     // GLGizmoEmboss: the phone's fonts, read once, and the menus' requests of the canvas's text tool.
     private val textFonts = TextFontsUseCase(AndroidSystemFonts(), engine)
+    private val textStyles = TextStylesUseCase(engine, textFonts, sceneFiles, plateRepository)
     private val requestEmboss = RequestEmbossUseCase(plateRepository)
     private val placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope)
     // Sidebar::auto_calc_flushing_volumes(), which filament, printer and settings changes ask for.
@@ -571,6 +573,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             editLayerHeights = editLayerHeights,
             embossText = EmbossTextUseCase(engine, engine, sceneFiles, plateRepository),
             textFonts = textFonts,
+            textStyles = textStyles,
             requestEmboss = requestEmboss,
             removeObjectPart = removeObjectPart,
             preferences = appPreferences,

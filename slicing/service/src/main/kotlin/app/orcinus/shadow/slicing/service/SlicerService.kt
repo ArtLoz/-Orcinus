@@ -295,6 +295,22 @@ abstract class SlicerService<E> : Service()
         override fun describeEmboss(plate: Array<PlacedModelParcel>, index: Int, volume: Int, profiles: ProfilesParcel): EmbossVolumeParcel =
             runBlocking { engine.describeEmboss(plate.toPlacedModels(), index, volume, profiles.toProfiles()) }.toParcel()
 
+        override fun renameTextStyle(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            oldName: String,
+            newName: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.renameTextStyle(plate.toPlacedModels(), index, oldName, newName, profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun textStyles(): TextStylesParcel = runBlocking { engine.textStyles() }.toParcel()
+
+        override fun storeTextStyles(styles: Array<TextStyleParcel>, active: Int): TextStylesParcel =
+            runBlocking { engine.storeTextStyles(styles.map(TextStyleParcel::toTextStyle), active.takeIf { it >= 0 }) }.toParcel()
+
         override fun beginLayerEditing(plate: Array<PlacedModelParcel>, index: Int, profiles: ProfilesParcel, plateSettings: ModelSettingsParcel) =
             runBlocking { engine.begin(plate.toPlacedModels(), index, profiles.toProfiles(), plateSettings.toModelSettings()) }.toParcel()
 

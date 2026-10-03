@@ -121,10 +121,16 @@ import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.TextFontsUseCase
+import app.orcinus.shadow.domain.plate.TextStyleList
+import app.orcinus.shadow.domain.plate.TextStylesUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
 import app.orcinus.shadow.domain.plate.isTextVolume
 import app.orcinus.shadow.domain.plate.layerEditingObject
+import app.orcinus.shadow.domain.plate.makeUniqueName
 import app.orcinus.shadow.domain.plate.selectedEmbossVolume
+import app.orcinus.shadow.domain.plate.toggledBold
+import app.orcinus.shadow.domain.plate.toggledItalic
+import app.orcinus.shadow.domain.plate.withFamily
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import app.orcinus.shadow.render.scene.CutConnectorEvent
@@ -151,6 +157,8 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 class PrepareViewModel(
@@ -211,6 +219,7 @@ class PrepareViewModel(
     private val editLayerHeights: EditLayerHeightsUseCase,
     private val embossText: EmbossTextUseCase,
     private val textFonts: TextFontsUseCase,
+    private val textStyles: TextStylesUseCase,
     private val requestEmboss: RequestEmbossUseCase,
     private val removeObjectPart: RemoveObjectPartUseCase,
     preferences: AppPreferences,
@@ -258,12 +267,18 @@ class PrepareViewModel(
      */
     private val textEdits = Channel<TextMode>(Channel.CONFLATED)
 
+    /** StyleManager's styles and the last one loaded, read when the text tool first needs them. */
+    private var styleList: TextStyleList? = null
+
     /**
-     * The name of the style the text tool was left with (StyleManager's
-     * active style), which a new text takes as stored, without the changes
-     * the window made to it (discard_style_changes()).
+     * StyleManager's m_style_cache.style_index: the stored style the tool's
+     * style comes from, which a new text takes without the window's changes
+     * (discard_style_changes()); null for a temporary style.
      */
-    private var lastTextStyle: String? = null
+    private var styleIndex: Int? = null
+
+    /** One change of the text's volume at a time: the window's edits and the renaming of a style. */
+    private val textLock = Mutex()
 
     /** Translates the names of OrcaSlicer's default text styles (_u8L("NORMAL"), ...). */
     var styleNames: (String) -> String = { it }
@@ -345,13 +360,15 @@ class PrepareViewModel(
         // for, embossed anew; the volume the engine wrote is the one edited next.
         viewModelScope.launch {
             for (asked in textEdits) {
-                val open = view.value.text ?: continue
-                if (open.volume != asked.volume || asked.blank || asked.unknownFont) continue
-                view.update { it.copy(text = it.text?.copy(busy = true)) }
-                val edited = embossText.update(asked.volume, asked.text, asked.style)
-                view.update { state ->
-                    val now = state.text ?: return@update state
-                    state.copy(text = now.copy(volume = edited?.takeIf { now.volume == asked.volume } ?: now.volume, busy = false))
+                textLock.withLock {
+                    val open = view.value.text ?: return@withLock
+                    if (open.volume != asked.volume || asked.blank || asked.unknownFont) return@withLock
+                    view.update { it.copy(text = it.text?.copy(busy = true)) }
+                    val edited = embossText.update(asked.volume, asked.text, asked.style)
+                    view.update { state ->
+                        val now = state.text ?: return@update state
+                        state.copy(text = now.copy(volume = edited?.takeIf { now.volume == asked.volume } ?: now.volume, busy = false))
+                    }
                 }
             }
         }
@@ -1285,15 +1302,15 @@ class PrepareViewModel(
     }
 
     /**
-     * GLGizmoEmboss::create_volume() with the style the tool was left with, or
-     * the first default style; init_create() makes no text on a part of a cut.
+     * GLGizmoEmboss::create_volume(): init_create() makes no text on a part of
+     * a cut, and takes the stored style without the window's changes.
      */
     private fun createText(placement: EmbossPlacement, type: VolumeType, defaultText: String) {
         if (!state.value.canEditPlate) return
         if (placement.objectIndex >= 0 && plate.value.objects.getOrNull(placement.objectIndex)?.isCut == true) return
         viewModelScope.launch {
-            val styles = textStyles()
-            val style = styles.firstOrNull { it.name == lastTextStyle } ?: styles.firstOrNull() ?: return@launch
+            loadFamilies()
+            val style = discardStyleChanges() ?: return@launch
             closeOtherTools()
             val created = embossText.create(placement, type, defaultText, style) ?: return@launch
             openText(created, style)
@@ -1327,10 +1344,30 @@ class PrepareViewModel(
                     unknown = true
                 }
             }
-            val styles = textStyles()
+            // Find style in stored styles
+            val stored = ensureStyles()?.styles.orEmpty()
+            val found = stored.indexOfFirst { it.name == style.name }
+            if (found < 0) {
+                // style was not found
+                styleIndex = null
+            } else if (loadStyle(found) == null) {
+                // can`t load stored style
+                eraseStyle(found)
+                styleIndex = null
+            }
             view.update { state ->
                 val open = state.text?.takeIf { it.volume == volume } ?: return@update state
-                state.copy(text = open.copy(text = described.text, style = style, described = described, styles = styles, unknownFont = unknown, busy = false))
+                state.copy(
+                    text = open.copy(
+                        text = described.text,
+                        style = style,
+                        described = described,
+                        styles = styleList?.styles.orEmpty(),
+                        styleIndex = styleIndex,
+                        unknownFont = unknown,
+                        busy = false,
+                    ),
+                )
             }
         }
     }
@@ -1338,8 +1375,9 @@ class PrepareViewModel(
     /** GLGizmoEmboss::close(): an empty text goes, its object with it when it is the object's only part. */
     fun closeText() {
         val open = view.value.text ?: return
-        if (!open.unknownFont) lastTextStyle = open.style.name
         view.update { it.copy(text = null) }
+        // on_set_state(): the styles' order and the active one go into the app configuration.
+        viewModelScope.launch { storeStyles() }
         if (open.blank) {
             val copy = PlateInstanceId(open.volume.mesh, 0)
             if (open.onlyPart) deletePlateObject(copy.mesh) else removeObjectPart(open.volume)
@@ -1352,78 +1390,192 @@ class PrepareViewModel(
     /** A change of the style the window edits. */
     fun setTextStyle(change: (TextStyle) -> TextStyle) = editText { it.copy(style = change(it.style)) }
 
-    /** GLGizmoEmboss::select_facename(): the regular face of the [family]. */
+    /** GLGizmoEmboss::select_facename(): the [family]'s face of normal style and weight. */
     fun setTextFont(family: TextFontFamily) {
-        val face = family.faces.firstOrNull() ?: return
-        editText { mode ->
-            mode.copy(
-                unknownFont = false,
-                style = mode.style.copy(
-                    fontPath = face.path,
-                    collectionNumber = face.index.takeIf { it > 0 },
-                    faceName = family.name,
-                    // A new font is no longer italic or bold (WxFontUtils::update_property()).
-                    style = "",
-                    weight = "",
-                    skew = null,
-                    boldness = null,
-                ),
-            )
+        val open = view.value.text ?: return
+        val style = open.style.withFamily(family) ?: return
+        editText { it.copy(unknownFont = false, style = style) }
+    }
+
+    /** draw_italic_button() */
+    fun toggleTextItalic() = editText { mode -> mode.copy(style = mode.style.toggledItalic(fontFamilies.value)) }
+
+    /** draw_bold_button() */
+    fun toggleTextBold() = editText { mode -> mode.copy(style = mode.style.toggledBold(fontFamilies.value)) }
+
+    /**
+     * The window's style list (draw_style_list()): the stored style at
+     * [index] becomes the tool's, with the text's turn and distance kept,
+     * which fix_transformation() would change; a style whose font does not
+     * load goes from the list, as the desktop app tells.
+     */
+    fun selectTextStyle(index: Int) {
+        if (view.value.text == null) return
+        viewModelScope.launch {
+            val list = styleList ?: return@launch
+            val style = loadStyle(index)
+            if (style == null) {
+                val name = list.styles.getOrNull(index)?.name ?: return@launch
+                eraseStyle(index)
+                view.update { it.copy(text = it.text?.copy(styles = styleList?.styles.orEmpty(), styleIndex = styleIndex, notice = TextNotice.InvalidStyle(name))) }
+                return@launch
+            }
+            editText { mode ->
+                mode.copy(
+                    unknownFont = false,
+                    style = style.copy(angle = mode.style.angle, distance = mode.style.distance),
+                    styles = styleList?.styles.orEmpty(),
+                    styleIndex = styleIndex,
+                )
+            }
+        }
+    }
+
+    /** Reset (reset_to_default_style()): the first stored style. */
+    fun resetTextStyle() = selectTextStyle(0)
+
+    /**
+     * draw_style_save_button() and draw_style_add_button() of a temporary
+     * style (store_styles_to_app_config()): the stored style takes the
+     * window's, or it joins the list under a name of its own; then the
+     * styles are kept.
+     */
+    fun saveTextStyle() {
+        val open = view.value.text ?: return
+        viewModelScope.launch {
+            val list = styleList ?: return@launch
+            val index = styleIndex
+            var current = open.style
+            val styles = list.styles.toMutableList()
+            if (index != null && index in styles.indices) {
+                // update stored item
+                styles[index] = current
+            } else {
+                // add new into stored list
+                current = current.copy(name = makeUniqueName(styles, current.name))
+                styleIndex = styles.size
+                styles += current
+            }
+            styleList = list.copy(styles = styles)
+            storeStyles()
+            view.update { state -> state.copy(text = state.text?.copy(style = current, styles = styles, styleIndex = styleIndex)) }
         }
     }
 
     /**
-     * draw_italic_button(): italic sets the family's italic face, or skews the
-     * glyphs (0.2) when it has none; unset, the upright face again.
+     * draw_style_save_as_popup(): the window's style joins the list as [name]
+     * (add_style()) and the styles are kept; the text takes the name, which
+     * the popup edits in the volume's text configuration.
      */
-    fun toggleTextItalic() = editText { mode ->
-        val family = fontFamilies.value.firstOrNull { family -> family.faces.any { it.path == mode.style.fontPath } }
-        val current = family?.faces?.firstOrNull { it.path == mode.style.fontPath && it.index == (mode.style.collectionNumber ?: 0) }
-        val italic = mode.style.skew != null || current?.italic == true
-        val wanted = family?.faces?.firstOrNull { it.italic != italic && it.weight == current?.weight }
-        mode.copy(
-            style = when {
-                italic && wanted != null -> mode.style.copy(fontPath = wanted.path, collectionNumber = wanted.index.takeIf { it > 0 }, skew = null, style = "")
-                italic -> mode.style.copy(skew = null, style = "")
-                wanted != null -> mode.style.copy(fontPath = wanted.path, collectionNumber = wanted.index.takeIf { it > 0 }, style = "italic")
-                else -> mode.style.copy(skew = ITALIC_SKEW)
-            },
-        )
+    fun addTextStyle(name: String) {
+        val open = view.value.text ?: return
+        viewModelScope.launch {
+            val list = styleList ?: return@launch
+            val current = open.style.copy(name = makeUniqueName(list.styles, name))
+            styleIndex = list.styles.size
+            styleList = list.copy(styles = list.styles + current)
+            storeStyles()
+            editText { it.copy(style = current, styles = styleList?.styles.orEmpty(), styleIndex = styleIndex) }
+        }
     }
 
     /**
-     * draw_bold_button(): bold sets the family's bold face, or makes the
-     * glyphs wider (20 points) when it has none; unset, the regular face again.
+     * draw_style_rename_popup(): the stored style and every text of the
+     * plate in it take [name], and the styles are kept.
      */
-    fun toggleTextBold() = editText { mode ->
-        val family = fontFamilies.value.firstOrNull { family -> family.faces.any { it.path == mode.style.fontPath } }
-        val current = family?.faces?.firstOrNull { it.path == mode.style.fontPath && it.index == (mode.style.collectionNumber ?: 0) }
-        val bold = mode.style.boldness != null || (current?.weight ?: REGULAR_WEIGHT) > REGULAR_WEIGHT
-        val italic = current?.italic == true
-        val wanted = if (bold) {
-            family?.faces?.firstOrNull { it.italic == italic && it.weight == REGULAR_WEIGHT }
-        } else {
-            family?.faces?.filter { it.italic == italic && it.weight >= BOLD_WEIGHT }?.minByOrNull { it.weight }
+    fun renameTextStyle(name: String) {
+        if (view.value.text == null) return
+        val index = styleIndex ?: return
+        val old = styleList?.styles?.getOrNull(index)?.name ?: return
+        viewModelScope.launch {
+            textLock.withLock {
+                view.update { it.copy(text = it.text?.copy(busy = true)) }
+                val renamed = textStyles.renameInVolumes(old, name)
+                styleList = styleList?.let { list ->
+                    list.copy(styles = list.styles.mapIndexed { at, style -> if (at == index) style.copy(name = name) else style })
+                }
+                storeStyles()
+                view.update { state ->
+                    val now = state.text ?: return@update state
+                    val volume = renamed[now.volume.mesh]?.let { mesh -> ObjectPartId(mesh, now.volume.index) } ?: now.volume
+                    state.copy(text = now.copy(volume = volume, style = now.style.copy(name = name), styles = styleList?.styles.orEmpty(), busy = false))
+                }
+            }
         }
-        mode.copy(
-            style = when {
-                bold && wanted != null -> mode.style.copy(fontPath = wanted.path, collectionNumber = wanted.index.takeIf { it > 0 }, boldness = null, weight = "")
-                bold -> mode.style.copy(boldness = null, weight = "")
-                wanted != null -> mode.style.copy(fontPath = wanted.path, collectionNumber = wanted.index.takeIf { it > 0 }, weight = "bold")
-                else -> mode.style.copy(boldness = BOLDNESS)
-            },
-        )
     }
 
-    /** The window's "Style": a stored style, with the text's turn and distance kept (fix_transformation()). */
-    fun selectTextStyle(style: TextStyle) = editText { mode ->
-        mode.copy(unknownFont = false, style = style.copy(angle = mode.style.angle, distance = mode.style.distance))
+    /**
+     * draw_delete_style_button(): the style beside the tool's must load, or it
+     * goes and the next one is tried; then the question, or the message that
+     * the last style can't go.
+     */
+    fun askDeleteTextStyle() {
+        if (view.value.text == null) return
+        viewModelScope.launch {
+            var changed = false
+            var notice: TextNotice? = null
+            var asked: String? = null
+            while (true) {
+                val list = styleList ?: break
+                // NOTE: can't use previous loaded activ index -> erase could change index
+                val active = styleIndex ?: break
+                val next = if (active > 0) active - 1 else active + 1
+                if (next >= list.styles.size) {
+                    notice = TextNotice.LastStyle
+                    break
+                }
+                // clean unactivable styles
+                if (!textStyles.canLoad(list.styles[next])) {
+                    eraseStyle(next)
+                    changed = true
+                    continue
+                }
+                asked = list.styles[active].name
+                break
+            }
+            if (changed) storeStyles()
+            view.update { state ->
+                state.copy(text = state.text?.copy(styles = styleList?.styles.orEmpty(), styleIndex = styleIndex, notice = notice, deleting = asked))
+            }
+        }
     }
 
-    /** Reset (reset_to_default_style()): the first style, all but the text and the operation. */
-    fun resetTextStyle() {
-        val default = view.value.text?.defaultStyle ?: return
-        selectTextStyle(default)
+    /** The answer to draw_delete_style_button()'s question: Yes erases the style, and the text takes the one beside it. */
+    fun deleteTextStyle(confirmed: Boolean) {
+        view.update { it.copy(text = it.text?.copy(deleting = null)) }
+        if (!confirmed) return
+        viewModelScope.launch {
+            val active = styleIndex ?: return@launch
+            val next = if (active > 0) active - 1 else active + 1
+            val style = loadStyle(next) ?: return@launch
+            // delete style
+            eraseStyle(active)
+            storeStyles()
+            editText { it.copy(unknownFont = false, style = style, styles = styleList?.styles.orEmpty(), styleIndex = styleIndex) }
+        }
+    }
+
+    /** The window's message box closes. */
+    fun dismissTextNotice() = view.update { it.copy(text = it.text?.copy(notice = null)) }
+
+    /**
+     * StyleManager::swap(), as dragging a style of the list over its
+     * neighbour does; the order is kept when the tool closes.
+     */
+    fun swapTextStyles(first: Int, second: Int) {
+        val list = styleList ?: return
+        if (first !in list.styles.indices || second !in list.styles.indices) return
+        val styles = list.styles.toMutableList()
+        styles[first] = list.styles[second]
+        styles[second] = list.styles[first]
+        styleList = list.copy(styles = styles)
+        // fix selected index
+        styleIndex = when (styleIndex) {
+            first -> second
+            second -> first
+            else -> styleIndex
+        }
+        view.update { it.copy(text = it.text?.copy(styles = styles, styleIndex = styleIndex)) }
     }
 
     /** "Advanced" opens or closes. */
@@ -1459,10 +1611,62 @@ class PrepareViewModel(
     private suspend fun loadFamilies(): List<TextFontFamily> =
         fontFamilies.value.ifEmpty { textFonts.families().also { fontFamilies.value = it } }
 
-    /** The styles the tool offers: OrcaSlicer's default styles of the phone's fonts. */
-    private suspend fun textStyles(): List<TextStyle> {
+    /** StyleManager::init(), once: the styles, and the active one the tool's. */
+    private suspend fun ensureStyles(): TextStyleList? {
+        styleList?.let { return it }
         loadFamilies()
-        return textFonts.defaultStyles(styleNames)
+        val list = textStyles.init(styleNames) ?: return null
+        styleList = list
+        styleIndex = list.lastIndex
+        return list
+    }
+
+    /** StyleManager::load_style(index): the stored style, the tool's and the last loaded; null when its font does not load. */
+    private suspend fun loadStyle(index: Int): TextStyle? {
+        val list = styleList ?: return null
+        val style = list.styles.getOrNull(index) ?: return null
+        if (!textStyles.canLoad(style)) return null
+        styleIndex = index
+        styleList = list.copy(lastIndex = index)
+        return style
+    }
+
+    /**
+     * StyleManager::discard_style_changes(): the stored style the tool's
+     * came from, or else the last loaded; when it does not load, the first
+     * style that does (load_valid_style()).
+     */
+    private suspend fun discardStyleChanges(): TextStyle? {
+        val list = ensureStyles() ?: return null
+        val index = styleIndex
+        val loaded = if (index != null) loadStyle(index) else loadStyle(list.lastIndex)
+        if (loaded != null) return loaded
+        // try to save situation by load some font
+        val valid = textStyles.loadValidStyle(list.styles, styleNames) ?: return null
+        styleList = valid
+        styleIndex = valid.lastIndex
+        return valid.styles[valid.lastIndex]
+    }
+
+    /** StyleManager::erase(): the style leaves the list; the tool's index follows, or goes with it. */
+    private fun eraseStyle(index: Int) {
+        val list = styleList ?: return
+        if (index !in list.styles.indices) return
+        // fix selected index
+        styleIndex = styleIndex?.let { at ->
+            when {
+                index < at -> at - 1
+                index == at -> null
+                else -> at
+            }
+        }
+        styleList = list.copy(styles = list.styles.filterIndexed { at, _ -> at != index })
+    }
+
+    /** store_styles_to_app_config(false): the styles and the active one's index, the tool's or else the last loaded. */
+    private suspend fun storeStyles() {
+        val list = styleList ?: return
+        textStyles.store(list.styles, styleIndex ?: list.lastIndex)
     }
 
     /** The text tool and the other tools of the canvas close each other, as GLGizmosManager opens one gizmo. */
@@ -1866,12 +2070,6 @@ class PrepareViewModel(
 
         // Keeps the upstream flow through configuration changes.
         const val STOP_TIMEOUT_MILLIS = 5_000L
-
-        /** draw_italic_button() and draw_bold_button() without an italic or bold face. */
-        const val ITALIC_SKEW = 0.2
-        const val BOLDNESS = 20.0
-        const val REGULAR_WEIGHT = 400
-        const val BOLD_WEIGHT = 600
 
         /** LayersEditing::strength, and the timer that repeats a press held on the bar (GLCanvas3D::_start_timer()). */
         const val LAYER_EDIT_STRENGTH = 0.005

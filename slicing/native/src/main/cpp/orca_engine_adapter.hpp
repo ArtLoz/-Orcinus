@@ -2105,6 +2105,38 @@ EmbossVolume describe_emboss(
     const ProfileSelection& profiles
 );
 
+// The text tool's styles as the app configuration keeps them (StyleManager):
+// the sections font:1, font:2, ... with a style each, its font named by the
+// file's path, the phone's own kind of font description as each desktop
+// system has its own; and the index of the active style (active_font of the
+// section font, read as load_style_index() reads it), -1 for none.
+struct TextStyles {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<TextStyle> styles;
+    std::int64_t active{-1};
+};
+
+// load_styles() and load_style_index() of EmbossStyleManager.cpp.
+TextStyles load_text_styles();
+
+// draw_style_rename_popup(): the texts of the object at object_index whose
+// style is named old_name take new_name; the object is written anew only
+// when one did, and the result has no object otherwise.
+ImportedModels rename_text_style(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    const std::string& old_name,
+    const std::string& new_name,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// store_styles() and store_style_index() of EmbossStyleManager.cpp, then
+// AppConfig::save(): the styles in their order, the sections after them
+// emptied, and active as the active style's index.
+TextStyles store_text_styles(const std::vector<TextStyle>& styles, std::int64_t active);
+
 // ObjectList::set_volume_type() of one volume: the volume at volume_index of
 // the object at object_index of plate takes type, and the object's volumes are
 // sorted by type (ModelObject::sort_volumes); selected_volume is where the

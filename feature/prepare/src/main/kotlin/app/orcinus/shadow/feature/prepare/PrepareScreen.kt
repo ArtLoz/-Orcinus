@@ -387,6 +387,13 @@ internal fun PrepareRoute(
             reset = viewModel::resetTextStyle,
             setAdvanced = viewModel::setTextAdvanced,
             setType = viewModel::setTextType,
+            saveStyle = viewModel::saveTextStyle,
+            addStyle = viewModel::addTextStyle,
+            renameStyle = viewModel::renameTextStyle,
+            askDeleteStyle = viewModel::askDeleteTextStyle,
+            deleteStyle = viewModel::deleteTextStyle,
+            swapStyles = viewModel::swapTextStyles,
+            dismissNotice = viewModel::dismissTextNotice,
         ),
         textFamilies = textFamilies,
         layerActions = LayerEditingActions(
