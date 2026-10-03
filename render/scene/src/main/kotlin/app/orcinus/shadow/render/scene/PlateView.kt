@@ -204,6 +204,14 @@ fun PlateView(
     onMeasure: (MeasureTouch) -> Unit = {},
     /** The distance label's "Edit to scale", with the distance it reads in millimetres. */
     onEditMeasureDistance: (Double) -> Unit = {},
+    /**
+     * The brim ears tool while it is open (GLGizmoBrimEars): its ears are
+     * drawn, a finger on the copy places one and a finger on an ear selects,
+     * drags or removes it. Null while it is closed.
+     */
+    brimEars: BrimEarsView? = null,
+    /** What a finger does with the brim ears tool open. */
+    onBrimEars: (BrimEarsTouch) -> Unit = {},
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -390,6 +398,19 @@ fun PlateView(
             }
         }.orEmpty()
 
+        // The copy the brim ears tool is open on, numbered as the scene numbers the copies.
+        val brimEarsIndex = brimEars?.let { open ->
+            var index = 0
+            var found: Int? = null
+            for (plateObject in objects) {
+                for (instance in plateObject.instances.indices) {
+                    if (PlateInstanceId(plateObject.mesh, instance) == open.copy) found = index
+                    index++
+                }
+            }
+            found
+        }
+
         val haptics = LocalHapticFeedback.current
         SideEffect {
             controller.onSelectObject = onSelectObject
@@ -413,6 +434,11 @@ fun PlateView(
             controller.setTextDrag(textDrag)
             controller.onMeasure = onMeasure
             controller.setMeasure(measure, measuredIndexes)
+            controller.onBrimEars = { touch ->
+                if (touch is BrimEarsTouch.Delete) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onBrimEars(touch)
+            }
+            controller.setBrimEars(brimEars, brimEarsIndex)
             controller.onPixelSize = onPixelSize
             controller.setCut(cut, cutIndex)
             controller.setPainting(painting != null)
@@ -689,7 +715,7 @@ private suspend fun PointerInputScope.detectPlateGestures(
             if (controller.isCutting) controller.tapCut(down.position.x, down.position.y)
             // A painting tool and the cut gizmo keep their object while the finger turns the camera around it,
             // and the variable layer height its selection (GLCanvas3D::on_mouse() for a left up).
-            if (!controller.isPainting && !controller.isCutting && !controller.isEditingLayers && !controller.isMeasuring) {
+            if (!controller.isPainting && !controller.isCutting && !controller.isEditingLayers && !controller.isMeasuring && !controller.isBrimEars) {
                 controller.clearSelection()
                 // A tap on another plate selects it.
                 controller.selectPlateAt(down.position.x, down.position.y)
@@ -739,6 +765,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var measureRadius = 0.0
     private val measureDimensionsState = MutableStateFlow<MeasureDimensions?>(null)
     val measureDimensions: StateFlow<MeasureDimensions?> = measureDimensionsState.asStateFlow()
+
+    /** GLGizmoBrimEars open on the copy at [brimEarsIndex]. */
+    private var brimEars: BrimEarsView? = null
+    private var brimEarsIndex: Int? = null
+    val isBrimEars: Boolean get() = brimEars != null
+    var onBrimEars: (BrimEarsTouch) -> Unit = {}
+
+    /** The ray of the finger on the copy, which places an ear where it lets go. */
+    private var brimRay: Line3? = null
 
     /** GLGizmoCut3D open on the copy at [cutIndex], which the scene shows alone. */
     private var cut: CutView? = null
@@ -805,6 +840,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         var angle = 0.0
     }
 
+    /** An ear of the brim ears tool ([ear]), which the finger holds. */
+    private class BrimEarDrag(index: Int, val ear: Int, start: Affine3) : Drag(index, start)
+
     /** A connector of the cut, held at [index], where the finger dragged it last. */
     private class CutConnectorDrag(index: Int, val connector: Int, start: Affine3) : Drag(index, start) {
         var position: Vec3? = null
@@ -855,11 +893,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * Whether a finger holds an object or a grabber it can move, or paints a
      * stroke that follows it, instead of orbiting the camera.
      */
-    val moving: Boolean get() = drag != null || paintingStroke || measureRay != null
+    val moving: Boolean get() = drag != null || paintingStroke || measureRay != null || brimRay != null
 
     /** Whether a finger holds an object it has not moved yet, which a long press turns into its context menu. */
     val holdsObject: Boolean
-        get() = (drag as? ObjectDrag)?.moved == false || (drag as? CutConnectorDrag)?.moved == false ||
+        get() = (drag as? ObjectDrag)?.moved == false || (drag as? CutConnectorDrag)?.moved == false || (drag as? BrimEarDrag)?.moved == false ||
             (drag as? CutDrag)?.let { it.grabber == CutGrabber.PLANE && !it.moved } == true
 
     /** GLGizmoCut3D::on_mouse() takes a right click on the pieces of a planar cut outside the connectors' window. */
@@ -871,6 +909,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * when the finger holds no object.
      */
     fun openObjectMenu(x: Float, y: Float): Boolean {
+        (drag as? BrimEarDrag)?.takeIf { !it.moved }?.let { held ->
+            // GLGizmoBrimEars::gizmo_event(RightDown) over an ear: it goes.
+            drag = null
+            onBrimEars(BrimEarsTouch.Delete(held.ear))
+            invalidate()
+            return true
+        }
         (drag as? CutDrag)?.takeIf { it.grabber == CutGrabber.PLANE && !it.moved }?.let {
             // A right click on the plane: the piece under it (m_part_selection.toggle_selection()).
             drag = null
@@ -1009,6 +1054,18 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (shownChanged) showObjects(plateObjects + listOfNotNull(wipeTower)) else invalidate()
     }
 
+    /** GLGizmoBrimEars opens, changes or closes. */
+    fun setBrimEars(view: BrimEarsView?, index: Int?) {
+        if (brimEars == view && brimEarsIndex == index) return
+        brimEars = view
+        brimEarsIndex = index
+        if (view == null) {
+            brimRay = null
+            if (drag is BrimEarDrag) drag = null
+        }
+        invalidate()
+    }
+
     fun setCut(cut: CutView?, index: Int?) {
         if (this.cut == cut && cutIndex == index) return
         val opened = (this.cut == null) != (cut == null) || cutIndex != index
@@ -1136,6 +1193,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             onMeasure(measureTouch(ray, select = false))
             return true
         }
+        brimEars?.let { open ->
+            // GLGizmoBrimEars::gizmo_event(LeftDown): an ear's grabber first,
+            // then the copy's model parts, where an ear goes once the finger
+            // lets go; elsewhere the finger turns the camera.
+            val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
+            brimEarAt(open, ray, grabberRadius / camera.zoom)?.let { ear ->
+                drag = BrimEarDrag(brimEarsIndex ?: -1, ear, Affine3())
+                invalidate()
+                return true
+            }
+            if (objects.none { it.index == brimEarsIndex && !it.modifier && it.raycast(ray) != null }) return false
+            brimRay = ray
+            onBrimEars(BrimEarsTouch.Explore(ray.a.toVector(), (ray.b - ray.a).toVector()))
+            return true
+        }
         if (painting) {
             // GLGizmoPainterBase::gizmo_event(): a press on the painted object
             // starts a stroke there, and the engine finds the triangle under
@@ -1194,6 +1266,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * in the plane of the screen when the camera looks along the plate.
      */
     fun moveTo(x: Float, y: Float) {
+        if (brimRay != null) {
+            camera.mouseRay(x.toDouble(), y.toDouble())?.let { ray ->
+                brimRay = ray
+                onBrimEars(BrimEarsTouch.Explore(ray.a.toVector(), (ray.b - ray.a).toVector()))
+            }
+            return
+        }
+        (drag as? BrimEarDrag)?.let { held ->
+            // on_dragging(): the ear follows the point of the copy under the finger.
+            camera.mouseRay(x.toDouble(), y.toDouble())?.let { ray ->
+                held.moved = true
+                onBrimEars(BrimEarsTouch.Drag(held.ear, ray.a.toVector(), (ray.b - ray.a).toVector()))
+            }
+            return
+        }
         if (measureRay != null) {
             camera.mouseRay(x.toDouble(), y.toDouble())?.let { ray ->
                 measureRay = ray
@@ -1260,7 +1347,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return
         }
         val offset = when (drag) {
-            is RotateGrabberDrag, is ScaleGrabberDrag -> return
+            is RotateGrabberDrag, is ScaleGrabberDrag, is BrimEarDrag -> return
             is ObjectDrag -> objectOffset(drag, ray) ?: return
             is MoveGrabberDrag -> {
                 // GLGizmoMove3D::on_dragging(): the displacement along the grabber's axis.
@@ -1302,6 +1389,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     /** The finger let go, or [cancelled] as another finger came. */
     fun endMove(cancelled: Boolean = false) {
+        brimRay?.let { ray ->
+            brimRay = null
+            onBrimEars(if (cancelled) BrimEarsTouch.Leave else BrimEarsTouch.Place(ray.a.toVector(), (ray.b - ray.a).toVector()))
+            return
+        }
+        (drag as? BrimEarDrag)?.let { held ->
+            // on_stop_dragging(), or a tap on the ear, which selects it alone (on_start_dragging()).
+            drag = null
+            when {
+                held.moved -> onBrimEars(BrimEarsTouch.Dropped(held.ear))
+                !cancelled -> onBrimEars(BrimEarsTouch.Select(held.ear))
+            }
+            invalidate()
+            return
+        }
         measureRay?.let { ray ->
             measureRay = null
             onMeasure(if (cancelled) MeasureTouch.Leave else measureTouch(ray, select = true))
@@ -1911,6 +2013,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** OrcaSlicer's gizmo sizes are desktop pixels at the camera target. */
     private fun pixel() = density / camera.zoom
 
+    private fun Vec3.toVector() = Vector3(x, y, z)
+
     private fun measureTouch(ray: Line3, select: Boolean): MeasureTouch {
         val origin = Vector3(ray.a.x, ray.a.y, ray.a.z)
         val direction = (ray.b - ray.a).let { Vector3(it.x, it.y, it.z) }
@@ -2027,7 +2131,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), normal.dot(gizmo.center).toFloat())
                 },
                 layerEditing = layerEditing,
-                selectionHidden = measure != null,
+                selectionHidden = measure != null || brimEars != null,
             ),
         )
         surface.requestRender()
@@ -2035,6 +2139,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     private fun gizmoFrame(): GizmoFrame? {
         measure?.let { open -> return measureFrame(open, pixel(), measureMeshes) }
+        brimEars?.let { open -> return brimEarsFrame(open) }
         cutGizmo()?.let { gizmo ->
             val open = cut ?: return null
             val dragging = drag as? CutDrag

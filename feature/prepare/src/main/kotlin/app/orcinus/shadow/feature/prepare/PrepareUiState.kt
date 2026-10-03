@@ -2,6 +2,8 @@ package app.orcinus.shadow.feature.prepare
 
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.BedTypeChoice
+import app.orcinus.shadow.core.model.BrimEarsSetup
+import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CutConnector
@@ -149,6 +151,10 @@ data class PrepareUiState(
     val measuredVolumes: Set<ScenePath>? = null,
     /** GLGizmoMeasure::on_is_activable(): something is selected to measure. */
     val canMeasure: Boolean = false,
+    /** The brim ears tool (GLGizmoBrimEars), while it is open. */
+    val brimEars: BrimEarsMode? = null,
+    /** GLGizmoBrimEars::on_is_activable(): a single copy is selected whole. */
+    val canEditBrimEars: Boolean = false,
     /** Plater::can_layers_editing(): the toolbar's "Variable layer height" can open on the selection. */
     val canEditLayers: Boolean = false,
     /** The wipe tower of the plate; null when the plate prints with one filament. */
@@ -350,6 +356,30 @@ internal data class PrepareViewState(
     val layerCursor: Double? = null,
     /** The measuring tool, while it is open. */
     val measure: MeasureMode? = null,
+    /** The brim ears tool, while it is open. */
+    val brimEars: BrimEarsMode? = null,
+)
+
+/**
+ * GLGizmoBrimEars while it is open on [copy]: what the engine opened it with
+ * ([setup]), the ears while one is dragged ([draft]; the object's otherwise),
+ * the selected ones, the ear the finger holds (m_hover_id), the head
+ * diameter of a new ear (m_new_point_head_diameter; null until the engine
+ * told the default), the window's "Max angle" and "Detection radius", the
+ * ears that touch nothing (find_single()), and the point of the copy under
+ * the finger (render_hover_point), in the object's coordinates.
+ */
+data class BrimEarsMode(
+    val copy: PlateInstanceId,
+    val setup: BrimEarsSetup? = null,
+    val draft: List<BrimPoint>? = null,
+    val selected: Set<Int> = emptySet(),
+    val held: Int? = null,
+    val headDiameter: Double? = null,
+    val maxAngle: Double = 125.0,
+    val detectionRadius: Double = 1.0,
+    val invalid: Set<Int> = emptySet(),
+    val hover: Vector3? = null,
 )
 
 /**
@@ -548,6 +578,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         svg = view.svg?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } && canEditPlate },
         embossRequest = embossRequest.takeIf { canEditPlate },
         measure = view.measure?.takeIf { canEditPlate },
+        brimEars = view.brimEars?.takeIf { mode -> objects.any { it.mesh == mode.copy.mesh } && canEditPlate },
+        canEditBrimEars = canEditPlate && selectedInstances.size == 1 && selectedPart == null,
         measuredCopies = selectedInstances,
         measuredVolumes = selectedPart?.let { part -> objects.firstOrNull { it.mesh == part.mesh }?.volumeAt(part.index)?.mesh }?.let(::setOf),
         canMeasure = canEditPlate && measuredVolumes().isNotEmpty(),

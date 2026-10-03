@@ -67,11 +67,13 @@ import app.orcinus.shadow.domain.plate.DescribeCalibrationPrinterUseCase
 import app.orcinus.shadow.domain.plate.DescribeFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
+import app.orcinus.shadow.domain.plate.EditBrimEarsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.EmbossUseCase
+import app.orcinus.shadow.domain.plate.EnablePaintedBrimUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.EngineLanguage
 import app.orcinus.shadow.domain.plate.EnginePlateSync
@@ -223,6 +225,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val requestEmboss = RequestEmbossUseCase(plateRepository)
     // GLGizmoMeasure: the engine keeps the features of the measured volumes while the tool is open.
     private val measureFeatures = MeasureUseCase(engine, sceneFiles, plateRepository)
+    // GLGizmoBrimEars: the engine keeps the first layer of the copy while the tool is open.
+    private val brimEarsTool = EditBrimEarsUseCase(engine, plateRepository)
     private val placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope)
     // Sidebar::auto_calc_flushing_volumes(), which filament, printer and settings changes ask for.
     private val flushVolumes = UpdateFlushVolumesUseCase(engine, plateRepository)
@@ -587,6 +591,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             requestEmboss = requestEmboss,
             removeObjectPart = removeObjectPart,
             measureFeatures = measureFeatures,
+            brimEarsTool = brimEarsTool,
+            enablePaintedBrim = EnablePaintedBrimUseCase(plateRepository, settingsTabs, applicationScope),
             preferences = appPreferences,
             setPreference = setPreference,
             findValidationSetting = FindValidationSettingUseCase(settingsTabs),

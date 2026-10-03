@@ -158,6 +158,9 @@ import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
+import app.orcinus.shadow.render.scene.BrimEarState
+import app.orcinus.shadow.render.scene.BrimEarView
+import app.orcinus.shadow.render.scene.BrimEarsView
 import app.orcinus.shadow.render.scene.CutConnectorView
 import app.orcinus.shadow.render.scene.CutView
 import app.orcinus.shadow.render.scene.LayerHeightBar
@@ -449,6 +452,18 @@ internal fun PrepareRoute(
             scale = viewModel::scaleMeasure,
             cancelScale = viewModel::cancelMeasureScale,
         ),
+        brimEarsActions = BrimEarsActions(
+            toggle = viewModel::toggleBrimEars,
+            close = viewModel::closeBrimEars,
+            touch = viewModel::brimEarsTouch,
+            setDiameter = viewModel::setBrimEarDiameter,
+            setMaxAngle = viewModel::setBrimEarMaxAngle,
+            setDetectionRadius = viewModel::setBrimEarDetectionRadius,
+            generate = viewModel::generateBrimEars,
+            removeSelected = viewModel::removeSelectedBrimEars,
+            removeAll = viewModel::removeAllBrimEars,
+            setPainted = viewModel::setPaintedBrim,
+        ),
         layerActions = LayerEditingActions(
             toggle = viewModel::toggleLayerEditing,
             close = viewModel::closeLayerEditing,
@@ -548,6 +563,7 @@ internal fun PrepareScreen(
     textFamilies: List<TextFontFamily> = emptyList(),
     svgActions: SvgActions = SvgActions.NONE,
     measureActions: MeasureActions = MeasureActions.NONE,
+    brimEarsActions: BrimEarsActions = BrimEarsActions.NONE,
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
@@ -694,6 +710,8 @@ internal fun PrepareScreen(
                 },
                 onMeasure = measureActions.touch,
                 onEditMeasureDistance = measureActions.editDistance,
+                brimEars = state.brimEars?.let { mode -> brimEarsViewOf(state, mode) },
+                onBrimEars = brimEarsActions.touch,
             )
             state.measure?.editingDistance?.let { distance ->
                 MeasureScaleDialog(distance, canvas.imperialUnits, measureActions.scale, measureActions.cancelScale)
@@ -870,6 +888,7 @@ internal fun PrepareScreen(
                             textActions.toggle(hit, viewCamera.bedPoint(), defaultText)
                         },
                         onToggleMeasure = measureActions.toggle,
+                        onToggleBrimEars = brimEarsActions.toggle,
                     )
                 }
                 val position = state.selectedPosition
@@ -897,6 +916,11 @@ internal fun PrepareScreen(
                     state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye)
                     state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye)
                     state.measure != null -> MeasurePanel(state.measure, measureActions, canvas.imperialUnits)
+                    state.brimEars != null -> BrimEarsPanel(
+                        state.brimEars,
+                        ears = (state.brimEars.draft ?: state.sceneCopies.firstOrNull { it.id == state.brimEars.copy }?.plateObject?.brimPoints).orEmpty().size,
+                        actions = brimEarsActions,
+                    )
                     state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
@@ -1328,6 +1352,7 @@ private fun CanvasToolbar(
     onToggleLayerEditing: () -> Unit = {},
     onToggleText: () -> Unit = {},
     onToggleMeasure: () -> Unit = {},
+    onToggleBrimEars: () -> Unit = {},
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -1451,7 +1476,14 @@ private fun CanvasToolbar(
             selected = state.measure != null,
         )
         gizmo(DesignR.drawable.orca_toolbar_assembly, R.string.gizmo_assembly, null)
-        gizmo(DesignR.drawable.orca_toolbar_brimears, R.string.gizmo_brim_ears, null)
+        // GLGizmoBrimEars: ears of the brim placed under the selected copy.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_brimears,
+            contentDescription = stringResource(R.string.gizmo_brim_ears),
+            onClick = onToggleBrimEars,
+            enabled = state.canEditBrimEars,
+            selected = state.brimEars != null,
+        )
         OrcaCanvasToolbarSeparator()
         unavailable(DesignR.drawable.orca_toolbar_assemble, R.string.toolbar_assembly_view)
     }
@@ -2345,4 +2377,32 @@ private fun embossDragOf(volume: ObjectPartId, described: EmbossVolume?, keepUp:
     }
     val part = plateObject.parts.getOrNull(volume.index - 1) ?: return null
     return TextDragView(setOf(part.mesh.value), part.placement, part.placement, described.fix, described.onlyPart, keepUp)
+}
+
+/**
+ * render_points(): the ears of the copy the brim ears tool is open on, in
+ * the world, with the ear the finger would place; null once the copy is gone.
+ */
+private fun brimEarsViewOf(state: PrepareUiState, mode: BrimEarsMode): BrimEarsView? {
+    val copy = state.sceneCopies.firstOrNull { it.id == mode.copy } ?: return null
+    val placement = copy.instance.inspection.placement.columns
+    fun world(point: Vector3) = Vector3(
+        placement[0] * point.x + placement[4] * point.y + placement[8] * point.z + placement[12],
+        placement[1] * point.x + placement[5] * point.y + placement[9] * point.z + placement[13],
+        placement[2] * point.x + placement[6] * point.y + placement[10] * point.z + placement[14],
+    )
+    val points = mode.draft ?: copy.plateObject.brimPoints
+    return BrimEarsView(
+        copy = mode.copy,
+        ears = points.mapIndexed { index, point ->
+            val shown = when {
+                index == mode.held -> BrimEarState.HELD
+                index in mode.selected -> BrimEarState.SELECTED
+                index in mode.invalid -> BrimEarState.ERROR
+                else -> BrimEarState.NORMAL
+            }
+            BrimEarView(world(point.position), point.radius, shown)
+        },
+        hover = mode.hover?.let { point -> BrimEarView(world(point), (mode.headDiameter ?: 0.0) / 2, BrimEarState.HOVER) },
+    )
 }

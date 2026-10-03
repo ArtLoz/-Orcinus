@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.Axis
+import app.orcinus.shadow.core.model.BrimEarsOutcome
+import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
@@ -81,6 +83,7 @@ import app.orcinus.shadow.domain.plate.AddPlateInstanceUseCase
 import app.orcinus.shadow.domain.plate.AddPlateUseCase
 import app.orcinus.shadow.domain.plate.AddPrimitiveUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
+import app.orcinus.shadow.domain.plate.BrimEarsTarget
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
@@ -89,9 +92,11 @@ import app.orcinus.shadow.domain.plate.CutObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
+import app.orcinus.shadow.domain.plate.EditBrimEarsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.EmbossUseCase
+import app.orcinus.shadow.domain.plate.EnablePaintedBrimUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
@@ -148,6 +153,7 @@ import app.orcinus.shadow.domain.plate.toggledItalic
 import app.orcinus.shadow.domain.plate.withFamily
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
+import app.orcinus.shadow.render.scene.BrimEarsTouch
 import app.orcinus.shadow.render.scene.CameraEye
 import app.orcinus.shadow.render.scene.CutConnectorEvent
 import app.orcinus.shadow.render.scene.CutLineEvent
@@ -244,6 +250,8 @@ class PrepareViewModel(
     private val requestEmboss: RequestEmbossUseCase,
     private val removeObjectPart: RemoveObjectPartUseCase,
     private val measureFeatures: MeasureUseCase,
+    private val brimEarsTool: EditBrimEarsUseCase,
+    private val enablePaintedBrim: EnablePaintedBrimUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
@@ -323,6 +331,9 @@ class PrepareViewModel(
 
     /** The measuring tool's touches and resets, which the engine works through in their order. */
     private val measureCommands = Channel<MeasureCommand>(Channel.UNLIMITED)
+
+    /** The brim ears tool's touches, which the engine works through in their order. */
+    private val brimEarsTouches = Channel<BrimEarsTouch>(Channel.UNLIMITED)
     private val view = MutableStateFlow(PrepareViewState())
 
     /**
@@ -514,6 +525,62 @@ class PrepareViewModel(
                         MeasureTouch.Leave -> view.update { state -> state.measure?.let { state.copy(measure = it.copy(hover = null)) } ?: state }
                     }
                 }
+            }
+        }
+        // GLGizmoBrimEars: the engine keeps the first layer of the copy the tool
+        // is open on, sliced anew once the copy changed otherwise than by its
+        // ears; the tool closes once the selection is another
+        // (EVT_GLCANVAS_RESETGIZMOS of on_render()).
+        viewModelScope.launch {
+            combine(plate, view.map { it.brimEars?.copy }.distinctUntilChanged()) { state, copy ->
+                when {
+                    copy == null -> BrimEarsChange.Closed
+                    brimEarsTool.copyOf(state) != copy -> BrimEarsChange.Lost
+                    else -> brimEarsTool.targetOf(state, copy)?.let(BrimEarsChange::Open) ?: BrimEarsChange.Waiting
+                }
+            }.distinctUntilChanged().collectLatest { change ->
+                when (change) {
+                    BrimEarsChange.Closed -> brimEarsTool.end()
+                    BrimEarsChange.Lost -> closeBrimEars()
+                    BrimEarsChange.Waiting -> Unit
+                    is BrimEarsChange.Open -> when (val outcome = brimEarsTool.open(change.target)) {
+                        is BrimEarsOutcome.Success -> view.update { state ->
+                            state.brimEars?.let { mode ->
+                                state.copy(
+                                    brimEars = mode.copy(
+                                        setup = outcome.setup,
+                                        headDiameter = mode.headDiameter ?: outcome.setup.defaultHeadDiameter,
+                                        detectionRadius = mode.detectionRadius.coerceAtMost(outcome.setup.detectionRadiusMax),
+                                    ),
+                                )
+                            } ?: state
+                        }
+                        is BrimEarsOutcome.Failure -> closeBrimEars()
+                        null -> Unit
+                    }
+                }
+            }
+        }
+        // find_single() whenever the ears change: the ones that touch nothing.
+        viewModelScope.launch {
+            combine(plate, view) { state, current -> current.brimEars?.takeIf { it.setup != null }?.let { mode -> brimEarsOf(state, mode) } }
+                .distinctUntilChanged()
+                .collectLatest { points ->
+                    if (points == null) return@collectLatest
+                    val invalid = brimEarsTool.invalid(points).toSet()
+                    view.update { state -> state.brimEars?.let { state.copy(brimEars = it.copy(invalid = invalid)) } ?: state }
+                }
+        }
+        viewModelScope.launch {
+            while (true) {
+                var touch = brimEarsTouches.receive()
+                // A finger faster than the engine: only its latest place is explored, and a dragged ear goes to the last.
+                while (true) {
+                    val next = brimEarsTouches.tryReceive().getOrNull() ?: break
+                    if (touch !is BrimEarsTouch.Explore && !(touch is BrimEarsTouch.Drag && next is BrimEarsTouch.Drag)) handleBrimEarsTouch(touch)
+                    touch = next
+                }
+                handleBrimEarsTouch(touch)
             }
         }
         viewModelScope.launch {
@@ -1706,11 +1773,12 @@ class PrepareViewModel(
         view.update { it.copy(svg = null) }
     }
 
-    /** The text and SVG tools close, as another gizmo opens; the measuring tool too. */
+    /** The text and SVG tools close, as another gizmo opens; the measuring and brim ears tools too. */
     private fun closeEmbossTools() {
         closeText()
         closeSvg()
         closeMeasure()
+        closeBrimEars()
     }
 
     /** What the engine tells of the SVG [volume] and its picture, for the window open on [open]. */
@@ -2115,6 +2183,7 @@ class PrepareViewModel(
         closeCut()
         closePainting()
         closeMeasure()
+        closeBrimEars()
         openSimplify.close()
         editLayerHeights.enable(false)
         view.update { it.copy(gizmo = null, arrangeOptionsOpen = false) }
@@ -2215,6 +2284,135 @@ class PrepareViewModel(
                 hover
             }
             state.copy(measure = mode.copy(hover = shown))
+        }
+    }
+
+    /**
+     * The toolbar's "Brim Ears" (GLGizmoBrimEars): the tool opens on the
+     * selected copy, the other tools of the canvas closing first, or closes.
+     */
+    fun toggleBrimEars() {
+        if (view.value.brimEars != null) return closeBrimEars()
+        val copy = brimEarsTool.copyOf(plate.value)?.takeIf { state.value.canEditBrimEars } ?: return
+        closeOtherTools()
+        closeEmbossTools()
+        view.update { it.copy(brimEars = BrimEarsMode(copy)) }
+    }
+
+    /** "Done" (reset_all_gizmos()): the tool closes; the object keeps its ears. */
+    fun closeBrimEars() {
+        if (view.value.brimEars == null) return
+        view.update { it.copy(brimEars = null) }
+    }
+
+    /** What a finger does on the 3D view while the tool is open. */
+    fun brimEarsTouch(touch: BrimEarsTouch) {
+        if (view.value.brimEars != null) brimEarsTouches.trySend(touch)
+    }
+
+    /**
+     * "Head diameter" let go (apply_radius_change()): new ears take it, and
+     * the selected ears too, after the snapshot "Change point head diameter".
+     */
+    fun setBrimEarDiameter(diameter: Double) {
+        val mode = view.value.brimEars ?: return
+        view.update { state -> state.brimEars?.let { state.copy(brimEars = it.copy(headDiameter = diameter)) } ?: state }
+        if (mode.selected.isEmpty()) return
+        val points = brimEarsOf(plate.value, mode) ?: return
+        brimEarsTool.commit(mode.copy.mesh, points.mapIndexed { index, point -> if (index in mode.selected) point.copy(radius = diameter / 2) else point })
+    }
+
+    fun setBrimEarMaxAngle(angle: Double) {
+        view.update { state -> state.brimEars?.let { state.copy(brimEars = it.copy(maxAngle = angle)) } ?: state }
+    }
+
+    fun setBrimEarDetectionRadius(radius: Double) {
+        view.update { state -> state.brimEars?.let { state.copy(brimEars = it.copy(detectionRadius = radius)) } ?: state }
+    }
+
+    /** "Auto-generate" (auto_generate()): ears along the first layer's corners, after the snapshot "Auto generate brim ear". */
+    fun generateBrimEars() {
+        val mode = view.value.brimEars ?: return
+        val diameter = mode.headDiameter ?: return
+        val points = brimEarsOf(plate.value, mode) ?: return
+        viewModelScope.launch {
+            brimEarsTool.commit(mode.copy.mesh, brimEarsTool.generate(points, mode.maxAngle, mode.detectionRadius, diameter))
+        }
+    }
+
+    /** "Remove" > "Selected" (delete_selected_points()), after the snapshot "Delete brim ear". */
+    fun removeSelectedBrimEars() {
+        val mode = view.value.brimEars ?: return
+        val points = brimEarsOf(plate.value, mode) ?: return
+        brimEarsTool.commit(mode.copy.mesh, points.filterIndexed { index, _ -> index !in mode.selected })
+        view.update { state -> state.brimEars?.let { state.copy(brimEars = it.copy(selected = emptySet())) } ?: state }
+    }
+
+    /** "Remove" > "All": every ear selected and removed. */
+    fun removeAllBrimEars() {
+        val mode = view.value.brimEars ?: return
+        brimEarsTool.commit(mode.copy.mesh, emptyList())
+        view.update { state -> state.brimEars?.let { state.copy(brimEars = it.copy(selected = emptySet())) } ?: state }
+    }
+
+    /** The warning's link: the object's brim becomes "painted". */
+    fun setPaintedBrim() {
+        view.value.brimEars?.let { enablePaintedBrim(it.copy.mesh) }
+    }
+
+    /** The ears the tool works on: the dragged ones, or the object's. */
+    private fun brimEarsOf(state: PlateState, mode: BrimEarsMode): List<BrimPoint>? =
+        mode.draft ?: state.objects.firstOrNull { it.mesh == mode.copy.mesh }?.brimPoints
+
+    private fun updateBrimEars(change: (BrimEarsMode) -> BrimEarsMode) {
+        view.update { state -> state.brimEars?.let { state.copy(brimEars = change(it)) } ?: state }
+    }
+
+    /** gizmo_event() and the grabbers' dragging, for a finger on the 3D view. */
+    private suspend fun handleBrimEarsTouch(touch: BrimEarsTouch) {
+        val mode = view.value.brimEars ?: return
+        val points = brimEarsOf(plate.value, mode) ?: return
+        when (touch) {
+            // Moving: the ear the mouse would place, on the copy under it.
+            is BrimEarsTouch.Explore -> brimEarsTool.hit(touch.origin, touch.direction).let { hit -> updateBrimEars { it.copy(hover = hit?.position) } }
+            BrimEarsTouch.Leave -> updateBrimEars { it.copy(hover = null) }
+            is BrimEarsTouch.Place -> {
+                updateBrimEars { it.copy(hover = null) }
+                // If there is some selection, don't add new point and deselect everything instead.
+                if (mode.selected.isNotEmpty()) return updateBrimEars { it.copy(selected = emptySet()) }
+                val diameter = mode.headDiameter ?: return
+                val hit = brimEarsTool.hit(touch.origin, touch.direction) ?: return
+                val ear = BrimPoint(hit.ear, diameter / 2)
+                // add_point_to_cache(): an ear there already is is not added again.
+                if (ear !in points) brimEarsTool.commit(mode.copy.mesh, points + ear)
+            }
+            is BrimEarsTouch.Select -> points.getOrNull(touch.index)?.let { ear ->
+                updateBrimEars { it.copy(selected = setOf(touch.index), headDiameter = ear.radius * 2, held = null) }
+            }
+            is BrimEarsTouch.Drag -> {
+                val ear = points.getOrNull(touch.index) ?: return
+                // on_start_dragging() selects the ear alone; on_dragging() moves it in X and Y to the copy under the finger.
+                val hit = brimEarsTool.hit(touch.origin, touch.direction)
+                val moved = hit?.let { ear.copy(position = Vector3(it.position.x, it.position.y, ear.position.z)) } ?: ear
+                updateBrimEars {
+                    it.copy(
+                        draft = points.mapIndexed { index, point -> if (index == touch.index) moved else point },
+                        selected = setOf(touch.index),
+                        headDiameter = ear.radius * 2,
+                        held = touch.index,
+                    )
+                }
+            }
+            is BrimEarsTouch.Dropped -> {
+                updateBrimEars { it.copy(draft = null, held = null) }
+                // on_stop_dragging(): the snapshot "Move support point" when the ear moved.
+                mode.draft?.let { draft -> brimEarsTool.commit(mode.copy.mesh, draft) }
+            }
+            is BrimEarsTouch.Delete -> {
+                if (touch.index !in points.indices) return
+                brimEarsTool.commit(mode.copy.mesh, points.filterIndexed { index, _ -> index != touch.index })
+                updateBrimEars { it.copy(selected = emptySet(), held = null) }
+            }
         }
     }
 
@@ -2651,6 +2849,20 @@ private sealed interface MeasureChange {
     data object Waiting : MeasureChange
 
     data class Open(val target: MeasureTarget) : MeasureChange
+}
+
+/** What the brim ears tool's engine session follows: the copy to work on, or none. */
+private sealed interface BrimEarsChange {
+    /** The tool is closed. */
+    data object Closed : BrimEarsChange
+
+    /** The selection is another, which closes the tool. */
+    data object Lost : BrimEarsChange
+
+    /** The plate cannot change for now: the session stays as it is. */
+    data object Waiting : BrimEarsChange
+
+    data class Open(val target: BrimEarsTarget) : BrimEarsChange
 }
 
 /** What the measuring tool asks the engine, in order. */
