@@ -3733,6 +3733,10 @@ class PlateUseCasesTest {
         override fun deleteToolpathsExcept(keep: Collection<ScenePath>) {
             keptToolpaths = keep.singleOrNull()
         }
+
+        override fun svgPreview() = ScenePath("svg-preview.png")
+
+        override fun newSavedSvg(name: String) = ScenePath("saved/$name")
     }
 
     /** The backup folder: [backup] left by an earlier run, and what the use case did with it. */

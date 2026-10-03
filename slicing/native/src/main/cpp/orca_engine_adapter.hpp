@@ -2114,28 +2114,80 @@ EmbossVolume describe_emboss(
 // camera_position is given (face_selected_volume_to_camera()), which looks
 // along camera_forward, in perspective or not, keeping the text's up when
 // keep_up is set.
-struct TextTransform {
+struct EmbossTransform {
     double rotate{0.0};
     double move{0.0};
     std::vector<double> camera_position;
     std::vector<double> camera_forward;
     bool perspective{true};
     bool keep_up{false};
+    // GLGizmoSVG::draw_size(): the SVG's width and height scaled by these
+    // ratios (Selection::scale()); empty for none.
+    std::vector<double> scale;
+    // GLGizmoSVG::draw_mirroring(): mirrored along X (0) or Y (1); -1 for none.
+    int mirror{-1};
 };
 
 // The text at volume_index of the object at object_index, seen on its copy at
 // instance_index, turned and moved as transform says; then embossed anew from
 // text and style when re_emboss is set, or when it uses the surface or is
 // placed per glyph (volume_transformation_changed()).
-ImportedModels transform_text(
+ImportedModels transform_emboss(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,
     std::size_t instance_index,
     std::size_t volume_index,
-    const TextTransform& transform,
+    const EmbossTransform& transform,
     const std::string& text,
     const TextStyle& style,
     bool re_emboss,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// A warning about the shapes of an SVG (create_shape_warnings() of
+// GLGizmoSVG.cpp): its message, whose last placeholder lists what is
+// unsupported, joined by ", ", for a fill or a stroke.
+struct SvgWarning {
+    UiText text;
+    std::vector<UiText> unsupported;
+};
+
+// GLGizmoSVG::draw_preview() and draw_filename() of an SVG volume: its shape
+// drawn as init_texture() draws it, max_size_px on its longer side, into a
+// PNG of width x height, the path of its file (EmbossShape::SvgFile::path,
+// empty once forgotten), the warnings about its shapes, and the count of the
+// points of its shapes (draw_size()'s tooltip).
+struct SvgPreview {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::string svg_path;
+    int width{0};
+    int height{0};
+    std::vector<SvgWarning> warnings;
+    std::int64_t points{0};
+};
+
+SvgPreview preview_svg(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const std::string& png_path,
+    int max_size_px,
+    const ProfileSelection& profiles
+);
+
+// The file menu of the SVG window (draw_filename()): "Forget the file path",
+// "Bake" (the volume is no longer an SVG) and "Save as" (the SVG written to
+// path, which it is then reloaded from).
+enum class SvgFileEdit : std::int64_t { forget_path = 0, bake = 1, save_as = 2 };
+
+ImportedModels edit_svg_file(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    SvgFileEdit edit,
+    const std::string& path,
     const ProfileSelection& profiles,
     const std::string& output_prefix
 );

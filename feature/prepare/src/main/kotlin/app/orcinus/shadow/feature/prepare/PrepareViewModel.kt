@@ -56,7 +56,7 @@ import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.TextStyle
-import app.orcinus.shadow.core.model.TextTransform
+import app.orcinus.shadow.core.model.EmbossTransform
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
@@ -81,7 +81,7 @@ import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
-import app.orcinus.shadow.domain.plate.EmbossTextUseCase
+import app.orcinus.shadow.domain.plate.EmbossUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
@@ -222,7 +222,7 @@ class PrepareViewModel(
     private val plateJobs: PlateJobsUseCase,
     private val setPlateSettings: SetPlateSettingsUseCase,
     private val editLayerHeights: EditLayerHeightsUseCase,
-    private val embossText: EmbossTextUseCase,
+    private val emboss: EmbossUseCase,
     private val textFonts: TextFontsUseCase,
     private val textStyles: TextStylesUseCase,
     private val requestEmboss: RequestEmbossUseCase,
@@ -372,7 +372,7 @@ class PrepareViewModel(
                     val open = view.value.text ?: return@withLock
                     if (open.volume != asked.volume || asked.blank || asked.unknownFont) return@withLock
                     view.update { it.copy(text = it.text?.copy(busy = true)) }
-                    val edited = embossText.update(asked.volume, asked.text, asked.style)
+                    val edited = emboss.update(asked.volume, asked.text, asked.style)
                     view.update { state ->
                         val now = state.text ?: return@update state
                         state.copy(text = now.copy(volume = edited?.takeIf { now.volume == asked.volume } ?: now.volume, busy = false))
@@ -1335,7 +1335,7 @@ class PrepareViewModel(
             // The tool leaves the text it was open on for the new one.
             closeText()
             closeOtherTools()
-            val created = embossText.create(placement, type, defaultText, style) ?: return@launch
+            val created = emboss.create(placement, type, defaultText, style) ?: return@launch
             openText(created, style)
         }
     }
@@ -1349,7 +1349,7 @@ class PrepareViewModel(
         closeOtherTools()
         view.update { it.copy(text = TextMode(volume, text = "", style = created ?: TextStyle("", ""), busy = true)) }
         viewModelScope.launch {
-            val described = (embossText.describe(volume) as? EmbossVolumeOutcome.Success)?.volume
+            val described = (emboss.describe(volume) as? EmbossVolumeOutcome.Success)?.volume
             if (described == null || described.kind != EmbossKind.TEXT) {
                 view.update { if (it.text?.volume == volume) it.copy(text = null) else it }
                 return@launch
@@ -1453,7 +1453,7 @@ class PrepareViewModel(
                 editText { changed }
             } else {
                 view.update { it.copy(text = changed) }
-                transformText(TextTransform(rotate = turn, move = move), reEmboss = true, angleFromVolume = false)
+                transformEmboss(EmbossTransform(rotate = turn, move = move), reEmboss = true, angleFromVolume = false)
             }
         }
     }
@@ -1471,7 +1471,7 @@ class PrepareViewModel(
         angle = atan2(sin(angle), cos(angle))
         val turn = angle - (open.style.angle ?: 0.0)
         if (abs(turn) < ANGLE_EPSILON) return
-        transformText(TextTransform(rotate = turn), reEmboss = false, angleFromVolume = true)
+        transformEmboss(EmbossTransform(rotate = turn), reEmboss = false, angleFromVolume = true)
     }
 
     /**
@@ -1484,7 +1484,7 @@ class PrepareViewModel(
         val move = (distance ?: 0.0) - (open.style.distance ?: 0.0)
         view.update { it.copy(text = it.text?.copy(style = open.style.copy(distance = distance))) }
         if (move == 0.0) return
-        transformText(TextTransform(move = move), reEmboss = false, angleFromVolume = false)
+        transformEmboss(EmbossTransform(move = move), reEmboss = false, angleFromVolume = false)
     }
 
     /** The lock beside Rotation: whether the text's up is kept as it faces the camera. */
@@ -1496,8 +1496,8 @@ class PrepareViewModel(
     /** "Set text to face camera" (face_selected_volume_to_camera()) with the camera at [eye]. */
     fun faceTextToCamera(eye: CameraEye?) {
         val camera = eye ?: return
-        transformText(
-            TextTransform(cameraPosition = camera.position, cameraForward = camera.forward, perspective = camera.perspective, keepUp = textKeepUp),
+        transformEmboss(
+            EmbossTransform(cameraPosition = camera.position, cameraForward = camera.forward, perspective = camera.perspective, keepUp = textKeepUp),
             reEmboss = false,
             angleFromVolume = !textKeepUp,
         )
@@ -1509,7 +1509,7 @@ class PrepareViewModel(
         viewModelScope.launch {
             textLock.withLock {
                 view.update { it.copy(text = it.text?.copy(busy = true)) }
-                val moved = embossText.update(open.volume, open.text, open.style, placement)
+                val moved = emboss.update(open.volume, open.text, open.style, placement)
                 finishTransform(open.volume, moved, angleFromVolume = !textKeepUp)
             }
         }
@@ -1520,14 +1520,14 @@ class PrepareViewModel(
      * window's text and style when [reEmboss] is set; its angle measured
      * anew from the volume when [angleFromVolume] is set.
      */
-    private fun transformText(transform: TextTransform, reEmboss: Boolean, angleFromVolume: Boolean) {
+    private fun transformEmboss(transform: EmbossTransform, reEmboss: Boolean, angleFromVolume: Boolean) {
         val open = view.value.text ?: return
         val instance = plate.value.selectedInstances.firstOrNull { it.mesh == open.volume.mesh }?.instance ?: 0
         viewModelScope.launch {
             textLock.withLock {
                 view.update { it.copy(text = it.text?.copy(busy = true)) }
                 val now = view.value.text ?: return@withLock
-                val moved = embossText.transform(open.volume, instance, transform, now.text, now.style, reEmboss)
+                val moved = emboss.transform(open.volume, instance, transform, now.text, now.style, reEmboss)
                 finishTransform(open.volume, moved, angleFromVolume)
             }
         }
@@ -1535,7 +1535,7 @@ class PrepareViewModel(
 
     /** The volume the text became, with its angle as the engine measures it when [angleFromVolume] is set. */
     private suspend fun finishTransform(volume: ObjectPartId, moved: ObjectPartId?, angleFromVolume: Boolean) {
-        val described = moved?.takeIf { angleFromVolume }?.let { (embossText.describe(it) as? EmbossVolumeOutcome.Success)?.volume }
+        val described = moved?.takeIf { angleFromVolume }?.let { (emboss.describe(it) as? EmbossVolumeOutcome.Success)?.volume }
         view.update { state ->
             val now = state.text?.takeIf { it.volume == volume } ?: return@update state.copy(text = state.text?.copy(busy = false))
             state.copy(
@@ -1708,7 +1708,7 @@ class PrepareViewModel(
         if (open.onlyPart || open.described?.type == type) return
         viewModelScope.launch {
             view.update { it.copy(text = it.text?.copy(busy = true)) }
-            val changed = embossText.changeType(open.volume, type, open.text, open.style)
+            val changed = emboss.changeType(open.volume, type, open.text, open.style)
             view.update { state ->
                 val now = state.text ?: return@update state
                 state.copy(

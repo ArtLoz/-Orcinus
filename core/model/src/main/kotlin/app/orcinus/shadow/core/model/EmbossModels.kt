@@ -130,14 +130,45 @@ sealed interface EmbossRequest {
  * [cameraPosition], which looks along [cameraForward], in perspective or not
  * (face_selected_volume_to_camera()), keeping its up when [keepUp] is set.
  */
-data class TextTransform(
+data class EmbossTransform(
     val rotate: Double = 0.0,
     val move: Double = 0.0,
     val cameraPosition: Vector3? = null,
     val cameraForward: Vector3? = null,
     val perspective: Boolean = true,
     val keepUp: Boolean = false,
+    /** GLGizmoSVG::draw_size(): the SVG's width and height scaled by these ratios (Selection::scale()); null for none. */
+    val scale: Vector3? = null,
+    /** GLGizmoSVG::draw_mirroring(): mirrored along X or Y; null for none. */
+    val mirror: Axis? = null,
 )
+
+/** A warning about an SVG's shapes: its message, whose last placeholder lists [unsupported] joined by ", ". */
+data class SvgWarning(val text: OrcaText, val unsupported: List<OrcaText> = emptyList())
+
+/**
+ * The SVG window's preview (GLGizmoSVG::draw_preview()): the shape drawn into
+ * [picture], a PNG of [width] x [height]; the path of the file it came from,
+ * empty once forgotten; the warnings about its shapes; the count of the points
+ * of its shapes.
+ */
+data class SvgPreview(
+    val picture: ScenePath,
+    val width: Int,
+    val height: Int,
+    val svgPath: String,
+    val warnings: List<SvgWarning>,
+    val points: Long,
+)
+
+sealed interface SvgPreviewOutcome {
+    data class Success(val preview: SvgPreview) : SvgPreviewOutcome
+
+    data class Failure(val message: String) : SvgPreviewOutcome
+}
+
+/** The SVG window's file menu: "Forget the file path", "Bake" and "Save as". */
+enum class SvgFileEdit { FORGET_PATH, BAKE, SAVE_AS }
 
 /**
  * The text tool's styles the app configuration keeps (StyleManager's styles),

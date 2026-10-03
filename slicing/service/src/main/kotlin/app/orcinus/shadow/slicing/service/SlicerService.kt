@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeKind
 import app.orcinus.shadow.core.model.ComparedPresets
@@ -46,7 +47,8 @@ import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SlicedPlates
-import app.orcinus.shadow.core.model.TextTransform
+import app.orcinus.shadow.core.model.EmbossTransform
+import app.orcinus.shadow.core.model.SvgFileEdit
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.core.model.Transform3
@@ -296,7 +298,7 @@ abstract class SlicerService<E> : Service()
         override fun describeEmboss(plate: Array<PlacedModelParcel>, index: Int, volume: Int, profiles: ProfilesParcel): EmbossVolumeParcel =
             runBlocking { engine.describeEmboss(plate.toPlacedModels(), index, volume, profiles.toProfiles()) }.toParcel()
 
-        override fun transformText(
+        override fun transformEmboss(
             plate: Array<PlacedModelParcel>,
             index: Int,
             instance: Int,
@@ -307,21 +309,40 @@ abstract class SlicerService<E> : Service()
             cameraForward: DoubleArray,
             perspective: Boolean,
             keepUp: Boolean,
+            scale: DoubleArray,
+            mirror: Int,
             text: String,
             style: TextStyleParcel,
             reEmboss: Boolean,
             profiles: ProfilesParcel,
             prefix: String,
         ): ModelLoadParcel = runBlocking {
-            val transform = TextTransform(
+            val transform = EmbossTransform(
                 rotate = rotate,
                 move = move,
                 cameraPosition = cameraPosition.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) },
                 cameraForward = cameraForward.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) },
                 perspective = perspective,
                 keepUp = keepUp,
+                scale = scale.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) },
+                mirror = Axis.entries.getOrNull(mirror),
             )
-            engine.transformText(plate.toPlacedModels(), index, instance, volume, transform, text, style.toTextStyle(), reEmboss, profiles.toProfiles(), ScenePath(prefix))
+            engine.transformEmboss(plate.toPlacedModels(), index, instance, volume, transform, text, style.toTextStyle(), reEmboss, profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun previewSvg(plate: Array<PlacedModelParcel>, index: Int, volume: Int, picture: String, maxSize: Int, profiles: ProfilesParcel): SvgPreviewParcel =
+            runBlocking { engine.previewSvg(plate.toPlacedModels(), index, volume, ScenePath(picture), maxSize, profiles.toProfiles()) }.toParcel()
+
+        override fun editSvgFile(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volume: Int,
+            edit: String,
+            path: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.editSvgFile(plate.toPlacedModels(), index, volume, SvgFileEdit.valueOf(edit), path, profiles.toProfiles(), ScenePath(prefix))
         }.toParcel()
 
         override fun renameTextStyle(

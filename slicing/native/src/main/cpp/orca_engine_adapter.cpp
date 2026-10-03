@@ -5184,6 +5184,11 @@ ImportedModels paste_volumes(
 
 namespace detail {
 
+bool write_png_rgba(const std::string& path, int width, int height, const std::vector<unsigned char>& rgba)
+{
+    return write_rgba_png(path, width, height, rgba);
+}
+
 std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance)
 {
     using Kernel = CGAL::Simple_cartesian<float>;

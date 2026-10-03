@@ -8,6 +8,7 @@
 // of its own and goes into a project as the desktop app stores it.
 
 #include <algorithm>
+#include <functional>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -17,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -1385,6 +1387,54 @@ Slic3r::Transform3d rigid_rotation(const Slic3r::Geometry::Transformation& trafo
     return rotation;
 }
 
+// GLGizmoSVG::calculate_scale() and get_scale_for_tolerance(): the larger of
+// the world's scales of the volume's width and height, without the fix of a
+// 3MF file.
+double svg_scale_for_tolerance(const Slic3r::ModelVolume& volume, const Slic3r::ModelInstance& instance)
+{
+    using namespace Slic3r;
+    Transform3d to_world = instance.get_matrix() * volume.get_matrix();
+    if (volume.emboss_shape.has_value() && volume.emboss_shape->fix_3mf_tr.has_value())
+        to_world = to_world * volume.emboss_shape->fix_3mf_tr->inverse();
+    const auto to_world_linear = to_world.linear();
+    auto calc = [&to_world_linear](const Vec3d& axe) -> float {
+        const Vec3d axe_world = to_world_linear * axe;
+        const double norm_sq = axe_world.squaredNorm();
+        return is_approx(norm_sq, 1.) ? 1.f : static_cast<float>(std::sqrt(norm_sq));
+    };
+    return std::max(calc(Vec3d::UnitX()), calc(Vec3d::UnitY()));
+}
+
+// GLGizmoSVG::process() of an SVG volume: embossed anew from its shape, which
+// is sampled anew from its picture for the volume's size when resampled.
+void reemboss_svg(
+    Slic3r::Model& model,
+    const Slic3r::DynamicPrintConfig& config,
+    Slic3r::ModelVolume& volume,
+    bool resampled,
+    const std::string& output_prefix,
+    ImportedModels& result
+)
+{
+    using namespace Slic3r;
+    EmbossInput input;
+    input.shape = *volume.emboss_shape;
+    if (resampled && input.shape.svg_file.has_value()) {
+        EmbossShape::SvgFile& svg = *input.shape.svg_file;
+        if (svg.image == nullptr && init_image(svg) == nullptr) {
+            result.message = "Nano SVG parser can't load the SVG.";
+            return;
+        }
+        const double scale = svg_scale_for_tolerance(volume, *volume.get_object()->instances.front());
+        NSVGLineParams params{tesselation_tolerance(scale)};
+        input.shape.shapes_with_ids = create_shape_with_ids(*svg.image, params);
+        input.shape.final_shape = {}; // reset cache for final shape
+    }
+    input.volume_name = volume.name;
+    input.is_outside = volume.type() == ModelVolumeType::MODEL_PART;
+    update_emboss(model, config, volume, input, {}, output_prefix, result);
+}
+
 // calc_distance() of SurfaceDrag.cpp: how far the volume's origin stands from
 // the object's other volumes along its projection; none when it touches them,
 // is too far, or the object has no other part.
@@ -1715,11 +1765,13 @@ ImportedModels update_svg(
             result.message = "The volume is no SVG";
             return result;
         }
-        // GLGizmoSVG::process(): the volume's shape, from another file when given.
+        // GLGizmoSVG::process(): the volume's shape, from another file when given,
+        // its curves sampled for the size the volume has (get_scale_for_tolerance()).
         EmbossInput input;
         input.shape = *volume->emboss_shape;
         if (!svg_path.empty()) {
-            std::optional<Slic3r::EmbossShape> shape = select_shape(svg_path, tesselation_tolerance(1.), result.message);
+            const double scale = svg_scale_for_tolerance(*volume, *volume->get_object()->instances.front());
+            std::optional<Slic3r::EmbossShape> shape = select_shape(svg_path, tesselation_tolerance(scale), result.message);
             if (!shape.has_value()) {
                 return result;
             }
@@ -2185,12 +2237,12 @@ TextStyles store_text_styles(const std::vector<TextStyle>& styles, std::int64_t 
     return result;
 }
 
-ImportedModels transform_text(
+ImportedModels transform_emboss(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,
     std::size_t instance_index,
     std::size_t volume_index,
-    const TextTransform& transform,
+    const EmbossTransform& transform,
     const std::string& text,
     const TextStyle& style,
     bool re_emboss,
@@ -2211,10 +2263,11 @@ ImportedModels transform_text(
         if (volume == nullptr) {
             return result;
         }
-        if (!volume->text_configuration.has_value() || !volume->emboss_shape.has_value()) {
-            result.message = "The volume is no text";
+        if (!volume->emboss_shape.has_value()) {
+            result.message = "The volume is neither text nor SVG";
             return result;
         }
+        const bool is_text = volume->text_configuration.has_value();
         ModelObject& object = *volume->get_object();
         if (instance_index >= object.instances.size()) {
             result.message = "The object has no such copy";
@@ -2314,15 +2367,647 @@ ImportedModels transform_text(
             }
         }
 
-        // volume_transformation_changed(): a text on the surface or per glyph is embossed anew.
-        if (re_emboss || volume->emboss_shape->projection.use_surface || style.per_glyph) {
+        // Selection::scale_and_translate() of the SVG's width and height
+        // (draw_size()) and of its mirror (Selection::mirror()).
+        Vec3d relative_scale = Vec3d::Ones();
+        if (transform.scale.size() == 3)
+            relative_scale = Vec3d(transform.scale[0], transform.scale[1], transform.scale[2]);
+        if (transform.mirror == 0 || transform.mirror == 1)
+            relative_scale[transform.mirror] *= -1.;
+        const bool scaled = transform.scale.size() == 3;
+        if (!relative_scale.isApprox(Vec3d::Ones())) {
+            unfixed();
+            const Geometry::Transformation inst_trafo = instance.get_transformation();
+            if (embossed_object) {
+                // Instance_Relative_Joint: the copy scales about the selection's centre.
+                const Transform3d old_instance = instance.get_matrix();
+                const Vec3d dragging_center = object.instance_bounding_box(instance_index).center();
+                const Vec3d world_inst_pivot = dragging_center - inst_trafo.get_offset();
+                const Vec3d local_inst_pivot = inst_trafo.get_matrix_no_offset().inverse() * world_inst_pivot;
+                Matrix3d inst_rotation, inst_scale;
+                inst_trafo.get_matrix().computeRotationScaling(&inst_rotation, &inst_scale);
+                const Transform3d offset_trafo = Geometry::translation_transform(inst_trafo.get_offset());
+                const Transform3d scale_trafo = Transform3d(inst_scale) * Geometry::scale_transform(relative_scale);
+                instance.set_transformation(Geometry::Transformation(Geometry::translation_transform(world_inst_pivot) * offset_trafo *
+                    Transform3d(inst_rotation) * scale_trafo * Geometry::translation_transform(-local_inst_pivot)));
+                synchronize_instances(object, instance, old_instance);
+            } else {
+                // Local_Relative_Independent of a single volume.
+                volume->set_transformation(Geometry::Transformation(volume->get_matrix() * Geometry::scale_transform(relative_scale)));
+            }
+            refixed();
+        }
+
+        // volume_transformation_changed(): a text on the surface or per glyph, or
+        // an SVG on the surface or of another size, is embossed anew.
+        if (is_text && (re_emboss || volume->emboss_shape->projection.use_surface || style.per_glyph)) {
             reemboss_text(model, config, *volume, text, style, {}, output_prefix, result);
+            return result;
+        }
+        if (!is_text && (re_emboss || volume->emboss_shape->projection.use_surface || scaled)) {
+            reemboss_svg(model, config, *volume, scaled, output_prefix, result);
             return result;
         }
         // Plater::changed_object(): the object rests on the plate, as it may sink.
         object.invalidate_bounding_box();
         object.ensure_on_bed(true);
         model.update_print_volume_state(detail::build_volume_of(config));
+        if (!detail::write_objects({&object}, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        result.objects.clear();
+        return result;
+    }
+}
+
+// GLGizmoSVG.cpp's drawing of the SVG window's preview and its warnings.
+namespace {
+
+// inspired by Xiaolin Wu's line algorithm - https://en.wikipedia.org/wiki/Xiaolin_Wu's_line_algorithm
+// Draw inner part of polygon CCW line as full brightness(edge of expolygon)
+void wu_draw_line_side(Slic3r::Linef line, const std::function<void(int x, int y, float brightess)>& plot)
+{
+    using namespace Slic3r;
+    auto ipart = [](float x) -> int { return static_cast<int>(std::floor(x)); };
+    auto round = [](float x) -> float { return std::round(x); };
+    auto fpart = [](float x) -> float { return x - std::floor(x); };
+    auto rfpart = [=](float x) -> float { return 1 - fpart(x); };
+
+    Vec2d d = line.b - line.a;
+    const bool steep = std::abs(d.y()) > std::abs(d.x());
+    bool is_full; // identify full brightness pixel
+    if (steep) {
+        is_full = d.y() >= 0;
+        std::swap(line.a.x(), line.a.y());
+        std::swap(line.b.x(), line.b.y());
+        std::swap(d.x(), d.y());
+    } else
+        is_full = d.x() < 0; // opposit direction of y
+
+    if (line.a.x() > line.b.x()) {
+        std::swap(line.a.x(), line.b.x());
+        std::swap(line.a.y(), line.b.y());
+        d *= -1;
+    }
+    const float gradient = (d.x() == 0) ? 1. : d.y() / d.x();
+
+    int xpx11;
+    float intery;
+    {
+        const float xend = round(line.a.x());
+        const float yend = line.a.y() + gradient * (xend - line.a.x());
+        const float xgap = rfpart(line.a.x() + 0.5f);
+        xpx11 = int(xend);
+        const int ypx11 = ipart(yend);
+        if (steep) {
+            plot(ypx11, xpx11, is_full ? 1.f : (rfpart(yend) * xgap));
+            plot(ypx11 + 1, xpx11, !is_full ? 1.f : (fpart(yend) * xgap));
+        } else {
+            plot(xpx11, ypx11, is_full ? 1.f : (rfpart(yend) * xgap));
+            plot(xpx11, ypx11 + 1, !is_full ? 1.f : (fpart(yend) * xgap));
+        }
+        intery = yend + gradient;
+    }
+
+    int xpx12;
+    {
+        const float xend = round(line.b.x());
+        const float yend = line.b.y() + gradient * (xend - line.b.x());
+        const float xgap = rfpart(line.b.x() + 0.5f);
+        xpx12 = int(xend);
+        const int ypx12 = ipart(yend);
+        if (steep) {
+            plot(ypx12, xpx12, is_full ? 1.f : (rfpart(yend) * xgap));
+            plot(ypx12 + 1, xpx12, !is_full ? 1.f : (fpart(yend) * xgap));
+        } else {
+            plot(xpx12, ypx12, is_full ? 1.f : (rfpart(yend) * xgap));
+            plot(xpx12, ypx12 + 1, !is_full ? 1.f : (fpart(yend) * xgap));
+        }
+    }
+
+    if (steep) {
+        if (is_full) {
+            for (int x = xpx11 + 1; x < xpx12; x++) {
+                plot(ipart(intery), x, 1.f);
+                plot(ipart(intery) + 1, x, fpart(intery));
+                intery += gradient;
+            }
+        } else {
+            for (int x = xpx11 + 1; x < xpx12; x++) {
+                plot(ipart(intery), x, rfpart(intery));
+                plot(ipart(intery) + 1, x, 1.f);
+                intery += gradient;
+            }
+        }
+    } else {
+        if (is_full) {
+            for (int x = xpx11 + 1; x < xpx12; x++) {
+                plot(x, ipart(intery), 1.f);
+                plot(x, ipart(intery) + 1, fpart(intery));
+                intery += gradient;
+            }
+        } else {
+            for (int x = xpx11 + 1; x < xpx12; x++) {
+                plot(x, ipart(intery), rfpart(intery));
+                plot(x, ipart(intery) + 1, 1.f);
+                intery += gradient;
+            }
+        }
+    }
+}
+
+constexpr unsigned PREVIEW_CHANNELS = 4;
+using PreviewColor = std::array<unsigned char, PREVIEW_CHANNELS>;
+
+void draw_side_outline(const Slic3r::ExPolygons& shape, const PreviewColor& color, std::vector<unsigned char>& data, size_t data_width, double scale)
+{
+    using namespace Slic3r;
+    constexpr unsigned N = PREVIEW_CHANNELS;
+    int count_lines = data.size() / (N * data_width);
+    size_t data_line = N * data_width;
+    auto get_offset = [count_lines, data_line](int x, int y) {
+        // NOTE: y has opposit direction in texture
+        return (count_lines - y - 1) * data_line + x * N;
+    };
+
+    // overlap color
+    auto draw = [&data, data_width, count_lines, get_offset, &color](int x, int y, float brightess) {
+        if (x < 0 || y < 0 || static_cast<size_t>(x) >= data_width || y >= count_lines)
+            return; // out of image
+        size_t offset = get_offset(x, y);
+        bool change_color = false;
+        for (size_t i = 0; i < N - 1; ++i) {
+            if (data[offset + i] != color[i]) {
+                data[offset + i] = color[i];
+                change_color = true;
+            }
+        }
+
+        unsigned char& alpha = data[offset + N - 1];
+        if (alpha == 0 || change_color) {
+            alpha = static_cast<unsigned char>(std::round(brightess * 255));
+        } else if (alpha != 255) {
+            alpha = static_cast<unsigned char>(std::min(255, int(alpha) + static_cast<int>(std::round(brightess * 255))));
+        }
+    };
+
+    Linesf lines = to_linesf(shape);
+    // scale lines to pixels
+    if (!is_approx(scale, 1.)) {
+        for (Linef& line : lines) {
+            line.a *= scale;
+            line.b *= scale;
+        }
+    }
+
+    for (const Linef& line : lines)
+        wu_draw_line_side(line, draw);
+}
+
+/// Draw filled ExPolygon into data
+/// line by line inspired by: http://alienryderflex.com/polygon_fill/
+void draw_filled(const Slic3r::ExPolygons& shape, const PreviewColor& color, std::vector<unsigned char>& data, size_t data_width, double scale)
+{
+    using namespace Slic3r;
+    constexpr unsigned N = PREVIEW_CHANNELS;
+    BoundingBox bb_unscaled = get_extents(shape);
+
+    Linesf lines = to_linesf(shape);
+    BoundingBoxf bb(bb_unscaled.min.cast<double>(), bb_unscaled.max.cast<double>());
+
+    // scale lines to pixels
+    if (!is_approx(scale, 1.)) {
+        for (Linef& line : lines) {
+            line.a *= scale;
+            line.b *= scale;
+        }
+        bb.min *= scale;
+        bb.max *= scale;
+    }
+
+    int count_lines = data.size() / (N * data_width);
+    size_t data_line = N * data_width;
+    auto get_offset = [count_lines, data_line](int x, int y) {
+        // NOTE: y has opposit direction in texture
+        return (count_lines - y - 1) * data_line + x * N;
+    };
+    auto set_color = [&data, &color, get_offset](int x, int y) {
+        size_t offset = get_offset(x, y);
+        if (data[offset + N - 1] != 0)
+            return; // already setted by line
+        for (unsigned i = 0; i < N; ++i)
+            data[offset + i] = color[i];
+    };
+
+    // anti aliased drawing of lines
+    auto draw = [&data, width = static_cast<int>(data_width), count_lines, get_offset, &color](int x, int y, float brightess) {
+        if (x < 0 || y < 0 || x >= width || y >= count_lines)
+            return; // out of image
+        size_t offset = get_offset(x, y);
+        unsigned char& alpha = data[offset + N - 1];
+        if (alpha == 0) {
+            alpha = static_cast<unsigned char>(std::round(brightess * 255));
+            for (size_t i = 0; i < N - 1; ++i)
+                data[offset + i] = color[i];
+        } else if (alpha != 255) {
+            alpha = static_cast<unsigned char>(std::min(255, int(alpha) + static_cast<int>(std::round(brightess * 255))));
+        }
+    };
+
+    for (const Linef& line : lines)
+        wu_draw_line_side(line, draw);
+
+    auto tree = Slic3r::AABBTreeLines::build_aabb_tree_over_indexed_lines(lines);
+
+    // range for intersection line
+    double x1 = bb.min.x() - 1.f;
+    double x2 = bb.max.x() + 1.f;
+
+    int max_y = std::min(count_lines, static_cast<int>(std::round(bb.max.y())));
+    for (int y = std::max(0, static_cast<int>(std::round(bb.min.y()))); y < max_y; ++y) {
+        double y_f = y + .5; // 0.5 ... intersection in center of pixel of pixel
+        Linef line(Vec2d(x1, y_f), Vec2d(x2, y_f));
+        using Intersection = std::pair<Vec2d, size_t>;
+        using Intersections = std::vector<Intersection>;
+        Intersections intersections = Slic3r::AABBTreeLines::get_intersections_with_line<false, Vec2d, Linef>(lines, tree, line);
+        if (intersections.empty())
+            continue;
+
+        // sort intersections by x
+        std::sort(intersections.begin(), intersections.end(),
+            [](const Intersection& i1, const Intersection& i2) { return i1.first.x() < i2.first.x(); });
+
+        // draw lines
+        for (size_t i = 0; i + 1 < intersections.size(); i += 2) {
+            const Vec2d& p2 = intersections[i + 1].first;
+            if (p2.x() < 0)
+                continue; // out of data
+
+            const Vec2d& p1 = intersections[i].first;
+            if (p1.x() > data_width)
+                break; // out of data
+
+            // clamp to data
+            int max_x = std::min(static_cast<int>(data_width - 1), static_cast<int>(std::round(p2.x())));
+            for (int x = std::max(0, static_cast<int>(std::round(p1.x()))); x <= max_x; ++x)
+                set_color(x, y);
+        }
+    }
+}
+
+/// Union shape defined by glyphs
+Slic3r::ExPolygons union_shapes(const Slic3r::ExPolygonsWithIds& shapes)
+{
+    // unify to one expolygon
+    Slic3r::ExPolygons result;
+    for (const Slic3r::ExPolygonsWithId& shape : shapes) {
+        if (shape.expoly.empty())
+            continue;
+        Slic3r::expolygons_append(result, shape.expoly);
+    }
+    return Slic3r::union_ex(result);
+}
+
+// init_texture(): the shapes filled, those that could not be healed outlined
+// in red and those with warnings in orange; false for no picture.
+bool draw_preview(const Slic3r::ExPolygonsWithIds& shapes_with_ids, unsigned max_size_px, const std::vector<bool>& shape_warnings,
+    std::vector<unsigned char>& data, int& width, int& height)
+{
+    using namespace Slic3r;
+    BoundingBox bb = get_extents(shapes_with_ids);
+    Point bb_size = bb.size();
+    double bb_width = bb_size.x(); // [in mm]
+    double bb_height = bb_size.y(); // [in mm]
+
+    bool is_widder = bb_size.x() > bb_size.y();
+    double scale = 0.f;
+    if (is_widder) {
+        scale = max_size_px / bb_width;
+        width = max_size_px;
+        height = static_cast<unsigned>(std::ceil(bb_height * scale));
+    } else {
+        scale = max_size_px / bb_height;
+        width = static_cast<unsigned>(std::ceil(bb_width * scale));
+        height = max_size_px;
+    }
+    const int n_pixels = width * height;
+    if (n_pixels <= 0)
+        return false;
+
+    data.assign(static_cast<size_t>(n_pixels) * PREVIEW_CHANNELS, 0);
+
+    // Union All shapes
+    ExPolygons shape = union_shapes(shapes_with_ids);
+
+    // align to texture
+    translate(shape, -bb.min);
+    size_t texture_width = static_cast<size_t>(width);
+    unsigned char alpha = 255; // without transparency
+    PreviewColor color_shape{201, 201, 201, alpha}; // from degin by @JosefZachar
+    PreviewColor color_error{237, 28, 36, alpha}; // from icon: resources/icons/flag_red.svg
+    PreviewColor color_warning{237, 107, 33, alpha}; // icons orange
+    // draw unhealedable shape
+    for (const ExPolygonsWithId& shapes_with_id : shapes_with_ids)
+        if (!shapes_with_id.is_healed) {
+            ExPolygons bad_shape = shapes_with_id.expoly; // copy
+            translate(bad_shape, -bb.min); // align to texture
+            draw_side_outline(bad_shape, color_error, data, texture_width, scale);
+        }
+    // Draw shape with warning
+    if (!shape_warnings.empty()) {
+        for (const ExPolygonsWithId& shapes_with_id : shapes_with_ids) {
+            if (shapes_with_id.id >= shape_warnings.size())
+                continue;
+            if (!shape_warnings[shapes_with_id.id])
+                continue; // no warnings for shape
+            ExPolygons warn_shape = shapes_with_id.expoly; // copy
+            translate(warn_shape, -bb.min); // align to texture
+            draw_side_outline(warn_shape, color_warning, data, texture_width, scale);
+        }
+    }
+
+    // Draw rest of shape
+    draw_filled(shape, color_shape, data, texture_width, scale);
+    return true;
+}
+
+bool is_closed(NSVGpath* path)
+{
+    for (; path != NULL; path = path->next)
+        if (path->next == NULL && path->closed)
+            return true;
+    return false;
+}
+
+UiText ui_text(const char* msgid, std::vector<std::string> args = {})
+{
+    UiText text;
+    text.msgid = msgid;
+    text.args = std::move(args);
+    return text;
+}
+
+// The float as GUI::format() writes it.
+std::string format_float(float value)
+{
+    std::ostringstream stream;
+    stream << value;
+    return stream.str();
+}
+
+const float warning_preccission = 1e-4f;
+
+// create_fill_warning(): what of the shape's fill is unsupported; none for all supported.
+std::vector<UiText> create_fill_warning(const NSVGshape& shape)
+{
+    if (!(shape.flags & NSVG_FLAGS_VISIBLE) || shape.fill.type == NSVG_PAINT_NONE)
+        return {}; // not visible
+
+    std::vector<UiText> warning;
+    if ((shape.opacity - 1.f + warning_preccission) <= 0.f)
+        warning.push_back(ui_text("Opacity (%1%)", {format_float(shape.opacity)}));
+
+    bool is_fill_gradient = shape.fillGradient[0] != '\0';
+    if (is_fill_gradient)
+        warning.push_back(ui_text("Color gradient (%1%)", {shape.fillGradient}));
+
+    switch (shape.fill.type) {
+    case NSVG_PAINT_UNDEF: warning.push_back(ui_text("Undefined fill type")); break;
+    case NSVG_PAINT_LINEAR_GRADIENT:
+        if (!is_fill_gradient)
+            warning.push_back(ui_text("Linear gradient"));
+        break;
+    case NSVG_PAINT_RADIAL_GRADIENT:
+        if (!is_fill_gradient)
+            warning.push_back(ui_text("Radial gradient"));
+        break;
+    }
+
+    // Unfilled is only line which could be opened
+    if (shape.fill.type != NSVG_PAINT_NONE && !is_closed(shape.paths))
+        warning.push_back(ui_text("Open filled path"));
+    return warning;
+}
+
+// create_stroke_warning()
+std::vector<UiText> create_stroke_warning(const NSVGshape& shape)
+{
+    std::vector<UiText> warning;
+    if (!(shape.flags & NSVG_FLAGS_VISIBLE) || shape.stroke.type == NSVG_PAINT_NONE || shape.strokeWidth <= 1e-5f)
+        return {}; // not visible
+
+    if ((shape.opacity - 1.f + warning_preccission) <= 0.f)
+        warning.push_back(ui_text("Opacity (%1%)", {format_float(shape.opacity)}));
+
+    bool is_stroke_gradient = shape.strokeGradient[0] != '\0';
+    if (is_stroke_gradient)
+        warning.push_back(ui_text("Color gradient (%1%)", {shape.strokeGradient}));
+
+    switch (shape.stroke.type) {
+    case NSVG_PAINT_UNDEF: warning.push_back(ui_text("Undefined stroke type")); break;
+    case NSVG_PAINT_LINEAR_GRADIENT:
+        if (!is_stroke_gradient)
+            warning.push_back(ui_text("Linear gradient"));
+        break;
+    case NSVG_PAINT_RADIAL_GRADIENT:
+        if (!is_stroke_gradient)
+            warning.push_back(ui_text("Radial gradient"));
+        break;
+    }
+    return warning;
+}
+
+// create_shape_warnings(): the warnings in the order the tooltip lists them,
+// and for every shape id (two per NSVGshape: its fill, then its stroke)
+// whether it has any.
+std::vector<SvgWarning> create_shape_warnings(const Slic3r::EmbossShape& shape, float scale, std::vector<bool>& shape_flags)
+{
+    const std::shared_ptr<NSVGimage>& image_ptr = shape.svg_file->image;
+    if (image_ptr == nullptr)
+        return {SvgWarning{ui_text("Uninitialized SVG image"), {}}};
+
+    const NSVGimage& image = *image_ptr;
+    std::vector<std::vector<SvgWarning>> result;
+    auto add_warning = [&result, &image](size_t index, SvgWarning message) {
+        if (result.empty())
+            result = std::vector<std::vector<SvgWarning>>(Slic3r::get_shapes_count(image) * 2);
+        if (index < result.size())
+            result[index].push_back(std::move(message));
+    };
+
+    if (!shape.final_shape.is_healed) {
+        for (const Slic3r::ExPolygonsWithId& i : shape.shapes_with_ids)
+            if (!i.is_healed)
+                add_warning(i.id, SvgWarning{ui_text("Path can't be healed from self-intersection and multiple points."), {}});
+
+        // This waning is not connected to NSVGshape. It is about union of paths, but Zero index is shown first
+        size_t index = 0;
+        add_warning(index, SvgWarning{ui_text("Final shape contains self-intersection or multiple points with same coordinate."), {}});
+    }
+
+    size_t shape_index = 0;
+    for (NSVGshape* svg_shape = image.shapes; svg_shape != NULL; svg_shape = svg_shape->next, ++shape_index) {
+        if (!(svg_shape->flags & NSVG_FLAGS_VISIBLE)) {
+            add_warning(shape_index * 2, SvgWarning{ui_text("Shape is marked as invisible (%1%).", {svg_shape->id}), {}});
+            continue;
+        }
+
+        std::vector<UiText> fill_warning = create_fill_warning(*svg_shape);
+        if (!fill_warning.empty()) {
+            // TRN: The first placeholder is shape identifier, the second is text describing the problem.
+            add_warning(shape_index * 2, SvgWarning{ui_text("Fill of shape (%1%) contains unsupported: %2%.", {svg_shape->id}), std::move(fill_warning)});
+        }
+
+        float minimal_width_in_mm = 1e-3f;
+        if (svg_shape->strokeWidth <= minimal_width_in_mm * scale) {
+            add_warning(shape_index * 2, SvgWarning{ui_text("Stroke of shape (%1%) is too thin (minimal width is %2% mm).",
+                {svg_shape->id, format_float(minimal_width_in_mm)}), {}});
+            continue;
+        }
+        std::vector<UiText> stroke_warning = create_stroke_warning(*svg_shape);
+        if (!stroke_warning.empty())
+            add_warning(shape_index * 2 + 1, SvgWarning{ui_text("Stroke of shape (%1%) contains unsupported: %2%.", {svg_shape->id}), std::move(stroke_warning)});
+    }
+
+    std::vector<SvgWarning> flat;
+    shape_flags.assign(result.size(), false);
+    for (size_t index = 0; index < result.size(); ++index) {
+        shape_flags[index] = !result[index].empty();
+        for (SvgWarning& warning : result[index])
+            flat.push_back(std::move(warning));
+    }
+    if (flat.empty())
+        shape_flags.clear();
+    return flat;
+}
+
+} // namespace
+
+SvgPreview preview_svg(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const std::string& png_path,
+    int max_size_px,
+    const ProfileSelection& profiles
+)
+{
+    SvgPreview result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    try {
+        Slic3r::DynamicPrintConfig config;
+        Slic3r::Model model;
+        ImportedModels loaded;
+        if (!prepare(plate, profiles, config, model, loaded)) {
+            result.status = loaded.status;
+            result.message = loaded.message;
+            return result;
+        }
+        Slic3r::ModelVolume* volume = volume_at(model, object_index, volume_index, result.message);
+        if (volume == nullptr) {
+            result.status = SceneStatus::model_read_failed;
+            return result;
+        }
+        if (!volume->is_svg() || !volume->emboss_shape->svg_file.has_value()) {
+            result.status = SceneStatus::model_read_failed;
+            result.message = "The volume is no SVG";
+            return result;
+        }
+        Slic3r::EmbossShape& es = *volume->emboss_shape;
+        Slic3r::EmbossShape::SvgFile& svg_file = *es.svg_file;
+        if (svg_file.image == nullptr && Slic3r::init_image(svg_file) == nullptr) {
+            result.status = SceneStatus::model_read_failed;
+            result.message = "Nano SVG parser can't load the SVG.";
+            return result;
+        }
+        const float scale = static_cast<float>(svg_scale_for_tolerance(*volume, *volume->get_object()->instances.front()));
+        if (es.shapes_with_ids.empty()) {
+            Slic3r::NSVGLineParams params{tesselation_tolerance(scale)};
+            es.shapes_with_ids = Slic3r::create_shape_with_ids(*svg_file.image, params);
+        }
+        std::vector<bool> shape_flags;
+        result.warnings = create_shape_warnings(es, scale, shape_flags);
+        result.svg_path = svg_file.path;
+        for (const Slic3r::ExPolygonsWithId& shape : es.shapes_with_ids)
+            result.points += static_cast<std::int64_t>(Slic3r::count_points(shape.expoly));
+        std::vector<unsigned char> data;
+        if (!draw_preview(es.shapes_with_ids, static_cast<unsigned>(std::max(1, max_size_px)), shape_flags, data, result.width, result.height) ||
+            !detail::write_png_rgba(png_path, result.width, result.height, data)) {
+            result.status = SceneStatus::write_failed;
+            result.message = "The SVG's picture can't be written";
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
+ImportedModels edit_svg_file(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    SvgFileEdit edit,
+    const std::string& path,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    try {
+        Slic3r::DynamicPrintConfig config;
+        Slic3r::Model model;
+        if (!prepare(plate, profiles, config, model, result)) {
+            return result;
+        }
+        Slic3r::ModelVolume* volume = volume_at(model, object_index, volume_index, result.message);
+        if (volume == nullptr) {
+            return result;
+        }
+        if (!volume->is_svg() || !volume->emboss_shape->svg_file.has_value()) {
+            result.message = "The volume is no SVG";
+            return result;
+        }
+        Slic3r::EmbossShape::SvgFile& svg = *volume->emboss_shape->svg_file;
+        switch (edit) {
+        case SvgFileEdit::forget_path:
+            // set .svg_file.path_in_3mf to remember file name
+            svg.path.clear();
+            break;
+        case SvgFileEdit::bake:
+            volume->emboss_shape.reset();
+            break;
+        case SvgFileEdit::save_as: {
+            if (svg.file_data == nullptr) {
+                result.message = "Missing data of svg file";
+                return result;
+            }
+            std::ofstream stream(path, std::ios::binary);
+            if (!stream.is_open()) {
+                result.message = "Opening file: \"" + path + "\" Failed";
+                return result;
+            }
+            stream << *svg.file_data;
+            if (!stream) {
+                result.message = "Opening file: \"" + path + "\" Failed";
+                return result;
+            }
+            // change source file
+            svg.path = path;
+            svg.path_in_3mf.clear(); // possible change name
+            break;
+        }
+        }
+        Slic3r::ModelObject& object = *volume->get_object();
         if (!detail::write_objects({&object}, output_prefix, result)) {
             return result;
         }

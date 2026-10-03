@@ -5,7 +5,9 @@ import app.orcinus.shadow.core.model.EmbossPlacement
 import app.orcinus.shadow.core.model.EmbossRequest
 import app.orcinus.shadow.core.model.EmbossVolumeOutcome
 import app.orcinus.shadow.core.model.FontFace
+import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
@@ -13,9 +15,11 @@ import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SvgFileEdit
+import app.orcinus.shadow.core.model.SvgPreviewOutcome
 import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.TextStyle
-import app.orcinus.shadow.core.model.TextTransform
+import app.orcinus.shadow.core.model.EmbossTransform
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
@@ -200,13 +204,14 @@ fun styleOf(name: String, face: FontFace, size: Double, family: String = "", sty
 )
 
 /**
- * GLGizmoEmboss with its jobs (EmbossJob.cpp): a text joins an object as a
- * volume or the plate as an object of its own, and an edit embosses it anew;
- * each is one step of Undo, as the jobs take their snapshots ("Add Emboss text
- * Volume", "Add Emboss text object", "Emboss attribute change"). The engine
- * writes the object anew, so the volume edited afterwards is the one returned.
+ * GLGizmoEmboss and GLGizmoSVG with their jobs (EmbossJob.cpp): a text or an
+ * SVG joins an object as a volume or the plate as an object of its own, and an
+ * edit embosses it anew; each is one step of Undo, as the jobs take their
+ * snapshots ("Add Emboss text Volume", "Add Emboss text object", "Emboss
+ * attribute change"). The engine writes the object anew, so the volume edited
+ * afterwards is the one returned.
  */
-class EmbossTextUseCase(
+class EmbossUseCase(
     private val editor: EmbossEditor,
     private val inspector: PlateInspector,
     private val sceneFiles: SceneFiles,
@@ -255,17 +260,74 @@ class EmbossTextUseCase(
      * face camera", fix_transformation() of another style), and embossed anew
      * from [text] and [style] when [reEmboss] is set or the engine has to.
      */
-    suspend fun transform(volume: ObjectPartId, instance: Int, transform: TextTransform, text: String, style: TextStyle, reEmboss: Boolean): ObjectPartId? {
+    suspend fun transform(volume: ObjectPartId, instance: Int, transform: EmbossTransform, text: String, style: TextStyle, reEmboss: Boolean): ObjectPartId? {
         val state = repository.state.value
         val profiles = state.profiles
         val index = state.objects.indexOfFirst { it.mesh == volume.mesh }
         if (state.busy || profiles == null || index < 0) return null
         val prefix = sceneFiles.newImportPrefix()
         val outcome = run(prefix) {
-            editor.transformText(state.objects.map { it.placed() }, index, instance, volume.index, transform, text, style, reEmboss, profiles, prefix)
+            editor.transformEmboss(state.objects.map { it.placed() }, index, instance, volume.index, transform, text, style, reEmboss, profiles, prefix)
         }
         return joined(outcome, prefix, state.objects[index], newObjectName = "")
     }
+
+    /**
+     * GLGizmoSVG::create_volume(): the SVG file [svg] as a volume of [type] at
+     * [placement], or as an object named after the file; the volume, or null.
+     */
+    suspend fun createSvg(placement: EmbossPlacement, type: VolumeType, svg: ImportedModelFile): ObjectPartId? {
+        val state = repository.state.value
+        val profiles = state.profiles
+        if (state.busy || profiles == null || state.objects.any(PlateObject::placing)) return null
+        val source = state.objects.getOrNull(placement.objectIndex)
+        val prefix = sceneFiles.newImportPrefix()
+        val outcome = run(prefix) { editor.createSvg(state.objects.map { it.placed() }, placement, type, svg.path, profiles, prefix) }
+        // volume_name(): the file's name without its extension.
+        return joined(outcome, prefix, source, newObjectName = svg.displayName.substringBeforeLast('.'))
+    }
+
+    /**
+     * GLGizmoSVG::process(): the SVG [volume] [depth] deep, on the surface or
+     * not, from another file [svg] when given ("Change file", reload).
+     */
+    suspend fun updateSvg(volume: ObjectPartId, depth: Double, useSurface: Boolean, svg: ModelPath? = null): ObjectPartId? {
+        val state = repository.state.value
+        val profiles = state.profiles
+        val index = state.objects.indexOfFirst { it.mesh == volume.mesh }
+        if (state.busy || profiles == null || index < 0) return null
+        val prefix = sceneFiles.newImportPrefix()
+        val outcome = run(prefix) {
+            editor.updateSvg(state.objects.map { it.placed() }, index, volume.index, depth, useSurface, svg, null, profiles, prefix)
+        }
+        return joined(outcome, prefix, state.objects[index], newObjectName = "")
+    }
+
+    /**
+     * The SVG window's file menu: "Forget the file path", "Bake" (the volume
+     * is a mesh alone afterwards) and "Save as" into [path].
+     */
+    suspend fun editSvgFile(volume: ObjectPartId, edit: SvgFileEdit, path: String = ""): ObjectPartId? {
+        val state = repository.state.value
+        val profiles = state.profiles
+        val index = state.objects.indexOfFirst { it.mesh == volume.mesh }
+        if (state.busy || profiles == null || index < 0) return null
+        val prefix = sceneFiles.newImportPrefix()
+        val outcome = run(prefix) { editor.editSvgFile(state.objects.map { it.placed() }, index, volume.index, edit, path, profiles, prefix) }
+        return joined(outcome, prefix, state.objects[index], newObjectName = "")
+    }
+
+    /** GLGizmoSVG::draw_preview() and draw_filename(): the SVG [volume]'s picture, at most [maxSize] pixels, and its warnings. */
+    suspend fun previewSvg(volume: ObjectPartId, maxSize: Int): SvgPreviewOutcome {
+        val state = repository.state.value
+        val profiles = state.profiles ?: return SvgPreviewOutcome.Failure("The presets are not loaded")
+        val index = state.objects.indexOfFirst { it.mesh == volume.mesh }
+        if (index < 0) return SvgPreviewOutcome.Failure("The object is not on the plate")
+        return editor.previewSvg(state.objects.map { it.placed() }, index, volume.index, sceneFiles.svgPreview(), maxSize, profiles)
+    }
+
+    /** A new file the SVG [name]d so is saved to before it goes into a document. */
+    fun newSavedSvg(name: String): ScenePath = sceneFiles.newSavedSvg(name)
 
     /**
      * GLGizmoEmboss::draw_model_type(): the text [volume] takes [type] and the

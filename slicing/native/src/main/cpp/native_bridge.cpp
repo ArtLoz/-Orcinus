@@ -4228,7 +4228,7 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::TextStyles& styles)
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_transformText(
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_transformEmboss(
     JNIEnv* env,
     jobject /* this */,
     jobject plate,
@@ -4241,6 +4241,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_transformText(
     jdoubleArray camera_forward,
     jboolean perspective,
     jboolean keep_up,
+    jdoubleArray scale,
+    jint mirror,
     jstring text,
     jobject style,
     jboolean re_emboss,
@@ -4251,16 +4253,18 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_transformText(
     jstring output_prefix
 )
 {
-    orcinus::orca::TextTransform transform;
+    orcinus::orca::EmbossTransform transform;
     transform.rotate = rotate;
     transform.move = move;
     transform.camera_position = to_doubles(env, camera_position);
     transform.camera_forward = to_doubles(env, camera_forward);
     transform.perspective = perspective == JNI_TRUE;
     transform.keep_up = keep_up == JNI_TRUE;
+    transform.scale = to_doubles(env, scale);
+    transform.mirror = static_cast<int>(mirror);
     return to_java(
         env,
-        orcinus::orca::transform_text(
+        orcinus::orca::transform_emboss(
             to_plate(env, plate),
             static_cast<std::size_t>(object_index),
             static_cast<std::size_t>(instance_index),
@@ -4269,6 +4273,94 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_transformText(
             to_utf8(env, text),
             to_text_style(env, style),
             re_emboss == JNI_TRUE,
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_previewSvg(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint volume_index,
+    jstring png_path,
+    jint max_size,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    const orcinus::orca::SvgPreview preview = orcinus::orca::preview_svg(
+        to_plate(env, plate),
+        static_cast<std::size_t>(object_index),
+        static_cast<std::size_t>(volume_index),
+        to_utf8(env, png_path),
+        static_cast<int>(max_size),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles)
+    );
+    const jobjectArray warnings = to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativeSvgWarning",
+        preview.warnings,
+        [](JNIEnv* warning_env, const orcinus::orca::SvgWarning& warning) {
+            const jclass warning_class = warning_env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSvgWarning");
+            const jmethodID constructor = warning_env->GetMethodID(
+                warning_class,
+                "<init>",
+                "(Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;[Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;)V"
+            );
+            const jobject made = warning_env->NewObject(warning_class, constructor, to_java(warning_env, warning.text), to_java(warning_env, warning.unsupported));
+            warning_env->DeleteLocalRef(warning_class);
+            return made;
+        }
+    );
+    const jclass preview_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSvgPreview");
+    const jmethodID constructor = env->GetMethodID(
+        preview_class,
+        "<init>",
+        "(JLjava/lang/String;Ljava/lang/String;II[Lapp/orcinus/shadow/slicing/nativebridge/NativeSvgWarning;J)V"
+    );
+    return env->NewObject(
+        preview_class,
+        constructor,
+        static_cast<jlong>(preview.status),
+        to_java(env, preview.message),
+        to_java(env, preview.svg_path),
+        static_cast<jint>(preview.width),
+        static_cast<jint>(preview.height),
+        warnings,
+        static_cast<jlong>(preview.points)
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editSvgFile(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint volume_index,
+    jlong edit,
+    jstring path,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::edit_svg_file(
+            to_plate(env, plate),
+            static_cast<std::size_t>(object_index),
+            static_cast<std::size_t>(volume_index),
+            static_cast<orcinus::orca::SvgFileEdit>(edit),
+            to_utf8(env, path),
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
             to_utf8(env, output_prefix)
         )

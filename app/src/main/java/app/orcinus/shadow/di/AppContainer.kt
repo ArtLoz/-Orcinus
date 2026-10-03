@@ -71,7 +71,7 @@ import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
-import app.orcinus.shadow.domain.plate.EmbossTextUseCase
+import app.orcinus.shadow.domain.plate.EmbossUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.EngineLanguage
 import app.orcinus.shadow.domain.plate.EnginePlateSync
@@ -571,7 +571,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             plateJobs = plateJobs,
             setPlateSettings = SetPlateSettingsUseCase(plateRepository),
             editLayerHeights = editLayerHeights,
-            embossText = EmbossTextUseCase(engine, engine, sceneFiles, plateRepository),
+            emboss = EmbossUseCase(engine, engine, sceneFiles, plateRepository),
             textFonts = textFonts,
             textStyles = textStyles,
             requestEmboss = requestEmboss,

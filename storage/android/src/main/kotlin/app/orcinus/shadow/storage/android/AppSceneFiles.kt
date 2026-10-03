@@ -13,6 +13,7 @@ class AppSceneFiles(context: Context) : SceneFiles {
     private val plate = File(root, "plate")
     private val objects = File(root, "objects")
     private val toolpaths = File(root, "toolpaths")
+    private val svg = File(root, "svg")
 
     override fun plateDirectory(): ScenePath {
         plate.mkdirs()
@@ -71,6 +72,18 @@ class AppSceneFiles(context: Context) : SceneFiles {
     override fun deleteToolpathsExcept(keep: Collection<ScenePath>) {
         val kept = keep.flatMapTo(HashSet()) { listOf(File(it.value), File(wipeTowerMeshOf(it).value), File(sliceInfoOf(it).value)) }
         toolpaths.listFiles()?.filter { it !in kept }?.forEach(File::delete)
+    }
+
+    override fun svgPreview(): ScenePath {
+        svg.mkdirs()
+        return ScenePath(File(svg, "preview.png").absolutePath)
+    }
+
+    // A folder of its own keeps the name, which names the SVG.
+    override fun newSavedSvg(name: String): ScenePath {
+        val folder = File(svg, "saved-${UUID.randomUUID()}")
+        folder.mkdirs()
+        return ScenePath(File(folder, name.replace('/', '_')).absolutePath)
     }
 
     private companion object {

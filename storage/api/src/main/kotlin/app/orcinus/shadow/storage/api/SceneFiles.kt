@@ -49,4 +49,10 @@ interface SceneFiles {
 
     /** Deletes every toolpaths file except [keep], the ones the results of the plates show. */
     fun deleteToolpathsExcept(keep: Collection<ScenePath>)
+
+    /** The picture of the SVG the SVG tool shows, written anew for every SVG it opens on. */
+    fun svgPreview(): ScenePath
+
+    /** A new file named [name] for an SVG the SVG tool saves, which the SVG reloads from afterwards. */
+    fun newSavedSvg(name: String): ScenePath
 }

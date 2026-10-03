@@ -23,10 +23,14 @@ import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
+import app.orcinus.shadow.core.model.SvgFileEdit
+import app.orcinus.shadow.core.model.SvgPreview
+import app.orcinus.shadow.core.model.SvgPreviewOutcome
+import app.orcinus.shadow.core.model.SvgWarning
 import app.orcinus.shadow.core.model.TextHorizontalAlign
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextStylesOutcome
-import app.orcinus.shadow.core.model.TextTransform
+import app.orcinus.shadow.core.model.EmbossTransform
 import app.orcinus.shadow.core.model.TextVerticalAlign
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
@@ -577,19 +581,19 @@ class NativeSlicerEngine(context: Context) :
         )
     }
 
-    override suspend fun transformText(
+    override suspend fun transformEmboss(
         plate: List<PlacedModel>,
         index: Int,
         instance: Int,
         volume: Int,
-        transform: TextTransform,
+        transform: EmbossTransform,
         text: String,
         style: TextStyle,
         reEmboss: Boolean,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
     ): ModelLoadOutcome = emboss {
-        NativeBindings.transformText(
+        NativeBindings.transformEmboss(
             plate = nativePlate(plate),
             objectIndex = index,
             instanceIndex = instance,
@@ -600,9 +604,69 @@ class NativeSlicerEngine(context: Context) :
             cameraForward = transform.cameraForward?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0),
             perspective = transform.perspective,
             keepUp = transform.keepUp,
+            scale = transform.scale?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0),
+            mirror = transform.mirror?.ordinal ?: -1,
             text = text,
             style = style.toNative(),
             reEmboss = reEmboss,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        )
+    }
+
+    override suspend fun previewSvg(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        picture: ScenePath,
+        maxSize: Int,
+        profiles: SlicingProfileSelection,
+    ): SvgPreviewOutcome = whenReady(SvgPreviewOutcome::Failure) {
+        val preview = NativeBindings.previewSvg(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volumeIndex = volume,
+            pngPath = picture.value,
+            maxSize = maxSize,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+        )
+        if (preview.status != NativeSceneStatus.SUCCESS) {
+            SvgPreviewOutcome.Failure(preview.message.ifBlank { "The SVG can't be shown" })
+        } else {
+            SvgPreviewOutcome.Success(
+                SvgPreview(
+                    picture = picture,
+                    width = preview.width,
+                    height = preview.height,
+                    svgPath = preview.svgPath,
+                    warnings = preview.warnings.map { SvgWarning(it.text.toText(), it.unsupported.map(NativeUiText::toText)) },
+                    points = preview.points,
+                ),
+            )
+        }
+    }
+
+    override suspend fun editSvgFile(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        edit: SvgFileEdit,
+        path: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = emboss {
+        NativeBindings.editSvgFile(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volumeIndex = volume,
+            edit = edit.ordinal.toLong(),
+            path = path,
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),

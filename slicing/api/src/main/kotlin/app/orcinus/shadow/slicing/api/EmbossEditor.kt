@@ -8,9 +8,11 @@ import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.SvgFileEdit
+import app.orcinus.shadow.core.model.SvgPreviewOutcome
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextStylesOutcome
-import app.orcinus.shadow.core.model.TextTransform
+import app.orcinus.shadow.core.model.EmbossTransform
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 
@@ -77,12 +79,12 @@ interface EmbossEditor {
      * turned and moved as [transform] says; then embossed anew from [text] and
      * [style] when [reEmboss] is set, or when it uses the surface or is placed per glyph.
      */
-    suspend fun transformText(
+    suspend fun transformEmboss(
         plate: List<PlacedModel>,
         index: Int,
         instance: Int,
         volume: Int,
-        transform: TextTransform,
+        transform: EmbossTransform,
         text: String,
         style: TextStyle,
         reEmboss: Boolean,
@@ -99,6 +101,20 @@ interface EmbossEditor {
         index: Int,
         oldName: String,
         newName: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome
+
+    /** GLGizmoSVG::draw_preview(): the SVG [volume] drawn into [picture], at most [maxSize] pixels on its longer side. */
+    suspend fun previewSvg(plate: List<PlacedModel>, index: Int, volume: Int, picture: ScenePath, maxSize: Int, profiles: SlicingProfileSelection): SvgPreviewOutcome
+
+    /** The SVG window's file menu on the SVG [volume]; [path] is where "Save as" writes it. */
+    suspend fun editSvgFile(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        edit: SvgFileEdit,
+        path: String,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
     ): ModelLoadOutcome

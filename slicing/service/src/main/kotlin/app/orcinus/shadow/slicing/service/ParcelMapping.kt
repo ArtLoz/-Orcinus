@@ -19,6 +19,9 @@ import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.StoredTextStyles
+import app.orcinus.shadow.core.model.SvgPreview
+import app.orcinus.shadow.core.model.SvgPreviewOutcome
+import app.orcinus.shadow.core.model.SvgWarning
 import app.orcinus.shadow.core.model.TextHorizontalAlign
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextStylesOutcome
@@ -1377,6 +1380,37 @@ internal fun FontFace.toParcel() = FontFaceParcel().also {
 }
 
 internal fun FontFaceParcel.toFontFace() = FontFace(path.orEmpty(), index, family.orEmpty(), subfamily.orEmpty(), weight, italic, ascent)
+
+internal fun SvgPreviewOutcome.toParcel() = SvgPreviewParcel().also {
+    when (this) {
+        is SvgPreviewOutcome.Failure -> it.error = message
+        is SvgPreviewOutcome.Success -> {
+            it.picture = preview.picture.value
+            it.width = preview.width
+            it.height = preview.height
+            it.svgPath = preview.svgPath
+            it.warnings = preview.warnings.map { warning ->
+                SvgWarningParcel().also { parcel ->
+                    parcel.text = listOf(warning.text).toParcels().single()
+                    parcel.unsupported = warning.unsupported.toParcels()
+                }
+            }.toTypedArray()
+            it.points = preview.points
+        }
+    }
+}
+
+internal fun SvgPreviewParcel.toSvgPreviewOutcome(): SvgPreviewOutcome = error?.let(SvgPreviewOutcome::Failure)
+    ?: SvgPreviewOutcome.Success(
+        SvgPreview(
+            picture = ScenePath(picture.orEmpty()),
+            width = width,
+            height = height,
+            svgPath = svgPath.orEmpty(),
+            warnings = warnings.orEmpty().map { parcel -> SvgWarning(arrayOf(parcel.text).toTexts().single(), parcel.unsupported.toTexts()) },
+            points = points,
+        ),
+    )
 
 internal fun TextStylesOutcome.toParcel() = TextStylesParcel().also {
     when (this) {

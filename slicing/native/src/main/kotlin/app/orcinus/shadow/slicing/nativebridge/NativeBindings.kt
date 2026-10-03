@@ -708,6 +708,23 @@ internal class NativeImportedObject(
     @JvmField val partEmbossKinds: LongArray,
 )
 
+/** Constructed by the native bridge; see SvgWarning in orca_engine_adapter.hpp. */
+internal class NativeSvgWarning(
+    @JvmField val text: NativeUiText,
+    @JvmField val unsupported: Array<NativeUiText>,
+)
+
+/** Constructed by the native bridge; see SvgPreview in orca_engine_adapter.hpp. */
+internal class NativeSvgPreview(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val svgPath: String,
+    @JvmField val width: Int,
+    @JvmField val height: Int,
+    @JvmField val warnings: Array<NativeSvgWarning>,
+    @JvmField val points: Long,
+)
+
 /** Constructed by the native bridge; see TextStyles in orca_engine_adapter.hpp. */
 internal class NativeTextStyles(
     @JvmField val status: Long,
@@ -1509,8 +1526,8 @@ internal object NativeBindings {
     /** load_text_styles() */
     external fun textStyles(): NativeTextStyles
 
-    /** transform_text(); [cameraPosition] and [cameraForward] are empty for none (TextTransform). */
-    external fun transformText(
+    /** transform_emboss(); [cameraPosition] and [cameraForward] are empty for none (EmbossTransform). */
+    external fun transformEmboss(
         plate: NativePlate,
         objectIndex: Int,
         instanceIndex: Int,
@@ -1521,9 +1538,38 @@ internal object NativeBindings {
         cameraForward: DoubleArray,
         perspective: Boolean,
         keepUp: Boolean,
+        scale: DoubleArray,
+        mirror: Int,
         text: String,
         style: NativeTextStyle,
         reEmboss: Boolean,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** preview_svg() */
+    external fun previewSvg(
+        plate: NativePlate,
+        objectIndex: Int,
+        volumeIndex: Int,
+        pngPath: String,
+        maxSize: Int,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): NativeSvgPreview
+
+    /** edit_svg_file(); [edit] is SvgFileEdit's value. */
+    external fun editSvgFile(
+        plate: NativePlate,
+        objectIndex: Int,
+        volumeIndex: Int,
+        edit: Long,
+        path: String,
         printerProfile: String,
         filamentProfile: String,
         filamentProfiles: Array<String>,

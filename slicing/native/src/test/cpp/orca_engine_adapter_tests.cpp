@@ -6305,9 +6305,9 @@ TEST_CASE("A text is turned, moved and faced to the camera as the text tool does
     CHECK_FALSE(described.style.angle.has_value());
 
     // do_local_z_rotate(): calc_angle() measures the turn back, clockwise.
-    orca::TextTransform turn;
+    orca::EmbossTransform turn;
     turn.rotate = 0.5;
-    result = orca::transform_text(plate, 0, 0, 1, turn, "Orca", style, false, k2_plus_profiles(), import_prefix("turned"));
+    result = orca::transform_emboss(plate, 0, 0, 1, turn, "Orca", style, false, k2_plus_profiles(), import_prefix("turned"));
     INFO(result.message);
     REQUIRE(result.status == orca::SceneStatus::success);
     plate = {plate_object_of(result.objects.front())};
@@ -6316,9 +6316,9 @@ TEST_CASE("A text is turned, moved and faced to the camera as the text tool does
     CHECK(std::abs(*described.style.angle) == Catch::Approx(0.5).margin(1e-3));
 
     // do_local_z_move(): the text stands a millimetre off the face.
-    orca::TextTransform move;
+    orca::EmbossTransform move;
     move.move = 1.0;
-    result = orca::transform_text(plate, 0, 0, 1, move, "Orca", style, false, k2_plus_profiles(), import_prefix("moved"));
+    result = orca::transform_emboss(plate, 0, 0, 1, move, "Orca", style, false, k2_plus_profiles(), import_prefix("moved"));
     REQUIRE(result.status == orca::SceneStatus::success);
     plate = {plate_object_of(result.objects.front())};
     described = orca::describe_emboss(plate, 0, 1, k2_plus_profiles());
@@ -6326,16 +6326,97 @@ TEST_CASE("A text is turned, moved and faced to the camera as the text tool does
     CHECK(std::abs(*described.style.distance) == Catch::Approx(1.0).margin(1e-3));
 
     // face_selected_volume_to_camera(): a camera straight above turns the text up.
-    orca::TextTransform face;
+    orca::EmbossTransform face;
     face.camera_position = {cube.box_center[0], cube.box_center[1], 500.0};
     face.camera_forward = {0.0, 0.0, -1.0};
     face.perspective = false;
     face.keep_up = true;
-    result = orca::transform_text(plate, 0, 0, 1, face, "Orca", style, false, k2_plus_profiles(), import_prefix("faced"));
+    result = orca::transform_emboss(plate, 0, 0, 1, face, "Orca", style, false, k2_plus_profiles(), import_prefix("faced"));
     INFO(result.message);
     REQUIRE(result.status == orca::SceneStatus::success);
     const orca::ImportedPart& faced = result.objects.front().parts.front();
     REQUIRE(faced.matrix.size() == 16);
     // The text's Z axis, the third column, looks up.
     CHECK(faced.matrix[10] == Catch::Approx(1.0).margin(1e-6));
+}
+
+TEST_CASE("The SVG window draws its SVG, sizes, mirrors, saves, forgets and bakes it", "[Adapter][Emboss]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("svg-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    const std::string svg = output_path("window.svg");
+    {
+        std::ofstream file(svg);
+        file << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20mm\" height=\"10mm\" viewBox=\"0 0 20 10\">"
+                "<path id=\"frame\" d=\"M0 0 H20 V10 H0 Z M5 2 H15 V8 H5 Z\" fill=\"black\" opacity=\"0.5\"/></svg>";
+    }
+    orca::EmbossPlacement top;
+    top.object_index = 0;
+    top.position = {cube.box_center[0], cube.box_center[1], cube.box_center[2] + cube.size_z / 2};
+    top.normal = {0.0, 0.0, 1.0};
+    orca::ImportedModels result = orca::create_svg(plate, top, orca::VolumeType::part, svg, k2_plus_profiles(), import_prefix("window-svg"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    const std::size_t volume = 1;
+
+    // draw_preview(): the shape twice as wide as high; the opacity is warned about.
+    const std::string png = output_path("window-preview.png");
+    const orca::SvgPreview preview = orca::preview_svg(plate, 0, volume, png, 256, k2_plus_profiles());
+    INFO(preview.message);
+    REQUIRE(preview.status == orca::SceneStatus::success);
+    CHECK(preview.width == 256);
+    CHECK(preview.height == 128);
+    CHECK(boost::filesystem::exists(png));
+    CHECK(preview.svg_path == svg);
+    CHECK(preview.points > 0);
+    REQUIRE_FALSE(preview.warnings.empty());
+    CHECK(preview.warnings.front().text.msgid == "Fill of shape (%1%) contains unsupported: %2%.");
+    REQUIRE_FALSE(preview.warnings.front().unsupported.empty());
+    CHECK(preview.warnings.front().unsupported.front().msgid == "Opacity (%1%)");
+
+    // draw_size(): twice as wide and high.
+    const double width = orca::describe_emboss(plate, 0, volume, k2_plus_profiles()).width;
+    orca::EmbossTransform size;
+    size.scale = {2.0, 2.0, 1.0};
+    result = orca::transform_emboss(plate, 0, 0, volume, size, "", {}, false, k2_plus_profiles(), import_prefix("window-sized"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    CHECK(orca::describe_emboss(plate, 0, volume, k2_plus_profiles()).width == Catch::Approx(2 * width).epsilon(0.01));
+
+    // draw_mirroring(): mirrored along X, the volume turns left-handed.
+    orca::EmbossTransform mirror;
+    mirror.mirror = 0;
+    result = orca::transform_emboss(plate, 0, 0, volume, mirror, "", {}, false, k2_plus_profiles(), import_prefix("window-mirrored"));
+    REQUIRE(result.status == orca::SceneStatus::success);
+    const std::vector<double>& m = result.objects.front().parts.front().matrix;
+    REQUIRE(m.size() == 16);
+    const double det = m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
+    CHECK(det < 0.0);
+    plate = {plate_object_of(result.objects.front())};
+
+    // "Save as": the SVG goes to the file, which it reloads from afterwards.
+    const std::string saved = output_path("window-saved.svg");
+    result = orca::edit_svg_file(plate, 0, volume, orca::SvgFileEdit::save_as, saved, k2_plus_profiles(), import_prefix("window-saved"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    CHECK(boost::filesystem::exists(saved));
+    plate = {plate_object_of(result.objects.front())};
+    CHECK(orca::preview_svg(plate, 0, volume, png, 64, k2_plus_profiles()).svg_path == saved);
+
+    // "Forget the file path": no reload any more.
+    result = orca::edit_svg_file(plate, 0, volume, orca::SvgFileEdit::forget_path, "", k2_plus_profiles(), import_prefix("window-forgot"));
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    CHECK(orca::preview_svg(plate, 0, volume, png, 64, k2_plus_profiles()).svg_path.empty());
+    CHECK_FALSE(orca::describe_emboss(plate, 0, volume, k2_plus_profiles()).svg_reloadable);
+
+    // "Bake": a part of no SVG.
+    result = orca::edit_svg_file(plate, 0, volume, orca::SvgFileEdit::bake, "", k2_plus_profiles(), import_prefix("window-baked"));
+    REQUIRE(result.status == orca::SceneStatus::success);
+    CHECK(result.objects.front().parts.front().emboss_kind == orca::EmbossKind::none);
 }

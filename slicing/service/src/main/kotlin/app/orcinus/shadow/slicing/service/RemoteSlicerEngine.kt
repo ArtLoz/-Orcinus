@@ -97,9 +97,11 @@ import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.StepMeshOptions
+import app.orcinus.shadow.core.model.SvgFileEdit
+import app.orcinus.shadow.core.model.SvgPreviewOutcome
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.TextStylesOutcome
-import app.orcinus.shadow.core.model.TextTransform
+import app.orcinus.shadow.core.model.EmbossTransform
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
@@ -376,19 +378,19 @@ class RemoteSlicerEngine(
     override suspend fun describeEmboss(plate: List<PlacedModel>, index: Int, volume: Int, profiles: SlicingProfileSelection): EmbossVolumeOutcome =
         remote({ EmbossVolumeOutcome.Failure(it) }) { describeEmboss(plate.toParcels(), index, volume, profiles.toParcel()).toEmbossVolumeOutcome() }
 
-    override suspend fun transformText(
+    override suspend fun transformEmboss(
         plate: List<PlacedModel>,
         index: Int,
         instance: Int,
         volume: Int,
-        transform: TextTransform,
+        transform: EmbossTransform,
         text: String,
         style: TextStyle,
         reEmboss: Boolean,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
-        transformText(
+        transformEmboss(
             plate.toParcels(),
             index,
             instance,
@@ -399,12 +401,37 @@ class RemoteSlicerEngine(
             transform.cameraForward?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0),
             transform.perspective,
             transform.keepUp,
+            transform.scale?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0),
+            transform.mirror?.ordinal ?: -1,
             text,
             style.toParcel(),
             reEmboss,
             profiles.toParcel(),
             prefix.value,
         ).toModelLoadOutcome()
+    }
+
+    override suspend fun previewSvg(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        picture: ScenePath,
+        maxSize: Int,
+        profiles: SlicingProfileSelection,
+    ): SvgPreviewOutcome = remote({ SvgPreviewOutcome.Failure(it) }) {
+        previewSvg(plate.toParcels(), index, volume, picture.value, maxSize, profiles.toParcel()).toSvgPreviewOutcome()
+    }
+
+    override suspend fun editSvgFile(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        edit: SvgFileEdit,
+        path: String,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        editSvgFile(plate.toParcels(), index, volume, edit.name, path, profiles.toParcel(), prefix.value).toModelLoadOutcome()
     }
 
     override suspend fun renameTextStyle(

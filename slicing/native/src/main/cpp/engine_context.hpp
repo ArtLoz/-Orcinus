@@ -135,6 +135,9 @@ EmbossKind emboss_kind_of(const Slic3r::ModelVolume& volume);
 // coordinates.
 std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& object, const Slic3r::ModelInstance& instance);
 
+// An RGBA picture of width x height, rows from the top, written as a PNG to path.
+bool write_png_rgba(const std::string& path, int width, int height, const std::vector<unsigned char>& rgba);
+
 // Writes a mesh for the 3D view, in the format :render:scene reads
 // (mesh_file_magic of orca_engine_adapter.hpp).
 bool write_mesh(const indexed_triangle_set& its, const std::string& path);
