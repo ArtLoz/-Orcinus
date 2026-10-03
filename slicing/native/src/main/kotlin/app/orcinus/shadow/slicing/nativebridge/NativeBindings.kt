@@ -924,6 +924,8 @@ internal class NativeImportedModels(
     @JvmField val stepFile: Int,
     /** The files loaded as one object, which is to be split into objects that keep their places. */
     @JvmField val splitToObjects: Boolean,
+    /** reload_volumes(): the files or names of the volumes the file had nothing for. */
+    @JvmField val failed: Array<String>,
 )
 
 /**
@@ -1424,6 +1426,19 @@ internal object NativeBindings {
         stepLinear: Double,
         stepAngle: Double,
         stepSplit: Boolean,
+    ): NativeImportedModels
+
+    /** reload_volumes(): [volumes] index the object's volumes (ModelObject::volumes). */
+    external fun reloadVolumes(
+        plate: NativePlate,
+        objectIndex: Int,
+        volumes: IntArray,
+        sourcePath: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
     ): NativeImportedModels
 
     /** load_volume(): [type] is VolumeType, the step values a StepMeshChoice. */

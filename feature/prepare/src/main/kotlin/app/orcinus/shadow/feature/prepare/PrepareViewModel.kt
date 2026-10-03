@@ -122,6 +122,7 @@ import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
+import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveObjectPartUseCase
 import app.orcinus.shadow.domain.plate.RemovePlateInstanceUseCase
@@ -246,6 +247,7 @@ class PrepareViewModel(
     private val previewSimplify: PreviewSimplifyUseCase,
     private val applySimplifyUseCase: ApplySimplifyUseCase,
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
+    private val reloadFromDisk: ReloadFromDiskUseCase,
     private val selectPlate: SelectPlateUseCase,
     private val addPlate: AddPlateUseCase,
     private val deletePlate: DeletePlateUseCase,
@@ -2820,6 +2822,9 @@ class PrepareViewModel(
 
     /** "Replace all with 3D files" from the folder the user picked. */
     fun replaceAllVolumes(copy: PlateInstanceId, folder: String) = replaceAllVolumesUseCase(copy, ExternalDocumentReference(folder))
+
+    /** Plater::reload_from_disk() of the object's volumes. */
+    fun reloadFromDiskAt(index: Int) = copyAt(index)?.let { reloadFromDisk(it.mesh) }
 
     /** "Replace 3D file": the object's own mesh takes the one of the document the user picked. */
     fun replaceMesh(copy: PlateInstanceId, document: String) = replaceObjectVolume(copy, 0, ExternalDocumentReference(document))

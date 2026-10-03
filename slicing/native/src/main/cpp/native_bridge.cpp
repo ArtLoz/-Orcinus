@@ -3304,7 +3304,7 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
         "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;I"
-        "ZDDZIZ)V"
+        "ZDDZIZ[Ljava/lang/String;)V"
     );
     const jobjectArray plates = to_java_objects(
         env,
@@ -3334,7 +3334,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         static_cast<jdouble>(imported.step_angle_deflection),
         imported.step_split_compound ? JNI_TRUE : JNI_FALSE,
         static_cast<jint>(imported.step_file),
-        imported.split_to_objects ? JNI_TRUE : JNI_FALSE
+        imported.split_to_objects ? JNI_TRUE : JNI_FALSE,
+        to_java(env, imported.failed)
     );
 }
 
@@ -3584,6 +3585,36 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_loadVolume(
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
             to_utf8(env, output_prefix),
             to_step_mesh(step_chosen, step_linear, step_angle, step_split)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_reloadVolumes(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object,
+    jintArray volumes,
+    jstring source_path,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    std::vector<int> indices(static_cast<std::size_t>(env->GetArrayLength(volumes)));
+    env->GetIntArrayRegion(volumes, 0, static_cast<jsize>(indices.size()), reinterpret_cast<jint*>(indices.data()));
+    return to_java(
+        env,
+        orcinus::orca::reload_volumes(
+            to_plate(env, plate),
+            static_cast<std::size_t>(object),
+            indices,
+            to_utf8(env, source_path),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
         )
     );
 }

@@ -117,6 +117,7 @@ import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.RecentProjectsUseCase
+import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.RemoveObjectPartUseCase
@@ -533,6 +534,17 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         applicationScope,
         stepMeshPrompt,
     )
+
+    /** Reload from disk, whose questions the workspace asks. */
+    val reloadFromDisk = ReloadFromDiskUseCase(
+        ImportModelUseCase(modelFiles),
+        modelSources,
+        documentAccess,
+        engine,
+        sceneFiles,
+        plateRepository,
+        applicationScope,
+    )
     val dismissPlateNotice = DismissPlateNoticeUseCase(plateRepository)
     private val dismissPlateProblem = DismissPlateProblemUseCase(plateRepository)
 
@@ -598,6 +610,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             previewSimplify = PreviewSimplifyUseCase(engine, sceneFiles, plateRepository),
             applySimplifyUseCase = ApplySimplifyUseCase(engine, sceneFiles, plateRepository, applicationScope),
             replaceAllVolumesUseCase = replaceAllVolumes,
+            reloadFromDisk = reloadFromDisk,
             selectPlate = selectPlate,
             addPlate = AddPlateUseCase(plateRepository),
             deletePlate = deletePlate,
@@ -712,6 +725,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         openSimplify = openSimplify,
         changeVolumeType = ChangeVolumeTypeUseCase(engine, sceneFiles, plateRepository, applicationScope),
         replaceAllVolumesUseCase = replaceAllVolumes,
+        reloadFromDiskUseCase = reloadFromDisk,
         saveProject = saveProject,
         exportToolpaths = ExportToolpathsUseCase(AppDocumentExport(applicationContext), sceneFiles, plateRepository),
         projectLifecycle = projectLifecycle,

@@ -129,6 +129,7 @@ import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectPrompt
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
+import app.orcinus.shadow.core.model.ReloadPrompt
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.SettingState
@@ -194,10 +195,13 @@ import app.orcinus.shadow.slicing.api.SlicerEngine
 import app.orcinus.shadow.storage.api.BackupOrigin
 import app.orcinus.shadow.storage.api.CachedPlate
 import app.orcinus.shadow.storage.api.ConfigFiles
+import app.orcinus.shadow.storage.api.DocumentAccess
+import app.orcinus.shadow.storage.api.DocumentDescription
 import app.orcinus.shadow.storage.api.DocumentExport
 import app.orcinus.shadow.storage.api.DocumentFolders
 import app.orcinus.shadow.storage.api.GcodeOutputs
 import app.orcinus.shadow.storage.api.ModelFileImporter
+import app.orcinus.shadow.storage.api.ModelSources
 import app.orcinus.shadow.storage.api.PlateCache
 import app.orcinus.shadow.storage.api.ProjectBackup
 import app.orcinus.shadow.storage.api.ProjectBackupFiles
@@ -3054,6 +3058,75 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `Reload from disk reads the document a volume's copy came from again, or the file the user picks for it`() {
+        val copy = "/files/imports/a-0/part.stl"
+        val model = PlateObject.ImportedModel(
+            ImportedModelFile(ModelPath(copy), "part.stl"),
+            listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/part.mesh")))),
+            volume = ObjectVolume(inputFile = copy),
+        )
+        val document = ExternalDocumentReference("content://part")
+        val reread = ImportedModelFile(ModelPath("/files/imports/b-0/part.stl"), "part.stl")
+        fun reloading(readable: Boolean): Triple<FakeRepository, FakeInspector, ReloadFromDiskUseCase> {
+            val repository = FakeRepository(readyState(model))
+            val inspector = FakeInspector()
+            inspector.reload = ModelLoadOutcome.Success(listOf(LOADED), emptyList(), failed = listOf("/files/imports/a-0/lid.stl"))
+            val reload = ReloadFromDiskUseCase(
+                ImportModelUseCase(object : ModelFileImporter {
+                    override suspend fun importModel(reference: ExternalDocumentReference) = ModelImportOutcome.Success(reread)
+                }),
+                object : ModelSources {
+                    override fun documentOf(file: String) = document.takeIf { file == copy }
+                    override fun record(file: String, document: ExternalDocumentReference) = Unit
+                    override fun isFile(file: String) = false
+                },
+                object : DocumentAccess {
+                    override fun keep(document: ExternalDocumentReference, holder: String) = Unit
+                    override fun release(document: ExternalDocumentReference, holder: String) = Unit
+                    override fun describe(document: ExternalDocumentReference) =
+                        DocumentDescription("part.stl", 0L).takeIf { readable || document.value == "content://picked" }
+                    override fun open(document: ExternalDocumentReference) = null
+                },
+                inspector,
+                FakeSceneFiles(),
+                repository,
+                scope,
+            )
+            return Triple(repository, inspector, reload)
+        }
+
+        // The document is there: its copy anew stands in for the volume's file.
+        val (repository, inspector, reload) = reloading(readable = true)
+        reload(model.mesh)
+        assertEquals(listOf(FakeInspector.Reload(0, listOf(0), reread.path)), inspector.reloads)
+        val state = repository.state.value
+        assertFalse(state.editing)
+        assertEquals(LOADED.instances.single().inspection.mesh, state.objects.single().mesh)
+        assertEquals(listOf(listOf(model)), state.history.undo.map { it.objects })
+        // "Error during reload" names the volumes the file had nothing for.
+        val notice = state.plateNotices.single()
+        assertEquals("reload_failed", notice.id)
+        assertTrue(notice.text.any { "lid.stl" in it.args.joinToString() })
+
+        // The app can no longer read it: the user picks the file, of the same name.
+        val (asking, askedInspector, askingReload) = reloading(readable = false)
+        askingReload(model.mesh)
+        assertEquals(ReloadPrompt.PickFile("part.stl"), asking.state.value.reloadPrompt)
+        assertTrue(askedInspector.reloads.isEmpty())
+        askingReload.pick(ExternalDocumentReference("content://picked"))
+        assertNull(asking.state.value.reloadPrompt)
+        assertEquals(1, askedInspector.reloads.size)
+
+        // Cancel reloads nothing and leaves Undo alone.
+        val (cancelled, cancelledInspector, cancelledReload) = reloading(readable = false)
+        cancelledReload(model.mesh)
+        cancelledReload.pick(null)
+        assertTrue(cancelledInspector.reloads.isEmpty())
+        assertFalse(cancelled.state.value.editing)
+        assertTrue(cancelled.state.value.history.undo.isEmpty())
+    }
+
+    @Test
     fun `copied process settings of an object carry its own, and those of a part carry the object's under them`() {
         val part = ObjectPart("Cube", VolumeType.MODIFIER, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement, ModelSettings(mapOf("wall_loops" to "5")))
         val cube = CUBE.withSettings(ModelSettings(mapOf("layer_height" to "0.1", "wall_loops" to "3"))).withParts(listOf(part))
@@ -3680,6 +3753,23 @@ class PlateUseCasesTest {
         data class Replacement(val index: Int, val volume: Int, val source: ModelPath)
 
         data class VolumeLoad(val plate: List<PlacedModel>, val index: Int, val source: ModelPath, val name: String, val type: VolumeType)
+
+        data class Reload(val index: Int, val volumes: List<Int>, val source: ModelPath)
+
+        val reloads = mutableListOf<Reload>()
+        var reload: ModelLoadOutcome = ModelLoadOutcome.Success(emptyList(), emptyList())
+
+        override suspend fun reloadVolumes(
+            plate: List<PlacedModel>,
+            index: Int,
+            volumes: List<Int>,
+            source: ModelPath,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            reloads += Reload(index, volumes, source)
+            return reload
+        }
 
         val loadedVolumes = mutableListOf<VolumeLoad>()
 

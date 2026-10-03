@@ -318,6 +318,7 @@ internal fun PrepareRoute(
                     replacement.launch(arrayOf("*/*"))
                 }
             },
+            reloadFromDisk = viewModel::reloadFromDiskAt,
             loadPart = { index, type ->
                 viewModel.copyOf(index)?.let { copy ->
                     loadTarget = copy.mesh.value to type.name
@@ -1186,6 +1187,8 @@ internal class PrepareObjectMenuActions(
     val invalidateCutInfo: (index: Int) -> Unit = {},
     /** "Load..." of the submenus that add a part: opens the file picker for the volumes. */
     val loadPart: (index: Int, type: VolumeType) -> Unit = { _, _ -> },
+    /** Plater::reload_from_disk() of the object's volumes. */
+    val reloadFromDisk: (index: Int) -> Unit = {},
 ) {
     companion object {
         val NONE = PrepareObjectMenuActions(
@@ -1330,6 +1333,7 @@ private fun ObjectContextMenu(
                 editProcessSettings = { actions.editProcessSettings(index) },
                 copyProcessSettings = { actions.copyProcessSettings(index) },
                 pasteProcessSettings = { actions.pasteProcessSettings(index) },
+                reloadFromDisk = { actions.reloadFromDisk(index) },
                 replace = { actions.replace(index) },
                 replaceAll = { actions.replaceAll(index) },
                 export = { format -> actions.export(index, format, name) },

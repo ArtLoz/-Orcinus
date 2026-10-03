@@ -636,6 +636,17 @@ class RemoteSlicerEngine(
         replaceVolume(plate.toParcels(), index, volume, source.value, profiles.toParcel(), prefix.value, stepMesh?.toArray()).toModelLoadOutcome()
     }
 
+    override suspend fun reloadVolumes(
+        plate: List<PlacedModel>,
+        index: Int,
+        volumes: List<Int>,
+        source: ModelPath,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        reloadVolumes(plate.toParcels(), index, volumes.toIntArray(), source.value, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
     override suspend fun loadVolume(
         plate: List<PlacedModel>,
         index: Int,

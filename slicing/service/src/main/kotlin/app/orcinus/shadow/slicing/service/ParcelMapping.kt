@@ -444,6 +444,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.calibration = (this as? ModelLoadOutcome.Success)?.calibration?.toParcel()
     it.plateCount = (this as? ModelLoadOutcome.Success)?.plateCount ?: 0
     it.splitToObjects = this is ModelLoadOutcome.Success && splitToObjects
+    it.failed = (this as? ModelLoadOutcome.Success)?.failed?.toTypedArray()
     (this as? ModelLoadOutcome.Success)?.project?.let { project ->
         it.plates = project.plates.map { plate -> plate.toParcel() }.toTypedArray()
         it.projectInfo = project.info?.value
@@ -529,6 +530,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
         calibration = calibration?.toCalibrationParams(),
         plateCount = plateCount,
         splitToObjects = splitToObjects,
+        failed = failed.orEmpty().toList(),
     )
 }
 

@@ -45,14 +45,18 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTabBar
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarLayout
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
+import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.ModelLoad
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PresetChangesAnswer
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.ProjectPrompt
+import app.orcinus.shadow.core.model.ReloadPrompt
 import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.ui.orca.orcaString
@@ -72,6 +76,7 @@ import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
+import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
@@ -119,6 +124,7 @@ class AppShellViewModel(
     private val projectBackup: ProjectBackupUseCase,
     /** The Preferences' "Default page" once it is read; null before. */
     val defaultPage: Flow<String?>,
+    private val reloadFromDisk: ReloadFromDiskUseCase,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -156,6 +162,12 @@ class AppShellViewModel(
 
     suspend fun stepTriangleCount(linear: Double, angle: Double): Long = stepMeshPrompt.triangleCount(linear, angle)
 
+    /** "Reload from disk": the file the user picked for one the app can no longer read; null for Cancel. */
+    fun reloadPick(document: ExternalDocumentReference?) = reloadFromDisk.pick(document)
+
+    /** "Do you want to replace it ?" of "Reload from disk". */
+    fun reloadReplace(yes: Boolean) = reloadFromDisk.replace(yes)
+
     /** Whether the workspace shows Preview, which "Auto slice after changes" asks. */
     fun showingPreview(shown: Boolean) = autoSlice.setPreviewShown(shown)
 }
@@ -189,6 +201,7 @@ fun OrcinusApp(
             container.autoSlice,
             container.projectBackup,
             container.defaultPage,
+            container.reloadFromDisk,
         )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
@@ -286,7 +299,14 @@ private fun Workspace(
     val question = plate.plateQuestion?.question
     val projectDrop = plate.projectDrop
     val projectPrompt = plate.projectPrompt
+    val reloadPrompt = plate.reloadPrompt
     val stepMesh = plate.stepMesh
+    // "Reload from disk"'s file dialog for a file the app can no longer read.
+    var reloadPicking by remember { mutableStateOf(false) }
+    val reloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        reloadPicking = false
+        shell.reloadPick(uri?.let { ExternalDocumentReference(it.toString()) })
+    }
     when {
         notice != null -> SettingsNoticeDialog(notice, onDismiss = shell::dismissNotice)
         question != null -> SettingsQuestionDialog(question, onAnswerChecked = shell::answer)
@@ -296,6 +316,38 @@ private fun Workspace(
         projectPrompt is ProjectPrompt.PresetChanges ->
             ProjectPresetChangesDialog(projectPrompt, checkName = shell::checkPresetName, onAnswer = shell::answerPresetChanges)
         projectDrop != null -> ProjectDropSheet(projectDrop.value.substringAfterLast('/'), onChoose = shell::openProjectAs)
+        // wxFileDialog's "Please select a file:", named after the file it looks for.
+        reloadPrompt is ReloadPrompt.PickFile && !reloadPicking -> SettingsQuestionDialog(
+            SettingsDialog(
+                id = "reload_select_file",
+                icon = DialogIcon.QUESTION,
+                title = listOf(OrcaText("Please select a file")),
+                text = listOf(OrcaText("%s", listOf(reloadPrompt.name))),
+                question = true,
+                yes = OrcaText("OK"),
+                no = OrcaText("Cancel"),
+            ),
+            onAnswer = { yes ->
+                if (yes) {
+                    reloadPicking = true
+                    reloadPicker.launch(arrayOf("*/*"))
+                } else {
+                    shell.reloadPick(null)
+                }
+            },
+        )
+        reloadPrompt is ReloadPrompt.Replace -> SettingsQuestionDialog(
+            SettingsDialog(
+                id = "reload_replace",
+                icon = DialogIcon.QUESTION,
+                title = listOf(OrcaText("Message")),
+                text = listOf(OrcaText("Do you want to replace it"), OrcaText("%s", listOf(" ?"))),
+                question = true,
+                yes = null,
+                no = null,
+            ),
+            onAnswer = shell::reloadReplace,
+        )
     }
     // Save Project's file dialog, when the project to be saved has no document yet.
     val saveAsPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME_TYPE)) { uri ->

@@ -1618,6 +1618,9 @@ struct ImportedModels {
     // paste_volumes(): the first pasted volume of the object, which the object
     // list selects; -1 for none.
     int selected_volume{-1};
+    // reload_volumes(): the files or names of the volumes the file had nothing
+    // for (Plater::priv::reload_from_disk()'s fail_list).
+    std::vector<std::string> failed;
     // import_model() of a 3MF file opened as a project with its settings
     // (Plater::load_project): its plates, at least one, as
     // PartPlateList::load_from_3mf_structure() makes them, without pictures.
@@ -2633,6 +2636,26 @@ ImportedModels load_volume(
     const ProfileSelection& profiles,
     const std::string& output_prefix,
     const StepMeshChoice& step_mesh = {}
+);
+
+// Plater::priv::reload_from_disk() of one file: the file at source_path
+// takes the place of the volumes at volume_indices of the object at
+// object_index whose file (source.input_file) or name is the file's name.
+// The volume the file holds where the old one was in it (source.object_idx
+// and volume_idx, of a file of the same name), or else the first of the old
+// one's name, or a STEP file's object of that name whole, keeps the old
+// volume's settings, type, transformation, source offset and units, and with
+// keep_painting its painting; the object rests on the plate unless it was
+// sunk, its volumes sorted as order_volumes says. failed names the volumes
+// the file has nothing for. A file that cannot be read fails the call. The
+// object is written as import_model() writes objects when a volume changed.
+ImportedModels reload_volumes(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    const std::vector<int>& volume_indices,
+    const std::string& source_path,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
 );
 
 // ObjectList::load_shape_object() and load_mesh_object(): a shape of

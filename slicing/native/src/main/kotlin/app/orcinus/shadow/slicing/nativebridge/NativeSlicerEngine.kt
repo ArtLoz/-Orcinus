@@ -1118,6 +1118,31 @@ class NativeSlicerEngine(context: Context) :
         ).toOutcome()
     }
 
+    override suspend fun reloadVolumes(
+        plate: List<PlacedModel>,
+        index: Int,
+        volumes: List<Int>,
+        source: ModelPath,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.reloadVolumes(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volumes = volumes.toIntArray(),
+            sourcePath = source.value,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
     override suspend fun loadVolume(
         plate: List<PlacedModel>,
         index: Int,
@@ -2408,6 +2433,7 @@ class NativeSlicerEngine(context: Context) :
                 calibration = calibration?.toParams(),
                 plateCount = plateCount,
                 splitToObjects = splitToObjects,
+                failed = failed.toList(),
             )
         }
     }

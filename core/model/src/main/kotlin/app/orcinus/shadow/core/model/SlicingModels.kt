@@ -280,6 +280,11 @@ sealed interface ModelLoadOutcome {
          * split_object() is to split into objects.
          */
         val splitToObjects: Boolean = false,
+        /**
+         * Plater::priv::reload_from_disk(): the files or names of the volumes
+         * the file had nothing for (fail_list).
+         */
+        val failed: List<String> = emptyList(),
     ) : ModelLoadOutcome
 
     /** The load asks [question] before it adds anything; it is requested again with the answer. */

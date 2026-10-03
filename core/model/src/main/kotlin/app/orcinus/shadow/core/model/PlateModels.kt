@@ -314,6 +314,18 @@ fun PlateObject.volumeAt(index: Int): ObjectPart? = when {
     else -> parts.getOrNull(index - 1)
 }
 
+/** ModelVolume::source.input_file of the volume at [index] (ModelObject::volumes); empty for none. */
+fun PlateObject.volumeInputFile(index: Int): String = if (index == 0) volume.inputFile else parts.getOrNull(index - 1)?.inputFile.orEmpty()
+
+/**
+ * reloadable_volumes(): the volumes (ModelObject::volumes) that came from a
+ * file with an extension, which "Reload from disk" reads again.
+ */
+fun PlateObject.reloadableVolumes(): List<Int> = (0..parts.size).filter { index ->
+    val name = volumeInputFile(index).substringAfterLast('/')
+    name.lastIndexOf('.') > 0
+}
+
 /** ModelObject::is_cut(): the object is a part of a cut. */
 val PlateObject.isCut: Boolean get() = cutId != null
 
@@ -756,6 +768,18 @@ sealed interface ProjectPrompt {
     ) : ProjectPrompt
 }
 
+/**
+ * A question of "Reload from disk" (Plater::priv::reload_from_disk()) that
+ * waits for the user.
+ */
+sealed interface ReloadPrompt {
+    /** "Please select a file": the app can no longer read the file [name], and the user picks one. */
+    data class PickFile(val name: String) : ReloadPrompt
+
+    /** "Do you want to replace it ?": the file picked for [name] has another name. */
+    data class Replace(val name: String) : ReloadPrompt
+}
+
 /** What the user answered to [ProjectPrompt.PresetChanges]. */
 sealed interface PresetChangesAnswer {
     /** Keep: the changes stay with the presets of the new project. */
@@ -985,6 +1009,8 @@ data class PlateState(
     val project: PlateProject = PlateProject(),
     /** A question of New Project or Open Project that waits for the user. */
     val projectPrompt: ProjectPrompt? = null,
+    /** A question of "Reload from disk" that waits for the user. */
+    val reloadPrompt: ReloadPrompt? = null,
     /** Message boxes OrcaSlicer showed while it changed the plate, which the user dismisses in turn. */
     val plateNotices: List<SettingsDialog> = emptyList(),
     /** The objects on the plate, in the order they were added, as OrcaSlicer's object list shows them. */

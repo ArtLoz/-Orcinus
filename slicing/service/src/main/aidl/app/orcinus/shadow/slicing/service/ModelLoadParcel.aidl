@@ -30,4 +30,6 @@ parcelable ModelLoadParcel {
     int stepFile;
     /** The files loaded as one object, which is to be split into objects that keep their places. */
     boolean splitToObjects;
+    /** ModelLoadOutcome.Success.failed */
+    @nullable String[] failed;
 }

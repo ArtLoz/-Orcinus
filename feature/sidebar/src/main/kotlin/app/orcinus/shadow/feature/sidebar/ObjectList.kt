@@ -3,6 +3,7 @@ package app.orcinus.shadow.feature.sidebar
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
+import app.orcinus.shadow.core.model.reloadableVolumes
 import app.orcinus.shadow.core.ui.plate.conversionsOf
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.hasConnectors
@@ -153,6 +154,10 @@ internal class ObjectListActions(
     val replaceVolume: (PlateInstanceId, volume: Int) -> Unit = { _, _ -> },
     /** Opens the folder picker whose files replace the volumes of an object (Plater::replace_all_with_stl). */
     val replaceAllVolumes: (PlateInstanceId) -> Unit = {},
+    /** Plater::reload_from_disk() of the object's volumes, or of its volume at an index. */
+    val reloadFromDisk: (ScenePath, volume: Int?) -> Unit = { _, _ -> },
+    /** The plate menu's "Reload All" (Plater::reload_all_from_disk()). */
+    val reloadAll: () -> Unit = {},
     /** Opens where an object is exported to (Plater::export_stl), suggesting a file named after it. */
     val exportObject: (ScenePath, MeshFormat, name: String) -> Unit = { _, _, _ -> },
     /** ObjectList::simplify() of the whole object, or of one of its volumes. */
@@ -308,8 +313,7 @@ private fun PlateItemMenu(
     item(orcaString("Select All Plates"), enabled && state.objects.isNotEmpty(), actions.selectAllPlates)
     item(orcaString("Delete All"), current && plate.occupied, actions.deletePlateObjects)
     item(orcaString("Arrange"), current && plate.occupied && !plate.locked) { actions.arrangePlate(index) }
-    // Reload from disk is not in the app yet.
-    item(orcaString("Reload All"), false) {}
+    item(orcaString("Reload All"), current && plate.occupied, actions.reloadAll)
     item(orcaString("Auto Rotate"), current && plate.occupied && !plate.locked) { actions.orientPlate(index) }
     item(orcaString("Delete Plate"), current && state.canDeletePlate) { actions.deletePlate(index) }
     OrcaMenuSeparator()
@@ -563,6 +567,15 @@ private fun LazyListScope.objectRows(
                                 )
                             }
                         }
+                        // append_menu_item_reload_from_disk(): Plater::can_reload_from_disk() of the volume.
+                        OrcaMenuItem(
+                            text = orcaString("Reload from disk"),
+                            enabled = enabled && !plateObject.isCut && at in plateObject.reloadableVolumes(),
+                            onClick = {
+                                dismiss()
+                                actions.reloadFromDisk(mesh, at)
+                            },
+                        )
                         // Plater::can_replace_with_stl(): the list selects the volume alone.
                         if (embossed == null) OrcaMenuItem(
                             text = orcaString("Replace 3D file") + "...",
@@ -873,6 +886,7 @@ private fun ObjectListActions.menuOf(
     editProcessSettings = { editProcessSettings(SettingsItem.Object(id.mesh)) },
     copyProcessSettings = { copyProcessSettings(SettingsItem.Object(id.mesh)) },
     pasteProcessSettings = { pasteProcessSettings(SettingsItem.Object(id.mesh)) },
+    reloadFromDisk = { reloadFromDisk(id.mesh, null) },
     replace = { replaceVolume(id, 0) },
     replaceAll = { replaceAllVolumes(id) },
     export = { exportObject(id.mesh, it, name) },

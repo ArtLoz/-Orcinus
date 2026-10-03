@@ -543,6 +543,17 @@ abstract class SlicerService<E> : Service()
             engine.replaceVolume(plate.toPlacedModels(), index, volume, ModelPath(source), profiles.toProfiles(), ScenePath(prefix), stepMesh?.toStepMeshOptions())
         }.toParcel()
 
+        override fun reloadVolumes(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volumes: IntArray,
+            source: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.reloadVolumes(plate.toPlacedModels(), index, volumes.toList(), ModelPath(source), profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
         override fun loadVolume(
             plate: Array<PlacedModelParcel>,
             index: Int,

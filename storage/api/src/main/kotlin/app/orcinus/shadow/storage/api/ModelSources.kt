@@ -14,4 +14,7 @@ interface ModelSources {
 
     /** The copy at [file] was made from [document]. */
     fun record(file: String, document: ExternalDocumentReference)
+
+    /** [file] is a file of the device the engine reads as it is, as OrcaSlicer's own models among its resources. */
+    fun isFile(file: String): Boolean
 }

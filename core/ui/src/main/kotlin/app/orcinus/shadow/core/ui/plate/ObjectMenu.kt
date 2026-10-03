@@ -62,6 +62,7 @@ import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.flushesInto
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.reloadableVolumes
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
@@ -109,6 +110,8 @@ data class ObjectMenuState(
     val flushOptions: FlushOptionsMenu? = null,
     /** ObjectList::can_paste_settings_into_list(): the process settings copied are an object's. */
     val canPasteSettings: Boolean = false,
+    /** Plater::can_reload_from_disk(): a volume came from a file, and the object is no part of a cut. */
+    val canReloadFromDisk: Boolean = false,
     /** Plater::can_replace_with_stl(): the selection is one volume, the object's own mesh. */
     val canReplace: Boolean = false,
     /** Plater::can_replace_all_with_stl(): the selection holds several volumes. */
@@ -200,6 +203,7 @@ fun objectMenuState(
             )
         },
         canPasteSettings = enabled && settingsClipboard?.kind == SettingsItemKind.OBJECT,
+        canReloadFromDisk = enabled && !plateObject.isCut && plateObject.reloadableVolumes().isNotEmpty(),
         canReplace = enabled && plateObject.parts.isEmpty() && (!wholeObject || plateObject.instances.size == 1),
         canReplaceAll = enabled && (plateObject.parts.isNotEmpty() || (wholeObject && plateObject.instances.size > 1)),
         canExport = enabled && (wholeObject || plateObject.instances.size == 1),
@@ -281,6 +285,8 @@ class ObjectMenuActions(
     val editProcessSettings: () -> Unit,
     val copyProcessSettings: () -> Unit,
     val pasteProcessSettings: () -> Unit,
+    /** Plater::reload_from_disk() of the object's volumes. */
+    val reloadFromDisk: () -> Unit,
     /** Opens the file to replace the object's mesh with (Plater::replace_with_stl). */
     val replace: () -> Unit,
     /** Opens the folder whose files replace the object's volumes (Plater::replace_all_with_stl). */
@@ -406,6 +412,8 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
         }
     }
     OrcaMenuSeparator()
+    // append_menu_item_reload_from_disk()
+    OrcaMenuItem(text = orcaString("Reload from disk"), enabled = state.canReloadFromDisk, onClick = run(actions.reloadFromDisk))
     OrcaMenuItem(text = orcaString("Replace 3D file") + DOTS, enabled = state.canReplace, onClick = run(actions.replace))
     OrcaMenuItem(text = orcaString("Replace all with 3D files") + DOTS, enabled = state.canReplaceAll, onClick = run(actions.replaceAll))
     // append_menu_item_export_stl() and append_menu_item_export_drc()

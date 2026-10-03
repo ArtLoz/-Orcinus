@@ -224,6 +224,7 @@ import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
+import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.RemoveObjectPartUseCase
@@ -386,6 +387,7 @@ class SidebarViewModel(
     private val openSimplify: OpenSimplifyUseCase,
     private val changeVolumeType: ChangeVolumeTypeUseCase,
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
+    private val reloadFromDiskUseCase: ReloadFromDiskUseCase,
     private val saveProject: SaveProjectUseCase,
     private val exportToolpaths: ExportToolpathsUseCase,
     private val projectLifecycle: ProjectLifecycleUseCase,
@@ -666,6 +668,12 @@ class SidebarViewModel(
 
     /** "Replace 3D file": the volume takes the mesh of the document the user picked. */
     fun replaceVolume(copy: PlateInstanceId, volume: Int, document: ExternalDocumentReference) = replaceObjectVolume(copy, volume, document)
+
+    /** Plater::reload_from_disk() of the object's volumes, or of its volume [volume]. */
+    fun reloadFromDisk(mesh: ScenePath, volume: Int?) = reloadFromDiskUseCase(mesh, volume)
+
+    /** Plater::reload_all_from_disk() */
+    fun reloadAll() = reloadFromDiskUseCase.all()
 
     fun setObjectAutoDrop(id: PlateInstanceId, autoDrop: Boolean) = setPlateObjectAutoDrop(id, autoDrop)
 
@@ -1583,6 +1591,8 @@ fun PlateSidebar(
                 replacingAll = copy.mesh.value to copy.instance
                 replacementFolderPicker.launch(null)
             },
+            reloadFromDisk = viewModel::reloadFromDisk,
+            reloadAll = viewModel::reloadAll,
             exportObject = { mesh, format, name ->
                 meshExport = mesh.value to format
                 meshExportPicker.launch(exportFileName(name, format))

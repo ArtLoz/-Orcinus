@@ -5012,6 +5012,193 @@ ImportedModels load_volume(
     }
 }
 
+ImportedModels reload_volumes(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    const std::vector<int>& volume_indices,
+    const std::string& source_path,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size()) {
+            result.message = "The object is not on the plate";
+            return result;
+        }
+
+        const std::string& path = source_path;
+        Model new_model;
+        try {
+            PlateDataPtrs plate_data;
+            std::vector<Preset*> project_presets;
+            if (boost::iends_with(path, ".stp") || boost::iends_with(path, ".step")) {
+                double linear = string_to_double_decimal_point(engine().config->get("linear_defletion"));
+                double angle = string_to_double_decimal_point(engine().config->get("angle_defletion"));
+                bool is_split = engine().config->get_bool("is_split_compound");
+                new_model = Model::read_from_step(path, LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel, nullptr, nullptr, nullptr, linear,
+                                                  angle, is_split);
+            } else {
+                new_model = Model::read_from_file(path, nullptr, nullptr, LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel, &plate_data,
+                                                  &project_presets);
+            }
+
+            for (ModelObject* model_object : new_model.objects) {
+                model_object->center_around_origin();
+                model_object->ensure_on_bed();
+            }
+
+            release_PlateData_list(plate_data);
+            for (Preset* preset : project_presets) {
+                delete preset;
+            }
+        } catch (const std::exception&) {
+            // error while loading
+            result.message = "The file could not be read";
+            return result;
+        }
+
+        ModelObject* old_model_object = model.objects[object_index];
+        bool changed = false;
+        for (const int vol_idx : volume_indices) {
+            if (vol_idx < 0 || vol_idx >= int(old_model_object->volumes.size())) {
+                continue;
+            }
+            ModelVolume* old_volume = old_model_object->volumes[vol_idx];
+
+            bool sinking = old_model_object->min_z() < SINKING_Z_THRESHOLD;
+
+            bool has_source = !old_volume->source.input_file.empty() &&
+                              boost::algorithm::iequals(fs::path(old_volume->source.input_file).filename().string(), fs::path(path).filename().string());
+            bool has_name = !old_volume->name.empty() && boost::algorithm::iequals(old_volume->name, fs::path(path).filename().string());
+            if (has_source || has_name) {
+                int new_volume_idx = -1;
+                int new_object_idx = -1;
+                bool match_found = false;
+                // take idxs from the matching volume
+                if (has_source && old_volume->source.object_idx < int(new_model.objects.size())) {
+                    const ModelObject* obj = new_model.objects[old_volume->source.object_idx];
+                    if (old_volume->source.volume_idx < int(obj->volumes.size())) {
+                        const std::string& new_input_file = obj->volumes[old_volume->source.volume_idx]->source.input_file;
+                        const std::string& old_input_file = old_volume->source.input_file;
+                        // Orca: match on the exact source path first, then fall back to filename-only.
+                        if (new_input_file == old_input_file ||
+                            boost::algorithm::iequals(fs::path(new_input_file).filename().string(), fs::path(old_input_file).filename().string())) {
+                            new_volume_idx = old_volume->source.volume_idx;
+                            new_object_idx = old_volume->source.object_idx;
+                            match_found = true;
+                        }
+                    }
+                }
+
+                if (!match_found && has_name) {
+                    // take idxs from the 1st matching volume
+                    for (size_t o = 0; o < new_model.objects.size(); ++o) {
+                        ModelObject* obj = new_model.objects[o];
+                        bool found = false;
+                        for (size_t v = 0; v < obj->volumes.size(); ++v) {
+                            if (obj->volumes[v]->name == old_volume->name) {
+                                new_volume_idx = (int) v;
+                                new_object_idx = (int) o;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found) break;
+                        // BBS: step model,object loaded as a volume. GUI_ObfectList.cpp load_modifier()
+                        if (obj->name == old_volume->name) {
+                            new_object_idx = (int) o;
+                            break;
+                        }
+                    }
+                }
+
+                if (new_object_idx < 0 || int(new_model.objects.size()) <= new_object_idx) {
+                    result.failed.push_back(has_source ? old_volume->source.input_file : old_volume->name);
+                    continue;
+                }
+                ModelObject* new_model_object = new_model.objects[new_object_idx];
+                if (int(new_model_object->volumes.size()) <= new_volume_idx) {
+                    result.failed.push_back(has_source ? old_volume->source.input_file : old_volume->name);
+                    continue;
+                }
+
+                ModelVolume* new_volume = nullptr;
+                // BBS: step model
+                if (new_volume_idx < 0 && new_object_idx >= 0) {
+                    TriangleMesh mesh = new_model_object->mesh();
+                    new_volume = old_model_object->add_volume(std::move(mesh));
+                    new_volume->name = new_model_object->name;
+                    new_volume->source.input_file = new_model_object->input_file;
+                } else {
+                    new_volume = old_model_object->add_volume(*new_model_object->volumes[new_volume_idx]);
+                }
+
+                new_volume->set_new_unique_id();
+                new_volume->config.apply(old_volume->config);
+                new_volume->set_type(old_volume->type());
+                new_volume->set_material_id(old_volume->material_id());
+
+                new_volume->source.mesh_offset = old_volume->source.mesh_offset;
+                new_volume->set_transformation(old_volume->get_transformation());
+
+                new_volume->source.object_idx = old_volume->source.object_idx;
+                new_volume->source.volume_idx = old_volume->source.volume_idx;
+                if (old_volume->source.is_converted_from_inches)
+                    new_volume->convert_from_imperial_units();
+                else if (old_volume->source.is_converted_from_meters)
+                    new_volume->convert_from_meters();
+
+                // Remap paint
+                if (engine().config->get_bool("keep_painting")) {
+                    auto saved_painting = old_volume->save_painting();
+                    if (saved_painting) {
+                        saved_painting->mesh.transform(Geometry::translation_transform(new_volume->mesh().get_init_shift()));
+                        new_volume->restore_painting(saved_painting);
+                    }
+                }
+
+                std::swap(old_model_object->volumes[vol_idx], old_model_object->volumes.back());
+                old_model_object->delete_volume(old_model_object->volumes.size() - 1);
+                if (!sinking) old_model_object->ensure_on_bed();
+                old_model_object->sort_volumes(engine().config->get("order_volumes") == "1");
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            model.update_print_volume_state(build_volume_of(config));
+            if (!write_objects({old_model_object}, output_prefix, result)) {
+                return result;
+            }
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.objects.clear();
+        return result;
+    }
+}
+
 ImportedModels set_volume_type(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,

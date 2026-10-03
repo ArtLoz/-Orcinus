@@ -4719,6 +4719,53 @@ TEST_CASE("Load... adds a volume from a file where it stood beside the object's 
     }
 }
 
+TEST_CASE("Reload from disk gives a volume the mesh its file has now", "[Adapter][Edit][Reload]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("reload-cube"), {});
+    INFO(imported.message);
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    REQUIRE(imported.objects.size() == 1);
+    const std::vector<orca::PlateObject> plate{plate_object_of(imported.objects.front())};
+
+    SECTION("a file of the volume's name holds the 2 x 20 x 10 mm block now")
+    {
+        const fs::path folder = fs::path(device_dir) / "tmp" / "reload-folder";
+        fs::remove_all(folder);
+        fs::create_directories(folder);
+        const std::string changed = (folder / "20mm_cube.obj").string();
+        fs::copy_file(device_dir + "/data/2x20x10.obj", changed, fs::copy_options::overwrite_existing);
+
+        const orca::ImportedModels reloaded = orca::reload_volumes(plate, 0, {0}, changed, k2_plus_profiles(), import_prefix("reloaded"));
+        INFO(reloaded.message);
+        REQUIRE(reloaded.status == orca::SceneStatus::success);
+        CHECK(reloaded.failed.empty());
+        REQUIRE(reloaded.objects.size() == 1);
+        const orca::ImportedObject& object = reloaded.objects.front();
+        REQUIRE(object.instances.size() == 1);
+        CHECK(object.instances.front().size_x == Catch::Approx(2.0).margin(1e-4));
+        CHECK(object.instances.front().size_y == Catch::Approx(20.0).margin(1e-4));
+        CHECK(object.instances.front().size_z == Catch::Approx(10.0).margin(1e-4));
+        // The new volume keeps the old one's place in its file.
+        CHECK(object.volume_origin.mesh_offset[0] == Catch::Approx(10.0));
+        CHECK(object.volume_input_file == changed);
+    }
+    SECTION("a file of another name reloads nothing")
+    {
+        const orca::ImportedModels other =
+            orca::reload_volumes(plate, 0, {0}, device_dir + "/data/2x20x10.obj", k2_plus_profiles(), import_prefix("reload-other"));
+        CHECK(other.status == orca::SceneStatus::success);
+        CHECK(other.objects.empty());
+        CHECK(other.failed.empty());
+    }
+    SECTION("a file that cannot be read fails")
+    {
+        CHECK(orca::reload_volumes(plate, 0, {0}, device_dir + "/data/missing.obj", k2_plus_profiles(), import_prefix("reload-missing")).status
+              != orca::SceneStatus::success);
+    }
+}
+
 // The value of key among settings; empty when they do not set it.
 std::string setting_of(const orca::ModelSettings& settings, const std::string& key)
 {

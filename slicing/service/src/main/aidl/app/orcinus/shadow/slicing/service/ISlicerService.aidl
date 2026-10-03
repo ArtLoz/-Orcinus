@@ -215,6 +215,15 @@ interface ISlicerService {
         String prefix,
         in @nullable double[] stepMesh
     );
+    /** reload_volumes() */
+    ModelLoadParcel reloadVolumes(
+        in PlacedModelParcel[] plate,
+        int index,
+        in int[] volumes,
+        String source,
+        in ProfilesParcel profiles,
+        String prefix
+    );
     /** load_volume(): type is VolumeType's name. */
     ModelLoadParcel loadVolume(
         in PlacedModelParcel[] plate,

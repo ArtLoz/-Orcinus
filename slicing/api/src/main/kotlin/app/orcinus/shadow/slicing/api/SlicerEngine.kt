@@ -285,6 +285,22 @@ interface PlateInspector {
     ): ModelLoadOutcome
 
     /**
+     * Plater::priv::reload_from_disk() of one file: [source] takes the place of
+     * the [volumes] (ModelObject::volumes) of the object at [index] that came
+     * from a file of its name or are named after it; the engine writes the
+     * object anew, named after [prefix], when one changed, and names the
+     * volumes the file had nothing for (ModelLoadOutcome.Success.failed).
+     */
+    suspend fun reloadVolumes(
+        plate: List<PlacedModel>,
+        index: Int,
+        volumes: List<Int>,
+        source: ModelPath,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = ModelLoadOutcome.Failure("Reloading volumes from a file is not supported")
+
+    /**
      * ObjectList::load_modifier() of one file: [source] joins the object at
      * [index] as one volume of [type] named [name]; the engine writes the
      * object anew, named after [prefix], and tells the new volume
