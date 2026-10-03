@@ -48,6 +48,7 @@ import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.lockedPlates
@@ -616,9 +617,15 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         canOpenAssemblyView = hasAssembleView(),
         measuredCopies = selectedInstances,
         measuredVolumes = selectedPart?.let { part -> objects.firstOrNull { it.mesh == part.mesh }?.volumeAt(part.index)?.mesh }?.let(::setOf),
-        canMeasure = canEditPlate && measuredVolumes().isNotEmpty(),
-        canAssemble = canEditPlate && measuredVolumes().sumOf { volume ->
-            if (volume.volumeIndex != null) 1 else objects.getOrNull(volume.objectIndex)?.let { 1 + it.parts.size } ?: 0
+        // In the assembly view the tools need an explosion ratio of 1 ("Please confirm
+        // explosion ratio = 1"), and a copy there has its model parts alone.
+        canMeasure = canEditPlate && measuredVolumes().isNotEmpty() && (!view.assemblyView || abs(view.explosionRatio - 1.0) < EXPLOSION_RATIO_EPSILON),
+        canAssemble = canEditPlate && (!view.assemblyView || abs(view.explosionRatio - 1.0) < EXPLOSION_RATIO_EPSILON) && measuredVolumes().sumOf { volume ->
+            if (volume.volumeIndex != null) {
+                1
+            } else {
+                objects.getOrNull(volume.objectIndex)?.let { 1 + if (view.assemblyView) it.parts.count { part -> part.type == VolumeType.PART } else it.parts.size } ?: 0
+            }
         } >= 2,
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,
@@ -707,6 +714,9 @@ private fun List<PlateObject>.withSimplified(mode: SimplifyMode, selected: Plate
         shown.withPainted(PaintedFacets(), emptyList())
     }
 }
+
+/** GLGizmoMeasure::on_is_activable() in the assembly view: abs(explosion ratio - 1) < 1e-2. */
+private const val EXPLOSION_RATIO_EPSILON = 1e-2
 
 /** Whether the rotation and scale match [other]'s, within rounding. */
 private fun Transform3.hasLinearPartOf(other: Transform3): Boolean =

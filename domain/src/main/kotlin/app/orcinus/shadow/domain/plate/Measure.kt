@@ -24,12 +24,14 @@ import kotlinx.coroutines.CancellationException
 
 /**
  * What the measuring tool is open on: the plate as the engine loads it, the
- * selected volumes on it, and the presets.
+ * selected volumes on it, the presets, and whether it measures in the
+ * assembly view.
  */
 data class MeasureTarget(
     val plate: List<PlacedModel>,
     val volumes: List<MeasuredVolume>,
     val profiles: SlicingProfileSelection,
+    val assemblyView: Boolean = false,
 )
 
 /**
@@ -51,12 +53,12 @@ class MeasureUseCase(
      * the selected volumes; null while nothing is selected or the plate can
      * change.
      */
-    fun targetOf(state: PlateState = repository.state.value): MeasureTarget? {
+    fun targetOf(state: PlateState = repository.state.value, assemblyView: Boolean = false): MeasureTarget? {
         if (state.busy) return null
         val profiles = state.profiles ?: return null
         val volumes = state.measuredVolumes()
         if (volumes.isEmpty()) return null
-        return MeasureTarget(state.objects.map { it.placed() }, volumes, profiles)
+        return MeasureTarget(state.objects.map { it.placed() }, volumes, profiles, assemblyView)
     }
 
     /**
@@ -67,7 +69,7 @@ class MeasureUseCase(
     suspend fun open(target: MeasureTarget, again: Boolean = false): MeasureOutcome? {
         if (opened == target && !again) return null
         opened = null
-        val outcome = measurer.beginMeasure(target.plate, target.volumes, target.profiles)
+        val outcome = measurer.beginMeasure(target.plate, target.volumes, target.profiles, target.assemblyView)
         if (outcome is MeasureOutcome.Success) opened = target
         return outcome
     }
@@ -107,7 +109,7 @@ class MeasureUseCase(
      */
     private suspend fun edit(call: suspend (MeasureTarget, ScenePath) -> MeasureEditOutcome): MeasureOutcome? {
         val state = repository.state.value
-        val target = opened?.takeIf { it == targetOf(state) } ?: return null
+        val target = opened?.takeIf { it == targetOf(state, it.assemblyView) } ?: return null
         val prefix = sceneFiles.newImportPrefix()
         val outcome = try {
             call(target, prefix)

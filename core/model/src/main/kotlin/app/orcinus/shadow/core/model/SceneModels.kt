@@ -393,6 +393,13 @@ data class PaintStroke(
     val startsStroke: Boolean = false,
 )
 
+/**
+ * The copy a painting tool paints and where it stands (GLGizmoPainterBase's
+ * trafo matrices): the selected [instance] in the 3D view, or in the assembly
+ * view at its assemble transformation, spread by the [explosionRatio].
+ */
+data class PaintPlacement(val instance: Int = 0, val assemblyView: Boolean = false, val explosionRatio: Double = 1.0)
+
 /** What the painting tool shows after a stroke. */
 data class PaintedSurface(
     /** Whether the stroke met the model at all. */

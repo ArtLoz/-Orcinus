@@ -69,6 +69,7 @@ import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -481,8 +482,8 @@ class RemoteSlicerEngine(
 
     override suspend fun end() = remote({}) { endLayerEditing() }
 
-    override suspend fun beginMeasure(plate: List<PlacedModel>, volumes: List<MeasuredVolume>, profiles: SlicingProfileSelection): MeasureOutcome =
-        remote({ MeasureOutcome.Failure(it) }) { beginMeasure(plate.toParcels(), volumes.toTriples(), profiles.toParcel()).toMeasureOutcome() }
+    override suspend fun beginMeasure(plate: List<PlacedModel>, volumes: List<MeasuredVolume>, profiles: SlicingProfileSelection, assemblyView: Boolean): MeasureOutcome =
+        remote({ MeasureOutcome.Failure(it) }) { beginMeasure(plate.toParcels(), volumes.toTriples(), profiles.toParcel(), assemblyView).toMeasureOutcome() }
 
     override suspend fun hoverMeasure(ray: MeasureRay): MeasureHoverOutcome = remote({ MeasureHoverOutcome.Failure(it) }) {
         hoverMeasure(ray.origin.toDoubles(), ray.direction.toDoubles(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius, ray.assemblyMode?.name.orEmpty())
@@ -788,6 +789,7 @@ class RemoteSlicerEngine(
         profiles: SlicingProfileSelection,
         facets: PaintedFacets,
         meshPrefix: ScenePath,
+        placement: PaintPlacement,
     ): PaintingOutcome = withContext(Dispatchers.IO) {
         try {
             service().beginPainting(
@@ -797,6 +799,9 @@ class RemoteSlicerEngine(
                 profiles.toParcel(),
                 facets.value,
                 meshPrefix.value,
+                placement.instance,
+                placement.assemblyView,
+                placement.explosionRatio,
             ).toOutcome()
         } catch (_: RemoteException) {
             PaintingOutcome.Failure(PROCESS_DIED)

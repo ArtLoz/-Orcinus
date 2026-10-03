@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedMesh
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -38,8 +39,8 @@ class PaintObjectUseCase(
     /** What the object showed before a tool of another kind than colour opened. */
     private var shownBefore: List<PaintedMesh> = emptyList()
 
-    /** Opens the tool of [kind] on the object [mesh] names, or on one of its parts. */
-    suspend fun begin(mesh: ScenePath, kind: PaintKind = PaintKind.COLOR, part: Int? = null): PaintingOutcome {
+    /** Opens the tool of [kind] on the object [mesh] names, or on one of its parts, on the copy of [placement]. */
+    suspend fun begin(mesh: ScenePath, kind: PaintKind = PaintKind.COLOR, part: Int? = null, placement: PaintPlacement = PaintPlacement()): PaintingOutcome {
         val state = repository.state.value
         val target = state.objects.firstOrNull { it.mesh == mesh }
         val profiles = state.profiles
@@ -47,7 +48,7 @@ class PaintObjectUseCase(
             return PaintingOutcome.Failure("The plate is not ready to be painted")
         }
         val prefix = sceneFiles.newPaintedMeshes()
-        val outcome = inspector.beginPainting(target.placed(), part, kind, profiles, target.painted, prefix)
+        val outcome = inspector.beginPainting(target.placed(), part, kind, profiles, target.painted, prefix, placement)
         if (outcome is PaintingOutcome.Success) {
             meshPrefix = prefix
             painting = mesh

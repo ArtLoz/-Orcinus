@@ -85,6 +85,7 @@ import app.orcinus.shadow.core.model.ObjectVolume
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
@@ -3281,6 +3282,7 @@ class PlateUseCasesTest {
             profiles: SlicingProfileSelection,
             facets: PaintedFacets,
             meshPrefix: ScenePath,
+            placement: PaintPlacement,
         ): PaintingOutcome {
             paintedFacets = facets
             paintKind = kind

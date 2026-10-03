@@ -17,8 +17,12 @@ import app.orcinus.shadow.core.model.SlicingProfileSelection
  * from [beginMeasure] to [endMeasure]; every other call works on them.
  */
 interface PlateMeasurer {
-    /** The tool opens on the [volumes] of [plate], with the presets of [profiles]. */
-    suspend fun beginMeasure(plate: List<PlacedModel>, volumes: List<MeasuredVolume>, profiles: SlicingProfileSelection): MeasureOutcome
+    /**
+     * The tool opens on the [volumes] of [plate], with the presets of
+     * [profiles]; in the [assemblyView], where the copies stand in the
+     * assembly, on their model parts.
+     */
+    suspend fun beginMeasure(plate: List<PlacedModel>, volumes: List<MeasuredVolume>, profiles: SlicingProfileSelection, assemblyView: Boolean = false): MeasureOutcome
 
     /** on_render(): what is under the finger along [ray]. */
     suspend fun hoverMeasure(ray: MeasureRay): MeasureHoverOutcome

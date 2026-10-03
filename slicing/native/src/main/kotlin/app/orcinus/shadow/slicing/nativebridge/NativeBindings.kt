@@ -1201,6 +1201,10 @@ internal object NativeBindings {
         processProfile: String,
         facets: String,
         meshPrefix: String,
+        /** PaintPlacement: the copy painted, and the assembly view with its explosion ratio. */
+        instance: Int,
+        assemblyView: Boolean,
+        explosionRatio: Double,
     ): NativePainting
 
     /** GLGizmoFuzzySkin's warning: fuzzy skin is disabled for the object, by its settings or the process preset. */
@@ -1714,6 +1718,7 @@ internal object NativeBindings {
         filamentProfile: String,
         filamentProfiles: Array<String>,
         processProfile: String,
+        assemblyView: Boolean,
     ): NativeMeasureState
 
     /** hover_measure(): [assemblyMode] 0 for the measuring tool, 1 face to face, 2 point to point. */

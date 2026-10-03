@@ -34,6 +34,7 @@ import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintedSurface
@@ -183,6 +184,7 @@ class ModelImportAndInspectionUseCasesTest {
             profiles: SlicingProfileSelection,
             facets: PaintedFacets,
             meshPrefix: ScenePath,
+            placement: PaintPlacement,
         ): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())
 
         override suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome =

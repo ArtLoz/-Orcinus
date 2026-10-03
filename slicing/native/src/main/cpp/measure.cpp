@@ -72,6 +72,8 @@ struct Item {
 
 struct MeasureSession {
     bool open{false};
+    // The tool works in the assembly view (GLCanvas3D::CanvasAssembleView).
+    bool assembly_view{false};
     Slic3r::Model model;
     std::vector<MeasuredVolume> volumes;
     // Selection::m_mode: the selection is parts (Volume), not whole copies (Instance).
@@ -512,7 +514,56 @@ void note_hit_volume(MeasureSession& current, int volume)
 
 } // namespace
 
-MeasureState begin_measure(const std::vector<PlateObject>& plate, const std::vector<int>& selection, const ProfileSelection& profiles)
+namespace {
+
+// The plate transformation of every copy, by its object's and its own index.
+using PlatePlacements = std::map<std::pair<int, int>, Slic3r::Geometry::Transformation>;
+
+// The assembly view's canvas loads its volumes at their copies' assemble
+// transformations (load_object_volume(..., in_assemble_view)): while the tool
+// works there, the model's copies stand there, their places on the plate
+// kept aside.
+PlatePlacements into_assembly(Slic3r::Model& model)
+{
+    PlatePlacements plate;
+    for (int i = 0; i < int(model.objects.size()); ++i) {
+        Slic3r::ModelObject& object = *model.objects[std::size_t(i)];
+        for (int j = 0; j < int(object.instances.size()); ++j) {
+            Slic3r::ModelInstance& instance = *object.instances[std::size_t(j)];
+            plate.emplace(std::make_pair(i, j), instance.get_transformation());
+            instance.set_transformation(instance.get_assemble_transformation());
+        }
+        object.invalidate_bounding_box();
+    }
+    return plate;
+}
+
+// do_move() and do_rotate() of the assembly view: a copy the tool moved by
+// more than a hundredth of a millimetre, or turned, takes the place as its
+// assemble transformation, and every copy stands on the plate again.
+void out_of_assembly(Slic3r::Model& model, const PlatePlacements& plate)
+{
+    for (int i = 0; i < int(model.objects.size()); ++i) {
+        Slic3r::ModelObject& object = *model.objects[std::size_t(i)];
+        for (int j = 0; j < int(object.instances.size()); ++j) {
+            Slic3r::ModelInstance& instance = *object.instances[std::size_t(j)];
+            const Slic3r::Geometry::Transformation assembled = instance.get_transformation();
+            const Slic3r::Geometry::Transformation before = instance.get_assemble_transformation();
+            const auto kept = plate.find(std::make_pair(i, j));
+            if (kept != plate.end())
+                instance.set_transformation(kept->second);
+            const bool moved = (assembled.get_offset() - before.get_offset()).norm() > 1e-2;
+            const bool turned = !assembled.get_matrix_no_offset().isApprox(before.get_matrix_no_offset());
+            if (moved || turned)
+                instance.set_assemble_transformation(assembled);
+        }
+        object.invalidate_bounding_box();
+    }
+}
+
+} // namespace
+
+MeasureState begin_measure(const std::vector<PlateObject>& plate, const std::vector<int>& selection, const ProfileSelection& profiles, bool assembly_view)
 {
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
     if (detail::engine().bundle == nullptr)
@@ -526,7 +577,10 @@ MeasureState begin_measure(const std::vector<PlateObject>& plate, const std::vec
             return failure(SceneStatus::profile_not_found, message);
         if (!detail::load_plate(plate, config, current.model, message))
             return failure(SceneStatus::model_read_failed, message);
-        // register_single_mesh_pick(): every selected volume.
+        current.assembly_view = assembly_view;
+        if (assembly_view)
+            into_assembly(current.model);
+        // register_single_mesh_pick(): every selected volume; the assembly view has the model parts alone.
         for (std::size_t triple = 0; triple + 2 < selection.size(); triple += 3) {
             const int object_index = selection[triple];
             const int instance_index = selection[triple + 1];
@@ -543,6 +597,8 @@ MeasureState begin_measure(const std::vector<PlateObject>& plate, const std::vec
                 if (selected_volume >= 0 && std::size_t(selected_volume) != volume_index)
                     continue;
                 const Slic3r::ModelVolume& volume = *object.volumes[volume_index];
+                if (assembly_view && !volume.is_model_part())
+                    continue;
                 MeasuredVolume measured;
                 measured.object_index = object_index;
                 measured.instance_index = instance_index;
@@ -765,6 +821,9 @@ std::map<std::pair<int, int>, double> min_zs_of(const Slic3r::Model& model)
 // not sinking too; the objects that moved join changed.
 void rest_on_plate(Slic3r::Model& model, const std::map<std::pair<int, int>, double>* rotated_min_zs, std::set<int>& changed)
 {
+    // ensure_on_bed() and do_move()'s drop skip the assembly view.
+    if (session().assembly_view)
+        return;
     for (std::size_t object_index = 0; object_index < model.objects.size(); ++object_index) {
         Slic3r::ModelObject& object = *model.objects[object_index];
         object.invalidate_bounding_box();
@@ -788,8 +847,12 @@ void rest_on_plate(Slic3r::Model& model, const std::map<std::pair<int, int>, dou
 // their volumes (update_feature_by_tran()) and the tool measuring anew
 // (update_measurement_result()).
 void finish_edit(MeasureSession& current, Slic3r::Model& model, const std::set<int>& changed, bool first, bool second, const Slic3r::DynamicPrintConfig& config,
-    const std::string& output_prefix, MeasureEdit& result)
+    const std::string& output_prefix, MeasureEdit& result, const PlatePlacements* plate = nullptr)
 {
+    // The assembly view's edits are written as assemble transformations, the
+    // copies on the plate where they were; the tool goes on in the assembly.
+    if (plate != nullptr)
+        out_of_assembly(model, *plate);
     model.update_print_volume_state(detail::build_volume_of(config));
     std::vector<Slic3r::ModelObject*> written;
     for (const int object_index : changed) {
@@ -799,6 +862,8 @@ void finish_edit(MeasureSession& current, Slic3r::Model& model, const std::set<i
     if (!detail::write_objects(written, output_prefix, result.edit))
         return;
     result.edit.status = SceneStatus::success;
+    if (plate != nullptr)
+        into_assembly(model);
     for (MeasuredVolume& measured : current.volumes) {
         const Slic3r::ModelObject& object = *model.objects[std::size_t(measured.object_index)];
         measured.world = object.instances[std::size_t(measured.instance_index)]->get_matrix() * object.volumes[std::size_t(measured.volume_index)]->get_matrix();
@@ -824,6 +889,13 @@ MeasureEdit scale_measure(const std::vector<PlateObject>& plate, double ratio, c
     MeasureSession& current = session();
     if (!current.open) {
         result.measure = failure(SceneStatus::model_read_failed, "The measuring tool is not open");
+        result.edit.message = result.measure.message;
+        return result;
+    }
+    // do_scale() has no assembly view: it would write the scaled assemble
+    // transformation onto the plate, so the app offers no scale there.
+    if (current.assembly_view) {
+        result.measure = failure(SceneStatus::model_read_failed, "Edit to scale is not offered in the assembly view");
         result.edit.message = result.measure.message;
         return result;
     }
@@ -1000,6 +1072,7 @@ MeasureEdit assemble_measure(
             result.edit.message = message;
             return result;
         }
+        const std::optional<PlatePlacements> plate_placements = current.assembly_view ? std::optional<PlatePlacements>(into_assembly(model)) : std::nullopt;
         // is_two_volume_in_same_model_object(): one object has both, so its volume moves, not its copy.
         const MeasuredVolume& first_volume = current.volumes[std::size_t(current.hit_volumes[0])];
         const MeasuredVolume& second_volume = current.volumes[std::size_t(current.hit_volumes[1])];
@@ -1132,7 +1205,7 @@ MeasureEdit assemble_measure(
             break;
         }
         }
-        finish_edit(current, model, changed, update_first, update_second, config, output_prefix, result);
+        finish_edit(current, model, changed, update_first, update_second, config, output_prefix, result, plate_placements ? &*plate_placements : nullptr);
         return result;
     } catch (const std::exception& error) {
         result.measure = failure(SceneStatus::model_read_failed, error.what());

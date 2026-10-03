@@ -46,6 +46,7 @@ import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -506,11 +507,11 @@ class PrepareViewModel(
         // reset whenever the selection or the plate changes; the tool closes
         // once nothing is selected (GLGizmosManager::refresh_on_off_state()).
         viewModelScope.launch {
-            combine(plate, view.map { it.measure != null }.distinctUntilChanged()) { state, open ->
+            combine(plate, view.map { (it.measure != null) to it.assemblyView }.distinctUntilChanged()) { state, (open, assemblyView) ->
                 when {
                     !open -> MeasureChange.Closed
                     state.measuredVolumes().isEmpty() -> MeasureChange.Lost
-                    else -> measureFeatures.targetOf(state)?.let(MeasureChange::Open) ?: MeasureChange.Waiting
+                    else -> measureFeatures.targetOf(state, assemblyView)?.let(MeasureChange::Open) ?: MeasureChange.Waiting
                 }
             }.distinctUntilChanged().collectLatest { change ->
                 when (change) {
@@ -777,7 +778,10 @@ class PrepareViewModel(
             closePainting()
             if (open.kind == kind) return
         }
-        val mesh = state.value.sceneCopies.getOrNull(state.value.selectedObject ?: -1)?.plateObject?.mesh ?: return
+        val copy = state.value.selectedCopy ?: return
+        val mesh = copy.plateObject.mesh
+        // GLGizmoPainterBase paints the selected copy, in the assembly view where it stands there.
+        val placement = PaintPlacement(copy.id.instance, view.value.assemblyView, view.value.explosionRatio)
         openSimplify.close()
         // GLGizmoFdmSupports::on_shutdown() left the highlight at 0.
         val mode = paintingTools[kind]?.copy(mesh = mesh, painted = false, canUndo = false, canRedo = false, highlightAngle = 0.0) ?: PaintingMode(
@@ -790,7 +794,7 @@ class PrepareViewModel(
         val closing = closingPainting
         viewModelScope.launch {
             closing?.join()
-            paintObject.begin(mesh, kind).also(::showStrokes)
+            paintObject.begin(mesh, kind, placement = placement).also(::showStrokes)
             if (mode.tool == PaintTool.GAP_FILL) paintObject.setGapFill(mode.gapArea).also(::showStrokes)
         }
     }

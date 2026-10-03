@@ -884,6 +884,15 @@ struct PaintingState {
     bool can_redo{false};
 };
 
+// The copy a painting tool paints and where it stands (GLGizmoPainterBase's
+// trafo matrices): in the 3D view, or in the assembly view at its assemble
+// transformation, spread by the explosion ratio.
+struct PaintPlacement {
+    int instance{0};
+    bool assembly_view{false};
+    double explosion_ratio{1.0};
+};
+
 // Opens a painting session of a kind for the object, or for one of its parts,
 // with the facets it is already painted with. The engine keeps the session
 // until end_painting(), as the desktop gizmo keeps its selectors while it is
@@ -899,7 +908,8 @@ PaintingState begin_painting(
     // Where the meshes of the painted triangles are written,
     // "<prefix>-<state>-<n>.mesh", named anew each time so the view reads them
     // again, and the painted facets once the session closes, "<prefix>.painted".
-    const std::string& mesh_prefix
+    const std::string& mesh_prefix,
+    const PaintPlacement& placement = PaintPlacement()
 );
 
 PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix);
@@ -2065,8 +2075,10 @@ struct MeasureState {
 // GLGizmoMeasure opens on the volumes of the plate the selection has
 // (triples of an object's, a copy's and a volume's index, the volume -1 for
 // all of the copy's): a Measure::Measuring of each, made when first hit,
-// until end_measure().
-MeasureState begin_measure(const std::vector<PlateObject>& plate, const std::vector<int>& selection, const ProfileSelection& profiles);
+// until end_measure(). In the assembly view the copies stand at their
+// assemble transformations and have their model parts alone, and the
+// assembly tool's edits move them there.
+MeasureState begin_measure(const std::vector<PlateObject>& plate, const std::vector<int>& selection, const ProfileSelection& profiles, bool assembly_view = false);
 
 // on_render(): the feature under the finger, or the sphere it is on.
 MeasureState hover_measure(const MeasureRay& ray);

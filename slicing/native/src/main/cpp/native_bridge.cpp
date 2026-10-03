@@ -1424,17 +1424,25 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     jobjectArray filament_profiles,
     jstring process_profile,
     jstring facets,
-    jstring mesh_prefix
+    jstring mesh_prefix,
+    jint instance,
+    jboolean assembly_view,
+    jdouble explosion_ratio
 )
 {
     const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
+    orcinus::orca::PaintPlacement placement;
+    placement.instance = static_cast<int>(instance);
+    placement.assembly_view = assembly_view == JNI_TRUE;
+    placement.explosion_ratio = static_cast<double>(explosion_ratio);
     const orcinus::orca::PaintingState state = orcinus::orca::begin_painting(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
         static_cast<int>(part),
         static_cast<orcinus::orca::PaintKind>(kind),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_utf8(env, facets),
-        to_utf8(env, mesh_prefix)
+        to_utf8(env, mesh_prefix),
+        placement
     );
     return to_java(env, state);
 }
@@ -4675,7 +4683,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginMeasure(
     jstring printer_profile,
     jstring filament_profile,
     jobjectArray filament_profiles,
-    jstring process_profile
+    jstring process_profile,
+    jboolean assembly_view
 )
 {
     const std::vector<std::int32_t> triples = to_ints(env, selection);
@@ -4684,7 +4693,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginMeasure(
         orcinus::orca::begin_measure(
             to_plate(env, plate),
             std::vector<int>(triples.begin(), triples.end()),
-            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles)
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            assembly_view == JNI_TRUE
         )
     );
 }

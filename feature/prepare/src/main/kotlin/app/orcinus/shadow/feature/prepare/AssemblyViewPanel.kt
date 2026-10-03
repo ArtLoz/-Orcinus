@@ -40,6 +40,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.extruderNumber
@@ -76,7 +77,14 @@ internal class AssemblyViewActions(
  * disabled.
  */
 @Composable
-internal fun AssemblyViewToolbar(state: PrepareUiState, actions: AssemblyViewActions, onToggleGizmo: (PlateGizmo) -> Unit) {
+internal fun AssemblyViewToolbar(
+    state: PrepareUiState,
+    actions: AssemblyViewActions,
+    onToggleGizmo: (PlateGizmo) -> Unit,
+    onToggleMeasure: () -> Unit,
+    onToggleAssembly: () -> Unit,
+    onTogglePainting: (PaintKind) -> Unit,
+) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo) = OrcaCanvasTool(
         icon = icon,
@@ -91,9 +99,27 @@ internal fun AssemblyViewToolbar(state: PrepareUiState, actions: AssemblyViewAct
         OrcaCanvasToolbar {
             gizmo(DesignR.drawable.orca_toolbar_move, R.string.gizmo_move, PlateGizmo.MOVE)
             gizmo(DesignR.drawable.orca_toolbar_rotate, R.string.gizmo_rotate, PlateGizmo.ROTATE)
-            OrcaCanvasTool(DesignR.drawable.orca_toolbar_measure, stringResource(R.string.gizmo_measure), onClick = {}, enabled = false)
-            OrcaCanvasTool(DesignR.drawable.orca_toolbar_assembly, stringResource(R.string.gizmo_assembly), onClick = {}, enabled = false)
-            OrcaCanvasTool(DesignR.drawable.orca_mmu_segmentation, stringResource(R.string.gizmo_color_painting), onClick = {}, enabled = false)
+            OrcaCanvasTool(
+                icon = DesignR.drawable.orca_toolbar_measure,
+                contentDescription = stringResource(R.string.gizmo_measure),
+                onClick = onToggleMeasure,
+                enabled = state.canMeasure,
+                selected = state.measure != null && state.measure.assembly == null,
+            )
+            OrcaCanvasTool(
+                icon = DesignR.drawable.orca_toolbar_assembly,
+                contentDescription = stringResource(R.string.gizmo_assembly),
+                onClick = onToggleAssembly,
+                enabled = state.canAssemble,
+                selected = state.measure?.assembly != null,
+            )
+            OrcaCanvasTool(
+                icon = DesignR.drawable.orca_mmu_segmentation,
+                contentDescription = stringResource(R.string.gizmo_color_painting),
+                onClick = { onTogglePainting(PaintKind.COLOR) },
+                enabled = state.canPaint,
+                selected = state.painting?.kind == PaintKind.COLOR,
+            )
         }
     }
 }
@@ -174,22 +200,32 @@ private fun AssemblyReturnButton(onClick: () -> Unit) {
  * of the selection's box ([selection]), in millimetres as they are.
  */
 @Composable
-internal fun AssemblyViewPanel(mode: AssemblyViewMode, selection: Vector3?, actions: AssemblyViewActions, modifier: Modifier = Modifier) {
+internal fun AssemblyViewPanel(
+    mode: AssemblyViewMode,
+    selection: Vector3?,
+    actions: AssemblyViewActions,
+    modifier: Modifier = Modifier,
+    /** The colour painting tool is open, which _render_assemble_control() gives way to. */
+    painting: Boolean = false,
+) {
+    if (painting && selection == null) return
     val colors = OrcaTheme.colors
     OrcaGizmoPanel(modifier.widthIn(max = ASSEMBLY_PANEL_WIDTH).fillMaxWidth()) {
-        PaintingSlider(
-            label = orcaString("Explosion Ratio"),
-            value = mode.explosionRatio.toFloat(),
-            range = 1f..3f,
-            text = String.format(Locale.ROOT, "%.2f", mode.explosionRatio),
-            onChange = { actions.setExplosionRatio(it.toDouble()) },
-        )
+        if (!painting) {
+            PaintingSlider(
+                label = orcaString("Explosion Ratio"),
+                value = mode.explosionRatio.toFloat(),
+                range = 1f..3f,
+                text = String.format(Locale.ROOT, "%.2f", mode.explosionRatio),
+                onChange = { actions.setExplosionRatio(it.toDouble()) },
+            )
+        }
         if (selection != null) {
             Text(
                 text = orcaString("Assembly Info"),
                 color = colors.onCanvasPanel,
                 style = OrcaTheme.typography.head14,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                modifier = Modifier.padding(top = if (painting) 0.dp else 8.dp, bottom = 4.dp),
             )
             AssemblyInfoRow(orcaString("Volume:"), String.format(Locale.ROOT, "%.2f", selection.x * selection.y * selection.z))
             AssemblyInfoRow(orcaString("Size:"), String.format(Locale.ROOT, "%.2f x %.2f x %.2f", selection.x, selection.y, selection.z))

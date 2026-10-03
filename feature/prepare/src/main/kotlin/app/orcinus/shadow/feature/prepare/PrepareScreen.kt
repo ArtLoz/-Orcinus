@@ -736,8 +736,9 @@ internal fun PrepareScreen(
                         measurement = mode.measurement,
                         imperial = canvas.imperialUnits,
                         units = orcaString(if (canvas.imperialUnits) "in" else "mm"),
-                        // m_hit_different_volumes.size() < 2 in the 3D view.
-                        editToScale = mode.measurement.hitVolumes < 2,
+                        // m_hit_different_volumes.size() < 2 in the 3D view; the assembly view
+                        // offers none, as do_scale() would write the scaled assemble transformation onto the plate.
+                        editToScale = mode.measurement.hitVolumes < 2 && state.assemblyView == null,
                         editToScaleDescription = orcaString("Edit to scale"),
                         editingDistance = mode.editingDistance != null,
                         faceToFace = mode.assembly == AssemblyMode.FACE_FACE,
@@ -920,7 +921,14 @@ internal fun PrepareScreen(
                 // The toolbar starts after the sidebar button; the gizmo windows below may use the whole width.
                 Box(Modifier.padding(start = OrcaSidebarToggleSpace - CanvasMargin)) {
                     if (state.assemblyView != null) {
-                        AssemblyViewToolbar(state, assemblyViewActions, onToggleGizmo)
+                        AssemblyViewToolbar(
+                            state,
+                            assemblyViewActions,
+                            onToggleGizmo,
+                            onToggleMeasure = measureActions.toggle,
+                            onToggleAssembly = assemblyActions.toggle,
+                            onTogglePainting = onTogglePainting,
+                        )
                     } else CanvasToolbar(
                         state,
                         onTogglePainting,
@@ -1041,7 +1049,9 @@ internal fun PrepareScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                state.assemblyView?.let { mode -> AssemblyViewPanel(mode, assemblySelection, assemblyViewActions) }
+                state.assemblyView?.let { mode ->
+                    AssemblyViewPanel(mode, assemblySelection, assemblyViewActions, painting = state.painting?.kind == PaintKind.COLOR)
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -33,6 +33,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PaintedFacets
@@ -382,8 +383,8 @@ abstract class SlicerService<E> : Service()
 
         override fun endLayerEditing() = runBlocking { engine.end() }
 
-        override fun beginMeasure(plate: Array<PlacedModelParcel>, volumes: IntArray, profiles: ProfilesParcel) =
-            runBlocking { engine.beginMeasure(plate.toPlacedModels(), volumes.toMeasuredVolumes(), profiles.toProfiles()) }.toParcel()
+        override fun beginMeasure(plate: Array<PlacedModelParcel>, volumes: IntArray, profiles: ProfilesParcel, assemblyView: Boolean) =
+            runBlocking { engine.beginMeasure(plate.toPlacedModels(), volumes.toMeasuredVolumes(), profiles.toProfiles(), assemblyView) }.toParcel()
 
         override fun hoverMeasure(
             origin: DoubleArray,
@@ -685,6 +686,9 @@ abstract class SlicerService<E> : Service()
             profiles: ProfilesParcel,
             facets: String,
             meshPrefix: String,
+            instance: Int,
+            assemblyView: Boolean,
+            explosionRatio: Double,
         ): PaintingParcel = runBlocking {
             engine.beginPainting(
                 plateObject = arrayOf(plateObject).toPlacedModels().first(),
@@ -693,6 +697,7 @@ abstract class SlicerService<E> : Service()
                 profiles = profiles.toProfiles(),
                 facets = PaintedFacets(facets),
                 meshPrefix = ScenePath(meshPrefix),
+                placement = PaintPlacement(instance, assemblyView, explosionRatio),
             )
         }.toParcel()
 

@@ -140,7 +140,7 @@ interface ISlicerService {
     LayerEditingParcel acceptLayerHeights();
     void endLayerEditing();
     /** begin_measure() and the calls of the measuring tool; volumes are triples of an object's, a copy's and a volume's index (-1 for all), reset is the MeasureReset's name. */
-    MeasurementParcel beginMeasure(in PlacedModelParcel[] plate, in int[] volumes, in ProfilesParcel profiles);
+    MeasurementParcel beginMeasure(in PlacedModelParcel[] plate, in int[] volumes, in ProfilesParcel profiles, boolean assemblyView);
     /** assemblyMode: the AssemblyMode's name, or empty for the measuring tool. */
     MeasureHoverParcel hoverMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius, String assemblyMode);
     MeasurementParcel selectMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius, String assemblyMode);
@@ -311,7 +311,10 @@ interface ISlicerService {
         String kind,
         in ProfilesParcel profiles,
         String facets,
-        String meshPrefix
+        String meshPrefix,
+        int instance,
+        boolean assemblyView,
+        double explosionRatio
     );
     /** GLGizmoFuzzySkin's warning: fuzzy skin is disabled for the object. */
     boolean fuzzySkinDisabled(in PlacedModelParcel plateObject, in ProfilesParcel profiles);

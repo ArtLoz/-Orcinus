@@ -33,6 +33,7 @@ import app.orcinus.shadow.core.model.MeasureReset
 import app.orcinus.shadow.core.model.MeasureEdit
 import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
+import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgFileEdit
@@ -802,7 +803,7 @@ class NativeSlicerEngine(context: Context) :
 
     override suspend fun end() = withContext(Dispatchers.IO) { NativeBindings.endLayerEditing() }
 
-    override suspend fun beginMeasure(plate: List<PlacedModel>, volumes: List<MeasuredVolume>, profiles: SlicingProfileSelection): MeasureOutcome =
+    override suspend fun beginMeasure(plate: List<PlacedModel>, volumes: List<MeasuredVolume>, profiles: SlicingProfileSelection, assemblyView: Boolean): MeasureOutcome =
         withContext(Dispatchers.IO) {
             val engineStatus = status()
             if (!engineStatus.ready) return@withContext MeasureOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
@@ -813,6 +814,7 @@ class NativeSlicerEngine(context: Context) :
                 filamentProfile = profiles.filament.value,
                 filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
                 processProfile = profiles.process.value,
+                assemblyView = assemblyView,
             ).toMeasureOutcome()
         }
 
@@ -1431,6 +1433,7 @@ class NativeSlicerEngine(context: Context) :
         profiles: SlicingProfileSelection,
         facets: PaintedFacets,
         meshPrefix: ScenePath,
+        placement: PaintPlacement,
     ): PaintingOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -1447,6 +1450,9 @@ class NativeSlicerEngine(context: Context) :
                 processProfile = profiles.process.value,
                 facets = facets.value,
                 meshPrefix = meshPrefix.value,
+                instance = placement.instance,
+                assemblyView = placement.assemblyView,
+                explosionRatio = placement.explosionRatio,
             ),
         )
     }

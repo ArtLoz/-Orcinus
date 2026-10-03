@@ -534,7 +534,8 @@ PaintingState begin_painting(
     const PaintKind kind,
     const ProfileSelection& profiles,
     const std::string& facets,
-    const std::string& mesh_prefix
+    const std::string& mesh_prefix,
+    const PaintPlacement& placement
 )
 {
     PaintingState result;
@@ -573,9 +574,20 @@ PaintingState begin_painting(
         current.tree = std::make_unique<Slic3r::AABBMesh>(current.mesh);
         current.selector = std::make_unique<PatchSelector>(current.mesh);
         current.gap_area = -1.0;
-        current.world = loaded.instances.empty()
-            ? volume.get_matrix()
-            : loaded.instances.front()->get_transformation().get_matrix() * volume.get_matrix();
+        // GLGizmoPainterBase's trafo matrices: the selected copy, or in the
+        // assembly view its assemble transformation with the explosion's offsets.
+        const std::size_t copy = placement.instance > 0 && std::size_t(placement.instance) < loaded.instances.size() ? std::size_t(placement.instance) : 0;
+        if (loaded.instances.empty()) {
+            current.world = volume.get_matrix();
+        } else if (placement.assembly_view) {
+            const Slic3r::ModelInstance& instance = *loaded.instances[copy];
+            current.world = instance.get_assemble_transformation().get_matrix() * volume.get_matrix();
+            current.world.translate(
+                volume.get_transformation().get_offset() * (placement.explosion_ratio - 1.0) +
+                instance.get_offset_to_assembly() * (placement.explosion_ratio - 1.0));
+        } else {
+            current.world = loaded.instances[copy]->get_transformation().get_matrix() * volume.get_matrix();
+        }
         current.kind = kind;
         std::string opened;
         if (!read_painting(facets, opened)) {

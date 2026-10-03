@@ -6578,6 +6578,67 @@ TEST_CASE("A copy takes its place in the assembly view on load and keeps it in a
     CHECK(reopened.objects.front().assemble_matrices.front()[14] == Catch::Approx(30.0).margin(1e-4));
 }
 
+TEST_CASE("The assembly tool moves a copy in the assembly view, not on the plate", "[Adapter][Assembly]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("assembly-view-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    // Two cubes 20 mm apart along X on the plate, and 50 mm above it in the assembly.
+    std::vector<double> right = matrix_of(cube);
+    right[12] += 40.0;
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    plate.push_back(plate_of({}, right).front());
+    for (orca::PlateObject& object : plate) {
+        object.instances.front().assemble_matrix = object.instances.front().matrix;
+        object.instances.front().assemble_matrix[14] += 50.0;
+    }
+    orca::MeasureState state = orca::begin_measure(plate, {0, 0, -1, 1, 0, -1}, k2_plus_profiles(), true);
+    INFO(state.message);
+    REQUIRE(state.status == orca::SceneStatus::success);
+    const double cx = cube.box_center[0];
+    const double cy = cube.box_center[1];
+    const double cz = cube.box_center[2] + 50.0;
+
+    // Face to face where the cubes stand in the assembly.
+    orca::MeasureRay left_face;
+    left_face.origin = {cx + 20.0, cy + 1.0, cz + 2.0};
+    left_face.direction = {-1.0, 0.0, 0.0};
+    left_face.only_select_plane = true;
+    left_face.sphere_radius = 0.5;
+    left_face.assembly_mode = 1;
+    REQUIRE(orca::select_measure(left_face).first.selected);
+    orca::MeasureRay right_face = left_face;
+    right_face.direction = {1.0, 0.0, 0.0};
+    state = orca::select_measure(right_face);
+    REQUIRE(state.second.selected);
+    REQUIRE(state.has_parallel_distance);
+    CHECK(state.parallel_distance == Catch::Approx(20.0).margin(1e-3));
+
+    // "Parallel distance" 5: the right cube moves in the assembly, with nothing
+    // dropped, and stays where it was on the plate.
+    const orca::MeasureEdit moved =
+        orca::assemble_measure(plate, orca::AssemblyAction::parallel_distance, {5.0}, k2_plus_profiles(), output_path("assembly-view-moved"));
+    INFO(moved.edit.message);
+    REQUIRE(moved.edit.status == orca::SceneStatus::success);
+    REQUIRE(moved.object_indexes == std::vector<int>{1});
+    REQUIRE(moved.edit.objects.size() == 1);
+    const orca::ImportedObject& written = moved.edit.objects.front();
+    REQUIRE(written.assemble_matrices.size() == 1);
+    REQUIRE(written.assemble_matrices.front().size() == 16);
+    CHECK(written.assemble_matrices.front()[12] == Catch::Approx(right[12] - 15.0).margin(1e-3));
+    CHECK(written.assemble_matrices.front()[14] == Catch::Approx(right[14] + 50.0).margin(1e-3));
+    REQUIRE(written.instances.size() == 1);
+    CHECK(written.instances.front().instance_matrix[12] == Catch::Approx(right[12]).margin(1e-3));
+    CHECK(written.instances.front().instance_matrix[14] == Catch::Approx(right[14]).margin(1e-3));
+    REQUIRE(moved.measure.has_parallel_distance);
+    CHECK(moved.measure.parallel_distance == Catch::Approx(5.0).margin(1e-3));
+
+    // Edit to scale is not offered there.
+    CHECK(orca::scale_measure(plate, 2.0, k2_plus_profiles(), output_path("assembly-view-scaled")).edit.status != orca::SceneStatus::success);
+    orca::end_measure();
+}
+
 TEST_CASE("The brim ears of an object print with the painted brim and stay in a project", "[Adapter][BrimEars]")
 {
     require_engine();

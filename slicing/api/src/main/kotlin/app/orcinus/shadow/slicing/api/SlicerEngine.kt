@@ -47,6 +47,7 @@ import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -499,6 +500,8 @@ interface PlateInspector {
         profiles: SlicingProfileSelection,
         facets: PaintedFacets,
         meshPrefix: ScenePath,
+        /** The copy painted and where it stands. */
+        placement: PaintPlacement = PaintPlacement(),
     ): PaintingOutcome
 
     /** One touch of a finger on the model being painted. */
