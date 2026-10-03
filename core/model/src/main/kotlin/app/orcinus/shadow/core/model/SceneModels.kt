@@ -141,6 +141,18 @@ data class FlatteningPlane(
     val polygon: List<Vector3>,
 )
 
+/** ECoordinatesType: the axes a gizmo window works along. */
+enum class CoordinateSystem {
+    /** World coordinates */
+    WORLD,
+
+    /** Object coordinates: the copy's. */
+    INSTANCE,
+
+    /** Part coordinates: the volume's own. */
+    LOCAL,
+}
+
 /**
  * One box of a volume selected alone
  * (Selection::get_bounding_box_in_reference_system()): its size along the

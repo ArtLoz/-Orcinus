@@ -7,6 +7,7 @@ import app.orcinus.shadow.core.model.BrimEarsSetup
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.CoordinateSystem
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
 import app.orcinus.shadow.core.model.CutConnectorStyle
@@ -81,6 +82,7 @@ import app.orcinus.shadow.render.scene.AssemblyTransforms
 import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.PlateClearance
 import app.orcinus.shadow.render.scene.PlateGizmo
+import app.orcinus.shadow.render.scene.VolumeScaleFrame
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
 
@@ -245,6 +247,10 @@ data class PrepareUiState(
      * Operations"); null while copies are selected.
      */
     val selectedVolume: SelectedVolume? = null,
+    /** The scale window's coordinates for the selected volume; null while copies are selected (world coordinates). */
+    val scaleCoordinates: CoordinateSystem? = null,
+    /** The scale gizmo of the selected volume, once the engine measured it. */
+    val volumeScale: VolumeScaleFrame? = null,
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
     val selectedRotation: Vector3?,
     /** GizmoObjectManipulation::update_reset_buttons_visibility(): the rotation differs from when the tool opened. */
@@ -429,6 +435,11 @@ internal data class PrepareViewState(
      * selected, which "Reset current rotation" goes back to.
      */
     val volumeRotationStart: Transform3? = null,
+    /**
+     * The scale window's coordinates picked for a volume; another volume
+     * selected scales in its own coordinates again (change_cs_by_selection()).
+     */
+    val volumeScaleCoordinates: VolumeCoordinates? = null,
     /**
      * Its "Delete input" of the difference and of the intersection, which the
      * desktop tool keeps from one opening to the next.
@@ -666,6 +677,9 @@ data class SelectedVolume(
     val description: VolumeDescription? = null,
 )
 
+/** The coordinates a window works in for the volume [index]. */
+data class VolumeCoordinates(val index: VolumeIndex, val coordinates: CoordinateSystem)
+
 /** A volume selected alone, by [index], as the engine measured it last. */
 data class DescribedVolume(val index: VolumeIndex, val description: VolumeDescription)
 
@@ -701,6 +715,15 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     val volume = selectedVolume(view)
     // update_settings_value() of a volume: the rotation of its own transformation.
     val volumeRotation = volume?.matrix?.let(AssemblyTransforms::rotationDegrees)
+    // GLGizmoScale3D::change_cs_by_selection(): a volume scales in its own coordinates until others are picked.
+    val scaleCoordinates = volume?.let { selected -> view.volumeScaleCoordinates?.takeIf { it.index == selected.index }?.coordinates ?: CoordinateSystem.LOCAL }
+    val volumeBox = volume?.description?.let { described ->
+        when (scaleCoordinates) {
+            CoordinateSystem.WORLD -> described.world
+            CoordinateSystem.INSTANCE -> described.instance
+            else -> described.local
+        }
+    }
     // GLGizmoMove3D::change_cs_by_selection(): a volume shows object coordinates, a copy world coordinates, until the other is picked.
     val moveObjectCoordinates = if (volume != null) {
         view.moveWorldVolume != volume.index
@@ -814,7 +837,14 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         },
         canResetRotationToZero = (volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees)
             ?.let { rotation -> listOf(rotation.x, rotation.y, rotation.z).any { abs(it) > 0.001 } } == true,
-        selectedScale = selected?.let {
+        selectedScale = if (volume != null) {
+            // update_settings_value() of a volume: its own scaling factor in its own coordinates, 100 % in the others.
+            if (scaleCoordinates == CoordinateSystem.LOCAL) {
+                AssemblyTransforms.scalingFactor(volume.matrix).let { Vector3(it.x * 100.0, it.y * 100.0, it.z * 100.0) }
+            } else {
+                Vector3(100.0, 100.0, 100.0)
+            }
+        } else selected?.let {
             // update_settings_value() in world coordinates: size over the unscaled size.
             with(it.dimensions) {
                 Vector3(
@@ -824,7 +854,18 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
                 )
             }
         },
-        selectedSize = selected?.dimensions?.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) },
+        selectedSize = if (volume != null) volumeBox?.size else selected?.dimensions?.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) },
+        scaleCoordinates = scaleCoordinates,
+        volumeScale = if (volume != null && selected != null && volumeBox != null) {
+            val reference = when (scaleCoordinates) {
+                CoordinateSystem.WORLD -> Transform3.IDENTITY
+                CoordinateSystem.INSTANCE -> selected.placement
+                else -> selected.placement * volume.matrix
+            }
+            VolumeScaleFrame(reference, volumeBox)
+        } else {
+            null
+        },
         uniformScale = uniformScale,
         objectClashed = copies.any { it.instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE },
         slicing = slicing,

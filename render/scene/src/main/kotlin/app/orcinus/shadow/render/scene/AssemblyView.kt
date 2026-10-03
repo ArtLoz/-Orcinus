@@ -142,6 +142,22 @@ object AssemblyTransforms {
     }
 
     /**
+     * Transformation::get_scaling_factor(): the absolute diagonal of the
+     * scaling Eigen's computeRotationScaling() splits off, V Σ V^T of the
+     * linear part's singular values, the smallest negated when it mirrors.
+     */
+    fun scalingFactor(transform: Transform3): Vector3 {
+        val c = transform.columns
+        val m = arrayOf(doubleArrayOf(c[0], c[4], c[8]), doubleArrayOf(c[1], c[5], c[9]), doubleArrayOf(c[2], c[6], c[10]))
+        val determinant = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+            m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+        val square = Array(3) { row -> DoubleArray(3) { column -> (0 until 3).sumOf { m[it][row] * m[it][column] } } }
+        val scaling = symmetricSquareRoot(square, smallestSign = if (determinant < 0.0) -1.0 else 1.0)
+        return Vector3(abs(scaling[0][0]), abs(scaling[1][1]), abs(scaling[2][2]))
+    }
+
+    /**
      * Selection::m_cache.rotation_pivot in the assembly view, which the
      * window turns the copy about: the copy's bounding sphere centre
      * ([sphereCenter], as the 3D view places it), where the assembly and its
@@ -203,8 +219,12 @@ object AssemblyTransforms {
         )
     }
 
-    /** The symmetric square root of a symmetric positive semidefinite matrix, by Jacobi's eigenvalue rotations. */
-    private fun symmetricSquareRoot(matrix: Array<DoubleArray>): Array<DoubleArray> {
+    /**
+     * The symmetric square root of a symmetric positive semidefinite matrix, by
+     * Jacobi's eigenvalue rotations; the root of its smallest eigenvalue taken
+     * times [smallestSign].
+     */
+    private fun symmetricSquareRoot(matrix: Array<DoubleArray>, smallestSign: Double = 1.0): Array<DoubleArray> {
         val a = Array(3) { matrix[it].copyOf() }
         val v = Array(3) { row -> DoubleArray(3) { column -> if (row == column) 1.0 else 0.0 } }
         repeat(JACOBI_SWEEPS) {
@@ -237,6 +257,8 @@ object AssemblyTransforms {
             }
         }
         val roots = DoubleArray(3) { sqrt(a[it][it].coerceAtLeast(0.0)) }
+        val smallest = roots.indices.minBy { roots[it] }
+        roots[smallest] *= smallestSign
         return Array(3) { row -> DoubleArray(3) { column -> (0 until 3).sumOf { v[row][it] * roots[it] * v[column][it] } } }
     }
 

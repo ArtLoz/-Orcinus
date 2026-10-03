@@ -10,6 +10,7 @@ import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BrimEarsOutcome
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.model.CoordinateSystem
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
 import app.orcinus.shadow.core.model.CutConnectorStyle
@@ -712,10 +713,10 @@ class PrepareViewModel(
                 .distinctUntilChanged { old, new -> old?.index == new?.index }
                 .collect { volume -> view.update { it.copy(volumeRotationStart = volume?.matrix) } }
         }
-        // Selection::get_bounding_sphere() of a volume selected alone, while the rotation gizmo is open.
+        // Selection::get_bounding_sphere() and the boxes of a volume selected alone, while the rotation or the scale gizmo is open.
         viewModelScope.launch {
             combine(plate, view) { plate, view ->
-                val volume = plate.selectedVolume(view)?.takeIf { view.gizmo == PlateGizmo.ROTATE }
+                val volume = plate.selectedVolume(view)?.takeIf { view.gizmo == PlateGizmo.ROTATE || view.gizmo == PlateGizmo.SCALE }
                 val target = plate.selected
                 val copy = plate.selectedCopy
                 val profiles = plate.profiles
@@ -1517,6 +1518,10 @@ class PrepareViewModel(
                 gizmo = if (state.gizmo == type) null else type,
                 rotationStart = state.selectedCopy?.let { copy -> if (view.assemblyView) assembleOf(copy.id) else copy.instance.inspection.placement },
                 volumeRotationStart = state.selectedVolume?.matrix,
+                // on_set_state(): a gizmo that opens takes the coordinates of the selection anew (change_cs_by_selection()).
+                moveObjectCoordinatesCopy = null,
+                moveWorldVolume = null,
+                volumeScaleCoordinates = null,
                 // Another toolbar item closes the arrange options.
                 arrangeOptionsOpen = false,
             )
@@ -3042,8 +3047,39 @@ class PrepareViewModel(
         view.update { it.copy(uniformScale = uniform) }
     }
 
+    /** The scale window's "World coordinates", "Object coordinates" and "Part coordinates" for the selected volume. */
+    fun setScaleCoordinates(coordinates: CoordinateSystem) {
+        val volume = state.value.selectedVolume ?: return
+        view.update { it.copy(volumeScaleCoordinates = VolumeCoordinates(volume.index, coordinates)) }
+    }
+
+    /** change_scale_value() and change_size_value() of a volume: the ratio of the value typed to the one shown on [axis]. */
+    private fun scaleVolume(volume: SelectedVolume, axis: Int, ratio: Double) {
+        scaleVolumeBy(volume, if (view.value.uniformScale) Vector3(ratio, ratio, ratio) else Vector3(1.0, 1.0, 1.0).with(axis, ratio))
+    }
+
+    /** do_scale() of a volume: Selection::scale() by [factors] in the window's coordinates. */
+    private fun scaleVolumeBy(volume: SelectedVolume, factors: Vector3) {
+        val state = state.value
+        val coordinates = state.scaleCoordinates ?: return
+        val size = state.selectedSize ?: return
+        val placement = selected()?.placement ?: return
+        // limit_scaling_ratio(): no side beyond MAX_NUM.
+        val limited = Vector3(
+            factors.x.coerceAtMost(MAX_NUM / size.x),
+            factors.y.coerceAtMost(MAX_NUM / size.y),
+            factors.z.coerceAtMost(MAX_NUM / size.z),
+        )
+        placeObjectVolume(selectedId() ?: return, volume.id.index, ObjectTransforms.volumeScaled(volume.matrix, placement, limited, coordinates), VolumeManipulation.SCALE)
+    }
+
     /** GizmoObjectManipulation::change_scale_value(): [percent] of the unscaled size on [axis], or on every axis when uniform. */
     fun setScale(axis: Int, percent: Double) {
+        state.value.selectedVolume?.let { volume ->
+            val shown = state.value.selectedScale ?: return
+            if (percent > 0.0) scaleVolume(volume, axis, percent / shown[axis])
+            return
+        }
         val current = state.value.selectedScale ?: return
         if (percent <= 0.0) return
         val factors = if (view.value.uniformScale) {
@@ -3056,6 +3092,11 @@ class PrepareViewModel(
 
     /** GizmoObjectManipulation::change_size_value(): [millimeters] on [axis], as a scale of the unscaled size. */
     fun setSize(axis: Int, millimeters: Double) {
+        state.value.selectedVolume?.let { volume ->
+            val size = state.value.selectedSize ?: return
+            if (millimeters > 0.0) scaleVolume(volume, axis, millimeters.coerceAtMost(MAX_NUM) / size[axis])
+            return
+        }
         val target = selected() ?: return
         if (millimeters <= 0.0) return
         val unscaled = target.unscaledDimensions.vector()
@@ -3064,8 +3105,15 @@ class PrepareViewModel(
         scaleTo(if (view.value.uniformScale) factors[axis].let { Vector3(it, it, it) } else factors)
     }
 
-    /** GizmoObjectManipulation::reset_scale_value(): the unscaled size. */
-    fun resetScale() = scaleTo(Vector3(1.0, 1.0, 1.0))
+    /** GizmoObjectManipulation::reset_scale_value(): the unscaled size, or 100 % on every axis of a volume. */
+    fun resetScale() {
+        state.value.selectedVolume?.let { volume ->
+            val shown = state.value.selectedScale ?: return
+            scaleVolumeBy(volume, Vector3(100.0 / shown.x, 100.0 / shown.y, 100.0 / shown.z))
+            return
+        }
+        scaleTo(Vector3(1.0, 1.0, 1.0))
+    }
 
     private fun scaleTo(factors: Vector3) {
         val target = selected() ?: return

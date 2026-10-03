@@ -106,6 +106,7 @@ import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.model.CoordinateSystem
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.EmbossRequest
 import app.orcinus.shadow.core.model.EmbossVolume
@@ -375,6 +376,7 @@ internal fun PrepareRoute(
             setSize = viewModel::setSize,
             setUniform = viewModel::setUniformScale,
             reset = viewModel::resetScale,
+            setCoordinates = viewModel::setScaleCoordinates,
         ),
         onSlice = {
             onSliceRequested()
@@ -806,6 +808,7 @@ internal fun PrepareScreen(
                 onAssemblySection = assemblyViewActions.sectionPlane,
                 selectedVolume = state.selectedVolume?.mesh?.value,
                 selectedVolumeSphere = state.selectedVolume?.description?.sphere,
+                selectedVolumeScale = state.volumeScale,
                 onPlaceVolume = onPlaceVolume,
             )
             state.measure?.editingDistance?.let { distance ->
@@ -2284,6 +2287,8 @@ internal class ScaleActions(
     val setSize: (axis: Int, millimeters: Double) -> Unit,
     val setUniform: (Boolean) -> Unit,
     val reset: () -> Unit,
+    /** The window's coordinates of a volume selected alone. */
+    val setCoordinates: (CoordinateSystem) -> Unit = {},
 )
 
 /**
@@ -2302,6 +2307,21 @@ private fun ScaleGizmoPanel(
 ) {
     val canReset = listOf(scale.x, scale.y, scale.z).let { ratios -> sqrt(ratios.sumOf { (it / 100.0 - 1.0).pow(2) }) > 0.001 }
     OrcaGizmoPanel {
+        state.scaleCoordinates?.let { coordinates ->
+            // do_render_scale_input_window(): the coordinates a volume scales in.
+            val labels = mapOf(
+                CoordinateSystem.WORLD to orcaString("World coordinates"),
+                CoordinateSystem.INSTANCE to orcaString("Object coordinates"),
+                CoordinateSystem.LOCAL to orcaString("Part coordinates"),
+            )
+            OrcaComboBox(
+                items = CoordinateSystem.entries,
+                selected = coordinates,
+                label = { labels.getValue(it) },
+                onSelect = actions.setCoordinates,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(PositionLabelWidth))
             AxisHeaders()

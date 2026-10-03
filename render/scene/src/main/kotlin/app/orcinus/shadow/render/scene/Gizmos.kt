@@ -508,23 +508,30 @@ internal class RotateGizmo(val center: Vec3, sphereRadius: Double, private val p
  * corners for a uniform scale, joined by dashed lines. [pixel] is the size in
  * millimetres of one desktop pixel at the camera target.
  */
-internal class ScaleGizmo(private val box: Box3, private val pixel: Double) {
-    val center: Vec3 = box.center()
+internal class ScaleGizmo(box: Box3, private val pixel: Double, private val frame: Affine3 = Affine3()) {
+    private val localCenter = box.center()
+    val center: Vec3 = frame.transformPoint(localCenter)
     private val half = box.size() * 0.5
 
-    /** GLGizmoScale3D::update_grabbers_data(): grabber 4, the bottom centre, is never shown. */
-    fun grabberCenter(id: Int): Vec3 = center + when (id) {
-        0 -> Vec3(-half.x, 0.0, -half.z)
-        1 -> Vec3(half.x, 0.0, -half.z)
-        2 -> Vec3(0.0, -half.y, -half.z)
-        3 -> Vec3(0.0, half.y, -half.z)
-        4 -> Vec3(0.0, 0.0, -half.z)
-        5 -> Vec3(0.0, 0.0, half.z)
-        6 -> Vec3(-half.x, -half.y, -half.z)
-        7 -> Vec3(half.x, -half.y, -half.z)
-        8 -> Vec3(half.x, half.y, -half.z)
-        else -> Vec3(-half.x, half.y, -half.z)
-    }
+    /**
+     * GLGizmoScale3D::update_grabbers_data(): grabber 4, the bottom centre, is
+     * never shown. The box lies along the axes of [frame], the rotation of the
+     * reference system (m_grabbers_tran).
+     */
+    fun grabberCenter(id: Int): Vec3 = frame.transformPoint(
+        localCenter + when (id) {
+            0 -> Vec3(-half.x, 0.0, -half.z)
+            1 -> Vec3(half.x, 0.0, -half.z)
+            2 -> Vec3(0.0, -half.y, -half.z)
+            3 -> Vec3(0.0, half.y, -half.z)
+            4 -> Vec3(0.0, 0.0, -half.z)
+            5 -> Vec3(0.0, 0.0, half.z)
+            6 -> Vec3(-half.x, -half.y, -half.z)
+            7 -> Vec3(half.x, -half.y, -half.z)
+            8 -> Vec3(half.x, half.y, -half.z)
+            else -> Vec3(-half.x, half.y, -half.z)
+        },
+    )
 
     fun frame(dragged: Int?, pixelScale: Float): GizmoFrame {
         val width = (if (dragged != null) 2f else 1.5f) * pixelScale
@@ -544,7 +551,7 @@ internal class ScaleGizmo(private val box: Box3, private val pixel: Double) {
                 hover -> GizmoColors.AXES_HOVER[id / 2]
                 else -> GizmoColors.AXES[id / 2]
             }
-            GizmoGrabber(Affine3.assemble(grabberCenter(id), Vec3.ZERO, Vec3(size, size, size)), color, GrabberShape.CUBE)
+            GizmoGrabber(Affine3().translated(grabberCenter(id)) * frame * Affine3.assemble(Vec3.ZERO, Vec3.ZERO, Vec3(size, size, size)), color, GrabberShape.CUBE)
         }
         return GizmoFrame(lines, grabbers)
     }
@@ -557,18 +564,19 @@ internal class ScaleGizmo(private val box: Box3, private val pixel: Double) {
          * GLGizmoScale3D::calc_ratio(): how far the drag has moved the grabber,
          * as a ratio of its distance from the bottom centre when the drag
          * began. The point is taken where [ray] meets the plane through the
-         * grabber across the Z axis, or for the top grabber the plane along
-         * Z facing the view. A ray nearly along that plane keeps the ratio at 1.
+         * grabber across the box's [up] axis (m_starting.plane_nromal), or for
+         * the top grabber the plane along it facing the view. A ray nearly
+         * along that plane keeps the ratio at 1.
          */
-        fun ratio(id: Int, dragStart: Vec3, bottomCenter: Vec3, ray: Line3): Double {
+        fun ratio(id: Int, dragStart: Vec3, bottomCenter: Vec3, ray: Line3, up: Vec3 = Vec3.UNIT_Z): Double {
             val startingVec = dragStart - bottomCenter
             val length = startingVec.norm()
             if (length == 0.0) return 0.0
             val direction = ray.unitVector()
-            var normal = Vec3.UNIT_Z
+            var normal = up
             if (id == 5) {
-                val planeVec = direction.cross(Vec3.UNIT_Z)
-                normal = planeVec.cross(Vec3.UNIT_Z)
+                val planeVec = direction.cross(up)
+                normal = planeVec.cross(up)
             }
             normal = normal.normalized()
             val angle = Math.toDegrees(acos(normal.dot(direction).coerceIn(-1.0, 1.0)))

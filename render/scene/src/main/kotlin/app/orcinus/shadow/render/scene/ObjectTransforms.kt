@@ -1,5 +1,6 @@
 package app.orcinus.shadow.render.scene
 
+import app.orcinus.shadow.core.model.CoordinateSystem
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.render.scene.math.Affine3
@@ -31,6 +32,27 @@ object ObjectTransforms {
         )
         val start = Affine3(placement.columns.toDoubleArray())
         return Transform3(ScaleGizmo.scaled(start, relative, Vec3(center.x, center.y, center.z)).elements().toList())
+    }
+
+    /**
+     * Selection::scale_and_translate() of a volume selected alone, which is
+     * independent: its transformation [matrix] in the object scaled by
+     * [factors] about its origin, along its own axes, its copy's (standing at
+     * [placement]) or the world's, as [coordinates] say.
+     */
+    fun volumeScaled(matrix: Transform3, placement: Transform3, factors: Vector3, coordinates: CoordinateSystem): Transform3 {
+        val volume = Affine3(matrix.columns.toDoubleArray())
+        val scale = Affine3.assemble(Vec3.ZERO, Vec3.ZERO, Vec3(factors.x, factors.y, factors.z))
+        val origin = volume.translation()
+        val scaled = when (coordinates) {
+            CoordinateSystem.LOCAL -> volume * scale
+            CoordinateSystem.INSTANCE -> Affine3().translated(origin) * scale * Affine3().translated(-origin) * volume
+            CoordinateSystem.WORLD -> {
+                val linear = Affine3(placement.columns.toDoubleArray()).withTranslation(Vec3.ZERO)
+                Affine3().translated(origin) * linear.inverse() * scale * linear * Affine3().translated(-origin) * volume
+            }
+        }
+        return Transform3(scaled.elements().toList())
     }
 
     /**

@@ -62,6 +62,7 @@ import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.VolumeBox
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
@@ -84,6 +85,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+
+/**
+ * The scale gizmo of a volume selected alone: the transformation of the
+ * reference system (Selection::get_bounding_box_in_reference_system()'s
+ * trafo — none, the copy's, or the volume's own in the world) and the
+ * volume's box there.
+ */
+data class VolumeScaleFrame(val reference: Transform3, val box: VolumeBox)
 
 /**
  * OrcaSlicer's 3D plate view: the printer's plate with the objects on it,
@@ -252,6 +261,8 @@ fun PlateView(
      * it, when the gizmo waits.
      */
     selectedVolumeSphere: BoundingSphere? = null,
+    /** The scale gizmo of the selected volume: its reference system and box there; null until the engine measured it. */
+    selectedVolumeScale: VolumeScaleFrame? = null,
     /**
      * GLCanvas3D::do_move() and do_rotate() of a volume: the selected volume
      * of the copy at [index] changed by [change] in the world; the app places it.
@@ -558,6 +569,7 @@ fun PlateView(
             controller.setEditable(editable)
             controller.setSelectedVolume(selectedVolume)
             controller.volumeSphere = selectedVolumeSphere
+            controller.volumeScale = selectedVolumeScale
             controller.settleVolume(editable, objects)
         }
 
@@ -908,6 +920,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             field = value
             invalidate()
         }
+
+    /** The selected volume's reference system and box, which the scale gizmo stands on; null until known. */
+    var volumeScale: VolumeScaleFrame? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
     private var gizmo: PlateGizmo? = null
     private var flatteningPlanes: List<FlatteningPlane> = emptyList()
     private var layOnFace = LayOnFaceGizmo(emptyList())
@@ -989,9 +1009,31 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private class MoveGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val startGrabber: Vec3, val startCenter: Vec3, key: String?) :
         Drag(index, startWorld, key)
 
-    /** The scale gizmo's grabber [id], scaling about the box [center] as the grabber moves from [start]. */
-    private class ScaleGrabberDrag(index: Int, startWorld: Affine3, val id: Int, val start: Vec3, val bottomCenter: Vec3, val center: Vec3) :
-        Drag(index, startWorld)
+    /**
+     * The scale gizmo's grabber [id], scaling about the box [center] as the
+     * grabber moves from [start], or the selected volume [key] as [volume] says.
+     */
+    private class ScaleGrabberDrag(
+        index: Int,
+        startWorld: Affine3,
+        val id: Int,
+        val start: Vec3,
+        val bottomCenter: Vec3,
+        val center: Vec3,
+        key: String?,
+        val volume: VolumeScaling?,
+    ) : Drag(index, startWorld, key) {
+        /** The scale reached, along the axes of the gizmo's frame. */
+        var scale = Vec3(1.0, 1.0, 1.0)
+    }
+
+    /**
+     * Selection::scale_and_translate() of a volume, which is independent:
+     * along the reference system's [linear] part about the volume's [origin]
+     * in the world; [frame] the reference's rotation and [box] the volume's
+     * box along it, as the drag began.
+     */
+    private class VolumeScaling(val linear: Affine3, val origin: Vec3, val frame: Affine3, val box: Box3)
 
     /**
      * GLGizmoCut3D's [grabber], or the plane itself, pressed at [startPoint]
@@ -1452,12 +1494,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     }
 
     /**
-     * Selection::Volume in the 3D view: the volume the move and rotation
-     * gizmos and a finger move alone. The scale gizmo, and the assembly view,
-     * still work on the copy.
+     * Selection::Volume in the 3D view: the volume the move, rotation and
+     * scale gizmos and a finger change alone. Lay on face, and the assembly
+     * view, still work on the copy.
      */
-    private fun volumeMode(): String? =
-        selectedVolume?.takeIf { assembly == null && gizmo != PlateGizmo.SCALE && gizmo != PlateGizmo.LAY_ON_FACE }
+    private fun volumeMode(): String? = selectedVolume?.takeIf { assembly == null && gizmo != PlateGizmo.LAY_ON_FACE }
 
     /** What the gizmos stand around: the selected volume, or the selected copy. */
     private fun selectedTarget(): SceneObject? =
@@ -1565,8 +1606,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         grabberAt(x.toDouble(), y.toDouble(), grabberRadius.toDouble())?.let { (target, axis) ->
             drag = when (gizmo) {
                 PlateGizmo.ROTATE -> rotationSphere(target)?.let { (center, radius) -> RotateGrabberDrag(target.index, target.world, axis, center, radius, volumeMode()) }
-                PlateGizmo.SCALE -> scaleGizmo(target).let {
-                    ScaleGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.grabberCenter(4), it.center)
+                PlateGizmo.SCALE -> scaleGizmo(target)?.let {
+                    val key = volumeMode()
+                    ScaleGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.grabberCenter(4), it.center, key, key?.let { volumeScaling(target) })
                 }
                 else -> moveGizmo(target).let { MoveGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.center, volumeMode()) }
             }
@@ -1669,7 +1711,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         if (drag is ScaleGrabberDrag) {
             // GLGizmoScale3D::do_scale_along_axis() and do_scale_uniform().
-            val ratio = ScaleGizmo.ratio(drag.id, drag.start, drag.bottomCenter, ray)
+            val up = drag.volume?.frame?.transformVector(Vec3.UNIT_Z) ?: Vec3.UNIT_Z
+            val ratio = ScaleGizmo.ratio(drag.id, drag.start, drag.bottomCenter, ray, up)
             if (ratio <= 0.0 || !ratio.isFinite()) return
             val scale = when (drag.id) {
                 0, 1 -> Vec3(ratio, 1.0, 1.0)
@@ -1678,7 +1721,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 else -> Vec3(ratio, ratio, ratio)
             }
             drag.moved = true
-            replaceObject(target.withWorld(ScaleGizmo.scaled(drag.startWorld, scale, drag.center)))
+            drag.scale = scale
+            val world = drag.volume?.let { volume ->
+                Affine3().translated(volume.origin) * volume.linear * Affine3.assemble(Vec3.ZERO, Vec3.ZERO, scale) * volume.linear.inverse() *
+                    Affine3().translated(-volume.origin) * drag.startWorld
+            } ?: ScaleGizmo.scaled(drag.startWorld, scale, drag.center)
+            replaceObject(target.withWorld(world), alone = drag.key != null)
             return
         }
         val offset = when (drag) {
@@ -1801,7 +1849,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // GLCanvas3D::do_move() of a volume: the app places it and drops the
             // copies; the volume stands where it was left until then.
             volumeLeft = true
-            val manipulation = if (drag is RotateGrabberDrag) VolumeManipulation.ROTATE else VolumeManipulation.MOVE
+            val manipulation = when (drag) {
+                is RotateGrabberDrag -> VolumeManipulation.ROTATE
+                is ScaleGrabberDrag -> VolumeManipulation.SCALE
+                else -> VolumeManipulation.MOVE
+            }
             onPlaceVolume(target.index, Transform3((target.world * drag.startWorld.inverse()).elements().toList()), manipulation)
             return
         }
@@ -2231,7 +2283,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val ends: (Int) -> Pair<Vec3, Vec3> = when (gizmo) {
             PlateGizmo.MOVE -> moveGizmo(target).let { move -> { axis -> move.grabberCenter(axis) to move.grabberTip(axis) } }
             PlateGizmo.ROTATE -> rotateGizmo(target)?.let { rotate -> { axis: Int -> rotate.grabberEnds(axis, 0.0) } } ?: return null
-            PlateGizmo.SCALE -> scaleGizmo(target).let { scale -> { id -> scale.grabberCenter(id).let { it to it } } }
+            PlateGizmo.SCALE -> scaleGizmo(target)?.let { scale -> { id: Int -> scale.grabberCenter(id).let { it to it } } } ?: return null
             PlateGizmo.LAY_ON_FACE, null -> return null
         }
         val grabbers = if (gizmo == PlateGizmo.SCALE) ScaleGizmo.VISIBLE_GRABBERS else listOf(0, 1, 2)
@@ -2426,7 +2478,33 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     private fun rotateGizmo(target: SceneObject): RotateGizmo? = rotationSphere(target)?.let { (center, radius) -> RotateGizmo(center, radius, pixel()) }
 
-    private fun scaleGizmo(target: SceneObject) = ScaleGizmo(target.bounds, pixel())
+    /**
+     * Around the copy's box in the world, or the selected volume's box in its
+     * reference system once the engine measured it, scaled as far as a drag
+     * of it has gone.
+     */
+    private fun scaleGizmo(target: SceneObject): ScaleGizmo? {
+        if (volumeMode() == null) return ScaleGizmo(target.bounds, pixel())
+        val held = drag as? ScaleGrabberDrag
+        val volume = held?.volume ?: return volumeScaling(target)?.let { ScaleGizmo(it.box, pixel(), it.frame) }
+        val origin = volume.frame.inverse().transformPoint(volume.origin)
+        fun scaled(point: Vec3) = Vec3(
+            origin.x + (point.x - origin.x) * held.scale.x,
+            origin.y + (point.y - origin.y) * held.scale.y,
+            origin.z + (point.z - origin.z) * held.scale.z,
+        )
+        return ScaleGizmo(Box3(scaled(volume.box.min), scaled(volume.box.max)), pixel(), volume.frame)
+    }
+
+    /** The selected volume's scaling as the window's coordinates have it, from the volume [target] as it stands. */
+    private fun volumeScaling(target: SceneObject): VolumeScaling? {
+        val scale = volumeScale ?: return null
+        val reference = Affine3(scale.reference.columns.toDoubleArray())
+        val frame = Affine3(AssemblyTransforms.rotation(scale.reference).columns.toDoubleArray())
+        val center = frame.inverse().transformPoint(Vec3(scale.box.center.x, scale.box.center.y, scale.box.center.z))
+        val half = Vec3(scale.box.size.x, scale.box.size.y, scale.box.size.z) * 0.5
+        return VolumeScaling(reference.withTranslation(Vec3.ZERO), target.world.translation(), frame, Box3(center - half, center + half))
+    }
 
     private fun select(index: Int?) {
         if (selectedIndex == index) return
@@ -2608,7 +2686,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 val gizmo = rotating?.let { RotateGizmo(it.center, it.sphereRadius, pixel()) } ?: rotateGizmo(target) ?: return null
                 gizmo.frame(rotating?.axis, rotating?.angle ?: 0.0, density)
             }
-            PlateGizmo.SCALE -> scaleGizmo(target).frame((drag as? ScaleGrabberDrag)?.id, density)
+            PlateGizmo.SCALE -> scaleGizmo(target)?.frame((drag as? ScaleGrabberDrag)?.id, density)
             PlateGizmo.LAY_ON_FACE -> layOnFace.frame(target.world, pressed = null)
             null -> null
         }
