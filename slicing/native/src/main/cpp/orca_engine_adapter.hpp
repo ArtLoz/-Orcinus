@@ -142,6 +142,12 @@ struct ObjectPlacement {
     std::vector<double> matrix;
     bool auto_drop{true};
     bool printable{true};
+    // ModelInstance::m_assemble_transformation, where the copy stands in the
+    // assembly view, column-major 4 x 4; empty while it has none
+    // (is_assemble_initialized()). And m_offset_to_assembly, x, y and z;
+    // empty for none.
+    std::vector<double> assemble_matrix;
+    std::vector<double> offset_to_assembly;
 };
 
 // The settings an object or the plate overrides the process preset with, as the
@@ -1509,6 +1515,10 @@ struct ImportedObject {
     // ModelInstance::auto_drop and printable of every instance.
     std::vector<bool> auto_drops;
     std::vector<bool> printables;
+    // Every instance's place in the assembly and offset to it, as
+    // ObjectPlacement::assemble_matrix and offset_to_assembly.
+    std::vector<std::vector<double>> assemble_matrices;
+    std::vector<std::vector<double>> offsets_to_assembly;
     // ModelObject::cut_id, and the cut info of its own mesh.
     ObjectCutId cut_id;
     VolumeCutInfo volume_cut_info;

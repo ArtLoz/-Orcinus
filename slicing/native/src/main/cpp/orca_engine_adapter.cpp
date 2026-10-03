@@ -657,6 +657,15 @@ void place_at(Slic3r::ModelObject& object, const std::vector<ObjectPlacement>& i
         instance->auto_drop = placement.auto_drop;
         // ObjectList::toggle_printable_state()
         instance->printable = placement.printable;
+        // The copy's place in the assembly view.
+        if (placement.assemble_matrix.size() == 16) {
+            Slic3r::Transform3d assemble = Slic3r::Transform3d::Identity();
+            std::copy(placement.assemble_matrix.begin(), placement.assemble_matrix.end(), assemble.data());
+            instance->set_assemble_transformation(Slic3r::Geometry::Transformation(assemble));
+        }
+        if (placement.offset_to_assembly.size() == 3) {
+            instance->set_offset_to_assembly(Slic3r::Vec3d(placement.offset_to_assembly[0], placement.offset_to_assembly[1], placement.offset_to_assembly[2]));
+        }
     }
 }
 
@@ -3509,6 +3518,11 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             described.open_edges = static_cast<std::int64_t>(object.get_object_stl_stats().open_edges);
             out.auto_drops.push_back(object.instances[instance]->auto_drop);
             out.printables.push_back(object.instances[instance]->printable);
+            Slic3r::ModelInstance& copy = *object.instances[instance];
+            out.assemble_matrices.push_back(copy.is_assemble_initialized() ? matrix_of(copy.get_assemble_transformation().get_matrix()) : std::vector<double>{});
+            const Slic3r::Vec3d offset_to_assembly = copy.get_offset_to_assembly();
+            out.offsets_to_assembly.push_back(
+                offset_to_assembly.isZero() ? std::vector<double>{} : std::vector<double>{offset_to_assembly.x(), offset_to_assembly.y(), offset_to_assembly.z()});
         }
     }
     return true;
@@ -3838,6 +3852,18 @@ ImportedModels import_models(
                 object->translate_instances(Slic3r::Vec3d(0.0, 0.0, -std::min(object->min_z(), 0.0)));
             }
             placed.push_back(object);
+        }
+        // load_model_objects(): every copy takes where it stands as its place in
+        // the assembly view unless it has one, before the copies the file did
+        // not place find theirs on the plate.
+        if (!result.split_to_objects) {
+            for (Slic3r::ModelObject* object : model.objects) {
+                for (Slic3r::ModelInstance* instance : object->instances) {
+                    if (!instance->is_assemble_initialized()) {
+                        instance->set_assemble_transformation(instance->get_transformation());
+                    }
+                }
+            }
         }
         // The objects the file did not place: on the plate's centre when the
         // plate was empty, and otherwise in the empty cell nearest to it.

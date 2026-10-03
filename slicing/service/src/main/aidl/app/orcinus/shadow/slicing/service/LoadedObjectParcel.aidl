@@ -19,6 +19,10 @@ parcelable LoadedObjectParcel {
     /** ModelInstance::auto_drop and printable of every copy. */
     boolean[] autoDrops;
     boolean[] printables;
+    /** Every copy's place in the assembly view, 16 each, which counts only where assembled; and its offset to it, 3 each. */
+    @nullable double[] assembleMatrices;
+    @nullable boolean[] assembled;
+    @nullable double[] offsetsToAssembly;
     @nullable String painted;
     @nullable LayerRangeParcel[] layerRanges;
     /** The object's cut id flattened (CutId.values); null for none. */

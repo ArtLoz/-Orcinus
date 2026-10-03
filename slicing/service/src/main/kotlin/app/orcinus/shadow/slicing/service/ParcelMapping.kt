@@ -266,6 +266,8 @@ internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(siz
             PlacedInstanceParcel().also {
                 it.placement = instance.placement.columns.toDoubleArray()
                 it.autoDrop = instance.autoDrop
+                it.assemble = instance.assemble?.columns?.toDoubleArray()
+                it.offsetToAssembly = instance.offsetToAssembly?.let { offset -> doubleArrayOf(offset.x, offset.y, offset.z) }
                 it.printable = instance.printable
             }
         }
@@ -327,7 +329,13 @@ internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map 
         model = checkNotNull(parcel.model) { "A plate object has no model" }.toModelSource(),
         mesh = ScenePath(parcel.meshPath),
         instances = parcel.instances.orEmpty().map {
-            PlacedInstance(placement = Transform3(it.placement.toList()), autoDrop = it.autoDrop, printable = it.printable)
+            PlacedInstance(
+                placement = Transform3(it.placement.toList()),
+                autoDrop = it.autoDrop,
+                printable = it.printable,
+                assemble = it.assemble?.takeIf { matrix -> matrix.size == 16 }?.let { matrix -> Transform3(matrix.toList()) },
+                offsetToAssembly = it.offsetToAssembly?.takeIf { offset -> offset.size == 3 }?.let { offset -> Vector3(offset[0], offset[1], offset[2]) },
+            )
         },
         settings = parcel.settings.toModelSettings(),
         parts = parcel.parts.orEmpty().map { it.toObjectPart() },
@@ -452,6 +460,11 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
                 parcel.volume = loaded.volume.toParcel()
                 parcel.instances = loaded.instances.map { instance -> ModelInspectionOutcome.Success(instance.inspection).toParcel() }.toTypedArray()
                 parcel.autoDrops = loaded.instances.map(PlateInstance::autoDrop).toBooleanArray()
+                parcel.assembleMatrices = loaded.instances.flatMap { it.assemble?.columns ?: List(16) { 0.0 } }.toDoubleArray()
+                parcel.assembled = loaded.instances.map { it.assemble != null }.toBooleanArray()
+                parcel.offsetsToAssembly = loaded.instances.flatMap { instance ->
+                    instance.offsetToAssembly?.let { listOf(it.x, it.y, it.z) } ?: listOf(0.0, 0.0, 0.0)
+                }.toDoubleArray()
                 parcel.printables = loaded.instances.map(PlateInstance::printable).toBooleanArray()
                 parcel.painted = loaded.painted.value.takeUnless(String::isEmpty)
                 parcel.layerRanges = loaded.layerRanges.toParcels()
@@ -482,6 +495,11 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
                     PlateInstance(
                         instance.toInspection(),
                         autoDrop = parcel.autoDrops?.getOrNull(index) ?: true,
+                        assemble = parcel.assembleMatrices?.takeIf { parcel.assembled?.getOrNull(index) == true && it.size >= 16 * (index + 1) }
+                            ?.let { Transform3(it.copyOfRange(16 * index, 16 * (index + 1)).toList()) },
+                        offsetToAssembly = parcel.offsetsToAssembly?.takeIf { it.size >= 3 * (index + 1) }
+                            ?.let { Vector3(it[3 * index], it[3 * index + 1], it[3 * index + 2]) }
+                            ?.takeUnless { it == Vector3(0.0, 0.0, 0.0) },
                         printable = parcel.printables?.getOrNull(index) ?: true,
                     )
                 },

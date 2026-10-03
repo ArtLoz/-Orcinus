@@ -650,6 +650,14 @@ internal class NativePlate(
     @JvmField val layerHeightProfiles: Array<DoubleArray>,
     /** The brim ears of every object (ModelObject::brim_points): x, y, z and the radius of each. */
     @JvmField val brimPoints: Array<DoubleArray>,
+    /**
+     * Every copy's place in the assembly view (ModelInstance::m_assemble_transformation),
+     * 16 each in the copies' order, which counts only where [assembled]; and
+     * its offset to the assembly (m_offset_to_assembly), 3 each.
+     */
+    @JvmField val assembleMatrices: DoubleArray,
+    @JvmField val assembled: BooleanArray,
+    @JvmField val offsetsToAssembly: DoubleArray,
     /** The text or the SVG every object's own mesh and every part was embossed from; empty for none. */
     @JvmField val volumeEmboss: Array<String>,
     @JvmField val partEmboss: Array<String>,
@@ -710,6 +718,10 @@ internal class NativeImportedObject(
     @JvmField val partEmbossKinds: LongArray,
     /** ModelObject::brim_points: x, y, z and the radius of each. */
     @JvmField val brimPoints: DoubleArray,
+    /** Every copy's place in the assembly view and offset to it, as in [NativePlate]. */
+    @JvmField val assembleMatrices: DoubleArray,
+    @JvmField val assembled: BooleanArray,
+    @JvmField val offsetsToAssembly: DoubleArray,
 )
 
 /** Constructed by the native bridge; see SvgWarning in orca_engine_adapter.hpp. */

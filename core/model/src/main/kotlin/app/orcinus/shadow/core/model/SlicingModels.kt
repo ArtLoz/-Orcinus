@@ -133,6 +133,10 @@ data class PlacedInstance(
     val autoDrop: Boolean = true,
     /** ModelInstance::printable: a copy that is not printable is not sliced. */
     val printable: Boolean = true,
+    /** ModelInstance::m_assemble_transformation; null while the copy has no place in the assembly view. */
+    val assemble: Transform3? = null,
+    /** ModelInstance::m_offset_to_assembly; null for none. */
+    val offsetToAssembly: Vector3? = null,
 )
 
 data class PlacedModel(

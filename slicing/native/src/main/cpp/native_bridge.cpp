@@ -714,6 +714,32 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
             env->DeleteLocalRef(profile);
         }
     }
+    // Every copy's place in the assembly view and offset to it, in the copies' order.
+    {
+        const auto assemble_array = static_cast<jdoubleArray>(field("assembleMatrices", "[D"));
+        const auto assembled_array = static_cast<jbooleanArray>(field("assembled", "[Z"));
+        const auto offsets_array = static_cast<jdoubleArray>(field("offsetsToAssembly", "[D"));
+        const std::vector<double> matrices = assemble_array != nullptr ? to_doubles(env, assemble_array) : std::vector<double>{};
+        const std::vector<double> offsets = offsets_array != nullptr ? to_doubles(env, offsets_array) : std::vector<double>{};
+        std::vector<jboolean> flags;
+        if (assembled_array != nullptr) {
+            flags.resize(static_cast<std::size_t>(env->GetArrayLength(assembled_array)));
+            env->GetBooleanArrayRegion(assembled_array, 0, static_cast<jsize>(flags.size()), flags.data());
+        }
+        std::size_t copy = 0;
+        for (orcinus::orca::PlateObject& object : plate) {
+            for (orcinus::orca::ObjectPlacement& placement : object.instances) {
+                if (copy < flags.size() && flags[copy] == JNI_TRUE && matrices.size() >= 16 * (copy + 1))
+                    placement.assemble_matrix.assign(matrices.begin() + std::ptrdiff_t(16 * copy), matrices.begin() + std::ptrdiff_t(16 * (copy + 1)));
+                if (offsets.size() >= 3 * (copy + 1)) {
+                    const std::vector<double> offset(offsets.begin() + std::ptrdiff_t(3 * copy), offsets.begin() + std::ptrdiff_t(3 * (copy + 1)));
+                    if (offset[0] != 0.0 || offset[1] != 0.0 || offset[2] != 0.0)
+                        placement.offset_to_assembly = offset;
+                }
+                ++copy;
+            }
+        }
+    }
     // The brim ears of every object.
     if (const auto points = static_cast<jobjectArray>(field("brimPoints", "[[D"))) {
         for (std::size_t index = 0; index < plate.size() && static_cast<std::size_t>(env->GetArrayLength(points)) > index; ++index) {
@@ -3040,7 +3066,7 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
         "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;[D"
-        "Ljava/lang/String;J[Ljava/lang/String;[J[D)V"
+        "Ljava/lang/String;J[Ljava/lang/String;[J[D[D[Z[D)V"
     );
     // The cut the object is a part of, and the cut info of its own mesh and of every part.
     const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
@@ -3056,6 +3082,23 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
     };
     std::vector<double> volume_cut_info;
     cut_info_values(object.volume_cut_info, volume_cut_info);
+    // Every copy's place in the assembly, 16 each (zero while it has none), and its offset to it, 3 each.
+    std::vector<double> assemble_matrices;
+    std::vector<bool> assembled;
+    std::vector<double> offsets_to_assembly;
+    for (std::size_t copy = 0; copy < object.instances.size(); ++copy) {
+        const std::vector<double> matrix = copy < object.assemble_matrices.size() ? object.assemble_matrices[copy] : std::vector<double>{};
+        assembled.push_back(matrix.size() == 16);
+        if (matrix.size() == 16)
+            assemble_matrices.insert(assemble_matrices.end(), matrix.begin(), matrix.end());
+        else
+            assemble_matrices.insert(assemble_matrices.end(), 16, 0.0);
+        const std::vector<double> offset = copy < object.offsets_to_assembly.size() ? object.offsets_to_assembly[copy] : std::vector<double>{};
+        if (offset.size() == 3)
+            offsets_to_assembly.insert(offsets_to_assembly.end(), offset.begin(), offset.end());
+        else
+            offsets_to_assembly.insert(offsets_to_assembly.end(), 3, 0.0);
+    }
     std::vector<double> part_cut_info;
     for (const orcinus::orca::ImportedPart& part : object.parts) {
         cut_info_values(part.cut_info, part_cut_info);
@@ -3103,7 +3146,10 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         static_cast<jlong>(object.volume_emboss_kind),
         to_java(env, part_emboss),
         to_java(env, part_emboss_kinds),
-        to_java(env, object.brim_points.data(), object.brim_points.size())
+        to_java(env, object.brim_points.data(), object.brim_points.size()),
+        to_java(env, assemble_matrices.data(), assemble_matrices.size()),
+        to_java_bools(env, assembled),
+        to_java(env, offsets_to_assembly.data(), offsets_to_assembly.size())
     );
 }
 

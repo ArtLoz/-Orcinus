@@ -2433,7 +2433,16 @@ class NativeSlicerEngine(context: Context) :
             ),
             cutId = CutId.of(cutId),
             instances = instances.mapIndexed { index, instance ->
-                PlateInstance(instance.toInspection(mesh), autoDrop = autoDrops[index], printable = printables[index])
+                PlateInstance(
+                    instance.toInspection(mesh),
+                    autoDrop = autoDrops[index],
+                    printable = printables[index],
+                    assemble = assembleMatrices.takeIf { assembled.getOrElse(index) { false } && it.size >= 16 * (index + 1) }
+                        ?.let { Transform3(it.copyOfRange(16 * index, 16 * (index + 1)).toList()) },
+                    offsetToAssembly = offsetsToAssembly.takeIf { it.size >= 3 * (index + 1) }
+                        ?.let { Vector3(it[3 * index], it[3 * index + 1], it[3 * index + 2]) }
+                        ?.takeUnless { it == Vector3(0.0, 0.0, 0.0) },
+                )
             },
             painted = PaintedFacets(painted),
             layerRanges = rangeSettingKeys.indices.map { range ->
@@ -2605,6 +2614,10 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
         partCutInfo = parts.flatMap { it.cutInfo.values().asList() }.toDoubleArray(),
         layerHeightProfiles = Array(objects.size) { objects[it].layerHeightProfile.toDoubleArray() },
         brimPoints = Array(objects.size) { with(BrimPoint) { objects[it].brimPoints.values() } },
+        assembleMatrices = instances.flatMap { it.assemble?.columns ?: List(16) { 0.0 } }.toDoubleArray(),
+        assembled = BooleanArray(instances.size) { instances[it].assemble != null },
+        offsetsToAssembly = instances.flatMap { it.offsetToAssembly?.let { offset -> listOf(offset.x, offset.y, offset.z) } ?: listOf(0.0, 0.0, 0.0) }
+            .toDoubleArray(),
         volumeEmboss = Array(objects.size) { objects[it].volume.emboss?.file?.value.orEmpty() },
         partEmboss = Array(parts.size) { parts[it].emboss?.file?.value.orEmpty() },
     )

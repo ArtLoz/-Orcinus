@@ -12,6 +12,10 @@ data class PlateInstance(
     val placing: Boolean = false,
     val autoDrop: Boolean = true,
     val printable: Boolean = true,
+    /** ModelInstance::m_assemble_transformation: where the copy stands in the assembly view; null while it has no place there. */
+    val assemble: Transform3? = null,
+    /** ModelInstance::m_offset_to_assembly, which the assembly view's explosion spreads the copy by; null for none. */
+    val offsetToAssembly: Vector3? = null,
 )
 
 /** ModelVolumeType of Model.hpp: what a part of an object is for. */

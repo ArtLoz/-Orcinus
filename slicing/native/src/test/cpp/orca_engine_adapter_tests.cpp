@@ -6537,6 +6537,47 @@ TEST_CASE("The assembly tool sets the distance of two faces of two cubes", "[Ada
     orca::end_measure();
 }
 
+TEST_CASE("A copy takes its place in the assembly view on load and keeps it in a project", "[Adapter][Assembly]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    // load_model_objects(): the copy's place in the assembly is where it stood before it found its place on the plate.
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("assembly-obj"), {});
+    INFO(imported.message);
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    REQUIRE(imported.objects.size() == 1);
+    const orca::ImportedObject& object = imported.objects.front();
+    REQUIRE(object.assemble_matrices.size() == 1);
+    REQUIRE(object.assemble_matrices.front().size() == 16);
+    // At the origin, resting on the plate.
+    CHECK(object.assemble_matrices.front()[12] == Catch::Approx(0.0).margin(1e-6));
+    CHECK(object.assemble_matrices.front()[13] == Catch::Approx(0.0).margin(1e-6));
+
+    // A place in the assembly the copy was given stays in a project.
+    std::vector<orca::PlateObject> plate = plate_of({});
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("assembly-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    plate.front().instances.push_back({matrix_of(cube)});
+    std::vector<double> assemble = matrix_of(cube);
+    assemble[12] = 5.0;
+    assemble[13] = -7.0;
+    assemble[14] = 30.0;
+    plate.front().instances.front().assemble_matrix = assemble;
+    const std::string project = output_path("assembly.3mf");
+    REQUIRE(orca::save_project(project, plate, k2_plus_profiles(), {orca::ProjectPlate()}).status == orca::SceneStatus::success);
+    const orca::ImportedModels reopened =
+        orca::import_model(project, k2_plus_profiles(), {}, import_prefix("assembly-project"), {}, orca::ModelLoad::project);
+    INFO(reopened.message);
+    REQUIRE(reopened.status == orca::SceneStatus::success);
+    REQUIRE(reopened.objects.size() == 1);
+    REQUIRE(reopened.objects.front().assemble_matrices.size() == 1);
+    REQUIRE(reopened.objects.front().assemble_matrices.front().size() == 16);
+    CHECK(reopened.objects.front().assemble_matrices.front()[12] == Catch::Approx(5.0).margin(1e-4));
+    CHECK(reopened.objects.front().assemble_matrices.front()[13] == Catch::Approx(-7.0).margin(1e-4));
+    CHECK(reopened.objects.front().assemble_matrices.front()[14] == Catch::Approx(30.0).margin(1e-4));
+}
+
 TEST_CASE("The brim ears of an object print with the painted brim and stay in a project", "[Adapter][BrimEars]")
 {
     require_engine();
