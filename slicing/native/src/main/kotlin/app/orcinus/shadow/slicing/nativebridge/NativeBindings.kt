@@ -801,6 +801,59 @@ internal class NativeLayerEditing(
     @JvmField val fixed: Boolean,
 )
 
+/** Constructed by the native bridge; see MeasureFeature in orca_engine_adapter.hpp; [type] 0 is none. */
+internal class NativeMeasureFeature(
+    @JvmField val type: Int,
+    @JvmField val pt1: DoubleArray,
+    @JvmField val pt2: DoubleArray,
+    /** Empty for none. */
+    @JvmField val pt3: DoubleArray,
+    @JvmField val value: Double,
+    @JvmField val planeTriangles: FloatArray,
+)
+
+/** Constructed by the native bridge; see MeasureItem in orca_engine_adapter.hpp. */
+internal class NativeMeasureItem(
+    @JvmField val selected: Boolean,
+    @JvmField val isCenter: Boolean,
+    @JvmField val source: NativeMeasureFeature,
+    @JvmField val feature: NativeMeasureFeature,
+    @JvmField val objectIndex: Int,
+    @JvmField val volumeIndex: Int,
+)
+
+/** Constructed by the native bridge; see MeasureState in orca_engine_adapter.hpp. */
+internal class NativeMeasureState(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val hovered: NativeMeasureFeature,
+    /** Empty for none. */
+    @JvmField val hoveredPoint: DoubleArray,
+    @JvmField val hoveredSphere: Int,
+    @JvmField val first: NativeMeasureItem,
+    @JvmField val second: NativeMeasureItem,
+    /** The angle, its radius, 1 when coplanar, its centre and the two edges' ends; empty for none. */
+    @JvmField val angle: DoubleArray,
+    /** The distance and its ends; empty for none. */
+    @JvmField val distanceInfinite: DoubleArray,
+    @JvmField val distanceStrict: DoubleArray,
+    /** Empty for none. */
+    @JvmField val distanceXyz: DoubleArray,
+    @JvmField val canSetXyzDistance: Boolean,
+    @JvmField val canSetToParallel: Boolean,
+    @JvmField val canSetToCenterCoincidence: Boolean,
+    @JvmField val canSetFeature1ReverseRotation: Boolean,
+    @JvmField val canSetFeature2ReverseRotation: Boolean,
+    @JvmField val canAroundCenterOfFaces: Boolean,
+    @JvmField val hasParallelDistance: Boolean,
+    @JvmField val parallelDistance: Double,
+    @JvmField val hitVolumes: Int,
+    @JvmField val sameObject: Boolean,
+    @JvmField val showResetFirstTip: Boolean,
+    @JvmField val hoverOnly: Boolean,
+    @JvmField val hoveredUnchanged: Boolean,
+)
+
 /** Constructed by the native bridge; see ImportedModels in orca_engine_adapter.hpp. */
 internal class NativeImportedModels(
     @JvmField val status: Long,
@@ -1618,6 +1671,37 @@ internal object NativeBindings {
     external fun acceptLayerHeights(): NativeLayerEditing
 
     external fun endLayerEditing()
+
+    /** begin_measure(): [selection] holds triples of an object's, a copy's and a volume's index, the volume -1 for all. */
+    external fun beginMeasure(
+        plate: NativePlate,
+        selection: IntArray,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): NativeMeasureState
+
+    external fun hoverMeasure(
+        origin: DoubleArray,
+        direction: DoubleArray,
+        pointSelection: Boolean,
+        onlySelectPlane: Boolean,
+        sphereRadius: Double,
+    ): NativeMeasureState
+
+    external fun selectMeasure(
+        origin: DoubleArray,
+        direction: DoubleArray,
+        pointSelection: Boolean,
+        onlySelectPlane: Boolean,
+        sphereRadius: Double,
+    ): NativeMeasureState
+
+    /** reset_measure(): 1 the first selection, 2 the second, 0 both. */
+    external fun resetMeasure(selection: Int): NativeMeasureState
+
+    external fun endMeasure()
 
     /**
      * Commits [manipulation] (Manipulation in orca_engine_adapter.hpp) of the

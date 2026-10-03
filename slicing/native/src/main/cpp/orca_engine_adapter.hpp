@@ -1945,6 +1945,115 @@ LayerEditing accept_layer_heights();
 // The variable layer height closes, and the engine forgets the object.
 void end_layer_editing();
 
+// A feature the measuring tool shows (Measure::SurfaceFeature in world
+// coordinates): its type (SurfaceFeatureType's value: 1 a point, 2 an edge,
+// 4 a circle, 8 a plane; 0 none), its points (a point's position; an edge's
+// ends and, for an edge of a polygon, the polygon's centre; a circle's
+// centre and normal; a plane's normal and a point of it), a circle's radius
+// or a plane's index, and a plane's triangles in world coordinates, nine
+// floats each, for the canvas to draw it.
+struct MeasureFeature {
+    int type{0};
+    std::vector<double> pt1;
+    std::vector<double> pt2;
+    std::vector<double> pt3;
+    double value{0.0};
+    std::vector<float> plane_triangles;
+};
+
+// A selection of the measuring tool (GLGizmoMeasure::SelectedFeatures::Item):
+// the feature selected, the one it is the centre or a point of ([source]),
+// whether it is a centre, and the object and volume it is of.
+struct MeasureItem {
+    bool selected{false};
+    bool is_center{false};
+    MeasureFeature source;
+    MeasureFeature feature;
+    int object_index{-1};
+    int volume_index{-1};
+};
+
+// A ray of the finger into the measured copies (world coordinates), whether
+// it selects points (the desktop app's Shift), whether only planes are
+// features (the face-to-face assembly), and how far around a centre the
+// finger takes its sphere, in millimetres.
+struct MeasureRay {
+    std::vector<double> origin;
+    std::vector<double> direction;
+    bool point_selection{false};
+    bool only_select_plane{false};
+    double sphere_radius{1.0};
+};
+
+// What the measuring tool shows: the feature under the finger and, in point
+// selection, the point on it; the selection's sphere the finger is on (1 or
+// 2, 0 for none); the two selections; what they measure
+// (Measure::get_measurement(): the angle with its centre, edges and radius,
+// the distances with their ends, the distance along the axes); what can
+// assemble them (Measure::get_assembly_action(), can_set_xyz_distance());
+// the volumes the selections are on and whether one object has both
+// (is_two_volume_in_same_model_object()); and whether the second selection
+// just became the first (m_show_reset_first_tip).
+struct MeasureState {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    MeasureFeature hovered;
+    std::vector<double> hovered_point;
+    int hovered_sphere{0};
+    MeasureItem first;
+    MeasureItem second;
+    bool has_angle{false};
+    double angle{0.0};
+    std::vector<double> angle_center;
+    std::vector<double> angle_edge_1;
+    std::vector<double> angle_edge_2;
+    double angle_radius{0.0};
+    bool angle_coplanar{false};
+    bool has_infinite{false};
+    double infinite{0.0};
+    std::vector<double> infinite_from;
+    std::vector<double> infinite_to;
+    bool has_strict{false};
+    double strict{0.0};
+    std::vector<double> strict_from;
+    std::vector<double> strict_to;
+    std::vector<double> distance_xyz;
+    bool can_set_xyz_distance{false};
+    bool can_set_to_parallel{false};
+    bool can_set_to_center_coincidence{false};
+    bool can_set_feature_1_reverse_rotation{false};
+    bool can_set_feature_2_reverse_rotation{false};
+    bool can_around_center_of_faces{false};
+    bool has_parallel_distance{false};
+    double parallel_distance{0.0};
+    int hit_volumes{0};
+    bool same_object{false};
+    bool show_reset_first_tip{false};
+    // hover_measure() tells only what is under the finger, without the
+    // selections and their measurement; a plane's triangles come only when it
+    // is another plane than the one hover_measure() told last.
+    bool hover_only{false};
+    bool hovered_unchanged{false};
+};
+
+// GLGizmoMeasure opens on the volumes of the plate the selection has
+// (triples of an object's, a copy's and a volume's index, the volume -1 for
+// all of the copy's): a Measure::Measuring of each, made when first hit,
+// until end_measure().
+MeasureState begin_measure(const std::vector<PlateObject>& plate, const std::vector<int>& selection, const ProfileSelection& profiles);
+
+// on_render(): the feature under the finger, or the sphere it is on.
+MeasureState hover_measure(const MeasureRay& ray);
+
+// on_mouse() for a left press: the feature or centre under the finger is
+// selected, or deselected, as the tool's two selections take it.
+MeasureState select_measure(const MeasureRay& ray);
+
+// reset_feature1() (1), reset_feature2() (2) and reset_all_feature() (0).
+MeasureState reset_measure(int selection);
+
+void end_measure();
+
 // A face of a font file, as the font list of the text tool shows it: the
 // names of its naming table (the typographic family and subfamily, or the
 // legacy ones), its weight (OS/2 usWeightClass) and whether it is italic.

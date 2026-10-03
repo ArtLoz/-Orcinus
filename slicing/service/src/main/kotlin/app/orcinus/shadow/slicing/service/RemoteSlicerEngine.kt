@@ -45,6 +45,11 @@ import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeasureHoverOutcome
+import app.orcinus.shadow.core.model.MeasureOutcome
+import app.orcinus.shadow.core.model.MeasureRay
+import app.orcinus.shadow.core.model.MeasureReset
+import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
@@ -114,6 +119,7 @@ import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.slicing.api.PlateMeasurer
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.SliceProgressListener
@@ -135,7 +141,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor {
+) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor, PlateMeasurer {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -468,6 +474,22 @@ class RemoteSlicerEngine(
     override suspend fun accept() = remote({ LayerEditingOutcome.Failure(it) }) { acceptLayerHeights().toLayerEditingOutcome() }
 
     override suspend fun end() = remote({}) { endLayerEditing() }
+
+    override suspend fun beginMeasure(plate: List<PlacedModel>, volumes: List<MeasuredVolume>, profiles: SlicingProfileSelection): MeasureOutcome =
+        remote({ MeasureOutcome.Failure(it) }) { beginMeasure(plate.toParcels(), volumes.toTriples(), profiles.toParcel()).toMeasureOutcome() }
+
+    override suspend fun hoverMeasure(ray: MeasureRay): MeasureHoverOutcome = remote({ MeasureHoverOutcome.Failure(it) }) {
+        hoverMeasure(ray.origin.toDoubles(), ray.direction.toDoubles(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius).toMeasureHoverOutcome()
+    }
+
+    override suspend fun selectMeasure(ray: MeasureRay): MeasureOutcome = remote({ MeasureOutcome.Failure(it) }) {
+        selectMeasure(ray.origin.toDoubles(), ray.direction.toDoubles(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius).toMeasureOutcome()
+    }
+
+    override suspend fun resetMeasure(reset: MeasureReset): MeasureOutcome =
+        remote({ MeasureOutcome.Failure(it) }) { resetMeasure(reset.name).toMeasureOutcome() }
+
+    override suspend fun endMeasure() = remote({}) { endMeasure() }
 
     override suspend fun saveProject(
         path: ScenePath,

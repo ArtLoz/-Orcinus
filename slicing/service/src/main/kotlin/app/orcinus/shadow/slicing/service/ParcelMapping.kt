@@ -18,6 +18,20 @@ import app.orcinus.shadow.core.model.EmbossVolumeOutcome
 import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
+import app.orcinus.shadow.core.model.MeasureAngle
+import app.orcinus.shadow.core.model.MeasureAssembly
+import app.orcinus.shadow.core.model.MeasureDistance
+import app.orcinus.shadow.core.model.MeasureFeature
+import app.orcinus.shadow.core.model.MeasureFeatureType
+import app.orcinus.shadow.core.model.MeasureHover
+import app.orcinus.shadow.core.model.MeasureHoverOutcome
+import app.orcinus.shadow.core.model.MeasureOutcome
+import app.orcinus.shadow.core.model.MeasurePlaneMesh
+import app.orcinus.shadow.core.model.MeasureRay
+import app.orcinus.shadow.core.model.MeasureResult
+import app.orcinus.shadow.core.model.MeasureSelection
+import app.orcinus.shadow.core.model.MeasuredVolume
+import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.SvgPreviewOutcome
@@ -1306,6 +1320,151 @@ internal fun LayerEditingParcel.toLayerEditingOutcome(): LayerEditingOutcome = e
             fixed = fixed,
         ),
     )
+
+internal fun MeasureOutcome.toParcel() = MeasurementParcel().also {
+    when (this) {
+        is MeasureOutcome.Failure -> it.error = message
+        is MeasureOutcome.Success -> {
+            it.first = measurement.first?.toParcel()
+            it.second = measurement.second?.toParcel()
+            it.angle = measurement.result.angle?.let { angle ->
+                doubleArrayOf(angle.angle, angle.radius, if (angle.coplanar) 1.0 else 0.0) +
+                    listOf(angle.center, angle.edge1.first, angle.edge1.second, angle.edge2.first, angle.edge2.second).values()
+            } ?: DoubleArray(0)
+            it.distanceInfinite = measurement.result.distanceInfinite.values()
+            it.distanceStrict = measurement.result.distanceStrict.values()
+            it.distanceXyz = measurement.result.distanceXyz?.let { xyz -> listOf(xyz).values() } ?: DoubleArray(0)
+            it.canSetToParallel = measurement.assembly.canSetToParallel
+            it.canSetToCenterCoincidence = measurement.assembly.canSetToCenterCoincidence
+            it.canSetFeature1ReverseRotation = measurement.assembly.canSetFeature1ReverseRotation
+            it.canSetFeature2ReverseRotation = measurement.assembly.canSetFeature2ReverseRotation
+            it.canAroundCenterOfFaces = measurement.assembly.canAroundCenterOfFaces
+            it.hasParallelDistance = measurement.assembly.hasParallelDistance
+            it.parallelDistance = measurement.assembly.parallelDistance
+            it.canSetXyzDistance = measurement.canSetXyzDistance
+            it.hitVolumes = measurement.hitVolumes
+            it.sameObject = measurement.sameObject
+            it.showResetFirstTip = measurement.showResetFirstTip
+            it.hovered = measurement.hovered?.toParcel()
+        }
+    }
+}
+
+internal fun MeasurementParcel.toMeasureOutcome(): MeasureOutcome = error?.let(MeasureOutcome::Failure)
+    ?: MeasureOutcome.Success(
+        Measurement(
+            first = first?.toSelection(),
+            second = second?.toSelection(),
+            result = MeasureResult(
+                angle = angle?.takeIf { it.size >= 18 }?.let { values ->
+                    MeasureAngle(
+                        angle = values[0],
+                        center = values.vectorAt(3),
+                        edge1 = values.vectorAt(6) to values.vectorAt(9),
+                        edge2 = values.vectorAt(12) to values.vectorAt(15),
+                        radius = values[1],
+                        coplanar = values[2] != 0.0,
+                    )
+                },
+                distanceInfinite = distanceInfinite.toMeasureDistance(),
+                distanceStrict = distanceStrict.toMeasureDistance(),
+                distanceXyz = distanceXyz?.takeIf { it.size >= 3 }?.vectorAt(0),
+            ),
+            assembly = MeasureAssembly(
+                canSetToParallel = canSetToParallel,
+                canSetToCenterCoincidence = canSetToCenterCoincidence,
+                canSetFeature1ReverseRotation = canSetFeature1ReverseRotation,
+                canSetFeature2ReverseRotation = canSetFeature2ReverseRotation,
+                canAroundCenterOfFaces = canAroundCenterOfFaces,
+                hasParallelDistance = hasParallelDistance,
+                parallelDistance = parallelDistance,
+            ),
+            canSetXyzDistance = canSetXyzDistance,
+            hitVolumes = hitVolumes,
+            sameObject = sameObject,
+            showResetFirstTip = showResetFirstTip,
+            hovered = hovered?.toFeature(),
+        ),
+    )
+
+internal fun MeasureHoverOutcome.toParcel() = MeasureHoverParcel().also {
+    when (this) {
+        is MeasureHoverOutcome.Failure -> it.error = message
+        is MeasureHoverOutcome.Success -> {
+            it.feature = hover.feature?.toParcel()
+            it.unchanged = hover.unchanged
+            it.point = hover.point?.let { point -> listOf(point).values() } ?: DoubleArray(0)
+            it.sphere = hover.sphere
+        }
+    }
+}
+
+internal fun MeasureHoverParcel.toMeasureHoverOutcome(): MeasureHoverOutcome = error?.let(MeasureHoverOutcome::Failure)
+    ?: MeasureHoverOutcome.Success(
+        MeasureHover(
+            feature = feature?.toFeature(),
+            unchanged = unchanged,
+            point = point?.takeIf { it.size >= 3 }?.vectorAt(0),
+            sphere = sphere,
+        ),
+    )
+
+/** The measured volumes as the service takes them: triples of an object's, a copy's and a volume's index, -1 for all. */
+internal fun List<MeasuredVolume>.toTriples(): IntArray = flatMap { listOf(it.objectIndex, it.instanceIndex, it.volumeIndex ?: -1) }.toIntArray()
+
+internal fun IntArray.toMeasuredVolumes(): List<MeasuredVolume> =
+    List(size / 3) { MeasuredVolume(this[it * 3], this[it * 3 + 1], this[it * 3 + 2].takeIf { volume -> volume >= 0 }) }
+
+private fun MeasureSelection.toParcel() = MeasureSelectionParcel().also {
+    it.isCenter = isCenter
+    it.source = source.toParcel()
+    it.feature = feature.toParcel()
+    it.objectIndex = objectIndex
+    it.volumeIndex = volumeIndex
+}
+
+private fun MeasureSelectionParcel.toSelection(): MeasureSelection? {
+    val selected = feature?.toFeature() ?: return null
+    return MeasureSelection(
+        isCenter = isCenter,
+        source = source?.toFeature() ?: selected,
+        feature = selected,
+        objectIndex = objectIndex,
+        volumeIndex = volumeIndex,
+    )
+}
+
+private fun MeasureFeature.toParcel() = MeasureFeatureParcel().also {
+    it.type = type.name
+    it.pt1 = listOf(pt1).values()
+    it.pt2 = listOf(pt2).values()
+    it.pt3 = pt3?.let { point -> listOf(point).values() } ?: DoubleArray(0)
+    it.value = value
+    it.planeTriangles = planeMesh?.vertices
+}
+
+private fun MeasureFeatureParcel.toFeature() = MeasureFeature(
+    type = MeasureFeatureType.valueOf(type ?: MeasureFeatureType.POINT.name),
+    pt1 = pt1?.takeIf { it.size >= 3 }?.vectorAt(0) ?: Vector3(0.0, 0.0, 0.0),
+    pt2 = pt2?.takeIf { it.size >= 3 }?.vectorAt(0) ?: Vector3(0.0, 0.0, 0.0),
+    pt3 = pt3?.takeIf { it.size >= 3 }?.vectorAt(0),
+    value = value,
+    planeMesh = planeTriangles?.takeIf { it.isNotEmpty() }?.let(::MeasurePlaneMesh),
+)
+
+private fun MeasureDistance?.values(): DoubleArray = this?.let { doubleArrayOf(distance) + listOf(from, to).values() } ?: DoubleArray(0)
+
+private fun DoubleArray?.toMeasureDistance(): MeasureDistance? = this?.takeIf { it.size >= 7 }?.let { MeasureDistance(it[0], it.vectorAt(1), it.vectorAt(4)) }
+
+private fun List<Vector3>.values(): DoubleArray = flatMap { listOf(it.x, it.y, it.z) }.toDoubleArray()
+
+private fun DoubleArray.vectorAt(at: Int) = Vector3(this[at], this[at + 1], this[at + 2])
+
+internal fun Vector3.toDoubles() = doubleArrayOf(x, y, z)
+
+/** The ray of a measuring call, as the service takes it. */
+internal fun measureRay(origin: DoubleArray, direction: DoubleArray, pointSelection: Boolean, onlySelectPlane: Boolean, sphereRadius: Double) =
+    MeasureRay(origin.vectorAt(0), direction.vectorAt(0), pointSelection, onlySelectPlane, sphereRadius)
 
 internal fun TextStyle.toParcel() = TextStyleParcel().also {
     it.name = name

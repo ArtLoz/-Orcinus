@@ -6420,3 +6420,73 @@ TEST_CASE("The SVG window draws its SVG, sizes, mirrors, saves, forgets and bake
     REQUIRE(result.status == orca::SceneStatus::success);
     CHECK(result.objects.front().parts.front().emboss_kind == orca::EmbossKind::none);
 }
+
+TEST_CASE("The measuring tool selects a cube's faces and measures them", "[Adapter][Measure]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("measure-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    orca::MeasureState state = orca::begin_measure(plate, {0, 0, -1}, k2_plus_profiles());
+    INFO(state.message);
+    REQUIRE(state.status == orca::SceneStatus::success);
+    const double cx = cube.box_center[0];
+    const double cy = cube.box_center[1];
+    const double cz = cube.box_center[2];
+    const double half = cube.size_x / 2;
+
+    // A ray from above to the top face's middle: the top plane.
+    orca::MeasureRay top;
+    top.origin = {cx + 3.0, cy + 2.0, cz + 100.0};
+    top.direction = {0.0, 0.0, -1.0};
+    top.sphere_radius = 0.5;
+    state = orca::hover_measure(top);
+    REQUIRE(state.status == orca::SceneStatus::success);
+    CHECK(state.hovered.type == 8);
+    CHECK_FALSE(state.hovered.plane_triangles.empty());
+    state = orca::select_measure(top);
+    REQUIRE(state.first.selected);
+    CHECK(state.first.feature.type == 8);
+    CHECK_FALSE(state.second.selected);
+
+    // The bottom face from below: parallel, the cube's height apart.
+    orca::MeasureRay bottom = top;
+    bottom.origin = {cx + 3.0, cy + 2.0, cz - 100.0};
+    bottom.direction = {0.0, 0.0, 1.0};
+    state = orca::select_measure(bottom);
+    REQUIRE(state.second.selected);
+    CHECK(state.second.feature.type == 8);
+    REQUIRE(state.has_infinite);
+    CHECK(state.infinite == Catch::Approx(cube.size_z).margin(1e-3));
+    CHECK(state.hit_volumes == 1);
+
+    // A side face instead: perpendicular.
+    state = orca::reset_measure(2);
+    CHECK_FALSE(state.second.selected);
+    orca::MeasureRay side = top;
+    side.origin = {cx + 100.0, cy + 1.0, cz + 2.0};
+    side.direction = {-1.0, 0.0, 0.0};
+    state = orca::select_measure(side);
+    REQUIRE(state.second.selected);
+    REQUIRE(state.has_angle);
+    CHECK(state.angle == Catch::Approx(M_PI / 2).margin(1e-6));
+
+    // An edge: a ray grazing the top face beside its edge picks the edge, its length the cube's side.
+    state = orca::reset_measure(0);
+    CHECK_FALSE(state.first.selected);
+    orca::MeasureRay edge = top;
+    edge.origin = {cx + half - 0.1, cy, cz + 100.0};
+    state = orca::select_measure(edge);
+    REQUIRE(state.first.selected);
+    REQUIRE(state.first.feature.type == 2);
+    const double length = std::sqrt(std::pow(state.first.feature.pt2[0] - state.first.feature.pt1[0], 2) +
+        std::pow(state.first.feature.pt2[1] - state.first.feature.pt1[1], 2) + std::pow(state.first.feature.pt2[2] - state.first.feature.pt1[2], 2));
+    CHECK(length == Catch::Approx(cube.size_y).margin(1e-3));
+
+    // Selecting the same feature again deselects it.
+    state = orca::select_measure(edge);
+    CHECK_FALSE(state.first.selected);
+    orca::end_measure();
+    CHECK(orca::hover_measure(top).status != orca::SceneStatus::success);
+}

@@ -18,6 +18,8 @@ import app.orcinus.shadow.slicing.service.EmbossPlacementParcel;
 import app.orcinus.shadow.slicing.service.EmbossVolumeParcel;
 import app.orcinus.shadow.slicing.service.FontFaceParcel;
 import app.orcinus.shadow.slicing.service.LayerEditingParcel;
+import app.orcinus.shadow.slicing.service.MeasureHoverParcel;
+import app.orcinus.shadow.slicing.service.MeasurementParcel;
 import app.orcinus.shadow.slicing.service.PlateValidationParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
 import app.orcinus.shadow.slicing.service.FilamentPresetsParcel;
@@ -135,6 +137,12 @@ interface ISlicerService {
     LayerEditingParcel resetLayerHeights();
     LayerEditingParcel acceptLayerHeights();
     void endLayerEditing();
+    /** begin_measure() and the calls of the measuring tool; volumes are triples of an object's, a copy's and a volume's index (-1 for all), reset is the MeasureReset's name. */
+    MeasurementParcel beginMeasure(in PlacedModelParcel[] plate, in int[] volumes, in ProfilesParcel profiles);
+    MeasureHoverParcel hoverMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius);
+    MeasurementParcel selectMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius);
+    MeasurementParcel resetMeasure(String reset);
+    void endMeasure();
     /** save_project(): the error message, null once saved; sliced is the SlicedPlates' name. */
     @nullable String saveProject(
         String path,

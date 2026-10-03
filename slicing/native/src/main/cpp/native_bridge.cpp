@@ -4488,3 +4488,185 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_copyObjects(
         )
     );
 }
+
+// NativeMeasureFeature
+static jobject to_java(JNIEnv* env, const orcinus::orca::MeasureFeature& feature)
+{
+    const jclass feature_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeMeasureFeature");
+    const jmethodID constructor = env->GetMethodID(feature_class, "<init>", "(I[D[D[DD[F)V");
+    const jobject result = env->NewObject(
+        feature_class,
+        constructor,
+        static_cast<jint>(feature.type),
+        to_java(env, feature.pt1.data(), feature.pt1.size()),
+        to_java(env, feature.pt2.data(), feature.pt2.size()),
+        to_java(env, feature.pt3.data(), feature.pt3.size()),
+        static_cast<jdouble>(feature.value),
+        to_java(env, feature.plane_triangles)
+    );
+    env->DeleteLocalRef(feature_class);
+    return result;
+}
+
+// NativeMeasureItem
+static jobject to_java(JNIEnv* env, const orcinus::orca::MeasureItem& item)
+{
+    const jclass item_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeMeasureItem");
+    const jmethodID constructor = env->GetMethodID(
+        item_class,
+        "<init>",
+        "(ZZLapp/orcinus/shadow/slicing/nativebridge/NativeMeasureFeature;Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureFeature;II)V"
+    );
+    const jobject result = env->NewObject(
+        item_class,
+        constructor,
+        item.selected ? JNI_TRUE : JNI_FALSE,
+        item.is_center ? JNI_TRUE : JNI_FALSE,
+        to_java(env, item.source),
+        to_java(env, item.feature),
+        static_cast<jint>(item.object_index),
+        static_cast<jint>(item.volume_index)
+    );
+    env->DeleteLocalRef(item_class);
+    return result;
+}
+
+// NativeMeasureState: the angle (the angle, the radius, whether it is
+// coplanar, the centre, then the two edges' ends) and the distances (the
+// distance and its ends) flattened, empty for none.
+static jobject to_java(JNIEnv* env, const orcinus::orca::MeasureState& state)
+{
+    std::vector<double> angle;
+    if (state.has_angle) {
+        angle = {state.angle, state.angle_radius, state.angle_coplanar ? 1.0 : 0.0};
+        angle.insert(angle.end(), state.angle_center.begin(), state.angle_center.end());
+        angle.insert(angle.end(), state.angle_edge_1.begin(), state.angle_edge_1.end());
+        angle.insert(angle.end(), state.angle_edge_2.begin(), state.angle_edge_2.end());
+    }
+    const auto distance = [](bool has, double value, const std::vector<double>& from, const std::vector<double>& to) {
+        std::vector<double> result;
+        if (has) {
+            result.push_back(value);
+            result.insert(result.end(), from.begin(), from.end());
+            result.insert(result.end(), to.begin(), to.end());
+        }
+        return result;
+    };
+    const std::vector<double> infinite = distance(state.has_infinite, state.infinite, state.infinite_from, state.infinite_to);
+    const std::vector<double> strict = distance(state.has_strict, state.strict, state.strict_from, state.strict_to);
+    const jclass state_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeMeasureState");
+    const jmethodID constructor = env->GetMethodID(
+        state_class,
+        "<init>",
+        "(JLjava/lang/String;Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureFeature;[DI"
+        "Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureItem;Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureItem;"
+        "[D[D[D[DZZZZZZZDIZZZZ)V"
+    );
+    const jobject result = env->NewObject(
+        state_class,
+        constructor,
+        static_cast<jlong>(state.status),
+        to_java(env, state.message),
+        to_java(env, state.hovered),
+        to_java(env, state.hovered_point.data(), state.hovered_point.size()),
+        static_cast<jint>(state.hovered_sphere),
+        to_java(env, state.first),
+        to_java(env, state.second),
+        to_java(env, angle.data(), angle.size()),
+        to_java(env, infinite.data(), infinite.size()),
+        to_java(env, strict.data(), strict.size()),
+        to_java(env, state.distance_xyz.data(), state.distance_xyz.size()),
+        state.can_set_xyz_distance ? JNI_TRUE : JNI_FALSE,
+        state.can_set_to_parallel ? JNI_TRUE : JNI_FALSE,
+        state.can_set_to_center_coincidence ? JNI_TRUE : JNI_FALSE,
+        state.can_set_feature_1_reverse_rotation ? JNI_TRUE : JNI_FALSE,
+        state.can_set_feature_2_reverse_rotation ? JNI_TRUE : JNI_FALSE,
+        state.can_around_center_of_faces ? JNI_TRUE : JNI_FALSE,
+        state.has_parallel_distance ? JNI_TRUE : JNI_FALSE,
+        static_cast<jdouble>(state.parallel_distance),
+        static_cast<jint>(state.hit_volumes),
+        state.same_object ? JNI_TRUE : JNI_FALSE,
+        state.show_reset_first_tip ? JNI_TRUE : JNI_FALSE,
+        state.hover_only ? JNI_TRUE : JNI_FALSE,
+        state.hovered_unchanged ? JNI_TRUE : JNI_FALSE
+    );
+    env->DeleteLocalRef(state_class);
+    return result;
+}
+
+static orcinus::orca::MeasureRay to_measure_ray(
+    JNIEnv* env, jdoubleArray origin, jdoubleArray direction, jboolean point_selection, jboolean only_select_plane, jdouble sphere_radius)
+{
+    orcinus::orca::MeasureRay ray;
+    ray.origin = to_doubles(env, origin);
+    ray.direction = to_doubles(env, direction);
+    ray.origin.resize(3, 0.0);
+    ray.direction.resize(3, 0.0);
+    ray.point_selection = point_selection == JNI_TRUE;
+    ray.only_select_plane = only_select_plane == JNI_TRUE;
+    ray.sphere_radius = sphere_radius;
+    return ray;
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginMeasure(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jintArray selection,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    const std::vector<std::int32_t> triples = to_ints(env, selection);
+    return to_java(
+        env,
+        orcinus::orca::begin_measure(
+            to_plate(env, plate),
+            std::vector<int>(triples.begin(), triples.end()),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_hoverMeasure(
+    JNIEnv* env,
+    jobject /* this */,
+    jdoubleArray origin,
+    jdoubleArray direction,
+    jboolean point_selection,
+    jboolean only_select_plane,
+    jdouble sphere_radius
+)
+{
+    return to_java(env, orcinus::orca::hover_measure(to_measure_ray(env, origin, direction, point_selection, only_select_plane, sphere_radius)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_selectMeasure(
+    JNIEnv* env,
+    jobject /* this */,
+    jdoubleArray origin,
+    jdoubleArray direction,
+    jboolean point_selection,
+    jboolean only_select_plane,
+    jdouble sphere_radius
+)
+{
+    return to_java(env, orcinus::orca::select_measure(to_measure_ray(env, origin, direction, point_selection, only_select_plane, sphere_radius)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_resetMeasure(JNIEnv* env, jobject /* this */, jint selection)
+{
+    return to_java(env, orcinus::orca::reset_measure(static_cast<int>(selection)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endMeasure(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::end_measure();
+}

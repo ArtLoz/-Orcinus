@@ -22,6 +22,7 @@ import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.LayerHeightEdit
+import app.orcinus.shadow.core.model.MeasureReset
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelLoad
@@ -59,6 +60,7 @@ import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.slicing.api.PlateMeasurer
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.SlicerEngine
@@ -81,7 +83,7 @@ import kotlinx.coroutines.runBlocking
  * itself when the job ends.
  */
 abstract class SlicerService<E> : Service()
-    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor {
+    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor, E : PlateMeasurer {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -376,6 +378,19 @@ abstract class SlicerService<E> : Service()
         override fun acceptLayerHeights() = runBlocking { engine.accept() }.toParcel()
 
         override fun endLayerEditing() = runBlocking { engine.end() }
+
+        override fun beginMeasure(plate: Array<PlacedModelParcel>, volumes: IntArray, profiles: ProfilesParcel) =
+            runBlocking { engine.beginMeasure(plate.toPlacedModels(), volumes.toMeasuredVolumes(), profiles.toProfiles()) }.toParcel()
+
+        override fun hoverMeasure(origin: DoubleArray, direction: DoubleArray, pointSelection: Boolean, onlySelectPlane: Boolean, sphereRadius: Double) =
+            runBlocking { engine.hoverMeasure(measureRay(origin, direction, pointSelection, onlySelectPlane, sphereRadius)) }.toParcel()
+
+        override fun selectMeasure(origin: DoubleArray, direction: DoubleArray, pointSelection: Boolean, onlySelectPlane: Boolean, sphereRadius: Double) =
+            runBlocking { engine.selectMeasure(measureRay(origin, direction, pointSelection, onlySelectPlane, sphereRadius)) }.toParcel()
+
+        override fun resetMeasure(reset: String) = runBlocking { engine.resetMeasure(MeasureReset.valueOf(reset)) }.toParcel()
+
+        override fun endMeasure() = runBlocking { engine.endMeasure() }
 
         override fun saveProject(
             path: String,

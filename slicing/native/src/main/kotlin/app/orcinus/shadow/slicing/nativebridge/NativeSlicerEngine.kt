@@ -21,6 +21,11 @@ import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.LayerHeightEdit
+import app.orcinus.shadow.core.model.MeasureHoverOutcome
+import app.orcinus.shadow.core.model.MeasureOutcome
+import app.orcinus.shadow.core.model.MeasureRay
+import app.orcinus.shadow.core.model.MeasureReset
+import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgFileEdit
@@ -164,6 +169,7 @@ import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
+import app.orcinus.shadow.slicing.api.PlateMeasurer
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.SliceProgressListener
@@ -186,7 +192,8 @@ class NativeSlicerEngine(context: Context) :
     PresetSettingsEditor,
     AppConfigStore,
     LayerHeightEditor,
-    EmbossEditor {
+    EmbossEditor,
+    PlateMeasurer {
     private val applicationContext = context.applicationContext
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
@@ -785,6 +792,42 @@ class NativeSlicerEngine(context: Context) :
     override suspend fun accept() = layerEditing { NativeBindings.acceptLayerHeights() }
 
     override suspend fun end() = withContext(Dispatchers.IO) { NativeBindings.endLayerEditing() }
+
+    override suspend fun beginMeasure(plate: List<PlacedModel>, volumes: List<MeasuredVolume>, profiles: SlicingProfileSelection): MeasureOutcome =
+        withContext(Dispatchers.IO) {
+            val engineStatus = status()
+            if (!engineStatus.ready) return@withContext MeasureOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+            NativeBindings.beginMeasure(
+                plate = nativePlate(plate),
+                selection = volumes.flatMap { listOf(it.objectIndex, it.instanceIndex, it.volumeIndex ?: -1) }.toIntArray(),
+                printerProfile = profiles.printer.value,
+                filamentProfile = profiles.filament.value,
+                filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                processProfile = profiles.process.value,
+            ).toMeasureOutcome()
+        }
+
+    override suspend fun hoverMeasure(ray: MeasureRay): MeasureHoverOutcome = withContext(Dispatchers.IO) {
+        NativeBindings.hoverMeasure(ray.origin.values(), ray.direction.values(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius)
+            .toMeasureHoverOutcome()
+    }
+
+    override suspend fun selectMeasure(ray: MeasureRay): MeasureOutcome = withContext(Dispatchers.IO) {
+        NativeBindings.selectMeasure(ray.origin.values(), ray.direction.values(), ray.pointSelection, ray.onlySelectPlane, ray.sphereRadius)
+            .toMeasureOutcome()
+    }
+
+    override suspend fun resetMeasure(reset: MeasureReset): MeasureOutcome = withContext(Dispatchers.IO) {
+        NativeBindings.resetMeasure(
+            when (reset) {
+                MeasureReset.ALL -> 0
+                MeasureReset.FIRST -> 1
+                MeasureReset.SECOND -> 2
+            },
+        ).toMeasureOutcome()
+    }
+
+    override suspend fun endMeasure() = withContext(Dispatchers.IO) { NativeBindings.endMeasure() }
 
     private suspend fun layerEditing(call: () -> NativeLayerEditing): LayerEditingOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
