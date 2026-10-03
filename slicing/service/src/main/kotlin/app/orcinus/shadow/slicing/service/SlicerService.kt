@@ -390,6 +390,9 @@ abstract class SlicerService<E> : Service()
 
         override fun resetMeasure(reset: String) = runBlocking { engine.resetMeasure(MeasureReset.valueOf(reset)) }.toParcel()
 
+        override fun scaleMeasure(plate: Array<PlacedModelParcel>, ratio: Double, profiles: ProfilesParcel, prefix: String) =
+            runBlocking { engine.scaleMeasure(plate.toPlacedModels(), ratio, profiles.toProfiles(), ScenePath(prefix)) }.toParcel()
+
         override fun endMeasure() = runBlocking { engine.endMeasure() }
 
         override fun saveProject(

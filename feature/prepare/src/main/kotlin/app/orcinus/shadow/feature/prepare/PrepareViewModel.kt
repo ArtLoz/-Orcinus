@@ -506,6 +506,7 @@ class PrepareViewModel(
                 val pointSelection = view.value.measure?.pointSelection ?: continue
                 when (command) {
                     is MeasureCommand.Reset -> (measureFeatures.reset(command.reset) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
+                    is MeasureCommand.Scale -> (measureFeatures.scale(command.ratio) as? MeasureOutcome.Success)?.let { showMeasurement(it.measurement) }
                     is MeasureCommand.Touch -> when (val touch = command.touch) {
                         is MeasureTouch.Explore -> (measureFeatures.hover(touch.ray(pointSelection)) as? MeasureHoverOutcome.Success)?.let { showMeasureHover(it.hover) }
                         // on_mouse() for a left press, and the finger is gone: nothing is under it any more.
@@ -2160,6 +2161,27 @@ class PrepareViewModel(
         }
     }
 
+    /** The distance label's "Edit to scale": the box asks for the distance it read, [distance] millimetres. */
+    fun editMeasureDistance(distance: Double) {
+        view.update { state -> state.measure?.let { state.copy(measure = it.copy(editingDistance = distance)) } ?: state }
+    }
+
+    /** The box's Cancel. */
+    fun cancelMeasureScale() {
+        view.update { state -> state.measure?.let { state.copy(measure = it.copy(editingDistance = null)) } ?: state }
+    }
+
+    /**
+     * "Scale all" (perform_scale()): the selection scaled so the distance
+     * reads [value] where it read [current], both in the label's units; the
+     * same value, or none above zero, scales nothing.
+     */
+    fun scaleMeasure(value: Double, current: Double) {
+        cancelMeasureScale()
+        if (value == current || value <= 0.0 || current <= 0.0) return
+        if (view.value.measure != null) measureCommands.trySend(MeasureCommand.Scale(value / current))
+    }
+
     /** Shift held or let go: a finger selects points on the features (EMode::PointSelection), or the features. */
     fun setMeasurePointSelection(on: Boolean) {
         view.update { state -> state.measure?.let { state.copy(measure = it.copy(pointSelection = on)) } ?: state }
@@ -2636,6 +2658,8 @@ private sealed interface MeasureCommand {
     data class Touch(val touch: MeasureTouch) : MeasureCommand
 
     data class Reset(val reset: MeasureReset) : MeasureCommand
+
+    data class Scale(val ratio: Double) : MeasureCommand
 }
 
 private fun MeasureTouch.Explore.ray(pointSelection: Boolean) = MeasureRay(origin, direction, pointSelection, sphereRadius = sphereRadius)

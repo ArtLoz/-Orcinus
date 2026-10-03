@@ -19,6 +19,7 @@ import app.orcinus.shadow.slicing.service.EmbossVolumeParcel;
 import app.orcinus.shadow.slicing.service.FontFaceParcel;
 import app.orcinus.shadow.slicing.service.LayerEditingParcel;
 import app.orcinus.shadow.slicing.service.MeasureHoverParcel;
+import app.orcinus.shadow.slicing.service.MeasureScaleParcel;
 import app.orcinus.shadow.slicing.service.MeasurementParcel;
 import app.orcinus.shadow.slicing.service.PlateValidationParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
@@ -142,6 +143,7 @@ interface ISlicerService {
     MeasureHoverParcel hoverMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius);
     MeasurementParcel selectMeasure(in double[] origin, in double[] direction, boolean pointSelection, boolean onlySelectPlane, double sphereRadius);
     MeasurementParcel resetMeasure(String reset);
+    MeasureScaleParcel scaleMeasure(in PlacedModelParcel[] plate, double ratio, in ProfilesParcel profiles, String prefix);
     void endMeasure();
     /** save_project(): the error message, null once saved; sliced is the SlicedPlates' name. */
     @nullable String saveProject(

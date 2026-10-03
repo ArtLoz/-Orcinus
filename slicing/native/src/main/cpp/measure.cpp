@@ -12,7 +12,9 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "libslic3r/AABBMesh.hpp"
@@ -70,6 +72,8 @@ struct MeasureSession {
     bool open{false};
     Slic3r::Model model;
     std::vector<MeasuredVolume> volumes;
+    // Selection::m_mode: the selection is parts (Volume), not whole copies (Instance).
+    bool volume_mode{false};
     // m_curr_feature and the volume it is of (m_last_hit_volume).
     std::optional<SurfaceFeature> current;
     int current_volume{-1};
@@ -437,6 +441,23 @@ void reset_feature2(MeasureSession& current)
 }
 
 // on_render()'s m_hit_different_volumes once a selection is made on [volume].
+// update_feature_by_tran(): a selection made from a feature of a volume
+// (it keeps the feature in the volume's coordinates) follows the volume's
+// new transformation; a centre, made anew, stays where it was.
+void update_feature_by_tran(MeasureSession& current, Item& item)
+{
+    if (!item.feature.has_value() || item.feature->origin_surface_feature == nullptr || item.volume < 0 ||
+        std::size_t(item.volume) >= current.volumes.size())
+        return;
+    MeasuredVolume& volume = current.volumes[std::size_t(item.volume)];
+    SurfaceFeature& feature = *item.feature;
+    feature.world_tran = volume.world;
+    feature.clone(*feature.origin_surface_feature);
+    feature.translate(feature.world_tran);
+    if (feature.get_type() == SurfaceFeatureType::Plane)
+        update_world_plane_features(volume, feature);
+}
+
 void note_hit_volume(MeasureSession& current, int volume)
 {
     if (current.second.feature.has_value()) {
@@ -484,6 +505,8 @@ MeasureState begin_measure(const std::vector<PlateObject>& plate, const std::vec
             if (instance_index < 0 || std::size_t(instance_index) >= object.instances.size())
                 continue;
             const Slic3r::ModelInstance& instance = *object.instances[std::size_t(instance_index)];
+            if (selected_volume >= 0)
+                current.volume_mode = true;
             for (std::size_t volume_index = 0; volume_index < object.volumes.size(); ++volume_index) {
                 if (selected_volume >= 0 && std::size_t(selected_volume) != volume_index)
                     continue;
@@ -676,6 +699,175 @@ MeasureState reset_measure(int selection)
     }
     current.told = current.current;
     return describe(current);
+}
+
+MeasureScale scale_measure(const std::vector<PlateObject>& plate, double ratio, const ProfileSelection& profiles, const std::string& output_prefix)
+{
+    using namespace Slic3r;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    MeasureScale result;
+    MeasureSession& current = session();
+    if (!current.open) {
+        result.measure = failure(SceneStatus::model_read_failed, "The measuring tool is not open");
+        result.edit.message = result.measure.message;
+        return result;
+    }
+    if (detail::engine().bundle == nullptr) {
+        result.measure = failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+        result.edit.status = SceneStatus::engine_not_ready;
+        result.edit.message = result.measure.message;
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        std::string message;
+        if (detail::select_profiles(*detail::engine().bundle, profiles, config, message) != SliceStatus::success) {
+            result.measure = failure(SceneStatus::profile_not_found, message);
+            result.edit.status = SceneStatus::profile_not_found;
+            result.edit.message = message;
+            return result;
+        }
+        Model model;
+        if (!detail::load_plate(plate, config, model, message)) {
+            result.measure = failure(SceneStatus::model_read_failed, message);
+            result.edit.message = message;
+            return result;
+        }
+        std::set<int> changed;
+        if (ratio > 0.0 && ratio != 1.0) {
+            const auto volume_of = [&model](const MeasuredVolume& measured) -> std::pair<ModelInstance*, ModelVolume*> {
+                if (measured.object_index < 0 || std::size_t(measured.object_index) >= model.objects.size())
+                    return {nullptr, nullptr};
+                ModelObject& object = *model.objects[std::size_t(measured.object_index)];
+                if (std::size_t(measured.instance_index) >= object.instances.size() || std::size_t(measured.volume_index) >= object.volumes.size())
+                    return {nullptr, nullptr};
+                return {object.instances[std::size_t(measured.instance_index)], object.volumes[std::size_t(measured.volume_index)]};
+            };
+            // setup_cache(): the selection's bounding box, of the volumes' convex hulls, is the pivot.
+            BoundingBoxf3 box;
+            for (const MeasuredVolume& measured : current.volumes) {
+                const auto [instance, volume] = volume_of(measured);
+                if (instance == nullptr)
+                    continue;
+                const Transform3d world = instance->get_matrix() * volume->get_matrix();
+                box.merge(volume->get_convex_hull().empty() ? volume->mesh().transformed_bounding_box(world) : volume->get_convex_hull().transformed_bounding_box(world));
+            }
+            const Vec3d dragging_center = box.center();
+            const Transform3d scale = Geometry::scale_transform(ratio * Vec3d::Ones());
+            if (!current.volume_mode) {
+                // Selection::scale_and_translate() of instances, World, Relative,
+                // Joint: transform_instance_relative() about the selection's centre.
+                std::vector<std::pair<int, int>> instances;
+                for (const MeasuredVolume& measured : current.volumes) {
+                    const std::pair<int, int> key{measured.object_index, measured.instance_index};
+                    if (std::find(instances.begin(), instances.end(), key) == instances.end() && volume_of(measured).first != nullptr)
+                        instances.push_back(key);
+                }
+                std::vector<Transform3d> old_matrices;
+                for (const auto& [object_index, instance_index] : instances) {
+                    ModelInstance& instance = *model.objects[std::size_t(object_index)]->instances[std::size_t(instance_index)];
+                    old_matrices.push_back(instance.get_matrix());
+                    const Transform3d trafo = Geometry::translation_transform(dragging_center) * scale * Geometry::translation_transform(-dragging_center);
+                    instance.set_transformation(Geometry::Transformation(trafo * instance.get_matrix()));
+                    changed.insert(object_index);
+                }
+                // synchronize_unselected_instances(SyncRotationType::GENERAL)
+                std::set<std::pair<int, int>> done(instances.begin(), instances.end());
+                for (std::size_t index = 0; index < instances.size(); ++index) {
+                    const auto [object_index, instance_index] = instances[index];
+                    ModelObject& object = *model.objects[std::size_t(object_index)];
+                    const Transform3d& curr_inst_trafo_i = object.instances[std::size_t(instance_index)]->get_matrix();
+                    const Transform3d& old_inst_trafo_i = old_matrices[index];
+                    for (std::size_t other = 0; other < object.instances.size(); ++other) {
+                        if (!done.insert({object_index, int(other)}).second)
+                            continue;
+                        ModelInstance& instance_j = *object.instances[other];
+                        const Transform3d old_inst_trafo_j = instance_j.get_matrix();
+                        Transform3d new_inst_trafo_j = old_inst_trafo_j;
+                        new_inst_trafo_j.linear() = (old_inst_trafo_j.linear() * old_inst_trafo_i.linear().inverse()) * curr_inst_trafo_i.linear();
+                        if (!instance_j.auto_drop)
+                            new_inst_trafo_j.translation().z() = curr_inst_trafo_i.translation().z();
+                        instance_j.set_transformation(Geometry::Transformation(new_inst_trafo_j));
+                    }
+                }
+            } else {
+                // Selection::scale_and_translate() of volumes: a single volume
+                // scales about its own origin (Independent), several about the
+                // selection's centre; transform_volume_relative() with World.
+                std::vector<std::pair<int, int>> volumes;
+                for (const MeasuredVolume& measured : current.volumes) {
+                    const std::pair<int, int> key{measured.object_index, measured.volume_index};
+                    if (std::find(volumes.begin(), volumes.end(), key) == volumes.end() && volume_of(measured).first != nullptr)
+                        volumes.push_back(key);
+                }
+                const bool single = current.volumes.size() == 1;
+                for (const MeasuredVolume& measured : current.volumes) {
+                    const auto [instance, volume] = volume_of(measured);
+                    const std::pair<int, int> key{measured.object_index, measured.volume_index};
+                    const auto pending = std::find(volumes.begin(), volumes.end(), key);
+                    // synchronize_unselected_volumes(): a volume is one in every copy.
+                    if (instance == nullptr || pending == volumes.end())
+                        continue;
+                    volumes.erase(pending);
+                    const Geometry::Transformation inst_trafo = instance->get_transformation();
+                    const Geometry::Transformation vol_trafo = volume->get_transformation();
+                    const Vec3d inst_pivot = single ? vol_trafo.get_offset() : Vec3d(inst_trafo.get_matrix().inverse() * dragging_center);
+                    const Transform3d inst_matrix_no_offset = inst_trafo.get_matrix_no_offset();
+                    const Transform3d trafo = Geometry::translation_transform(inst_pivot) * inst_matrix_no_offset.inverse() * scale * inst_matrix_no_offset *
+                        Geometry::translation_transform(-inst_pivot);
+                    volume->set_transformation(Geometry::Transformation(trafo * vol_trafo.get_matrix()));
+                    model.objects[std::size_t(measured.object_index)]->invalidate_bounding_box();
+                    changed.insert(measured.object_index);
+                }
+            }
+            // do_scale(""), which takes no snapshot of the heights: every copy
+            // that drops by itself rests on the plate, sinking or not.
+            for (std::size_t object_index = 0; object_index < model.objects.size(); ++object_index) {
+                ModelObject& object = *model.objects[object_index];
+                object.invalidate_bounding_box();
+                for (std::size_t instance_index = 0; instance_index < object.instances.size(); ++instance_index) {
+                    if (!object.instances[instance_index]->auto_drop)
+                        continue;
+                    const double shift_z = object.get_instance_min_z(instance_index);
+                    if (shift_z != 0.0) {
+                        object.translate_instance(instance_index, Vec3d(0.0, 0.0, -shift_z));
+                        changed.insert(int(object_index));
+                    }
+                }
+            }
+            model.update_print_volume_state(detail::build_volume_of(config));
+        }
+        std::vector<ModelObject*> written;
+        for (const int object_index : changed) {
+            written.push_back(model.objects[std::size_t(object_index)]);
+            result.object_indexes.push_back(object_index);
+        }
+        if (!detail::write_objects(written, output_prefix, result.edit))
+            return result;
+        result.edit.status = SceneStatus::success;
+
+        // register_single_mesh_pick() with the volumes' new transformations,
+        // update_feature_by_tran() of the selections, and on the data_changed()
+        // of m_pending_scale, update_measurement_result().
+        for (MeasuredVolume& measured : current.volumes) {
+            const ModelObject& object = *model.objects[std::size_t(measured.object_index)];
+            measured.world = object.instances[std::size_t(measured.instance_index)]->get_matrix() * object.volumes[std::size_t(measured.volume_index)]->get_matrix();
+        }
+        update_feature_by_tran(current, current.first);
+        update_feature_by_tran(current, current.second);
+        current.current.reset();
+        current.current_volume = -1;
+        current.told.reset();
+        current.model = std::move(model);
+        result.measure = describe(current);
+        return result;
+    } catch (const std::exception& error) {
+        result.measure = failure(SceneStatus::model_read_failed, error.what());
+        result.edit.status = SceneStatus::model_read_failed;
+        result.edit.message = error.what();
+        result.edit.objects.clear();
+        return result;
+    }
 }
 
 void end_measure()

@@ -10,19 +10,29 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.core.model.MeasureFeatureType
@@ -52,9 +62,15 @@ internal class MeasureActions(
     val escape: () -> Unit,
     /** "Select point", as the desktop app's Shift. */
     val setPointSelection: (Boolean) -> Unit,
+    /** The distance label's "Edit to scale", with the distance it read in millimetres. */
+    val editDistance: (Double) -> Unit,
+    /** "Scale all": the distance typed, and the one the label read, in the label's units. */
+    val scale: (value: Double, current: Double) -> Unit,
+    /** The box's Cancel. */
+    val cancelScale: () -> Unit,
 ) {
     companion object {
-        val NONE = MeasureActions({}, {}, {}, {}, {}, {})
+        val NONE = MeasureActions({}, {}, {}, {}, {}, {}, {}, { _, _ -> }, {})
     }
 }
 
@@ -118,6 +134,44 @@ internal fun MeasurePanel(mode: MeasureMode, actions: MeasureActions, imperial: 
             AxisRow("Z:", AXIS_Z_COLOR, distance.z)
         }
     }
+}
+
+/**
+ * render_dimensioning()'s "distance_popup": the distance the label read, in
+ * its units, to type another; "Scale all" (or Enter) scales the selection so
+ * it reads that (perform_scale()), Cancel (or Esc) leaves it.
+ */
+@Composable
+internal fun MeasureScaleDialog(distance: Double, imperial: Boolean, onScale: (value: Double, current: Double) -> Unit, onCancel: () -> Unit) {
+    val colors = OrcaTheme.colors
+    val current = if (imperial) distance * ImperialUnits.MM_TO_IN else distance
+    val shown = String.format(Locale.ROOT, "%.3f", current)
+    var text by rememberSaveable { mutableStateOf(shown) }
+    // ImGui::InputDouble() keeps the value it was given until it is edited.
+    val value = if (text == shown) current else text.replace(',', '.').toDoubleOrNull()
+    val scale = { value?.let { onScale(it, current) } }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        confirmButton = {
+            OrcaButton(orcaString("Scale all", "Verb"), onClick = { scale() }, enabled = value != null, style = OrcaButtonStyle.Confirm)
+        },
+        dismissButton = { OrcaButton(orcaString("Cancel"), onClick = onCancel, style = OrcaButtonStyle.Regular) },
+        title = { Text(orcaString("Edit to scale"), style = OrcaTheme.typography.head16) },
+        text = {
+            OrcaTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.fillMaxWidth(),
+                unit = orcaString(if (imperial) "in" else "mm"),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { scale() }),
+            )
+        },
+        containerColor = colors.window,
+        titleContentColor = colors.text,
+        textContentColor = colors.text,
+        shape = OrcaTheme.shapes.window,
+    )
 }
 
 /** A selection's row: its name in its colour, what it is, and its reset button. */

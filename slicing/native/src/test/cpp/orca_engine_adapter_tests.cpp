@@ -6490,3 +6490,42 @@ TEST_CASE("The measuring tool selects a cube's faces and measures them", "[Adapt
     orca::end_measure();
     CHECK(orca::hover_measure(top).status != orca::SceneStatus::success);
 }
+
+TEST_CASE("The measuring tool scales the selection to a distance", "[Adapter][Measure]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("measure-scale-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    orca::MeasureState state = orca::begin_measure(plate, {0, 0, -1}, k2_plus_profiles());
+    INFO(state.message);
+    REQUIRE(state.status == orca::SceneStatus::success);
+    const double cx = cube.box_center[0];
+    const double cy = cube.box_center[1];
+    const double cz = cube.box_center[2];
+    orca::MeasureRay top;
+    top.origin = {cx + 3.0, cy + 2.0, cz + 100.0};
+    top.direction = {0.0, 0.0, -1.0};
+    top.sphere_radius = 0.5;
+    orca::MeasureRay bottom = top;
+    bottom.origin = {cx + 3.0, cy + 2.0, cz - 100.0};
+    bottom.direction = {0.0, 0.0, 1.0};
+    REQUIRE(orca::select_measure(top).first.selected);
+    state = orca::select_measure(bottom);
+    REQUIRE(state.has_infinite);
+
+    // "Scale all" to twice the height: the cube doubles, rests on the plate
+    // again, and its planes, still selected, measure the new height.
+    const orca::MeasureScale scaled = orca::scale_measure(plate, 2.0, k2_plus_profiles(), output_path("measure-scale"));
+    INFO(scaled.edit.message);
+    REQUIRE(scaled.edit.status == orca::SceneStatus::success);
+    REQUIRE(scaled.object_indexes == std::vector<int>{0});
+    REQUIRE(scaled.edit.objects.size() == 1);
+    REQUIRE(scaled.measure.status == orca::SceneStatus::success);
+    CHECK(scaled.measure.first.selected);
+    CHECK(scaled.measure.second.selected);
+    REQUIRE(scaled.measure.has_infinite);
+    CHECK(scaled.measure.infinite == Catch::Approx(2.0 * cube.size_z).margin(1e-3));
+    orca::end_measure();
+}

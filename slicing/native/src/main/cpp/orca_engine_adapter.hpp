@@ -2052,6 +2052,18 @@ MeasureState select_measure(const MeasureRay& ray);
 // reset_feature1() (1), reset_feature2() (2) and reset_all_feature() (0).
 MeasureState reset_measure(int selection);
 
+// The dimensioning's "Edit to scale" ("Scale all"): the selection scaled by
+// ratio (Selection::scale() World, Relative, Joint, then do_scale()), the
+// objects that changed written as edit_object() writes them, with their
+// indexes on the plate, and the tool's selections following the volumes.
+struct MeasureScale {
+    MeasureState measure;
+    ImportedModels edit;
+    std::vector<int> object_indexes;
+};
+
+MeasureScale scale_measure(const std::vector<PlateObject>& plate, double ratio, const ProfileSelection& profiles, const std::string& output_prefix);
+
 void end_measure();
 
 // A face of a font file, as the font list of the text tool shows it: the

@@ -362,6 +362,8 @@ data class MeasureMode(
     val measurement: Measurement = Measurement(),
     val hover: MeasureHover? = null,
     val pointSelection: Boolean = false,
+    /** m_editing_distance: "Edit to scale" asks for the distance the label read, in millimetres. */
+    val editingDistance: Double? = null,
 )
 
 /**

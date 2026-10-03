@@ -475,7 +475,7 @@ class RequestEmbossUseCase(private val repository: PlateRepository) {
 }
 
 /** The list with [made] in the place of the object with the [mesh] file. */
-private fun List<PlateObject>.replaced(mesh: ScenePath, made: PlateObject): List<PlateObject> = map { if (it.mesh == mesh) made else it }
+internal fun List<PlateObject>.replaced(mesh: ScenePath, made: PlateObject): List<PlateObject> = map { if (it.mesh == mesh) made else it }
 
 /** FT_SVG of the desktop app's file dialogs. */
 private const val SVG_EXTENSION = ".svg"

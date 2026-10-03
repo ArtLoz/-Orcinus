@@ -168,6 +168,19 @@ sealed interface MeasureOutcome {
     data class Failure(val message: String) : MeasureOutcome
 }
 
+/**
+ * The dimensioning's "Edit to scale": the tool after the selection was
+ * scaled ([measurement]), and the objects that changed ([edit], written as
+ * an edit of objects writes them) with their indexes on the plate.
+ */
+data class MeasureScale(val measurement: Measurement, val edit: ModelLoadOutcome, val objectIndexes: List<Int>)
+
+sealed interface MeasureScaleOutcome {
+    data class Success(val scale: MeasureScale) : MeasureScaleOutcome
+
+    data class Failure(val message: String) : MeasureScaleOutcome
+}
+
 sealed interface MeasureHoverOutcome {
     data class Success(val hover: MeasureHover) : MeasureHoverOutcome
 

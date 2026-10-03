@@ -222,7 +222,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val textStyles = TextStylesUseCase(engine, textFonts, sceneFiles, plateRepository)
     private val requestEmboss = RequestEmbossUseCase(plateRepository)
     // GLGizmoMeasure: the engine keeps the features of the measured volumes while the tool is open.
-    private val measureFeatures = MeasureUseCase(engine, plateRepository)
+    private val measureFeatures = MeasureUseCase(engine, sceneFiles, plateRepository)
     private val placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope)
     // Sidebar::auto_calc_flushing_volumes(), which filament, printer and settings changes ask for.
     private val flushVolumes = UpdateFlushVolumesUseCase(engine, plateRepository)

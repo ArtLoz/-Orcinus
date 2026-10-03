@@ -29,6 +29,8 @@ import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasurePlaneMesh
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureResult
+import app.orcinus.shadow.core.model.MeasureScale
+import app.orcinus.shadow.core.model.MeasureScaleOutcome
 import app.orcinus.shadow.core.model.MeasureSelection
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.Measurement
@@ -1408,6 +1410,24 @@ internal fun MeasureHoverParcel.toMeasureHoverOutcome(): MeasureHoverOutcome = e
             sphere = sphere,
         ),
     )
+
+internal fun MeasureScaleOutcome.toParcel() = MeasureScaleParcel().also {
+    when (this) {
+        is MeasureScaleOutcome.Failure -> it.error = message
+        is MeasureScaleOutcome.Success -> {
+            it.measurement = MeasureOutcome.Success(scale.measurement).toParcel()
+            it.edit = scale.edit.toParcel()
+            it.objectIndexes = scale.objectIndexes.toIntArray()
+        }
+    }
+}
+
+internal fun MeasureScaleParcel.toMeasureScaleOutcome(): MeasureScaleOutcome {
+    error?.let { return MeasureScaleOutcome.Failure(it) }
+    val measured = measurement?.toMeasureOutcome() as? MeasureOutcome.Success ?: return MeasureScaleOutcome.Failure("The measuring tool sent nothing")
+    val written = edit?.toModelLoadOutcome() ?: return MeasureScaleOutcome.Failure("The measuring tool sent nothing")
+    return MeasureScaleOutcome.Success(MeasureScale(measured.measurement, written, objectIndexes?.toList().orEmpty()))
+}
 
 /** The measured volumes as the service takes them: triples of an object's, a copy's and a volume's index, -1 for all. */
 internal fun List<MeasuredVolume>.toTriples(): IntArray = flatMap { listOf(it.objectIndex, it.instanceIndex, it.volumeIndex ?: -1) }.toIntArray()

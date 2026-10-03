@@ -4665,6 +4665,41 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_resetMeasure(JNIEnv*
     return to_java(env, orcinus::orca::reset_measure(static_cast<int>(selection)));
 }
 
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_scaleMeasure(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jdouble ratio,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    const orcinus::orca::MeasureScale scaled = orcinus::orca::scale_measure(
+        to_plate(env, plate),
+        ratio,
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+        to_utf8(env, output_prefix)
+    );
+    const jintArray indexes = env->NewIntArray(static_cast<jsize>(scaled.object_indexes.size()));
+    if (indexes != nullptr && !scaled.object_indexes.empty()) {
+        std::vector<jint> values(scaled.object_indexes.begin(), scaled.object_indexes.end());
+        env->SetIntArrayRegion(indexes, 0, static_cast<jsize>(values.size()), values.data());
+    }
+    const jclass scale_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeMeasureScale");
+    const jmethodID constructor = env->GetMethodID(
+        scale_class,
+        "<init>",
+        "(Lapp/orcinus/shadow/slicing/nativebridge/NativeMeasureState;Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedModels;[I)V"
+    );
+    const jobject result = env->NewObject(scale_class, constructor, to_java(env, scaled.measure), to_java(env, scaled.edit), indexes);
+    env->DeleteLocalRef(scale_class);
+    return result;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endMeasure(JNIEnv* /* env */, jobject /* this */)
 {

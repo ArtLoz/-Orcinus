@@ -43,6 +43,8 @@ data class MeasureView(
     val editToScale: Boolean = false,
     /** What the "Edit to scale" button says to accessibility services. */
     val editToScaleDescription: String = "",
+    /** m_editing_distance: the distance's label gives way to the box that edits it. */
+    val editingDistance: Boolean = false,
 )
 
 /** What a finger does with the measuring tool open, along a ray in world coordinates. */
@@ -453,7 +455,7 @@ internal fun measureDimensions(view: MeasureView, project: (Vec3) -> Pair<Double
         }
         // arrow 2
         if (overlap) arrow(b.first, b.second, -ux, -uy) else arrow(b.first, b.second, ux, uy)
-        if (showLabel) {
+        if (showLabel && !view.editingDistance) {
             labels += DimensionLabel(((a.first + b.first) / 2).toFloat(), ((a.second + b.second) / 2).toFloat(), distance, angle = false, editable = view.editToScale)
         }
     }

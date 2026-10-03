@@ -4,13 +4,21 @@ import app.orcinus.shadow.core.model.MeasureHoverOutcome
 import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
+import app.orcinus.shadow.core.model.MeasureScaleOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
+import app.orcinus.shadow.core.model.ModelLoadOutcome
+import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PlacedModel
+import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.PlateProblem
+import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateMeasurer
+import app.orcinus.shadow.storage.api.SceneFiles
+import kotlinx.coroutines.CancellationException
 
 /**
  * What the measuring tool is open on: the plate as the engine loads it, the
@@ -30,6 +38,7 @@ data class MeasureTarget(
  */
 class MeasureUseCase(
     private val measurer: PlateMeasurer,
+    private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
 ) {
     /** What the engine's session is open on; null while none is. */
@@ -69,6 +78,62 @@ class MeasureUseCase(
 
     /** The window's reset buttons and Delete: reset_feature1(), reset_feature2() or reset_all_feature(). */
     suspend fun reset(reset: MeasureReset): MeasureOutcome = measurer.resetMeasure(reset)
+
+    /**
+     * The dimensioning's "Edit to scale" (perform_scale()): the selection
+     * scaled by [ratio] after the snapshot "Scale", and the tool's selections
+     * following it; the tool is not opened anew for the change it made itself
+     * (m_pending_scale). Null when nothing was scaled.
+     */
+    suspend fun scale(ratio: Double): MeasureOutcome? {
+        val state = repository.state.value
+        val target = opened?.takeIf { it == targetOf(state) } ?: return null
+        val prefix = sceneFiles.newImportPrefix()
+        val outcome = try {
+            measurer.scaleMeasure(target.plate, ratio, target.profiles, prefix)
+        } catch (cancellation: CancellationException) {
+            sceneFiles.deleteImport(prefix)
+            throw cancellation
+        } catch (error: Exception) {
+            MeasureScaleOutcome.Failure(error.message.orEmpty())
+        }
+        val scaled = (outcome as? MeasureScaleOutcome.Success)?.scale
+        val written = scaled?.edit as? ModelLoadOutcome.Success
+        if (scaled == null || written == null || written.objects.size != scaled.objectIndexes.size) {
+            sceneFiles.deleteImport(prefix)
+            val message = (outcome as? MeasureScaleOutcome.Failure)?.message ?: (scaled?.edit as? ModelLoadOutcome.Failure)?.message
+            repository.update { it.copy(problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, message)) }
+            return null
+        }
+        if (written.objects.isEmpty()) {
+            sceneFiles.deleteImport(prefix)
+            return MeasureOutcome.Success(scaled.measurement)
+        }
+        val sources = scaled.objectIndexes.map { state.objects[it] }
+        var applied = false
+        repository.update { current ->
+            applied = false
+            if (sources.any { current.objects.withMesh(it.mesh) == null }) return@update current
+            val made = written.objects.mapIndexed { index, loaded -> loaded.toPlateObjectOf(sources[index]) }
+            val meshes = sources.map { it.mesh }.zip(made.map { it.mesh }).toMap()
+            val objects = sources.indices.fold(current.objects) { objects, index -> objects.replaced(sources[index].mesh, made[index]) }
+            val changed = current.recorded().copy(
+                objects = objects,
+                selectedInstances = current.selectedInstances.mapTo(LinkedHashSet()) { id -> meshes[id.mesh]?.let { PlateInstanceId(it, id.instance) } ?: id },
+                selectedPart = current.selectedPart?.let { part -> meshes[part.mesh]?.let { ObjectPartId(it, part.index) } ?: part },
+                result = null,
+            )
+            // The engine's session already measures the scaled volumes.
+            opened = targetOf(changed)
+            applied = true
+            changed
+        }
+        if (!applied) {
+            sceneFiles.deleteImport(prefix)
+            return null
+        }
+        return MeasureOutcome.Success(scaled.measurement)
+    }
 
     /** The tool closes, and the engine lets the volumes go. */
     suspend fun end() {

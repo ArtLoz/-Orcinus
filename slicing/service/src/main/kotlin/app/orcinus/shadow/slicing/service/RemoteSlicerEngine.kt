@@ -49,6 +49,7 @@ import app.orcinus.shadow.core.model.MeasureHoverOutcome
 import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
+import app.orcinus.shadow.core.model.MeasureScaleOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
@@ -488,6 +489,9 @@ class RemoteSlicerEngine(
 
     override suspend fun resetMeasure(reset: MeasureReset): MeasureOutcome =
         remote({ MeasureOutcome.Failure(it) }) { resetMeasure(reset.name).toMeasureOutcome() }
+
+    override suspend fun scaleMeasure(plate: List<PlacedModel>, ratio: Double, profiles: SlicingProfileSelection, prefix: ScenePath): MeasureScaleOutcome =
+        remote({ MeasureScaleOutcome.Failure(it) }) { scaleMeasure(plate.toParcels(), ratio, profiles.toParcel(), prefix.value).toMeasureScaleOutcome() }
 
     override suspend fun endMeasure() = remote({}) { endMeasure() }
 

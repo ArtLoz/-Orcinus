@@ -4,8 +4,10 @@ import app.orcinus.shadow.core.model.MeasureHoverOutcome
 import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
+import app.orcinus.shadow.core.model.MeasureScaleOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.PlacedModel
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 
 /**
@@ -25,6 +27,13 @@ interface PlateMeasurer {
 
     /** reset_feature1(), reset_feature2() or reset_all_feature(). */
     suspend fun resetMeasure(reset: MeasureReset): MeasureOutcome
+
+    /**
+     * The dimensioning's "Edit to scale": the selection of [plate] scaled by
+     * [ratio], the objects that changed written with [prefix], and the
+     * selections following them.
+     */
+    suspend fun scaleMeasure(plate: List<PlacedModel>, ratio: Double, profiles: SlicingProfileSelection, prefix: ScenePath): MeasureScaleOutcome
 
     suspend fun endMeasure()
 }

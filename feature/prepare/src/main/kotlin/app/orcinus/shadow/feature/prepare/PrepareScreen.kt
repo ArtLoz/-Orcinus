@@ -445,6 +445,9 @@ internal fun PrepareRoute(
             reset = viewModel::resetMeasure,
             escape = viewModel::escapeMeasure,
             setPointSelection = viewModel::setMeasurePointSelection,
+            editDistance = viewModel::editMeasureDistance,
+            scale = viewModel::scaleMeasure,
+            cancelScale = viewModel::cancelMeasureScale,
         ),
         layerActions = LayerEditingActions(
             toggle = viewModel::toggleLayerEditing,
@@ -683,10 +686,18 @@ internal fun PrepareScreen(
                         measurement = mode.measurement,
                         imperial = canvas.imperialUnits,
                         units = orcaString(if (canvas.imperialUnits) "in" else "mm"),
+                        // m_hit_different_volumes.size() < 2 in the 3D view.
+                        editToScale = mode.measurement.hitVolumes < 2,
+                        editToScaleDescription = orcaString("Edit to scale"),
+                        editingDistance = mode.editingDistance != null,
                     )
                 },
                 onMeasure = measureActions.touch,
+                onEditMeasureDistance = measureActions.editDistance,
             )
+            state.measure?.editingDistance?.let { distance ->
+                MeasureScaleDialog(distance, canvas.imperialUnits, measureActions.scale, measureActions.cancelScale)
+            }
         }
         plateMenu?.let { position ->
             PlateContextMenu(

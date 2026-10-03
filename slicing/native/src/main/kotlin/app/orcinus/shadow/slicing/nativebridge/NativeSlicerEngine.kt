@@ -25,6 +25,8 @@ import app.orcinus.shadow.core.model.MeasureHoverOutcome
 import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
+import app.orcinus.shadow.core.model.MeasureScale
+import app.orcinus.shadow.core.model.MeasureScaleOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
@@ -826,6 +828,25 @@ class NativeSlicerEngine(context: Context) :
             },
         ).toMeasureOutcome()
     }
+
+    override suspend fun scaleMeasure(plate: List<PlacedModel>, ratio: Double, profiles: SlicingProfileSelection, prefix: ScenePath): MeasureScaleOutcome =
+        withContext(Dispatchers.IO) {
+            val engineStatus = status()
+            if (!engineStatus.ready) return@withContext MeasureScaleOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+            val scaled = NativeBindings.scaleMeasure(
+                plate = nativePlate(plate),
+                ratio = ratio,
+                printerProfile = profiles.printer.value,
+                filamentProfile = profiles.filament.value,
+                filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                processProfile = profiles.process.value,
+                outputPrefix = prefix.value,
+            )
+            when (val measured = scaled.measure.toMeasureOutcome()) {
+                is MeasureOutcome.Failure -> MeasureScaleOutcome.Failure(measured.message)
+                is MeasureOutcome.Success -> MeasureScaleOutcome.Success(MeasureScale(measured.measurement, scaled.edit.toOutcome(), scaled.objectIndexes.toList()))
+            }
+        }
 
     override suspend fun endMeasure() = withContext(Dispatchers.IO) { NativeBindings.endMeasure() }
 

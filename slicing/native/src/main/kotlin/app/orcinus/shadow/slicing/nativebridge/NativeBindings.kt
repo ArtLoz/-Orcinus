@@ -854,6 +854,13 @@ internal class NativeMeasureState(
     @JvmField val hoveredUnchanged: Boolean,
 )
 
+/** Constructed by the native bridge; see MeasureScale in orca_engine_adapter.hpp. */
+internal class NativeMeasureScale(
+    @JvmField val measure: NativeMeasureState,
+    @JvmField val edit: NativeImportedModels,
+    @JvmField val objectIndexes: IntArray,
+)
+
 /** Constructed by the native bridge; see ImportedModels in orca_engine_adapter.hpp. */
 internal class NativeImportedModels(
     @JvmField val status: Long,
@@ -1700,6 +1707,17 @@ internal object NativeBindings {
 
     /** reset_measure(): 1 the first selection, 2 the second, 0 both. */
     external fun resetMeasure(selection: Int): NativeMeasureState
+
+    /** scale_measure() */
+    external fun scaleMeasure(
+        plate: NativePlate,
+        ratio: Double,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeMeasureScale
 
     external fun endMeasure()
 
