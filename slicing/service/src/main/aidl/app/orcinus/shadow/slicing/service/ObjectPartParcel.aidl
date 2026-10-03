@@ -24,4 +24,7 @@ parcelable ObjectPartParcel {
     String inputFile = "";
     /** ObjectPart.cutInfo flattened (CutInfo.values). */
     @nullable double[] cutInfo;
+    /** The file of what the part was embossed from, and the EmbossKind's name; null for none. */
+    @nullable String emboss;
+    @nullable String embossKind;
 }

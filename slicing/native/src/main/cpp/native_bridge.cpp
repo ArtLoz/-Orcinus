@@ -1,6 +1,9 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -686,6 +689,21 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
             }
             added.cut_info = cut_info_at(part_cut_info, part);
             ++part;
+        }
+    }
+    // The text or the SVG every object's own mesh and every part was embossed from.
+    const std::vector<std::string> volume_emboss = to_strings(env, static_cast<jobjectArray>(field("volumeEmboss", strings)));
+    for (std::size_t index = 0; index < plate.size() && index < volume_emboss.size(); ++index) {
+        plate[index].volume_emboss = volume_emboss[index];
+    }
+    const std::vector<std::string> part_emboss = to_strings(env, static_cast<jobjectArray>(field("partEmboss", strings)));
+    std::size_t embossed = 0;
+    for (orcinus::orca::PlateObject& object : plate) {
+        for (orcinus::orca::ObjectPart& added : object.parts) {
+            if (embossed < part_emboss.size()) {
+                added.emboss = part_emboss[embossed];
+            }
+            ++embossed;
         }
     }
     // The variable layer height of every object.
@@ -2972,7 +2990,11 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
     std::vector<bool> part_inches;
     std::vector<bool> part_meters;
     std::vector<std::string> part_inputs;
+    std::vector<std::string> part_emboss;
+    std::vector<std::int64_t> part_emboss_kinds;
     for (const orcinus::orca::ImportedPart& part : object.parts) {
+        part_emboss.push_back(part.emboss);
+        part_emboss_kinds.push_back(static_cast<std::int64_t>(part.emboss_kind));
         part_inputs.push_back(part.input_file);
         part_names.push_back(part.name);
         part_paths.push_back(part.model_path);
@@ -3009,7 +3031,8 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[J[Ljava/lang/String;[D"
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
-        "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;[D)V"
+        "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;[D"
+        "Ljava/lang/String;J[Ljava/lang/String;[J)V"
     );
     // The cut the object is a part of, and the cut info of its own mesh and of every part.
     const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
@@ -3067,7 +3090,11 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         to_java(env, volume_cut_info.data(), volume_cut_info.size()),
         to_java(env, part_cut_info.data(), part_cut_info.size()),
         to_java(env, object.input_file),
-        to_java(env, object.layer_height_profile.data(), object.layer_height_profile.size())
+        to_java(env, object.layer_height_profile.data(), object.layer_height_profile.size()),
+        to_java(env, object.volume_emboss),
+        static_cast<jlong>(object.volume_emboss_kind),
+        to_java(env, part_emboss),
+        to_java(env, part_emboss_kinds)
     );
 }
 
@@ -3919,6 +3946,303 @@ extern "C" JNIEXPORT void JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endLayerEditing(JNIEnv* /* env */, jobject /* this */)
 {
     orcinus::orca::end_layer_editing();
+}
+
+// NativeTextStyle, whose NaN numbers are unset.
+static orcinus::orca::TextStyle to_text_style(JNIEnv* env, jobject style)
+{
+    const jclass style_class = env->GetObjectClass(style);
+    const auto text = [env, style, style_class](const char* name) {
+        return to_utf8(env, static_cast<jstring>(env->GetObjectField(style, env->GetFieldID(style_class, name, "Ljava/lang/String;"))));
+    };
+    const auto number = [env, style, style_class](const char* name) {
+        return static_cast<double>(env->GetDoubleField(style, env->GetFieldID(style_class, name, "D")));
+    };
+    const auto flag = [env, style, style_class](const char* name) {
+        return env->GetBooleanField(style, env->GetFieldID(style_class, name, "Z")) == JNI_TRUE;
+    };
+    const auto whole = [env, style, style_class](const char* name) {
+        return static_cast<int>(env->GetIntField(style, env->GetFieldID(style_class, name, "I")));
+    };
+    const auto optional = [&number](const char* name) {
+        const double value = number(name);
+        return std::isnan(value) ? std::optional<double>() : std::optional<double>(value);
+    };
+    const auto optional_int = [&optional](const char* name) {
+        const std::optional<double> value = optional(name);
+        return value.has_value() ? std::optional<int>(int(std::lround(*value))) : std::optional<int>();
+    };
+    orcinus::orca::TextStyle result;
+    result.name = text("name");
+    result.font_path = text("fontPath");
+    result.size_in_mm = number("sizeInMm");
+    result.per_glyph = flag("perGlyph");
+    result.horizontal_align = whole("horizontalAlign");
+    result.vertical_align = whole("verticalAlign");
+    result.char_gap = optional_int("charGap");
+    result.line_gap = optional_int("lineGap");
+    result.boldness = optional("boldness");
+    result.skew = optional("skew");
+    result.collection_number = optional_int("collectionNumber");
+    result.family = text("family");
+    result.face_name = text("faceName");
+    result.style = text("style");
+    result.weight = text("weight");
+    result.depth = number("depth");
+    result.use_surface = flag("useSurface");
+    result.angle = optional("angle");
+    result.distance = optional("distance");
+    env->DeleteLocalRef(style_class);
+    return result;
+}
+
+static jobject to_java(JNIEnv* env, const orcinus::orca::TextStyle& style)
+{
+    const jclass style_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeTextStyle");
+    const jmethodID constructor = env->GetMethodID(
+        style_class,
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;DZIIDDDDDLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;DZDD)V"
+    );
+    const auto unset = std::numeric_limits<double>::quiet_NaN();
+    return env->NewObject(
+        style_class,
+        constructor,
+        to_java(env, style.name),
+        to_java(env, style.font_path),
+        static_cast<jdouble>(style.size_in_mm),
+        style.per_glyph ? JNI_TRUE : JNI_FALSE,
+        static_cast<jint>(style.horizontal_align),
+        static_cast<jint>(style.vertical_align),
+        static_cast<jdouble>(style.char_gap.has_value() ? double(*style.char_gap) : unset),
+        static_cast<jdouble>(style.line_gap.has_value() ? double(*style.line_gap) : unset),
+        static_cast<jdouble>(style.boldness.value_or(unset)),
+        static_cast<jdouble>(style.skew.value_or(unset)),
+        static_cast<jdouble>(style.collection_number.has_value() ? double(*style.collection_number) : unset),
+        to_java(env, style.family),
+        to_java(env, style.face_name),
+        to_java(env, style.style),
+        to_java(env, style.weight),
+        static_cast<jdouble>(style.depth),
+        style.use_surface ? JNI_TRUE : JNI_FALSE,
+        static_cast<jdouble>(style.angle.value_or(unset)),
+        static_cast<jdouble>(style.distance.value_or(unset))
+    );
+}
+
+// EmbossPlacement from its arrays, empty for what it leaves out.
+static orcinus::orca::EmbossPlacement to_placement(
+    JNIEnv* env, jint object_index, jint instance_index, jdoubleArray position, jdoubleArray normal, jdoubleArray bed_point)
+{
+    orcinus::orca::EmbossPlacement placement;
+    placement.object_index = static_cast<int>(object_index);
+    placement.instance_index = static_cast<int>(instance_index);
+    placement.position = to_doubles(env, position);
+    placement.normal = to_doubles(env, normal);
+    placement.bed_point = to_doubles(env, bed_point);
+    return placement;
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFonts(JNIEnv* env, jobject /* this */, jobjectArray paths)
+{
+    return to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativeFontFace",
+        orcinus::orca::describe_fonts(to_strings(env, paths)),
+        [](JNIEnv* face_env, const orcinus::orca::FontFace& face) {
+            const jclass face_class = face_env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeFontFace");
+            const jmethodID constructor = face_env->GetMethodID(face_class, "<init>", "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;IZ)V");
+            const jobject made = face_env->NewObject(
+                face_class,
+                constructor,
+                to_java(face_env, face.path),
+                static_cast<jint>(face.index),
+                to_java(face_env, face.family),
+                to_java(face_env, face.subfamily),
+                static_cast<jint>(face.weight),
+                face.italic ? JNI_TRUE : JNI_FALSE
+            );
+            face_env->DeleteLocalRef(face_class);
+            return made;
+        }
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_createText(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint instance_index,
+    jdoubleArray position,
+    jdoubleArray normal,
+    jdoubleArray bed_point,
+    jlong type,
+    jstring text,
+    jobject style,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::create_text(
+            to_plate(env, plate),
+            to_placement(env, object_index, instance_index, position, normal, bed_point),
+            static_cast<orcinus::orca::VolumeType>(type),
+            to_utf8(env, text),
+            to_text_style(env, style),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_updateText(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint volume_index,
+    jstring text,
+    jobject style,
+    jdoubleArray matrix,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::update_text(
+            to_plate(env, plate),
+            static_cast<std::size_t>(object_index),
+            static_cast<std::size_t>(volume_index),
+            to_utf8(env, text),
+            to_text_style(env, style),
+            to_doubles(env, matrix),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_createSvg(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint instance_index,
+    jdoubleArray position,
+    jdoubleArray normal,
+    jdoubleArray bed_point,
+    jlong type,
+    jstring svg_path,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::create_svg(
+            to_plate(env, plate),
+            to_placement(env, object_index, instance_index, position, normal, bed_point),
+            static_cast<orcinus::orca::VolumeType>(type),
+            to_utf8(env, svg_path),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_updateSvg(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint volume_index,
+    jdouble depth,
+    jboolean use_surface,
+    jstring svg_path,
+    jdoubleArray matrix,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::update_svg(
+            to_plate(env, plate),
+            static_cast<std::size_t>(object_index),
+            static_cast<std::size_t>(volume_index),
+            depth,
+            use_surface == JNI_TRUE,
+            to_utf8(env, svg_path),
+            to_doubles(env, matrix),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeEmboss(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object_index,
+    jint volume_index,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile
+)
+{
+    const orcinus::orca::EmbossVolume volume = orcinus::orca::describe_emboss(
+        to_plate(env, plate),
+        static_cast<std::size_t>(object_index),
+        static_cast<std::size_t>(volume_index),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles)
+    );
+    const jclass volume_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeEmbossVolume");
+    const jmethodID constructor = env->GetMethodID(
+        volume_class,
+        "<init>",
+        "(JLjava/lang/String;JLjava/lang/String;Lapp/orcinus/shadow/slicing/nativebridge/NativeTextStyle;Ljava/lang/String;ZDDJZDD)V"
+    );
+    return env->NewObject(
+        volume_class,
+        constructor,
+        static_cast<jlong>(volume.status),
+        to_java(env, volume.message),
+        static_cast<jlong>(volume.kind),
+        to_java(env, volume.text),
+        to_java(env, volume.style),
+        to_java(env, volume.svg_name),
+        volume.svg_reloadable ? JNI_TRUE : JNI_FALSE,
+        static_cast<jdouble>(volume.width),
+        static_cast<jdouble>(volume.height),
+        static_cast<jlong>(volume.type),
+        volume.only_part ? JNI_TRUE : JNI_FALSE,
+        static_cast<jdouble>(volume.scale_height),
+        static_cast<jdouble>(volume.scale_depth)
+    );
 }
 
 extern "C" JNIEXPORT jobject JNICALL

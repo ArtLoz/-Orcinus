@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -184,6 +185,13 @@ struct ObjectCutId {
     std::uint64_t connectors_cnt{0};
 };
 
+// What a volume was embossed from: ModelVolume::is_text() or is_svg().
+enum class EmbossKind : std::int64_t {
+    none = 0,
+    text = 1,
+    svg = 2,
+};
+
 // A part of an object (ModelVolume): one of the shapes the desktop app
 // generates (ObjectList::load_generic_subobject), or a volume a model file
 // brought (Plater::priv::load_files), with its transformation in the object's
@@ -215,6 +223,10 @@ struct ObjectPart {
     // "Replace all with 3D files" looks for by name; empty for a generated shape.
     std::string input_file;
     VolumeCutInfo cut_info;
+    // The file holding the text or the SVG the part was embossed from
+    // (ModelVolume::text_configuration and emboss_shape), as write_objects()
+    // wrote it; empty for a part of neither.
+    std::string emboss;
 };
 
 // A height range of an object (one entry of ModelObject::layer_config_ranges):
@@ -268,6 +280,8 @@ struct PlateObject {
     // The cut the object is a part of, and what the cut made of its own mesh.
     ObjectCutId cut_id;
     VolumeCutInfo volume_cut_info;
+    // The text or the SVG its own mesh was embossed from, as ObjectPart::emboss.
+    std::string volume_emboss;
 };
 
 // Slices the objects of the plate and writes G-code to output_path only after
@@ -1448,6 +1462,10 @@ struct ImportedPart {
     // ModelVolume::source.input_file
     std::string input_file;
     VolumeCutInfo cut_info;
+    // The text or the SVG the volume was embossed from, as ObjectPart::emboss,
+    // and which of them it is.
+    std::string emboss;
+    EmbossKind emboss_kind{EmbossKind::none};
 };
 
 // An object a model file brought, placed on the plate.
@@ -1492,6 +1510,9 @@ struct ImportedObject {
     // The name of the file the object came from (ModelObject::input_file),
     // when a load reads several files.
     std::string input_file;
+    // The text or the SVG its own mesh was embossed from, as ImportedPart::emboss.
+    std::string volume_emboss;
+    EmbossKind volume_emboss_kind{EmbossKind::none};
 };
 
 // A plate of a project (PartPlate, PlateData of bbs_3mf.hpp): its name,
@@ -1923,6 +1944,164 @@ LayerEditing accept_layer_heights();
 
 // The variable layer height closes, and the engine forgets the object.
 void end_layer_editing();
+
+// A face of a font file, as the font list of the text tool shows it: the
+// names of its naming table (the typographic family and subfamily, or the
+// legacy ones), its weight (OS/2 usWeightClass) and whether it is italic.
+struct FontFace {
+    std::string path;
+    // The face in a collection (.ttc), FontProp::collection_number.
+    int index{0};
+    std::string family;
+    std::string subfamily;
+    int weight{400};
+    bool italic{false};
+};
+
+// The faces of the font files at paths, which the desktop app enumerates
+// through wxFontEnumerator and the phone through its system fonts; a file
+// stb_truetype cannot read has none.
+std::vector<FontFace> describe_fonts(const std::vector<std::string>& paths);
+
+// StyleManager::Style: the style of an embossed text (EmbossStyle with its
+// FontProp) with how deep it is embossed and onto what (EmbossProjection),
+// and its turn about the surface's normal and distance from the surface.
+// The font is a file (EmbossStyle::Type::file_path); the unset values of
+// FontProp stay unset, as a 3MF file stores them.
+struct TextStyle {
+    std::string name;
+    std::string font_path;
+    // FontProp
+    double size_in_mm{10.0};
+    bool per_glyph{false};
+    // FontProp::HorizontalAlign (left, center, right) and VerticalAlign (top, center, bottom).
+    int horizontal_align{1};
+    int vertical_align{1};
+    std::optional<int> char_gap;
+    std::optional<int> line_gap;
+    std::optional<double> boldness;
+    std::optional<double> skew;
+    std::optional<int> collection_number;
+    // FontProp::family, face_name, style and weight, by which another computer
+    // finds the font; empty for none.
+    std::string family;
+    std::string face_name;
+    std::string style;
+    std::string weight;
+    // EmbossProjection
+    double depth{1.0};
+    bool use_surface{false};
+    // StyleManager::Style::angle (counterclockwise, in radians) and distance (mm).
+    std::optional<double> angle;
+    std::optional<double> distance;
+};
+
+// Where GLGizmoEmboss::create_volume() and GLGizmoSVG::create_volume() put a
+// new text or SVG: on the copy at instance_index of the object at
+// object_index, onto its surface where the ray from the screen hit it
+// (position and normal, in world coordinates), or beside the copy without a
+// hit; for object_index -1, as an object of its own standing at bed_point,
+// or at the middle of the plate when that is off it or empty.
+struct EmbossPlacement {
+    int object_index{-1};
+    int instance_index{0};
+    std::vector<double> position;
+    std::vector<double> normal;
+    std::vector<double> bed_point;
+};
+
+// What a text or SVG volume is, as its tool's window shows it
+// (GLGizmoEmboss::set_volume_by_selection(), GLGizmoSVG::set_volume_by_selection()).
+struct EmbossVolume {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    EmbossKind kind{EmbossKind::none};
+    // TextConfiguration::text, and the style it was embossed with, angle and
+    // distance measured from where the volume stands (calc_angle(), calc_distance()).
+    std::string text;
+    TextStyle style;
+    // The SVG: the name of its file (EmbossShape::SvgFile::path, or its path in
+    // the 3MF file), whether that file is still there to reload, and the size
+    // of the shape in millimetres.
+    std::string svg_name;
+    bool svg_reloadable{false};
+    double width{0.0};
+    double height{0.0};
+    VolumeType type{VolumeType::part};
+    // ModelVolume::is_the_only_one_part()
+    bool only_part{false};
+    // GLGizmoEmboss::calculate_scale(): the scale of the volume's height and
+    // depth in the world, 1 for none.
+    double scale_height{1.0};
+    double scale_depth{1.0};
+};
+
+// GLGizmoEmboss::create_volume() with the jobs it starts
+// (CreateVolumeJob, CreateSurfaceVolumeJob, CreateObjectJob): text embossed in
+// style as a volume of type at placement; its object is written as
+// import_model() writes objects, with ImportedModels::selected_volume the new
+// volume, or a new object with appended set.
+ImportedModels create_text(
+    const std::vector<PlateObject>& plate,
+    const EmbossPlacement& placement,
+    VolumeType type,
+    const std::string& text,
+    const TextStyle& style,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// GLGizmoEmboss::process() (UpdateJob, UpdateSurfaceVolumeJob): the text
+// volume at volume_index of the object at object_index embossed anew from text
+// in style, its glyphs placed along the object's surface when per glyph, and
+// projected onto the object when using the surface; matrix, when given,
+// places the volume first (column-major 4 x 4, in the object). The object is
+// written as import_model() writes objects.
+ImportedModels update_text(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const std::string& text,
+    const TextStyle& style,
+    const std::vector<double>& matrix,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// GLGizmoSVG::create_volume(): the SVG file at svg_path embossed 10 mm deep
+// as a volume of type at placement, as create_text() places a text.
+ImportedModels create_svg(
+    const std::vector<PlateObject>& plate,
+    const EmbossPlacement& placement,
+    VolumeType type,
+    const std::string& svg_path,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// GLGizmoSVG::process(): the SVG volume at volume_index of the object at
+// object_index embossed anew depth deep, onto the object when use_surface,
+// from the file at svg_path when not empty (Change file and Reload); matrix,
+// when given, places it first. The object is written as import_model() writes objects.
+ImportedModels update_svg(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    double depth,
+    bool use_surface,
+    const std::string& svg_path,
+    const std::vector<double>& matrix,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
+// What the text or SVG volume at volume_index of the object at object_index is.
+EmbossVolume describe_emboss(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    std::size_t volume_index,
+    const ProfileSelection& profiles
+);
 
 // ObjectList::set_volume_type() of one volume: the volume at volume_index of
 // the object at object_index of plate takes type, and the object's volumes are

@@ -12,4 +12,7 @@ parcelable ObjectVolumeParcel {
     String inputFile = "";
     /** ObjectVolume.cutInfo flattened (CutInfo.values). */
     @nullable double[] cutInfo;
+    /** The file of what the own mesh was embossed from, and the EmbossKind's name; null for none. */
+    @nullable String emboss;
+    @nullable String embossKind;
 }

@@ -730,6 +730,11 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         message = "The painted facets of the object could not be read";
         return nullptr;
     }
+    // The text or the SVG its own mesh was embossed from (GLGizmoEmboss, GLGizmoSVG).
+    if (!loaded->volumes.empty() && !detail::read_emboss(object.volume_emboss, *loaded->volumes.front())) {
+        message = "The embossed text or SVG of the object could not be read";
+        return nullptr;
+    }
     // The parts of the object (ModelObject::volumes), which print with it,
     // are taken out of it, or change its settings: a shape the desktop app
     // generates, or a volume a model file brought.
@@ -766,6 +771,10 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         volume->cut_info = detail::cut_info_of(part.cut_info);
         if (!apply_painted_facets(*volume, part.painted)) {
             message = "The painted facets of a part could not be read";
+            return nullptr;
+        }
+        if (!detail::read_emboss(part.emboss, *volume)) {
+            message = "The embossed text or SVG of a part could not be read";
             return nullptr;
         }
     }
@@ -3443,6 +3452,8 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
         out.volume_from_meters = own.source.is_converted_from_meters;
         out.volume_input_file = own.source.input_file;
         out.volume_cut_info = detail::cut_info_from(own.cut_info);
+        out.volume_emboss = detail::write_emboss(own, base + ".emboss");
+        out.volume_emboss_kind = detail::emboss_kind_of(own);
         if (object.is_cut()) {
             out.cut_id.id = object.cut_id.id().id;
             out.cut_id.check_sum = object.cut_id.check_sum();
@@ -3471,6 +3482,8 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             part.from_meters = source.source.is_converted_from_meters;
             part.input_file = source.source.input_file;
             part.cut_info = detail::cut_info_from(source.cut_info);
+            part.emboss = detail::write_emboss(source, base + "-part-" + std::to_string(volume) + ".emboss");
+            part.emboss_kind = detail::emboss_kind_of(source);
             if (!write_mesh(source.mesh().its, part.model_path)) {
                 result.status = SceneStatus::write_failed;
                 result.message = "Unable to write " + part.model_path;

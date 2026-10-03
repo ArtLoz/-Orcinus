@@ -53,6 +53,7 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.cutConnectors
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
@@ -76,7 +77,8 @@ import kotlinx.coroutines.runBlocking
  * notification, so slicing continues when the app leaves the screen. It stops
  * itself when the job ends.
  */
-abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor {
+abstract class SlicerService<E> : Service()
+    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -217,6 +219,81 @@ abstract class SlicerService<E> : Service() where E : SlicerEngine, E : PlateIns
         }.toParcel()
 
         override fun endCut() = runBlocking { engine.endCut() }
+
+        override fun describeFonts(paths: Array<String>): Array<FontFaceParcel> =
+            runBlocking { engine.describeFonts(paths.toList()) }.map { it.toParcel() }.toTypedArray()
+
+        override fun createText(
+            plate: Array<PlacedModelParcel>,
+            placement: EmbossPlacementParcel,
+            type: String,
+            text: String,
+            style: TextStyleParcel,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.createText(plate.toPlacedModels(), placement.toPlacement(), VolumeType.valueOf(type), text, style.toTextStyle(), profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun updateText(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volume: Int,
+            text: String,
+            style: TextStyleParcel,
+            placement: DoubleArray?,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.updateText(
+                plate.toPlacedModels(),
+                index,
+                volume,
+                text,
+                style.toTextStyle(),
+                placement?.let { Transform3(it.toList()) },
+                profiles.toProfiles(),
+                ScenePath(prefix),
+            )
+        }.toParcel()
+
+        override fun createSvg(
+            plate: Array<PlacedModelParcel>,
+            placement: EmbossPlacementParcel,
+            type: String,
+            svg: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.createSvg(plate.toPlacedModels(), placement.toPlacement(), VolumeType.valueOf(type), ModelPath(svg), profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
+        override fun updateSvg(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            volume: Int,
+            depth: Double,
+            useSurface: Boolean,
+            svg: String?,
+            placement: DoubleArray?,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.updateSvg(
+                plate.toPlacedModels(),
+                index,
+                volume,
+                depth,
+                useSurface,
+                svg?.let(::ModelPath),
+                placement?.let { Transform3(it.toList()) },
+                profiles.toProfiles(),
+                ScenePath(prefix),
+            )
+        }.toParcel()
+
+        override fun describeEmboss(plate: Array<PlacedModelParcel>, index: Int, volume: Int, profiles: ProfilesParcel): EmbossVolumeParcel =
+            runBlocking { engine.describeEmboss(plate.toPlacedModels(), index, volume, profiles.toProfiles()) }.toParcel()
 
         override fun beginLayerEditing(plate: Array<PlacedModelParcel>, index: Int, profiles: ProfilesParcel, plateSettings: ModelSettingsParcel) =
             runBlocking { engine.begin(plate.toPlacedModels(), index, profiles.toProfiles(), plateSettings.toModelSettings()) }.toParcel()

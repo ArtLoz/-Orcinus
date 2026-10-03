@@ -12,10 +12,19 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.EmbossData
+import app.orcinus.shadow.core.model.EmbossKind
+import app.orcinus.shadow.core.model.EmbossPlacement
+import app.orcinus.shadow.core.model.EmbossVolume
+import app.orcinus.shadow.core.model.EmbossVolumeOutcome
+import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.SlicedPlates
+import app.orcinus.shadow.core.model.TextHorizontalAlign
+import app.orcinus.shadow.core.model.TextStyle
+import app.orcinus.shadow.core.model.TextVerticalAlign
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ComparedPresets
@@ -145,6 +154,7 @@ import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.filamentUsagesOf
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
@@ -162,7 +172,14 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** OrcaSlicer engine running in this process through the JNI bridge. */
-class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor {
+class NativeSlicerEngine(context: Context) :
+    SlicerEngine,
+    PlateInspector,
+    PresetManager,
+    PresetSettingsEditor,
+    AppConfigStore,
+    LayerHeightEditor,
+    EmbossEditor {
     private val applicationContext = context.applicationContext
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
@@ -446,6 +463,164 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
         }
 
     override suspend fun endCut() = withContext(Dispatchers.IO) { NativeBindings.endCut() }
+
+    override suspend fun describeFonts(paths: List<String>): List<FontFace> = withContext(Dispatchers.IO) {
+        NativeBindings.describeFonts(paths.toTypedArray()).map { face ->
+            FontFace(face.path, face.index, face.family, face.subfamily, face.weight, face.italic)
+        }
+    }
+
+    override suspend fun createText(
+        plate: List<PlacedModel>,
+        placement: EmbossPlacement,
+        type: VolumeType,
+        text: String,
+        style: TextStyle,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = emboss {
+        NativeBindings.createText(
+            plate = nativePlate(plate),
+            objectIndex = placement.objectIndex,
+            instanceIndex = placement.instanceIndex,
+            position = placement.position.toNative(),
+            normal = placement.normal.toNative(),
+            bedPoint = placement.bedPoint.toNative(),
+            type = type.ordinal.toLong(),
+            text = text,
+            style = style.toNative(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        )
+    }
+
+    override suspend fun updateText(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        text: String,
+        style: TextStyle,
+        placement: Transform3?,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = emboss {
+        NativeBindings.updateText(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volumeIndex = volume,
+            text = text,
+            style = style.toNative(),
+            matrix = placement?.columns?.toDoubleArray() ?: DoubleArray(0),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        )
+    }
+
+    override suspend fun createSvg(
+        plate: List<PlacedModel>,
+        placement: EmbossPlacement,
+        type: VolumeType,
+        svg: ModelPath,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = emboss {
+        NativeBindings.createSvg(
+            plate = nativePlate(plate),
+            objectIndex = placement.objectIndex,
+            instanceIndex = placement.instanceIndex,
+            position = placement.position.toNative(),
+            normal = placement.normal.toNative(),
+            bedPoint = placement.bedPoint.toNative(),
+            type = type.ordinal.toLong(),
+            svgPath = svg.value,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        )
+    }
+
+    override suspend fun updateSvg(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        depth: Double,
+        useSurface: Boolean,
+        svg: ModelPath?,
+        placement: Transform3?,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = emboss {
+        NativeBindings.updateSvg(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            volumeIndex = volume,
+            depth = depth,
+            useSurface = useSurface,
+            svgPath = svg?.value.orEmpty(),
+            matrix = placement?.columns?.toDoubleArray() ?: DoubleArray(0),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        )
+    }
+
+    override suspend fun describeEmboss(plate: List<PlacedModel>, index: Int, volume: Int, profiles: SlicingProfileSelection) =
+        withContext(Dispatchers.IO) {
+            val engineStatus = status()
+            if (!engineStatus.ready) return@withContext EmbossVolumeOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+            val described = NativeBindings.describeEmboss(
+                plate = nativePlate(plate),
+                objectIndex = index,
+                volumeIndex = volume,
+                printerProfile = profiles.printer.value,
+                filamentProfile = profiles.filament.value,
+                filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                processProfile = profiles.process.value,
+            )
+            val kind = when (described.kind) {
+                EMBOSS_TEXT -> EmbossKind.TEXT
+                EMBOSS_SVG -> EmbossKind.SVG
+                else -> null
+            }
+            if (described.status != NativeSceneStatus.SUCCESS || kind == null) {
+                EmbossVolumeOutcome.Failure(described.message.ifBlank { "The volume is neither text nor SVG" })
+            } else {
+                EmbossVolumeOutcome.Success(
+                    EmbossVolume(
+                        kind = kind,
+                        text = described.text,
+                        style = described.style.toStyle(),
+                        svgName = described.svgName,
+                        svgReloadable = described.svgReloadable,
+                        width = described.width,
+                        height = described.height,
+                        type = VolumeType.entries[described.type.toInt()],
+                        onlyPart = described.onlyPart,
+                        scaleHeight = described.scaleHeight,
+                        scaleDepth = described.scaleDepth,
+                    ),
+                )
+            }
+        }
+
+    /** A text or SVG edit, once the engine is ready. */
+    private suspend fun emboss(call: () -> NativeImportedModels): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        call().toOutcome()
+    }
 
     override suspend fun begin(plate: List<PlacedModel>, index: Int, profiles: SlicingProfileSelection, plateSettings: ModelSettings) =
         layerEditing {
@@ -1974,6 +2149,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                     convertedFromMeters = partFromMeters[part],
                     inputFile = partInputFiles[part],
                     cutInfo = CutInfo.of(partCutInfo, CutInfo.SIZE * part),
+                    emboss = embossData(partEmboss[part], partEmbossKinds[part]),
                 )
             },
             settings = ModelSettings(settingKeys.zip(settingValues).toMap()),
@@ -1985,6 +2161,7 @@ class NativeSlicerEngine(context: Context) : SlicerEngine, PlateInspector, Prese
                 convertedFromMeters = volumeFromMeters,
                 inputFile = volumeInputFile,
                 cutInfo = CutInfo.of(volumeCutInfo),
+                emboss = embossData(volumeEmboss, volumeEmbossKind),
             ),
             cutId = CutId.of(cutId),
             instances = instances.mapIndexed { index, instance ->
@@ -2158,8 +2335,71 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
         volumeCutInfo = objects.flatMap { it.volume.cutInfo.values().asList() }.toDoubleArray(),
         partCutInfo = parts.flatMap { it.cutInfo.values().asList() }.toDoubleArray(),
         layerHeightProfiles = Array(objects.size) { objects[it].layerHeightProfile.toDoubleArray() },
+        volumeEmboss = Array(objects.size) { objects[it].volume.emboss?.file?.value.orEmpty() },
+        partEmboss = Array(parts.size) { parts[it].emboss?.file?.value.orEmpty() },
     )
 }
+
+/** The text or the SVG a volume was embossed from, as the bridge hands it over (EmbossKind of orca_engine_adapter.hpp). */
+private fun embossData(file: String, kind: Long): EmbossData? = when (kind) {
+    EMBOSS_TEXT -> EmbossData(ScenePath(file), EmbossKind.TEXT)
+    EMBOSS_SVG -> EmbossData(ScenePath(file), EmbossKind.SVG)
+    else -> null
+}.takeIf { file.isNotEmpty() }
+
+private const val EMBOSS_TEXT = 1L
+private const val EMBOSS_SVG = 2L
+
+private fun TextStyle.toNative() = NativeTextStyle(
+    name = name,
+    fontPath = fontPath,
+    sizeInMm = sizeInMm,
+    perGlyph = perGlyph,
+    horizontalAlign = horizontalAlign.ordinal,
+    verticalAlign = verticalAlign.ordinal,
+    charGap = charGap?.toDouble() ?: Double.NaN,
+    lineGap = lineGap?.toDouble() ?: Double.NaN,
+    boldness = boldness ?: Double.NaN,
+    skew = skew ?: Double.NaN,
+    collectionNumber = collectionNumber?.toDouble() ?: Double.NaN,
+    family = family,
+    faceName = faceName,
+    style = style,
+    weight = weight,
+    depth = depth,
+    useSurface = useSurface,
+    angle = angle ?: Double.NaN,
+    distance = distance ?: Double.NaN,
+)
+
+private fun Double.orNull(): Double? = takeUnless(Double::isNaN)
+
+private fun NativeTextStyle.toStyle() = TextStyle(
+    name = name,
+    fontPath = fontPath,
+    sizeInMm = sizeInMm,
+    perGlyph = perGlyph,
+    horizontalAlign = TextHorizontalAlign.entries.getOrElse(horizontalAlign) { TextHorizontalAlign.CENTER },
+    verticalAlign = TextVerticalAlign.entries.getOrElse(verticalAlign) { TextVerticalAlign.CENTER },
+    charGap = charGap.orNull()?.toInt(),
+    lineGap = lineGap.orNull()?.toInt(),
+    boldness = boldness.orNull(),
+    skew = skew.orNull(),
+    collectionNumber = collectionNumber.orNull()?.toInt(),
+    family = family,
+    faceName = faceName,
+    style = style,
+    weight = weight,
+    depth = depth,
+    useSurface = useSurface,
+    angle = angle.orNull(),
+    distance = distance.orNull(),
+)
+
+/** EmbossPlacement as the bridge takes it: empty arrays for what it leaves out. */
+private fun Vector3?.toNative(): DoubleArray = this?.let { doubleArrayOf(it.x, it.y, it.z) } ?: DoubleArray(0)
+
+private fun Point2?.toNative(): DoubleArray = this?.let { doubleArrayOf(it.x, it.y) } ?: DoubleArray(0)
 
 /** The overrides of an object or of the plate, as parallel arrays for the bridge. */
 private fun ModelSettings.keys(): Array<String> = values.keys.toTypedArray()

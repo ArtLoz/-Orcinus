@@ -10,8 +10,17 @@ import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
 import app.orcinus.shadow.core.model.CalibrationPrinterOutcome
+import app.orcinus.shadow.core.model.EmbossData
+import app.orcinus.shadow.core.model.EmbossKind
+import app.orcinus.shadow.core.model.EmbossPlacement
+import app.orcinus.shadow.core.model.EmbossVolume
+import app.orcinus.shadow.core.model.EmbossVolumeOutcome
+import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
+import app.orcinus.shadow.core.model.TextHorizontalAlign
+import app.orcinus.shadow.core.model.TextStyle
+import app.orcinus.shadow.core.model.TextVerticalAlign
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CutGroove
@@ -267,7 +276,12 @@ private fun ObjectVolume.toParcel() = ObjectVolumeParcel().also {
     it.convertedFromMeters = convertedFromMeters
     it.inputFile = inputFile
     it.cutInfo = cutInfo.values()
+    it.emboss = emboss?.file?.value
+    it.embossKind = emboss?.kind?.name
 }
+
+private fun embossOf(file: String?, kind: String?): EmbossData? =
+    if (file == null || kind == null) null else EmbossData(ScenePath(file), EmbossKind.valueOf(kind))
 
 private fun ObjectVolumeParcel?.toObjectVolume(): ObjectVolume = this?.let {
     ObjectVolume(
@@ -278,6 +292,7 @@ private fun ObjectVolumeParcel?.toObjectVolume(): ObjectVolume = this?.let {
         convertedFromMeters = it.convertedFromMeters,
         inputFile = it.inputFile.orEmpty(),
         cutInfo = CutInfo.of(it.cutInfo),
+        emboss = embossOf(it.emboss, it.embossKind),
     )
 } ?: ObjectVolume()
 
@@ -314,6 +329,8 @@ private fun ObjectPart.toParcel() = ObjectPartParcel().also {
     it.convertedFromMeters = convertedFromMeters
     it.inputFile = inputFile
     it.cutInfo = cutInfo.values()
+    it.emboss = emboss?.file?.value
+    it.embossKind = emboss?.kind?.name
 }
 
 private fun ObjectPartParcel.toObjectPart() = ObjectPart(
@@ -330,6 +347,7 @@ private fun ObjectPartParcel.toObjectPart() = ObjectPart(
     convertedFromMeters = convertedFromMeters,
     inputFile = inputFile.orEmpty(),
     cutInfo = CutInfo.of(cutInfo),
+    emboss = embossOf(emboss, embossKind),
 )
 
 internal fun ProjectPlate.toParcel() = ProjectPlateParcel().also {
@@ -1281,6 +1299,115 @@ internal fun LayerEditingParcel.toLayerEditingOutcome(): LayerEditingOutcome = e
             maxLayerHeight = maxLayerHeight,
             objectPrintZHeight = objectPrintZHeight,
             fixed = fixed,
+        ),
+    )
+
+internal fun TextStyle.toParcel() = TextStyleParcel().also {
+    it.name = name
+    it.fontPath = fontPath
+    it.sizeInMm = sizeInMm
+    it.perGlyph = perGlyph
+    it.horizontalAlign = horizontalAlign.name
+    it.verticalAlign = verticalAlign.name
+    it.charGap = charGap?.toDouble() ?: Double.NaN
+    it.lineGap = lineGap?.toDouble() ?: Double.NaN
+    it.boldness = boldness ?: Double.NaN
+    it.skew = skew ?: Double.NaN
+    it.collectionNumber = collectionNumber?.toDouble() ?: Double.NaN
+    it.family = family
+    it.faceName = faceName
+    it.style = style
+    it.weight = weight
+    it.depth = depth
+    it.useSurface = useSurface
+    it.angle = angle ?: Double.NaN
+    it.distance = distance ?: Double.NaN
+}
+
+private fun Double.unlessNaN(): Double? = takeUnless(Double::isNaN)
+
+internal fun TextStyleParcel.toTextStyle() = TextStyle(
+    name = name.orEmpty(),
+    fontPath = fontPath.orEmpty(),
+    sizeInMm = sizeInMm,
+    perGlyph = perGlyph,
+    horizontalAlign = TextHorizontalAlign.valueOf(horizontalAlign),
+    verticalAlign = TextVerticalAlign.valueOf(verticalAlign),
+    charGap = charGap.unlessNaN()?.toInt(),
+    lineGap = lineGap.unlessNaN()?.toInt(),
+    boldness = boldness.unlessNaN(),
+    skew = skew.unlessNaN(),
+    collectionNumber = collectionNumber.unlessNaN()?.toInt(),
+    family = family.orEmpty(),
+    faceName = faceName.orEmpty(),
+    style = style.orEmpty(),
+    weight = weight.orEmpty(),
+    depth = depth,
+    useSurface = useSurface,
+    angle = angle.unlessNaN(),
+    distance = distance.unlessNaN(),
+)
+
+internal fun EmbossPlacement.toParcel() = EmbossPlacementParcel().also {
+    it.objectIndex = objectIndex
+    it.instanceIndex = instanceIndex
+    it.position = position?.let { p -> doubleArrayOf(p.x, p.y, p.z) } ?: DoubleArray(0)
+    it.normal = normal?.let { n -> doubleArrayOf(n.x, n.y, n.z) } ?: DoubleArray(0)
+    it.bedPoint = bedPoint?.let { b -> doubleArrayOf(b.x, b.y) } ?: DoubleArray(0)
+}
+
+internal fun EmbossPlacementParcel.toPlacement() = EmbossPlacement(
+    objectIndex = objectIndex,
+    instanceIndex = instanceIndex,
+    position = position?.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) },
+    normal = normal?.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) },
+    bedPoint = bedPoint?.takeIf { it.size == 2 }?.let { Point2(it[0], it[1]) },
+)
+
+internal fun FontFace.toParcel() = FontFaceParcel().also {
+    it.path = path
+    it.index = index
+    it.family = family
+    it.subfamily = subfamily
+    it.weight = weight
+    it.italic = italic
+}
+
+internal fun FontFaceParcel.toFontFace() = FontFace(path.orEmpty(), index, family.orEmpty(), subfamily.orEmpty(), weight, italic)
+
+internal fun EmbossVolumeOutcome.toParcel() = EmbossVolumeParcel().also {
+    when (this) {
+        is EmbossVolumeOutcome.Failure -> it.error = message
+        is EmbossVolumeOutcome.Success -> {
+            it.kind = volume.kind.name
+            it.text = volume.text
+            it.style = volume.style.toParcel()
+            it.svgName = volume.svgName
+            it.svgReloadable = volume.svgReloadable
+            it.width = volume.width
+            it.height = volume.height
+            it.type = volume.type.name
+            it.onlyPart = volume.onlyPart
+            it.scaleHeight = volume.scaleHeight
+            it.scaleDepth = volume.scaleDepth
+        }
+    }
+}
+
+internal fun EmbossVolumeParcel.toEmbossVolumeOutcome(): EmbossVolumeOutcome = error?.let(EmbossVolumeOutcome::Failure)
+    ?: EmbossVolumeOutcome.Success(
+        EmbossVolume(
+            kind = EmbossKind.valueOf(kind),
+            text = text.orEmpty(),
+            style = checkNotNull(style) { "An embossed volume has no style" }.toTextStyle(),
+            svgName = svgName.orEmpty(),
+            svgReloadable = svgReloadable,
+            width = width,
+            height = height,
+            type = VolumeType.valueOf(type),
+            onlyPart = onlyPart,
+            scaleHeight = scaleHeight,
+            scaleDepth = scaleDepth,
         ),
     )
 

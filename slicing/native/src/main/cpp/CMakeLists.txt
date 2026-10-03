@@ -11,6 +11,7 @@ add_library(orca_engine_adapter STATIC
     create_presets.cpp
     create_printer.cpp
     cut.cpp
+    emboss.cpp
     layer_editing.cpp
     engine_context.cpp
     flush_volumes.cpp

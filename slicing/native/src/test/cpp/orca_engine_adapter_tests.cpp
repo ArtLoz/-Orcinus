@@ -3373,6 +3373,7 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
     object.layer_ranges = imported.layer_ranges;
     object.cut_id = imported.cut_id;
     object.volume_cut_info = imported.volume_cut_info;
+    object.volume_emboss = imported.volume_emboss;
     for (const orca::ImportedPart& part : imported.parts) {
         orca::ObjectPart& added = object.parts.emplace_back();
         added.model_path = part.model_path;
@@ -3385,6 +3386,7 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
         added.from_meters = part.from_meters;
         added.input_file = part.input_file;
         added.cut_info = part.cut_info;
+        added.emboss = part.emboss;
     }
     for (std::size_t index = 0; index < imported.instances.size(); ++index) {
         orca::ObjectPlacement& instance = object.instances.emplace_back();
@@ -6042,4 +6044,163 @@ TEST_CASE("The variable layer height is edited on the bar, adapted, smoothed and
     CHECK(reset.layers.size() == 2 * 100);
     orca::end_layer_editing();
     CHECK(orca::edit_layer_heights(orca::LayerHeightEdit::decrease, 10.0, 0.005, 2.0).status != orca::SceneStatus::success);
+}
+
+TEST_CASE("Text and SVG are embossed on an object, edited, sliced and kept in a project", "[Adapter][Emboss]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    // The phone's own fonts; a file stb_truetype can't read has no face.
+    const std::vector<orca::FontFace> faces = orca::describe_fonts({"/system/fonts/Roboto-Regular.ttf", output_path("no-such-font.ttf")});
+    REQUIRE(faces.size() == 1);
+    CHECK(faces.front().family == "Roboto");
+    CHECK(faces.front().index == 0);
+    CHECK(faces.front().weight == 400);
+    CHECK_FALSE(faces.front().italic);
+    const std::string font = faces.front().path;
+
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("emboss-cube.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+
+    orca::TextStyle style;
+    style.name = "NORMAL";
+    style.font_path = font;
+    style.face_name = "Roboto";
+    style.size_in_mm = 10.0;
+    style.depth = 1.0;
+
+    // GLGizmoEmboss::create_volume() where a ray hits the front face of the cube.
+    orca::EmbossPlacement front;
+    front.object_index = 0;
+    front.instance_index = 0;
+    front.position = {cube.box_center[0], cube.box_center[1] - cube.size_y / 2, cube.box_center[2]};
+    front.normal = {0.0, -1.0, 0.0};
+    orca::ImportedModels result = orca::create_text(plate, front, orca::VolumeType::part, "Orca", style, k2_plus_profiles(), import_prefix("emboss-text"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    REQUIRE(result.objects.size() == 1);
+    REQUIRE(result.objects.front().parts.size() == 1);
+    CHECK(result.selected_volume == 1);
+    const orca::ImportedPart& text_part = result.objects.front().parts.front();
+    CHECK(text_part.emboss_kind == orca::EmbossKind::text);
+    CHECK(text_part.name == "Orca");
+    CHECK(boost::filesystem::exists(text_part.emboss));
+    CHECK(result.objects.front().volume_emboss_kind == orca::EmbossKind::none);
+    // It stands on the front face, at y = -10 in the object.
+    REQUIRE(text_part.matrix.size() == 16);
+    CHECK(text_part.matrix[13] == Catch::Approx(-10.0).margin(1e-3));
+    const std::size_t first_size = read_file(text_part.model_path).size();
+    plate = {plate_object_of(result.objects.front())};
+
+    orca::EmbossVolume described = orca::describe_emboss(plate, 0, 1, k2_plus_profiles());
+    INFO(described.message);
+    REQUIRE(described.status == orca::SceneStatus::success);
+    CHECK(described.kind == orca::EmbossKind::text);
+    CHECK(described.text == "Orca");
+    CHECK(described.style.font_path == font);
+    CHECK(described.style.face_name == "Roboto");
+    CHECK(described.style.size_in_mm == Catch::Approx(10.0));
+    CHECK(described.style.depth == Catch::Approx(1.0));
+    CHECK_FALSE(described.only_part);
+    CHECK(described.type == orca::VolumeType::part);
+
+    // GLGizmoEmboss::process(): another text makes another mesh.
+    result = orca::update_text(plate, 0, 1, "Orca Slicer", style, {}, k2_plus_profiles(), import_prefix("emboss-longer"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    REQUIRE(result.objects.front().parts.size() == 1);
+    CHECK(read_file(result.objects.front().parts.front().model_path).size() > first_size);
+    CHECK(result.objects.front().parts.front().name == "Orca Slicer");
+    plate = {plate_object_of(result.objects.front())};
+    // Only white spaces emboss nothing.
+    CHECK(orca::update_text(plate, 0, 1, " \n ", style, {}, k2_plus_profiles(), import_prefix("emboss-blank")).status != orca::SceneStatus::success);
+
+    // "Use surface" cuts the text out of the face; per glyph places the glyphs along it.
+    orca::TextStyle on_surface = style;
+    on_surface.use_surface = true;
+    result = orca::update_text(plate, 0, 1, "Orca", on_surface, {}, k2_plus_profiles(), import_prefix("emboss-surface"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    CHECK(orca::describe_emboss(plate, 0, 1, k2_plus_profiles()).style.use_surface);
+    orca::TextStyle per_glyph = style;
+    per_glyph.per_glyph = true;
+    result = orca::update_text(plate, 0, 1, "Orca", per_glyph, {}, k2_plus_profiles(), import_prefix("emboss-glyphs"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    CHECK(orca::describe_emboss(plate, 0, 1, k2_plus_profiles()).style.per_glyph);
+
+    // GLGizmoSVG::create_volume() on the top face.
+    const std::string svg = output_path("emboss.svg");
+    {
+        std::ofstream file(svg);
+        file << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20mm\" height=\"10mm\" viewBox=\"0 0 20 10\">"
+                "<path d=\"M0 0 H20 V10 H0 Z M5 2 H15 V8 H5 Z\" fill=\"black\"/></svg>";
+    }
+    orca::EmbossPlacement top = front;
+    top.position = {cube.box_center[0], cube.box_center[1], cube.box_center[2] + cube.size_z / 2};
+    top.normal = {0.0, 0.0, 1.0};
+    result = orca::create_svg(plate, top, orca::VolumeType::part, svg, k2_plus_profiles(), import_prefix("emboss-svg"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    REQUIRE(result.objects.front().parts.size() == 2);
+    REQUIRE(result.selected_volume >= 1);
+    const orca::ImportedPart& svg_part = result.objects.front().parts[std::size_t(result.selected_volume - 1)];
+    CHECK(svg_part.emboss_kind == orca::EmbossKind::svg);
+    CHECK(svg_part.name == "emboss");
+    const std::size_t svg_volume = std::size_t(result.selected_volume);
+    plate = {plate_object_of(result.objects.front())};
+    described = orca::describe_emboss(plate, 0, svg_volume, k2_plus_profiles());
+    REQUIRE(described.status == orca::SceneStatus::success);
+    CHECK(described.kind == orca::EmbossKind::svg);
+    CHECK(described.svg_name == "emboss");
+    CHECK(described.svg_reloadable);
+    CHECK(described.width > 0.0);
+    CHECK(described.style.depth == Catch::Approx(10.0));
+    result = orca::update_svg(plate, 0, svg_volume, 2.0, false, {}, {}, k2_plus_profiles(), import_prefix("emboss-svg-depth"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    plate = {plate_object_of(result.objects.front())};
+    CHECK(orca::describe_emboss(plate, 0, svg_volume, k2_plus_profiles()).style.depth == Catch::Approx(2.0));
+
+    // The cube prints with its text and its SVG.
+    const orca::SliceResult sliced = orca::slice("emboss", plate, output_path("emboss.gcode"), {}, k2_plus_profiles(), {}, {});
+    INFO(sliced.message);
+    REQUIRE(sliced.status == orca::SliceStatus::success);
+
+    // CreateObjectJob: a text of its own on the plate.
+    orca::EmbossPlacement on_bed;
+    result = orca::create_text(plate, on_bed, orca::VolumeType::part, "Hi", style, k2_plus_profiles(), import_prefix("emboss-object"));
+    INFO(result.message);
+    REQUIRE(result.status == orca::SceneStatus::success);
+    CHECK(result.appended);
+    REQUIRE(result.objects.size() == 1);
+    CHECK(result.objects.front().volume_emboss_kind == orca::EmbossKind::text);
+    CHECK(result.objects.front().parts.empty());
+    CHECK(result.objects.front().name == "Hi");
+    plate.push_back(plate_object_of(result.objects.front()));
+    CHECK(orca::describe_emboss(plate, 1, 0, k2_plus_profiles()).only_part);
+
+    // A project keeps what the volumes were embossed from.
+    const std::string project = output_path("emboss.3mf");
+    REQUIRE(orca::save_project(project, plate, k2_plus_profiles(), {orca::ProjectPlate()}).status == orca::SceneStatus::success);
+    const orca::ImportedModels opened =
+        orca::import_model(project, k2_plus_profiles(), {}, import_prefix("emboss-project"), {}, orca::ModelLoad::project);
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    REQUIRE(opened.objects.size() == 2);
+    REQUIRE(opened.objects[0].parts.size() == 2);
+    CHECK(opened.objects[0].parts[0].emboss_kind != orca::EmbossKind::none);
+    CHECK(opened.objects[0].parts[1].emboss_kind != orca::EmbossKind::none);
+    CHECK(opened.objects[1].volume_emboss_kind == orca::EmbossKind::text);
+    std::vector<orca::PlateObject> reopened;
+    for (const orca::ImportedObject& object : opened.objects) {
+        reopened.push_back(plate_object_of(object));
+    }
+    described = orca::describe_emboss(reopened, 1, 0, k2_plus_profiles());
+    REQUIRE(described.status == orca::SceneStatus::success);
+    CHECK(described.text == "Hi");
+    CHECK(described.style.font_path == font);
 }

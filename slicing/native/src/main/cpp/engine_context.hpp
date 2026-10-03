@@ -15,6 +15,7 @@ namespace Slic3r {
 class AppConfig;
 class Model;
 class ModelObject;
+class ModelVolume;
 class PresetBundle;
 struct Calib_Params;
 }
@@ -115,6 +116,18 @@ VolumeCutInfo cut_info_from(const Slic3r::ModelVolume::CutInfo& info);
 // by cut_matrix into the parts of one object, each solid part split into its
 // pieces, alone in model.
 Slic3r::ModelObject* split_cut_parts(Slic3r::Model& model, const Slic3r::ModelObject& object, int instance, const Slic3r::Transform3d& cut_matrix);
+
+// The text or the SVG volume was embossed from (ModelVolume::text_configuration
+// and emboss_shape), written to path; empty when it was embossed from neither
+// or the file can't be written.
+std::string write_emboss(const Slic3r::ModelVolume& volume, const std::string& path);
+
+// ... read back from path into volume; an empty path reads nothing. False
+// when the file can't be read.
+bool read_emboss(const std::string& path, Slic3r::ModelVolume& volume);
+
+// ModelVolume::is_text() and is_svg().
+EmbossKind emboss_kind_of(const Slic3r::ModelVolume& volume);
 
 // Writes a mesh for the 3D view, in the format :render:scene reads
 // (mesh_file_magic of orca_engine_adapter.hpp).

@@ -29,6 +29,8 @@ import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.CutPartsOutcome
 import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
+import app.orcinus.shadow.core.model.EmbossPlacement
+import app.orcinus.shadow.core.model.EmbossVolumeOutcome
 import app.orcinus.shadow.core.model.EngineStatus
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
@@ -36,6 +38,7 @@ import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
+import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.LayerEditingOutcome
@@ -94,6 +97,7 @@ import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.StepMeshOptions
+import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSizesOutcome
 import app.orcinus.shadow.core.model.Transform3
@@ -103,6 +107,7 @@ import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.EmbossEditor
 import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
@@ -126,7 +131,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor {
+) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -293,6 +298,81 @@ class RemoteSlicerEngine(
         }
 
     override suspend fun endCut() = remote({}) { endCut() }
+
+    override suspend fun describeFonts(paths: List<String>): List<FontFace> =
+        remote({ emptyList() }) { describeFonts(paths.toTypedArray()).map(FontFaceParcel::toFontFace) }
+
+    override suspend fun createText(
+        plate: List<PlacedModel>,
+        placement: EmbossPlacement,
+        type: VolumeType,
+        text: String,
+        style: TextStyle,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        createText(plate.toParcels(), placement.toParcel(), type.name, text, style.toParcel(), profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
+    override suspend fun updateText(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        text: String,
+        style: TextStyle,
+        placement: Transform3?,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        updateText(
+            plate.toParcels(),
+            index,
+            volume,
+            text,
+            style.toParcel(),
+            placement?.columns?.toDoubleArray(),
+            profiles.toParcel(),
+            prefix.value,
+        ).toModelLoadOutcome()
+    }
+
+    override suspend fun createSvg(
+        plate: List<PlacedModel>,
+        placement: EmbossPlacement,
+        type: VolumeType,
+        svg: ModelPath,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        createSvg(plate.toParcels(), placement.toParcel(), type.name, svg.value, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+    }
+
+    override suspend fun updateSvg(
+        plate: List<PlacedModel>,
+        index: Int,
+        volume: Int,
+        depth: Double,
+        useSurface: Boolean,
+        svg: ModelPath?,
+        placement: Transform3?,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        updateSvg(
+            plate.toParcels(),
+            index,
+            volume,
+            depth,
+            useSurface,
+            svg?.value,
+            placement?.columns?.toDoubleArray(),
+            profiles.toParcel(),
+            prefix.value,
+        ).toModelLoadOutcome()
+    }
+
+    override suspend fun describeEmboss(plate: List<PlacedModel>, index: Int, volume: Int, profiles: SlicingProfileSelection): EmbossVolumeOutcome =
+        remote({ EmbossVolumeOutcome.Failure(it) }) { describeEmboss(plate.toParcels(), index, volume, profiles.toParcel()).toEmbossVolumeOutcome() }
 
     override suspend fun begin(plate: List<PlacedModel>, index: Int, profiles: SlicingProfileSelection, plateSettings: ModelSettings) =
         remote({ LayerEditingOutcome.Failure(it) }) { beginLayerEditing(plate.toParcels(), index, profiles.toParcel(), plateSettings.toParcel()).toLayerEditingOutcome() }

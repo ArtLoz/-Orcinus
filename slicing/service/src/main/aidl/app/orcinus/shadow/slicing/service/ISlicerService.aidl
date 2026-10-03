@@ -14,6 +14,9 @@ import app.orcinus.shadow.slicing.service.CutObjectParcel;
 import app.orcinus.shadow.slicing.service.CutParcel;
 import app.orcinus.shadow.slicing.service.CutPartsParcel;
 import app.orcinus.shadow.slicing.service.CutPlaneParcel;
+import app.orcinus.shadow.slicing.service.EmbossPlacementParcel;
+import app.orcinus.shadow.slicing.service.EmbossVolumeParcel;
+import app.orcinus.shadow.slicing.service.FontFaceParcel;
 import app.orcinus.shadow.slicing.service.LayerEditingParcel;
 import app.orcinus.shadow.slicing.service.PlateValidationParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
@@ -33,6 +36,7 @@ import app.orcinus.shadow.slicing.service.PlateInspectionParcel;
 import app.orcinus.shadow.slicing.service.MeshExportParcel;
 import app.orcinus.shadow.slicing.service.FlushVolumesParcel;
 import app.orcinus.shadow.slicing.service.PaintingParcel;
+import app.orcinus.shadow.slicing.service.TextStyleParcel;
 import app.orcinus.shadow.slicing.service.WipeTowerParcel;
 import app.orcinus.shadow.slicing.service.PresetNameParcel;
 import app.orcinus.shadow.slicing.service.PresetNamesParcel;
@@ -108,6 +112,13 @@ interface ISlicerService {
     /** select_cut_part(): a right click turns a piece over. */
     CutPartsParcel selectCutPart(in double[] partsPlane, in boolean[] selected, in double[] origin, in double[] direction, String meshPrefix);
     void endCut();
+    /** describe_fonts() and the text and SVG tools (EmbossEditor). */
+    FontFaceParcel[] describeFonts(in String[] paths);
+    ModelLoadParcel createText(in PlacedModelParcel[] plate, in EmbossPlacementParcel placement, String type, String text, in TextStyleParcel style, in ProfilesParcel profiles, String prefix);
+    ModelLoadParcel updateText(in PlacedModelParcel[] plate, int index, int volume, String text, in TextStyleParcel style, in @nullable double[] placement, in ProfilesParcel profiles, String prefix);
+    ModelLoadParcel createSvg(in PlacedModelParcel[] plate, in EmbossPlacementParcel placement, String type, String svg, in ProfilesParcel profiles, String prefix);
+    ModelLoadParcel updateSvg(in PlacedModelParcel[] plate, int index, int volume, double depth, boolean useSurface, @nullable String svg, in @nullable double[] placement, in ProfilesParcel profiles, String prefix);
+    EmbossVolumeParcel describeEmboss(in PlacedModelParcel[] plate, int index, int volume, in ProfilesParcel profiles);
     /** begin_layer_editing() and the calls of the variable layer height; action is the LayerHeightEdit's name. */
     LayerEditingParcel beginLayerEditing(in PlacedModelParcel[] plate, int index, in ProfilesParcel profiles, in ModelSettingsParcel plateSettings);
     LayerEditingParcel editLayerHeights(String action, double z, double strength, double bandWidth);

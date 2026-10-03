@@ -145,8 +145,10 @@ internal fun PlateObject.files(): Set<ScenePath> = buildSet {
         add(part.mesh)
         part.source?.let { add(ScenePath(it.value)) }
         part.painted.file?.let(::add)
+        part.emboss?.let { add(it.file) }
     }
     paintedMeshes.forEach { add(it.mesh) }
     painted.file?.let(::add)
+    volume.emboss?.let { add(it.file) }
     if (this@files is PlateObject.ImportedModel) add(ScenePath(file.path.value))
 }

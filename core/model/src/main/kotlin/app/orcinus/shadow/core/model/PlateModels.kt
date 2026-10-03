@@ -61,6 +61,8 @@ data class ObjectPart(
     val inputFile: String = "",
     /** ModelVolume::cut_info: whether a cut made it a connector. */
     val cutInfo: CutInfo = CutInfo(),
+    /** The text or the SVG the part was embossed from; null for a part of neither. */
+    val emboss: EmbossData? = null,
 )
 
 /**
@@ -148,6 +150,8 @@ data class ObjectVolume(
     val convertedFromMeters: Boolean = false,
     val inputFile: String = "",
     val cutInfo: CutInfo = CutInfo(),
+    /** The text or the SVG the object's own mesh was embossed from (an object made of a text). */
+    val emboss: EmbossData? = null,
 )
 
 /**

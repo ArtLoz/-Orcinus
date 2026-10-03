@@ -648,6 +648,9 @@ internal class NativePlate(
     @JvmField val partCutInfo: DoubleArray,
     /** The variable layer height of every object (ModelObject::layer_height_profile); empty for none. */
     @JvmField val layerHeightProfiles: Array<DoubleArray>,
+    /** The text or the SVG every object's own mesh and every part was embossed from; empty for none. */
+    @JvmField val volumeEmboss: Array<String>,
+    @JvmField val partEmboss: Array<String>,
 )
 
 /** Constructed by the native bridge; see ImportedObject in orca_engine_adapter.hpp. */
@@ -698,6 +701,61 @@ internal class NativeImportedObject(
     @JvmField val inputFile: String,
     /** ModelObject::layer_height_profile */
     @JvmField val layerHeightProfile: DoubleArray,
+    /** The text or the SVG its own mesh and its parts were embossed from, and which of them (EmbossKind). */
+    @JvmField val volumeEmboss: String,
+    @JvmField val volumeEmbossKind: Long,
+    @JvmField val partEmboss: Array<String>,
+    @JvmField val partEmbossKinds: LongArray,
+)
+
+/** Constructed by the native bridge; see FontFace in orca_engine_adapter.hpp. */
+internal class NativeFontFace(
+    @JvmField val path: String,
+    @JvmField val index: Int,
+    @JvmField val family: String,
+    @JvmField val subfamily: String,
+    @JvmField val weight: Int,
+    @JvmField val italic: Boolean,
+)
+
+/** TextStyle of orca_engine_adapter.hpp; NaN stands for an unset value. */
+internal class NativeTextStyle(
+    @JvmField val name: String,
+    @JvmField val fontPath: String,
+    @JvmField val sizeInMm: Double,
+    @JvmField val perGlyph: Boolean,
+    @JvmField val horizontalAlign: Int,
+    @JvmField val verticalAlign: Int,
+    @JvmField val charGap: Double,
+    @JvmField val lineGap: Double,
+    @JvmField val boldness: Double,
+    @JvmField val skew: Double,
+    @JvmField val collectionNumber: Double,
+    @JvmField val family: String,
+    @JvmField val faceName: String,
+    @JvmField val style: String,
+    @JvmField val weight: String,
+    @JvmField val depth: Double,
+    @JvmField val useSurface: Boolean,
+    @JvmField val angle: Double,
+    @JvmField val distance: Double,
+)
+
+/** Constructed by the native bridge; see EmbossVolume in orca_engine_adapter.hpp. */
+internal class NativeEmbossVolume(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val kind: Long,
+    @JvmField val text: String,
+    @JvmField val style: NativeTextStyle,
+    @JvmField val svgName: String,
+    @JvmField val svgReloadable: Boolean,
+    @JvmField val width: Double,
+    @JvmField val height: Double,
+    @JvmField val type: Long,
+    @JvmField val onlyPart: Boolean,
+    @JvmField val scaleHeight: Double,
+    @JvmField val scaleDepth: Double,
 )
 
 /** Constructed by the native bridge; see LayerEditing in orca_engine_adapter.hpp. */
@@ -1356,6 +1414,86 @@ internal object NativeBindings {
 
     /** end_cut() */
     external fun endCut()
+
+    /** describe_fonts() */
+    external fun describeFonts(paths: Array<String>): Array<NativeFontFace>
+
+    /** create_text(): [position], [normal] and [bedPoint] are empty for none (EmbossPlacement). */
+    external fun createText(
+        plate: NativePlate,
+        objectIndex: Int,
+        instanceIndex: Int,
+        position: DoubleArray,
+        normal: DoubleArray,
+        bedPoint: DoubleArray,
+        type: Long,
+        text: String,
+        style: NativeTextStyle,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** update_text(): [matrix] is empty to keep the volume where it stands. */
+    external fun updateText(
+        plate: NativePlate,
+        objectIndex: Int,
+        volumeIndex: Int,
+        text: String,
+        style: NativeTextStyle,
+        matrix: DoubleArray,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** create_svg() */
+    external fun createSvg(
+        plate: NativePlate,
+        objectIndex: Int,
+        instanceIndex: Int,
+        position: DoubleArray,
+        normal: DoubleArray,
+        bedPoint: DoubleArray,
+        type: Long,
+        svgPath: String,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** update_svg(): an empty [svgPath] keeps the volume's file. */
+    external fun updateSvg(
+        plate: NativePlate,
+        objectIndex: Int,
+        volumeIndex: Int,
+        depth: Double,
+        useSurface: Boolean,
+        svgPath: String,
+        matrix: DoubleArray,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
+    /** describe_emboss() */
+    external fun describeEmboss(
+        plate: NativePlate,
+        objectIndex: Int,
+        volumeIndex: Int,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+    ): NativeEmbossVolume
 
     /** begin_layer_editing() */
     external fun beginLayerEditing(
