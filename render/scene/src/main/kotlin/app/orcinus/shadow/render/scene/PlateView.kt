@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputChange
@@ -181,6 +182,12 @@ fun PlateView(
     smoothNormals: Boolean = false,
     /** The sequential printing's clearances while the plate's validation fails; null for none. */
     clearance: PlateClearance? = null,
+    /**
+     * The variable layer height while it is on: the object it edits is drawn
+     * in the colours of its layers, and the bar the page placed with
+     * [LayerHeightBar] shows them too.
+     */
+    layerEditing: LayerEditingView? = null,
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -340,6 +347,19 @@ fun PlateView(
             found
         }
 
+        // The copies of the object the variable layer height edits, numbered as the scene numbers the copies.
+        val layerEditingIndexes = layerEditing?.let { open ->
+            var index = 0
+            buildSet {
+                for (plateObject in objects) {
+                    for (instance in plateObject.instances.indices) {
+                        if (plateObject.mesh == open.mesh) add(index)
+                        index++
+                    }
+                }
+            }
+        }.orEmpty()
+
         val haptics = LocalHapticFeedback.current
         SideEffect {
             controller.onSelectObject = onSelectObject
@@ -392,7 +412,9 @@ fun PlateView(
         var viewOrigin by remember { mutableStateOf<Offset?>(null) }
         val navigatorSlot = camera?.navigatorSlot
         val navigatorSquare = navigatorSlot?.let { slot -> viewOrigin?.let { slot.bounds.translate(-it) } }
+        val layerBar = camera?.layerBarSlot?.let { slot -> viewOrigin?.let { slot.translate(-it) } }
         SideEffect {
+            controller.setLayerEditing(layerEditing, layerEditingIndexes, layerBar)
             navigatorInput.square = navigatorSquare
             navigatorInput.density = density
             navigatorInput.touchSlop = touchSlop
@@ -455,6 +477,9 @@ class PlateViewCamera {
 
     /** Where the page placed the 3D navigator ([PlateNavigator]); null while it shows none. */
     internal var navigatorSlot: NavigatorSlot? by mutableStateOf(null)
+
+    /** Where the page placed the variable layer height bar ([LayerHeightBar]), in the root's pixels; null while it shows none. */
+    internal var layerBarSlot: Rect? by mutableStateOf(null)
 
     /** GLCanvas3D::select_view() */
     fun selectView(view: CameraView) {
@@ -595,8 +620,9 @@ private suspend fun PointerInputScope.detectPlateGestures(
         if (!dragging && !multiTouch && !pressedObject && !menuOpened) {
             // The connectors' window: a touch on the section places a connector, elsewhere unselects them.
             if (controller.isCutting) controller.tapCut(down.position.x, down.position.y)
-            // A painting tool and the cut gizmo keep their object while the finger turns the camera around it.
-            if (!controller.isPainting && !controller.isCutting) {
+            // A painting tool and the cut gizmo keep their object while the finger turns the camera around it,
+            // and the variable layer height its selection (GLCanvas3D::on_mouse() for a left up).
+            if (!controller.isPainting && !controller.isCutting && !controller.isEditingLayers) {
                 controller.clearSelection()
                 // A tap on another plate selects it.
                 controller.selectPlateAt(down.position.x, down.position.y)
@@ -753,7 +779,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return true
         }
         val held = drag as? ObjectDrag ?: return false
-        if (held.moved) return false
+        // GLCanvas3D::on_mouse(): no right click while the variable layer height is on.
+        if (held.moved || isEditingLayers) return false
         drag = null
         onOpenObjectMenu(held.index, x, y)
         return true
@@ -765,6 +792,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     fun openPlateMenu(x: Float, y: Float): Boolean {
         if (cut != null) return selectCutPart(x, y)
+        if (isEditingLayers) return false
         val open = onOpenPlateMenu ?: return false
         // A right click on a plate selects it first.
         selectPlateAt(x, y)
@@ -1278,6 +1306,18 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** GLCanvas3D::m_sequential_print_clearance, visible while it is set. */
     private var clearance: SceneClearance? = null
 
+    /** GLCanvas3D::m_layers_editing while it is on. */
+    private var layerEditing: SceneLayerEditing? = null
+    val isEditingLayers: Boolean get() = layerEditing != null
+
+    /** The variable layer height of [view] on the copies at [indexes], with its bar at [bar] in the view's pixels. */
+    fun setLayerEditing(view: LayerEditingView?, indexes: Set<Int>, bar: Rect?) {
+        val editing = view?.let { SceneLayerEditing(it, indexes, bar) }
+        if (editing == layerEditing) return
+        layerEditing = editing
+        invalidate()
+    }
+
     fun setClearance(value: PlateClearance?) {
         clearance = value?.let(::SceneClearance)
         invalidate()
@@ -1713,6 +1753,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     val normal = gizmo.clippingNormal(lookingForward(gizmo))
                     floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), normal.dot(gizmo.center).toFloat())
                 },
+                layerEditing = layerEditing,
             ),
         )
         surface.requestRender()

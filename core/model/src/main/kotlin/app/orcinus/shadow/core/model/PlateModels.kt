@@ -394,6 +394,8 @@ data class PlateSnapshot(
     /** Every plate with its name, lock and settings alone. */
     val plates: List<PartPlate>,
     val currentPlate: Int,
+    /** UndoRedo::SnapshotData::VARIABLE_LAYER_EDITING_ACTIVE: the variable layer height was on. */
+    val layerEditing: Boolean = false,
 )
 
 /**
@@ -969,6 +971,11 @@ data class PlateState(
     val settingsClipboard: SettingsClipboard? = null,
     /** The volume the Simplify gizmo is open on (GLGizmoSimplify::m_volume); null while it is closed. */
     val simplifyTarget: ObjectPartId? = null,
+    /**
+     * The 3D view's variable layer height is on (GLCanvas3D::LayersEditing::m_enabled):
+     * the selected object's layer heights are edited on the bar.
+     */
+    val layerEditing: Boolean = false,
     /** The codes the preview's layer slider put on the layers of the current plate (Model::plates_custom_gcodes), by height. */
     val layerGcodes: List<LayerGcode> = emptyList(),
     /**

@@ -53,9 +53,11 @@ import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.ImportBatch
 import app.orcinus.shadow.core.model.ImportFiles
 import app.orcinus.shadow.core.model.ImportedModelFile
+import app.orcinus.shadow.core.model.LayerEditingOutcome
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerGcodeRules
 import app.orcinus.shadow.core.model.LayerGcodeType
+import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.LayerRangeId
 import app.orcinus.shadow.core.model.LoadedObject
@@ -163,6 +165,7 @@ import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.extruderNumber
 import app.orcinus.shadow.core.model.flushesInto
+import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.withInstance
@@ -181,6 +184,7 @@ import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.slicing.api.AppConfigStore
+import app.orcinus.shadow.slicing.api.LayerHeightEditor
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
@@ -1684,6 +1688,55 @@ class PlateUseCasesTest {
         assertEquals(listOf(other.mesh), state.objects.map { it.mesh })
         assertTrue(state.canUndo)
         assertFalse(state.canRedo)
+    }
+
+    @Test
+    fun `a variable layer height edit is one step of Undo, which brings back the profile and the bar as they were`() {
+        val repository = FakeRepository(readyState(CUBE).copy(selectedInstances = setOf(PlateInstanceId(CUBE.mesh))))
+        val history = UndoRedoPlateUseCase(repository, placePlateObjects(FakeInspector(), repository), settingsTabs(repository), scope)
+        val layers = EditLayerHeightsUseCase(NO_LAYER_EDITOR, repository)
+
+        layers.enable(true)
+        assertTrue(repository.state.value.layerEditing)
+        val profile = listOf(0.0, 0.2, 10.0, 0.1, 20.0, 0.2)
+        layers.commit(CUBE.mesh, profile)
+        assertEquals(profile, repository.state.value.objects.single().layerHeightProfile)
+        assertTrue(repository.state.value.objects.single().hasVariableLayerHeight)
+        // The same profile again is no step of Undo.
+        layers.commit(CUBE.mesh, profile)
+        assertEquals(1, repository.state.value.history.undo.size)
+
+        // Closing the bar is no step either; Undo goes back to before the edit, when the bar was on.
+        layers.enable(false)
+        history.undo()
+
+        val state = repository.state.value
+        assertEquals(emptyList(), state.objects.single().layerHeightProfile)
+        assertTrue(state.layerEditing)
+    }
+
+    @Test
+    fun `the variable layer height opens on one selected object standing above the bed`() {
+        val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val repository = FakeRepository(readyState(CUBE, other))
+        val layers = EditLayerHeightsUseCase(NO_LAYER_EDITOR, repository)
+
+        // Nothing selected.
+        layers.enable(true)
+        assertFalse(repository.state.value.layerEditing)
+        // Two objects selected.
+        repository.update { it.copy(selectedInstances = setOf(PlateInstanceId(CUBE.mesh), PlateInstanceId(other.mesh))) }
+        layers.enable(true)
+        assertFalse(repository.state.value.layerEditing)
+        // ObjectList::enable_layers_editing(): the object's mark selects it and opens the bar.
+        layers.enableFor(other.mesh)
+        assertEquals(setOf(PlateInstanceId(other.mesh)), repository.state.value.selectedInstances)
+        assertTrue(repository.state.value.layerEditing)
+        // An object sunk below the bed (max_z under SINKING_Z_THRESHOLD) has no layers to edit.
+        val sunk = CUBE.withInspection(INSPECTION.copy(boxCenter = Vector3(0.0, 0.0, -11.0)))
+        val sinking = FakeRepository(readyState(sunk).copy(selectedInstances = setOf(PlateInstanceId(sunk.mesh))))
+        EditLayerHeightsUseCase(NO_LAYER_EDITOR, sinking).enable(true)
+        assertFalse(sinking.state.value.layerEditing)
     }
 
     @Test
@@ -4016,6 +4069,25 @@ class PlateUseCasesTest {
             unscaledDimensions = ModelDimensions(20.0, 20.0, 20.0),
         )
         val CUBE = PlateObject.CalibrationCube(listOf(PlateInstance(INSPECTION)))
+
+        /** An engine that edits no layer heights; the tests change the plate alone. */
+        val NO_LAYER_EDITOR = object : LayerHeightEditor {
+            private val none = LayerEditingOutcome.Failure("No engine")
+
+            override suspend fun begin(plate: List<PlacedModel>, index: Int, profiles: SlicingProfileSelection, plateSettings: ModelSettings) = none
+
+            override suspend fun edit(action: LayerHeightEdit, z: Double, strength: Double, bandWidth: Double) = none
+
+            override suspend fun adaptive(quality: Double) = none
+
+            override suspend fun smooth(radius: Int, keepMin: Boolean) = none
+
+            override suspend fun reset() = none
+
+            override suspend fun accept() = none
+
+            override suspend fun end() = Unit
+        }
         val PLATE = PlateDescription(
             geometry = PlateGeometry(
                 printableArea = listOf(Point2(0.0, 0.0), Point2(350.0, 0.0), Point2(350.0, 350.0), Point2(0.0, 350.0)),

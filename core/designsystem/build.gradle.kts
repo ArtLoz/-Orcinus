@@ -101,6 +101,8 @@ val orcaIconNames = listOf(
     // ExportConfigsDialog: what it writes (Widgets/RadioBox).
     "radio_on", "radio_off", "radio_disabled",
     "height_range_layer", "height_range_modifier",
+    // ObjectDataViewModel: the object's variable layer height (colHeight).
+    "obj_variable_layer_height",
     "param_acceleration", "param_adhension", "param_advanced", "param_bridge", "param_cooling", "param_filament_for_features",
     "param_flush", "param_gcode", "param_infill", "param_ironing", "param_jerk", "param_junction_deviation",
     "param_layer_height", "param_line_width", "param_ooze_prevention", "param_overhang", "param_overhang_speed",

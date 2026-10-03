@@ -1,5 +1,6 @@
 package app.orcinus.shadow.feature.sidebar
 
+import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.ui.plate.conversionsOf
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.hasConnectors
@@ -176,6 +177,8 @@ internal class ObjectListActions(
     val replaceAllOnPlate: (Int) -> Unit = {},
     /** ObjectList::invalidate_cut_info_for_selection() of an object. */
     val invalidateCutInfo: (ScenePath) -> Unit = {},
+    /** ObjectList::enable_layers_editing(): the variable layer height opens on the object. */
+    val editLayers: (ScenePath) -> Unit = {},
 )
 
 /** An item the user renames: an object or one of its volumes, with the name it has. */
@@ -351,6 +354,8 @@ private fun LazyListScope.objectRows(
                         actions.setObjectExtruder(mesh, it)
                     }
                 },
+                // ObjectDataViewModel's colHeight: the object prints with a variable layer height.
+                variableHeight = if (plateObject.hasVariableLayerHeight) ({ actions.editLayers(mesh) }) else null,
                 onClick = { actions.select(ids.first(), picking) },
                 onPrintable = { printable -> actions.setObjectPrintable(mesh, printable) },
                 onLongClick = { actions.selectAlone(ids.first()) },
@@ -884,6 +889,8 @@ private fun ObjectListRow(
     showPrintable: Boolean = false,
     /** The filament column (colFilament), which only the rows that take one have. */
     extruder: ExtruderColumn? = null,
+    /** The variable layer height mark (colHeight), whose tap opens the bar; null for none. */
+    variableHeight: (() -> Unit)? = null,
     enabled: Boolean = true,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
@@ -933,6 +940,17 @@ private fun ObjectListRow(
                     .weight(1f)
                     .padding(end = 8.dp),
             )
+            if (variableHeight != null) {
+                Icon(
+                    painterResource(DesignR.drawable.orca_obj_variable_layer_height),
+                    contentDescription = orcaString("Variable layer height"),
+                    tint = Color.Unspecified,
+                    modifier = Modifier
+                        .clickable(enabled = enabled, role = Role.Button, onClick = variableHeight)
+                        .padding(8.dp)
+                        .size(OrcaTheme.dimensions.iconSmall),
+                )
+            }
             if (extruder != null) {
                 FilamentColumn(extruder, enabled)
             }

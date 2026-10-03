@@ -68,6 +68,7 @@ import app.orcinus.shadow.domain.plate.DescribeFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
+import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
@@ -207,6 +208,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val sceneFiles = AppSceneFiles(applicationContext)
     private val plateCache = AppPlateCache(applicationContext)
     private val inspectModel = InspectModelUseCase(engine)
+
+    // The variable layer height, which the canvas's toolbar and the object list open.
+    private val editLayerHeights = EditLayerHeightsUseCase(engine, plateRepository)
     private val placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(engine), plateRepository, applicationScope)
     // Sidebar::auto_calc_flushing_volumes(), which filament, printer and settings changes ask for.
     private val flushVolumes = UpdateFlushVolumesUseCase(engine, plateRepository)
@@ -557,6 +561,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             movePlateToFront = MovePlateToFrontUseCase(plateRepository),
             plateJobs = plateJobs,
             setPlateSettings = SetPlateSettingsUseCase(plateRepository),
+            editLayerHeights = editLayerHeights,
             preferences = appPreferences,
             setPreference = setPreference,
             findValidationSetting = FindValidationSettingUseCase(settingsTabs),
@@ -651,6 +656,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         lockPlate = lockPlate,
         renamePlate = renamePlate,
         addPrimitive = addPrimitive,
+        editLayerHeights = editLayerHeights,
         preferences = appPreferences,
     )
 

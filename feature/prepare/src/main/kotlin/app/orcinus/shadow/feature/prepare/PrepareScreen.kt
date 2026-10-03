@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,7 +51,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
@@ -146,6 +152,7 @@ import app.orcinus.shadow.core.ui.sizeText
 import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.CutConnectorView
 import app.orcinus.shadow.render.scene.CutView
+import app.orcinus.shadow.render.scene.LayerHeightBar
 import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateGraphics
@@ -355,6 +362,21 @@ internal fun PrepareRoute(
                 settingsDone = viewModel::snapshotCutConnectors,
             ),
         ),
+        layerActions = LayerEditingActions(
+            toggle = viewModel::toggleLayerEditing,
+            close = viewModel::closeLayerEditing,
+            press = viewModel::pressLayerBar,
+            move = viewModel::moveLayerBar,
+            release = viewModel::releaseLayerBar,
+            setAction = viewModel::setLayerEditAction,
+            setBandWidth = viewModel::setLayerBandWidth,
+            setAdaptiveQuality = viewModel::setAdaptiveQuality,
+            adaptive = viewModel::adaptiveLayers,
+            setSmoothRadius = viewModel::setSmoothRadius,
+            setKeepMin = viewModel::setKeepMin,
+            smooth = viewModel::smoothLayers,
+            reset = viewModel::resetLayers,
+        ),
         simplifyActions = SimplifyActions(
             setUseCount = viewModel::setSimplifyUseCount,
             setReduction = viewModel::setSimplifyReduction,
@@ -434,6 +456,7 @@ internal fun PrepareScreen(
     simplifyActions: SimplifyActions = SimplifyActions.NONE,
     plateActions: PlateActions = PlateActions.NONE,
     cutActions: CutActions = CutActions.NONE,
+    layerActions: LayerEditingActions = LayerEditingActions.NONE,
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
@@ -538,6 +561,7 @@ internal fun PrepareScreen(
                 // _render_sequential_clearance(): with no gizmo open, or the move, rotation or scale gizmo.
                 clearance = state.clearance.takeIf { state.painting == null && state.cut == null && state.simplify == null && state.gizmo != PlateGizmo.LAY_ON_FACE },
                 antialiasingSamples = canvas.antialiasingSamples,
+                layerEditing = state.layerEditing?.view(),
             )
         }
         plateMenu?.let { position ->
@@ -625,6 +649,11 @@ internal fun PrepareScreen(
                 },
             )
         }
+        // The bottoms of the controls at the top and the top of those at the
+        // bottom, between which the variable layer height bar stands.
+        var topControlsBottom by remember { mutableFloatStateOf(0f) }
+        var navigatorBottom by remember { mutableFloatStateOf(0f) }
+        var bottomControlsTop by remember { mutableFloatStateOf(Float.NaN) }
         // The canvas runs under the system bars; its controls stay clear of them.
         Box(
             Modifier
@@ -640,7 +669,8 @@ internal fun PrepareScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = CanvasNavigatorTop, end = CanvasMargin),
+                    .padding(top = CanvasNavigatorTop, end = CanvasMargin)
+                    .onGloballyPositioned { navigatorBottom = it.boundsInParent().bottom },
             ) {
                 if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels())
                 CanvasViewButtons(
@@ -653,7 +683,8 @@ internal fun PrepareScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 12.dp, start = CanvasMargin, end = CanvasMargin),
+                    .padding(top = 12.dp, start = CanvasMargin, end = CanvasMargin)
+                    .onGloballyPositioned { topControlsBottom = it.boundsInParent().bottom },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -672,6 +703,7 @@ internal fun PrepareScreen(
                         arrangeActions.toggle,
                         onToggleGizmo,
                         onToggleCut = cutActions.toggle,
+                        onToggleLayerEditing = layerActions.toggle,
                     )
                 }
                 val position = state.selectedPosition
@@ -696,6 +728,7 @@ internal fun PrepareScreen(
                     state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
                     state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
+                    state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
                         ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo)
@@ -721,13 +754,38 @@ internal fun PrepareScreen(
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
+            // The variable layer height bar (LayersEditing::get_bar_rect_screen()):
+            // the desktop bar fills the canvas's right edge; here it stands at
+            // the right between the controls at the top and those at the bottom.
+            val layerView = state.layerEditing?.view()
+            if (layerView != null && !bottomControlsTop.isNaN()) {
+                val density = LocalDensity.current
+                val top = maxOf(topControlsBottom, navigatorBottom) + with(density) { CanvasMargin.toPx() }
+                val height = bottomControlsTop - with(density) { CanvasMargin.toPx() } - top
+                if (height > with(density) { LayerBarMinHeight.toPx() }) {
+                    LayerHeightBar(
+                        camera = viewCamera,
+                        editing = layerView,
+                        onPress = layerActions.press,
+                        onMove = layerActions.move,
+                        onRelease = layerActions.release,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset { IntOffset(0, top.roundToInt()) }
+                            .padding(end = CanvasMargin)
+                            .height(with(density) { height.toDp() })
+                            .systemGestureExclusion(),
+                    )
+                }
+            }
             // The plates and Undo at the bottom left, the notifications and the
             // slice button beside them at the bottom right, never over each other.
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(12.dp)
+                    .onGloballyPositioned { bottomControlsTop = it.boundsInParent().top },
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
@@ -1081,6 +1139,7 @@ private fun CanvasToolbar(
     onToggleArrange: () -> Unit,
     onToggleGizmo: (PlateGizmo) -> Unit,
     onToggleCut: () -> Unit = {},
+    onToggleLayerEditing: () -> Unit = {},
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -1132,7 +1191,14 @@ private fun CanvasToolbar(
             onClick = { onSplit(ObjectEdit.SPLIT_TO_PARTS) },
             enabled = state.canSplitToParts,
         )
-        unavailable(DesignR.drawable.orca_toolbar_variable_layer_height, R.string.toolbar_variable_layer_height)
+        // Plater::can_layers_editing(): one object selected, standing above the bed.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_variable_layer_height,
+            contentDescription = stringResource(R.string.toolbar_variable_layer_height),
+            onClick = onToggleLayerEditing,
+            enabled = state.canEditLayers || state.layerEditing != null,
+            selected = state.layerEditing != null,
+        )
         OrcaCanvasToolbarSeparator()
         gizmo(DesignR.drawable.orca_toolbar_move, R.string.gizmo_move, PlateGizmo.MOVE)
         gizmo(DesignR.drawable.orca_toolbar_rotate, R.string.gizmo_rotate, PlateGizmo.ROTATE)
@@ -1959,6 +2025,9 @@ private val CanvasMargin = 12.dp
 
 /** The navigator and the FPS overlay stand under the toolbar, which takes the top 12 dp and its own height. */
 private val CanvasNavigatorTop = 62.dp
+
+/** The variable layer height bar is left out where the controls leave it less room than this. */
+private val LayerBarMinHeight = 120.dp
 
 // A gizmo window fits a phone: label, three fields, unit, and reset button in 360 dp.
 private val PositionLabelWidth = 64.dp

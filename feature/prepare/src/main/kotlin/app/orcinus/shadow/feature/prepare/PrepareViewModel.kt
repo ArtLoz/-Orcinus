@@ -18,6 +18,9 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.HandyModel
+import app.orcinus.shadow.core.model.LayerEditing
+import app.orcinus.shadow.core.model.LayerEditingOutcome
+import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
@@ -67,6 +70,7 @@ import app.orcinus.shadow.domain.plate.CutObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
+import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
@@ -106,6 +110,7 @@ import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import app.orcinus.shadow.render.scene.CutConnectorEvent
@@ -124,11 +129,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class PrepareViewModel(
     observePlate: ObservePlateUseCase,
@@ -185,6 +192,7 @@ class PrepareViewModel(
     private val movePlateToFront: MovePlateToFrontUseCase,
     private val plateJobs: PlateJobsUseCase,
     private val setPlateSettings: SetPlateSettingsUseCase,
+    private val editLayerHeights: EditLayerHeightsUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
@@ -222,6 +230,12 @@ class PrepareViewModel(
     private var viewPixel = 0.1
     private var openingCut: Job? = null
     private var closingCut: Job? = null
+
+    /** The height under the finger on the variable layer height bar; null once it let go. */
+    private val layerPress = MutableStateFlow<Double?>(null)
+
+    /** The presses on the bar the engine works through, then accept_changes(). */
+    private var layerPresses: Job? = null
 
     /** What each painting tool was left with, which it opens with again, as the desktop gizmos keep it. */
     private val paintingTools = mutableMapOf<PaintKind, PaintingMode>()
@@ -283,6 +297,43 @@ class PrepareViewModel(
                             ),
                         )
                     } ?: state
+                }
+            }
+        }
+        // Plater::priv::selection_changed(): the variable layer height closes once
+        // the selection is no object it can edit.
+        viewModelScope.launch {
+            plate.map { it.layerEditing && it.layerEditingObject() == null }.distinctUntilChanged().collect { lost ->
+                if (lost) editLayerHeights.enable(false)
+            }
+        }
+        // Plater::priv::on_action_layersediting(): the bar opens over the other
+        // tools of the canvas, which close (GLGizmosManager::reset_all_states()).
+        viewModelScope.launch {
+            plate.map { it.layerEditing }.distinctUntilChanged().collect { on ->
+                if (!on) return@collect
+                closeCut()
+                closePainting()
+                openSimplify.close()
+                view.update { it.copy(gizmo = null, arrangeOptionsOpen = false) }
+            }
+        }
+        // LayersEditing::select_object(): the engine opens on the object the bar
+        // edits, and anew once it changed otherwise than the bar changed it.
+        viewModelScope.launch {
+            plate.map(editLayerHeights::targetOf).distinctUntilChanged().collectLatest { target ->
+                if (target == null) {
+                    layerPress.value = null
+                    editLayerHeights.end()
+                    view.update { it.copy(layerDescription = null, layerCursor = null) }
+                    return@collectLatest
+                }
+                // A page made anew has not seen what the engine opened before it.
+                val seen = view.value.layerDescription?.first == target.mesh
+                when (val outcome = editLayerHeights.open(target, again = !seen)) {
+                    is LayerEditingOutcome.Success -> showLayers(target.mesh, outcome.editing)
+                    is LayerEditingOutcome.Failure -> view.update { it.copy(layerDescription = null) }
+                    null -> Unit
                 }
             }
         }
@@ -449,6 +500,7 @@ class PrepareViewModel(
      */
     fun togglePainting(kind: PaintKind = PaintKind.COLOR) {
         closeCut()
+        editLayerHeights.enable(false)
         val open = view.value.painting
         if (open != null) {
             closePainting()
@@ -483,6 +535,8 @@ class PrepareViewModel(
             return
         }
         current.simplify?.preview?.let(previewSimplify::discard)
+        // A gizmo running closes the variable layer height (_deactivate_layersediting_menu()).
+        editLayerHeights.enable(false)
         // A volume selected anew: half the triangles taken away, and the detail level kept.
         val config = simplifyConfig.copy(decimateRatio = DEFAULT_DECIMATE_RATIO, wantedCount = -1)
         view.update { it.copy(simplify = SimplifyMode(volume, config, simplifyReduction, simplifyWireframe), arrangeOptionsOpen = false) }
@@ -610,6 +664,7 @@ class PrepareViewModel(
         if (!state.canManipulate) return
         closePainting()
         openSimplify.close()
+        editLayerHeights.enable(false)
         val left = lastCut
         val placement = copy.instance.inspection.placement.columns
         val mode = CutMode(
@@ -1103,6 +1158,7 @@ class PrepareViewModel(
         if (!state.canManipulate) return
         openSimplify.close()
         closeCut()
+        editLayerHeights.enable(false)
         view.update { view ->
             view.copy(
                 gizmo = if (state.gizmo == type) null else type,
@@ -1116,8 +1172,106 @@ class PrepareViewModel(
     /** The Arrange toolbar item opens its options window, or closes it; a gizmo closes. */
     fun toggleArrangeOptions() {
         if (!state.value.canArrange) return
+        editLayerHeights.enable(false)
         view.update { it.copy(arrangeOptionsOpen = !it.arrangeOptionsOpen, gizmo = null) }
     }
+
+    /** The toolbar's "Variable layer height": the bar opens on the selected object, or closes. */
+    fun toggleLayerEditing() {
+        if (plate.value.layerEditing) return editLayerHeights.enable(false)
+        if (!state.value.canEditLayers) return
+        editLayerHeights.enable(true)
+    }
+
+    /** The window's Done: the bar closes. */
+    fun closeLayerEditing() = editLayerHeights.enable(false)
+
+    /** The object list's variable layer height mark: the bar opens on that object. */
+    fun editLayersOf(mesh: ScenePath) = editLayerHeights.enableFor(mesh)
+
+    /**
+     * A finger on the bar at [z] (GLCanvas3D::_perform_layer_editing_action()):
+     * the band around it changes as the window's action says, again every
+     * 100 ms while the finger stays (on_timer()) and at once where it slides,
+     * and the object takes the profile once it lets go (accept_changes()).
+     */
+    fun pressLayerBar(z: Double) {
+        if (state.value.layerEditing?.editing == null) return
+        layerPress.value = z
+        view.update { it.copy(layerCursor = z) }
+        if (layerPresses?.isActive == true) return
+        layerPresses = viewModelScope.launch {
+            while (layerPress.value != null) {
+                while (true) {
+                    val at = layerPress.value ?: break
+                    val mode = state.value.layerEditing ?: break
+                    val outcome = editLayerHeights.edit(mode.tools.action, at, LAYER_EDIT_STRENGTH, mode.tools.bandWidth)
+                    if (outcome is LayerEditingOutcome.Success) showLayers(mode.mesh, outcome.editing)
+                    withTimeoutOrNull(LAYER_EDIT_INTERVAL_MILLIS) { layerPress.first { it != at } }
+                }
+                val mesh = state.value.layerEditing?.mesh ?: break
+                val accepted = editLayerHeights.accept()
+                if (accepted is LayerEditingOutcome.Success) {
+                    editLayerHeights.commit(mesh, accepted.editing.profile)
+                    showLayers(mesh, accepted.editing)
+                }
+            }
+        }
+    }
+
+    /** The finger slides along the bar. */
+    fun moveLayerBar(z: Double) {
+        if (layerPress.value == null) return
+        layerPress.value = z
+        view.update { it.copy(layerCursor = z) }
+    }
+
+    /** The finger lets go of the bar. */
+    fun releaseLayerBar() {
+        layerPress.value = null
+        view.update { it.copy(layerCursor = null) }
+    }
+
+    /** What a press on the bar does. */
+    fun setLayerEditAction(action: LayerHeightEdit) = updateLayerTools { it.copy(action = action) }
+
+    /** The band a press edits: the mouse wheel over the bar, between 1.5 and 10 mm. */
+    fun setLayerBandWidth(width: Double) = updateLayerTools {
+        it.copy(bandWidth = width.coerceIn(LayerEditingTools.MIN_BAND_WIDTH, LayerEditingTools.MAX_BAND_WIDTH))
+    }
+
+    fun setAdaptiveQuality(quality: Double) = updateLayerTools { it.copy(adaptiveQuality = quality.coerceIn(0.0, 1.0)) }
+
+    fun setSmoothRadius(radius: Int) = updateLayerTools {
+        it.copy(smoothRadius = radius.coerceIn(LayerEditingTools.MIN_SMOOTH_RADIUS, LayerEditingTools.MAX_SMOOTH_RADIUS))
+    }
+
+    fun setKeepMin(keepMin: Boolean) = updateLayerTools { it.copy(keepMin = keepMin) }
+
+    /** Adaptive: the profile the object's shape asks for at the window's quality (GLCanvas3D::adaptive_layer_height_profile()). */
+    fun adaptiveLayers() = changeLayers { mode -> editLayerHeights.adaptive(mode.tools.adaptiveQuality) }
+
+    /** Smooth (GLCanvas3D::smooth_layer_height_profile()). */
+    fun smoothLayers() = changeLayers { mode -> editLayerHeights.smooth(mode.tools.smoothRadius, mode.tools.keepMin) }
+
+    /** Reset (GLCanvas3D::reset_layer_height_profile()): the object has no profile of its own. */
+    fun resetLayers() = changeLayers(own = { emptyList() }) { editLayerHeights.reset() }
+
+    /** A button of the window: the engine changes the profile, and the object takes it with its snapshot. */
+    private fun changeLayers(own: (LayerEditing) -> List<Double> = LayerEditing::profile, change: suspend (LayerEditingMode) -> LayerEditingOutcome) {
+        val mode = state.value.layerEditing?.takeIf { it.editing != null } ?: return
+        if (layerPress.value != null) return
+        viewModelScope.launch {
+            val outcome = change(mode)
+            if (outcome !is LayerEditingOutcome.Success) return@launch
+            editLayerHeights.commit(mode.mesh, own(outcome.editing))
+            showLayers(mode.mesh, outcome.editing)
+        }
+    }
+
+    private fun updateLayerTools(change: (LayerEditingTools) -> LayerEditingTools) = view.update { it.copy(layerTools = change(it.layerTools)) }
+
+    private fun showLayers(mesh: ScenePath, editing: LayerEditing) = view.update { it.copy(layerDescription = mesh to editing) }
 
     fun changeArrangeSettings(settings: ArrangeSettings) = setArrangeSettings(settings)
 
@@ -1414,6 +1568,10 @@ class PrepareViewModel(
 
         // Keeps the upstream flow through configuration changes.
         const val STOP_TIMEOUT_MILLIS = 5_000L
+
+        /** LayersEditing::strength, and the timer that repeats a press held on the bar (GLCanvas3D::_start_timer()). */
+        const val LAYER_EDIT_STRENGTH = 0.005
+        const val LAYER_EDIT_INTERVAL_MILLIS = 100L
 
         // GizmoObjectManipulation.cpp: MAX_NUM, and the change it ignores (EPSILON).
         const val MAX_NUM = 9999.99

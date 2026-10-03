@@ -14,6 +14,8 @@ import app.orcinus.shadow.core.model.CutPlaneDescription
 import app.orcinus.shadow.core.model.CutPreviewPart
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.FlatteningPlane
+import app.orcinus.shadow.core.model.LayerEditing
+import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintTool
@@ -54,6 +56,7 @@ import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.canAddPlate
 import app.orcinus.shadow.domain.plate.canDeletePlate
 import app.orcinus.shadow.domain.plate.canWorkOnPlate
+import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.presetValue
 import app.orcinus.shadow.domain.plate.spiralVaseMode
 import app.orcinus.shadow.render.scene.CutPlanes
@@ -121,6 +124,10 @@ data class PrepareUiState(
     val painting: PaintingMode? = null,
     /** The cut gizmo, while it is open on a copy. */
     val cut: CutMode? = null,
+    /** The variable layer height, while it is on and the plate can change. */
+    val layerEditing: LayerEditingMode? = null,
+    /** Plater::can_layers_editing(): the toolbar's "Variable layer height" can open on the selection. */
+    val canEditLayers: Boolean = false,
     /** The wipe tower of the plate; null when the plate prints with one filament. */
     val wipeTower: WipeTower? = null,
     /** The tower the last slice built, which the plate shows once it is sliced. */
@@ -308,6 +315,55 @@ internal data class PrepareViewState(
     val arrangeOptionsOpen: Boolean = false,
     /** The Simplify gizmo, while it is open. */
     val simplify: SimplifyMode? = null,
+    /** The variable layer height window's tools, kept while it is closed. */
+    val layerTools: LayerEditingTools = LayerEditingTools(),
+    /** The layers of the object the variable layer height edits, as the engine described them last. */
+    val layerDescription: Pair<ScenePath, LayerEditing>? = null,
+    /** The height under the finger on the variable layer height bar. */
+    val layerCursor: Double? = null,
+)
+
+/**
+ * What the variable layer height bar keeps from one opening to the next
+ * (members of GLCanvas3D::LayersEditing): the band a press edits
+ * ([bandWidth], which the mouse wheel sets), Adaptive's quality and Smooth's
+ * radius and "Keep min". A finger has no right button and no Shift, so what a
+ * press does ([action]) is chosen in the window: the left button's "Add
+ * detail" at first.
+ */
+data class LayerEditingTools(
+    val action: LayerHeightEdit = LayerHeightEdit.DECREASE,
+    val bandWidth: Double = DEFAULT_BAND_WIDTH,
+    val adaptiveQuality: Double = DEFAULT_ADAPTIVE_QUALITY,
+    val smoothRadius: Int = DEFAULT_SMOOTH_RADIUS,
+    val keepMin: Boolean = false,
+) {
+    companion object {
+        /** LayersEditing::band_width, which the wheel keeps between 1.5 and 10 mm. */
+        const val DEFAULT_BAND_WIDTH = 2.0
+        const val MIN_BAND_WIDTH = 1.5
+        const val MAX_BAND_WIDTH = 10.0
+
+        /** LayersEditing::m_adaptive_quality */
+        const val DEFAULT_ADAPTIVE_QUALITY = 0.5
+
+        /** HeightProfileSmoothingParams: radius 5 of 1 to 10. */
+        const val DEFAULT_SMOOTH_RADIUS = 5
+        const val MIN_SMOOTH_RADIUS = 1
+        const val MAX_SMOOTH_RADIUS = 10
+    }
+}
+
+/**
+ * The variable layer height on the object with the [mesh] file: its layers as
+ * the engine describes them (null until it has), the window's [tools], and
+ * the height under the finger on the bar ([cursorZ], null while none is).
+ */
+data class LayerEditingMode(
+    val mesh: ScenePath,
+    val editing: LayerEditing?,
+    val tools: LayerEditingTools,
+    val cursorZ: Double?,
 )
 
 /**
@@ -358,6 +414,10 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         flatteningPlanes = if (gizmo == PlateGizmo.LAY_ON_FACE) view.flatteningPlanes else emptyList(),
         painting = view.painting?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
         cut = view.cut?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
+        layerEditing = layerEditingObject()?.takeIf { layerEditing && canEditPlate }?.let { target ->
+            LayerEditingMode(target.mesh, view.layerDescription?.takeIf { it.first == target.mesh }?.second, view.layerTools, view.layerCursor)
+        },
+        canEditLayers = canEditPlate && layerEditingObject() != null,
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,
         filamentColors = presets?.filamentColors.orEmpty().mapNotNull(::parseFilamentColor),

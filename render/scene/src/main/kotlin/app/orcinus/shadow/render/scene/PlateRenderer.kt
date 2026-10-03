@@ -3,6 +3,7 @@ package app.orcinus.shadow.render.scene
 import android.content.res.AssetManager
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
+import androidx.compose.ui.geometry.Rect
 import app.orcinus.shadow.render.scene.gl.GlDepthTarget
 import app.orcinus.shadow.render.scene.gl.GlOffscreenFrame
 import app.orcinus.shadow.render.scene.gl.GlProgram
@@ -70,7 +71,19 @@ internal class SceneFrame(
      * -normal and offset, which hide the side the normal points to; null clips nothing.
      */
     val clippingPlane: FloatArray? = null,
+    /** The variable layer height while it is on. */
+    val layerEditing: SceneLayerEditing? = null,
 )
+
+/**
+ * GLCanvas3D::m_layers_editing while it is on: what it edits ([view]), the
+ * copies of its object by their index in the scene, and where its bar stands,
+ * in the view's pixels; null while the page shows none.
+ */
+internal data class SceneLayerEditing(val view: LayerEditingView, val indexes: Set<Int>, val bar: Rect?) {
+    /** Whether the variable layer height shader draws [sceneObject]: a model part of a copy of the object (render_volumes()). */
+    fun draws(sceneObject: SceneObject) = sceneObject.index in indexes && !sceneObject.modifier
+}
 
 /**
  * Where the plates stand, in their order, and which one is current
@@ -158,6 +171,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var clearanceArrays: Pair<SceneClearance, List<GlVertexArray>>? = null
     /** GLCanvas3D::m_plate_shadow_mask, with the build volume it was made for (m_plate_shadow_mask_key). */
     private var shadowMask: Pair<Box3, GlVertexArray>? = null
+    /** LayersEditing::m_layers_texture and m_z_texture_id, with what it was generated from. */
+    private var layerTexture: LayerHeightTexture? = null
+    private var layerTextureId = 0
+    private var layerTextureOf: LayerEditingView? = null
+    /** LayersEditing::m_profile.background: the bar's quad, with where it stands. */
+    private var layerBar: Pair<FloatArray, GlVertexArray>? = null
 
     fun setBed(bed: SceneBed?) = synchronized(lock) {
         pendingBed = bed
@@ -207,6 +226,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         screenQuad = null
         shadowMask = null
         clearanceArrays = null
+        layerTextureId = 0
+        layerTextureOf = null
+        layerBar = null
         val samples = IntArray(2)
         GLES30.glGetIntegerv(GLES30.GL_SAMPLES, samples, 0)
         GLES30.glGetIntegerv(GLES30.GL_MAX_SAMPLES, samples, 1)
@@ -238,6 +260,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         // cannot copy the surface's multisampled buffer, or its depth, as desktop OpenGL does.
         val target = if (fxaa || frame.ssao) offscreenFrame() else null
         target?.bind()
+        frame.layerEditing?.let(::updateLayerTexture)
         renderScene(programs, frame)
         if (target != null) {
             // GLCanvas3D::render(): the SSAO pass, then the FXAA pass.
@@ -249,6 +272,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             target.resolve()
             if (fxaa) renderFxaa(programs.fxaa, target) else renderFrame(programs.flatTexture, target)
         }
+        // GLCanvas3D::_render_overlays(): the variable layer height's bar.
+        frame.layerEditing?.let { renderLayerBar(programs.variableLayerHeight, it) }
         measureFps()
     }
 
@@ -739,14 +764,22 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             val origin = plates.currentOrigin
             Box3(scene.buildVolume.min + origin, scene.buildVolume.max + origin)
         }
+        // GLCanvas3D::_render_objects() with the variable layer height on:
+        // the model parts of its object are drawn by render_volumes().
+        val layerEditing = frame.layerEditing
+        val shown = if (layerEditing == null) objects else objects.filterNot(layerEditing::draws)
         // GLVolumeCollection::render(): the opaque volumes first, then the
         // transparent ones blended over them, with the depth buffer kept.
-        for (sceneObject in objects.filterNot(SceneObject::transparent).filterNot(SceneObject::overlay)) {
+        for (sceneObject in shown.filterNot(SceneObject::transparent).filterNot(SceneObject::overlay)) {
             drawVolume(program, frame, sceneObject)
+        }
+        if (layerEditing != null) {
+            programs?.let { renderLayerVolumes(it.variableLayerHeight, frame, layerEditing) }
+            program.use()
         }
         // The painted triangles lie on the object's own surface, so they are
         // drawn with a bias that keeps them in front of it.
-        val painted = objects.filter(SceneObject::overlay)
+        val painted = shown.filter(SceneObject::overlay)
         if (painted.isNotEmpty()) {
             GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)
             GLES30.glPolygonOffset(-1f, -1f)
@@ -755,7 +788,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             }
             GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
         }
-        val transparent = objects.filter(SceneObject::transparent)
+        val transparent = shown.filter(SceneObject::transparent)
         if (transparent.isNotEmpty()) {
             GLES30.glEnable(GLES30.GL_BLEND)
             GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
@@ -768,6 +801,123 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         }
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+    }
+
+    /**
+     * LayersEditing::generate_layer_height_texture(), when the layers changed,
+     * and the texture as render_volumes() loads it: both levels of detail.
+     */
+    private fun updateLayerTexture(editing: SceneLayerEditing) {
+        val view = editing.view
+        if (layerTextureId != 0 && layerTextureOf == view) return
+        val texture = layerTexture ?: LayerHeightTexture().also { layerTexture = it }
+        val generated = layerTextureOf?.let {
+            it.layers == view.layers && it.layerHeight == view.layerHeight && it.minLayerHeight == view.minLayerHeight &&
+                it.maxLayerHeight == view.maxLayerHeight && it.objectPrintZHeight == view.objectPrintZHeight
+        } == true
+        if (!generated) {
+            texture.generate(view.layers, view.layerHeight, view.minLayerHeight, view.maxLayerHeight, view.objectPrintZHeight)
+        }
+        if (layerTextureId == 0) {
+            // LayersEditing::init()
+            val ids = IntArray(1)
+            GLES30.glGenTextures(1, ids, 0)
+            layerTextureId = ids[0]
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, layerTextureId)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR_MIPMAP_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAX_LEVEL, 1)
+        } else if (generated) {
+            // Only the cursor or the band moved: the texture stays.
+            layerTextureOf = view
+            return
+        }
+        GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, layerTextureId)
+        val data = texture.data
+        data.position(0)
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, texture.width, texture.height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, data)
+        data.position(texture.secondLevel)
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 1, GLES30.GL_RGBA, texture.width / 2, texture.height / 2, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, data)
+        data.position(0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        layerTextureOf = view
+    }
+
+    /** The uniforms of the variable_layer_height shader that the object and the bar share. */
+    private fun setLayerUniforms(program: GlProgram, view: LayerEditingView) {
+        val texture = layerTexture ?: return
+        val maxZ = view.objectMaxZ.toFloat()
+        program.setFloat("z_to_texture_row", (texture.cells - 1).toFloat() / (texture.width.toFloat() * maxZ))
+        program.setFloat("z_texture_row_to_normalized", 1f / texture.height.toFloat())
+        // The finger off the bar puts the cursor far below the object (get_cursor_z_relative()).
+        program.setFloat("z_cursor", view.cursorZ?.toFloat() ?: (maxZ * OUTSIDE_BAR))
+        program.setFloat("z_cursor_band_width", view.bandWidth.toFloat())
+        program.setInt("z_texture", 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, layerTextureId)
+    }
+
+    /** LayersEditing::render_volumes(): the object's model parts in the colours of their layers. */
+    private fun renderLayerVolumes(program: GlProgram, frame: SceneFrame, editing: SceneLayerEditing) {
+        if (layerTextureId == 0) return
+        program.use()
+        setLayerUniforms(program, editing.view)
+        program.setMatrix4("projection_matrix", frame.projection)
+        for (sceneObject in objects) {
+            if (!editing.draws(sceneObject) || sceneObject.overlay) continue
+            val mesh = gpuObjects[sceneObject.key]?.second ?: continue
+            program.setMatrix4("volume_world_matrix", sceneObject.world.toFloatArray())
+            program.setFloat("object_max_z", 0f)
+            program.setMatrix4("view_model_matrix", (frame.view * sceneObject.world).toFloatArray())
+            program.setMatrix3("view_normal_matrix", normalMatrix(frame.view, sceneObject.world))
+            val leftHanded = sceneObject.world.isLeftHanded
+            if (leftHanded) GLES30.glFrontFace(GLES30.GL_CW)
+            mesh.draw()
+            if (leftHanded) GLES30.glFrontFace(GLES30.GL_CCW)
+        }
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+    }
+
+    /**
+     * LayersEditing::render_active_object_annotations(): the bar where the
+     * page placed it, the layers' colours along it from the bed at its bottom
+     * to the object's top at its top.
+     */
+    private fun renderLayerBar(program: GlProgram, editing: SceneLayerEditing) {
+        val bar = editing.bar ?: return
+        if (layerTextureId == 0 || viewportWidth <= 0 || viewportHeight <= 0 || editing.view.objectMaxZ <= 0.0) return
+        val l = 2f * bar.left / viewportWidth - 1f
+        val r = 2f * bar.right / viewportWidth - 1f
+        val t = 1f - 2f * bar.top / viewportHeight
+        val b = 1f - 2f * bar.bottom / viewportHeight
+        val corners = floatArrayOf(l, b, r, t)
+        val quad = layerBar?.takeIf { it.first.contentEquals(corners) }?.second ?: run {
+            layerBar?.second?.release()
+            GlVertexArray(
+                GlVertexArray.floatBuffer(
+                    floatArrayOf(
+                        l, b, 0f, 0f, 0f, 1f, 0f, 0f, r, b, 0f, 0f, 0f, 1f, 1f, 0f, r, t, 0f, 0f, 0f, 1f, 1f, 1f,
+                        r, t, 0f, 0f, 0f, 1f, 1f, 1f, l, t, 0f, 0f, 0f, 1f, 0f, 1f, l, b, 0f, 0f, 0f, 1f, 0f, 0f,
+                    ),
+                ),
+                listOf(GlProgram.POSITION to 3, GlProgram.NORMAL to 3, GlProgram.TEX_COORD to 2),
+                GLES30.GL_TRIANGLES,
+            ).also { layerBar = corners to it }
+        }
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        program.use()
+        setLayerUniforms(program, editing.view)
+        program.setFloat("object_max_z", editing.view.objectMaxZ.toFloat())
+        program.setMatrix4("view_model_matrix", IDENTITY)
+        program.setMatrix4("projection_matrix", IDENTITY)
+        program.setMatrix3("view_normal_matrix", IDENTITY3)
+        quad.draw()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
     }
 
     /**
@@ -1033,6 +1183,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val phong = GlProgram(assets, "phong")
         val ssao = GlProgram(assets, "ssao")
         val printbed = GlProgram(assets, "printbed")
+        val variableLayerHeight = GlProgram(assets, "variable_layer_height")
     }
 
     private class GpuBed(val scene: SceneBed) {
@@ -1093,6 +1244,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
         // Transform3d::Identity(), column-major.
         val IDENTITY = floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f)
+        val IDENTITY3 = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
+        // LayersEditing::get_cursor_z_relative() off the bar.
+        const val OUTSIDE_BAR = -1000f
         // UPPER_PART_COLOR and LOWER_PART_COLOR of GLGizmoCut.cpp: ColorRGBA::CYAN() and MAGENTA().
         val UPPER_PART_COLOR = floatArrayOf(0f, 1f, 1f, 1f)
         val LOWER_PART_COLOR = floatArrayOf(1f, 0f, 1f, 1f)

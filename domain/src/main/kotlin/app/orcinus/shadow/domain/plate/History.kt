@@ -26,6 +26,7 @@ internal fun PlateState.snapshot() = PlateSnapshot(
     selectedRange = selectedRange,
     plates = partPlates().map { PartPlate(name = it.name, locked = it.locked, settings = it.settings) },
     currentPlate = currentPlate,
+    layerEditing = layerEditing,
 )
 
 /**
@@ -98,7 +99,12 @@ class UndoRedoPlateUseCase(
             selectedPart = target.selectedPart,
             selectedRange = target.selectedRange,
             history = history,
-        ).withPlates(plates, target.currentPlate.coerceIn(plates.indices))
+            // Plater::priv::undo_redo_to(): the variable layer height is on after
+            // the jump as it was when the snapshot was taken, where it is allowed.
+            layerEditing = target.layerEditing,
+        ).withPlates(plates, target.currentPlate.coerceIn(plates.indices)).let { restored ->
+            if (restored.layerEditing && restored.layerEditingObject() == null) restored.copy(layerEditing = false) else restored
+        }
     }
 }
 

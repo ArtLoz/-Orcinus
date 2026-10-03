@@ -9,6 +9,7 @@ import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.ui.ExportResultDialog
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.shareDocument
+import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
@@ -394,10 +395,14 @@ class SidebarViewModel(
     private val lockPlate: LockPlateUseCase,
     private val renamePlate: RenamePlateUseCase,
     private val addPrimitive: AddPrimitiveUseCase,
+    private val editLayerHeights: EditLayerHeightsUseCase,
     preferences: AppPreferences,
 ) : ViewModel() {
     /** What the Preferences change on the clone dialog. */
     val canvas: StateFlow<CanvasPreferences> = preferences.canvas
+
+    /** The variable layer height mark of an object's row: the bar opens on the object. */
+    fun editLayersOf(mesh: ScenePath) = editLayerHeights.enableFor(mesh)
 
     /** A plate item of the object list: nothing stays selected and the plate becomes current (ObjectList::selection_changed). */
     fun choosePlate(index: Int) {
@@ -1532,6 +1537,7 @@ fun PlateSidebar(
             setRangeExtruder = viewModel::setRangeExtruder,
             delete = viewModel::deleteObject,
             setObjectPrintable = viewModel::setWholeObjectPrintable,
+            editLayers = viewModel::editLayersOf,
             toggleFlushOption = viewModel::toggleFlushOption,
             editProcessSettings = viewModel::editProcessSettings,
             copyProcessSettings = viewModel::copyProcessSettings,
