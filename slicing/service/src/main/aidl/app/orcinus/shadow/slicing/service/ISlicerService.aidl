@@ -349,10 +349,8 @@ interface ISlicerService {
     /** GLGizmoPainterBase: the painting tools of the 3D view; kind is the PaintKind's name. */
     PaintingParcel beginPainting(
         in PlacedModelParcel plateObject,
-        int part,
         String kind,
         in ProfilesParcel profiles,
-        String facets,
         String meshPrefix,
         int instance,
         boolean assemblyView,

@@ -179,10 +179,8 @@ class ModelImportAndInspectionUseCasesTest {
     ) : PlateInspector {
         override suspend fun beginPainting(
             plateObject: PlacedModel,
-            part: Int?,
             kind: PaintKind,
             profiles: SlicingProfileSelection,
-            facets: PaintedFacets,
             meshPrefix: ScenePath,
             placement: PaintPlacement,
         ): PaintingOutcome = PaintingOutcome.Success(PaintedSurface())

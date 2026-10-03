@@ -723,7 +723,9 @@ internal fun PaintingOutcome.toParcel() = PaintingParcel().also {
             it.hit = hit
             it.states = states.toIntArray()
             it.meshes = meshes.map(ScenePath::value).toTypedArray()
+            it.volumes = volumes.toIntArray()
             it.facets = facets.value
+            it.partFacets = partFacets.map(PaintedFacets::value).toTypedArray()
             it.canUndo = canUndo
             it.canRedo = canRedo
         }
@@ -736,7 +738,9 @@ internal fun PaintingParcel.toOutcome(): PaintingOutcome = error?.let(PaintingOu
             hit = hit,
             states = states?.toList().orEmpty(),
             meshes = meshes?.map(::ScenePath).orEmpty(),
+            volumes = volumes?.toList().orEmpty(),
             facets = PaintedFacets(facets.orEmpty()),
+            partFacets = partFacets?.map(::PaintedFacets).orEmpty(),
             canUndo = canUndo,
             canRedo = canRedo,
         ),

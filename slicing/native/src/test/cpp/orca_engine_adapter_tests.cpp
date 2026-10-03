@@ -2040,7 +2040,7 @@ TEST_CASE("A painting tool's section view hides the model beyond its plane", "[A
     REQUIRE(above.status == orca::SceneStatus::success);
     CHECK(above.mesh.empty());
 
-    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::color, k2_plus_profiles(), {}, output_path("section-paint")).status ==
+    REQUIRE(orca::begin_painting(plate.front(), orca::PaintKind::color, k2_plus_profiles(), output_path("section-paint")).status ==
             orca::SceneStatus::success);
     orca::PaintStroke stroke;
     stroke.origin[0] = center[12];
@@ -2078,7 +2078,7 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
 
     // GLGizmoMmuSegmentation: the tool opens on the object, paints, and closes.
     const orca::PaintingState opened =
-        orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, {}, output_path("paint-face"));
+        orca::begin_painting(plate.front(), orca::PaintKind::color, profiles, output_path("paint-face"));
     INFO(opened.message);
     REQUIRE(opened.status == orca::SceneStatus::success);
     CHECK(opened.states.empty());
@@ -2110,7 +2110,7 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
     // The tool's own Undo and Redo: a stroke is undone as a whole, and a
     // stroke that begins off the model and moves onto it is one step too.
     {
-        const orca::PaintingState again = orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, {}, output_path("paint-undo"));
+        const orca::PaintingState again = orca::begin_painting(plate.front(), orca::PaintKind::color, profiles, output_path("paint-undo"));
         REQUIRE(again.status == orca::SceneStatus::success);
         CHECK_FALSE(again.can_undo);
         orca::PaintStroke first = stroke;
@@ -2143,8 +2143,9 @@ TEST_CASE("A model painted with a filament prints with it", "[Adapter][Scene]")
     }
 
     // A stroke that misses the model paints nothing.
+    plate.front().painted = closed.facets;
     const orca::PaintingState reopened =
-        orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, closed.facets, output_path("paint-again"));
+        orca::begin_painting(plate.front(), orca::PaintKind::color, profiles, output_path("paint-again"));
     REQUIRE(reopened.status == orca::SceneStatus::success);
     // The painted facets come back with the session.
     REQUIRE(reopened.states.size() == 1);
@@ -4873,6 +4874,49 @@ TEST_CASE("Mesh Boolean joins, subtracts and intersects two volumes of an object
     }
 }
 
+TEST_CASE("A painting tool paints every model part of its object", "[Adapter][Scene][PaintParts]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("paint-parts-cube"), {});
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    const orca::ImportedModels with_part = orca::load_volume({plate_object_of(imported.objects.front())}, 0, device_dir + "/data/2x20x10.obj",
+                                                             "2x20x10.obj", orca::VolumeType::part, k2_plus_profiles(), import_prefix("paint-parts-part"));
+    REQUIRE(with_part.status == orca::SceneStatus::success);
+    // The block stands beside the cube.
+    std::vector<double> beside = with_part.objects.front().parts.front().matrix;
+    beside[12] -= 25.0;
+    const orca::ImportedModels placed = orca::place_volume({plate_object_of(with_part.objects.front())}, 0, 1, beside, orca::Manipulation::move,
+                                                           k2_plus_profiles(), import_prefix("paint-parts-placed"));
+    INFO(placed.message);
+    REQUIRE(placed.status == orca::SceneStatus::success);
+    const orca::ImportedObject& object = placed.objects.front();
+    const std::array<double, 16>& instance = object.instances.front().instance_matrix;
+    const std::vector<double>& part = object.parts.front().matrix;
+
+    const orca::PaintingState opened = orca::begin_painting(plate_object_of(object), orca::PaintKind::color, k2_plus_profiles(), output_path("paint-parts"));
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    // A stroke from above onto the block paints the block.
+    orca::PaintStroke stroke;
+    stroke.origin[0] = instance[12] + part[12];
+    stroke.origin[1] = instance[13] + part[13];
+    stroke.origin[2] = 100.0;
+    stroke.direction[2] = -1.0;
+    stroke.state = 1;
+    const orca::PaintingState painted = orca::paint(stroke, output_path("paint-parts"));
+    REQUIRE(painted.status == orca::SceneStatus::success);
+    CHECK(painted.hit);
+    REQUIRE(painted.volumes.size() == painted.meshes.size());
+    CHECK(painted.volumes == std::vector<int>{1});
+    const orca::PaintingState closed = orca::end_painting();
+    REQUIRE(closed.status == orca::SceneStatus::success);
+    // The cube is as it was; the block has its painting.
+    CHECK(closed.facets.empty());
+    REQUIRE(closed.part_facets.size() == 1);
+    CHECK_FALSE(closed.part_facets.front().empty());
+}
+
 // matrix with its offset moved by dz.
 std::vector<double> raised(std::vector<double> matrix, double dz)
 {
@@ -5857,7 +5901,7 @@ TEST_CASE("Supports painted under an overhang print there alone, and keep the co
     // The object is painted with a colour first.
     orca::ProfileSelection profiles = k2_plus_profiles();
     profiles.filaments = {k2_plus_profiles().filament, k2_plus_profiles().filament};
-    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, {}, output_path("t-color")).status ==
+    REQUIRE(orca::begin_painting(plate.front(), orca::PaintKind::color, profiles, output_path("t-color")).status ==
             orca::SceneStatus::success);
     // Beside the pillar: straight over the middle the ray meets the slab's
     // underside and the pillar's top as one hit (AABBMesh::query_ray_hits()
@@ -5877,7 +5921,7 @@ TEST_CASE("Supports painted under an overhang print there alone, and keep the co
 
     // GLGizmoFdmSupports: the smart fill enforces supports under the slab, from below.
     const orca::PaintingState opened =
-        orca::begin_painting(plate.front(), -1, orca::PaintKind::supports, profiles, plate.front().painted, output_path("t-supports"));
+        orca::begin_painting(plate.front(), orca::PaintKind::supports, profiles, output_path("t-supports"));
     INFO(opened.message);
     REQUIRE(opened.status == orca::SceneStatus::success);
     // The colours are not the supports' paint.
@@ -5921,8 +5965,9 @@ TEST_CASE("Supports painted under an overhang print there alone, and keep the co
     CHECK(supports_of(closed.facets, "t-enforced"));
 
     // Opening the colours again finds them as they were.
+    plate.front().painted = closed.facets;
     const orca::PaintingState colours =
-        orca::begin_painting(plate.front(), -1, orca::PaintKind::color, profiles, closed.facets, output_path("t-color-again"));
+        orca::begin_painting(plate.front(), orca::PaintKind::color, profiles, output_path("t-color-again"));
     CHECK(colours.states == std::vector<int>{2});
     // Unchanged, the painting stays the file it was opened with.
     CHECK(orca::end_painting().facets == closed.facets);
@@ -5990,7 +6035,7 @@ TEST_CASE("The seam stands where it is enforced", "[Adapter][Scene]")
 
     // GLGizmoSeam: a circle enforcing the seam on the +X face, seen from +X.
     const std::string prefix = output_path("seam-paint");
-    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::seam, k2_plus_profiles(), {}, prefix).status ==
+    REQUIRE(orca::begin_painting(plate.front(), orca::PaintKind::seam, k2_plus_profiles(), prefix).status ==
             orca::SceneStatus::success);
     orca::PaintStroke stroke;
     stroke.origin[0] = cx + 100.0;
@@ -6053,7 +6098,7 @@ TEST_CASE("Painted fuzzy skin roughens the walls where it is painted", "[Adapter
     // GLGizmoFuzzySkin: Triangles adds fuzzy skin to one triangle of the +X
     // face, seen from +X.
     const std::string prefix = output_path("fuzzy-paint");
-    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::fuzzy_skin, k2_plus_profiles(), {}, prefix).status ==
+    REQUIRE(orca::begin_painting(plate.front(), orca::PaintKind::fuzzy_skin, k2_plus_profiles(), prefix).status ==
             orca::SceneStatus::success);
     orca::PaintStroke stroke;
     stroke.origin[0] = center[12] + 100.0;
@@ -6081,7 +6126,7 @@ TEST_CASE("The gap fill shows the painting without its small patches, and merges
     REQUIRE(cube.status == orca::SceneStatus::success);
     const std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
     const std::string prefix = output_path("gaps");
-    REQUIRE(orca::begin_painting(plate.front(), -1, orca::PaintKind::supports, k2_plus_profiles(), {}, prefix).status ==
+    REQUIRE(orca::begin_painting(plate.front(), orca::PaintKind::supports, k2_plus_profiles(), prefix).status ==
             orca::SceneStatus::success);
 
     // A dab of about 3 mm² enforcing supports on the top of the cube.

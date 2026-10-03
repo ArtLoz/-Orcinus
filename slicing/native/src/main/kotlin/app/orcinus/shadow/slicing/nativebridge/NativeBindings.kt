@@ -93,9 +93,12 @@ internal class NativePainting(
     @JvmField val hit: Boolean,
     /** The states the model is painted with (EnforcerBlockerType; the filaments for colour). */
     @JvmField val states: DoubleArray,
-    /** The mesh of the triangles painted in each of them. */
+    /** The mesh of the triangles painted in each of them, and the volume it lies on. */
     @JvmField val meshes: Array<String>,
+    @JvmField val volumes: IntArray,
+    /** The painted facets of the object's own mesh and of each part. */
     @JvmField val facets: String,
+    @JvmField val partFacets: Array<String>,
     /** Whether the tool can undo or redo a stroke. */
     @JvmField val canUndo: Boolean,
     @JvmField val canRedo: Boolean,
@@ -1206,15 +1209,12 @@ internal object NativeBindings {
     external fun beginPainting(
         /** The object alone, as a plate of one. */
         plateObject: NativePlate,
-        /** The part to paint; -1 paints the object's own mesh. */
-        part: Int,
         /** PaintKind's ordinal. */
         kind: Long,
         printerProfile: String,
         filamentProfile: String,
         filamentProfiles: Array<String>,
         processProfile: String,
-        facets: String,
         meshPrefix: String,
         /** PaintPlacement: the copy painted, and the assembly view with its explosion ratio. */
         instance: Int,

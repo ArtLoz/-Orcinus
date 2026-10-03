@@ -390,11 +390,14 @@ fun PlateView(
                                 PaintKind.COLOR -> filamentColors.getOrNull(mesh.state - 1) ?: color
                                 else -> if (mesh.state == PaintState.BLOCKER) GizmoColors.BLOCKERS else GizmoColors.ENFORCERS
                             }
-                            runCatching { SceneLoader.loadPaintedMesh(copyIndex, mesh, instance, paint, meshes) }.getOrNull()
+                            // The paint of a part lies on the part, where it stands in the object.
+                            val part = plateObject.parts.getOrNull(mesh.volume - 1)
+                            runCatching { SceneLoader.loadPaintedMesh(copyIndex, mesh, instance, paint, meshes, part) }.getOrNull()
                                 ?.let { if (byTool) it.paintedByTool(paint) else it }
+                                ?.let { part to it }
                         }
                         if (!inAssembly) {
-                            listOfNotNull(copy) + parts.map { it.second } + painted
+                            listOfNotNull(copy) + parts.map { it.second } + painted.map { it.second }
                         } else {
                             // GLCanvas3D::reload_scene() for the assembly view: the
                             // copy's model parts alone, where it stands in the assembly.
@@ -404,7 +407,7 @@ fun PlateView(
                             val faint = hidden && painted.isNotEmpty()
                             listOfNotNull(copy?.let { placement.place(it, hidden = hidden && !faint, faint = faint) }) +
                                 parts.filter { (part, _) -> part.type == VolumeType.PART }.map { (part, volume) -> placement.place(volume, part.placement, hidden = hidden) } +
-                                painted.map { placement.place(it, faint = hidden) }
+                                painted.map { (part, volume) -> placement.place(volume, part?.placement, faint = hidden) }
                         }
                     }
                 }
@@ -1568,15 +1571,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private fun targetOf(drag: Drag): SceneObject? =
         drag.key?.let { key -> objects.firstOrNull { it.index == drag.index && it.key == key } } ?: objects.firstOrNull { it.index == drag.index }
 
-    /**
-     * The volumes drawn selected while one is selected alone: it, with the
-     * paint of the copy's own mesh when it is that mesh; null while copies are.
-     */
+    /** The volumes drawn selected while one is selected alone: it, with the paint on it; null while copies are. */
     private fun selectedVolumes(): Set<String>? {
         val key = selectedVolume?.takeIf { assembly == null } ?: return null
-        val volumes = plateObjects.filter { it.index == selectedIndex }
-        val own = volumes.firstOrNull()?.key == key
-        return volumes.filter { it.key == key || (own && it.overlay) }.mapTo(HashSet()) { it.key }
+        return plateObjects.filter { it.index == selectedIndex && (it.key == key || it.paintedOn == key) }.mapTo(HashSet()) { it.key }
     }
 
     /**
@@ -2581,8 +2579,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * The moved volume replaces the one it was made from; the other volumes of
      * the same copy — the parts of the object — follow it through the same
      * transformation, as the desktop app moves a ModelObject with its volumes.
-     * A volume moved [alone] takes the paint of the copy's own mesh along when
-     * it is that mesh.
+     * A volume moved [alone] takes the paint on it along.
      */
     private fun replaceObject(sceneObject: SceneObject, alone: Boolean = false) {
         if (sceneObject.index == WIPE_TOWER_INDEX) {
@@ -2590,13 +2587,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         } else {
             val previous = plateObjects.firstOrNull { it.index == sceneObject.index && it.key == sceneObject.key }
             val transform = previous?.let { sceneObject.world * it.world.inverse() }
-            val own = plateObjects.firstOrNull { it.index == sceneObject.index }?.key == sceneObject.key
             plateObjects = plateObjects.map { volume ->
                 when {
                     volume.index != sceneObject.index -> volume
                     volume.key == sceneObject.key -> sceneObject
                     transform == null -> volume
-                    alone && !(own && volume.overlay) -> volume
+                    alone && volume.paintedOn != sceneObject.key -> volume
                     else -> volume.withWorld(transform * volume.world)
                 }
             }

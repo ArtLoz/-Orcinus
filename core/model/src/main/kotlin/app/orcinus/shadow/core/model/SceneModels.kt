@@ -478,8 +478,11 @@ data class PaintedSurface(
     val states: List<Int> = emptyList(),
     /** The mesh of the triangles painted with each of them, in the same order. */
     val meshes: List<ScenePath> = emptyList(),
-    /** The painted facets, reported when the tool closes. */
+    /** The volume each mesh lies on, in the same order ([PaintedMesh.volume]). */
+    val volumes: List<Int> = emptyList(),
+    /** The painted facets of the object's own mesh and of each part, reported when the tool closes. */
     val facets: PaintedFacets = PaintedFacets(),
+    val partFacets: List<PaintedFacets> = emptyList(),
     /** Whether the tool can undo or redo a stroke (the gizmo's own undo/redo stack). */
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,

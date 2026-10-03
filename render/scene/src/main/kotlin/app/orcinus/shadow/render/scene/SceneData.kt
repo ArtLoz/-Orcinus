@@ -130,23 +130,25 @@ internal class SceneObject(
     val explosion: Vec3 = Vec3.ZERO,
     /** GLVolume::visible off: the assembly view's "Hide" draws the volume in MODEL_HIDDEN_COL. */
     val hidden: Boolean = false,
+    /** Of painted triangles ([overlay]): the key of the volume whose surface they lie on, which they move with. */
+    val paintedOn: String? = null,
 ) {
     val bounds = mesh.bounds.transformed(world)
 
     fun withWorld(world: Affine3) = SceneObject(
         index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool, modifier,
-        explosion, hidden,
+        explosion, hidden, paintedOn,
     )
 
     fun withWireframe(wireframe: Boolean) = SceneObject(
         index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, paintedByTool, modifier,
-        explosion, hidden,
+        explosion, hidden, paintedOn,
     )
 
     /** The object as the painting tool draws it, in [color]. */
     fun paintedByTool(color: ColorRgba) = SceneObject(
         index, key, mesh, world, color, sphereCenter, sphereRadius, autoDrop, printable, transparent, overlay, wireframe, partlyInside, true, modifier,
-        explosion, hidden,
+        explosion, hidden, paintedOn,
     )
 
     /**
@@ -157,7 +159,7 @@ internal class SceneObject(
      */
     fun inAssembly(world: Affine3, explosion: Vec3, hidden: Boolean, faint: Boolean) = SceneObject(
         index, key, mesh, world, if (faint) color.copy(alpha = VolumeColors.HIDDEN.alpha) else color, sphereCenter, sphereRadius, autoDrop, printable,
-        transparent || hidden || faint, overlay, wireframe, false, paintedByTool, modifier, explosion, hidden,
+        transparent || hidden || faint, overlay, wireframe, false, paintedByTool, modifier, explosion, hidden, paintedOn,
     )
 
     /** GLVolume::world_matrix() once the explosion ratio grew by [ratio]. */
@@ -468,8 +470,11 @@ internal object SceneLoader {
         instance: PlateInstance,
         color: ColorRgba,
         meshes: MeshCache,
+        /** The part the triangles lie on; null for the object's own mesh. */
+        part: ObjectPart? = null,
     ): SceneObject {
-        val world = Affine3(instance.inspection.placement.columns.toDoubleArray())
+        val placement = Affine3(instance.inspection.placement.columns.toDoubleArray())
+        val world = part?.let { placement * Affine3(it.placement.columns.toDoubleArray()) } ?: placement
         val mesh = meshes[painted.mesh.value]
         return SceneObject(
             index = index,
@@ -483,6 +488,7 @@ internal object SceneLoader {
             printable = instance.printable,
             overlay = true,
             partlyInside = instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE,
+            paintedOn = part?.mesh?.value ?: instance.inspection.mesh.value,
         )
     }
 

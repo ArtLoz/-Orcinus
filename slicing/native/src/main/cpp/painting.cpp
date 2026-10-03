@@ -1,9 +1,10 @@
 // Painting a model, ported from OrcaSlicer's painting gizmos over
 // GLGizmoPainterBase (colour, supports, seam and fuzzy skin): the desktop app
-// keeps a TriangleSelector per volume while a gizmo is open and paints into it
-// with a cursor that follows the mouse. The app does the same through a
-// painting session: it opens one of a kind for the volume it paints, sends the
-// strokes of a finger, and closes it with the painted facets in hand.
+// keeps a TriangleSelector per model part while a gizmo is open and paints into
+// them with a cursor that follows the mouse. The app does the same through a
+// painting session: it opens one of a kind for the object it paints, sends the
+// strokes of a finger, and closes it with the painted facets of every volume
+// in hand.
 
 #include <algorithm>
 #include <array>
@@ -14,6 +15,7 @@
 #include <queue>
 #include <set>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -422,39 +424,59 @@ public:
 };
 
 /**
+ * A model part of the painted object while the tool is open: the desktop
+ * gizmo keeps a TriangleSelectorGUI and a MeshRaycaster for every model part
+ * of the object (GLGizmoPainterBase::m_triangle_selectors).
+ */
+struct PaintedVolume {
+    // Its place in ModelObject::volumes.
+    std::size_t index{0};
+    // Its mesh in its own coordinates, with the tree that finds the triangle
+    // under the finger.
+    Slic3r::TriangleMesh mesh;
+    std::unique_ptr<Slic3r::AABBMesh> tree;
+    std::unique_ptr<PatchSelector> selector;
+    // Where it stands in the world (the gizmo's trafo matrices), which the
+    // cursor needs, and in the object.
+    Slic3r::Transform3d world{Slic3r::Transform3d::Identity()};
+    Slic3r::Transform3d in_object{Slic3r::Transform3d::Identity()};
+};
+
+/** The painting of every model part, in the order of Session::volumes. */
+using Snapshot = std::vector<Slic3r::TriangleSelector::TriangleSplittingData>;
+
+/**
  * The painting session, which lives while the tool is open, as the desktop
  * gizmo keeps its selectors while it is shown.
  */
 struct Session {
     bool open{false};
-    // What the session paints, and the painting of the volume of every kind,
-    // which end_painting() hands back with the session's kind painted anew.
+    // What the session paints.
     PaintKind kind{PaintKind::color};
-    KindFacets painting;
-    // The file the session opened with, handed back while nothing changed,
-    // and where the painting is written once it did.
-    std::string opened_with;
-    std::string painting_path;
-    // The mesh being painted, in its own coordinates, with the tree that finds
-    // the triangle under the finger.
-    Slic3r::TriangleMesh mesh;
-    std::unique_ptr<Slic3r::AABBMesh> tree;
-    std::unique_ptr<PatchSelector> selector;
+    // The painting of every volume of the object (ModelObject::volumes), of
+    // every kind, and the file it came in, which end_painting() hands back
+    // while the volume's painting did not change; once it did, it is written
+    // to "<prefix>-<volume>.painted" with the session's kind painted anew.
+    std::vector<KindFacets> painting;
+    std::vector<std::string> opened_with;
+    std::string painting_prefix;
+    // The model parts, which the finger paints.
+    std::vector<PaintedVolume> volumes;
     // The gap fill tool's area while it is chosen (TriangleSelectorPatch's
     // filter state), negative otherwise.
     double gap_area{-1.0};
-    // Where the volume stands in the world, which the cursor needs.
-    Slic3r::Transform3d world{Slic3r::Transform3d::Identity()};
     // The gizmo's own undo/redo stack: the painting before each stroke, and
     // the paintings Undo left, the next one last.
-    std::vector<Slic3r::TriangleSelector::TriangleSplittingData> undo;
-    std::vector<Slic3r::TriangleSelector::TriangleSplittingData> redo;
+    std::vector<Snapshot> undo;
+    std::vector<Snapshot> redo;
     // A stroke began and has not met the model yet.
     bool stroke_pending{false};
-    // Where the stroke last met the model, in the mesh's coordinates, and on
-    // which facet: the brush paints from there to where the finger is now
-    // (the gizmo's DoublePointCursor between its mouse positions).
+    // Where the stroke last met the model: on which model part, in its
+    // coordinates, and on which facet. The brush paints from there to where
+    // the finger is now (the gizmo's DoublePointCursor between its mouse
+    // positions) while it stays on the same part.
     bool has_last{false};
+    std::size_t last_volume{0};
     Slic3r::Vec3f last_position{Slic3r::Vec3f::Zero()};
     int last_face{-1};
     // How many times the painted meshes were written, which names them anew
@@ -468,28 +490,57 @@ Session& session()
     return current;
 }
 
-/** The triangles painted in each state, written for the 3D view, and what the tool can undo. */
+Snapshot snapshot_of(const Session& current)
+{
+    Snapshot snapshot;
+    for (const PaintedVolume& volume : current.volumes) {
+        snapshot.push_back(volume.selector->serialize());
+    }
+    return snapshot;
+}
+
+void restore(Session& current, const Snapshot& snapshot)
+{
+    for (std::size_t index = 0; index < current.volumes.size() && index < snapshot.size(); ++index) {
+        current.volumes[index].selector->deserialize(snapshot[index], true);
+    }
+}
+
+/**
+ * The triangles painted in each state, written for the 3D view, and what the
+ * tool can undo: per model part, those of the object's own mesh in the
+ * object's coordinates, as the view draws that mesh, and those of a part in
+ * the part's own, as the view places the part.
+ */
 void write_painted_meshes(const std::string& mesh_prefix, PaintingState& result)
 {
-    result.can_undo = !session().undo.empty();
-    result.can_redo = !session().redo.empty();
-    std::vector<indexed_triangle_set> per_state;
-    if (session().gap_area >= 0.0) {
-        session().selector->get_gap_filled_facets(session().gap_area, per_state);
-    } else {
-        session().selector->get_facets(per_state);
-    }
-    const std::size_t write = session().writes++;
-    for (std::size_t state = 1; state < per_state.size(); ++state) {
-        if (per_state[state].indices.empty()) {
-            continue;
+    Session& current = session();
+    result.can_undo = !current.undo.empty();
+    result.can_redo = !current.redo.empty();
+    const std::size_t write = current.writes++;
+    for (const PaintedVolume& volume : current.volumes) {
+        std::vector<indexed_triangle_set> per_state;
+        if (current.gap_area >= 0.0) {
+            volume.selector->get_gap_filled_facets(current.gap_area, per_state);
+        } else {
+            volume.selector->get_facets(per_state);
         }
-        const std::string path = mesh_prefix + "-" + std::to_string(state) + "-" + std::to_string(write) + ".mesh";
-        if (!detail::write_mesh(per_state[state], path)) {
-            continue;
+        for (std::size_t state = 1; state < per_state.size(); ++state) {
+            if (per_state[state].indices.empty()) {
+                continue;
+            }
+            if (volume.index == 0) {
+                its_transform(per_state[state], volume.in_object, true);
+            }
+            const std::string path =
+                mesh_prefix + "-" + std::to_string(volume.index) + "-" + std::to_string(state) + "-" + std::to_string(write) + ".mesh";
+            if (!detail::write_mesh(per_state[state], path)) {
+                continue;
+            }
+            result.states.push_back(static_cast<int>(state));
+            result.meshes.push_back(path);
+            result.volumes.push_back(static_cast<int>(volume.index));
         }
-        result.states.push_back(static_cast<int>(state));
-        result.meshes.push_back(path);
     }
 }
 
@@ -531,10 +582,8 @@ std::string painted_facets_of(const Slic3r::ModelVolume& volume, const std::stri
 
 PaintingState begin_painting(
     const PlateObject& object,
-    const int part,
     const PaintKind kind,
     const ProfileSelection& profiles,
-    const std::string& facets,
     const std::string& mesh_prefix,
     const PaintPlacement& placement
 )
@@ -561,59 +610,63 @@ PaintingState begin_painting(
             return result;
         }
         const Slic3r::ModelObject& loaded = *model.objects.front();
-        // The object's own mesh is its first volume; a part is the one after it.
-        const std::size_t volume_index = part < 0 ? 0 : static_cast<std::size_t>(part) + 1;
-        if (volume_index >= loaded.volumes.size()) {
+        if (loaded.volumes.size() != object.parts.size() + 1) {
             result.status = SceneStatus::model_read_failed;
-            result.message = "The plate has no such part";
+            result.message = "The object's volumes do not match its parts";
             return result;
         }
-        const Slic3r::ModelVolume& volume = *loaded.volumes[volume_index];
 
         Session& current = session();
-        current.mesh = volume.mesh();
-        current.tree = std::make_unique<Slic3r::AABBMesh>(current.mesh);
-        current.selector = std::make_unique<PatchSelector>(current.mesh);
-        current.gap_area = -1.0;
+        current = Session();
+        current.kind = kind;
+        current.painting_prefix = mesh_prefix;
         // GLGizmoPainterBase's trafo matrices: the selected copy, or in the
         // assembly view its assemble transformation with the explosion's offsets.
         const std::size_t copy = placement.instance > 0 && std::size_t(placement.instance) < loaded.instances.size() ? std::size_t(placement.instance) : 0;
-        if (loaded.instances.empty()) {
-            current.world = volume.get_matrix();
-        } else if (placement.assembly_view) {
-            const Slic3r::ModelInstance& instance = *loaded.instances[copy];
-            current.world = instance.get_assemble_transformation().get_matrix() * volume.get_matrix();
-            current.world.translate(
-                volume.get_transformation().get_offset() * (placement.explosion_ratio - 1.0) +
-                instance.get_offset_to_assembly() * (placement.explosion_ratio - 1.0));
-        } else {
-            current.world = loaded.instances[copy]->get_transformation().get_matrix() * volume.get_matrix();
-        }
-        current.kind = kind;
-        std::string opened;
-        if (!read_painting(facets, opened)) {
-            result.status = SceneStatus::model_read_failed;
-            result.message = "The painted facets could not be read";
-            return result;
-        }
-        current.painting = split_painting(opened);
-        current.opened_with = facets;
-        current.painting_path = mesh_prefix + ".painted";
-        const std::string& painted = current.painting[static_cast<std::size_t>(kind)];
-        if (!painted.empty()) {
-            Slic3r::TriangleSelector::TriangleSplittingData data;
-            if (!deserialize_facets(painted, data)) {
+        for (std::size_t index = 0; index < loaded.volumes.size(); ++index) {
+            const Slic3r::ModelVolume& volume = *loaded.volumes[index];
+            // The painting the app keeps for the object's own mesh and each part.
+            const std::string& facets = index == 0 ? object.painted : object.parts[index - 1].painted;
+            std::string opened;
+            if (!read_painting(facets, opened)) {
                 result.status = SceneStatus::model_read_failed;
                 result.message = "The painted facets could not be read";
                 return result;
             }
-            current.selector->deserialize(data, true);
+            current.painting.push_back(split_painting(opened));
+            current.opened_with.push_back(facets);
+            // The gizmo paints the model parts alone.
+            if (!volume.is_model_part()) {
+                continue;
+            }
+            PaintedVolume& painted = current.volumes.emplace_back();
+            painted.index = index;
+            painted.mesh = volume.mesh();
+            painted.tree = std::make_unique<Slic3r::AABBMesh>(painted.mesh);
+            painted.selector = std::make_unique<PatchSelector>(painted.mesh);
+            painted.in_object = volume.get_matrix();
+            if (loaded.instances.empty()) {
+                painted.world = volume.get_matrix();
+            } else if (placement.assembly_view) {
+                const Slic3r::ModelInstance& instance = *loaded.instances[copy];
+                painted.world = instance.get_assemble_transformation().get_matrix() * volume.get_matrix();
+                painted.world.translate(
+                    volume.get_transformation().get_offset() * (placement.explosion_ratio - 1.0) +
+                    instance.get_offset_to_assembly() * (placement.explosion_ratio - 1.0));
+            } else {
+                painted.world = loaded.instances[copy]->get_transformation().get_matrix() * volume.get_matrix();
+            }
+            const std::string& kind_facets = current.painting.back()[static_cast<std::size_t>(kind)];
+            if (!kind_facets.empty()) {
+                Slic3r::TriangleSelector::TriangleSplittingData data;
+                if (!deserialize_facets(kind_facets, data)) {
+                    result.status = SceneStatus::model_read_failed;
+                    result.message = "The painted facets could not be read";
+                    return result;
+                }
+                painted.selector->deserialize(data, true);
+            }
         }
-        current.undo.clear();
-        current.redo.clear();
-        current.stroke_pending = false;
-        current.has_last = false;
-        current.writes = 0;
         current.open = true;
 
         result.status = SceneStatus::success;
@@ -631,44 +684,60 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
     PaintingState result;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
     Session& current = session();
-    if (!current.open || current.selector == nullptr) {
+    if (!current.open || current.volumes.empty()) {
         result.message = "No painting session is open";
         return result;
     }
 
     try {
-        // The finger's ray in the volume's own coordinates, as the gizmo casts
-        // the mouse ray into the mesh (GLGizmoPainterBase::gizmo_event).
-        const Slic3r::Transform3d to_mesh = current.world.inverse();
-        const Slic3r::Vec3d source = to_mesh * Slic3r::Vec3d(stroke.origin[0], stroke.origin[1], stroke.origin[2]);
-        const Slic3r::Vec3d target = to_mesh
-            * Slic3r::Vec3d(
-                stroke.origin[0] + stroke.direction[0],
-                stroke.origin[1] + stroke.direction[1],
-                stroke.origin[2] + stroke.direction[2]
-            );
-        const Slic3r::Vec3d direction = (target - source).normalized();
+        const Slic3r::Vec3d origin(stroke.origin[0], stroke.origin[1], stroke.origin[2]);
+        const Slic3r::Vec3d along(stroke.direction[0], stroke.direction[1], stroke.direction[2]);
         const Slic3r::Vec3d clip_normal = Slic3r::Vec3d(stroke.clipping_plane[0], stroke.clipping_plane[1], stroke.clipping_plane[2]).normalized();
         const double clip_offset = stroke.clipping_plane[3];
         const bool clipping = clip_offset != std::numeric_limits<double>::max();
-        // MeshRaycaster::unproject_on_mesh(): the nearest hit above the bed
-        // (sinking objects) and not cut by the clipping plane; with an odd
-        // number of such hits the nearest is from inside the mesh.
-        const std::vector<Slic3r::AABBMesh::hit_result> hits = current.tree->query_ray_hits(source, direction);
-        std::size_t first = 0;
-        for (; first < hits.size(); ++first) {
-            const Slic3r::Vec3d transformed_hit = current.world * hits[first].position();
-            if (transformed_hit.z() >= (stroke.sinking_limit ? Slic3r::SINKING_Z_THRESHOLD : -std::numeric_limits<double>::max()) &&
-                (!clipping || -clip_normal.dot(transformed_hit) + clip_offset >= 0.))
-                break;
+
+        // GLGizmoPainterBase::update_raycast_cache(): the finger's ray cast on
+        // every model part in its own coordinates, and the hit nearest the
+        // camera kept, which stands at the ray's origin.
+        struct Met {
+            std::size_t volume{0};
+            Slic3r::Vec3d source;
+            Slic3r::Vec3f position;
+            int face{-1};
+        };
+        std::optional<Met> nearest;
+        double nearest_distance = std::numeric_limits<double>::max();
+        for (std::size_t index = 0; index < current.volumes.size(); ++index) {
+            const PaintedVolume& volume = current.volumes[index];
+            const Slic3r::Transform3d to_mesh = volume.world.inverse();
+            const Slic3r::Vec3d source = to_mesh * origin;
+            const Slic3r::Vec3d direction = (to_mesh * (origin + along) - source).normalized();
+            // MeshRaycaster::unproject_on_mesh(): the nearest hit above the bed
+            // (sinking objects) and not cut by the clipping plane; with an odd
+            // number of such hits the nearest is from inside the mesh.
+            const std::vector<Slic3r::AABBMesh::hit_result> hits = volume.tree->query_ray_hits(source, direction);
+            std::size_t first = 0;
+            for (; first < hits.size(); ++first) {
+                const Slic3r::Vec3d transformed_hit = volume.world * hits[first].position();
+                if (transformed_hit.z() >= (stroke.sinking_limit ? Slic3r::SINKING_Z_THRESHOLD : -std::numeric_limits<double>::max()) &&
+                    (!clipping || -clip_normal.dot(transformed_hit) + clip_offset >= 0.))
+                    break;
+            }
+            if (first == hits.size() || (hits.size() - first) % 2 != 0) {
+                continue;
+            }
+            const double distance = (origin - volume.world * hits[first].position()).squaredNorm();
+            if (distance < nearest_distance) {
+                nearest_distance = distance;
+                nearest = Met{index, source, hits[first].position().cast<float>(), hits[first].face()};
+            }
         }
-        const bool met = first < hits.size() && (hits.size() - first) % 2 == 0;
         result.status = SceneStatus::success;
         if (stroke.starts) {
             current.stroke_pending = true;
             current.has_last = false;
         }
-        if (!met) {
+        if (!nearest) {
             // The finger missed the model, which leaves it as it was, and the
             // brush starts anew where it meets it again.
             current.has_last = false;
@@ -680,19 +749,21 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         // GLGizmoPainterBase::gizmo_event(): the snapshot of the stroke, and
         // what was undone before is gone.
         if (current.stroke_pending) {
-            current.undo.push_back(current.selector->serialize());
+            current.undo.push_back(snapshot_of(current));
             current.redo.clear();
             current.stroke_pending = false;
         }
 
-        const Slic3r::AABBMesh::hit_result& hit = hits[first];
-        const Slic3r::Vec3f position = hit.position().cast<float>();
-        const Slic3r::Transform3d no_translation = Slic3r::Transform3d(current.world.linear());
+        PaintedVolume& volume = current.volumes[nearest->volume];
+        const Slic3r::Vec3f& position = nearest->position;
+        const int face = nearest->face;
+        const Slic3r::Vec3d& source = nearest->source;
+        const Slic3r::Transform3d no_translation = Slic3r::Transform3d(volume.world.linear());
         // get_clipping_plane_in_volume_coordinates()
         Slic3r::TriangleSelector::ClippingPlane clipping_plane;
         if (clipping) {
-            const Slic3r::Transform3d trafo_normal = Slic3r::Transform3d(current.world.linear().transpose());
-            const Slic3r::Transform3d trafo_inv = current.world.inverse();
+            const Slic3r::Transform3d trafo_normal = Slic3r::Transform3d(volume.world.linear().transpose());
+            const Slic3r::Transform3d trafo_inv = volume.world.inverse();
             const Slic3r::Vec3d point_on_plane = clip_normal * clip_offset;
             const Slic3r::Vec3d point_on_plane_transformed = trafo_inv * point_on_plane;
             const Slic3r::Vec3d normal_transformed = trafo_normal * clip_normal;
@@ -710,39 +781,40 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         case PaintTool::circle: {
             // The camera looks along the finger's ray, from its origin. Along
             // a stroke the brush paints the capsule from where it last met the
-            // model, as the gizmo joins its mouse positions.
+            // same part, as the gizmo joins its mouse positions on a mesh.
             const Slic3r::TriangleSelector::CursorType type = stroke.tool == PaintTool::circle
                 ? Slic3r::TriangleSelector::CursorType::CIRCLE
                 : Slic3r::TriangleSelector::CursorType::SPHERE;
             const auto radius = static_cast<float>(stroke.radius);
-            if (current.has_last) {
+            if (current.has_last && current.last_volume == nearest->volume) {
                 std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor =
                     Slic3r::TriangleSelector::DoublePointCursor::cursor_factory(
-                        current.last_position, position, source.cast<float>(), radius, type, current.world, clipping_plane);
-                current.selector->select_patch(current.last_face, std::move(cursor), state, no_translation, true, overhang_angle);
+                        current.last_position, position, source.cast<float>(), radius, type, volume.world, clipping_plane);
+                volume.selector->select_patch(current.last_face, std::move(cursor), state, no_translation, true, overhang_angle);
             } else {
                 std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor =
-                    Slic3r::TriangleSelector::SinglePointCursor::cursor_factory(position, source.cast<float>(), radius, type, current.world, clipping_plane);
-                current.selector->select_patch(hit.face(), std::move(cursor), state, no_translation, true, overhang_angle);
+                    Slic3r::TriangleSelector::SinglePointCursor::cursor_factory(position, source.cast<float>(), radius, type, volume.world, clipping_plane);
+                volume.selector->select_patch(face, std::move(cursor), state, no_translation, true, overhang_angle);
             }
             current.has_last = true;
+            current.last_volume = nearest->volume;
             current.last_position = position;
-            current.last_face = hit.face();
+            current.last_face = face;
             break;
         }
         case PaintTool::fill:
             // The smart fill of the desktop gizmo: the facets that lie flat
             // enough against the one touched take the colour with it.
-            current.selector->seed_fill_select_triangles(
+            volume.selector->seed_fill_select_triangles(
                 position,
-                hit.face(),
+                face,
                 no_translation,
                 clipping_plane,
                 static_cast<float>(stroke.angle),
                 overhang_angle,
                 true
             );
-            current.selector->seed_fill_apply_on_triangles(state);
+            volume.selector->seed_fill_apply_on_triangles(state);
             break;
         case PaintTool::gap_fill:
             // The gap fill paints no strokes (GLGizmoPainterBase::gizmo_event()).
@@ -750,19 +822,19 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         case PaintTool::triangle:
             // The Triangles tool: the triangle under the finger alone, which the
             // stroke paints as it passes over one after another.
-            current.selector->bucket_fill_select_triangles(position, hit.face(), clipping_plane, -1.f, false, true);
-            current.selector->seed_fill_apply_on_triangles(state);
+            volume.selector->bucket_fill_select_triangles(position, face, clipping_plane, -1.f, false, true);
+            volume.selector->seed_fill_apply_on_triangles(state);
             break;
         case PaintTool::bucket:
-            current.selector->bucket_fill_select_triangles(
+            volume.selector->bucket_fill_select_triangles(
                 position,
-                hit.face(),
+                face,
                 clipping_plane,
                 static_cast<float>(stroke.angle),
                 true,
                 true
             );
-            current.selector->seed_fill_apply_on_triangles(state);
+            volume.selector->seed_fill_apply_on_triangles(state);
             break;
         }
 
@@ -778,24 +850,20 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
 namespace {
 
 /** Undo or Redo inside the tool: the painting on top of [from] comes back, and the one shown joins [to]. */
-PaintingState step_painting(
-    std::vector<Slic3r::TriangleSelector::TriangleSplittingData>& from,
-    std::vector<Slic3r::TriangleSelector::TriangleSplittingData>& to,
-    const std::string& mesh_prefix
-)
+PaintingState step_painting(std::vector<Snapshot>& from, std::vector<Snapshot>& to, const std::string& mesh_prefix)
 {
     PaintingState result;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
     Session& current = session();
-    if (!current.open || current.selector == nullptr) {
+    if (!current.open || current.volumes.empty()) {
         result.message = "No painting session is open";
         return result;
     }
     try {
         result.status = SceneStatus::success;
         if (!from.empty()) {
-            to.push_back(current.selector->serialize());
-            current.selector->deserialize(from.back(), true);
+            to.push_back(snapshot_of(current));
+            restore(current, from.back());
             from.pop_back();
             current.stroke_pending = false;
             current.has_last = false;
@@ -826,18 +894,20 @@ PaintingState clear_painting(const std::string& mesh_prefix)
     PaintingState result;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
     Session& current = session();
-    if (!current.open || current.selector == nullptr) {
+    if (!current.open || current.volumes.empty()) {
         result.message = "No painting session is open";
         return result;
     }
     try {
         // Plater::TakeSnapshot(... "Reset selection", GizmoAction), which the
-        // gizmo's stack keeps here.
-        current.undo.push_back(current.selector->serialize());
+        // gizmo's stack keeps here; every model part is reset.
+        current.undo.push_back(snapshot_of(current));
         current.redo.clear();
         current.stroke_pending = false;
         current.has_last = false;
-        current.selector->reset();
+        for (PaintedVolume& volume : current.volumes) {
+            volume.selector->reset();
+        }
         result.status = SceneStatus::success;
         write_painted_meshes(mesh_prefix, result);
         return result;
@@ -853,7 +923,7 @@ PaintingState set_gap_fill(const double gap_area, const std::string& mesh_prefix
     PaintingState result;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
     Session& current = session();
-    if (!current.open || current.selector == nullptr) {
+    if (!current.open || current.volumes.empty()) {
         result.message = "No painting session is open";
         return result;
     }
@@ -874,18 +944,21 @@ PaintingState fill_gaps(const std::string& mesh_prefix)
     PaintingState result;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
     Session& current = session();
-    if (!current.open || current.selector == nullptr || current.gap_area < 0.0) {
+    if (!current.open || current.volumes.empty() || current.gap_area < 0.0) {
         result.message = "The gap fill is not chosen";
         return result;
     }
     try {
         // Plater::TakeSnapshot(... "Reset selection", GizmoAction), which the
-        // gizmo's stack keeps here.
-        current.undo.push_back(current.selector->serialize());
+        // gizmo's stack keeps here; every model part's fragments are merged
+        // (TriangleSelectorPatch::update_selector_triangles() of each).
+        current.undo.push_back(snapshot_of(current));
         current.redo.clear();
         current.stroke_pending = false;
         current.has_last = false;
-        current.selector->merge_fragments(current.gap_area);
+        for (PaintedVolume& volume : current.volumes) {
+            volume.selector->merge_fragments(current.gap_area);
+        }
         result.status = SceneStatus::success;
         write_painted_meshes(mesh_prefix, result);
         return result;
@@ -901,31 +974,35 @@ PaintingState end_painting()
     PaintingState result;
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
     Session& current = session();
-    if (!current.open || current.selector == nullptr) {
+    if (!current.open || current.volumes.empty()) {
         result.message = "No painting session is open";
         return result;
     }
-    current.selector->garbage_collect();
-    // FacetsAnnotation::set(): the kind painted anew, the other kinds as they
-    // were; the file the session opened with while nothing changed.
-    std::string& painted = current.painting[static_cast<std::size_t>(current.kind)];
-    const std::string before = painted;
-    painted = serialized(current.selector->serialize());
+    // FacetsAnnotation::set() of every model part: the kind painted anew, the
+    // other kinds as they were; the file a volume came in while its painting
+    // did not change, and every volume that is no model part as it was.
+    std::vector<std::string> facets = current.opened_with;
     try {
-        result.facets = painted == before ? current.opened_with : write_painting(join_painting(current.painting), current.painting_path);
+        for (PaintedVolume& volume : current.volumes) {
+            volume.selector->garbage_collect();
+            std::string& painted = current.painting[volume.index][static_cast<std::size_t>(current.kind)];
+            const std::string before = painted;
+            painted = serialized(volume.selector->serialize());
+            if (painted != before) {
+                facets[volume.index] = write_painting(
+                    join_painting(current.painting[volume.index]), current.painting_prefix + "-" + std::to_string(volume.index) + ".painted");
+            }
+        }
         result.status = SceneStatus::success;
     } catch (const std::exception& error) {
         // The session closes all the same; the painting it had stays as it was.
+        facets = current.opened_with;
         result.status = SceneStatus::model_read_failed;
         result.message = error.what();
     }
-    current.open = false;
-    current.undo.clear();
-    current.redo.clear();
-    current.selector.reset();
-    current.tree.reset();
-    current.mesh = Slic3r::TriangleMesh();
-    current.painting = KindFacets();
+    result.facets = facets.front();
+    result.part_facets.assign(facets.begin() + 1, facets.end());
+    current = Session();
     return result;
 }
 

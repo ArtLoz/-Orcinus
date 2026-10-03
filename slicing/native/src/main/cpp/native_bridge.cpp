@@ -1412,9 +1412,15 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PaintingState& state)
     for (const int painted : state.states) {
         states.push_back(static_cast<double>(painted));
     }
+    const jintArray volumes = env->NewIntArray(static_cast<jsize>(state.volumes.size()));
+    env->SetIntArrayRegion(volumes, 0, static_cast<jsize>(state.volumes.size()), reinterpret_cast<const jint*>(state.volumes.data()));
+    const jobjectArray part_facets = env->NewObjectArray(static_cast<jsize>(state.part_facets.size()), string_class, nullptr);
+    for (std::size_t index = 0; index < state.part_facets.size(); ++index) {
+        env->SetObjectArrayElement(part_facets, static_cast<jsize>(index), to_java(env, state.part_facets[index]));
+    }
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePainting");
     const jmethodID constructor =
-        env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;Z[D[Ljava/lang/String;Ljava/lang/String;ZZ)V");
+        env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;Z[D[Ljava/lang/String;[ILjava/lang/String;[Ljava/lang/String;ZZ)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1423,7 +1429,9 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PaintingState& state)
         state.hit ? JNI_TRUE : JNI_FALSE,
         to_java(env, states.data(), states.size()),
         meshes,
+        volumes,
         to_java(env, state.facets),
+        part_facets,
         state.can_undo ? JNI_TRUE : JNI_FALSE,
         state.can_redo ? JNI_TRUE : JNI_FALSE
     );
@@ -1434,13 +1442,11 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     JNIEnv* env,
     jobject /* this */,
     jobject object,
-    jint part,
     jlong kind,
     jstring printer_profile,
     jstring filament_profile,
     jobjectArray filament_profiles,
     jstring process_profile,
-    jstring facets,
     jstring mesh_prefix,
     jint instance,
     jboolean assembly_view,
@@ -1454,10 +1460,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     placement.explosion_ratio = static_cast<double>(explosion_ratio);
     const orcinus::orca::PaintingState state = orcinus::orca::begin_painting(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
-        static_cast<int>(part),
         static_cast<orcinus::orca::PaintKind>(kind),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
-        to_utf8(env, facets),
         to_utf8(env, mesh_prefix),
         placement
     );

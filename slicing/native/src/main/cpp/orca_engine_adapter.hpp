@@ -916,13 +916,18 @@ struct PaintingState {
     std::string message;
     // Whether the stroke met the model at all.
     bool hit{false};
-    // The states the model is painted with (PaintStroke::state), and the mesh
-    // of each; none while nothing is painted.
+    // The states the model is painted with (PaintStroke::state), the mesh of
+    // each, and the volume it lies on (ModelObject::volumes: the object's own
+    // mesh, 0, in the object's coordinates; a part in its own); none while
+    // nothing is painted.
     std::vector<int> states;
     std::vector<std::string> meshes;
-    // The file of the painted facets of the volume, of every kind, as the app
-    // keeps it: the one the session opened with while nothing changed.
+    std::vector<int> volumes;
+    // When the session closes, the file of the painted facets of the object's
+    // own mesh and of each part, of every kind, as the app keeps them: the one
+    // the session opened with while the volume's painting did not change.
     std::string facets;
+    std::vector<std::string> part_facets;
     // Whether a stroke can be undone or redone inside the tool, which keeps a
     // stack of its own while it is open (the gizmo's UndoRedo::Stack).
     bool can_undo{false};
@@ -938,21 +943,19 @@ struct PaintPlacement {
     double explosion_ratio{1.0};
 };
 
-// Opens a painting session of a kind for the object, or for one of its parts,
-// with the facets it is already painted with. The engine keeps the session
-// until end_painting(), as the desktop gizmo keeps its selectors while it is
-// open.
+// Opens a painting session of a kind for the object, which paints every model
+// part of it with the facets it is already painted with (PlateObject::painted
+// and ObjectPart::painted), as GLGizmoPainterBase keeps a selector per model
+// part. The engine keeps the session until end_painting(), as the desktop
+// gizmo keeps its selectors while it is open.
 PaintingState begin_painting(
     const PlateObject& object,
-    // The part of the object to paint; -1 paints the object's own mesh.
-    int part,
     PaintKind kind,
     const ProfileSelection& profiles,
-    // The file of the painted facets of the volume, of every kind, as the app keeps it.
-    const std::string& facets,
     // Where the meshes of the painted triangles are written,
-    // "<prefix>-<state>-<n>.mesh", named anew each time so the view reads them
-    // again, and the painted facets once the session closes, "<prefix>.painted".
+    // "<prefix>-<volume>-<state>-<n>.mesh", named anew each time so the view
+    // reads them again, and the painted facets of a volume once the session
+    // closes, "<prefix>-<volume>.painted".
     const std::string& mesh_prefix,
     const PaintPlacement& placement = PaintPlacement()
 );

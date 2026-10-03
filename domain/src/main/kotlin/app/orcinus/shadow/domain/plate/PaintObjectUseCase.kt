@@ -8,6 +8,7 @@ import app.orcinus.shadow.core.model.PaintingOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.withPainted
+import app.orcinus.shadow.core.model.withParts
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.storage.api.SceneFiles
@@ -39,8 +40,8 @@ class PaintObjectUseCase(
     /** What the object showed before a tool of another kind than colour opened. */
     private var shownBefore: List<PaintedMesh> = emptyList()
 
-    /** Opens the tool of [kind] on the object [mesh] names, or on one of its parts, on the copy of [placement]. */
-    suspend fun begin(mesh: ScenePath, kind: PaintKind = PaintKind.COLOR, part: Int? = null, placement: PaintPlacement = PaintPlacement()): PaintingOutcome {
+    /** Opens the tool of [kind] on the object [mesh] names, every model part of it, on the copy of [placement]. */
+    suspend fun begin(mesh: ScenePath, kind: PaintKind = PaintKind.COLOR, placement: PaintPlacement = PaintPlacement()): PaintingOutcome {
         val state = repository.state.value
         val target = state.objects.firstOrNull { it.mesh == mesh }
         val profiles = state.profiles
@@ -48,7 +49,7 @@ class PaintObjectUseCase(
             return PaintingOutcome.Failure("The plate is not ready to be painted")
         }
         val prefix = sceneFiles.newPaintedMeshes()
-        val outcome = inspector.beginPainting(target.placed(), part, kind, profiles, target.painted, prefix, placement)
+        val outcome = inspector.beginPainting(target.placed(), kind, profiles, prefix, placement)
         if (outcome is PaintingOutcome.Success) {
             meshPrefix = prefix
             painting = mesh
@@ -128,8 +129,11 @@ class PaintObjectUseCase(
             val objects = state.objects.map { if (it.mesh == mesh && shown != null) it.withPainted(it.painted, shown) else it }
             val closed = state.copy(history = state.history.copy(beforeTool = null), objects = objects)
             // LeavingGizmoNoAction: nothing painted, nothing to undo.
-            if (outcome !is PaintingOutcome.Success || target == null || outcome.surface.facets == target.painted) return@update closed
-            val painted = target.withPainted(outcome.surface.facets, shown ?: target.paintedMeshes)
+            if (outcome !is PaintingOutcome.Success || target == null) return@update closed
+            val partFacets = outcome.surface.partFacets
+            val parts = target.parts.mapIndexed { index, part -> partFacets.getOrNull(index)?.let { part.copy(painted = it) } ?: part }
+            if (outcome.surface.facets == target.painted && parts == target.parts) return@update closed
+            val painted = target.withPainted(outcome.surface.facets, shown ?: target.paintedMeshes).withParts(parts)
             (if (before != null) closed.recorded(before) else closed)
                 .copy(objects = state.objects.map { if (it.mesh == mesh) painted else it }, result = null)
         }
@@ -138,7 +142,9 @@ class PaintObjectUseCase(
 
     /** The painted triangles of the object, which the 3D view draws in the colours of their kind and state. */
     private fun show(mesh: ScenePath, outcome: PaintingOutcome.Success) {
-        val meshes = outcome.surface.states.zip(outcome.surface.meshes) { state, path -> PaintedMesh(state, path, kind) }
+        val meshes = outcome.surface.meshes.mapIndexed { index, path ->
+            PaintedMesh(outcome.surface.states[index], path, kind, outcome.surface.volumes.getOrElse(index) { 0 })
+        }
         repository.update { state ->
             val target = state.objects.firstOrNull { it.mesh == mesh } ?: return@update state
             if (target.paintedMeshes == meshes) return@update state

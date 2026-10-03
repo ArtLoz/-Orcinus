@@ -130,7 +130,8 @@ class ThumbnailRenderer(context: Context) {
                     // GLVolume::simple_render() draws a painted volume in the colour
                     // of every filament it is painted with.
                     val painted = plateObject.paintedMeshes.filter { it.kind == PaintKind.COLOR }.map { mesh ->
-                        ThumbnailVolume(SceneLoader.loadPaintedMesh(0, mesh, instance, colorOf(mesh.state), meshes), mesh.state, labelId)
+                        val part = plateObject.parts.getOrNull(mesh.volume - 1)
+                        ThumbnailVolume(SceneLoader.loadPaintedMesh(0, mesh, instance, colorOf(mesh.state), meshes, part), mesh.state, labelId)
                     }
                     val contained = { volume: ThumbnailVolume ->
                         val hull = hullBox(volume.scene)

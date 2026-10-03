@@ -759,10 +759,8 @@ abstract class SlicerService<E> : Service()
 
         override fun beginPainting(
             plateObject: PlacedModelParcel,
-            part: Int,
             kind: String,
             profiles: ProfilesParcel,
-            facets: String,
             meshPrefix: String,
             instance: Int,
             assemblyView: Boolean,
@@ -770,10 +768,8 @@ abstract class SlicerService<E> : Service()
         ): PaintingParcel = runBlocking {
             engine.beginPainting(
                 plateObject = arrayOf(plateObject).toPlacedModels().first(),
-                part = part.takeIf { it >= 0 },
                 kind = PaintKind.valueOf(kind),
                 profiles = profiles.toProfiles(),
-                facets = PaintedFacets(facets),
                 meshPrefix = ScenePath(meshPrefix),
                 placement = PaintPlacement(instance, assemblyView, explosionRatio),
             )

@@ -1881,6 +1881,27 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a painted part keeps its facets, and its paint is drawn on it`() {
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement)
+        val cube = CUBE.withParts(listOf(part))
+        val repository = FakeRepository(readyState(cube))
+        val inspector = FakeInspector()
+        inspector.paintedVolume = 1
+        inspector.ended = PaintedSurface(facets = cube.painted, partFacets = listOf(PaintedFacets("part painted")))
+        val paint = PaintObjectUseCase(inspector, FakeSceneFiles(), repository)
+
+        runSuspend { paint.begin(cube.mesh) }
+        runSuspend { paint.stroke(PaintStroke(Vector3(0.0, 0.0, 50.0), Vector3(0.0, 0.0, -1.0), state = 2)) }
+        assertEquals(listOf(1), repository.state.value.objects.single().paintedMeshes.map { it.volume })
+        runSuspend { paint.end() }
+
+        val painted = repository.state.value.objects.single()
+        assertEquals(cube.painted, painted.painted)
+        assertEquals(PaintedFacets("part painted"), painted.parts.single().painted)
+        assertEquals(listOf(cube), repository.state.value.history.undo.map { it.objects.single() })
+    }
+
+    @Test
     fun `support painting shows its paint while it is open and leaves the colours shown once it closes`() {
         val colours = listOf(PaintedMesh(2, ScenePath("/scene/objects/colour-2.mesh")))
         val repository = FakeRepository(readyState(CUBE.withPainted(PaintedFacets("colour"), colours)))
@@ -3482,14 +3503,12 @@ class PlateUseCasesTest {
 
         override suspend fun beginPainting(
             plateObject: PlacedModel,
-            part: Int?,
             kind: PaintKind,
             profiles: SlicingProfileSelection,
-            facets: PaintedFacets,
             meshPrefix: ScenePath,
             placement: PaintPlacement,
         ): PaintingOutcome {
-            paintedFacets = facets
+            paintedFacets = plateObject.painted
             paintKind = kind
             return PaintingOutcome.Success(painted(meshPrefix))
         }
@@ -3501,8 +3520,11 @@ class PlateUseCasesTest {
 
         override suspend fun fuzzySkinDisabled(plateObject: PlacedModel, profiles: SlicingProfileSelection): Boolean = false
 
-        override suspend fun endPainting(): PaintingOutcome =
-            PaintingOutcome.Success(PaintedSurface(facets = PaintedFacets("painted")))
+        /** What the tool closes with, and the volume a stroke paints. */
+        var ended = PaintedSurface(facets = PaintedFacets("painted"))
+        var paintedVolume = 0
+
+        override suspend fun endPainting(): PaintingOutcome = PaintingOutcome.Success(ended)
 
         /** The tool's own Undo, which takes every painted triangle off. */
         var undone = 0
@@ -3533,6 +3555,7 @@ class PlateUseCasesTest {
             hit = true,
             states = listOf(2),
             meshes = listOf(ScenePath("${meshPrefix.value}-2.mesh")),
+            volumes = listOf(paintedVolume),
         )
         /** What the last flushing volumes request carried. */
         var flushPlate: List<PlacedModel>? = null

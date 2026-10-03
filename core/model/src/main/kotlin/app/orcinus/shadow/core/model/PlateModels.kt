@@ -201,7 +201,17 @@ data class LayerRange(
  * the filament of colour painting, or while another painting tool is open,
  * the state it paints ([PaintState]).
  */
-data class PaintedMesh(val state: Int, val mesh: ScenePath, val kind: PaintKind = PaintKind.COLOR)
+data class PaintedMesh(
+    val state: Int,
+    val mesh: ScenePath,
+    val kind: PaintKind = PaintKind.COLOR,
+    /**
+     * The volume the triangles lie on (ModelObject::volumes): 0, the object's
+     * own mesh, in the object's coordinates; a part in its own, which the 3D
+     * view places as it places the part.
+     */
+    val volume: Int = 0,
+)
 
 /**
  * A model on the build plate, as OrcaSlicer loaded it, with the parts added to

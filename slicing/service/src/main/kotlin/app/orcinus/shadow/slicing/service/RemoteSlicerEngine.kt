@@ -839,20 +839,16 @@ class RemoteSlicerEngine(
 
     override suspend fun beginPainting(
         plateObject: PlacedModel,
-        part: Int?,
         kind: PaintKind,
         profiles: SlicingProfileSelection,
-        facets: PaintedFacets,
         meshPrefix: ScenePath,
         placement: PaintPlacement,
     ): PaintingOutcome = withContext(Dispatchers.IO) {
         try {
             service().beginPainting(
                 listOf(plateObject).toParcels().first(),
-                part ?: -1,
                 kind.name,
                 profiles.toParcel(),
-                facets.value,
                 meshPrefix.value,
                 placement.instance,
                 placement.assemblyView,

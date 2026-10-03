@@ -566,12 +566,10 @@ interface PlateInspector {
      * after [meshPrefix] for the 3D view.
      */
     suspend fun beginPainting(
+        /** The object, whose model parts are painted with the facets they carry. */
         plateObject: PlacedModel,
-        /** The part to paint; null paints the object's own mesh. */
-        part: Int?,
         kind: PaintKind,
         profiles: SlicingProfileSelection,
-        facets: PaintedFacets,
         meshPrefix: ScenePath,
         /** The copy painted and where it stands. */
         placement: PaintPlacement = PaintPlacement(),

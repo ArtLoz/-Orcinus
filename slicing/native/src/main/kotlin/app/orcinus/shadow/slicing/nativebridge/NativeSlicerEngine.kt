@@ -1549,10 +1549,8 @@ class NativeSlicerEngine(context: Context) :
 
     override suspend fun beginPainting(
         plateObject: PlacedModel,
-        part: Int?,
         kind: PaintKind,
         profiles: SlicingProfileSelection,
-        facets: PaintedFacets,
         meshPrefix: ScenePath,
         placement: PaintPlacement,
     ): PaintingOutcome = withContext(Dispatchers.IO) {
@@ -1563,13 +1561,11 @@ class NativeSlicerEngine(context: Context) :
         painting(
             NativeBindings.beginPainting(
                 plateObject = nativePlate(listOf(plateObject)),
-                part = part ?: -1,
                 kind = kind.ordinal.toLong(),
                 printerProfile = profiles.printer.value,
                 filamentProfile = profiles.filament.value,
                 filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
                 processProfile = profiles.process.value,
-                facets = facets.value,
                 meshPrefix = meshPrefix.value,
                 instance = placement.instance,
                 assemblyView = placement.assemblyView,
@@ -1680,7 +1676,9 @@ class NativeSlicerEngine(context: Context) :
                 hit = state.hit,
                 states = state.states.map { it.toInt() },
                 meshes = state.meshes.map(::ScenePath),
+                volumes = state.volumes.toList(),
                 facets = PaintedFacets(state.facets),
+                partFacets = state.partFacets.map(::PaintedFacets),
                 canUndo = state.canUndo,
                 canRedo = state.canRedo,
             ),
