@@ -13,14 +13,21 @@ import java.io.InputStream
 /**
  * The documents of the system's document picker: the app keeps its access to
  * one by the permission Android persists for it, reading and, where granted,
- * writing; the name and the time of its last change come from its provider.
+ * writing, while a list holds it; the name and the time of its last change
+ * come from its provider.
  */
 class AppDocumentAccess(context: Context) : DocumentAccess {
     private val applicationContext = context.applicationContext
 
-    override fun keep(document: ExternalDocumentReference) {
+    /** The lists that hold every document, by its URI. */
+    private val holders = applicationContext.getSharedPreferences(HOLDERS, Context.MODE_PRIVATE)
+
+    override fun keep(document: ExternalDocumentReference, holder: String) {
         val uri = Uri.parse(document.value)
         if (uri.scheme != "content") return
+        synchronized(LOCK) {
+            holders.edit().putStringSet(document.value, holders.getStringSet(document.value, emptySet()).orEmpty() + holder).apply()
+        }
         val resolver = applicationContext.contentResolver
         try {
             resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -33,7 +40,13 @@ class AppDocumentAccess(context: Context) : DocumentAccess {
         }
     }
 
-    override fun release(document: ExternalDocumentReference) {
+    override fun release(document: ExternalDocumentReference, holder: String) {
+        val left = synchronized(LOCK) {
+            val held = holders.getStringSet(document.value, emptySet()).orEmpty() - holder
+            holders.edit().apply { if (held.isEmpty()) remove(document.value) else putStringSet(document.value, held) }.apply()
+            held
+        }
+        if (left.isNotEmpty()) return
         val uri = Uri.parse(document.value)
         val resolver = applicationContext.contentResolver
         val kept = resolver.persistedUriPermissions.firstOrNull { it.uri == uri } ?: return
@@ -72,5 +85,12 @@ class AppDocumentAccess(context: Context) : DocumentAccess {
         applicationContext.contentResolver.openInputStream(Uri.parse(document.value))
     } catch (error: Exception) {
         null
+    }
+
+    private companion object {
+        const val HOLDERS = "document_holders"
+
+        /** The holders of every instance, which share one store. */
+        val LOCK = Any()
     }
 }

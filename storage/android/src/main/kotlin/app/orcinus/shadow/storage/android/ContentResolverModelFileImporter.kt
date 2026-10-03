@@ -9,16 +9,20 @@ import app.orcinus.shadow.core.model.ModelImportFailureCode
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.storage.api.ModelFileImporter
+import app.orcinus.shadow.storage.api.ModelSources
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class ContentResolverModelFileImporter(
     context: Context,
+    /** Where the documents the copies came from are kept, for "Reload from disk"; null keeps none. */
+    private val sources: ModelSources? = null,
 ) : ModelFileImporter {
     private val applicationContext = context.applicationContext
 
@@ -29,7 +33,8 @@ class ContentResolverModelFileImporter(
     /**
      * Every document is copied into a folder of its own under its own name,
      * so that documents of the same name stay apart; only the files of the
-     * latest import are kept.
+     * latest import are kept. The folders of every import are named anew, so
+     * a copy's path tells its document apart for good.
      */
     override suspend fun importModels(
         references: List<ExternalDocumentReference>,
@@ -38,7 +43,8 @@ class ContentResolverModelFileImporter(
         if (!importsDirectory.exists() && !importsDirectory.mkdirs()) {
             return@withContext references.map { readFailure("Unable to create the model import directory") }
         }
-        val folders = references.indices.map { File(importsDirectory, it.toString()) }
+        val batch = UUID.randomUUID().toString()
+        val folders = references.indices.map { File(importsDirectory, "$batch-$it") }
         // The files of the import before go.
         importsDirectory.listFiles()?.forEach(File::deleteRecursively)
         references.zip(folders) { reference, folder -> copy(reference, folder) }
@@ -81,6 +87,7 @@ class ContentResolverModelFileImporter(
                 )
             }
             Files.move(temporary.toPath(), destination.toPath(), REPLACE_EXISTING, ATOMIC_MOVE)
+            sources?.record(destination.absolutePath, reference)
 
             ModelImportOutcome.Success(
                 ImportedModelFile(

@@ -92,7 +92,7 @@ class RecentProjectsUseCase(
                 var list = state.value
                 for (document in documents) {
                     if (this@RecentProjectsUseCase.documents.describe(document) == null) continue
-                    this@RecentProjectsUseCase.documents.keep(document)
+                    this@RecentProjectsUseCase.documents.keep(document, HOLDER)
                     list = listOf(document) + list.filter { it != document }
                 }
                 keep(list.take(max), list.drop(max))
@@ -145,12 +145,15 @@ class RecentProjectsUseCase(
         store.setRecentProjects(list.map { it.value })
         // The project open now keeps its document, which Save writes into.
         val current = repository.state.value.project.document
-        gone.filter { it != current && it !in list }.forEach(documents::release)
+        gone.filter { it != current && it !in list }.forEach { documents.release(it, HOLDER) }
     }
 
     private fun maxCount(): Int = AppConfigKeys.maxRecentCount(preferences[AppConfigKeys.MAX_RECENT_COUNT])
 
     private companion object {
+        /** What holds the access to the documents of the list (DocumentAccess). */
+        const val HOLDER = "recent_projects"
+
         /** The file's name of a document that does not tell it: the last part of its path. */
         fun nameOf(document: ExternalDocumentReference): String {
             val last = document.value.substringAfterLast('/')

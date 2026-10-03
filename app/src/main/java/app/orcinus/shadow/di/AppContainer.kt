@@ -190,6 +190,7 @@ import app.orcinus.shadow.storage.android.AppDocumentExport
 import app.orcinus.shadow.storage.android.AppDocumentFolders
 import app.orcinus.shadow.storage.android.AppFileShare
 import app.orcinus.shadow.storage.android.AppGcodeOutputs
+import app.orcinus.shadow.storage.android.AppModelSources
 import app.orcinus.shadow.storage.android.AppPlateCache
 import app.orcinus.shadow.storage.android.AppProjectBackupFiles
 import app.orcinus.shadow.storage.android.AppSceneFiles
@@ -221,6 +222,13 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     // OrcaSlicer's Preferences, which the engine keeps in its app configuration.
     private val appPreferences = AppPreferences(engine)
+
+    /** The app's access to documents, which the recent projects and the model files' documents keep. */
+    private val documentAccess = AppDocumentAccess(applicationContext)
+
+    /** The documents the model files the app copied came from ("Reload from disk"). */
+    private val modelSources = AppModelSources(applicationContext, documentAccess)
+    private val modelFiles = ContentResolverModelFileImporter(applicationContext, modelSources)
     private val plateRepository = InMemoryPlateRepository()
     private val sceneFiles = AppSceneFiles(applicationContext)
     private val plateCache = AppPlateCache(applicationContext)
@@ -313,7 +321,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     /** Android's share sheet for the G-code and the project. */
     private val fileShare = AppFileShare(applicationContext, "${applicationContext.packageName}.files")
     /** MainFrame's recent projects, which the home page lists. */
-    val recentProjects = RecentProjectsUseCase(engine, appPreferences, AppDocumentAccess(applicationContext), plateRepository, applicationScope)
+    val recentProjects = RecentProjectsUseCase(engine, appPreferences, documentAccess, plateRepository, applicationScope)
     private val saveProject =
         SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope, recentProjects, fileShare)
     val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope, appPreferences)
@@ -326,7 +334,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     private val editPlateObject = EditPlateObjectUseCase(engine, sceneFiles, plateRepository, applicationScope)
     val addModelToPlate = AddModelToPlateUseCase(
-        importModel = ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
+        importModel = ImportModelUseCase(modelFiles),
         inspector = engine,
         sceneFiles = sceneFiles,
         repository = plateRepository,
@@ -469,7 +477,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val addPlateInstance = AddPlateInstanceUseCase(plateRepository, placePlateObject, selectPlateObject)
     private val addObjectPart = AddObjectPartUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val loadObjectVolumes = LoadObjectVolumesUseCase(
-        ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
+        ImportModelUseCase(modelFiles),
         engine,
         sceneFiles,
         stepMeshPrompt,
@@ -506,7 +514,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val setFlushOption = SetFlushOptionUseCase(plateRepository, settingsTabs, applicationScope)
     private val openSimplify = OpenSimplifyUseCase(plateRepository)
     private val replaceAllVolumes = ReplaceAllVolumesUseCase(
-        ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
+        ImportModelUseCase(modelFiles),
         AppDocumentFolders(applicationContext),
         engine,
         sceneFiles,
@@ -518,7 +526,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val pasteProcessSettings = PasteProcessSettingsUseCase(engine, plateRepository, settingsTabs, applicationScope)
     private val exportObjectMesh = ExportObjectMeshUseCase(engine, sceneFiles, AppDocumentExport(applicationContext), plateRepository)
     private val replaceObjectVolume = ReplaceObjectVolumeUseCase(
-        ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
+        ImportModelUseCase(modelFiles),
         engine,
         sceneFiles,
         plateRepository,
@@ -604,7 +612,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
                 engine,
                 sceneFiles,
                 plateRepository,
-                ImportModelUseCase(ContentResolverModelFileImporter(applicationContext)),
+                ImportModelUseCase(modelFiles),
                 AppDocumentExport(applicationContext),
             ),
             textFonts = textFonts,
