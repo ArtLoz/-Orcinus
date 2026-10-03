@@ -221,6 +221,12 @@ fun PlateView(
     /** The mesh file of the volume a finger picked with the mesh boolean tool open. */
     onMeshBooleanPick: (String) -> Unit = {},
     /**
+     * The move gizmo's reference system for the move window's "Object
+     * coordinates": the selected copy's placement, which turns the gizmo's box
+     * and arrows to the copy's axes; null for world coordinates.
+     */
+    moveFrame: Transform3? = null,
+    /**
      * The assembly view while it shows (AssembleView): every copy's model parts
      * where they stand in the assembly, spread by its explosion ratio, under a
      * camera of the view's own; null for the 3D view.
@@ -503,6 +509,7 @@ fun PlateView(
             controller.setBrimEars(brimEars, brimEarsIndex)
             controller.onMeshBooleanPick = onMeshBooleanPick
             controller.setMeshBoolean(meshBoolean, meshBooleanIndex)
+            controller.setMoveFrame(moveFrame)
             controller.onPixelSize = onPixelSize
             controller.setCut(cut, cutIndex)
             controller.setPainting(painting != null)
@@ -1258,6 +1265,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    /** The move gizmo's reference system: the copy's placement in object coordinates, null in the world's. */
+    private var moveFrame: Affine3? = null
+
+    fun setMoveFrame(frame: Transform3?) {
+        val affine = frame?.let { Affine3(it.columns.toDoubleArray()) }
+        if (affine?.elements()?.contentEquals(moveFrame?.elements()) ?: (moveFrame == null)) return
+        moveFrame = affine
+        invalidate()
+    }
+
     /** GLGizmoMeshBoolean opens, takes other volumes, or closes. */
     fun setMeshBoolean(view: MeshBooleanView?, index: Int?) {
         if (meshBoolean == view && meshBooleanIndex == index) return
@@ -1563,14 +1580,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // GLCanvas3D::on_mouse(): the assembly view moves nothing a finger drags.
             is ObjectDrag -> if (assembly != null) return else objectOffset(drag, ray) ?: return
             is MoveGrabberDrag -> {
-                // GLGizmoMove3D::on_dragging(): the displacement along the grabber's axis.
+                // GLGizmoMove3D::on_dragging(): the displacement along the grabber's
+                // axis, the world's or the copy's (Selection::translate() in instance coordinates).
                 val displacement = MoveGizmo.projection(drag.startGrabber, drag.startCenter, ray)
                 if (!displacement.isFinite()) return
-                when (drag.axis) {
-                    0 -> Vec3(displacement, 0.0, 0.0)
-                    1 -> Vec3(0.0, displacement, 0.0)
-                    else -> Vec3(0.0, 0.0, displacement)
-                }
+                (drag.startGrabber - drag.startCenter).normalized() * displacement
             }
         }
         drag.moved = true
@@ -2278,7 +2292,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         return if (select) MeasureTouch.Select(origin, direction, measureRadius) else MeasureTouch.Explore(origin, direction, measureRadius)
     }
 
-    private fun moveGizmo(target: SceneObject) = MoveGizmo(target.bounds, pixel())
+    /**
+     * GLGizmoMove3D::on_render(): the box of the selection in the current
+     * reference system (Selection::get_bounding_box_in_current_reference_system()),
+     * the copy's rotation in object coordinates.
+     */
+    private fun moveGizmo(target: SceneObject): MoveGizmo {
+        val placement = moveFrame ?: return MoveGizmo(target.bounds, pixel())
+        val rotation = Affine3(AssemblyTransforms.rotation(Transform3(placement.elements().toList())).columns.toDoubleArray())
+        return MoveGizmo(target.mesh.bounds.transformed(rotation.inverse() * target.world), pixel(), rotation, placement)
+    }
 
     private fun rotateGizmo(target: SceneObject) = RotateGizmo(target.sphereCenter(), target.sphereRadius, pixel())
 

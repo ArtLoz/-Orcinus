@@ -107,6 +107,16 @@ object AssemblyTransforms {
     }
 
     /**
+     * Transformation::get_rotation_matrix(): the rotation of [transform]'s
+     * linear part, without its scale and mirroring, and without its offset.
+     */
+    fun rotation(transform: Transform3): Transform3 {
+        val linear = Affine3(transform.columns.toDoubleArray()).withTranslation(Vec3.ZERO)
+        val scale = Affine3(withoutRotation(transform).columns.toDoubleArray()).withTranslation(Vec3.ZERO)
+        return Transform3((linear * scale.inverse()).elements().toList())
+    }
+
+    /**
      * Transformation::reset_rotation(): the offset, the scale without the
      * rotation (V S V^T of the linear part's singular values, the symmetric
      * square root of its square) and the mirroring.

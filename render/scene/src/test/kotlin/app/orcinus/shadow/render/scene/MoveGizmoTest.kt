@@ -38,6 +38,22 @@ class MoveGizmoTest {
     }
 
     @Test
+    fun objectCoordinatesTurnTheBoxAndTheArrowsWithTheCopy() {
+        // The cube turned a quarter about Z: its X axis is the world's Y.
+        val placement = Affine3.assemble(Vec3(175.0, 175.0, 10.0), Vec3(0.0, 0.0, 0.5 * PI), Vec3(1.0, 1.0, 1.0))
+        val rotation = Affine3(AssemblyTransforms.rotation(app.orcinus.shadow.core.model.Transform3(placement.elements().toList())).columns.toDoubleArray())
+        val local = Box3(Vec3(-10.0, -10.0, -10.0), Vec3(10.0, 10.0, 10.0)).transformed(rotation.inverse() * placement)
+        val turned = MoveGizmo(local, pixel = 0.5, frame = rotation, crossMark = placement)
+
+        assertVec(Vec3(175.0, 175.0, 10.0), turned.center)
+        // GLGizmoMove3D's X arrow stands beyond the box along the copy's X, the world's Y.
+        assertVec(Vec3(175.0, 175.0 + 10.0 + 10.0, 10.0), turned.grabberCenter(0))
+        assertVec(turned.grabberCenter(0) + Vec3(0.0, 12.0, 0.0), turned.grabberTip(0))
+        // render_cross_mark(): three more lines from the copy's origin.
+        assertEquals(6, turned.frame(dragged = null, pixelScale = 1f).lines.size)
+    }
+
+    @Test
     fun draggingFollowsTheAxisNotTheFinger() {
         val start = gizmo.grabberCenter(0)
         // A ray from above passing 30 mm further along X and 40 mm off the axis in Y.

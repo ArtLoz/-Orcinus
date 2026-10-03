@@ -79,6 +79,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaCanvasTool
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasToolbar
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasToolbarSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
+import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
 import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
 import app.orcinus.shadow.core.designsystem.component.OrcaGizmoPanel
@@ -350,6 +351,8 @@ internal fun PrepareRoute(
         onToggleGizmo = viewModel::toggleGizmo,
         onCloseGizmo = viewModel::closeGizmo,
         onSetPosition = viewModel::setPosition,
+        onSetMoveObjectCoordinates = viewModel::setMoveObjectCoordinates,
+        onTranslateInObject = viewModel::translateInObject,
         onAutoOrient = viewModel::autoOrient,
         onAddInstance = viewModel::addInstance,
         onRemoveInstance = viewModel::removeInstance,
@@ -629,6 +632,9 @@ internal fun PrepareScreen(
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
+    /** The move window's coordinates, and its "Translate(Relative)" in object coordinates. */
+    onSetMoveObjectCoordinates: (Boolean) -> Unit = {},
+    onTranslateInObject: (axis: Int, value: Double) -> Unit = { _, _ -> },
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         val viewCamera = rememberPlateViewCamera()
@@ -716,6 +722,7 @@ internal fun PrepareScreen(
                 selectedObject = state.selectedObject,
                 selectedObjects = state.selectedObjects,
                 gizmo = state.gizmo,
+                moveFrame = state.moveFrame.takeIf { state.gizmo == PlateGizmo.MOVE },
                 flatteningPlanes = state.flatteningPlanes,
                 wireframes = state.wireframes,
                 editable = state.canEditPlate,
@@ -1043,7 +1050,16 @@ internal fun PrepareScreen(
                     state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                     state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
                         ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo)
-                    state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(position, canvas.imperialUnits, onSetPosition, onCloseGizmo)
+                    state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(
+                        position = position,
+                        imperial = canvas.imperialUnits,
+                        objectCoordinates = state.moveObjectCoordinates,
+                        canObjectCoordinates = state.canMoveObjectCoordinates,
+                        onCoordinates = onSetMoveObjectCoordinates,
+                        onSetPosition = onSetPosition,
+                        onTranslate = onTranslateInObject,
+                        onDone = onCloseGizmo,
+                    )
                     state.gizmo == PlateGizmo.ROTATE && rotation != null -> RotateGizmoPanel(state, rotation, rotationActions, onCloseGizmo)
                 }
             }
@@ -2069,21 +2085,47 @@ private const val GAP_AREA_MAX = 5f
 private fun MoveGizmoPanel(
     position: ObjectPosition,
     imperial: Boolean,
+    objectCoordinates: Boolean,
+    canObjectCoordinates: Boolean,
+    onCoordinates: (Boolean) -> Unit,
     onSetPosition: (axis: Int, value: Double) -> Unit,
+    onTranslate: (axis: Int, value: Double) -> Unit,
     onDone: () -> Unit,
 ) {
     OrcaGizmoPanel {
+        // do_render_move_window(): "World coordinates" and, for a single copy, "Object coordinates".
+        val modes = if (canObjectCoordinates) listOf(false, true) else listOf(false)
+        val world = orcaString("World coordinates")
+        val objectCs = orcaString("Object coordinates")
+        OrcaComboBox(
+            items = modes,
+            selected = objectCoordinates && canObjectCoordinates,
+            label = { if (it) objectCs else world },
+            onSelect = onCoordinates,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(PositionLabelWidth))
             AxisHeaders()
         }
-        GizmoValueRow(
-            label = stringResource(R.string.gizmo_position),
-            values = listOf(position.x, position.y, position.z).map { it * displayKoef(imperial) },
-            unit = lengthUnit(imperial),
-            labelWidth = PositionLabelWidth,
-            onValue = { axis, value -> onSetPosition(axis, value * inputKoef(imperial)) },
-        )
+        if (objectCoordinates) {
+            // In object coordinates the copy moves by what is typed along its own axes.
+            GizmoValueRow(
+                label = orcaString("Translate(Relative)"),
+                values = listOf(0.0, 0.0, 0.0),
+                unit = lengthUnit(imperial),
+                labelWidth = PositionLabelWidth,
+                onValue = { axis, value -> onTranslate(axis, value * inputKoef(imperial)) },
+            )
+        } else {
+            GizmoValueRow(
+                label = stringResource(R.string.gizmo_position),
+                values = listOf(position.x, position.y, position.z).map { it * displayKoef(imperial) },
+                unit = lengthUnit(imperial),
+                labelWidth = PositionLabelWidth,
+                onValue = { axis, value -> onSetPosition(axis, value * inputKoef(imperial)) },
+            )
+        }
         GizmoPanelFooter(onDone)
     }
 }

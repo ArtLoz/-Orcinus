@@ -3057,6 +3057,36 @@ class PrepareViewModel(
         if (assembly) placeInAssembly(copy.id, placement, Manipulation.Move) else placeObject(index, placement, Manipulation.Move)
     }
 
+    /**
+     * The move window's "World coordinates" / "Object coordinates"
+     * (GizmoObjectManipulation::set_coordinates_type()), which holds for the
+     * selected copy.
+     */
+    fun setMoveObjectCoordinates(objectCoordinates: Boolean) {
+        val copy = state.value.selectedObject?.let(::copyAt)
+        view.update { it.copy(moveObjectCoordinatesCopy = copy?.takeIf { objectCoordinates }) }
+    }
+
+    /**
+     * "Translate(Relative)" in object coordinates (change_position_value()):
+     * the copy moves by [value] along its own axis [axis], its rotation
+     * turning the distance into the world's (Selection::translate()).
+     */
+    fun translateInObject(axis: Int, value: Double) {
+        val state = state.value
+        val index = state.selectedObject ?: return
+        val copy = state.sceneCopies[index]
+        val assembly = view.value.assemblyView
+        val frame = if (assembly) assembleOf(copy.id) ?: return else copy.instance.inspection.placement
+        val clamped = value.coerceIn(-MAX_NUM, MAX_NUM)
+        if (abs(clamped) < POSITION_EPSILON) return
+        val rotation = AssemblyTransforms.rotation(frame).columns
+        val columns = frame.columns.toMutableList()
+        for (row in 0 until 3) columns[12 + row] += rotation[axis * 4 + row] * clamped
+        val placement = Transform3(columns)
+        if (assembly) placeInAssembly(copy.id, placement, Manipulation.Move) else placeObject(index, placement, Manipulation.Move)
+    }
+
     /** A gizmo of the assembly view placed the copy at [index] there. */
     fun placeObjectInAssembly(index: Int, assemble: Transform3, manipulation: Manipulation) {
         copyAt(index)?.let { placeInAssembly(it, assemble, manipulation) }

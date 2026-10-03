@@ -230,6 +230,12 @@ data class PrepareUiState(
     val printerI3: Boolean = false,
     /** Position of the selected object. */
     val selectedPosition: ObjectPosition?,
+    /** The move window shows "Object coordinates" for the selected copy (ECoordinatesType::Instance). */
+    val moveObjectCoordinates: Boolean = false,
+    /** The move window offers "Object coordinates": one copy is selected, not the wipe tower. */
+    val canMoveObjectCoordinates: Boolean = false,
+    /** The move gizmo's reference system in object coordinates: the copy's placement (or its place in the assembly). */
+    val moveFrame: Transform3? = null,
     /** Rotation of the selected object in degrees, as the rotation window shows it. */
     val selectedRotation: Vector3?,
     /** GizmoObjectManipulation::update_reset_buttons_visibility(): the rotation differs from when the tool opened. */
@@ -392,6 +398,11 @@ internal data class PrepareViewState(
     val brimEars: BrimEarsMode? = null,
     /** The mesh boolean tool, while it is open. */
     val meshBoolean: MeshBooleanMode? = null,
+    /**
+     * The copy the move window shows in "Object coordinates"; another copy
+     * selected shows world coordinates again (GLGizmoMove3D::change_cs_by_selection()).
+     */
+    val moveObjectCoordinatesCopy: PlateInstanceId? = null,
     /**
      * Its "Delete input" of the difference and of the intersection, which the
      * desktop tool keeps from one opening to the next.
@@ -628,6 +639,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     // GizmoObjectManipulation in the assembly view: the copy's assemble transformation.
     val assembled = selectedObject?.let(copies::get)?.instance?.takeIf { view.assemblyView }?.let { it.assemble ?: Transform3.IDENTITY }
     val assembledRotation = assembled?.let(AssemblyTransforms::rotationDegrees)
+    val moveObjectCoordinates = view.moveObjectCoordinatesCopy != null && view.moveObjectCoordinatesCopy == selectedInstance &&
+        selectedInstances.size == 1 && !view.wipeTowerSelected
     // The plate changes once OrcaSlicer has the presets it places objects with.
     val canEditPlate = !busy && !slicingAll && engine.availability == EngineAvailability.READY && profiles != null
     return PrepareUiState(
@@ -717,6 +730,9 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         spiralVaseMode = spiralVaseMode(),
         printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",
         selectedPosition = (if (view.assemblyView) assembled else selected?.placement)?.columns?.let { ObjectPosition(it[12], it[13], it[14]) },
+        moveObjectCoordinates = moveObjectCoordinates,
+        canMoveObjectCoordinates = selectedObject != null && selectedInstances.size == 1 && !view.wipeTowerSelected,
+        moveFrame = (if (view.assemblyView) assembled else selected?.placement)?.takeIf { moveObjectCoordinates },
         selectedRotation = if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
         canResetRotation = if (view.assemblyView) {
             assembled != null && rotationStart != null && !assembled.hasLinearPartOf(rotationStart)

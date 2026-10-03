@@ -213,25 +213,33 @@ internal object GrabberMeshes {
  * GLGizmoMove3D: an arrow per axis beyond the selection's bounding box, joined
  * to its centre by a dashed line. [pixel] is the size in millimetres of one
  * desktop pixel at the camera target, which OrcaSlicer's gizmo sizes are in.
+ * The box and the axes are those of the current reference system: [box] in
+ * the coordinates [frame] turns into the world's (the world's own, or the
+ * copy's rotation for "Object coordinates"), and [crossMark] the copy's
+ * placement, whose origin render_cross_mark() marks in object coordinates.
  */
-internal class MoveGizmo(box: Box3, private val pixel: Double) {
-    val center: Vec3 = box.center()
+internal class MoveGizmo(box: Box3, private val pixel: Double, private val frame: Affine3 = Affine3(), private val crossMark: Affine3? = null) {
+    private val localCenter = box.center()
+    val center: Vec3 = frame.transformPoint(localCenter)
     private val halfSize = box.size() * 0.5
 
     /** Where the grabber of [axis] stands. */
     fun grabberCenter(axis: Int): Vec3 {
         val space = SPACE_SIZE * pixel
-        return when (axis) {
-            0 -> center + Vec3(halfSize.x + space, 0.0, 0.0)
-            1 -> center + Vec3(0.0, halfSize.y + space, 0.0)
-            else -> center + Vec3(0.0, 0.0, halfSize.z + space)
-        }
+        return frame.transformPoint(
+            when (axis) {
+                0 -> localCenter + Vec3(halfSize.x + space, 0.0, 0.0)
+                1 -> localCenter + Vec3(0.0, halfSize.y + space, 0.0)
+                else -> localCenter + Vec3(0.0, 0.0, halfSize.z + space)
+            },
+        )
     }
 
     /** GLGizmoBase::Grabber::render() with the PosZ extension: a cone pointing along the axis. */
     fun grabberWorld(axis: Int): Affine3 {
         val extension = 0.75 * FIXED_GRABBER_SIZE * pixel
-        return Affine3.assemble(grabberCenter(axis), GRABBER_ANGLES[axis], Vec3(0.75 * extension, 0.75 * extension, 2.0 * extension))
+        return Affine3().translated(grabberCenter(axis)) * frame *
+            Affine3.assemble(Vec3.ZERO, GRABBER_ANGLES[axis], Vec3(0.75 * extension, 0.75 * extension, 2.0 * extension))
     }
 
     /** The grabber's tip, for touching it. */
@@ -246,13 +254,40 @@ internal class MoveGizmo(box: Box3, private val pixel: Double) {
                 color = GizmoColors.AXES[axis],
                 width = (if (dragged != null) 2f else 1.5f) * pixelScale,
             )
-        },
+        } + crossMarkLines(pixelScale),
         grabbers = (0 until 3).map { axis ->
             GizmoGrabber(grabberWorld(axis), if (axis == dragged) GizmoColors.AXES_HOVER[axis] else GizmoColors.AXES[axis])
         },
     )
 
+    /**
+     * GLGizmoBase::render_cross_mark(Vec3f::Zero(), true) in the copy's
+     * coordinates: a line from its origin along each of its axes, 4 of its
+     * millimetres long.
+     */
+    private fun crossMarkLines(pixelScale: Float): List<GizmoLines> {
+        val placement = crossMark ?: return emptyList()
+        val origin = placement.translation()
+        return (0 until 3).map { axis ->
+            val end = placement.transformPoint(
+                when (axis) {
+                    0 -> Vec3(CROSS_MARK_LENGTH, 0.0, 0.0)
+                    1 -> Vec3(0.0, CROSS_MARK_LENGTH, 0.0)
+                    else -> Vec3(0.0, 0.0, CROSS_MARK_LENGTH)
+                },
+            )
+            GizmoLines(
+                segments = floatArrayOf(origin.x.toFloat(), origin.y.toFloat(), origin.z.toFloat(), end.x.toFloat(), end.y.toFloat(), end.z.toFloat()),
+                color = GizmoColors.AXES[axis],
+                width = pixelScale,
+            )
+        }
+    }
+
     companion object {
+        // render_cross_mark()'s half_length.
+        private const val CROSS_MARK_LENGTH = 4.0
+
         /**
          * GLGizmoMove3D::calc_projection(): how far from [start], the grabber's
          * position when the drag began, the point of [ray] nearest to it lies
