@@ -805,6 +805,7 @@ class RemoteSlicerEngine(
                 manipulation.parcelArrangeSettings(),
                 manipulation.parcelInstance(),
                 manipulation.lockedPlates.sorted().toIntArray(),
+                manipulation.plateSettings.map { it.toParcel() }.toTypedArray(),
             ).toPlateInspectionOutcome()
         } catch (_: RemoteException) {
             PlateInspectionOutcome.Failure(PROCESS_DIED)

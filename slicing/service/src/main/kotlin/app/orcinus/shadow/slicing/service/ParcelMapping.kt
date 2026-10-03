@@ -38,6 +38,7 @@ import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasureSelection
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.Measurement
+import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.SvgPreviewOutcome
@@ -896,6 +897,7 @@ internal fun plateManipulationOf(
     arrange: ArrangeSettingsParcel?,
     instance: Int,
     lockedPlates: IntArray,
+    plateSettings: List<ModelSettings> = emptyList(),
 ): PlateManipulation {
     fun settings() = checkNotNull(arrange).let {
         ArrangeSettings(it.distance, it.enableRotation, it.allowMultiMaterialsOnSamePlate, it.alignToYAxis)
@@ -903,10 +905,10 @@ internal fun plateManipulationOf(
     val locked = lockedPlates.toSet()
     return when (name) {
         "AutoOrient" -> PlateManipulation.AutoOrient(selected.mapTo(LinkedHashSet(), ::ScenePath), locked)
-        "Arrange" -> PlateManipulation.Arrange(settings(), locked)
+        "Arrange" -> PlateManipulation.Arrange(settings(), locked, plateSettings)
         "UpdatePrintVolume" -> PlateManipulation.UpdatePrintVolume
-        "ArrangePlate" -> PlateManipulation.ArrangePlate(settings(), locked)
-        "FillBed" -> PlateManipulation.FillBed(ScenePath(selected.single()), instance.takeIf { it >= 0 }, settings(), locked)
+        "ArrangePlate" -> PlateManipulation.ArrangePlate(settings(), locked, plateSettings)
+        "FillBed" -> PlateManipulation.FillBed(ScenePath(selected.single()), instance.takeIf { it >= 0 }, settings(), locked, plateSettings)
         else -> error("Unknown manipulation $name")
     }
 }

@@ -138,6 +138,31 @@ std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelObject& obje
 // ... and of volume alone, standing at the world transformation matrix.
 std::pair<Slic3r::Vec3d, double> bounding_sphere(const Slic3r::ModelVolume& volume, const Slic3r::Transform3d& matrix);
 
+// The wipe tower of the plate model holds, with config the plate's (its
+// wipe_tower_x and wipe_tower_y among it): whether GLCanvas3D::reload_scene()
+// would draw it, the filaments the plate prints with
+// (PartPlate::get_extruders_under_cli()), the tallest object, its size
+// (PartPlate::estimate_wipe_tower_size()) and brim, and where it stands: the
+// project's position when placed, else where the desktop app puts a new one.
+struct PlateTower {
+    bool shown{false};
+    std::vector<int> filaments;
+    double height{0.0};
+    double x{0.0};
+    double y{0.0};
+    double width{0.0};
+    double depth{0.0};
+    double brim_width{0.0};
+};
+PlateTower plate_tower(const Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, bool placed);
+
+// PartPlate::estimate_wipe_tower_size() for plate_extruder_size filaments, up
+// to max_height; the tallest object of model; and
+// PartPlateList::set_default_wipe_tower_pos_for_plate()'s position.
+Slic3r::Vec3d estimate_wipe_tower_size(const Slic3r::DynamicPrintConfig& config, int plate_extruder_size, double max_height);
+double plate_objects_height(const Slic3r::Model& model);
+Slic3r::Vec2d default_wipe_tower_position(const Slic3r::DynamicPrintConfig& config, const Slic3r::Vec3d& size, double brim_width);
+
 // An RGBA picture of width x height, rows from the top, written as a PNG to path.
 bool write_png_rgba(const std::string& path, int width, int height, const std::vector<unsigned char>& rgba);
 

@@ -725,11 +725,12 @@ abstract class SlicerService<E> : Service()
             arrangeSettings: ArrangeSettingsParcel?,
             instance: Int,
             lockedPlates: IntArray,
+            plateSettings: Array<ModelSettingsParcel>,
         ): PlateInspectionParcel = runBlocking {
             engine.placeObjects(
                 plate.toPlacedModels(),
                 profiles.toProfiles(),
-                plateManipulationOf(manipulation, selected, arrangeSettings, instance, lockedPlates),
+                plateManipulationOf(manipulation, selected, arrangeSettings, instance, lockedPlates, plateSettings.map { it.toModelSettings() }),
             )
         }.toParcel()
 

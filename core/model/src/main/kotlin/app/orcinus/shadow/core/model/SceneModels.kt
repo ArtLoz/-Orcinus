@@ -66,6 +66,13 @@ sealed interface PlateManipulation {
     val lockedPlates: Set<Int> get() = emptySet()
 
     /**
+     * The settings of every plate (PartPlate's config), whose wipe_tower_x and
+     * wipe_tower_y place the wipe towers arranging keeps clear of
+     * (ArrangeJob::prepare_wipe_tower()); none for no towers.
+     */
+    val plateSettings: List<ModelSettings> get() = emptyList()
+
+    /**
      * OrientJob from the toolbar: the objects with the [selected] mesh files, or
      * every object when none is selected, turn to the orientation with the least
      * support area and rest on the plate.
@@ -79,7 +86,11 @@ sealed interface PlateManipulation {
      * ArrangeJob from the arrange options (prepare_all): every object arranged
      * on the plates with [settings], plates added for what they do not hold.
      */
-    data class Arrange(val settings: ArrangeSettings, override val lockedPlates: Set<Int> = emptySet()) : PlateManipulation
+    data class Arrange(
+        val settings: ArrangeSettings,
+        override val lockedPlates: Set<Int> = emptySet(),
+        override val plateSettings: List<ModelSettings> = emptyList(),
+    ) : PlateManipulation
 
     /**
      * Plater::on_config_change() for another printer: every object stays where
@@ -92,7 +103,11 @@ sealed interface PlateManipulation {
      * the copies on the plate or over its edge arranged with [settings]; the
      * ones off it stay where they are.
      */
-    data class ArrangePlate(val settings: ArrangeSettings, override val lockedPlates: Set<Int> = emptySet()) : PlateManipulation
+    data class ArrangePlate(
+        val settings: ArrangeSettings,
+        override val lockedPlates: Set<Int> = emptySet(),
+        override val plateSettings: List<ModelSettings> = emptyList(),
+    ) : PlateManipulation
 
     /**
      * FillBedJob with instances ("Fill bed with instances"): copies of the
@@ -105,6 +120,7 @@ sealed interface PlateManipulation {
         val instance: Int?,
         val settings: ArrangeSettings,
         override val lockedPlates: Set<Int> = emptySet(),
+        override val plateSettings: List<ModelSettings> = emptyList(),
     ) : PlateManipulation
 }
 

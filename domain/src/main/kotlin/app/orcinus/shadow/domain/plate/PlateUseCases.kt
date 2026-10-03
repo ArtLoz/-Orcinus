@@ -1314,11 +1314,13 @@ class PlacePlateObjectsUseCase(
             request = null
             val state = settle(current) ?: return@update current
             val locked = if (skipLockedPlates) state.lockedPlates() else emptySet()
+            // The plates' wipe towers, which arranging keeps clear of.
+            val plateSettings = state.partPlates().map { it.settings }
             manipulation = when (asked) {
                 is PlateManipulation.AutoOrient -> asked.copy(lockedPlates = locked)
-                is PlateManipulation.Arrange -> asked.copy(lockedPlates = locked)
-                is PlateManipulation.ArrangePlate -> asked.copy(lockedPlates = locked)
-                is PlateManipulation.FillBed -> asked.copy(lockedPlates = locked)
+                is PlateManipulation.Arrange -> asked.copy(lockedPlates = locked, plateSettings = plateSettings)
+                is PlateManipulation.ArrangePlate -> asked.copy(lockedPlates = locked, plateSettings = plateSettings)
+                is PlateManipulation.FillBed -> asked.copy(lockedPlates = locked, plateSettings = plateSettings)
                 PlateManipulation.UpdatePrintVolume -> asked
             }
             val profiles = state.profiles

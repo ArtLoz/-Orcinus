@@ -1871,6 +1871,42 @@ TEST_CASE("The wipe tower stands on a plate that prints with two filaments", "[A
     CHECK(moved.y == Catch::Approx(30.0).margin(0.01));
 }
 
+TEST_CASE("Arranging the plates keeps clear of the wipe tower", "[Adapter][Scene][ArrangeTower]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("arrange-tower.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    orca::ProfileSelection profiles = k2_plus_profiles();
+    profiles.filaments = {k2_plus_profiles().filament, k2_plus_profiles().filament};
+    // Two cubes, one of each filament, so the plate prints a tower.
+    std::vector<orca::PlateObject> two = plate_of({}, matrix_of(cube));
+    two.front().settings.keys = {"extruder"};
+    two.front().settings.values = {"2"};
+    orca::PlateObject second;
+    second.instances.push_back(orca::ObjectPlacement{matrix_of(cube), true, true});
+    second.instances.front().matrix[12] = 60.0;
+    two.push_back(second);
+    // The tower stands in the middle of the plate, where arranging would put a cube.
+    orca::ModelSettings placed;
+    placed.keys = {"wipe_tower_x", "wipe_tower_y"};
+    placed.values = {"165", "165"};
+    const orca::WipeTowerState tower = orca::describe_wipe_tower(two, profiles, placed);
+    REQUIRE(tower.status == orca::SceneStatus::success);
+    REQUIRE(tower.shown);
+
+    const orca::PlateInspection arranged = orca::place_objects(two, {}, profiles, orca::PlateManipulation::arrange, {}, -1, {}, {placed});
+    INFO(arranged.message);
+    REQUIRE(arranged.status == orca::SceneStatus::success);
+    REQUIRE(arranged.objects.size() == 2);
+    for (const orca::PlateObjectInspection& object : arranged.objects) {
+        const double x = object.instances.front().instance_matrix[12];
+        const double y = object.instances.front().instance_matrix[13];
+        INFO(x << ", " << y << " against " << tower.x << ", " << tower.y << ", " << tower.width << " x " << tower.depth);
+        CHECK((x + 10.0 <= tower.x || x - 10.0 >= tower.x + tower.width || y + 10.0 <= tower.y || y - 10.0 >= tower.y + tower.depth));
+    }
+}
+
 TEST_CASE("libslic3r's messages come in the language of the catalogue the app gives", "[Adapter]")
 {
     orca::set_translations(

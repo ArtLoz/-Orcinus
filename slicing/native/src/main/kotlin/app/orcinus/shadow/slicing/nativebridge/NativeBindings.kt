@@ -1922,6 +1922,7 @@ internal object NativeBindings {
         selected: BooleanArray,
         printerProfile: String,
         filamentProfile: String,
+        filamentProfiles: Array<String>,
         processProfile: String,
         manipulation: Long,
         /** ArrangeSettings for arrange. */
@@ -1932,6 +1933,10 @@ internal object NativeBindings {
         selectedInstance: Int,
         /** One flag per plate, set for a locked one. */
         lockedPlates: BooleanArray,
+        /** Every plate's settings, one after another: [plateSettingCounts] entries each. */
+        plateSettingKeys: Array<String>,
+        plateSettingValues: Array<String>,
+        plateSettingCounts: IntArray,
     ): NativePlateInspection
 
     /** ObjectList::load_generic_subobject(): a shape added to the object as a part. */

@@ -1676,6 +1676,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
     jbooleanArray selected,
     jstring printer_profile,
     jstring filament_profile,
+    jobjectArray filament_profiles,
     jstring process_profile,
     jlong manipulation,
     jdouble arrange_distance,
@@ -1683,9 +1684,24 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
     jboolean arrange_allow_multi_materials,
     jboolean arrange_align_to_y_axis,
     jint selected_instance,
-    jbooleanArray locked_plates
+    jbooleanArray locked_plates,
+    jobjectArray plate_setting_keys,
+    jobjectArray plate_setting_values,
+    jintArray plate_setting_counts
 )
 {
+    // Every plate's settings, one after another.
+    const std::vector<std::string> setting_keys = to_strings(env, plate_setting_keys);
+    const std::vector<std::string> setting_values = to_strings(env, plate_setting_values);
+    std::vector<orcinus::orca::ModelSettings> plate_settings;
+    std::size_t entry = 0;
+    for (const std::int32_t count : to_ints(env, plate_setting_counts)) {
+        orcinus::orca::ModelSettings& settings = plate_settings.emplace_back();
+        for (std::int32_t index = 0; index < count && entry < setting_keys.size() && entry < setting_values.size(); ++index, ++entry) {
+            settings.keys.push_back(setting_keys[entry]);
+            settings.values.push_back(setting_values[entry]);
+        }
+    }
     orcinus::orca::ArrangeSettings arrange;
     arrange.distance = arrange_distance;
     arrange.enable_rotation = arrange_enable_rotation == JNI_TRUE;
@@ -1694,11 +1710,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeObjects(
     const orcinus::orca::PlateInspection inspection = orcinus::orca::place_objects(
         to_plate(env, plate),
         to_bools(env, selected),
-        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         static_cast<orcinus::orca::PlateManipulation>(manipulation),
         arrange,
         selected_instance,
-        to_bools(env, locked_plates)
+        to_bools(env, locked_plates),
+        plate_settings
     );
 
     const jclass inspection_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeModelInspection");

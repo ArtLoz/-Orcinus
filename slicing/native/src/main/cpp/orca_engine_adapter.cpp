@@ -9,6 +9,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <optional>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -50,6 +51,7 @@
 #include "libslic3r/I18N.hpp"
 #include "libslic3r/Layer.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/GCode/WipeTower.hpp"
 #include "libslic3r/ModelArrange.hpp"
 #include "libslic3r/calib.hpp"
 #include "libnest2d/common.hpp"
@@ -2394,20 +2396,245 @@ Slic3r::arrangement::ArrangeParams init_arrange_params(Slic3r::Model& model, con
     return params;
 }
 
+// The objects of model with a copy on plate (of plates): those copies alone,
+// or with first_copy only, the objects whose first copy stands there
+// (PartPlate::contain_instance_totally(object, 0)).
+Slic3r::Model plate_model_of(const Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const int plate, const int plates, const bool first_copy)
+{
+    Slic3r::Model copy = model;
+    for (std::size_t index = copy.objects.size(); index-- > 0;) {
+        Slic3r::ModelObject* const object = copy.objects[index];
+        const bool first_there = !object->instances.empty() && plate_of(*object, 0, config, plates) == plate;
+        for (std::size_t instance = object->instances.size(); instance-- > 0;) {
+            const bool keep = first_copy ? first_there && instance == 0 : plate_of(*object, instance, config, plates) == plate;
+            if (!keep) {
+                object->delete_instance(instance);
+            }
+        }
+        if (object->instances.empty()) {
+            copy.delete_object(index);
+        }
+    }
+    return copy;
+}
+
+// The config of plate, with its own settings over it (its wipe tower among them).
+Slic3r::DynamicPrintConfig plate_config_of(const Slic3r::DynamicPrintConfig& config, const std::vector<ModelSettings>& plate_settings, const int plate)
+{
+    Slic3r::DynamicPrintConfig plate_config = config;
+    if (plate >= 0 && std::size_t(plate) < plate_settings.size()) {
+        plate_config.apply(detail::model_config(plate_settings[std::size_t(plate)]), true);
+    }
+    return plate_config;
+}
+
+bool has_wipe_tower_position(const std::vector<ModelSettings>& plate_settings, const int plate)
+{
+    if (plate < 0 || std::size_t(plate) >= plate_settings.size()) {
+        return false;
+    }
+    const std::vector<std::string>& keys = plate_settings[std::size_t(plate)].keys;
+    return std::find(keys.begin(), keys.end(), std::string("wipe_tower_x")) != keys.end();
+}
+
+// GLCanvas3D::get_wipe_tower_info() and ArrangeJob's
+// get_wipetower_arrange_poly(): the tower drawn on plate as a fixed item of
+// the arrangement, its box grown by its brim (twice, as the desktop app grows
+// it), at its position kept within the plate; none while the plate draws no
+// tower.
+std::optional<Slic3r::arrangement::ArrangePolygon> standing_wipe_tower(const detail::PlateTower& tower, const Slic3r::DynamicPrintConfig& config)
+{
+    using namespace Slic3r;
+    if (!tower.shown) {
+        return std::nullopt;
+    }
+    BoundingBoxf bb(Vec2d(0.0, 0.0), Vec2d(tower.width, tower.depth));
+    double wt_brim_width = config.opt_float("prime_tower_brim_width");
+    if (wt_brim_width < 0) {
+        wt_brim_width = WipeTower::get_auto_brim_by_height(float(tower.height));
+    }
+    bb.offset(wt_brim_width);
+    double brim_width = config.opt_float("prime_tower_brim_width");
+    if (brim_width < 0) {
+        brim_width = WipeTower::get_auto_brim_by_height(float(tower.height));
+    }
+    bb.offset(brim_width);
+    // The wipe tower pos might be outside bed.
+    const BoundingBoxf area(config.option<ConfigOptionPoints>("printable_area")->values);
+    const Vec2d plate_size = area.size();
+    const Vec2d position(std::clamp(tower.x, 0.0, plate_size(0) - bb.size().x()), std::clamp(tower.y, 0.0, plate_size(1) - bb.size().y()));
+
+    arrangement::ArrangePolygon ap;
+    ap.poly.contour = Polygon({
+        {scaled(bb.min)},
+        {scaled(bb.max.x()), scaled(bb.min.y())},
+        {scaled(bb.max)},
+        {scaled(bb.min.x()), scaled(bb.max.y())},
+    });
+    ap.translation = scaled(position);
+    ap.rotation = 0.0;
+    ap.name = "WipeTower";
+    ap.is_virt_object = true;
+    ap.is_wipe_tower = true;
+    ++ap.priority;
+    ap.bed_idx = 0;
+    // do not move wipe tower
+    ap.setter = nullptr;
+    return ap;
+}
+
+// estimate_wipe_tower_info() and PartPlate::estimate_wipe_tower_polygon():
+// the tower a plate would need for extruder_size filaments, at the project's
+// position for the plate (the first plate's beyond the last), kept off the
+// plate's edges, from the objects that stand on the plate (the last one beyond
+// it).
+Slic3r::arrangement::ArrangePolygon estimated_wipe_tower(
+    const Slic3r::Model& model,
+    const Slic3r::DynamicPrintConfig& config,
+    const std::vector<ModelSettings>& plate_settings,
+    const int plate_index,
+    const int plates,
+    const int extruder_size
+)
+{
+    using namespace Slic3r;
+    const int plate_index_valid = std::min(plate_index, plates - 1);
+    const float w = float(config.opt_float("prime_tower_width"));
+    const float tower_brim_width = float(config.opt_float("prime_tower_brim_width"));
+    const double max_height = detail::plate_objects_height(plate_model_of(model, config, plate_index_valid, plates, true));
+    const Vec3d wt_size = detail::estimate_wipe_tower_size(config, extruder_size, max_height);
+
+    // wipe_tower_x.get_at(plate_index): the plate's own, or the first plate's.
+    const int placed_plate = std::size_t(plate_index) < plate_settings.size() ? plate_index : 0;
+    float x;
+    float y;
+    if (has_wipe_tower_position(plate_settings, placed_plate)) {
+        const DynamicPrintConfig placed = plate_config_of(config, plate_settings, placed_plate);
+        x = float(placed.option<ConfigOptionFloats>("wipe_tower_x")->get_at(0));
+        y = float(placed.option<ConfigOptionFloats>("wipe_tower_y")->get_at(0));
+    } else {
+        const Vec2d position = detail::default_wipe_tower_position(config, wt_size, tower_brim_width < 0
+            ? WipeTower::get_auto_brim_by_height(float(max_height)) : tower_brim_width);
+        x = float(position(0));
+        y = float(position(1));
+    }
+    const BoundingBoxf area(config.option<ConfigOptionPoints>("printable_area")->values);
+    const float plate_width = float(area.size()(0));
+    const float plate_depth = float(area.size()(1));
+    const float depth = float(wt_size(1));
+    const float margin = WIPE_TOWER_MARGIN + tower_brim_width;
+    float wp_brim_width = tower_brim_width;
+    if (wp_brim_width < 0) {
+        wp_brim_width = WipeTower::get_auto_brim_by_height(float(wt_size.z()));
+    }
+    x = std::clamp(x, margin, plate_width - w - margin - wp_brim_width);
+    y = std::clamp(y, margin, plate_depth - depth - margin - wp_brim_width);
+
+    arrangement::ArrangePolygon wipe_tower_ap;
+    wipe_tower_ap.poly.contour = Polygon({
+        {scaled(x - wp_brim_width), scaled(y - wp_brim_width)},
+        {scaled(x + w + wp_brim_width), scaled(y - wp_brim_width)},
+        {scaled(x + w + wp_brim_width), scaled(y + depth + wp_brim_width)},
+        {scaled(x - wp_brim_width), scaled(y + depth + wp_brim_width)},
+    });
+    wipe_tower_ap.bed_idx = plate_index;
+    // do not move wipe tower
+    wipe_tower_ap.setter = nullptr;
+    wipe_tower_ap.translation = {scaled(0.f), scaled(0.f)};
+    wipe_tower_ap.name = "WipeTower";
+    wipe_tower_ap.is_virt_object = true;
+    wipe_tower_ap.is_wipe_tower = true;
+    return wipe_tower_ap;
+}
+
+// ArrangeJob::prepare_wipe_tower(): no tower without the prime tower or in
+// sequential printing; a plate's standing tower is kept clear of; and where
+// none stands, a tower is estimated for every bed once an object to arrange
+// prints with several filaments, the timelapse is smooth, or filaments of the
+// same bed temperature may share a plate. The beds count the unlocked plates.
+void add_wipe_towers(
+    Slic3r::arrangement::ArrangePolygons& unselected,
+    const Slic3r::arrangement::ArrangePolygons& selected,
+    const Slic3r::Model& model,
+    const Slic3r::DynamicPrintConfig& config,
+    const Slic3r::arrangement::ArrangeParams& params,
+    const std::vector<ModelSettings>& plate_settings,
+    const std::vector<bool>& locked,
+    const int plates
+)
+{
+    using namespace Slic3r;
+    if (plate_settings.empty() || !config.opt_bool("enable_prime_tower") || params.is_seq_print) {
+        return;
+    }
+    bool need_wipe_tower = false;
+    if (const auto* const timelapse = config.option<ConfigOptionEnum<TimelapseType>>("timelapse_type");
+        timelapse != nullptr && timelapse->value == TimelapseType::tlSmooth) {
+        need_wipe_tower = true;
+    }
+    for (const arrangement::ArrangePolygon& item : selected) {
+        if (std::set<int>(item.extrude_ids.begin(), item.extrude_ids.end()).size() > 1) {
+            need_wipe_tower = true;
+            break;
+        }
+    }
+    if (params.allow_multi_materials_on_same_plate) {
+        std::map<int, std::set<int>> bed_temp_to_extruder_ids;
+        for (const arrangement::ArrangePolygon& item : selected) {
+            for (const int id : item.extrude_ids) {
+                bed_temp_to_extruder_ids[item.bed_temp].insert(id);
+            }
+        }
+        for (const auto& [temp, ids] : bed_temp_to_extruder_ids) {
+            if (ids.size() > 1) {
+                need_wipe_tower = true;
+                break;
+            }
+        }
+    }
+
+    // The tower of every plate, and PartPlateList::get_extruders(true): every plate's filaments.
+    std::vector<detail::PlateTower> towers;
+    std::set<int> extruder_ids;
+    for (int plate = 0; plate < plates; ++plate) {
+        towers.push_back(detail::plate_tower(
+            plate_model_of(model, config, plate, plates, false), plate_config_of(config, plate_settings, plate), has_wipe_tower_position(plate_settings, plate)));
+        extruder_ids.insert(towers.back().filaments.begin(), towers.back().filaments.end());
+    }
+
+    int bedid_unlocked = 0;
+    for (int bedid = 0; bedid < MAX_NUM_PLATES; ++bedid) {
+        if (bedid < plates && locked[std::size_t(bedid)]) {
+            continue;
+        }
+        if (auto standing = bedid < plates ? standing_wipe_tower(towers[std::size_t(bedid)], config) : std::nullopt) {
+            // wipe tower is already there
+            standing->bed_idx = bedid_unlocked;
+            unselected.emplace_back(std::move(*standing));
+        } else if (need_wipe_tower) {
+            arrangement::ArrangePolygon wipe_tower_ap = estimated_wipe_tower(model, config, plate_settings, bedid, plates, int(extruder_ids.size()));
+            wipe_tower_ap.bed_idx = bedid_unlocked;
+            unselected.emplace_back(std::move(wipe_tower_ap));
+        }
+        bedid_unlocked++;
+    }
+}
+
 // ArrangeJob with the given settings: init_arrange_params(), prepare_all() over
 // every plate, or prepare_partplate() for the current one when only_on_plate,
 // as the menus start it, check_unprintable(), process(), and finalize() with
 // PartPlateList's pre- and postprocessing of the arrange polygons. Copies on
 // locked plates stay where they are; plates are added for what the others do
 // not hold. Returns the number of plates afterwards; the app recycles the
-// empty ones at the end (rebuild_plates_after_arrangement). Wipe towers do not
-// apply to single-filament plates.
+// empty ones at the end (rebuild_plates_after_arrangement). The wipe towers are
+// kept clear of (prepare_wipe_tower()).
 int arrange_plates(
     Slic3r::Model& model,
     const Slic3r::DynamicPrintConfig& config,
     const ArrangeSettings& settings,
     const bool only_on_plate,
-    std::vector<bool> locked
+    std::vector<bool> locked,
+    const std::vector<ModelSettings>& plate_settings
 )
 {
     using namespace Slic3r;
@@ -2463,6 +2690,18 @@ int arrange_plates(
             polygon.itemid = int(list.size());
             list.emplace_back(std::move(polygon));
         }
+    }
+    if (only_on_plate) {
+        // prepare_partplate(): the current plate's tower stays where it stands.
+        if (!plate_settings.empty()) {
+            const detail::PlateTower tower = detail::plate_tower(plate_model_of(model, config, current, plates, false),
+                plate_config_of(config, plate_settings, current), has_wipe_tower_position(plate_settings, current));
+            if (auto standing = standing_wipe_tower(tower, config)) {
+                unselected.emplace_back(std::move(*standing));
+            }
+        }
+    } else {
+        add_wipe_towers(unselected, selected, model, config, params, plate_settings, locked, plates);
     }
     add_exclude_areas(unselected, config, only_on_plate ? current + 1 : MAX_NUM_PLATES, 0.0f);
     // check_unprintable(): nothing without area or above the build height is arranged.
@@ -2603,7 +2842,8 @@ void fill_bed_with_instances(
     const ArrangeSettings& settings,
     std::size_t object_index,
     int selected_instance,
-    const std::vector<bool>& locked_plates
+    const std::vector<bool>& locked_plates,
+    const std::vector<ModelSettings>& plate_settings
 )
 {
     using namespace Slic3r;
@@ -2654,6 +2894,16 @@ void fill_bed_with_instances(
                 ap.itemid = int(unselected.size());
                 unselected.emplace_back(ap);
             }
+        }
+    }
+    // get_wipe_tower_arrangepoly(): the current plate's tower, on the first bed.
+    if (!plate_settings.empty()) {
+        const int plates = engine().plate_count;
+        const int current = engine().plate_index;
+        const detail::PlateTower tower = detail::plate_tower(plate_model_of(model, config, current, plates, false),
+            plate_config_of(config, plate_settings, current), has_wipe_tower_position(plate_settings, current));
+        if (auto standing = standing_wipe_tower(tower, config)) {
+            unselected.emplace_back(std::move(*standing));
         }
     }
     if (selected.empty()) {
@@ -2750,7 +3000,7 @@ void fill_bed_with_instances(
     for (ModelObject* object : model.objects) {
         object->invalidate_bounding_box();
     }
-    arrange_plates(model, config, settings, true, locked_plates);
+    arrange_plates(model, config, settings, true, locked_plates, plate_settings);
 }
 
 // The instance's lowest point with the transformation, as instance_bounding_box().min.z().
@@ -3354,7 +3604,8 @@ PlateInspection place_objects(
     PlateManipulation manipulation,
     const ArrangeSettings& arrange_settings,
     int selected_instance,
-    const std::vector<bool>& locked_plates
+    const std::vector<bool>& locked_plates,
+    const std::vector<ModelSettings>& plate_settings
 )
 {
     PlateInspection result;
@@ -3392,12 +3643,12 @@ PlateInspection place_objects(
             auto_orient(model, config, selected, locked_plates);
             break;
         case PlateManipulation::arrange:
-            result.plate_count = arrange_plates(model, config, arrange_settings, false, locked_plates);
+            result.plate_count = arrange_plates(model, config, arrange_settings, false, locked_plates, plate_settings);
             break;
         case PlateManipulation::update_print_volume_state:
             break;
         case PlateManipulation::arrange_plate:
-            arrange_plates(model, config, arrange_settings, true, locked_plates);
+            arrange_plates(model, config, arrange_settings, true, locked_plates, plate_settings);
             break;
         case PlateManipulation::fill_bed: {
             const auto object = std::find(selected.begin(), selected.end(), true);
@@ -3405,7 +3656,7 @@ PlateInspection place_objects(
                 result.message = "No object is selected";
                 return result;
             }
-            fill_bed_with_instances(model, config, arrange_settings, std::size_t(object - selected.begin()), selected_instance, locked_plates);
+            fill_bed_with_instances(model, config, arrange_settings, std::size_t(object - selected.begin()), selected_instance, locked_plates, plate_settings);
             break;
         }
         default:

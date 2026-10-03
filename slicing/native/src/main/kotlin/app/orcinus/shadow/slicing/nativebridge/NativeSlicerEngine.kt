@@ -1715,6 +1715,7 @@ class NativeSlicerEngine(context: Context) :
             selected = BooleanArray(plate.size) { plate[it].mesh in selected },
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             manipulation = when (manipulation) {
                 is PlateManipulation.AutoOrient -> 0L
@@ -1729,6 +1730,9 @@ class NativeSlicerEngine(context: Context) :
             arrangeAlignToYAxis = arrange.alignToYAxis,
             selectedInstance = (manipulation as? PlateManipulation.FillBed)?.instance ?: -1,
             lockedPlates = manipulation.lockedPlates.let { locked -> BooleanArray((locked.maxOrNull() ?: -1) + 1) { it in locked } },
+            plateSettingKeys = manipulation.plateSettings.flatMap { it.values.keys }.toTypedArray(),
+            plateSettingValues = manipulation.plateSettings.flatMap { it.values.values }.toTypedArray(),
+            plateSettingCounts = manipulation.plateSettings.map { it.values.size }.toIntArray(),
         )
         if (result.status != NativeSceneStatus.SUCCESS || result.objects.size != plate.size) {
             return@withContext PlateInspectionOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not place the objects" })

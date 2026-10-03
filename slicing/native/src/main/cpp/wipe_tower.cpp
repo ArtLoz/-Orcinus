@@ -302,6 +302,76 @@ Slic3r::Vec2d default_position(
 
 }  // namespace
 
+namespace detail {
+
+PlateTower plate_tower(const Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const bool placed)
+{
+    PlateTower tower;
+    tower.filaments = plate_extruders(model, config);
+    tower.height = plate_height(model);
+
+    // GLCanvas3D::reload_scene(): the plate draws a tower once the process
+    // preset asks for one and more than one filament is printed on it.
+    const bool enabled = config_bool(config, "enable_prime_tower");
+    const bool timelapse = [&config] {
+        const auto* const option = config.option<Slic3r::ConfigOptionEnum<Slic3r::TimelapseType>>("timelapse_type");
+        return option != nullptr && option->value == Slic3r::TimelapseType::tlSmooth;
+    }();
+    const bool need_tower = timelapse || config_bool(config, "enable_wrapping_detection");
+    const std::size_t filament_count = engine().bundle->filament_presets.size();
+    tower.shown = enabled
+        && (need_tower || filament_count > 1)
+        && !model.objects.empty()
+        && (need_tower || tower.filaments.size() > 1);
+    if (!tower.shown) {
+        return tower;
+    }
+
+    const Slic3r::Vec3d size = estimate_wipe_tower_size(config, static_cast<int>(tower.filaments.size()), tower.height);
+    tower.width = size(0);
+    tower.depth = size(1);
+
+    double brim_width = config_float(config, "prime_tower_brim_width");
+    if (brim_width < 0) {
+        brim_width = Slic3r::WipeTower::get_auto_brim_by_height(static_cast<float>(tower.height));
+    }
+    tower.brim_width = brim_width;
+
+    // The project places the tower; without a position it stands where the
+    // desktop app puts a new one.
+    const auto* const x = config.option<Slic3r::ConfigOptionFloats>("wipe_tower_x");
+    const auto* const y = config.option<Slic3r::ConfigOptionFloats>("wipe_tower_y");
+    if (placed && x != nullptr && !x->values.empty() && y != nullptr && !y->values.empty()) {
+        tower.x = x->values.front();
+        tower.y = y->values.front();
+    } else {
+        const Slic3r::Vec2d position = default_wipe_tower_position(config, size, brim_width);
+        tower.x = position(0);
+        tower.y = position(1);
+    }
+    return tower;
+}
+
+Slic3r::Vec3d estimate_wipe_tower_size(const Slic3r::DynamicPrintConfig& config, const int plate_extruder_size, const double max_height)
+{
+    const int extruder_count = static_cast<int>(engine().bundle->get_printer_extruder_count());
+    return estimate_size(
+        config, config_float(config, "prime_tower_width"), config_float(config, "prime_volume"), extruder_count, plate_extruder_size, max_height);
+}
+
+double plate_objects_height(const Slic3r::Model& model)
+{
+    return plate_height(model);
+}
+
+Slic3r::Vec2d default_wipe_tower_position(const Slic3r::DynamicPrintConfig& config, const Slic3r::Vec3d& size, const double brim_width)
+{
+    const Slic3r::BoundingBoxf area(config.option<Slic3r::ConfigOptionPoints>("printable_area")->values);
+    return default_position(config, area, size, brim_width);
+}
+
+}  // namespace detail
+
 WipeTowerState describe_wipe_tower(
     const std::vector<PlateObject>& plate,
     const ProfileSelection& profiles,
@@ -336,67 +406,27 @@ WipeTowerState describe_wipe_tower(
 
         result.status = SceneStatus::success;
         result.rotation = config_float(config, "wipe_tower_rotation_angle");
-        result.filaments = plate_extruders(model, config);
         // The desktop menu reads them from the edited process preset.
         const Slic3r::DynamicPrintConfig& process = detail::engine().bundle->prints.get_edited_preset().config;
         result.prime_tower = config_bool(process, "enable_prime_tower");
         result.flush_into_infill = config_bool(process, "flush_into_infill");
         result.flush_into_objects = config_bool(process, "flush_into_objects");
         result.flush_into_support = config_bool(process, "flush_into_support");
-        result.height = plate_height(model);
 
-        // GLCanvas3D::reload_scene(): the plate draws a tower once the process
-        // preset asks for one and more than one filament is printed on it.
-        const bool enabled = config_bool(config, "enable_prime_tower");
-        const bool timelapse = [&config] {
-            const auto* const option = config.option<Slic3r::ConfigOptionEnum<Slic3r::TimelapseType>>("timelapse_type");
-            return option != nullptr && option->value == Slic3r::TimelapseType::tlSmooth;
-        }();
-        const bool need_tower = timelapse || config_bool(config, "enable_wrapping_detection");
-        const std::size_t filament_count = detail::engine().bundle->filament_presets.size();
-        result.shown = enabled
-            && (need_tower || filament_count > 1)
-            && !model.objects.empty()
-            && (need_tower || result.filaments.size() > 1);
+        const bool placed = plate_settings.keys.end()
+            != std::find(plate_settings.keys.begin(), plate_settings.keys.end(), std::string("wipe_tower_x"));
+        const detail::PlateTower tower = detail::plate_tower(model, config, placed);
+        result.filaments = tower.filaments;
+        result.height = tower.height;
+        result.shown = tower.shown;
         if (!result.shown) {
             return result;
         }
-
-        const double width = config_float(config, "prime_tower_width");
-        const double volume = config_float(config, "prime_volume");
-        const int extruder_count = static_cast<int>(detail::engine().bundle->get_printer_extruder_count());
-        const Slic3r::Vec3d size = estimate_size(
-            config,
-            width,
-            volume,
-            extruder_count,
-            static_cast<int>(result.filaments.size()),
-            result.height
-        );
-        result.width = size(0);
-        result.depth = size(1);
-
-        double brim_width = config_float(config, "prime_tower_brim_width");
-        if (brim_width < 0) {
-            brim_width = Slic3r::WipeTower::get_auto_brim_by_height(static_cast<float>(result.height));
-        }
-        result.brim_width = brim_width;
-
-        // The project places the tower; without a position it stands where the
-        // desktop app puts a new one.
-        const auto* const x = config.option<Slic3r::ConfigOptionFloats>("wipe_tower_x");
-        const auto* const y = config.option<Slic3r::ConfigOptionFloats>("wipe_tower_y");
-        const bool placed = plate_settings.keys.end()
-            != std::find(plate_settings.keys.begin(), plate_settings.keys.end(), std::string("wipe_tower_x"));
-        if (placed && x != nullptr && !x->values.empty() && y != nullptr && !y->values.empty()) {
-            result.x = x->values.front();
-            result.y = y->values.front();
-        } else {
-            const Slic3r::BoundingBoxf area(config.option<Slic3r::ConfigOptionPoints>("printable_area")->values);
-            const Slic3r::Vec2d position = default_position(config, area, size, brim_width);
-            result.x = position(0);
-            result.y = position(1);
-        }
+        result.width = tower.width;
+        result.depth = tower.depth;
+        result.brim_width = tower.brim_width;
+        result.x = tower.x;
+        result.y = tower.y;
         return result;
     } catch (const std::exception& error) {
         result.status = SceneStatus::model_read_failed;

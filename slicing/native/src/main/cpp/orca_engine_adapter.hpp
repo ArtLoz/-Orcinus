@@ -670,7 +670,10 @@ PlateInspection place_objects(
     PlateManipulation manipulation,
     const ArrangeSettings& arrange_settings,
     int selected_instance = -1,
-    const std::vector<bool>& locked_plates = {}
+    const std::vector<bool>& locked_plates = {},
+    // The settings of every plate (PartPlate's config), whose wipe_tower_x and
+    // wipe_tower_y place the wipe towers arranging keeps clear of; none for no towers.
+    const std::vector<ModelSettings>& plate_settings = {}
 );
 
 // The wipe tower of the plate, which the desktop app draws as a volume of its

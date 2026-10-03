@@ -647,7 +647,7 @@ class PlateUseCasesTest {
 
         placePlateObjects(inspector, repository)(PlateManipulation.Arrange(settings))
 
-        assertEquals(PlateManipulation.Arrange(settings), inspector.plateManipulation)
+        assertEquals(PlateManipulation.Arrange(settings, plateSettings = ONE_PLATE), inspector.plateManipulation)
         assertEquals(listOf(CUBE.inspection.mesh, other.inspection.mesh), inspector.plate.map(PlacedModel::mesh))
         val state = repository.state.value
         assertEquals(listOf(translated(150.0, 175.0, 10.0), translated(200.0, 175.0, 10.0)), state.objects.map { it.inspection.placement })
@@ -1464,7 +1464,7 @@ class PlateUseCasesTest {
         assertEquals(setOf(PlateInstanceId(ScenePath("/scene/objects/copy-1.mesh"))), state.selectedInstances)
         // The copies of the cube name their G-code as the cube does.
         assertEquals("calibration-cube-20mm", (state.objects.last() as PlateObject.ImportedModel).inputName)
-        assertEquals(PlateManipulation.ArrangePlate(settings), inspector.plateManipulation)
+        assertEquals(PlateManipulation.ArrangePlate(settings, plateSettings = ONE_PLATE), inspector.plateManipulation)
     }
 
     @Test
@@ -1538,7 +1538,7 @@ class PlateUseCasesTest {
 
         FillBedWithInstancesUseCase(repository, placePlateObjects(inspector, repository))(CUBE.mesh, 0)
 
-        assertEquals(PlateManipulation.FillBed(CUBE.mesh, 0, settings), inspector.plateManipulation)
+        assertEquals(PlateManipulation.FillBed(CUBE.mesh, 0, settings, plateSettings = ONE_PLATE), inspector.plateManipulation)
         val instances = repository.state.value.objects.single().instances
         assertEquals(List(4) { translated(40.0 * it, 0.0, 0.0) }, instances.map { it.inspection.placement })
         assertTrue(instances.all { it.printable && it.autoDrop && !it.placing })
@@ -1983,7 +1983,7 @@ class PlateUseCasesTest {
         // "Import Object" once, then "Arrange".
         assertEquals(listOf(0, 2), state.history.undo.map { it.objects.size })
         assertFalse(state.importing)
-        assertEquals(PlateManipulation.ArrangePlate(state.arrangeSettings), inspector.plateManipulation)
+        assertEquals(PlateManipulation.ArrangePlate(state.arrangeSettings, plateSettings = ONE_PLATE), inspector.plateManipulation)
         assertEquals("OrcaCube_v2.drc", (state.objects.first() as PlateObject.ImportedModel).inputName)
     }
 
@@ -4413,6 +4413,9 @@ class PlateUseCasesTest {
             unscaledDimensions = ModelDimensions(20.0, 20.0, 20.0),
         )
         val CUBE = PlateObject.CalibrationCube(listOf(PlateInstance(INSPECTION)))
+
+        /** The settings of the one plate of a plate state, as arranging sends them for its wipe tower. */
+        val ONE_PLATE = listOf(ModelSettings())
 
         /** An engine that edits no layer heights; the tests change the plate alone. */
         val NO_LAYER_EDITOR = object : LayerHeightEditor {
