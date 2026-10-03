@@ -23,6 +23,7 @@ import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.MeasureHover
 import app.orcinus.shadow.core.model.Measurement
+import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintTool
@@ -161,6 +162,10 @@ data class PrepareUiState(
     val brimEars: BrimEarsMode? = null,
     /** GLGizmoBrimEars::on_is_activable(): a single copy is selected whole. */
     val canEditBrimEars: Boolean = false,
+    /** The mesh boolean tool (GLGizmoMeshBoolean), while it is open. */
+    val meshBoolean: MeshBooleanMode? = null,
+    /** GLGizmoMeshBoolean::on_is_activable(): a single copy is selected whole, of an object of several volumes. */
+    val canMeshBoolean: Boolean = false,
     /** The assembly view (AssembleView), while it shows in the 3D view's place. */
     val assemblyView: AssemblyViewMode? = null,
     /** Plater::priv::has_assemble_view(): a copy has a place in the assembly view, which the toolbar's "Assembly View" opens. */
@@ -385,6 +390,14 @@ internal data class PrepareViewState(
     val measure: MeasureMode? = null,
     /** The brim ears tool, while it is open. */
     val brimEars: BrimEarsMode? = null,
+    /** The mesh boolean tool, while it is open. */
+    val meshBoolean: MeshBooleanMode? = null,
+    /**
+     * Its "Delete input" of the difference and of the intersection, which the
+     * desktop tool keeps from one opening to the next.
+     */
+    val meshBooleanDeleteDifference: Boolean = false,
+    val meshBooleanDeleteIntersection: Boolean = false,
     /** The assembly view shows in the 3D view's place. */
     val assemblyView: Boolean = false,
     /** GLCanvas3D::m_explosion_ratio of the assembly view, which it keeps until the project starts afresh (reset_explosion_ratio()). */
@@ -395,6 +408,21 @@ internal data class PrepareViewState(
     val sectionPosition: Double = 0.0,
     val sectionResets: Int = 0,
     val assemblySection: ScenePath? = null,
+)
+
+/**
+ * GLGizmoMeshBoolean while it is open on [copy]: its operation, whether a
+ * finger picks the tool rather than the source (MeshBooleanSelectingState),
+ * the volumes picked (VolumeInfo::volume_idx, ModelObject::volumes), and
+ * whether the operation deletes its input.
+ */
+data class MeshBooleanMode(
+    val copy: PlateInstanceId,
+    val operation: MeshBooleanOperation = MeshBooleanOperation.UNION,
+    val selectingTool: Boolean = false,
+    val source: Int? = null,
+    val tool: Int? = null,
+    val deleteInput: Boolean = true,
 )
 
 /**
@@ -625,6 +653,17 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         measure = view.measure?.takeIf { canEditPlate },
         brimEars = view.brimEars?.takeIf { mode -> objects.any { it.mesh == mode.copy.mesh } && canEditPlate },
         canEditBrimEars = canEditPlate && selectedInstances.size == 1 && selectedPart == null,
+        meshBoolean = view.meshBoolean?.takeIf { mode -> objects.any { it.mesh == mode.copy.mesh } && canEditPlate }?.let { mode ->
+            mode.copy(
+                deleteInput = when (mode.operation) {
+                    MeshBooleanOperation.UNION -> true
+                    MeshBooleanOperation.DIFFERENCE -> view.meshBooleanDeleteDifference
+                    MeshBooleanOperation.INTERSECTION -> view.meshBooleanDeleteIntersection
+                },
+            )
+        },
+        canMeshBoolean = canEditPlate && !view.assemblyView && selectedPart == null &&
+            selectedInstances.singleOrNull()?.let { copy -> objects.firstOrNull { it.mesh == copy.mesh }?.parts?.isNotEmpty() } == true,
         assemblyView = AssemblyViewMode(view.explosionRatio, view.assemblyHidden, view.sectionPosition, view.sectionResets, view.assemblySection)
             .takeIf { view.assemblyView },
         canOpenAssemblyView = hasAssembleView(),

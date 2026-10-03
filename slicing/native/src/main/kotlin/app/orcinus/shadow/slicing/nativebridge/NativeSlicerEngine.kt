@@ -33,6 +33,7 @@ import app.orcinus.shadow.core.model.MeasureReset
 import app.orcinus.shadow.core.model.MeasureEdit
 import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
+import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
@@ -1115,6 +1116,35 @@ class NativeSlicerEngine(context: Context) :
             stepLinear = stepMesh?.linearDeflection ?: 0.0,
             stepAngle = stepMesh?.angleDeflection ?: 0.0,
             stepSplit = stepMesh?.splitCompound ?: false,
+        ).toOutcome()
+    }
+
+    override suspend fun meshBoolean(
+        plate: List<PlacedModel>,
+        index: Int,
+        source: Int,
+        tool: Int,
+        operation: MeshBooleanOperation,
+        deleteInput: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.meshBoolean(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            source = source,
+            tool = tool,
+            operation = operation.ordinal.toLong(),
+            deleteInput = deleteInput,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
         ).toOutcome()
     }
 

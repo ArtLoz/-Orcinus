@@ -94,6 +94,7 @@ import app.orcinus.shadow.domain.plate.ListHostPrintersUseCase
 import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MeasureUseCase
+import app.orcinus.shadow.domain.plate.MeshBooleanUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObjectMeshRetention
@@ -597,6 +598,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             setSliceMode = setSliceMode,
             cancelPlateSlicing = cancelPlateSlicing,
             dismissPlateProblem = dismissPlateProblem,
+            meshBooleans = MeshBooleanUseCase(engine, sceneFiles, plateRepository, applicationScope),
             setPlateObjectPrintable = setPlateObjectPrintable,
             setExtruder = setExtruder,
             setFlushOption = setFlushOption,

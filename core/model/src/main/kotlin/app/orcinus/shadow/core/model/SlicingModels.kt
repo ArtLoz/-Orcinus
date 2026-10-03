@@ -197,6 +197,18 @@ data class LoadedObject(
     val brimPoints: List<BrimPoint> = emptyList(),
 )
 
+/** GLGizmoMeshBoolean's operations (MeshBooleanOperation), in its order. */
+enum class MeshBooleanOperation {
+    /** "Union": the two volumes joined, the second gone. */
+    UNION,
+
+    /** "Difference": the second volume taken from the first. */
+    DIFFERENCE,
+
+    /** "Intersection": what the two volumes share. */
+    INTERSECTION,
+}
+
 /** The file formats "Export as one STL" and "Export as one DRC" write. */
 /**
  * GLGizmoSimplify::Configuration: how far a mesh is decimated, down to

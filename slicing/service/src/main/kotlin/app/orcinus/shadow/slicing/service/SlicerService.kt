@@ -25,6 +25,7 @@ import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.MeasureReset
+import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelLoad
@@ -541,6 +542,28 @@ abstract class SlicerService<E> : Service()
             stepMesh: DoubleArray?,
         ): ModelLoadParcel = runBlocking {
             engine.replaceVolume(plate.toPlacedModels(), index, volume, ModelPath(source), profiles.toProfiles(), ScenePath(prefix), stepMesh?.toStepMeshOptions())
+        }.toParcel()
+
+        override fun meshBoolean(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            source: Int,
+            tool: Int,
+            operation: String,
+            deleteInput: Boolean,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.meshBoolean(
+                plate.toPlacedModels(),
+                index,
+                source,
+                tool,
+                MeshBooleanOperation.valueOf(operation),
+                deleteInput,
+                profiles.toProfiles(),
+                ScenePath(prefix),
+            )
         }.toParcel()
 
         override fun reloadVolumes(

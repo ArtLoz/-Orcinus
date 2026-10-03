@@ -37,6 +37,7 @@ import app.orcinus.shadow.core.model.MeasureOutcome
 import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
 import app.orcinus.shadow.core.model.Measurement
+import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
@@ -54,6 +55,7 @@ import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.Point2
@@ -110,6 +112,7 @@ import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MeasureTarget
 import app.orcinus.shadow.domain.plate.MeasureUseCase
+import app.orcinus.shadow.domain.plate.MeshBooleanUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
@@ -234,6 +237,7 @@ class PrepareViewModel(
     private val setSliceMode: SetSliceModeUseCase,
     private val cancelPlateSlicing: CancelPlateSlicingUseCase,
     private val dismissPlateProblem: DismissPlateProblemUseCase,
+    private val meshBooleans: MeshBooleanUseCase,
     private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
     private val setExtruder: SetExtruderUseCase,
     private val setFlushOption: SetFlushOptionUseCase,
@@ -2244,6 +2248,7 @@ class PrepareViewModel(
         closePainting()
         closeMeasure()
         closeBrimEars()
+        closeMeshBoolean()
         openSimplify.close()
         editLayerHeights.enable(false)
         view.update { it.copy(gizmo = null, arrangeOptionsOpen = false) }
@@ -2461,6 +2466,83 @@ class PrepareViewModel(
                 hover
             }
             state.copy(measure = mode.copy(hover = shown))
+        }
+    }
+
+    /**
+     * The toolbar's "Mesh Boolean" (GLGizmoMeshBoolean): the tool opens on the
+     * selected copy, picking the source first (on_set_state()), the other
+     * tools of the canvas closing first, or closes.
+     */
+    fun toggleMeshBoolean() {
+        if (view.value.meshBoolean != null) return closeMeshBoolean()
+        if (!state.value.canMeshBoolean) return
+        val copy = plate.value.selectedInstances.singleOrNull() ?: return
+        closeOtherTools()
+        closeEmbossTools()
+        view.update { it.copy(meshBoolean = MeshBooleanMode(copy)) }
+    }
+
+    /** "Done": the tool closes, and with it its warning (close_plater_warning_notification()). */
+    fun closeMeshBoolean() {
+        if (view.value.meshBoolean == null) return
+        view.update { it.copy(meshBoolean = null) }
+        if (plate.value.problem?.kind == PlateProblemKind.MESH_BOOLEAN_FAILED) dismissPlateProblem()
+    }
+
+    /**
+     * gizmo_event(): the volume a finger picked becomes the source, after
+     * which the tool is picked, or the tool; one volume is not both
+     * (set_src_volume(), set_tool_volume()).
+     */
+    fun pickMeshBooleanVolume(key: String) {
+        val mode = view.value.meshBoolean ?: return
+        val target = plate.value.objects.firstOrNull { it.mesh == mode.copy.mesh } ?: return
+        val index = if (target.mesh.value == key) 0 else target.parts.indexOfFirst { it.mesh.value == key }.takeIf { it >= 0 }?.plus(1) ?: return
+        view.update { state ->
+            val open = state.meshBoolean ?: return@update state
+            state.copy(
+                meshBoolean = if (open.selectingTool) {
+                    open.copy(tool = index, source = open.source.takeUnless { it == index })
+                } else {
+                    open.copy(source = index, tool = open.tool.takeUnless { it == index }, selectingTool = true)
+                },
+            )
+        }
+    }
+
+    fun setMeshBooleanOperation(operation: MeshBooleanOperation) =
+        view.update { state -> state.copy(meshBoolean = state.meshBoolean?.copy(operation = operation)) }
+
+    /** The "Select" of the source's row or of the tool's. */
+    fun selectMeshBooleanTool(tool: Boolean) = view.update { state -> state.copy(meshBoolean = state.meshBoolean?.copy(selectingTool = tool)) }
+
+    /** The "×" beside the source or the tool (VolumeInfo::reset()). */
+    fun clearMeshBooleanVolume(tool: Boolean) = view.update { state ->
+        state.copy(meshBoolean = state.meshBoolean?.let { if (tool) it.copy(tool = null) else it.copy(source = null) })
+    }
+
+    fun setMeshBooleanDeleteInput(delete: Boolean) = view.update { state ->
+        when (state.meshBoolean?.operation) {
+            MeshBooleanOperation.DIFFERENCE -> state.copy(meshBooleanDeleteDifference = delete)
+            MeshBooleanOperation.INTERSECTION -> state.copy(meshBooleanDeleteIntersection = delete)
+            else -> state
+        }
+    }
+
+    /**
+     * The operation's button. Once the volumes changed the list selects the
+     * new one, which leaves no whole copy selected, and the tool closes
+     * (GLGizmosManager::refresh_on_off_state()).
+     */
+    fun applyMeshBoolean() {
+        val mode = state.value.meshBoolean ?: return
+        val source = mode.source ?: return
+        val tool = mode.tool ?: return
+        viewModelScope.launch {
+            if (meshBooleans(mode.copy, source, tool, mode.operation, mode.deleteInput).await()) {
+                view.update { it.copy(meshBoolean = null) }
+            }
         }
     }
 

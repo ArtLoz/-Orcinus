@@ -5012,6 +5012,168 @@ ImportedModels load_volume(
     }
 }
 
+ImportedModels mesh_boolean(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    int source,
+    int tool,
+    MeshBooleanOperation operation,
+    bool delete_input,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    detail::SettingsDialogs dialogs({});
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size()) {
+            result.message = "The object is not on the plate";
+            return result;
+        }
+        ModelObject* curr_model_object = model.objects[object_index];
+        const int volumes = int(curr_model_object->volumes.size());
+        if (source < 0 || tool < 0 || source >= volumes || tool >= volumes || source == tool) {
+            result.message = "The object has no such volumes";
+            return result;
+        }
+        ModelVolume* src = curr_model_object->volumes[source];
+        ModelVolume* tool_volume = curr_model_object->volumes[tool];
+        const Transform3d src_trafo = src->get_matrix();
+        const Transform3d tool_trafo = tool_volume->get_matrix();
+
+        // VolumeInfo::save_painting()
+        const auto save_painting = [](const ModelVolume* mv, const Transform3d& trafo) -> std::optional<TriangleSelector::SavedPainting> {
+            if (engine().config->get_bool("keep_painting")) {
+                std::optional<TriangleSelector::SavedPainting> saved_painting = mv->save_painting();
+                if (saved_painting) {
+                    saved_painting->mesh.transform(trafo);
+                }
+                return saved_painting;
+            }
+            return {};
+        };
+
+        TriangleMesh temp_src_mesh = src->mesh();
+        temp_src_mesh.transform(src_trafo);
+        TriangleMesh temp_tool_mesh = tool_volume->mesh();
+        temp_tool_mesh.transform(tool_trafo);
+        std::vector<TriangleMesh> temp_mesh_resuls;
+        std::vector<std::optional<TriangleSelector::SavedPainting>> saved_paintings;
+        std::string suffix;
+        switch (operation) {
+        case MeshBooleanOperation::union_:
+            MeshBoolean::mcut::make_boolean(temp_src_mesh, temp_tool_mesh, temp_mesh_resuls, "UNION");
+            // For union, we want to keep paint from both meshes
+            saved_paintings = {save_painting(src, src_trafo), save_painting(tool_volume, tool_trafo)};
+            suffix = "union";
+            delete_input = true;
+            break;
+        case MeshBooleanOperation::difference:
+            MeshBoolean::mcut::make_boolean(temp_src_mesh, temp_tool_mesh, temp_mesh_resuls, "A_NOT_B");
+            // For diff, we only need paint from src
+            saved_paintings = {save_painting(src, src_trafo)};
+            suffix = "difference";
+            break;
+        case MeshBooleanOperation::intersection:
+            MeshBoolean::mcut::make_boolean(temp_src_mesh, temp_tool_mesh, temp_mesh_resuls, "INTERSECTION");
+            // For intersection, we want to keep paint from both meshes
+            saved_paintings = {save_painting(src, src_trafo), save_painting(tool_volume, tool_trafo)};
+            suffix = "intersection";
+            break;
+        }
+        if (temp_mesh_resuls.empty()) {
+            // "Unable to perform boolean operation on selected parts"
+            result.status = SceneStatus::success;
+            return result;
+        }
+
+        // generate new volume
+        ModelVolume* new_volume = curr_model_object->add_volume(std::move(temp_mesh_resuls.front()));
+
+        // Remap paintings
+        for (const auto& saved_painting : saved_paintings) {
+            new_volume->restore_painting(saved_painting, true);
+        }
+
+        // assign to new_volume from old_volume
+        ModelVolume* old_volume = src;
+        new_volume->name = old_volume->name + " - " + suffix;
+        new_volume->set_new_unique_id();
+        new_volume->config.apply(old_volume->config);
+        new_volume->set_type(old_volume->type());
+        new_volume->set_material_id(old_volume->material_id());
+        new_volume->set_offset(old_volume->get_transformation().get_offset());
+
+        // delete old_volume
+        std::swap(curr_model_object->volumes[source], curr_model_object->volumes.back());
+        curr_model_object->delete_volume(curr_model_object->volumes.size() - 1);
+
+        if (delete_input) {
+            // ObjectList::del_subobject_from_object()
+            ModelVolume* volume = curr_model_object->volumes[tool];
+            int solid_cnt = 0;
+            for (const ModelVolume* vol : curr_model_object->volumes)
+                if (vol->is_model_part())
+                    ++solid_cnt;
+            if (volume->is_model_part() && solid_cnt == 1) {
+                dialogs.error("delete_last_solid_part", {detail::ui_text("Deleting the last solid part is not allowed.")});
+            } else if (curr_model_object->is_cut() && (volume->is_model_part() || volume->is_negative_volume())) {
+                // del_from_cut_object() asks, and the volume stays whatever the answer.
+            } else {
+                // The object as the "Delete part" snapshot keeps it.
+                curr_model_object->invalidate_bounding_box();
+                if (!write_objects({curr_model_object}, output_prefix + "-boolean", result)) {
+                    return result;
+                }
+                curr_model_object->delete_volume(tool);
+                if (curr_model_object->volumes.size() == 1) {
+                    ModelVolume* last_volume = curr_model_object->volumes[0];
+                    if (!last_volume->config.empty()) {
+                        curr_model_object->config.apply(last_volume->config);
+                        last_volume->config.reset();
+                    }
+                }
+            }
+        }
+
+        // ObjectList::reorder_volumes_and_get_selection()
+        curr_model_object->sort_volumes(true);
+        curr_model_object->invalidate_bounding_box();
+        const auto added = std::find(curr_model_object->volumes.begin(), curr_model_object->volumes.end(), new_volume);
+        result.selected_volume = added == curr_model_object->volumes.end() ? -1 : int(added - curr_model_object->volumes.begin());
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects({curr_model_object}, output_prefix, result)) {
+            return result;
+        }
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.notices = dialogs.take_notices();
+        result.objects.clear();
+        return result;
+    }
+}
+
 ImportedModels reload_volumes(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,

@@ -215,6 +215,17 @@ interface ISlicerService {
         String prefix,
         in @nullable double[] stepMesh
     );
+    /** mesh_boolean(): operation is MeshBooleanOperation's name. */
+    ModelLoadParcel meshBoolean(
+        in PlacedModelParcel[] plate,
+        int index,
+        int source,
+        int tool,
+        String operation,
+        boolean deleteInput,
+        in ProfilesParcel profiles,
+        String prefix
+    );
     /** reload_volumes() */
     ModelLoadParcel reloadVolumes(
         in PlacedModelParcel[] plate,

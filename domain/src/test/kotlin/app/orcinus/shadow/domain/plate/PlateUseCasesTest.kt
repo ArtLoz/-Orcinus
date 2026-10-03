@@ -63,6 +63,7 @@ import app.orcinus.shadow.core.model.LayerRangeId
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
@@ -222,6 +223,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 class PlateUseCasesTest {
@@ -3127,6 +3129,34 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `Mesh Boolean puts the result in the object's place, a step of Undo each for the operation and the deleted tool`() {
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement)
+        val cube = CUBE.withParts(listOf(part))
+        val repository = FakeRepository(readyState(cube))
+        val inspector = FakeInspector()
+        val afterOperation = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/boolean-a.mesh")))))
+        val afterDelete = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/boolean-b.mesh")))), parts = emptyList())
+        inspector.booleans += ModelLoadOutcome.Success(listOf(afterOperation, afterDelete), emptyList(), selectedVolume = 0)
+        inspector.booleans += ModelLoadOutcome.Success(emptyList(), emptyList())
+        val boolean = MeshBooleanUseCase(inspector, FakeSceneFiles(), repository, scope)
+
+        assertTrue(runBlocking { boolean(PlateInstanceId(cube.mesh), 0, 1, MeshBooleanOperation.UNION, deleteInput = false).await() })
+        assertEquals(listOf(FakeInspector.BooleanCall(0, 0, 1, MeshBooleanOperation.UNION, false)), inspector.booleanCalls)
+        val state = repository.state.value
+        assertFalse(state.editing)
+        val result = state.objects.single()
+        assertEquals(ScenePath("/scene/objects/boolean-b.mesh"), result.mesh)
+        // "Mesh Boolean" keeps the cube, "Delete part" the object with the tool beside the result.
+        assertEquals(listOf(cube.mesh, ScenePath("/scene/objects/boolean-a.mesh")), state.history.undo.map { it.objects.single().mesh })
+        assertEquals(ObjectPartId(result.mesh, 0), state.selectedPart)
+
+        // An empty result changes nothing and warns.
+        assertFalse(runBlocking { boolean(PlateInstanceId(result.mesh), 0, 1, MeshBooleanOperation.DIFFERENCE, deleteInput = true).await() })
+        assertEquals(PlateProblemKind.MESH_BOOLEAN_FAILED, repository.state.value.problem?.kind)
+        assertEquals(result, repository.state.value.objects.single())
+    }
+
+    @Test
     fun `copied process settings of an object carry its own, and those of a part carry the object's under them`() {
         val part = ObjectPart("Cube", VolumeType.MODIFIER, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement, ModelSettings(mapOf("wall_loops" to "5")))
         val cube = CUBE.withSettings(ModelSettings(mapOf("layer_height" to "0.1", "wall_loops" to "3"))).withParts(listOf(part))
@@ -3755,6 +3785,27 @@ class PlateUseCasesTest {
         data class VolumeLoad(val plate: List<PlacedModel>, val index: Int, val source: ModelPath, val name: String, val type: VolumeType)
 
         data class Reload(val index: Int, val volumes: List<Int>, val source: ModelPath)
+
+        data class BooleanCall(val index: Int, val source: Int, val tool: Int, val operation: MeshBooleanOperation, val deleteInput: Boolean)
+
+        val booleanCalls = mutableListOf<BooleanCall>()
+
+        /** The answers to meshBoolean(), one per call. */
+        val booleans = ArrayDeque<ModelLoadOutcome>()
+
+        override suspend fun meshBoolean(
+            plate: List<PlacedModel>,
+            index: Int,
+            source: Int,
+            tool: Int,
+            operation: MeshBooleanOperation,
+            deleteInput: Boolean,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+        ): ModelLoadOutcome {
+            booleanCalls += BooleanCall(index, source, tool, operation, deleteInput)
+            return booleans.removeFirst()
+        }
 
         val reloads = mutableListOf<Reload>()
         var reload: ModelLoadOutcome = ModelLoadOutcome.Success(emptyList(), emptyList())

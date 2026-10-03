@@ -1428,6 +1428,21 @@ internal object NativeBindings {
         stepSplit: Boolean,
     ): NativeImportedModels
 
+    /** mesh_boolean(): [operation] is MeshBooleanOperation's ordinal. */
+    external fun meshBoolean(
+        plate: NativePlate,
+        objectIndex: Int,
+        source: Int,
+        tool: Int,
+        operation: Long,
+        deleteInput: Boolean,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
     /** reload_volumes(): [volumes] index the object's volumes (ModelObject::volumes). */
     external fun reloadVolumes(
         plate: NativePlate,

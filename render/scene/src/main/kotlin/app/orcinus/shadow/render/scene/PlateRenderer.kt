@@ -83,7 +83,18 @@ internal class SceneFrame(
     val assembly: Boolean = false,
     /** ModelObjectsClipper::render_cut(): the cut of the assembly view's "Section View", GL_TRIANGLES corners. */
     val assemblySection: FloatArray? = null,
+    /** Volumes a tool frames as the selection is framed (Selection::render_bounding_box() with its colour). */
+    val framedVolumes: List<FramedVolume> = emptyList(),
 )
+
+/** A volume's box in the world, framed in [color] (RGB). */
+internal class FramedVolume(val box: Box3, val color: FloatArray)
+
+/** GLGizmoMeshBoolean::on_render(): the source's frame, ColorRGB(1, 1, 1). */
+internal val MESH_BOOLEAN_SOURCE = floatArrayOf(1f, 1f, 1f)
+
+/** GLGizmoMeshBoolean::on_render(): the tool's frame, ColorRGB(0, 150 / 255, 136 / 255). */
+internal val MESH_BOOLEAN_TOOL = floatArrayOf(0f, 150f / 255f, 136f / 255f)
 
 /**
  * GLCanvas3D::m_layers_editing while it is on: what it edits ([view]), the
@@ -1068,6 +1079,19 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         for ((_, volumes) in objects.filter { it.index in frame.selectedIndexes }.groupBy(SceneObject::index)) {
             val box = volumes.map(SceneObject::bounds).reduce(Box3::merge)
             renderSelectionOf(program, frame, box, volumes.first().autoDrop)
+        }
+        for (framed in frame.framedVolumes) {
+            val lines = GlVertexArray(GlVertexArray.floatBuffer(boundingBoxBrackets(framed.box, true)), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
+            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+            program.use()
+            program.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+            program.setMatrix4("projection_matrix", frame.projection)
+            program.setVec4("uniform_color", framed.color[0], framed.color[1], framed.color[2], 1f)
+            GLES30.glLineWidth(lineWidth(2f * frame.pixelScale))
+            lines.draw()
+            GLES30.glLineWidth(1f)
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+            lines.release()
         }
     }
 

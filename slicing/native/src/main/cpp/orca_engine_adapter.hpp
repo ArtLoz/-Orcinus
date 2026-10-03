@@ -2638,6 +2638,38 @@ ImportedModels load_volume(
     const StepMeshChoice& step_mesh = {}
 );
 
+// GLGizmoMeshBoolean's operations, as MeshBooleanOperation lists them.
+enum class MeshBooleanOperation : std::int64_t {
+    union_ = 0,
+    difference = 1,
+    intersection = 2,
+};
+
+// GLGizmoMeshBoolean::on_render_input_window() and generate_new_volume(): the
+// volumes source and tool of the object at object_index, each in the
+// object's coordinates, are joined ("UNION"), the tool is taken from the
+// source ("A_NOT_B") or they are intersected ("INTERSECTION") by mcut. The
+// result becomes a volume in the source's place, named after it with
+// " - union", " - difference" or " - intersection", with its settings, type,
+// material and offset, and with keep_painting the painting of both volumes
+// (of the source for a difference). A union always deletes the tool, the
+// others with delete_input, as ObjectList::del_subobject_from_object() does:
+// not the last solid part, which the notices say, nor a solid part or a
+// negative volume of a part of a cut. The object is written as import_model()
+// writes objects: the object after the operation and, when the tool went,
+// after that too, the desktop's two Undo steps; its volumes are sorted at the
+// end, and selected_volume is the new one. An empty result writes nothing.
+ImportedModels mesh_boolean(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    int source,
+    int tool,
+    MeshBooleanOperation operation,
+    bool delete_input,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
 // Plater::priv::reload_from_disk() of one file: the file at source_path
 // takes the place of the volumes at volume_indices of the object at
 // object_index whose file (source.input_file) or name is the file's name.

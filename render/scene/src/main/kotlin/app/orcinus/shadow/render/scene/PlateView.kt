@@ -213,6 +213,14 @@ fun PlateView(
     /** What a finger does with the brim ears tool open. */
     onBrimEars: (BrimEarsTouch) -> Unit = {},
     /**
+     * The mesh boolean tool while it is open (GLGizmoMeshBoolean): its volumes
+     * are framed, and a finger on a volume of its copy picks it. Null while
+     * it is closed.
+     */
+    meshBoolean: MeshBooleanView? = null,
+    /** The mesh file of the volume a finger picked with the mesh boolean tool open. */
+    onMeshBooleanPick: (String) -> Unit = {},
+    /**
      * The assembly view while it shows (AssembleView): every copy's model parts
      * where they stand in the assembly, spread by its explosion ratio, under a
      * camera of the view's own; null for the 3D view.
@@ -439,6 +447,19 @@ fun PlateView(
             }
         }.orEmpty()
 
+        // The copy the mesh boolean tool is open on, numbered as the scene numbers the copies.
+        val meshBooleanIndex = meshBoolean?.let { open ->
+            var index = 0
+            var found: Int? = null
+            for (plateObject in objects) {
+                for (instance in plateObject.instances.indices) {
+                    if (PlateInstanceId(plateObject.mesh, instance) == open.copy) found = index
+                    index++
+                }
+            }
+            found
+        }
+
         // The copy the brim ears tool is open on, numbered as the scene numbers the copies.
         val brimEarsIndex = brimEars?.let { open ->
             var index = 0
@@ -480,6 +501,8 @@ fun PlateView(
                 onBrimEars(touch)
             }
             controller.setBrimEars(brimEars, brimEarsIndex)
+            controller.onMeshBooleanPick = onMeshBooleanPick
+            controller.setMeshBoolean(meshBoolean, meshBooleanIndex)
             controller.onPixelSize = onPixelSize
             controller.setCut(cut, cutIndex)
             controller.setPainting(painting != null)
@@ -819,6 +842,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** The ray of the finger on the copy, which places an ear where it lets go. */
     private var brimRay: Line3? = null
+
+    /** GLGizmoMeshBoolean open on the copy at [meshBooleanIndex]. */
+    private var meshBoolean: MeshBooleanView? = null
+    private var meshBooleanIndex: Int? = null
+    var onMeshBooleanPick: (String) -> Unit = {}
 
     /** GLGizmoCut3D open on the copy at [cutIndex], which the scene shows alone. */
     private var cut: CutView? = null
@@ -1230,6 +1258,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    /** GLGizmoMeshBoolean opens, takes other volumes, or closes. */
+    fun setMeshBoolean(view: MeshBooleanView?, index: Int?) {
+        if (meshBoolean == view && meshBooleanIndex == index) return
+        meshBoolean = view
+        meshBooleanIndex = index
+        invalidate()
+    }
+
     fun setCut(cut: CutView?, index: Int?) {
         if (this.cut == cut && cutIndex == index) return
         val opened = (this.cut == null) != (cut == null) || cutIndex != index
@@ -1355,6 +1391,18 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             measureRay = ray
             measureRadius = radius
             onMeasure(measureTouch(ray, select = false))
+            return true
+        }
+        if (meshBoolean != null) {
+            // GLGizmoMeshBoolean::gizmo_event(LeftDown): the copy's volume the
+            // ray hits closest to the eye, modifiers too; elsewhere the finger
+            // turns the camera.
+            val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
+            val hit = objects.filter { it.index == meshBooleanIndex && !it.overlay }
+                .mapNotNull { volume -> volume.raycast(ray)?.let { point -> volume to (point - ray.a).norm() } }
+                .minByOrNull { it.second }
+                ?: return false
+            onMeshBooleanPick(hit.first.key)
             return true
         }
         brimEars?.let { open ->
@@ -2350,6 +2398,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 } ?: assemblyClippingPlane(),
                 layerEditing = layerEditing,
                 selectionHidden = measure != null || brimEars != null,
+                // GLGizmoMeshBoolean::on_render(): the source in white, the tool in Orca's green.
+                framedVolumes = meshBoolean?.let { open ->
+                    objects.filter { it.index == meshBooleanIndex && !it.overlay }.mapNotNull { volume ->
+                        when (volume.key) {
+                            open.source -> FramedVolume(volume.bounds, MESH_BOOLEAN_SOURCE)
+                            open.tool -> FramedVolume(volume.bounds, MESH_BOOLEAN_TOOL)
+                            else -> null
+                        }
+                    }
+                }.orEmpty(),
                 assembly = assembly != null,
                 assemblySection = sectionCut?.takeIf { assemblyClippingPlane() != null },
             ),

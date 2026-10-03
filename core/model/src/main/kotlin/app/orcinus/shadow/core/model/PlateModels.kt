@@ -611,6 +611,9 @@ enum class PlateProblemKind {
 
     /** Plater::export_stl() wrote the positive volumes alone: the notification OrcaSlicer shows. */
     EXPORT_WITHOUT_NEGATIVE_VOLUMES,
+
+    /** GLGizmoMeshBoolean's warning: the operation gave no mesh. */
+    MESH_BOOLEAN_FAILED,
 }
 
 data class PlateProblem(

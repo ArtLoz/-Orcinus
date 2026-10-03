@@ -59,6 +59,7 @@ fun PlateProblem.title(): String = when (kind) {
     // The notification of Plater::export_stl() when the negative parts could not be taken out.
     PlateProblemKind.EXPORT_WITHOUT_NEGATIVE_VOLUMES ->
         orcaString("Unable to perform boolean operation on model meshes. Only positive parts will be exported.")
+    PlateProblemKind.MESH_BOOLEAN_FAILED -> orcaString("Unable to perform boolean operation on selected parts")
 }
 
 /** OrcaSlicer shows a preset's alias: its name without the " @printer" suffix. */

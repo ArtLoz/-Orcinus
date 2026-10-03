@@ -33,6 +33,7 @@ import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
@@ -283,6 +284,24 @@ interface PlateInspector {
         prefix: ScenePath,
         stepMesh: StepMeshOptions? = null,
     ): ModelLoadOutcome
+
+    /**
+     * GLGizmoMeshBoolean: the volumes [source] and [tool] (ModelObject::volumes)
+     * of the object at [index] are joined, subtracted or intersected; the
+     * engine writes the object anew, named after [prefix]: after the operation
+     * and, when the tool went too, after that, and tells the new volume. No
+     * object comes back for an empty result.
+     */
+    suspend fun meshBoolean(
+        plate: List<PlacedModel>,
+        index: Int,
+        source: Int,
+        tool: Int,
+        operation: MeshBooleanOperation,
+        deleteInput: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = ModelLoadOutcome.Failure("Mesh booleans are not supported")
 
     /**
      * Plater::priv::reload_from_disk() of one file: [source] takes the place of

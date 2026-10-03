@@ -3590,6 +3590,38 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_loadVolume(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_meshBoolean(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jint object,
+    jint source,
+    jint tool,
+    jlong operation,
+    jboolean delete_input,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    return to_java(
+        env,
+        orcinus::orca::mesh_boolean(
+            to_plate(env, plate),
+            static_cast<std::size_t>(object),
+            static_cast<int>(source),
+            static_cast<int>(tool),
+            static_cast<orcinus::orca::MeshBooleanOperation>(operation),
+            delete_input == JNI_TRUE,
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_reloadVolumes(
     JNIEnv* env,
     jobject /* this */,

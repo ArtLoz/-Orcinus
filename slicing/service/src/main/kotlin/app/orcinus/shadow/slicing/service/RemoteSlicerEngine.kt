@@ -55,6 +55,7 @@ import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
 import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
+import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
@@ -634,6 +635,19 @@ class RemoteSlicerEngine(
         stepMesh: StepMeshOptions?,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         replaceVolume(plate.toParcels(), index, volume, source.value, profiles.toParcel(), prefix.value, stepMesh?.toArray()).toModelLoadOutcome()
+    }
+
+    override suspend fun meshBoolean(
+        plate: List<PlacedModel>,
+        index: Int,
+        source: Int,
+        tool: Int,
+        operation: MeshBooleanOperation,
+        deleteInput: Boolean,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        meshBoolean(plate.toParcels(), index, source, tool, operation.name, deleteInput, profiles.toParcel(), prefix.value).toModelLoadOutcome()
     }
 
     override suspend fun reloadVolumes(

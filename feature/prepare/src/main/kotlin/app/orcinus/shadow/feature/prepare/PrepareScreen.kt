@@ -137,6 +137,7 @@ import app.orcinus.shadow.core.model.TextFontFamily
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
@@ -168,6 +169,7 @@ import app.orcinus.shadow.render.scene.CutConnectorView
 import app.orcinus.shadow.render.scene.CutView
 import app.orcinus.shadow.render.scene.LayerHeightBar
 import app.orcinus.shadow.render.scene.MeasureView
+import app.orcinus.shadow.render.scene.MeshBooleanView
 import app.orcinus.shadow.render.scene.PaintingView
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.PlateGraphics
@@ -499,6 +501,16 @@ internal fun PrepareRoute(
             resetSectionDirection = viewModel::resetSectionDirection,
             sectionPlane = viewModel::setSectionPlane,
         ),
+        meshBooleanActions = MeshBooleanActions(
+            toggle = viewModel::toggleMeshBoolean,
+            close = viewModel::closeMeshBoolean,
+            pick = viewModel::pickMeshBooleanVolume,
+            setOperation = viewModel::setMeshBooleanOperation,
+            selectTool = viewModel::selectMeshBooleanTool,
+            clear = viewModel::clearMeshBooleanVolume,
+            setDeleteInput = viewModel::setMeshBooleanDeleteInput,
+            apply = viewModel::applyMeshBoolean,
+        ),
         brimEarsActions = BrimEarsActions(
             toggle = viewModel::toggleBrimEars,
             close = viewModel::closeBrimEars,
@@ -611,6 +623,7 @@ internal fun PrepareScreen(
     svgActions: SvgActions = SvgActions.NONE,
     measureActions: MeasureActions = MeasureActions.NONE,
     brimEarsActions: BrimEarsActions = BrimEarsActions.NONE,
+    meshBooleanActions: MeshBooleanActions = MeshBooleanActions.NONE,
     assemblyActions: AssemblyActions = AssemblyActions.NONE,
     assemblyViewActions: AssemblyViewActions = AssemblyViewActions.NONE,
     canvas: CanvasPreferences = CanvasPreferences(),
@@ -767,6 +780,15 @@ internal fun PrepareScreen(
                 onEditMeasureDistance = measureActions.editDistance,
                 brimEars = state.brimEars?.let { mode -> brimEarsViewOf(state, mode) },
                 onBrimEars = brimEarsActions.touch,
+                meshBoolean = state.meshBoolean?.let { mode ->
+                    val target = state.sceneCopies.firstOrNull { it.id == mode.copy }?.plateObject
+                    MeshBooleanView(
+                        copy = mode.copy,
+                        source = mode.source?.let { target?.volumeAt(it)?.mesh?.value },
+                        tool = mode.tool?.let { target?.volumeAt(it)?.mesh?.value },
+                    )
+                },
+                onMeshBooleanPick = meshBooleanActions.pick,
                 assembly = state.assemblyView?.let { AssemblyView(it.explosionRatio, it.hidden, it.sectionPosition, it.sectionResets, it.section) },
                 onAssemblySelection = { assemblySelection = it },
                 onPlaceInAssembly = assemblyViewActions.place,
@@ -974,6 +996,7 @@ internal fun PrepareScreen(
                         },
                         onToggleMeasure = measureActions.toggle,
                         onToggleBrimEars = brimEarsActions.toggle,
+                        onToggleMeshBoolean = meshBooleanActions.toggle,
                         onToggleAssembly = assemblyActions.toggle,
                         onOpenAssemblyView = assemblyViewActions.open,
                     )
@@ -1006,6 +1029,11 @@ internal fun PrepareScreen(
                     state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye)
                     state.measure?.assembly != null -> AssemblyPanel(state.measure, measureActions, assemblyActions, canvas.imperialUnits)
                     state.measure != null -> MeasurePanel(state.measure, measureActions, canvas.imperialUnits)
+                    state.meshBoolean != null -> MeshBooleanPanel(
+                        state.meshBoolean,
+                        state.sceneCopies.firstOrNull { it.id == state.meshBoolean.copy }?.plateObject,
+                        meshBooleanActions,
+                    )
                     state.brimEars != null -> BrimEarsPanel(
                         state.brimEars,
                         ears = (state.brimEars.draft ?: state.sceneCopies.firstOrNull { it.id == state.brimEars.copy }?.plateObject?.brimPoints).orEmpty().size,
@@ -1459,6 +1487,7 @@ private fun CanvasToolbar(
     onToggleText: () -> Unit = {},
     onToggleMeasure: () -> Unit = {},
     onToggleBrimEars: () -> Unit = {},
+    onToggleMeshBoolean: () -> Unit = {},
     onToggleAssembly: () -> Unit = {},
     onOpenAssemblyView: () -> Unit = {},
 ) {
@@ -1531,7 +1560,14 @@ private fun CanvasToolbar(
             enabled = state.canCut,
             selected = state.cut != null,
         )
-        gizmo(DesignR.drawable.orca_toolbar_meshboolean, R.string.gizmo_mesh_boolean, null)
+        // GLGizmoMeshBoolean: two volumes of the selected copy joined, subtracted or intersected.
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_toolbar_meshboolean,
+            contentDescription = stringResource(R.string.gizmo_mesh_boolean),
+            onClick = onToggleMeshBoolean,
+            enabled = state.canMeshBoolean || state.meshBoolean != null,
+            selected = state.meshBoolean != null,
+        )
         // GLGizmoMmuSegmentation: the object is painted with the filaments of the plate.
         OrcaCanvasTool(
             icon = DesignR.drawable.orca_mmu_segmentation,

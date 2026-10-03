@@ -4766,6 +4766,68 @@ TEST_CASE("Reload from disk gives a volume the mesh its file has now", "[Adapter
     }
 }
 
+TEST_CASE("Mesh Boolean joins, subtracts and intersects two volumes of an object", "[Adapter][Edit][MeshBoolean]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("boolean-cube"), {});
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    REQUIRE(imported.objects.size() == 1);
+    // The 2 x 20 x 10 mm block inside the cube, against its left and bottom faces.
+    const orca::ImportedModels with_part = orca::load_volume({plate_object_of(imported.objects.front())}, 0, device_dir + "/data/2x20x10.obj",
+                                                             "2x20x10.obj", orca::VolumeType::part, k2_plus_profiles(), import_prefix("boolean-part"));
+    INFO(with_part.message);
+    REQUIRE(with_part.status == orca::SceneStatus::success);
+    REQUIRE(with_part.objects.size() == 1);
+    // mcut leaves the faces the volumes share a few thousandths of a millimetre off.
+    const orca::ImportedObject& object = with_part.objects.front();
+    REQUIRE(object.parts.size() == 1);
+    const std::vector<orca::PlateObject> plate{plate_object_of(object)};
+
+    SECTION("a union takes the tool away, after a step of its own")
+    {
+        const orca::ImportedModels joined = orca::mesh_boolean(plate, 0, 0, 1, orca::MeshBooleanOperation::union_, false, k2_plus_profiles(),
+                                                               import_prefix("boolean-union"));
+        INFO(joined.message);
+        REQUIRE(joined.status == orca::SceneStatus::success);
+        REQUIRE(joined.objects.size() == 2);
+        // Before the tool went: the result in the source's place, the tool beside it.
+        CHECK(joined.objects[0].parts.size() == 1);
+        const orca::ImportedObject& result = joined.objects[1];
+        CHECK(result.parts.empty());
+        CHECK(result.volume_name == object.volume_name + " - union");
+        CHECK(joined.selected_volume == 0);
+        REQUIRE(result.instances.size() == 1);
+        CHECK(result.instances.front().size_x == Catch::Approx(20.0).margin(0.01));
+        CHECK(result.instances.front().size_z == Catch::Approx(20.0).margin(0.01));
+    }
+    SECTION("a difference keeps the tool unless asked")
+    {
+        const orca::ImportedModels subtracted = orca::mesh_boolean(plate, 0, 0, 1, orca::MeshBooleanOperation::difference, false,
+                                                                   k2_plus_profiles(), import_prefix("boolean-difference"));
+        INFO(subtracted.message);
+        REQUIRE(subtracted.status == orca::SceneStatus::success);
+        REQUIRE(subtracted.objects.size() == 1);
+        const orca::ImportedObject& result = subtracted.objects.front();
+        REQUIRE(result.parts.size() == 1);
+        CHECK(result.volume_name == object.volume_name + " - difference");
+        CHECK(result.parts.front().name == "2x20x10.obj");
+    }
+    SECTION("an intersection that deletes its input leaves the block alone")
+    {
+        const orca::ImportedModels shared = orca::mesh_boolean(plate, 0, 0, 1, orca::MeshBooleanOperation::intersection, true,
+                                                               k2_plus_profiles(), import_prefix("boolean-intersection"));
+        INFO(shared.message);
+        REQUIRE(shared.status == orca::SceneStatus::success);
+        REQUIRE(shared.objects.size() == 2);
+        const orca::ImportedObject& result = shared.objects[1];
+        CHECK(result.parts.empty());
+        REQUIRE(result.instances.size() == 1);
+        CHECK(result.instances.front().size_x == Catch::Approx(2.0).margin(0.01));
+        CHECK(result.instances.front().size_z == Catch::Approx(10.0).margin(0.01));
+    }
+}
+
 // The value of key among settings; empty when they do not set it.
 std::string setting_of(const orca::ModelSettings& settings, const std::string& key)
 {
