@@ -1908,6 +1908,9 @@ interface PrintHostDiscovery {
 class SendGcodeUseCase(
     private val uploader: GcodeSender,
     private val repository: PlateRepository,
+    /** Plater::send_gcode(): the .gcode.3mf of a printer that takes one (use_3mf). */
+    private val saveProject: SaveProjectUseCase? = null,
+    private val sceneFiles: SceneFiles? = null,
 ) {
     suspend operator fun invoke(
         printer: PhysicalPrinter,
@@ -1918,7 +1921,17 @@ class SendGcodeUseCase(
     ): PrintHostUploadOutcome {
         val result = repository.state.value.result
             ?: return PrintHostUploadOutcome.Failure("There is no sliced G-code to send")
-        return uploader.send(printer, result.gcode, startPrint, options, onProgress)
+        if (!options.use3mf || saveProject == null || sceneFiles == null) {
+            return uploader.send(printer, result.gcode, startPrint, options, onProgress)
+        }
+        val prefix = sceneFiles.newImportPrefix()
+        val file = ScenePath("${prefix.value}-upload.gcode.3mf")
+        try {
+            if (!saveProject.writeForUpload(file)) return PrintHostUploadOutcome.Failure("Abnormal print file data. Please slice again")
+            return uploader.send(printer, OutputPath(file.value), startPrint, options, onProgress)
+        } finally {
+            sceneFiles.deleteImport(prefix)
+        }
     }
 
     /**

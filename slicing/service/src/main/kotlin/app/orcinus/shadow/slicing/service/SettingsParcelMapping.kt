@@ -814,6 +814,7 @@ internal fun PrinterConnectionOutcome.toParcel() = PrinterConnectionParcel().als
             parcel.apiKey = connection.apiKey
             parcel.bambuDeviceTab = connection.bambuDeviceTab
             parcel.printerType = connection.printerType
+            parcel.use3mf = connection.use3mf
         }
     }
 }
@@ -831,6 +832,7 @@ internal fun PrinterConnectionParcel.toPrinterConnectionOutcome(): PrinterConnec
             apiKey = apiKey.orEmpty(),
             bambuDeviceTab = bambuDeviceTab,
             printerType = printerType.orEmpty(),
+            use3mf = use3mf,
         ),
     )
 }

@@ -539,11 +539,13 @@ internal fun PreviewScreen(
                 progress = 0f
                 // The screen's own scope: the sheet is gone while the file travels.
                 scope.launch {
-                    val outcome = printers.send(printer, startPrint, options) { part -> progress = part }
+                    // send_gcode_legacy(): a .gcode.3mf names the plate it carries, 1-based.
+                    val sentOptions = if (options.use3mf) options.copy(plateIndex = state.currentPlate + 1) else options
+                    val outcome = printers.send(printer, startPrint, sentOptions) { part -> progress = part }
                     sent = outcome
                     progress = null
                     // PrintHostJobQueue::priv::perform_job(): the Device tab once the upload went through.
-                    if (outcome is PrintHostUploadOutcome.Success && options.switchToDeviceTab) printers.openDevice()
+                    if (outcome is PrintHostUploadOutcome.Success && sentOptions.switchToDeviceTab) printers.openDevice()
                     // A host that opens a page after the upload (SimplyPrint's import, 3DPrinterOS's quick print):
                     // the desktop opens it in the browser.
                     (outcome as? PrintHostUploadOutcome.Success)?.openUrl?.let { openInBrowser(context, it) }

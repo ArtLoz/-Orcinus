@@ -497,7 +497,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             }
         },
     )
-    val sendGcode = SendGcodeUseCase(gcodeSender, plateRepository)
+    val sendGcode by lazy { SendGcodeUseCase(gcodeSender, plateRepository, saveProject, sceneFiles) }
     val exportGcode = ExportGcodeUseCase(AppDocumentExport(applicationContext), plateRepository)
     val shareGcode = ShareGcodeUseCase(fileShare, plateRepository)
     private val importConfig = ImportConfigUseCase(engine, engine, configFiles, platePresets)

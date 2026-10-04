@@ -11,4 +11,5 @@ parcelable PrinterConnectionParcel {
     String apiKey;
     boolean bambuDeviceTab;
     String printerType;
+    boolean use3mf;
 }

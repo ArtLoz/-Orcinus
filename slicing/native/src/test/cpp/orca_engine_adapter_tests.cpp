@@ -6213,6 +6213,25 @@ TEST_CASE("A sliced plate's 3MF file carries its G-code, its slice info and its 
     // The copy goes by the number load_plate() gave it, as the G-code labels it.
     CHECK(slice_config.find("identify_id=\"1\"") != std::string::npos);
     CHECK(slice_config.find("<filament id=\"1\"") != std::string::npos);
+
+    // Plater::send_gcode() for a printer that takes a .gcode.3mf: the plate's
+    // G-code without the model's files (SkipModel | SkipAuxiliary).
+    const std::string upload = output_path("upload-plate.gcode.3mf");
+    const orca::ProjectSave uploaded = orca::save_project(upload, plate_of({}), k2_plus_profiles(), {plate}, {}, 0, orca::SlicedPlates::upload);
+    INFO(uploaded.message);
+    REQUIRE(uploaded.status == orca::SceneStatus::success);
+    std::set<std::string> upload_entries;
+    mz_zip_zero_struct(&zip_archive);
+    REQUIRE(mz_zip_reader_init_file(&zip_archive, upload.c_str(), 0) == MZ_TRUE);
+    for (mz_uint index = 0; index < mz_zip_reader_get_num_files(&zip_archive); ++index) {
+        mz_zip_archive_file_stat file_stat;
+        if (mz_zip_reader_file_stat(&zip_archive, index, &file_stat) == MZ_TRUE) {
+            upload_entries.insert(file_stat.m_filename);
+        }
+    }
+    mz_zip_reader_end(&zip_archive);
+    CHECK(upload_entries.count("Metadata/plate_1.gcode") == 1);
+    CHECK(std::none_of(upload_entries.begin(), upload_entries.end(), [](const std::string& entry) { return entry.rfind("3D/Objects/", 0) == 0; }));
 }
 
 TEST_CASE("The current plate places, judges and slices objects from its own origin", "[Adapter][Plates]")

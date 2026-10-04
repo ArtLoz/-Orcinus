@@ -160,6 +160,22 @@ class SaveProjectUseCase(
     }
 
     /**
+     * Plater::send_gcode() for a printer that takes a .gcode.3mf (use_3mf):
+     * the current plate's G-code into [file], without the model and the
+     * auxiliary files; false when it could not be written.
+     */
+    suspend fun writeForUpload(file: ScenePath): Boolean {
+        val state = repository.state.value
+        if (state.result == null) return false
+        val prefix = sceneFiles.newImportPrefix()
+        try {
+            return write(state, file, prefix, SlicedPlates.UPLOAD)
+        } finally {
+            sceneFiles.deleteImport(prefix)
+        }
+    }
+
+    /**
      * The name a sliced plate's file is offered under: the G-code's, as
      * output_filepath_for_project() names it, with ".gcode.3mf".
      */

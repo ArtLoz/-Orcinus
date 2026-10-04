@@ -1714,6 +1714,9 @@ enum class SlicedPlates : std::int64_t {
     // extensions (the production extension's split model and shared meshes),
     // silently (SaveStrategy::Silence).
     generic = 3,
+    // Plater::send_gcode(): the current plate's G-code for a printer that takes
+    // a .gcode.3mf (use_3mf), without the model and the auxiliary files.
+    upload = 4,
 };
 
 struct ImportedModels {
@@ -3102,6 +3105,9 @@ struct PrinterConnection {
     // Preset::get_printer_type(): the model_id of the vendor's printer model,
     // which ElegooPrintHostSendDialog offers its print options by.
     std::string printer_type;
+    // use_3mf: the printer takes the sliced plate as a .gcode.3mf
+    // (Plater::send_gcode_legacy()).
+    bool use_3mf{false};
 };
 
 PrinterConnection printer_connection();

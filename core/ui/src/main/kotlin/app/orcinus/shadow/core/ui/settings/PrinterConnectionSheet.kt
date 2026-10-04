@@ -695,6 +695,10 @@ fun SendToPrinterSheet(
     var switchToDevice by remember { mutableStateOf(switchToDeviceTab) }
     // validate_path(): the question when the name does not end with the G-code's suffix, and what follows a Yes.
     var suffixQuestion by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // send_gcode_legacy()'s question before PrusaConnect prints, and what follows its OK.
+    var readyQuestion by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // use_3mf: the plate goes as a .gcode.3mf.
+    var use3mf by remember { mutableStateOf(false) }
     // Preset::get_printer_type(), which ElegooPrintHostSendDialog offers its options by.
     var printerType by remember { mutableStateOf("") }
     var elegoo by remember { mutableStateOf(ElegooOptions()) }
@@ -712,6 +716,7 @@ fun SendToPrinterSheet(
                 val connection = outcome.connection
                 printer = connection.printer(connection.settings.values["print_host"].orEmpty())
                 printerType = connection.printerType
+                use3mf = connection.use3mf
                 // ElegooPrintHostSendDialog::init(): a Centauri opens with the choices it last uploaded with.
                 if (printer?.hostType == PrintHostType.ELEGOO_LINK && printerType in ElegooOptions.PRINTER_TYPES) {
                     val recent = loadRecent(ELEGOO_KEYS)
@@ -744,7 +749,9 @@ fun SendToPrinterSheet(
         val recent = loadRecent(listOf(RECENT_PATH_KEY, RECENT_GROUP_KEY, RECENT_STORAGE_KEY))
         var recentPath = recent[RECENT_PATH_KEY].orEmpty()
         if (recentPath.isNotEmpty() && !recentPath.endsWith('/')) recentPath += '/'
-        uploadPath = recentPath + uploadName
+        // default_output_file.replace_extension(".gcode.3mf") for a printer that takes one.
+        val name = if (use3mf) uploadName.lastIndexOf('.').let { dot -> if (dot > 0) uploadName.substring(0, dot) else uploadName } + ".gcode.3mf" else uploadName
+        uploadPath = recentPath + name
         validSuffix = uploadPath.lastIndexOf('.').takeIf { it >= 0 }?.let { uploadPath.substring(it) }.orEmpty()
         recent[RECENT_GROUP_KEY]?.takeIf { it.isNotEmpty() && groups.isNotEmpty() }?.let { group = it }
         recent[RECENT_STORAGE_KEY]?.takeIf { it.isNotEmpty() && storage.names.size > 1 }?.let { storageIndex = storage.names.indexOf(it) }
@@ -766,7 +773,7 @@ fun SendToPrinterSheet(
             },
         )
         keepSwitchToDeviceTab(switchToDevice)
-        return options.copy(uploadPath = uploadPath, group = group, storage = storagePath, switchToDeviceTab = switchToDevice)
+        return options.copy(uploadPath = uploadPath, group = group, storage = storagePath, switchToDeviceTab = switchToDevice, use3mf = use3mf)
     }
 
     ModalBottomSheet(
@@ -893,7 +900,12 @@ fun SendToPrinterSheet(
                                 ),
                             )
                         }
-                        onSend(host, printNow, uploading(if (elegooOptions && printNow) PrintOptions(elegoo = elegoo) else PrintOptions()))
+                        val options = uploading(if (elegooOptions && printNow) PrintOptions(elegoo = elegoo) else PrintOptions())
+                        if (host.hostType == PrintHostType.PRUSA_CONNECT && printNow) {
+                            readyQuestion = { onSend(host, true, options) }
+                        } else {
+                            onSend(host, printNow, options)
+                        }
                     }
             }
             OrcaButton(
@@ -906,6 +918,24 @@ fun SendToPrinterSheet(
                     .padding(16.dp),
             )
         }
+    }
+    readyQuestion?.let { proceed ->
+        AlertDialog(
+            onDismissRequest = { readyQuestion = null },
+            confirmButton = {
+                OrcaButton(orcaString("OK"), onClick = {
+                    readyQuestion = null
+                    proceed()
+                })
+            },
+            dismissButton = { OrcaButton(orcaString("Cancel"), onClick = { readyQuestion = null }, style = OrcaButtonStyle.Regular) },
+            title = { Text(orcaString("Upload and Print"), style = OrcaTheme.typography.head16) },
+            text = { Text(orcaString("Is the printer ready? Is the print sheet in place, empty and clean?"), style = OrcaTheme.typography.body14) },
+            containerColor = colors.window,
+            titleContentColor = colors.text,
+            textContentColor = colors.text,
+            shape = OrcaTheme.shapes.window,
+        )
     }
     suffixQuestion?.let { proceed ->
         AlertDialog(

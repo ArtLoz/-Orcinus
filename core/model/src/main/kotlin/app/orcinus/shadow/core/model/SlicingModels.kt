@@ -421,7 +421,15 @@ data class ProjectPlate(
  * sliced file".
  */
 /** What a project's file holds besides the plates: the G-code of none, the current or every sliced plate; GENERIC is "Export Generic 3MF". */
-enum class SlicedPlates { NONE, CURRENT, ALL, GENERIC }
+enum class SlicedPlates {
+    NONE,
+    CURRENT,
+    ALL,
+    GENERIC,
+
+    /** Plater::send_gcode(): the current plate's G-code alone, for a printer that takes a .gcode.3mf. */
+    UPLOAD,
+}
 
 /** A mesh file the engine wrote, and the object it is named after (ModelObject::name). */
 data class ExportedMesh(val name: String, val path: ScenePath)

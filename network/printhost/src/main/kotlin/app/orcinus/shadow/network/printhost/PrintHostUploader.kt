@@ -97,8 +97,8 @@ class PrintHostUploader(
         // upload_path.filename(): the hosts that store the file by its name alone.
         val fileName = fileNameOf(name)
         return when (type) {
-            PrintHostType.OCTOPRINT -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
-            PrintHostType.MOONRAKER -> uploadToMoonraker(printer, gcode, fileName, startPrint, options.storage, onProgress)
+            PrintHostType.OCTOPRINT -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress, options.plateIndex)
+            PrintHostType.MOONRAKER -> uploadToMoonraker(printer, gcode, fileName, startPrint, options.storage, onProgress, options.plateIndex)
             PrintHostType.CREALITY_PRINT -> uploadToCreality(printer, gcode, name, startPrint, options, onProgress)
             PrintHostType.PRUSA_LINK -> uploadToPrusaLink(printer, gcode, name, startPrint, options.storage, onProgress, connect = false)
             PrintHostType.PRUSA_CONNECT -> uploadToPrusaLink(printer, gcode, name, startPrint, options.storage, onProgress, connect = true)
@@ -118,7 +118,7 @@ class PrintHostUploader(
             }
             PrintHostType.OBICO -> uploadToObico(printer, gcode, name, startPrint, onProgress)
             PrintHostType.SIMPLYPRINT -> simplyPrint.upload(gcode, fileName, onProgress)
-            PrintHostType.PRINTER_3D_OS -> printer3dOs.upload(printer, gcode, fileName, startPrint, options.printer3dOs, onProgress)
+            PrintHostType.PRINTER_3D_OS -> printer3dOs.upload(printer, gcode, fileName, startPrint, options.printer3dOs, onProgress, options.use3mf)
         }
     }
 
@@ -454,13 +454,19 @@ class PrintHostUploader(
         name: String,
         startPrint: Boolean,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
+        /** The 1-based plate of a .gcode.3mf, 0 for G-code. */
+        plateIndex: Int = 0,
     ): PrintHostUploadOutcome {
         val http = httpFor(printer)
         val response = http.postMultipart(
             url = makeUrl(printer.host, "api/files/local"),
             headers = authHeaders(printer),
-            // The folder of the upload path, and the file's name.
-            fields = mapOf("print" to startPrint.toString(), "path" to parentOf(name)),
+            // The folder of the upload path, and the file's name; a .gcode.3mf names its plate.
+            fields = buildMap {
+                put("print", startPrint.toString())
+                put("path", parentOf(name))
+                if (plateIndex > 0) put("plateindex", plateIndex.toString())
+            },
             fileField = "file",
             fileName = fileNameOf(name),
             file = gcode,
@@ -481,12 +487,17 @@ class PrintHostUploader(
         /** The root the dialog chose; empty for "gcodes". */
         storage: String,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
+        /** The 1-based plate of a .gcode.3mf, 0 for G-code. */
+        plateIndex: Int = 0,
     ): PrintHostUploadOutcome {
         val http = httpFor(printer)
         val upload = http.postMultipart(
             url = makeUrl(printer.host, "server/files/upload"),
             headers = authHeaders(printer),
-            fields = mapOf("root" to storage.ifEmpty { MOONRAKER_ROOT }),
+            fields = buildMap {
+                put("root", storage.ifEmpty { MOONRAKER_ROOT })
+                if (plateIndex > 0) put("plateindex", plateIndex.toString())
+            },
             fileField = "file",
             fileName = name,
             file = gcode,

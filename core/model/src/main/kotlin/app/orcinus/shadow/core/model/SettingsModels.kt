@@ -1032,6 +1032,9 @@ data class PrintOptions(
     val storage: String = "",
     /** PrintHostJob::switch_to_device_tab: the Device tab shows once the upload went through. */
     val switchToDeviceTab: Boolean = false,
+    /** use_3mf: the plate goes as a .gcode.3mf (Plater::send_gcode()), which [plateIndex] (1-based) names the plate of. */
+    val use3mf: Boolean = false,
+    val plateIndex: Int = 0,
 )
 
 /** The storages PrintHostSendDialog offers (PrintHost::get_storage()): their paths and their names. */
@@ -1068,6 +1071,8 @@ data class PrinterConnection(
     val bambuDeviceTab: Boolean,
     /** Preset::get_printer_type(): the model_id of the printer's vendor model, "Elegoo-CC". */
     val printerType: String = "",
+    /** use_3mf: the printer takes the sliced plate as a .gcode.3mf. */
+    val use3mf: Boolean = false,
 ) {
     /** The host as sending G-code takes it, named after [presetName]. */
     fun printer(presetName: String) = PhysicalPrinter(presetName, settings)

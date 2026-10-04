@@ -413,6 +413,7 @@ internal class NativePrinterConnection(
     @JvmField val apiKey: String,
     @JvmField val bambuDeviceTab: Boolean,
     @JvmField val printerType: String,
+    @JvmField val use3mf: Boolean,
 )
 
 /** Constructed by the native bridge; see CreateFilamentOptions in orca_engine_adapter.hpp. */

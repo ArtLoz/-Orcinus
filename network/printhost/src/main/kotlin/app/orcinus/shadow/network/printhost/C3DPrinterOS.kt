@@ -136,6 +136,8 @@ internal class C3DPrinterOS(
         startPrint: Boolean,
         choice: Printer3dOsChoice?,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
+        /** use_3mf: the cloud gets a .gcode.3mf, which its quick print does not open. */
+        use3mf: Boolean = false,
     ): PrintHostUploadOutcome {
         // 3DPrinterOS::set_auth(): the printer's HTTPS CA file.
         val http = if (printer.caFile.isNotEmpty()) this.http.withCaFile(printer.caFile) else this.http
@@ -164,7 +166,7 @@ internal class C3DPrinterOS(
             "session=$session&updates[$fileId][ptype]=${choice.printerTypeId}&updates[$fileId][gtype]=" +
                 SimplyPrint.escape("OrcaSlicer") + "&updates[$fileId][zip]=false",
         )
-        return PrintHostUploadOutcome.Success(name, openUrl = if (startPrint) url(printer.host, "quickprint?file_id=$fileId") else null)
+        return PrintHostUploadOutcome.Success(name, openUrl = if (startPrint && !use3mf) url(printer.host, "quickprint?file_id=$fileId") else null)
     }
 
     /**

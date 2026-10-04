@@ -801,6 +801,9 @@ PrinterConnection printer_connection()
         result.webui = webui_url;
         result.bbl_device_tab = preset_bundle.use_bbl_device_tab();
         result.printer_type = preset_bundle.printers.get_edited_preset().get_printer_type(&preset_bundle);
+        if (const auto* use_3mf = preset_bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionBool>("use_3mf")) {
+            result.use_3mf = use_3mf->value;
+        }
         result.status = SceneStatus::success;
     } catch (const std::exception& error) {
         result.status = SceneStatus::profile_not_found;

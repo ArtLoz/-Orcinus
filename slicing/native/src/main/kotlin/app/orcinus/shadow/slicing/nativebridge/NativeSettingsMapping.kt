@@ -353,6 +353,7 @@ internal fun NativePrinterConnection.toOutcome(): PrinterConnectionOutcome {
             apiKey = apiKey,
             bambuDeviceTab = bambuDeviceTab,
             printerType = printerType,
+            use3mf = use3mf,
         ),
     )
 }
