@@ -385,6 +385,8 @@ interface ISlicerService {
         String change,
         int index
     );
+    /** painted_colors(): the colours painted on the object, outside the painting tools. */
+    PaintingParcel paintedColors(in PlacedModelParcel plateObject, in ProfilesParcel profiles, String meshPrefix);
     /** GLGizmoPainterBase: the painting tools of the 3D view; kind is the PaintKind's name. */
     PaintingParcel beginPainting(
         in PlacedModelParcel plateObject,

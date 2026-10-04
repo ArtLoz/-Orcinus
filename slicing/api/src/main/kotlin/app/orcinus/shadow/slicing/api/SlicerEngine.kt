@@ -640,6 +640,14 @@ interface PlateInspector {
         placement: PaintPlacement = PaintPlacement(),
     ): PaintingOutcome
 
+    /**
+     * The colours the 3D view draws on [plateObject] while no painting tool is
+     * open (GLVolume's mmu_segmentation_facets): the triangles of every
+     * filament of each model part, into files whose names start with [meshPrefix].
+     */
+    suspend fun paintedColors(plateObject: PlacedModel, profiles: SlicingProfileSelection, meshPrefix: ScenePath): PaintingOutcome =
+        PaintingOutcome.Failure("Painted colours are not supported")
+
     /** One touch of a finger on the model being painted. */
     suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome
 

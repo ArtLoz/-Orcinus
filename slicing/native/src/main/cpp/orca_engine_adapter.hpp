@@ -1033,6 +1033,12 @@ PaintingState fill_gaps(const std::string& mesh_prefix);
 // session's kind as it was painted.
 PaintingState end_painting();
 
+// The colours the 3D view draws on a painted object while no painting tool is
+// open (GLVolume's mmu_segmentation_facets): the triangles of every filament
+// of each model part, written as the tools write them, with their states and
+// volumes; none for an object painted with no colour.
+PaintingState painted_colors(const PlateObject& object, const ProfileSelection& profiles, const std::string& mesh_prefix);
+
 // A text of the desktop app. msgid, with its gettext context when it has one,
 // is translated as _() translates it (with msgid_plural, as _L_PLURAL() does
 // for count), then its placeholders (%s, %d, %.3f, %1%) are filled with args,

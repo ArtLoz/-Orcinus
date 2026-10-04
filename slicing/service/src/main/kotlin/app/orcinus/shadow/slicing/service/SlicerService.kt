@@ -835,6 +835,10 @@ abstract class SlicerService<E> : Service()
             engine.describeFlushVolumes(plate.toPlacedModels(), profiles.toProfiles(), plateSettings.toModelSettings())
         }.toParcel()
 
+        override fun paintedColors(plateObject: PlacedModelParcel, profiles: ProfilesParcel, meshPrefix: String): PaintingParcel = runBlocking {
+            engine.paintedColors(arrayOf(plateObject).toPlacedModels().first(), profiles.toProfiles(), ScenePath(meshPrefix))
+        }.toParcel()
+
         override fun beginPainting(
             plateObject: PlacedModelParcel,
             kind: String,

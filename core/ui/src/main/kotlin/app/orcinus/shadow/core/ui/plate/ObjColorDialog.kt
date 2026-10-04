@@ -127,8 +127,8 @@ private fun ErrorPage(dialog: ObjColorDialogState) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ColumnScope.PanelPage(dialog: ObjColorDialogState, panel: ObjColorPanel, enabled: Boolean, actions: ObjColorActions) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(orcaString("Specify number of colors:"), style = OrcaTheme.typography.head14, modifier = Modifier.weight(1f, fill = false))
+    Text(orcaString("Specify number of colors:"), style = OrcaTheme.typography.head14)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(15.dp)) {
         OrcaSpinInput(
             value = panel.clusterNumber,
             onValueChange = actions.setClusterNumber,
@@ -136,9 +136,10 @@ private fun ColumnScope.PanelPage(dialog: ObjColorDialogState, panel: ObjColorPa
             decreaseDescription = orcaString("Specify number of colors:"),
             increaseDescription = orcaString("Specify number of colors:"),
             enabled = enabled,
+            modifier = Modifier.width(140.dp),
         )
+        Text("(" + panel.recommended + " " + orcaString("Recommended ") + ")", style = OrcaTheme.typography.body13, color = OrcaTheme.colors.textSide)
     }
-    Text("(" + panel.recommended + " " + orcaString("Recommended ") + ")", style = OrcaTheme.typography.body13, color = OrcaTheme.colors.textSide)
     Thumbnail(dialog.preview, Modifier.align(Alignment.CenterHorizontally))
     ViewChoice(dialog.view, enabled, actions.setView, Modifier.align(Alignment.End))
     Text(orcaString("Current filament colors"), style = OrcaTheme.typography.head14)
@@ -151,8 +152,8 @@ private fun ColumnScope.PanelPage(dialog: ObjColorDialogState, panel: ObjColorPa
             ClusterRow(panel, cluster, colour, enabled) { index -> actions.select(cluster, index) }
         }
     }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(orcaString("Quick set"), style = OrcaTheme.typography.head12)
+    Text(orcaString("Quick set"), style = OrcaTheme.typography.head12)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OrcaButton(text = orcaString("Append"), onClick = actions.append, enabled = enabled, style = OrcaButtonStyle.Regular)
         OrcaButton(text = orcaString("Color match"), onClick = actions.colorMatch, enabled = enabled, style = OrcaButtonStyle.Regular)
         OrcaButton(text = orcaString("Reset"), onClick = actions.reset, enabled = enabled, style = OrcaButtonStyle.Regular)

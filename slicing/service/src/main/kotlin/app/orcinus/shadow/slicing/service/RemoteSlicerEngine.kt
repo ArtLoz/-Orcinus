@@ -918,6 +918,15 @@ class RemoteSlicerEngine(
         }
     }
 
+    override suspend fun paintedColors(plateObject: PlacedModel, profiles: SlicingProfileSelection, meshPrefix: ScenePath): PaintingOutcome =
+        withContext(Dispatchers.IO) {
+            try {
+                service().paintedColors(listOf(plateObject).toParcels().first(), profiles.toParcel(), meshPrefix.value).toOutcome()
+            } catch (_: RemoteException) {
+                PaintingOutcome.Failure(PROCESS_DIED)
+            }
+        }
+
     override suspend fun beginPainting(
         plateObject: PlacedModel,
         kind: PaintKind,

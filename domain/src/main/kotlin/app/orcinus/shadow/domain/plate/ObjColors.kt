@@ -8,11 +8,16 @@ import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjColorDialogState
 import app.orcinus.shadow.core.model.ObjColorPanel
 import app.orcinus.shadow.core.model.ObjColorQuestion
+import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintedMesh
+import app.orcinus.shadow.core.model.PaintingOutcome
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.ThumbnailSize
+import app.orcinus.shadow.core.model.withPainted
+import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.storage.api.SceneFiles
@@ -153,9 +158,17 @@ class ObjColorPrompt(
         previewJob = applicationScope.launch {
             val prefix = files.newImportPrefix()
             val outcome = inspector.objColorPreview(dialog.source, ObjColorChoice(panel.clusterMapFilaments), prefix)
-            val loaded = (outcome as? ModelLoadOutcome.Success)?.objects?.singleOrNull()
+            val loaded = (outcome as? ModelLoadOutcome.Success)?.objects?.singleOrNull()?.toPlateObject("")
+            // The volume draws the colours painted on it (GLVolume's mmu_segmentation_facets).
+            val profiles = repository.state.value.profiles
+            val colors = if (loaded == null || profiles == null) null else inspector.paintedColors(loaded.placed(), profiles, ScenePath(prefix.value + "-colors"))
+            val painted = (colors as? PaintingOutcome.Success)?.surface?.let { surface ->
+                loaded?.withPainted(loaded.painted, surface.meshes.mapIndexed { index, path ->
+                    PaintedMesh(surface.states[index], path, PaintKind.COLOR, surface.volumes.getOrElse(index) { 0 })
+                })
+            } ?: loaded
             val file = ScenePath(prefix.value + "-thumbnail.rgba")
-            val image = loaded?.let { renderer.render(it.toPlateObject(""), panel.colours + panel.newAddColors, dialog.view, PREVIEW_SIZE, file) }
+            val image = painted?.let { renderer.render(it, panel.colours + panel.newAddColors, dialog.view, PREVIEW_SIZE, file) }
             var shown = false
             repository.update { state ->
                 val current = state.objColor?.takeIf { it.source == dialog.source && image != null } ?: return@update state

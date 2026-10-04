@@ -4578,6 +4578,13 @@ TEST_CASE("An OBJ file with colours asks ObjColorDialog, and its OK paints the f
         REQUIRE(loaded.objects.size() == 1);
         // The faces of both colours are painted, and the object prints with the first cluster's filament.
         CHECK_FALSE(loaded.objects.front().painted.empty());
+        // The 3D view draws the triangles of both filaments over it.
+        const orca::PaintingState colors = orca::painted_colors(plate_object_of(loaded.objects.front()), k2_plus_profiles(), output_path("colored-cube-colors"));
+        INFO(colors.message);
+        REQUIRE(colors.status == orca::SceneStatus::success);
+        std::vector<int> states = colors.states;
+        std::sort(states.begin(), states.end());
+        CHECK(states == std::vector<int>{1, 2});
     }
     SECTION("Cancel")
     {

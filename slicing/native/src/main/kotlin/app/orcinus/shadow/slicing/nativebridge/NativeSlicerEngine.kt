@@ -1656,6 +1656,24 @@ class NativeSlicerEngine(context: Context) :
         )
     }
 
+    override suspend fun paintedColors(plateObject: PlacedModel, profiles: SlicingProfileSelection, meshPrefix: ScenePath): PaintingOutcome =
+        withContext(Dispatchers.IO) {
+            val engineStatus = status()
+            if (!engineStatus.ready) {
+                return@withContext PaintingOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+            }
+            painting(
+                NativeBindings.paintedColors(
+                    plateObject = nativePlate(listOf(plateObject)),
+                    printerProfile = profiles.printer.value,
+                    filamentProfile = profiles.filament.value,
+                    filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                    processProfile = profiles.process.value,
+                    meshPrefix = meshPrefix.value,
+                ),
+            )
+        }
+
     override suspend fun beginPainting(
         plateObject: PlacedModel,
         kind: PaintKind,

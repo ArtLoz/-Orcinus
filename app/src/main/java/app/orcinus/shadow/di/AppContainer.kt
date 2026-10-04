@@ -107,6 +107,7 @@ import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PaintObjectUseCase
+import app.orcinus.shadow.domain.plate.PaintedColorUpdates
 import app.orcinus.shadow.domain.plate.PaintingSectionUseCase
 import app.orcinus.shadow.domain.plate.PasteFromClipboardUseCase
 import app.orcinus.shadow.domain.plate.PasteProcessSettingsUseCase
@@ -296,6 +297,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         wipeTowerUpdates.start()
         // The overhangs' angle follows the support settings of the edited presets.
         OverhangUpdates(engine, plateRepository, applicationScope).start()
+        // The colours painted on the objects, which the 3D view draws over them.
+        PaintedColorUpdates(engine, sceneFiles, plateRepository, applicationScope).start()
         // The plate is validated after every change, as the desktop app's background process does.
         PlateValidationUpdates(engine, plateRepository, appPreferences, engineLanguage, applicationScope).start()
         // Meshes go once neither the plate, its undo/redo stack nor the clipboard needs them.

@@ -1222,6 +1222,16 @@ internal object NativeBindings {
         processProfile: String,
     ): NativeFlushVolumes
 
+    /** painted_colors(): the colours painted on the object, outside the painting tools. */
+    external fun paintedColors(
+        plateObject: NativePlate,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        meshPrefix: String,
+    ): NativePainting
+
     /** GLGizmoPainterBase: opens the painting tool of a kind on an object or one of its parts. */
     external fun beginPainting(
         /** The object alone, as a plate of one. */

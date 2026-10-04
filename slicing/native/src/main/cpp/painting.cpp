@@ -547,6 +547,65 @@ void write_painted_meshes(const std::string& mesh_prefix, PaintingState& result)
 
 }  // namespace
 
+PaintingState painted_colors(const PlateObject& object, const ProfileSelection& profiles, const std::string& mesh_prefix)
+{
+    PaintingState result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    if (detail::engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        std::string message;
+        if (detail::select_profiles(*detail::engine().bundle, profiles, config, message) != SliceStatus::success) {
+            result.status = SceneStatus::profile_not_found;
+            result.message = message;
+            return result;
+        }
+        Slic3r::Model model;
+        if (!detail::load_plate({object}, config, model, message) || model.objects.empty()) {
+            result.status = SceneStatus::model_read_failed;
+            result.message = message;
+            return result;
+        }
+        const Slic3r::ModelObject& loaded = *model.objects.front();
+        for (std::size_t index = 0; index < loaded.volumes.size(); ++index) {
+            const Slic3r::ModelVolume& volume = *loaded.volumes[index];
+            if (!volume.is_model_part() || volume.mmu_segmentation_facets.empty()) {
+                continue;
+            }
+            // GLVolume::update_mmuseg_ts(): the facets of every state of the
+            // volume, the object's own mesh in the object's coordinates.
+            Slic3r::TriangleSelector selector(volume.mesh());
+            selector.deserialize(volume.mmu_segmentation_facets.get_data(), true);
+            std::vector<indexed_triangle_set> per_state;
+            selector.get_facets(per_state);
+            for (std::size_t state = 1; state < per_state.size(); ++state) {
+                if (per_state[state].indices.empty()) {
+                    continue;
+                }
+                if (index == 0) {
+                    its_transform(per_state[state], volume.get_matrix(), true);
+                }
+                const std::string path = mesh_prefix + "-" + std::to_string(index) + "-" + std::to_string(state) + ".mesh";
+                if (!detail::write_mesh(per_state[state], path)) {
+                    continue;
+                }
+                result.states.push_back(static_cast<int>(state));
+                result.meshes.push_back(path);
+                result.volumes.push_back(static_cast<int>(index));
+            }
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
 // Called by the adapter while it loads a plate, so painted objects are sliced
 // with their paint: colours, supports, seams and fuzzy skin.
 bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& path)
