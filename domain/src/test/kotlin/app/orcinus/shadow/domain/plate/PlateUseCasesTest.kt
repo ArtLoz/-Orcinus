@@ -2461,6 +2461,20 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `arranging and orienting warn when every copy left is on a locked plate`() {
+        val repository = FakeRepository(readyState(CUBE).copy(plates = listOf(PartPlate(locked = true))))
+        val inspector = FakeInspector()
+        val place = PlacePlateObjectsUseCase(PlaceModelsUseCase(inspector), repository, scope)
+
+        // ArrangeJob::prepare_all() and OrientJob::prepare_selection(): nothing runs, a warning shows.
+        place(PlateManipulation.Arrange(ArrangeSettings()))
+        assertEquals(PlateProblemKind.SELECTION_LOCKED_ARRANGE, repository.state.value.problem?.kind)
+        place(PlateManipulation.AutoOrient(setOf(CUBE.mesh)))
+        assertEquals(PlateProblemKind.SELECTION_LOCKED_ORIENT, repository.state.value.problem?.kind)
+        assertTrue(repository.state.value.objects.none(PlateObject::placing))
+    }
+
+    @Test
     fun `a removed range takes the selection with it and the G-code no longer applies`() {
         val cube = CUBE.copy(layerRanges = listOf(LayerRange(0.0, 2.0), LayerRange(2.0, 4.0)))
         val repository = FakeRepository(

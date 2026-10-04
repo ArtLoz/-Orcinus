@@ -638,7 +638,24 @@ enum class PlateProblemKind {
 
     /** GLGizmoMeshBoolean's warning: the operation gave no mesh. */
     MESH_BOOLEAN_FAILED,
+
+    /** The warnings of ArrangeJob and OrientJob on a locked plate (prepare_partplate()). */
+    PLATE_LOCKED_ARRANGE,
+    PLATE_LOCKED_ORIENT,
+
+    /** ... and of every selected copy on a locked plate (prepare_all(), prepare_selection()). */
+    SELECTION_LOCKED_ARRANGE,
+    SELECTION_LOCKED_ORIENT,
+
+    /** ArrangeJob::prepare_all() with no copy to arrange. */
+    NO_ARRANGEABLE_OBJECTS,
 }
+
+/** The kinds OrcaSlicer shows as warnings (WarningNotificationLevel). */
+val PlateProblemKind.warning: Boolean
+    get() = this == PlateProblemKind.PLATE_LOCKED_ARRANGE || this == PlateProblemKind.PLATE_LOCKED_ORIENT ||
+        this == PlateProblemKind.SELECTION_LOCKED_ARRANGE || this == PlateProblemKind.SELECTION_LOCKED_ORIENT ||
+        this == PlateProblemKind.NO_ARRANGEABLE_OBJECTS
 
 data class PlateProblem(
     val kind: PlateProblemKind,

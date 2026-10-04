@@ -73,7 +73,6 @@ import app.orcinus.shadow.core.model.withPartAt
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.canAddPlate
 import app.orcinus.shadow.domain.plate.canDeletePlate
-import app.orcinus.shadow.domain.plate.canWorkOnPlate
 import app.orcinus.shadow.domain.plate.hasAssembleView
 import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.measuredVolumes
@@ -232,8 +231,6 @@ data class PrepareUiState(
     /** The plates' names, empty for one the user did not name, and the locked plates. */
     val plateNames: List<String> = listOf(""),
     val lockedPlates: Set<Int> = emptySet(),
-    /** The plates their orient and arrange work on: not locked, with objects. */
-    val workablePlates: Set<Int> = emptySet(),
     /** The plates with settings of their own (PartPlate's settings icon). */
     val customizedPlates: Set<Int> = emptySet(),
     /** What PlateSettingsDialog shows for the current plate. */
@@ -908,7 +905,6 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         canDeletePlate = canDeletePlate && canEditPlate,
         plateNames = plates.map(PartPlate::name),
         lockedPlates = lockedPlates(),
-        workablePlates = plates.indices.filterTo(mutableSetOf(), ::canWorkOnPlate),
         customizedPlates = partPlates().indices.filterTo(mutableSetOf()) { partPlates()[it].settings.plateSettingsChoice() != PlateSettingsChoice() },
         plateSettings = plateSettings.plateSettingsChoice(),
         bedTypes = presets?.bedTypes.orEmpty(),

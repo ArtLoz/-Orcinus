@@ -101,6 +101,7 @@ import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.model.plateOrigin
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withInstance
@@ -1327,6 +1328,8 @@ class PlacePlateObjectsUseCase(
             }
             val profiles = state.profiles
             if (state.busy || profiles == null || state.objects.isEmpty() || state.objects.any(PlateObject::placing)) return@update state
+            // ArrangeJob and OrientJob warn when the locked plates leave them nothing to work on.
+            state.lockedWarning(asked, locked)?.let { return@update state.copy(problem = PlateProblem(it)) }
             val targets = manipulation.targets(state.objects)
             request = Triple(state.objects, targets, profiles)
             // The jobs take "Arrange" and "Orient"; judging the fit for another printer changes no placement.
@@ -2130,6 +2133,30 @@ class EditLayerRangeUseCase(private val repository: PlateRepository) {
 
     private companion object {
         const val MIN_RANGE_HEIGHT = 0.05
+    }
+}
+
+/**
+ * ArrangeJob::prepare_all() and OrientJob::prepare_selection(): the copies on
+ * the [locked] plates stay out; with none of the others to arrange, or with
+ * every selected copy on a locked plate, the job warns.
+ */
+private fun PlateState.lockedWarning(asked: PlateManipulation, locked: Set<Int>): PlateProblemKind? {
+    fun onLocked(copy: PlateInstance) = plateOf(copy)?.let { it in locked } == true
+    return when (asked) {
+        is PlateManipulation.Arrange -> {
+            val copies = objects.flatMap { it.instances }
+            when {
+                copies.any { it.printable && !onLocked(it) } -> null
+                copies.any(::onLocked) -> PlateProblemKind.SELECTION_LOCKED_ARRANGE
+                else -> PlateProblemKind.NO_ARRANGEABLE_OBJECTS
+            }
+        }
+        is PlateManipulation.AutoOrient -> {
+            val selected = objects.filter { it.mesh in asked.selected }.flatMap { it.instances }
+            PlateProblemKind.SELECTION_LOCKED_ORIENT.takeIf { selected.isNotEmpty() && selected.all(::onLocked) }
+        }
+        else -> null
     }
 }
 

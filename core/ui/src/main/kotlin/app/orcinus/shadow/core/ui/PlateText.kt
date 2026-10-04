@@ -46,6 +46,11 @@ fun PlateProblem.title(): String = when (kind) {
     PlateProblemKind.EXPORT_WITHOUT_NEGATIVE_VOLUMES ->
         orcaString("Unable to perform boolean operation on model meshes. Only positive parts will be exported.")
     PlateProblemKind.MESH_BOOLEAN_FAILED -> orcaString("Unable to perform boolean operation on selected parts")
+    PlateProblemKind.PLATE_LOCKED_ARRANGE -> orcaString("This plate is locked.\nCannot auto-arrange on this plate.")
+    PlateProblemKind.PLATE_LOCKED_ORIENT -> orcaString("This plate is locked.\nCannot auto-orient on this plate.")
+    PlateProblemKind.SELECTION_LOCKED_ARRANGE -> orcaString("All the selected objects are on a locked plate.\nCannot auto-arrange these objects.")
+    PlateProblemKind.SELECTION_LOCKED_ORIENT -> orcaString("All the selected objects are on a locked plate.\nCannot auto-orient these objects.")
+    PlateProblemKind.NO_ARRANGEABLE_OBJECTS -> orcaString("No arrangeable objects are selected.")
 }
 
 /** OrcaSlicer shows a preset's alias: its name without the " @printer" suffix. */

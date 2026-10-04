@@ -133,9 +133,10 @@ class PlateIconActions(
 /**
  * The icons over a plate (PartPlate::render_icons) as a menu, with their
  * tooltips: remove, orient, arrange, lock, move to the front, and the name's
- * edit icon. [locked] shows the lock's state; orienting and arranging need a
- * plate with objects that is not locked ([workable]), removing a plate that is
- * not the last one, and moving one that is not the first.
+ * edit icon. [locked] shows the lock's state; orienting and arranging are
+ * always there, as the desktop icons are, and warn on a locked plate;
+ * removing needs a plate that is not the last one, and moving one that is not
+ * the first.
  */
 @Composable
 fun PlateMenuItems(
@@ -143,7 +144,6 @@ fun PlateMenuItems(
     dismiss: () -> Unit,
     enabled: Boolean,
     locked: Boolean,
-    workable: Boolean,
     deletable: Boolean,
     first: Boolean,
     /** The plate has settings of its own, which its settings icon shows. */
@@ -160,8 +160,8 @@ fun PlateMenuItems(
         leading = { Icon(painterResource(icon), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(OrcaTheme.dimensions.iconSmall)) },
     )
     item(DesignR.drawable.orca_plate_close, "Remove current plate (if not last one)", deletable, actions.delete)
-    item(DesignR.drawable.orca_plate_orient, "Auto orient objects on current plate", workable, actions.orient)
-    item(DesignR.drawable.orca_plate_arrange, "Arrange objects on current plate", workable, actions.arrange)
+    item(DesignR.drawable.orca_plate_orient, "Auto orient objects on current plate", enabled, actions.orient)
+    item(DesignR.drawable.orca_plate_arrange, "Arrange objects on current plate", enabled, actions.arrange)
     if (locked) {
         item(DesignR.drawable.orca_plate_locked, "Unlock current plate", true, actions.lock)
     } else {

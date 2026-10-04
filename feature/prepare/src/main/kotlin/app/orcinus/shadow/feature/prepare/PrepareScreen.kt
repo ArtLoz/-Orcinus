@@ -147,6 +147,7 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.volumeAt
+import app.orcinus.shadow.core.model.warning
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
@@ -1203,7 +1204,6 @@ internal fun PrepareScreen(
                                     dismiss = dismiss,
                                     enabled = state.canEditPlate,
                                     locked = index in state.lockedPlates,
-                                    workable = index in state.workablePlates,
                                     deletable = state.canDeletePlate,
                                     first = index == 0,
                                     customized = index in state.customizedPlates,
@@ -1467,6 +1467,7 @@ private fun Notifications(
     }
     state.problem?.let { problem ->
         OrcaNotification(
+            level = if (problem.kind.warning) OrcaNotificationLevel.Warning else OrcaNotificationLevel.Regular,
             action = {
                 Text(
                     text = stringResource(R.string.dismiss),

@@ -2,6 +2,8 @@ package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.PlateProblem
+import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.plateSettingsChoice
@@ -170,7 +172,7 @@ class PlateJobsUseCase(
     private val placePlateObjects: PlacePlateObjectsUseCase,
     private val applicationScope: CoroutineScope,
 ) {
-    fun orient(index: Int) = onPlate(index) { state ->
+    fun orient(index: Int) = onPlate(index, PlateProblemKind.PLATE_LOCKED_ORIENT) { state ->
         // prepare_partplate(): an object takes the part of its last copy, as the loop over the copies leaves the flag.
         val selected = state.objects
             .filter { plateObject -> plateObject.instances.lastOrNull()?.let(state::plateOf) == index }
@@ -178,15 +180,25 @@ class PlateJobsUseCase(
         placePlateObjects(PlateManipulation.AutoOrient(selected), skipLockedPlates = false)
     }
 
-    fun arrange(index: Int) = onPlate(index) { state -> placePlateObjects(PlateManipulation.ArrangePlate(state.arrangeSettings)) }
+    fun arrange(index: Int) = onPlate(index, PlateProblemKind.PLATE_LOCKED_ARRANGE) { state ->
+        placePlateObjects(PlateManipulation.ArrangePlate(state.arrangeSettings))
+    }
 
-    private fun onPlate(index: Int, job: (PlateState) -> Unit) {
+    /**
+     * The plate's icon selects it; the job then leaves an empty plate alone
+     * and warns on a locked one ([locked]), as prepare_partplate() does.
+     */
+    private fun onPlate(index: Int, locked: PlateProblemKind, job: (PlateState) -> Unit) {
         val state = repository.state.value
-        if (index !in state.plates.indices || !state.canWorkOnPlate(index)) return
+        if (index !in state.plates.indices) return
         selectPlate(index)
         applicationScope.launch {
             val ready = repository.settledOn(index) ?: return@launch
-            job(ready)
+            when {
+                ready.copies().none { ready.plateOf(it) == index } -> Unit
+                ready.plates[index].locked -> repository.update { it.copy(problem = PlateProblem(locked)) }
+                else -> job(ready)
+            }
         }
     }
 }
@@ -203,9 +215,6 @@ internal suspend fun PlateRepository.settledOn(index: Int): PlateState? = withTi
 /** How long a job waits for the engine to know the plate. */
 private const val PLATE_WAIT_MILLIS = 10_000L
 
-/** Whether the plate's orient and arrange work: it is not locked and has objects on it (PartPlate::empty()). */
-fun PlateState.canWorkOnPlate(index: Int): Boolean =
-    plates.getOrNull(index)?.locked == false && copies().any { plateOf(it) == index }
 
 /**
  * Tells the engine the current plate and the number of plates whenever they
