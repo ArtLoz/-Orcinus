@@ -1020,10 +1020,18 @@ data class PrintOptions(
     val elegoo: ElegooOptions? = null,
     /** UploadOptionsDialog's choices, which a 3DPrinterOS upload needs. */
     val printer3dOs: Printer3dOsChoice? = null,
+    /**
+     * PrintHostSendDialog's filename(): the upload path, a folder in front
+     * when the user wrote one ("parts/plate.gcode"); empty for the G-code's
+     * own name.
+     */
+    val uploadPath: String = "",
     /** PrintHostSendDialog's group of a Repetier server ("#" its default group); empty for none. */
     val group: String = "",
     /** PrintHostSendDialog's storage (PrusaLink's path, Moonraker's root); empty for the host's own. */
     val storage: String = "",
+    /** PrintHostJob::switch_to_device_tab: the Device tab shows once the upload went through. */
+    val switchToDeviceTab: Boolean = false,
 )
 
 /** The storages PrintHostSendDialog offers (PrintHost::get_storage()): their paths and their names. */

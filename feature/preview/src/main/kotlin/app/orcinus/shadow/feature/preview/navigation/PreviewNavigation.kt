@@ -18,8 +18,10 @@ data object PreviewNavKey : NavKey
 fun EntryProviderScope<NavKey>.previewEntry(
     createViewModel: () -> PreviewViewModel,
     onSliceRequested: () -> Unit,
+    /** MainFrame::request_select_tab(tpMonitor), once an upload went through with "Switch to Device tab after upload.". */
+    onOpenDevice: () -> Unit = {},
 ) {
     entry<PreviewNavKey> {
-        PreviewRoute(viewModel = viewModel { createViewModel() }, onSliceRequested = onSliceRequested)
+        PreviewRoute(viewModel = viewModel { createViewModel() }, onSliceRequested = onSliceRequested, onOpenDevice = onOpenDevice)
     }
 }

@@ -17,6 +17,7 @@ import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
+import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.LicenseId
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -427,7 +428,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         ): PrintHostUploadOutcome {
             val file = File(gcode.value)
             return networkWork.keep(applicationContext.getString(R.string.network_notification_send, printer.name)) {
-                uploader.upload(printer, file, file.name, startPrint, options) { sent, total ->
+                uploader.upload(printer, file, options.uploadPath.ifEmpty { file.name }, startPrint, options) { sent, total ->
                     if (total > 0) onProgress(sent.toFloat() / total)
                 }
             }
@@ -438,6 +439,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         override suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = uploader.flashforgeSlots(printer)
 
         override suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome = uploader.printer3dOsLists(printer)
+
+        override suspend fun groups(printer: PhysicalPrinter): List<String> = uploader.groups(printer)
+
+        override suspend fun storage(printer: PhysicalPrinter): HostStorageOutcome = uploader.storage(printer)
 
         override suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 

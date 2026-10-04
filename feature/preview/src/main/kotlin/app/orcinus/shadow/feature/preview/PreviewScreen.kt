@@ -60,6 +60,7 @@ import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.OutputPath
@@ -117,6 +118,7 @@ import kotlinx.coroutines.withContext
 internal fun PreviewRoute(
     viewModel: PreviewViewModel,
     onSliceRequested: () -> Unit,
+    onOpenDevice: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val canvas by viewModel.canvas.collectAsStateWithLifecycle()
@@ -142,6 +144,11 @@ internal fun PreviewRoute(
             printer3dOsLists = viewModel::printer3dOsLists,
             recentChoices = viewModel::recentSendChoices,
             keepChoices = viewModel::keepSendChoices,
+            groups = viewModel::hostGroups,
+            storage = viewModel::hostStorage,
+            switchToDeviceTab = viewModel::switchToDeviceTab,
+            keepSwitchToDeviceTab = viewModel::keepSwitchToDeviceTab,
+            openDevice = onOpenDevice,
         ),
         gcodeName = viewModel::gcodeName,
         onExportGcode = viewModel::exportGcode,
@@ -173,6 +180,14 @@ internal class PrinterActions(
     /** The send dialogs' last choices, which OrcaSlicer.conf keeps in "recent". */
     val recentChoices: suspend (List<String>) -> Map<String, String> = { emptyMap() },
     val keepChoices: (Map<String, String>) -> Unit = {},
+    /** The groups and the storages the dialog offers (get_groups(), get_storage()). */
+    val groups: suspend (PhysicalPrinter) -> List<String> = { emptyList() },
+    val storage: suspend (PhysicalPrinter) -> HostStorageOutcome = { HostStorageOutcome.Success(emptyList(), emptyList()) },
+    /** open_device_tab_post_upload, which the dialog's check box shows and keeps. */
+    val switchToDeviceTab: () -> Boolean = { false },
+    val keepSwitchToDeviceTab: (Boolean) -> Unit = {},
+    /** The Device tab, which an upload with the check box shows. */
+    val openDevice: () -> Unit = {},
 ) {
     companion object {
         val NONE = PrinterActions(
@@ -527,6 +542,8 @@ internal fun PreviewScreen(
                     val outcome = printers.send(printer, startPrint, options) { part -> progress = part }
                     sent = outcome
                     progress = null
+                    // PrintHostJobQueue::priv::perform_job(): the Device tab once the upload went through.
+                    if (outcome is PrintHostUploadOutcome.Success && options.switchToDeviceTab) printers.openDevice()
                     // A host that opens a page after the upload (SimplyPrint's import, 3DPrinterOS's quick print):
                     // the desktop opens it in the browser.
                     (outcome as? PrintHostUploadOutcome.Success)?.openUrl?.let { openInBrowser(context, it) }
@@ -538,6 +555,11 @@ internal fun PreviewScreen(
             loadPrinter3dOsLists = printers.printer3dOsLists,
             loadRecent = printers.recentChoices,
             keepRecent = printers.keepChoices,
+            uploadName = gcodeName(),
+            loadGroups = printers.groups,
+            loadStorage = printers.storage,
+            switchToDeviceTab = printers.switchToDeviceTab(),
+            keepSwitchToDeviceTab = printers.keepSwitchToDeviceTab,
             plateBedType = printers.plateBedType(),
             filaments = printers.filaments(),
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,

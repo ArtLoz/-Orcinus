@@ -2,8 +2,10 @@ package app.orcinus.shadow.feature.preview
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.ExternalDocumentReference
+import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerGcodeType
 import app.orcinus.shadow.core.model.PartPlate
@@ -99,6 +101,8 @@ class PreviewViewModel(
     /** What the Preferences change on the canvas. */
     val canvas: StateFlow<CanvasPreferences> = preferences.canvas
 
+    private val preferencesValues = preferences.values
+
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     fun setCanvasOption(key: String, value: String) = setPreference(key, value)
     val state: StateFlow<PreviewUiState> = observePlate()
@@ -150,6 +154,15 @@ class PreviewViewModel(
 
     /** FlashforgePrintHostSendDialog: the slots of the printer's material station. */
     suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = sendGcode.flashforgeSlots(printer)
+
+    suspend fun hostGroups(printer: PhysicalPrinter): List<String> = sendGcode.groups(printer)
+
+    suspend fun hostStorage(printer: PhysicalPrinter): HostStorageOutcome = sendGcode.storage(printer)
+
+    /** "Switch to Device tab after upload." as the last send left it (open_device_tab_post_upload). */
+    fun switchToDeviceTab(): Boolean = preferencesValues.value[AppConfigKeys.OPEN_DEVICE_TAB_POST_UPLOAD] == "1"
+
+    fun keepSwitchToDeviceTab(on: Boolean) = setPreference(AppConfigKeys.OPEN_DEVICE_TAB_POST_UPLOAD, if (on) "1" else "0")
 
     /** The choices a send dialog opens with (init()). */
     suspend fun recentSendChoices(keys: List<String>): Map<String, String> = recentSendChoices?.get(keys).orEmpty()

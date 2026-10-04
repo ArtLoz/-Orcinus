@@ -30,6 +30,7 @@ import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.model.HostPrintersOutcome
+import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.ImportBatch
 import app.orcinus.shadow.core.model.ImportFiles
 import app.orcinus.shadow.core.model.ImportedModelFile
@@ -1939,6 +1940,14 @@ class SendGcodeUseCase(
      */
     suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome = uploader.printer3dOsLists(printer)
 
+    /**
+     * Plater::send_gcode_legacy() before its dialog opens: the groups of a
+     * Repetier server and the storages of the host (get_groups(), get_storage()).
+     */
+    suspend fun groups(printer: PhysicalPrinter): List<String> = uploader.groups(printer)
+
+    suspend fun storage(printer: PhysicalPrinter): HostStorageOutcome = uploader.storage(printer)
+
     /** PhysicalPrinterDialog's Test button: whether the host answers and is what it says it is. */
     suspend fun testPrinter(printer: PhysicalPrinter): PrintHostTestOutcome = uploader.test(printer)
 }
@@ -1960,6 +1969,12 @@ interface GcodeSender {
 
     /** 3DPrinterOS's session check, projects and printer types. */
     suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome
+
+    /** PrintHost::get_groups(): the groups of a Repetier server. */
+    suspend fun groups(printer: PhysicalPrinter): List<String> = emptyList()
+
+    /** PrintHost::get_storage(): the storages the file can go into. */
+    suspend fun storage(printer: PhysicalPrinter): HostStorageOutcome = HostStorageOutcome.Success(emptyList(), emptyList())
 
     /** PrintHost::test(): whether the host at the printer's address answers. */
     suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome

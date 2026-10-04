@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import android.content.ActivityNotFoundException
@@ -43,11 +44,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
+import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
 import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
@@ -64,6 +67,7 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
+import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObicoHost
 import app.orcinus.shadow.core.model.OrcaText
@@ -668,9 +672,29 @@ fun SendToPrinterSheet(
     /** The send dialogs' last choices, which OrcaSlicer.conf keeps in its "recent" section. */
     loadRecent: suspend (List<String>) -> Map<String, String> = { emptyMap() },
     keepRecent: (Map<String, String>) -> Unit = {},
+    /** The name the G-code goes by (output_filepath_for_project()), which the upload path ends in. */
+    uploadName: String = "plate.gcode",
+    /** get_groups() and get_storage() of the host, which the dialog offers. */
+    loadGroups: suspend (PhysicalPrinter) -> List<String> = { emptyList() },
+    loadStorage: suspend (PhysicalPrinter) -> HostStorageOutcome = { HostStorageOutcome.Success(emptyList(), emptyList()) },
+    /** open_device_tab_post_upload, and its keeping when the dialog uploads. */
+    switchToDeviceTab: Boolean = false,
+    keepSwitchToDeviceTab: (Boolean) -> Unit = {},
 ) {
     val colors = OrcaTheme.colors
     var printer by remember { mutableStateOf<PhysicalPrinter?>(null) }
+    // PrintHostSendDialog: the upload path, the group of a Repetier server and
+    // the storage of the host, and the check box of the Device tab.
+    var uploadPath by remember { mutableStateOf(uploadName) }
+    var validSuffix by remember { mutableStateOf("") }
+    var groups by remember { mutableStateOf<List<String>>(emptyList()) }
+    var group by remember { mutableStateOf("") }
+    var storage by remember { mutableStateOf(HostStorageOutcome.Success(emptyList(), emptyList())) }
+    var storageIndex by remember { mutableIntStateOf(0) }
+    var storageFailed by remember { mutableStateOf(false) }
+    var switchToDevice by remember { mutableStateOf(switchToDeviceTab) }
+    // validate_path(): the question when the name does not end with the G-code's suffix, and what follows a Yes.
+    var suffixQuestion by remember { mutableStateOf<(() -> Unit)?>(null) }
     // Preset::get_printer_type(), which ElegooPrintHostSendDialog offers its options by.
     var printerType by remember { mutableStateOf("") }
     var elegoo by remember { mutableStateOf(ElegooOptions()) }
@@ -703,6 +727,46 @@ fun SendToPrinterSheet(
             }
             is PrinterConnectionOutcome.Failure -> problem = outcome.message
         }
+        // Plater::send_gcode_legacy() asks the host's groups and storages before
+        // the dialog opens; a storage it cannot offer stops the upload.
+        val host = printer ?: return@LaunchedEffect
+        if (!host.canSend) return@LaunchedEffect
+        groups = loadGroups(host)
+        when (val stored = loadStorage(host)) {
+            is HostStorageOutcome.Success -> storage = stored
+            is HostStorageOutcome.Failure -> {
+                problem = stored.message
+                storageFailed = true
+                return@LaunchedEffect
+            }
+        }
+        // init(): the folder of the last upload in front of the name, the group and the storage it went to.
+        val recent = loadRecent(listOf(RECENT_PATH_KEY, RECENT_GROUP_KEY, RECENT_STORAGE_KEY))
+        var recentPath = recent[RECENT_PATH_KEY].orEmpty()
+        if (recentPath.isNotEmpty() && !recentPath.endsWith('/')) recentPath += '/'
+        uploadPath = recentPath + uploadName
+        validSuffix = uploadPath.lastIndexOf('.').takeIf { it >= 0 }?.let { uploadPath.substring(it) }.orEmpty()
+        recent[RECENT_GROUP_KEY]?.takeIf { it.isNotEmpty() && groups.isNotEmpty() }?.let { group = it }
+        recent[RECENT_STORAGE_KEY]?.takeIf { it.isNotEmpty() && storage.names.size > 1 }?.let { storageIndex = storage.names.indexOf(it) }
+    }
+    // storage(): the path of the storage chosen, or of the one storage found.
+    val storagePath = when {
+        storage.names.size > 1 -> storage.paths.getOrNull(storageIndex).orEmpty()
+        storage.names.size == 1 -> storage.paths.first()
+        else -> ""
+    }
+    // filename(), group() and storage() go with the upload, and EndModal(wxID_OK) keeps them.
+    fun uploading(options: PrintOptions): PrintOptions {
+        val folder = uploadPath.lastIndexOf('/').let { slash -> if (slash < 0) "" else uploadPath.substring(0, slash + 1) }
+        keepRecent(
+            buildMap {
+                put(RECENT_PATH_KEY, folder)
+                if (groups.isNotEmpty()) put(RECENT_GROUP_KEY, group)
+                if (storage.names.size > 1) put(RECENT_STORAGE_KEY, storage.names.getOrNull(storageIndex).orEmpty())
+            },
+        )
+        keepSwitchToDeviceTab(switchToDevice)
+        return options.copy(uploadPath = uploadPath, group = group, storage = storagePath, switchToDeviceTab = switchToDevice)
     }
 
     ModalBottomSheet(
@@ -728,13 +792,14 @@ fun SendToPrinterSheet(
                 if (problem == null) CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
                 return@Column
             }
+            if (storageFailed) return@Column
             if (mapping) {
                 SlotMapping(
                     printer = host,
                     filaments = filaments,
                     loadSlots = loadSlots,
                     onBack = { mapping = false },
-                    onSend = { options -> onSend(host, startPrint && host.canStartPrint, options) },
+                    onSend = { options -> onSend(host, startPrint && host.canStartPrint, uploading(options)) },
                 )
                 return@Column
             }
@@ -744,7 +809,7 @@ fun SendToPrinterSheet(
                     filaments = filaments,
                     loadSlots = loadFlashforgeSlots,
                     onBack = { flashforge = false },
-                    onSend = { options -> onSend(host, startPrint, PrintOptions(flashforge = options)) },
+                    onSend = { options -> onSend(host, startPrint, uploading(PrintOptions(flashforge = options))) },
                     loadRecent = loadRecent,
                     keepRecent = keepRecent,
                 )
@@ -755,7 +820,7 @@ fun SendToPrinterSheet(
                     printer = host,
                     loadLists = loadPrinter3dOsLists,
                     onBack = { cloudOptions = false },
-                    onSend = { choice -> onSend(host, startPrint && host.canStartPrint, PrintOptions(printer3dOs = choice)) },
+                    onSend = { choice -> onSend(host, startPrint && host.canStartPrint, uploading(PrintOptions(printer3dOs = choice))) },
                 )
                 return@Column
             }
@@ -775,6 +840,18 @@ fun SendToPrinterSheet(
                 style = OrcaTheme.typography.body13,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
+            UploadChoices(
+                path = uploadPath,
+                onPath = { uploadPath = it },
+                groups = groups,
+                group = group,
+                onGroup = { group = it },
+                storageNames = storage.names,
+                storageIndex = storageIndex,
+                onStorage = { storageIndex = it },
+                switchToDevice = switchToDevice,
+                onSwitchToDevice = { switchToDevice = it },
+            )
             // PrintHostSendDialog offers "Upload and Print" to a host that can start a print.
             if (host.canStartPrint) {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -793,9 +870,7 @@ fun SendToPrinterSheet(
             if (elegooOptions && printNow) {
                 ElegooPrintOptions(elegoo, plateBedType) { elegoo = it }
             }
-            OrcaButton(
-                text = stringResource(R.string.printer_host_send),
-                onClick = {
+            val proceed = {
                     // CrealityPrintHostSendDialog: a Creality printer is told
                     // which slot of its boxes feeds every filament.
                     if (host.hostType == PrintHostType.CREALITY_PRINT) {
@@ -818,8 +893,13 @@ fun SendToPrinterSheet(
                                 ),
                             )
                         }
-                        onSend(host, printNow, if (elegooOptions && printNow) PrintOptions(elegoo = elegoo) else PrintOptions())
+                        onSend(host, printNow, uploading(if (elegooOptions && printNow) PrintOptions(elegoo = elegoo) else PrintOptions()))
                     }
+            }
+            OrcaButton(
+                text = stringResource(R.string.printer_host_send),
+                onClick = {
+                    if (uploadPath.lowercase().endsWith(validSuffix.lowercase())) proceed() else suffixQuestion = proceed
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -827,7 +907,113 @@ fun SendToPrinterSheet(
             )
         }
     }
+    suffixQuestion?.let { proceed ->
+        AlertDialog(
+            onDismissRequest = { suffixQuestion = null },
+            confirmButton = {
+                OrcaButton(orcaString("Yes"), onClick = {
+                    suffixQuestion = null
+                    proceed()
+                })
+            },
+            dismissButton = { OrcaButton(orcaString("No"), onClick = { suffixQuestion = null }, style = OrcaButtonStyle.Regular) },
+            text = { Text(orcaString("Upload filename doesn't end with \"%s\". Do you wish to continue?").replace("%s", validSuffix), style = OrcaTheme.typography.body14) },
+            containerColor = colors.window,
+            textContentColor = colors.text,
+            shape = OrcaTheme.shapes.window,
+        )
+    }
 }
+
+/**
+ * PrintHostSendDialog::init(): the upload path under "Upload to Printer Host
+ * with the following filename:" with its hint, the group of a Repetier server
+ * ("#" is its "Default"), the storage — a choice among several, the name of
+ * the only one — and "Switch to Device tab after upload.".
+ */
+@Composable
+private fun UploadChoices(
+    path: String,
+    onPath: (String) -> Unit,
+    groups: List<String>,
+    group: String,
+    onGroup: (String) -> Unit,
+    storageNames: List<String>,
+    storageIndex: Int,
+    onStorage: (Int) -> Unit,
+    switchToDevice: Boolean,
+    onSwitchToDevice: (Boolean) -> Unit,
+) {
+    val colors = OrcaTheme.colors
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Text(orcaString("Upload to Printer Host with the following filename:"), color = colors.text, style = OrcaTheme.typography.body14)
+        OrcaTextField(
+            value = path,
+            onValueChange = onPath,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+        )
+        Text(
+            orcaString("Use forward slashes ( / ) as a directory separator if needed."),
+            color = colors.textSide,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        val defaultGroup = orcaString("Default")
+        if (groups.isNotEmpty()) {
+            Text(orcaString("Group"), color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.padding(top = 8.dp))
+            OrcaComboBox(
+                items = groups,
+                // A read-only combo box without the group of a last upload shows none.
+                selected = group,
+                label = { if (it == REPETIER_DEFAULT_GROUP) defaultGroup else it },
+                onSelect = onGroup,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            )
+        }
+        when {
+            storageNames.size > 1 -> {
+                Text(orcaString("Upload to storage") + ":", color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.padding(top = 8.dp))
+                OrcaComboBox(
+                    items = storageNames.indices.toList(),
+                    selected = storageIndex,
+                    // A remembered storage the host no longer offers selects none.
+                    label = { storageNames.getOrNull(it).orEmpty() },
+                    onSelect = onStorage,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                )
+            }
+            storageNames.size == 1 -> Text(
+                orcaString("Upload to storage") + ": " + storageNames.first(),
+                color = colors.text,
+                style = OrcaTheme.typography.body14,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .toggleable(value = switchToDevice, role = Role.Checkbox, onValueChange = onSwitchToDevice),
+        ) {
+            OrcaCheckBox(checked = switchToDevice, onCheckedChange = null)
+            Text(orcaString("Switch to Device tab after upload."), color = colors.text, style = OrcaTheme.typography.body13, modifier = Modifier.padding(start = 6.dp))
+        }
+    }
+}
+
+/** PrintHostSendDialog's CONFIG_KEY_*: what it keeps in OrcaSlicer.conf's "recent" section. */
+private const val RECENT_PATH_KEY = "printhost_path"
+private const val RECENT_GROUP_KEY = "printhost_group"
+private const val RECENT_STORAGE_KEY = "printhost_storage"
+
+/** Repetier's default model group, which the dialog calls "Default". */
+private const val REPETIER_DEFAULT_GROUP = "#"
 
 /** The keys ElegooPrintHostSendDialog::init() reads. */
 private val ELEGOO_KEYS = listOf(

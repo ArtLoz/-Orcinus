@@ -109,6 +109,9 @@ object AppConfigKeys {
     const val SHOW_AXES = "show_axes"
     const val SHOW_PLATE_GRIDLINES = "show_plate_gridlines"
     const val SHOW_GCODE_WINDOW = "show_gcode_window"
+
+    /** PrintHostSendDialog's "Switch to Device tab after upload.", which the send dialog keeps. */
+    const val OPEN_DEVICE_TAB_POST_UPLOAD = "open_device_tab_post_upload"
     const val USE_FREE_CAMERA = "use_free_camera"
     const val OPENGL_ANTIALIASING_SAMPLES = "opengl_antialiasing_samples"
     const val OPENGL_FXAA_ENABLED = "opengl_fxaa_enabled"
@@ -145,6 +148,7 @@ object AppConfigKeys {
     /** Every key the app reads once the engine has started. */
     val ALL = listOf(
         USE_INCHES,
+        OPEN_DEVICE_TAB_POST_UPLOAD,
         NO_WARN_WHEN_MODIFIED_GCODES,
         DRC_BITS,
         EXPORT_SOURCES_FULL_PATHNAMES,
