@@ -63,7 +63,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\golden.ps1
 | --- | --- |
 | zlib из NDK | Стабильный API Android, как системный zlib у Orca на Linux. |
 | MD5 из LibreSSL вместо OpenSSL 1.1.1w | libslic3r использует OpenSSL только для MD5; сборка OpenSSL 1.1.1 требует Perl+make с Android-обёртками. Кандидат на возврат к OpenSSL. |
-| Не собираются `ObjColorUtils.cpp` (OpenCV) и `SLA/Hollowing.cpp` (OpenVDB) | Цветовой диалог OBJ и SLA-hollowing не входят в FFF-слайсинг на Android. |
+| Не собирается `SLA/Hollowing.cpp` (OpenVDB) | SLA-hollowing не входит в FFF-слайсинг на Android. OpenCV собирается по рецепту Orca (`deps/OpenCV`) без Java SDK и Android-проектов: его k-means нужен `ObjColorUtils.cpp`, окну цветов OBJ. |
 | Нет `fontconfig` | На Android OpenCASCADE сам находит системные шрифты. |
 | `-ffp-contract=off` | Без него Clang на AArch64 объединяет `a*b+c` в FMA и последние знаки координат расходятся с x86-64. |
 | PCH через `target_precompile_headers` | Тот же `pchheader.hpp`, стандартный механизм CMake вместо модуля Orca. |

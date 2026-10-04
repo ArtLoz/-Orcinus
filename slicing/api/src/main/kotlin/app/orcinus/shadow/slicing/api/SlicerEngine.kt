@@ -45,6 +45,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
@@ -201,6 +202,8 @@ interface PlateInspector {
         /** StepMeshDialog's answers for the STEP files that asked, by their place among [sources]. */
         stepMeshes: Map<Int, StepMeshOptions> = emptyMap(),
         askMulti: Boolean = false,
+        /** ObjColorDialog's answers for the OBJ files that asked, by their place among [sources]. */
+        objColors: Map<Int, ObjColorChoice> = emptyMap(),
     ): ModelLoadOutcome
 
     /**
@@ -399,6 +402,15 @@ interface PlateInspector {
 
     /** The STEP file kept for the dialog is let go. */
     suspend fun releaseStepFile()
+
+    /**
+     * ObjColorPanel::deal_algo(): the colours of the OBJ file [source] that
+     * waits for ObjColorDialog, clustered into [count] ("#RRGGBB").
+     */
+    suspend fun objColorClusters(source: ModelPath, count: Int): List<String> = emptyList()
+
+    /** The colours kept for ObjColorDialog are let go. */
+    suspend fun releaseObjColors() {}
 
     /**
      * ObjectList::load_shape_object(): a [shape] of create_mesh() joins [plate]
@@ -815,8 +827,8 @@ interface PresetManager {
     /** Its Delete button: the preset is deleted once the user has answered. */
     suspend fun deleteFilamentPreset(preset: String, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome
 
-    /** Sidebar::add_custom_filament(): another filament joins the plate. */
-    suspend fun addFilament(): PresetsOutcome
+    /** Sidebar::add_custom_filament(): another filament joins the plate, with [color] ("#RRGGBB") or the palette's next one. */
+    suspend fun addFilament(color: String? = null): PresetsOutcome
 
     /** Sidebar::delete_filament(): the filament at [index] leaves it; the first one stays. */
     suspend fun removeFilament(index: Int): PresetsOutcome

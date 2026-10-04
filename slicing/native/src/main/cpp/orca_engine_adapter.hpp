@@ -1225,9 +1225,10 @@ PresetState discard_preset_changes();
 // brought go (PresetBundle::reset_project_embedded_presets).
 PresetState reset_project_presets();
 
-// Sidebar::add_custom_filament(): another filament joins the plate, with the
-// next colour of OrcaSlicer's palette (Plater::get_next_color_for_filament).
-PresetState add_filament();
+// Sidebar::add_custom_filament(): another filament joins the plate, with
+// color ("#RRGGBB"), or without one the next colour of OrcaSlicer's palette
+// (Plater::get_next_color_for_filament).
+PresetState add_filament(const std::string& color = {});
 
 // Sidebar::delete_filament(): the filament at index leaves the plate; the first
 // one cannot, as the desktop app keeps at least one.
@@ -1534,6 +1535,33 @@ using DialogAnswers = std::vector<std::pair<std::string, bool>>;
 // and whether its compounds and compsolids split into objects; chosen is false
 // until the dialog was answered. The dialog's OK writes them into the app
 // configuration itself (through set_app_config_value()).
+// ObjColorDialog's answer for an OBJ file with colours: its OK gives the
+// filament (1-based, as the dialog's combo boxes number them) of every colour
+// of the last clustering it showed (m_cluster_map_filaments); its Cancel none.
+struct ObjColorChoice {
+    bool chosen{false};
+    std::vector<int> cluster_filaments;
+};
+
+// What ObjColorDialog opens on: the error it shows instead of its panel (the
+// material the MTL file lacks, or faces without a colour), or the colours the
+// file's clustered into (m_cluster_colours, "#RRGGBB") and their number, which
+// the dialog recommends (m_color_num_recommend).
+struct ObjColorQuestion {
+    std::string lost_material_name;
+    bool some_face_no_color{false};
+    std::vector<std::string> cluster_colors;
+    int recommended{0};
+};
+
+// ObjColorPanel::deal_algo() for the number of colours the user set: the
+// colours of the OBJ file at path that waits for the dialog, clustered into
+// that many; none when path is not a file that waits.
+std::vector<std::string> obj_color_clusters(const std::string& path, int cluster_number);
+
+// The colours kept for the dialog are let go, as the load that asked ended.
+void release_obj_colors();
+
 struct StepMeshChoice {
     bool chosen{false};
     double linear_deflection{0.003};
@@ -1688,6 +1716,12 @@ struct ImportedModels {
     bool step_split_compound{false};
     // The STEP file that waits, by its place among the files of the load.
     int step_file{0};
+    // An OBJ file with colours waits for ObjColorDialog, which opens on
+    // obj_color: the load is requested again with the user's ObjColorChoice.
+    bool obj_colors{false};
+    ObjColorQuestion obj_color;
+    // The OBJ file that waits, by its place among the files of the load.
+    int obj_color_file{0};
     std::vector<ImportedObject> objects;
     // load_files() of several files the user wants as separate objects that
     // keep their places: they load as one object, which split_object() then
@@ -2910,7 +2944,8 @@ ImportedModels import_model(
     // load is the user's answer to ProjectDropDialog, which the app
     // configuration remembers (import_project_action).
     bool chosen = false,
-    const StepMeshChoice& step_mesh = {}
+    const StepMeshChoice& step_mesh = {},
+    const ObjColorChoice& obj_color = {}
 );
 
 // Plater::priv::load_files() for several model files at once, none of them a
@@ -2920,7 +2955,9 @@ ImportedModels import_model(
 // together; with ask_multi (Plater::add_file() of several model files) the
 // user is asked whether they make one object of several parts and whether
 // they drop onto the plate. step_meshes holds StepMeshDialog's answer for
-// each file; a STEP file without one stops the load (step_file).
+// each file; a STEP file without one stops the load (step_file). obj_colors
+// holds ObjColorDialog's answer for each file; an OBJ file with colours
+// without one stops the load (obj_color_file).
 ImportedModels import_models(
     const std::vector<std::string>& source_paths,
     const ProfileSelection& profiles,
@@ -2930,7 +2967,8 @@ ImportedModels import_models(
     ModelLoad load,
     bool chosen,
     const std::vector<StepMeshChoice>& step_meshes,
-    bool ask_multi
+    bool ask_multi,
+    const std::vector<ObjColorChoice>& obj_colors = {}
 );
 
 // What a request of the settings of an object or of the plate carries, since

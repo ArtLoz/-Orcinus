@@ -749,6 +749,8 @@ data class ImportBatch(
     val chosen: Boolean = false,
     /** StepMeshDialog's answers for the STEP files the batch loads now, by their place among its files. */
     val stepMeshes: Map<Int, StepMeshOptions> = emptyMap(),
+    /** ObjColorDialog's answers for the OBJ files with colours the batch loads now, by their place among its files. */
+    val objColors: Map<Int, ObjColorChoice> = emptyMap(),
     /**
      * The document the user picked and the name it goes by: a project opened
      * from it is saved into it again, and a plate without a name takes the
@@ -1069,6 +1071,8 @@ data class PlateState(
     val projectDropBatch: ImportBatch = ImportBatch(),
     /** StepMeshDialog, which a load or a replacement of a STEP file waits for. */
     val stepMesh: StepMeshQuestion? = null,
+    /** ObjColorDialog, which a load of an OBJ file with colours waits for. */
+    val objColor: ObjColorDialogState? = null,
     /** The project the plate is: its name and the document it is saved into. */
     val project: PlateProject = PlateProject(),
     /** A question of New Project or Open Project that waits for the user. */

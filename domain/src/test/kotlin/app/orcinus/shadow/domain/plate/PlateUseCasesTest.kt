@@ -78,6 +78,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
@@ -3818,6 +3819,7 @@ class PlateUseCasesTest {
             chosen: Boolean,
             stepMeshes: Map<Int, StepMeshOptions>,
             askMulti: Boolean,
+            objColors: Map<Int, ObjColorChoice>,
         ): ModelLoadOutcome {
             loads += Load(sources.first(), prefix, answers, load, chosen, sources, askMulti)
             val stepMesh = stepMeshes[0]
@@ -4476,7 +4478,7 @@ class PlateUseCasesTest {
         override suspend fun createPrinter(request: CreatePrinterRequest, answers: Map<String, Boolean>) =
             PresetCreationOutcome.Failure("not used")
 
-        override suspend fun addFilament(): PresetsOutcome {
+        override suspend fun addFilament(color: String?): PresetsOutcome {
             filamentCalls += "add"
             return presets
         }

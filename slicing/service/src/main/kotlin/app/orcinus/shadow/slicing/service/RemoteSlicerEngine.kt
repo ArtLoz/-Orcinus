@@ -68,6 +68,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
@@ -244,6 +245,7 @@ class RemoteSlicerEngine(
         chosen: Boolean,
         stepMeshes: Map<Int, StepMeshOptions>,
         askMulti: Boolean,
+        objColors: Map<Int, ObjColorChoice>,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         load(
             sources.map(ModelPath::value).toTypedArray(),
@@ -256,6 +258,8 @@ class RemoteSlicerEngine(
             chosen,
             stepMeshes.toArray(sources.size),
             askMulti,
+            objColors.toCounts(sources.size),
+            objColors.toFilaments(sources.size),
         ).toModelLoadOutcome()
     }
 
@@ -757,6 +761,11 @@ class RemoteSlicerEngine(
 
     override suspend fun releaseStepFile() = remote({}) { releaseStepFile() }
 
+    override suspend fun objColorClusters(source: ModelPath, count: Int): List<String> =
+        remote({ emptyList() }) { objColorClusters(source.value, count).toList() }
+
+    override suspend fun releaseObjColors() = remote({}) { releaseObjColors() }
+
     override suspend fun addPrimitive(
         plate: List<PlacedModel>,
         shape: String,
@@ -1216,7 +1225,7 @@ class RemoteSlicerEngine(
             deleteFilamentPreset(preset, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetCreationOutcome()
         }
 
-    override suspend fun addFilament(): PresetsOutcome = remote(PresetsOutcome::Failure) { addFilament().toPresetsOutcome() }
+    override suspend fun addFilament(color: String?): PresetsOutcome = remote(PresetsOutcome::Failure) { addFilament(color).toPresetsOutcome() }
 
     override suspend fun removeFilament(index: Int): PresetsOutcome =
         remote(PresetsOutcome::Failure) { removeFilament(index).toPresetsOutcome() }

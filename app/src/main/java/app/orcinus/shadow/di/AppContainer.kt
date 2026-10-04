@@ -100,6 +100,7 @@ import app.orcinus.shadow.domain.plate.MeasureUseCase
 import app.orcinus.shadow.domain.plate.MeshBooleanUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
+import app.orcinus.shadow.domain.plate.ObjColorPrompt
 import app.orcinus.shadow.domain.plate.ObjectMeshRetention
 import app.orcinus.shadow.domain.plate.ObjectOrderUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
@@ -340,6 +341,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     // StepMeshDialog, which a load or a replacement of a STEP file waits for.
     val stepMeshPrompt = StepMeshPrompt(engine, appPreferences, plateRepository)
+    val objColorPrompt = ObjColorPrompt(engine, engine, platePresets, flushVolumes, plateRepository, applicationScope)
 
     private val editPlateObject = EditPlateObjectUseCase(engine, sceneFiles, plateRepository, applicationScope)
     val addModelToPlate = AddModelToPlateUseCase(
@@ -354,6 +356,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         applicationScope = applicationScope,
         preferences = appPreferences,
         stepMeshPrompt = stepMeshPrompt,
+        objColorPrompt = objColorPrompt,
         editPlateObject = editPlateObject,
         recentProjects = recentProjects,
     )

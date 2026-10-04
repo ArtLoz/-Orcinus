@@ -89,6 +89,19 @@ include("${ORCA_DEPS_DIR}/FREETYPE/FREETYPE.cmake")
 set(FREETYPE_PKG dep_FREETYPE)
 include("${ORCA_DEPS_DIR}/OCCT/OCCT.cmake")
 
+# ObjColorUtils (the OBJ colour dialog's k-means) needs OpenCV's core and
+# imgproc. The Android build of OpenCV would otherwise add its Java SDK and
+# Android projects, which the engine does not use.
+set(ANDROID_ARGS_OpenCV
+    -DBUILD_ANDROID_PROJECTS=OFF
+    -DBUILD_ANDROID_EXAMPLES=OFF
+    -DBUILD_ANDROID_SERVICE=OFF
+    -DBUILD_FAT_JAVA_LIB=OFF
+    -DBUILD_KOTLIN_EXTENSIONS=OFF
+    -DWITH_ANDROID_MEDIANDK=OFF
+)
+include("${ORCA_DEPS_DIR}/OpenCV/OpenCV.cmake")
+
 add_custom_target(
     deps ALL
     DEPENDS
@@ -109,4 +122,5 @@ add_custom_target(
         dep_LibreSSL
         dep_FREETYPE
         dep_OCCT
+        dep_OpenCV
 )

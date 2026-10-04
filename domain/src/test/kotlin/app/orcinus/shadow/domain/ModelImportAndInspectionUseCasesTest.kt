@@ -31,6 +31,7 @@ import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintKind
@@ -247,6 +248,7 @@ class ModelImportAndInspectionUseCasesTest {
             chosen: Boolean,
             stepMeshes: Map<Int, StepMeshOptions>,
             askMulti: Boolean,
+            objColors: Map<Int, ObjColorChoice>,
         ) = ModelLoadOutcome.Failure("not used")
 
         override suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double) = 0L

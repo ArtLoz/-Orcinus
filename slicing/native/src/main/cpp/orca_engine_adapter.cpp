@@ -28,6 +28,7 @@
 #include "android_log_sink.hpp"
 #include "engine_context.hpp"
 #include "project_3mf.hpp"
+#include "obj_colors.hpp"
 #include "step_mesh.hpp"
 #include "settings_dialogs.hpp"
 #include "libslic3r/AppConfig.hpp"
@@ -3817,7 +3818,7 @@ bool is_any_amf(const std::string& path)
 // reader of the file's type. imperial is set for an AMF file in inches, whose
 // objects are then scaled whatever their size.
 Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& dialogs, bool& imperial, const StepMeshChoice& step_mesh,
-                              const bool replacing)
+                              const bool replacing, const Slic3r::ObjImportColorFn& obj_color_fun = nullptr)
 {
     imperial = false;
     if (boost::algorithm::iends_with(path, ".stp") || boost::algorithm::iends_with(path, ".step")) {
@@ -3842,8 +3843,8 @@ Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& 
         throw Slic3r::RuntimeError("Loading 3MF files is not ported yet");
     }
     bool is_xxx = false;
-    Slic3r::Model model =
-        Slic3r::Model::read_from_file(path, nullptr, nullptr, Slic3r::LoadStrategy::LoadModel, nullptr, nullptr, &is_xxx);
+    Slic3r::Model model = Slic3r::Model::read_from_file(path, nullptr, nullptr, Slic3r::LoadStrategy::LoadModel, nullptr, nullptr, &is_xxx,
+                                                        nullptr, nullptr, nullptr, nullptr, 0, obj_color_fun);
     // is_xxx means "in inches" for an AMF file.
     imperial = is_any_amf(path) && is_xxx;
     return model;
@@ -4091,10 +4092,11 @@ ImportedModels import_model(
     const DialogAnswers& answers,
     const ModelLoad load,
     const bool chosen,
-    const StepMeshChoice& step_mesh
+    const StepMeshChoice& step_mesh,
+    const ObjColorChoice& obj_color
 )
 {
-    return import_models({source_path}, profiles, plate, output_prefix, answers, load, chosen, {step_mesh}, false);
+    return import_models({source_path}, profiles, plate, output_prefix, answers, load, chosen, {step_mesh}, false, {obj_color});
 }
 
 ImportedModels import_models(
@@ -4106,7 +4108,8 @@ ImportedModels import_models(
     const ModelLoad load,
     const bool chosen,
     const std::vector<StepMeshChoice>& step_meshes,
-    const bool ask_multi
+    const bool ask_multi,
+    const std::vector<ObjColorChoice>& obj_colors
 )
 {
     ImportedModels result;
@@ -4163,7 +4166,16 @@ ImportedModels import_models(
                     model = detail::read_3mf(source_path, load == ModelLoad::project, config, dialogs, archive);
                 } else {
                     const StepMeshChoice step_mesh = reading < step_meshes.size() ? step_meshes[reading] : StepMeshChoice{};
-                    model = read_model_file(source_path, dialogs, imperial, step_mesh, false);
+                    // load_files()'s obj_color_fun: ObjColorDialog for an OBJ file with colours,
+                    // which takes the colours of the plate's filaments.
+                    Slic3r::ObjImportColorFn obj_color_fun;
+                    if (boost::algorithm::iends_with(source_path, ".obj")) {
+                        const auto* colours = engine().bundle->project_config.option<Slic3r::ConfigOptionStrings>("filament_colour");
+                        const std::string first = colours != nullptr && !colours->values.empty() ? colours->values.front() : std::string();
+                        obj_color_fun = detail::obj_color_function(source_path, first,
+                                                                   reading < obj_colors.size() ? obj_colors[reading] : ObjColorChoice{});
+                    }
+                    model = read_model_file(source_path, dialogs, imperial, step_mesh, false, obj_color_fun);
                     for (Slic3r::ModelObject* object : model.objects) {
                         if (object->name.empty()) {
                             object->name = file_name;
@@ -4340,6 +4352,8 @@ ImportedModels import_models(
             result.project_info = output_prefix + "-project";
             detail::keep_project_info(imported, result.project_info);
         }
+        // The colours kept for ObjColorDialog are not needed any more.
+        release_obj_colors();
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;
         return result;
@@ -4358,7 +4372,15 @@ ImportedModels import_models(
         result.notices = dialogs.take_notices();
         result.status = SceneStatus::success;
         return result;
+    } catch (const detail::ObjColorPending& pending) {
+        result.obj_colors = true;
+        result.obj_color = pending.question;
+        result.obj_color_file = int(reading);
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
     } catch (const std::exception& error) {
+        release_obj_colors();
         result.message = error.what();
         result.notices = dialogs.take_notices();
         return result;

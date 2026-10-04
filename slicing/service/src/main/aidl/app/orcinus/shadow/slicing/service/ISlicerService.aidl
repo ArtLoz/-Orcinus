@@ -75,7 +75,9 @@ interface ISlicerService {
      * load is the ModelLoad's name, and chosen whether ProjectDropDialog chose
      * it. stepMeshes holds StepMeshDialog's answer for every file, four values
      * each: chosen (1 or 0), the linear and angle deflections, split (1 or 0).
-     * askMulti asks whether several files make one object.
+     * askMulti asks whether several files make one object. objColorCounts
+     * holds ObjColorDialog's answer for every file: -1 for none, otherwise
+     * how many of objColorFilaments, in turn, are its filaments.
      */
     ModelLoadParcel load(
         in String[] sources,
@@ -87,7 +89,9 @@ interface ISlicerService {
         String load,
         boolean chosen,
         in double[] stepMeshes,
-        boolean askMulti
+        boolean askMulti,
+        in int[] objColorCounts,
+        in int[] objColorFilaments
     );
     /** edit_object(): edit is the ObjectEdit's name; volume -1 edits the whole object. */
     ModelLoadParcel edit(
@@ -290,6 +294,9 @@ interface ISlicerService {
     long stepTriangleCount(String source, double linear, double angle);
     oneway void stopStepTriangleCount();
     void releaseStepFile();
+    /** ObjColorDialog: its colours clustered into count, and the colours let go. */
+    String[] objColorClusters(String source, int count);
+    void releaseObjColors();
     /** add_primitive(): a shape of create_mesh() as an object of its own. */
     ModelLoadParcel addPrimitive(
         in PlacedModelParcel[] plate,
@@ -428,7 +435,7 @@ interface ISlicerService {
     DirtyPresetsParcel dirtyPresets();
     PresetsParcel discardPresetChanges();
     PresetsParcel resetProjectPresets();
-    PresetsParcel addFilament();
+    PresetsParcel addFilament(@nullable String color);
     PresetsParcel removeFilament(int index);
     PresetsParcel selectFilament(int index, String name, String action);
     PresetsParcel setFilamentColor(int index, String color);

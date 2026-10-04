@@ -337,8 +337,41 @@ sealed interface ModelLoadOutcome {
         val file: Int = 0,
     ) : ModelLoadOutcome
 
+    /**
+     * An OBJ file with colours waits for ObjColorDialog, which opens on
+     * [question]; the load is requested again with the user's choice.
+     */
+    data class ObjColors(
+        val question: ObjColorQuestion,
+        override val notices: List<SettingsDialog>,
+        /** The OBJ file, by its place among the files of the load. */
+        val file: Int = 0,
+    ) : ModelLoadOutcome
+
     data class Failure(val message: String, override val notices: List<SettingsDialog> = emptyList()) : ModelLoadOutcome
 }
+
+/**
+ * What ObjColorDialog opens on: the error it shows instead of its panel (the
+ * material the MTL file lacks, or faces without a colour), or the colours the
+ * file's are clustered into ("#RRGGBB") and their number, which it recommends.
+ */
+data class ObjColorQuestion(
+    val lostMaterialName: String = "",
+    val someFaceNoColor: Boolean = false,
+    val clusterColors: List<String> = emptyList(),
+    val recommended: Int = 0,
+) {
+    /** The dialog shows its error, and its OK loads the file without colours. */
+    val error: Boolean get() = lostMaterialName.isNotEmpty() || someFaceNoColor
+}
+
+/**
+ * ObjColorDialog's answer: its OK gives the filament (1-based, as its combo
+ * boxes number them) of every colour of the last clustering it showed; its
+ * Cancel gives none.
+ */
+data class ObjColorChoice(val clusterFilaments: List<Int> = emptyList())
 
 /** StepMeshDialog's values: the deflections a STEP file is meshed with, and whether its compounds and compsolids split into objects. */
 data class StepMeshOptions(val linearDeflection: Double, val angleDeflection: Double, val splitCompound: Boolean)

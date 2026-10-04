@@ -102,6 +102,13 @@ find_package(JPEG REQUIRED)
 # Upstream's lowercase request resolves draco's own config on case-sensitive hosts.
 find_package(draco REQUIRED CONFIG)
 find_package(OpenCASCADE REQUIRED)
+# OpenCV's Android build installs its package under sdk/native/jni of the prefix.
+foreach(prefix IN LISTS CMAKE_PREFIX_PATH)
+    if(NOT OpenCV_DIR AND EXISTS "${prefix}/sdk/native/jni/OpenCVConfig.cmake")
+        set(OpenCV_DIR "${prefix}/sdk/native/jni")
+    endif()
+endforeach()
+find_package(OpenCV REQUIRED core)
 
 # Upstream's own bundled libraries. Only targets that libslic3r and the tests
 # link are built; GUI-only entries such as imgui and hidapi stay unused.
@@ -116,9 +123,6 @@ set(LIBSLIC3R_CMAKE "${LIBSLIC3R_DIR}/CMakeLists.txt")
 orca_read_cmake_list("${LIBSLIC3R_CMAKE}" "set\\(lisbslic3r_sources" libslic3r_sources)
 orca_exclude_sources(
     libslic3r_sources
-    # OpenCV colour quantisation used only by the desktop OBJ colour dialog.
-    ObjColorUtils.cpp
-    ObjColorUtils.hpp
     # SLA hollowing requires OpenVDB; SLA printing is outside the Android scope.
     SLA/Hollowing.cpp
 )
@@ -145,8 +149,8 @@ target_compile_definitions(libslic3r PUBLIC -DUSE_TBB -DTBB_USE_CAPTURED_EXCEPTI
 target_include_directories(libslic3r PRIVATE "${LIBSLIC3R_DIR}" PUBLIC "${LIBSLIC3R_GENERATED_DIR}")
 target_include_directories(libslic3r SYSTEM PUBLIC ${EXPAT_INCLUDE_DIRS} ${OpenCASCADE_INCLUDE_DIR})
 
-# Same link interface as upstream, except for desktop-only libraries: OpenCV
-# (excluded above) and fontconfig (Android fonts are located by OpenCASCADE).
+# Same link interface as upstream, except for fontconfig, a desktop-only
+# library (Android fonts are located by OpenCASCADE).
 target_link_libraries(
     libslic3r
     PUBLIC
@@ -155,6 +159,7 @@ target_link_libraries(
         libigl
         libnest2d
         miniz
+        opencv_world
     PRIVATE
         ${CMAKE_DL_LIBS}
         ${EXPAT_LIBRARIES}

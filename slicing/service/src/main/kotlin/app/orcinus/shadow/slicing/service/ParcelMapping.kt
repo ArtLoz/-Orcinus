@@ -40,6 +40,8 @@ import app.orcinus.shadow.core.model.MeasureSelection
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.ObjColorChoice
+import app.orcinus.shadow.core.model.ObjColorQuestion
 import app.orcinus.shadow.core.model.PlateCircle
 import app.orcinus.shadow.core.model.PrintedObject
 import app.orcinus.shadow.core.model.StoredTextStyles
@@ -442,6 +444,18 @@ internal fun DoubleArray.toStepMeshes(): Map<Int, StepMeshOptions> = (0 until si
     .filter { this[it * 4] != 0.0 }
     .associateWith { copyOfRange(it * 4 + 1, it * 4 + 4).toStepMeshOptions() }
 
+/** ObjColorDialog's answers for [count] files as the service passes them: a count each (-1 for none), then the filaments in turn. */
+internal fun Map<Int, ObjColorChoice>.toCounts(count: Int) = IntArray(count) { this[it]?.clusterFilaments?.size ?: -1 }
+
+internal fun Map<Int, ObjColorChoice>.toFilaments(count: Int) = (0 until count).flatMap { this[it]?.clusterFilaments.orEmpty() }.toIntArray()
+
+internal fun objColorChoices(counts: IntArray, filaments: IntArray): Map<Int, ObjColorChoice> {
+    var next = 0
+    return counts.withIndex().filter { it.value >= 0 }.associate { (file, count) ->
+        file to ObjColorChoice(filaments.copyOfRange(next, next + count).toList()).also { next += count }
+    }
+}
+
 internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     it.notices = notices.map { dialog -> dialog.toParcel() }.toTypedArray()
     it.appended = this is ModelLoadOutcome.Success && appended
@@ -461,6 +475,14 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
         is ModelLoadOutcome.StepMesh -> {
             it.stepMesh = options.toArray()
             it.stepFile = file
+        }
+        is ModelLoadOutcome.ObjColors -> {
+            it.objColors = true
+            it.objColorLostMaterial = question.lostMaterialName
+            it.objColorNoColor = question.someFaceNoColor
+            it.objColorClusters = question.clusterColors.toTypedArray()
+            it.objColorRecommended = question.recommended
+            it.objColorFile = file
         }
         is ModelLoadOutcome.Success -> it.objects = objects.map { loaded ->
             LoadedObjectParcel().also { parcel ->
@@ -494,6 +516,10 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
     error?.let { return ModelLoadOutcome.Failure(it, shown) }
     question?.let { return ModelLoadOutcome.Question(it.toDialog(), shown) }
     stepMesh?.let { return ModelLoadOutcome.StepMesh(it.toStepMeshOptions(), shown, stepFile) }
+    if (objColors) {
+        val question = ObjColorQuestion(objColorLostMaterial.orEmpty(), objColorNoColor, objColorClusters.orEmpty().toList(), objColorRecommended)
+        return ModelLoadOutcome.ObjColors(question, shown, objColorFile)
+    }
     return ModelLoadOutcome.Success(
         objects.orEmpty().map { parcel ->
             LoadedObject(

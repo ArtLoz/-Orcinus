@@ -4515,6 +4515,72 @@ TEST_CASE("Assemble makes one object of the selected objects and their copies, a
     }
 }
 
+TEST_CASE("An OBJ file with colours asks ObjColorDialog, and its OK paints the filaments it chose", "[Adapter][Import]")
+{
+    require_engine();
+    // A 20 mm cube with red vertices at the bottom and blue ones at the top.
+    std::string obj;
+    {
+        std::istringstream cube(cube_obj(20.0));
+        std::string line;
+        while (std::getline(cube, line)) {
+            if (line.rfind("v ", 0) == 0) {
+                const bool top = line.substr(line.rfind(' ') + 1) == "20";
+                line += top ? " 0 0 1" : " 1 0 0";
+            }
+            obj += line + "\n";
+        }
+    }
+    const std::string path = device_dir + "/tmp/import/colored-cube.obj";
+    write_text(path, obj);
+
+    const orca::ImportedModels asked = orca::import_model(path, k2_plus_profiles(), {}, import_prefix("colored-cube"), {});
+    INFO(asked.message);
+    REQUIRE(asked.status == orca::SceneStatus::success);
+    REQUIRE(asked.obj_colors);
+    CHECK(asked.obj_color.lost_material_name.empty());
+    CHECK_FALSE(asked.obj_color.some_face_no_color);
+    // deal_algo(-1) finds the two colours.
+    REQUIRE(asked.obj_color.cluster_colors.size() == 2);
+    CHECK(asked.obj_color.recommended == 2);
+    // The clustering goes through Lab, which leaves the last bits of a colour: red and blue, nearly.
+    std::vector<std::string> colors = asked.obj_color.cluster_colors;
+    std::sort(colors.begin(), colors.end());
+    CHECK(colors[0].substr(5) == "FF");
+    CHECK(colors[1].substr(1, 2) == "FF");
+    // The dialog's number of colours clusters them again.
+    CHECK(orca::obj_color_clusters(path, 1).size() == 1);
+    const std::vector<std::string> two = orca::obj_color_clusters(path, 2);
+    REQUIRE(two.size() == 2);
+
+    SECTION("OK")
+    {
+        orca::ObjColorChoice choice;
+        choice.chosen = true;
+        choice.cluster_filaments = {1, 2};
+        const orca::ImportedModels loaded = orca::import_model(path, k2_plus_profiles(), {}, import_prefix("colored-cube-ok"), {},
+                                                               orca::ModelLoad::geometry, false, {}, choice);
+        INFO(loaded.message);
+        REQUIRE(loaded.status == orca::SceneStatus::success);
+        CHECK_FALSE(loaded.obj_colors);
+        REQUIRE(loaded.objects.size() == 1);
+        // The faces of both colours are painted, and the object prints with the first cluster's filament.
+        CHECK_FALSE(loaded.objects.front().painted.empty());
+    }
+    SECTION("Cancel")
+    {
+        orca::ObjColorChoice choice;
+        choice.chosen = true;
+        const orca::ImportedModels loaded = orca::import_model(path, k2_plus_profiles(), {}, import_prefix("colored-cube-cancel"), {},
+                                                               orca::ModelLoad::geometry, false, {}, choice);
+        INFO(loaded.message);
+        REQUIRE(loaded.objects.size() == 1);
+        CHECK(loaded.objects.front().painted.empty());
+    }
+    // The load ended, and its colours are let go.
+    CHECK(orca::obj_color_clusters(path, 2).empty());
+}
+
 TEST_CASE("A model that looks like metres offers to be scaled to millimetres", "[Adapter][Import]")
 {
     require_engine();

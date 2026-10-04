@@ -2234,9 +2234,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_resetProjectPresets(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_addFilament(JNIEnv* env, jobject /* this */)
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_addFilament(JNIEnv* env, jobject /* this */, jstring color)
 {
-    return to_java(env, orcinus::orca::add_filament());
+    return to_java(env, orcinus::orca::add_filament(to_utf8(env, color)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL
@@ -3393,7 +3393,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeImportedObject;ZI"
         "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;I"
-        "ZDDZIZ[Ljava/lang/String;)V"
+        "ZDDZIZ[Ljava/lang/String;"
+        "ZLjava/lang/String;Z[Ljava/lang/String;II)V"
     );
     const jobjectArray plates = to_java_objects(
         env,
@@ -3424,8 +3425,26 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         imported.step_split_compound ? JNI_TRUE : JNI_FALSE,
         static_cast<jint>(imported.step_file),
         imported.split_to_objects ? JNI_TRUE : JNI_FALSE,
-        to_java(env, imported.failed)
+        to_java(env, imported.failed),
+        imported.obj_colors ? JNI_TRUE : JNI_FALSE,
+        to_java(env, imported.obj_color.lost_material_name),
+        imported.obj_color.some_face_no_color ? JNI_TRUE : JNI_FALSE,
+        to_java(env, imported.obj_color.cluster_colors),
+        static_cast<jint>(imported.obj_color.recommended),
+        static_cast<jint>(imported.obj_color_file)
     );
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_objColorClusters(JNIEnv* env, jobject /* this */, jstring path, jint cluster_number)
+{
+    return to_java(env, orcinus::orca::obj_color_clusters(to_utf8(env, path), cluster_number));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_releaseObjColors(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::release_obj_colors();
 }
 
 // StepMeshDialog's answer as the bridge passes it.
@@ -3995,9 +4014,23 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
     jdoubleArray step_linear,
     jdoubleArray step_angle,
     jbooleanArray step_split,
-    jboolean ask_multi
+    jboolean ask_multi,
+    jbooleanArray obj_color_chosen,
+    jobjectArray obj_color_filaments
 )
 {
+    // ObjColorDialog's answer for every file.
+    std::vector<orcinus::orca::ObjColorChoice> obj_colors;
+    for (const bool chosen_colors : to_bools(env, obj_color_chosen)) {
+        orcinus::orca::ObjColorChoice choice;
+        choice.chosen = chosen_colors;
+        const auto filaments = static_cast<jintArray>(env->GetObjectArrayElement(obj_color_filaments, jsize(obj_colors.size())));
+        for (const std::int32_t filament : to_ints(env, filaments)) {
+            choice.cluster_filaments.push_back(filament);
+        }
+        env->DeleteLocalRef(filaments);
+        obj_colors.push_back(std::move(choice));
+    }
     // StepMeshDialog's answer for every file.
     const std::vector<bool> chosen_meshes = to_bools(env, step_chosen);
     const std::vector<double> linear = to_doubles(env, step_linear);
@@ -4018,7 +4051,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
             static_cast<orcinus::orca::ModelLoad>(load),
             chosen == JNI_TRUE,
             step_meshes,
-            ask_multi == JNI_TRUE
+            ask_multi == JNI_TRUE,
+            obj_colors
         )
     );
 }

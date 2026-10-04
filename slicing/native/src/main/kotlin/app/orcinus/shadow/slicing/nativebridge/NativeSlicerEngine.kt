@@ -37,6 +37,8 @@ import app.orcinus.shadow.core.model.MeasureEdit
 import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.MeshBooleanOperation
+import app.orcinus.shadow.core.model.ObjColorChoice
+import app.orcinus.shadow.core.model.ObjColorQuestion
 import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PlateCircle
 import app.orcinus.shadow.core.model.PrintedObject
@@ -349,12 +351,14 @@ class NativeSlicerEngine(context: Context) :
         chosen: Boolean,
         stepMeshes: Map<Int, StepMeshOptions>,
         askMulti: Boolean,
+        objColors: Map<Int, ObjColorChoice>,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
             return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
         val stepMesh = sources.indices.map { stepMeshes[it] }
+        val objColor = sources.indices.map { objColors[it] }
         NativeBindings.importModel(
             sourcePaths = sources.map(ModelPath::value).toTypedArray(),
             printerProfile = profiles.printer.value,
@@ -372,6 +376,8 @@ class NativeSlicerEngine(context: Context) :
             stepAngle = stepMesh.map { it?.angleDeflection ?: 0.0 }.toDoubleArray(),
             stepSplit = stepMesh.map { it?.splitCompound ?: false }.toBooleanArray(),
             askMulti = askMulti,
+            objColorChosen = objColor.map { it != null }.toBooleanArray(),
+            objColorFilaments = objColor.map { it?.clusterFilaments.orEmpty().toIntArray() }.toTypedArray(),
         ).toOutcome()
     }
 
@@ -1338,6 +1344,11 @@ class NativeSlicerEngine(context: Context) :
 
     override suspend fun releaseStepFile() = withContext(Dispatchers.IO) { NativeBindings.releaseStepFile() }
 
+    override suspend fun objColorClusters(source: ModelPath, count: Int): List<String> =
+        withContext(Dispatchers.IO) { NativeBindings.objColorClusters(source.value, count).toList() }
+
+    override suspend fun releaseObjColors() = withContext(Dispatchers.IO) { NativeBindings.releaseObjColors() }
+
     override suspend fun addPrimitive(
         plate: List<PlacedModel>,
         shape: String,
@@ -2235,8 +2246,8 @@ class NativeSlicerEngine(context: Context) :
             NativeBindings.deleteFilamentPreset(preset, answers.answerIds(), answers.answerFlags()).toOutcome()
         }
 
-    override suspend fun addFilament(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
-        NativeBindings.addFilament().toOutcome()
+    override suspend fun addFilament(color: String?): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.addFilament(color.orEmpty()).toOutcome()
     }
 
     override suspend fun removeFilament(index: Int): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
@@ -2627,6 +2638,11 @@ class NativeSlicerEngine(context: Context) :
                 ModelLoadOutcome.Failure(message.ifBlank { "OrcaSlicer could not load the file" }, shown)
             hasQuestion -> ModelLoadOutcome.Question(question.toDialog(), shown)
             stepMesh -> ModelLoadOutcome.StepMesh(StepMeshOptions(stepLinearDeflection, stepAngleDeflection, stepSplitCompound), shown, stepFile)
+            objColors -> ModelLoadOutcome.ObjColors(
+                ObjColorQuestion(objColorLostMaterial, objColorNoColor, objColorClusters.toList(), objColorRecommended),
+                shown,
+                objColorFile,
+            )
             else -> ModelLoadOutcome.Success(
                 objects = objects.map { it.toLoadedObject() },
                 notices = shown,

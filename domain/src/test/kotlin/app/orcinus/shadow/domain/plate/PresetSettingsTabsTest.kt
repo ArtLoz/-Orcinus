@@ -653,7 +653,7 @@ class PresetSettingsTabsTest {
         override suspend fun createPrinter(request: CreatePrinterRequest, answers: Map<String, Boolean>) =
             PresetCreationOutcome.Failure("not used")
 
-        override suspend fun addFilament() = PresetsOutcome.Failure("not used")
+        override suspend fun addFilament(color: String?) = PresetsOutcome.Failure("not used")
 
         override suspend fun removeFilament(index: Int) = PresetsOutcome.Failure("not used")
 

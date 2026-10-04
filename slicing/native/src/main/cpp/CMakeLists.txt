@@ -18,6 +18,7 @@ add_library(orca_engine_adapter STATIC
     engine_context.cpp
     flush_volumes.cpp
     nanosvg.cpp
+    obj_colors.cpp
     orca_engine_adapter.cpp
     painting.cpp
     preset_export.cpp

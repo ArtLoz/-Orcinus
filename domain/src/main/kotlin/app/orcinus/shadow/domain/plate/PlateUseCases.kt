@@ -45,6 +45,7 @@ import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSource
+import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectPartId
@@ -603,6 +604,7 @@ class AddModelToPlateUseCase(
     private val stepMeshPrompt: StepMeshPrompt,
     private val editPlateObject: EditPlateObjectUseCase,
     private val recentProjects: RecentProjects? = null,
+    private val objColorPrompt: ObjColorPrompt? = null,
 ) {
     operator fun invoke(reference: ExternalDocumentReference) = invoke(listOf(reference))
 
@@ -824,7 +826,7 @@ class AddModelToPlateUseCase(
         // Plater::load_project() resets the plate before the project loads.
         val plate = if (batch.load == ModelLoad.PROJECT) emptyList() else state.objects.map { it.placed() }
         val outcome = try {
-            inspector.load(files.files, profiles, plate, prefix, answers, batch.load, batch.chosen, batch.stepMeshes, files.askMulti)
+            inspector.load(files.files, profiles, plate, prefix, answers, batch.load, batch.chosen, batch.stepMeshes, files.askMulti, batch.objColors)
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation
@@ -840,6 +842,12 @@ class AddModelToPlateUseCase(
                 return
             }
             return load(files, batch.copy(stepMeshes = batch.stepMeshes + (outcome.file to options)), answers, shown)
+        }
+        if (outcome is ModelLoadOutcome.ObjColors) {
+            // obj_color_fun: ObjColorDialog for the OBJ file that asked; its Cancel loads the file without colours.
+            val source = files.files.getOrElse(outcome.file) { files.first }
+            val choice = objColorPrompt?.ask(source, outcome.question) ?: ObjColorChoice()
+            return load(files, batch.copy(objColors = batch.objColors + (outcome.file to choice)), answers, shown)
         }
         // The presets the load selected (a project's, or more filaments for a
         // 3MF file's objects) reach the plate together with its objects, so no
@@ -986,7 +994,7 @@ class AddModelToPlateUseCase(
                     ),
                 )
                 // load() asked StepMeshDialog before.
-                is ModelLoadOutcome.StepMesh -> informed.copy(importing = false)
+                is ModelLoadOutcome.StepMesh, is ModelLoadOutcome.ObjColors -> informed.copy(importing = false)
                 is ModelLoadOutcome.Failure -> informed.copy(
                     importing = false,
                     problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, outcome.message),

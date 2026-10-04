@@ -32,4 +32,12 @@ parcelable ModelLoadParcel {
     boolean splitToObjects;
     /** ModelLoadOutcome.Success.failed */
     @nullable String[] failed;
+    /** An OBJ file with colours waits for ObjColorDialog, which opens on ObjColorQuestion. */
+    boolean objColors;
+    @nullable String objColorLostMaterial;
+    boolean objColorNoColor;
+    @nullable String[] objColorClusters;
+    int objColorRecommended;
+    /** The OBJ file that waits, by its place among the files of the load. */
+    int objColorFile;
 }

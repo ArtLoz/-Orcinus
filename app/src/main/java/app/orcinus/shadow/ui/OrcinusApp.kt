@@ -60,6 +60,8 @@ import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.plate.ObjColorActions
+import app.orcinus.shadow.core.ui.plate.ObjColorDialog
 import app.orcinus.shadow.core.ui.plate.ProjectDropSheet
 import app.orcinus.shadow.core.ui.plate.ProjectPresetChangesDialog
 import app.orcinus.shadow.core.ui.plate.ProjectRestoreDialog
@@ -73,6 +75,7 @@ import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
 import app.orcinus.shadow.domain.plate.AutoSliceUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
+import app.orcinus.shadow.domain.plate.ObjColorPrompt
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
@@ -125,6 +128,8 @@ class AppShellViewModel(
     /** The Preferences' "Default page" once it is read; null before. */
     val defaultPage: Flow<String?>,
     private val reloadFromDisk: ReloadFromDiskUseCase,
+    /** ObjColorDialog's panel and answer. */
+    val objColorPrompt: ObjColorPrompt,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -202,6 +207,7 @@ fun OrcinusApp(
             container.projectBackup,
             container.defaultPage,
             container.reloadFromDisk,
+            container.objColorPrompt,
         )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
@@ -301,6 +307,7 @@ private fun Workspace(
     val projectPrompt = plate.projectPrompt
     val reloadPrompt = plate.reloadPrompt
     val stepMesh = plate.stepMesh
+    val objColor = plate.objColor
     // "Reload from disk"'s file dialog for a file the app can no longer read.
     var reloadPicking by remember { mutableStateOf(false) }
     val reloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -311,6 +318,17 @@ private fun Workspace(
         notice != null -> SettingsNoticeDialog(notice, onDismiss = shell::dismissNotice)
         question != null -> SettingsQuestionDialog(question, onAnswerChecked = shell::answer)
         stepMesh != null -> StepMeshDialog(stepMesh, countTriangles = shell::stepTriangleCount, onAnswer = shell::answerStepMesh)
+        objColor != null -> ObjColorDialog(
+            objColor,
+            ObjColorActions(
+                setClusterNumber = shell.objColorPrompt::setClusterNumber,
+                select = shell.objColorPrompt::select,
+                append = shell.objColorPrompt::append,
+                colorMatch = shell.objColorPrompt::colorMatch,
+                reset = shell.objColorPrompt::reset,
+                answer = shell.objColorPrompt::answer,
+            ),
+        )
         projectPrompt is ProjectPrompt.SaveChanges -> ProjectSaveChangesDialog(onAnswer = shell::answerSaveChanges)
         projectPrompt is ProjectPrompt.RestoreBackup -> ProjectRestoreDialog(onAnswer = shell::answerRestore)
         projectPrompt is ProjectPrompt.PresetChanges ->

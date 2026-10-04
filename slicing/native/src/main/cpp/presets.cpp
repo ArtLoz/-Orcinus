@@ -770,7 +770,7 @@ const std::vector<std::string>& filament_palette()
     return colors;
 }
 
-PresetState add_filament()
+PresetState add_filament(const std::string& custom_color)
 {
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
     if (engine().bundle == nullptr) {
@@ -785,7 +785,7 @@ PresetState add_filament()
             return preset_failure(SceneStatus::profile_not_found, "A plate prints with at most 16 filaments");
         }
         const std::size_t count = bundle.filament_presets.size() + 1;
-        const std::string color = filament_palette()[(count - 1) % filament_palette().size()];
+        const std::string color = custom_color.empty() ? filament_palette()[(count - 1) % filament_palette().size()] : custom_color;
         bundle.set_num_filaments(unsigned(count), color);
         detail::reload_tab_after_selection(PresetKind::print);
         bundle.export_selections(*engine().config);

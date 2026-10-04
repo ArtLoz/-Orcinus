@@ -36,7 +36,8 @@ only until the app links the new engine.
 | GMP 6.2.1, MPFR 4.2.2 | Upstream archives and patch | `engine/deps/recipes/GMP_MPFR.cmake`: upstream flags, NDK compilers, MSYS2 shell on Windows |
 | OpenSSL (MD5 API) | — | LibreSSL 4.3.2 (`engine/deps/recipes/LibreSSL.cmake`) |
 | zlib | NDK sysroot | System library |
-| OpenCV, OpenVDB | Not built | Only `ObjColorUtils.cpp` and `SLA/Hollowing.cpp` need them |
+| OpenVDB | Not built | Only `SLA/Hollowing.cpp` needs it |
+| OpenCV | Orca's recipe, without the Java SDK and Android projects | `ObjColorUtils.cpp` (the OBJ colour dialog's k-means) |
 | wxWidgets, GLEW, GLFW, OpenCSG, CURL | Not built | Desktop UI and networking |
 
 ## Status

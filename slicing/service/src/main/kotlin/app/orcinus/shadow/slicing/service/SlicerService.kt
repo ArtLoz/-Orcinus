@@ -151,6 +151,8 @@ abstract class SlicerService<E> : Service()
             chosen: Boolean,
             stepMeshes: DoubleArray,
             askMulti: Boolean,
+            objColorCounts: IntArray,
+            objColorFilaments: IntArray,
         ): ModelLoadParcel = runBlocking {
             engine.load(
                 sources.map(::ModelPath),
@@ -162,6 +164,7 @@ abstract class SlicerService<E> : Service()
                 chosen,
                 stepMeshes.toStepMeshes(),
                 askMulti,
+                objColorChoices(objColorCounts, objColorFilaments),
             )
         }.toParcel()
 
@@ -684,6 +687,11 @@ abstract class SlicerService<E> : Service()
 
         override fun releaseStepFile() = runBlocking { engine.releaseStepFile() }
 
+        override fun objColorClusters(source: String, count: Int): Array<String> =
+            runBlocking { engine.objColorClusters(ModelPath(source), count) }.toTypedArray()
+
+        override fun releaseObjColors() = runBlocking { engine.releaseObjColors() }
+
         override fun addPrimitive(
             plate: Array<PlacedModelParcel>,
             shape: String,
@@ -1045,7 +1053,7 @@ abstract class SlicerService<E> : Service()
             engine.setCompatiblePresets(PresetKind.valueOf(kind), page, key, presets.toList(), answersOf(answerIds, answers))
         }.toParcel()
 
-        override fun addFilament(): PresetsParcel = runBlocking { engine.addFilament() }.toParcel()
+        override fun addFilament(color: String?): PresetsParcel = runBlocking { engine.addFilament(color) }.toParcel()
 
         override fun removeFilament(index: Int): PresetsParcel = runBlocking { engine.removeFilament(index) }.toParcel()
 

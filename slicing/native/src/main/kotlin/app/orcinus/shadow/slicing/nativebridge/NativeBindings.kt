@@ -945,6 +945,14 @@ internal class NativeImportedModels(
     @JvmField val splitToObjects: Boolean,
     /** reload_volumes(): the files or names of the volumes the file had nothing for. */
     @JvmField val failed: Array<String>,
+    /** An OBJ file with colours waits for ObjColorDialog, which opens on ObjColorQuestion. */
+    @JvmField val objColors: Boolean,
+    @JvmField val objColorLostMaterial: String,
+    @JvmField val objColorNoColor: Boolean,
+    @JvmField val objColorClusters: Array<String>,
+    @JvmField val objColorRecommended: Int,
+    /** The OBJ file that waits, by its place among the files of the load. */
+    @JvmField val objColorFile: Int,
 )
 
 /**
@@ -1345,6 +1353,9 @@ internal object NativeBindings {
         stepSplit: BooleanArray,
         /** Plater::add_file() of several model files: asks whether they make one object. */
         askMulti: Boolean,
+        /** ObjColorChoice in orca_engine_adapter.hpp, for every file. */
+        objColorChosen: BooleanArray,
+        objColorFilaments: Array<IntArray>,
     ): NativeImportedModels
 
     /**
@@ -1559,6 +1570,11 @@ internal object NativeBindings {
     external fun stopStepTriangleCount()
 
     external fun releaseStepFile()
+
+    /** obj_color_clusters() and release_obj_colors(): ObjColorDialog's numbers of colours. */
+    external fun objColorClusters(path: String, clusterNumber: Int): Array<String>
+
+    external fun releaseObjColors()
 
     /** add_primitive(): a shape of create_mesh() joins [plate] as an object named [name]. */
     external fun addPrimitive(
@@ -2036,8 +2052,8 @@ internal object NativeBindings {
 
     external fun resetProjectPresets(): NativePresetState
 
-    /** Sidebar::add_custom_filament(), delete_filament() and the combo box of a slot. */
-    external fun addFilament(): NativePresetState
+    /** Sidebar::add_custom_filament() with the colour ("#RRGGBB", or empty for the palette's), delete_filament() and the combo box of a slot. */
+    external fun addFilament(color: String): NativePresetState
 
     external fun removeFilament(index: Long): NativePresetState
 
