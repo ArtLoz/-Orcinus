@@ -4099,6 +4099,42 @@ ImportedModels import_model(
     return import_models({source_path}, profiles, plate, output_prefix, answers, load, chosen, {step_mesh}, false, {obj_color});
 }
 
+ImportedModels obj_color_preview(const std::string& path, const ObjColorChoice& choice, const std::string& output_prefix)
+{
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        const auto* colours = engine().bundle->project_config.option<Slic3r::ConfigOptionStrings>("filament_colour");
+        const std::string first = colours != nullptr && !colours->values.empty() ? colours->values.front() : std::string();
+        Slic3r::Model model = Slic3r::Model::read_from_file(path, nullptr, nullptr, Slic3r::LoadStrategy::LoadModel, nullptr, nullptr, nullptr,
+                                                            nullptr, nullptr, nullptr, nullptr, 0, detail::obj_color_function(path, first, choice));
+        // generate_thumbnail() draws a model of one object.
+        if (model.objects.size() != 1) {
+            result.message = "The OBJ file is not one object";
+            return result;
+        }
+        Slic3r::ModelObject* object = model.objects.front();
+        // ObjColorPanel::ObjColorPanel(): the thumbnail's copy of the object.
+        object->add_instance();
+        if (!write_objects({object}, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const detail::ObjColorPending&) {
+        result.message = "The colours of the OBJ file are no longer kept";
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        return result;
+    }
+}
+
 ImportedModels import_models(
     const std::vector<std::string>& source_paths,
     const ProfileSelection& profiles,

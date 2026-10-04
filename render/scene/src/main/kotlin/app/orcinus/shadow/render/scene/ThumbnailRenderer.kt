@@ -8,6 +8,7 @@ import android.opengl.EGLDisplay
 import android.opengl.EGLExt
 import android.opengl.EGLSurface
 import android.opengl.GLES30
+import app.orcinus.shadow.core.model.CameraView
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PlateDescription
@@ -86,6 +87,62 @@ class ThumbnailRenderer(context: Context) {
     }
 
     /**
+     * Plater::update_obj_preview_thumbnail(): [plateObject] alone, its first
+     * copy's volumes (render_thumbnail_internal() without the plate's box),
+     * seen from [view] by the orthographic camera zoomed to them, in the
+     * colours of their filaments ([filamentColors], "#RRGGBB" by filament),
+     * on a transparent background, written to [file] at [size]; null when it
+     * could not be drawn.
+     */
+    suspend fun renderObject(
+        plateObject: PlateObject,
+        filamentColors: List<String>,
+        view: CameraView,
+        size: ThumbnailSize,
+        file: ScenePath,
+    ): ThumbnailImage? = withContext(dispatcher) {
+        val volumes = objectVolumes(plateObject, filamentColors)
+        if (volumes.isEmpty()) return@withContext null
+        OffscreenContext().use {
+            val program = GlProgram(assets, THUMBNAIL_SHADER)
+            val arrays = volumes.associate { volume ->
+                volume.scene.key to GlVertexArray(volume.scene.mesh.vertices, listOf(GlProgram.POSITION to 3, GlProgram.NORMAL to 3), GLES30.GL_TRIANGLES)
+            }
+            try {
+                val pixels = renderFramebuffer(size, program, volumes, arrays, null, PlatePicture.PLATE, view) ?: return@use null
+                File(file.value).outputStream().channel.use { channel -> channel.write(pixels) }
+                ThumbnailImage(size, file)
+            } finally {
+                arrays.values.forEach(GlVertexArray::release)
+                program.release()
+            }
+        }
+    }
+
+    /**
+     * GLVolumeCollection::load_object_volume() of the object's first copy: its
+     * own mesh, its model parts and the filaments painted on it, each in the
+     * colour of its filament.
+     */
+    private fun objectVolumes(plateObject: PlateObject, filamentColors: List<String>): List<ThumbnailVolume> {
+        val colors = filamentColors.map { parseFilamentColor(it) }
+        val default = ColorRgba(0.5f, 0.5f, 0.5f, 1f)
+        fun colorOf(extruder: Int): ColorRgba = colors.getOrNull(extruder - 1) ?: default
+        val instance = plateObject.instances.firstOrNull() ?: return emptyList()
+        val meshes = MeshCache()
+        val copy = ThumbnailVolume(SceneLoader.loadObject(0, plateObject, instance, colorOf(plateObject.extruderNumber), meshes), plateObject.extruderNumber, 1)
+        val parts = plateObject.parts.filter { it.type == VolumeType.PART }.map { part ->
+            val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
+            ThumbnailVolume(SceneLoader.loadPart(0, part, instance, colorOf(extruder), meshes), extruder, 1)
+        }
+        val painted = plateObject.paintedMeshes.filter { it.kind == PaintKind.COLOR }.map { mesh ->
+            val part = plateObject.parts.getOrNull(mesh.volume - 1)
+            ThumbnailVolume(SceneLoader.loadPaintedMesh(0, mesh, instance, colorOf(mesh.state), meshes, part), mesh.state, 1)
+        }
+        return listOf(copy) + painted + parts
+    }
+
+    /**
      * A volume of the picture: its scene object, the filament it prints with
      * (GLVolume::extruder_id) and the loaded_id of its copy
      * (GLVolume::model_object_ID).
@@ -148,8 +205,9 @@ class ThumbnailRenderer(context: Context) {
         program: GlProgram,
         volumes: List<ThumbnailVolume>,
         arrays: Map<String, GlVertexArray>,
-        plateBuildVolume: Box3,
+        plateBuildVolume: Box3?,
         picture: PlatePicture,
+        view: CameraView = CameraView.ISO,
     ): ByteBuffer? {
         val w = size.width
         val h = size.height
@@ -184,7 +242,7 @@ class ThumbnailRenderer(context: Context) {
 
         var pixels: ByteBuffer? = null
         if (GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) == GLES30.GL_FRAMEBUFFER_COMPLETE) {
-            renderInternal(w, h, program, volumes, arrays, plateBuildVolume, picture)
+            renderInternal(w, h, program, volumes, arrays, plateBuildVolume, picture, view)
             val read = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
             if (multisample) {
                 val resolveFbo = IntArray(1).also { GLES30.glGenFramebuffers(1, it, 0) }[0]
@@ -228,8 +286,9 @@ class ThumbnailRenderer(context: Context) {
         program: GlProgram,
         volumes: List<ThumbnailVolume>,
         arrays: Map<String, GlVertexArray>,
-        plateBuildVolume: Box3,
+        plateBuildVolume: Box3?,
         picture: PlatePicture,
+        view: CameraView,
     ) {
         var volumesBox = volumes.map { it.scene.bounds }.reduceOrNull(Box3::merge) ?: Box3(Vec3.ZERO, Vec3.ZERO)
         volumesBox = Box3(volumesBox.min.copy(z = -SCENE_EPSILON), volumesBox.max)
@@ -243,10 +302,11 @@ class ThumbnailRenderer(context: Context) {
 
         val camera = OrcaCamera()
         camera.orthographic = true
+        // use_plate_box: the plate's build volume is the scene's box.
         camera.sceneBox = plateBuildVolume
         camera.setViewport(w, h)
         GLES30.glViewport(0, 0, w, h)
-        if (picture == PlatePicture.TOP || picture == PlatePicture.PICK) {
+        if (plateBuildVolume != null && (picture == PlatePicture.TOP || picture == PlatePicture.PICK)) {
             // ViewAngleType::Top_Plate: the plate's centre seen from as high as
             // the build volume, zoomed for the plate to fill the picture.
             val min = plateBuildVolume.min
@@ -258,18 +318,18 @@ class ThumbnailRenderer(context: Context) {
             camera.lookAt(center + Vec3.UNIT_Z * distanceZ, center, Vec3.UNIT_Y)
             camera.setZoom(minOf(scaleX, scaleY))
         } else {
-            // A new camera looks from the default isometric direction (select_view("iso")).
+            camera.selectView(view)
             camera.zoomToBox(volumesBox)
         }
-        val view = camera.viewMatrix
-        camera.applyProjection(plateBuildVolume)
+        val viewMatrix = camera.viewMatrix
+        camera.applyProjection(plateBuildVolume ?: volumesBox)
         val projection = FloatArray(16) { camera.projectionMatrix[it].toFloat() }
 
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         if (picture == PlatePicture.PICK) {
-            renderPicking(program, volumes, arrays, view, projection)
+            renderPicking(program, volumes, arrays, viewMatrix, projection)
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
             return
         }
@@ -297,8 +357,8 @@ class ThumbnailRenderer(context: Context) {
             val color = if (banLight) adjusted.copy(alpha = (255 - (thumbnailVolume.extruder - 1)) / 255f) else adjusted
             program.setVec4("uniform_color", color.red, color.green, color.blue, color.alpha)
             program.setMatrix4("volume_world_matrix", volume.world.toFloatArray())
-            program.setMatrix4("view_model_matrix", (view * volume.world).toFloatArray())
-            program.setMatrix3("view_normal_matrix", normalMatrix(view, volume.world))
+            program.setMatrix4("view_model_matrix", (viewMatrix * volume.world).toFloatArray())
+            program.setMatrix3("view_normal_matrix", normalMatrix(viewMatrix, volume.world))
             // GLVolume::is_left_handed(): a mirrored volume turns its faces.
             val leftHanded = volume.world.isLeftHanded
             if (leftHanded) GLES30.glFrontFace(GLES30.GL_CW)

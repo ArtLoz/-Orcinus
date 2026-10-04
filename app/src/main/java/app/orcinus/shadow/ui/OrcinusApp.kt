@@ -322,6 +322,7 @@ private fun Workspace(
             objColor,
             ObjColorActions(
                 setClusterNumber = shell.objColorPrompt::setClusterNumber,
+                setView = shell.objColorPrompt::setView,
                 select = shell.objColorPrompt::select,
                 append = shell.objColorPrompt::append,
                 colorMatch = shell.objColorPrompt::colorMatch,

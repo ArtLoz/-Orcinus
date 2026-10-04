@@ -1349,6 +1349,9 @@ class NativeSlicerEngine(context: Context) :
 
     override suspend fun releaseObjColors() = withContext(Dispatchers.IO) { NativeBindings.releaseObjColors() }
 
+    override suspend fun objColorPreview(source: ModelPath, choice: ObjColorChoice, prefix: ScenePath): ModelLoadOutcome =
+        withContext(Dispatchers.IO) { NativeBindings.objColorPreview(source.value, choice.clusterFilaments.toIntArray(), prefix.value).toOutcome() }
+
     override suspend fun addPrimitive(
         plate: List<PlacedModel>,
         shape: String,

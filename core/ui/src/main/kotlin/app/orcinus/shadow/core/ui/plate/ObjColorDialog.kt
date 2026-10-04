@@ -1,9 +1,12 @@
 package app.orcinus.shadow.core.ui.plate
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -17,11 +20,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -33,15 +39,23 @@ import app.orcinus.shadow.core.designsystem.component.OrcaLink
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaSpinInput
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.CameraView
+import app.orcinus.shadow.core.model.OBJ_PREVIEW_VIEWS
 import app.orcinus.shadow.core.model.ObjColorDialogState
 import app.orcinus.shadow.core.model.ObjColorPanel
+import app.orcinus.shadow.core.model.ThumbnailImage
 import app.orcinus.shadow.core.model.parseFilamentColor
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.settings.openInBrowser
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** What ObjColorDialog's controls do, through ObjColorPrompt. */
 class ObjColorActions(
     val setClusterNumber: (Int) -> Unit,
+    /** The view the thumbnail is drawn from. */
+    val setView: (CameraView) -> Unit,
     val select: (cluster: Int, index: Int) -> Unit,
     val append: () -> Unit,
     val colorMatch: () -> Unit,
@@ -57,10 +71,9 @@ class ObjColorActions(
  * to choose from the filaments and the colours "Append" added; and the quick
  * settings Append, Color match and Reset. OK waits until every colour has a
  * filament. A file whose MTL file lacks a material, or with faces without a
- * colour, shows only its error, with OK alone.
- *
- * The desktop dialog also shows a thumbnail of the object in the chosen
- * filaments, from a choice of views; that is not ported yet.
+ * colour, shows only its error, with OK alone. Below the number of colours,
+ * the thumbnail of the object in the chosen filaments, from the view chosen
+ * beside it.
  */
 @Composable
 fun ObjColorDialog(dialog: ObjColorDialogState, actions: ObjColorActions) {
@@ -75,7 +88,7 @@ fun ObjColorDialog(dialog: ObjColorDialogState, actions: ObjColorActions) {
                 if (panel == null) {
                     ErrorPage(dialog)
                 } else {
-                    PanelPage(panel, enabled = !dialog.clustering, actions)
+                    PanelPage(dialog, panel, enabled = !dialog.clustering, actions)
                 }
             }
         },
@@ -113,7 +126,7 @@ private fun ErrorPage(dialog: ObjColorDialogState) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PanelPage(panel: ObjColorPanel, enabled: Boolean, actions: ObjColorActions) {
+private fun ColumnScope.PanelPage(dialog: ObjColorDialogState, panel: ObjColorPanel, enabled: Boolean, actions: ObjColorActions) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(orcaString("Specify number of colors:"), style = OrcaTheme.typography.head14, modifier = Modifier.weight(1f, fill = false))
         OrcaSpinInput(
@@ -126,6 +139,8 @@ private fun PanelPage(panel: ObjColorPanel, enabled: Boolean, actions: ObjColorA
         )
     }
     Text("(" + panel.recommended + " " + orcaString("Recommended ") + ")", style = OrcaTheme.typography.body13, color = OrcaTheme.colors.textSide)
+    Thumbnail(dialog.preview, Modifier.align(Alignment.CenterHorizontally))
+    ViewChoice(dialog.view, enabled, actions.setView, Modifier.align(Alignment.End))
     Text(orcaString("Current filament colors"), style = OrcaTheme.typography.head14)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         panel.colours.forEachIndexed { index, colour -> OrcaFilamentSlot(number = index + 1, color = swatch(colour)) }
@@ -148,6 +163,61 @@ private fun PanelPage(panel: ObjColorPanel, enabled: Boolean, actions: ObjColorA
             style = OrcaTheme.typography.body13,
             color = OrcaTheme.colors.textSide,
         )
+    }
+}
+
+/** m_image_button: the thumbnail, the bottom row of its pixels first; empty until it is drawn. */
+@Composable
+private fun Thumbnail(image: ThumbnailImage?, modifier: Modifier) {
+    val bitmap by produceState<ImageBitmap?>(null, image) {
+        value = image?.let { withContext(Dispatchers.IO) { readRgba(it) } }
+    }
+    Box(modifier.size(THUMBNAIL_SIZE)) {
+        bitmap?.let { Image(it, contentDescription = null, modifier = Modifier.size(THUMBNAIL_SIZE)) }
+    }
+}
+
+private fun readRgba(image: ThumbnailImage): ImageBitmap? {
+    val width = image.size.width
+    val height = image.size.height
+    val bytes = runCatching { File(image.path.value).readBytes() }.getOrNull()?.takeIf { it.size >= width * height * 4 } ?: return null
+    val pixels = IntArray(width * height)
+    for (row in 0 until height) {
+        val source = (height - 1 - row) * width
+        for (column in 0 until width) {
+            val at = (source + column) * 4
+            pixels[row * width + column] = (bytes[at + 3].toInt() and 0xFF shl 24) or (bytes[at].toInt() and 0xFF shl 16) or
+                (bytes[at + 1].toInt() and 0xFF shl 8) or (bytes[at + 2].toInt() and 0xFF)
+        }
+    }
+    return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888).asImageBitmap()
+}
+
+/** The "view" combo box: the views get_all_camera_view_type() lists. */
+@Composable
+private fun ViewChoice(view: CameraView, enabled: Boolean, onView: (CameraView) -> Unit, modifier: Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(orcaString("view"), style = OrcaTheme.typography.body14)
+        Box {
+            OrcaComboField(
+                text = orcaString(OBJ_PREVIEW_VIEWS.firstOrNull { it.first == view }?.second ?: "isometric"),
+                enabled = enabled,
+                onClick = { expanded = true },
+                modifier = Modifier.width(130.dp),
+            )
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = OrcaTheme.colors.window) {
+                OBJ_PREVIEW_VIEWS.forEach { (choice, name) ->
+                    OrcaMenuItem(
+                        text = orcaString(name),
+                        onClick = {
+                            expanded = false
+                            onView(choice)
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -199,3 +269,6 @@ private fun swatch(colour: String): Color =
     parseFilamentColor(colour)?.let { Color(it.red, it.green, it.blue, it.alpha) } ?: Color.Transparent
 
 private const val WIKI_GUIDE = "https://www.orcaslicer.com/wiki/import_export#obj"
+
+/** IMAGE_SIZE_WIDTH */
+private val THUMBNAIL_SIZE = 240.dp

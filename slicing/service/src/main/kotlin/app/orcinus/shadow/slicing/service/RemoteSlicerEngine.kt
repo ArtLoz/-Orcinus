@@ -766,6 +766,9 @@ class RemoteSlicerEngine(
 
     override suspend fun releaseObjColors() = remote({}) { releaseObjColors() }
 
+    override suspend fun objColorPreview(source: ModelPath, choice: ObjColorChoice, prefix: ScenePath): ModelLoadOutcome =
+        remote({ ModelLoadOutcome.Failure(it) }) { objColorPreview(source.value, choice.clusterFilaments.toIntArray(), prefix.value).toModelLoadOutcome() }
+
     override suspend fun addPrimitive(
         plate: List<PlacedModel>,
         shape: String,

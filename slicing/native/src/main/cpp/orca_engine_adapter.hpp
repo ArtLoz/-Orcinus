@@ -2971,6 +2971,12 @@ ImportedModels import_models(
     const std::vector<ObjColorChoice>& obj_colors = {}
 );
 
+// ObjColorPanel::deal_thumbnail(): the OBJ file at path that waits for the
+// dialog, painted with the filaments of choice (its combo boxes'
+// m_cluster_map_filaments), with one copy, written as import_model() writes
+// objects, for the dialog's thumbnail.
+ImportedModels obj_color_preview(const std::string& path, const ObjColorChoice& choice, const std::string& output_prefix);
+
 // What a request of the settings of an object or of the plate carries, since
 // the engine keeps no plate of its own: the overrides of the object or plate
 // the tab edits, and the ones of the plate, which the settings of an object

@@ -7,13 +7,28 @@ import kotlin.math.sqrt
 /**
  * ObjColorDialog open on the OBJ file [source]: its error page when the
  * [question] says so, and otherwise its panel; [clustering] while the engine
- * clusters the colours again.
+ * clusters the colours again. [preview] is the thumbnail of the object in the
+ * chosen filaments (generate_thumbnail()), seen from [view]; null until drawn.
  */
 data class ObjColorDialogState(
     val source: ModelPath,
     val question: ObjColorQuestion,
     val panel: ObjColorPanel?,
     val clustering: Boolean = false,
+    val view: CameraView = CameraView.ISO,
+    val preview: ThumbnailImage? = null,
+)
+
+/** get_all_camera_view_type(): the views of the thumbnail, as Camera::ViewAngleType lists them, with their names. */
+val OBJ_PREVIEW_VIEWS: List<Pair<CameraView, String>> = listOf(
+    CameraView.ISO to "isometric",
+    CameraView.TOP_FRONT to "top_front",
+    CameraView.LEFT to "left",
+    CameraView.RIGHT to "right",
+    CameraView.TOP to "top",
+    CameraView.BOTTOM to "bottom",
+    CameraView.FRONT to "front",
+    CameraView.REAR to "rear",
 )
 
 /**

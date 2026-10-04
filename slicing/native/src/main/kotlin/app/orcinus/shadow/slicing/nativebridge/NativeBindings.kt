@@ -1576,6 +1576,9 @@ internal object NativeBindings {
 
     external fun releaseObjColors()
 
+    /** obj_color_preview(): the OBJ file painted with these filaments, for the dialog's thumbnail. */
+    external fun objColorPreview(path: String, filaments: IntArray, outputPrefix: String): NativeImportedModels
+
     /** add_primitive(): a shape of create_mesh() joins [plate] as an object named [name]. */
     external fun addPrimitive(
         plate: NativePlate,

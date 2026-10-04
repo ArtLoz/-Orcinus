@@ -413,6 +413,14 @@ interface PlateInspector {
     suspend fun releaseObjColors() {}
 
     /**
+     * ObjColorPanel::deal_thumbnail(): the OBJ file [source] that waits for
+     * ObjColorDialog, painted as [choice] says, as one object with one copy
+     * whose meshes are written into files whose names start with [prefix].
+     */
+    suspend fun objColorPreview(source: ModelPath, choice: ObjColorChoice, prefix: ScenePath): ModelLoadOutcome =
+        ModelLoadOutcome.Failure("The OBJ colour thumbnail is not supported")
+
+    /**
      * ObjectList::load_shape_object(): a [shape] of create_mesh() joins [plate]
      * as an object named [name], in the empty cell nearest to the centre of
      * the plate. The engine writes its meshes named after [prefix].

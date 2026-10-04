@@ -341,7 +341,16 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     // StepMeshDialog, which a load or a replacement of a STEP file waits for.
     val stepMeshPrompt = StepMeshPrompt(engine, appPreferences, plateRepository)
-    val objColorPrompt = ObjColorPrompt(engine, engine, platePresets, flushVolumes, plateRepository, applicationScope)
+    val objColorPrompt = ObjColorPrompt(
+        engine,
+        engine,
+        platePresets,
+        flushVolumes,
+        plateRepository,
+        applicationScope,
+        sceneFiles,
+        { plateObject, colors, view, size, file -> thumbnailRenderer.renderObject(plateObject, colors, view, size, file) },
+    )
 
     private val editPlateObject = EditPlateObjectUseCase(engine, sceneFiles, plateRepository, applicationScope)
     val addModelToPlate = AddModelToPlateUseCase(

@@ -33,6 +33,7 @@ import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
+import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintPlacement
@@ -691,6 +692,9 @@ abstract class SlicerService<E> : Service()
             runBlocking { engine.objColorClusters(ModelPath(source), count) }.toTypedArray()
 
         override fun releaseObjColors() = runBlocking { engine.releaseObjColors() }
+
+        override fun objColorPreview(source: String, filaments: IntArray, prefix: String): ModelLoadParcel =
+            runBlocking { engine.objColorPreview(ModelPath(source), ObjColorChoice(filaments.toList()), ScenePath(prefix)) }.toParcel()
 
         override fun addPrimitive(
             plate: Array<PlacedModelParcel>,

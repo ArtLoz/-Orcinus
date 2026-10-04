@@ -3441,6 +3441,17 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_objColorClusters(JNI
     return to_java(env, orcinus::orca::obj_color_clusters(to_utf8(env, path), cluster_number));
 }
 
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_objColorPreview(JNIEnv* env, jobject /* this */, jstring path, jintArray filaments, jstring output_prefix)
+{
+    orcinus::orca::ObjColorChoice choice;
+    choice.chosen = true;
+    for (const std::int32_t filament : to_ints(env, filaments)) {
+        choice.cluster_filaments.push_back(filament);
+    }
+    return to_java(env, orcinus::orca::obj_color_preview(to_utf8(env, path), choice, to_utf8(env, output_prefix)));
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_releaseObjColors(JNIEnv* /* env */, jobject /* this */)
 {

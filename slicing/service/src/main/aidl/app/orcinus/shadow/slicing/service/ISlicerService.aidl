@@ -297,6 +297,7 @@ interface ISlicerService {
     /** ObjColorDialog: its colours clustered into count, and the colours let go. */
     String[] objColorClusters(String source, int count);
     void releaseObjColors();
+    ModelLoadParcel objColorPreview(String source, in int[] filaments, String prefix);
     /** add_primitive(): a shape of create_mesh() as an object of its own. */
     ModelLoadParcel addPrimitive(
         in PlacedModelParcel[] plate,

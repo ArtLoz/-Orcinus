@@ -4552,6 +4552,18 @@ TEST_CASE("An OBJ file with colours asks ObjColorDialog, and its OK paints the f
     CHECK(orca::obj_color_clusters(path, 1).size() == 1);
     const std::vector<std::string> two = orca::obj_color_clusters(path, 2);
     REQUIRE(two.size() == 2);
+    // The dialog's thumbnail: the object painted with the boxes' filaments.
+    {
+        orca::ObjColorChoice shown;
+        shown.chosen = true;
+        shown.cluster_filaments = {1, 2};
+        const orca::ImportedModels preview = orca::obj_color_preview(path, shown, import_prefix("colored-cube-preview"));
+        INFO(preview.message);
+        REQUIRE(preview.status == orca::SceneStatus::success);
+        REQUIRE(preview.objects.size() == 1);
+        CHECK(preview.objects.front().instances.size() == 1);
+        CHECK_FALSE(preview.objects.front().painted.empty());
+    }
 
     SECTION("OK")
     {
