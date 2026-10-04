@@ -115,6 +115,8 @@ val orcaIconNames = listOf(
     "revert_btn", "copy_menu",
     // GLCanvas3D::_render_return_toolbar(): the assembly view's "Return".
     "assemble_return",
+    // GCodeViewer::render_legend(): the button of the G-code window.
+    "im_code",
     "param_acceleration", "param_adhension", "param_advanced", "param_bridge", "param_cooling", "param_filament_for_features",
     "param_flush", "param_gcode", "param_infill", "param_ironing", "param_jerk", "param_junction_deviation",
     "param_layer_height", "param_line_width", "param_ooze_prevention", "param_overhang", "param_overhang_speed",

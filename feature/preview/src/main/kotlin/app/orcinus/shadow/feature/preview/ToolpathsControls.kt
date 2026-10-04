@@ -54,7 +54,11 @@ internal fun ToolpathsControls(
     bottomInset: Dp,
     modifier: Modifier = Modifier,
     layerGcodes: LayerGcodeUi? = null,
+    /** The G-code window over the move slider; null while it is hidden. */
+    gcodeWindow: (@Composable (Modifier) -> Unit)? = null,
 ) {
+    // The layer slider stands above the G-code window, which stands above the move slider.
+    val windowSpace = if (gcodeWindow != null) GcodeWindowHeight + ControlsMargin else 0.dp
     var oneLayer by rememberSaveable { mutableStateOf(false) }
     // The layer whose menu is open, the layer whose G-code is being edited, and the jump dialog.
     var menuLayer by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -117,10 +121,16 @@ internal fun ToolpathsControls(
                 oneLayerDescription = stringResource(R.string.one_layer_mode),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = ControlsMargin, end = ControlsMargin - 4.dp, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2)
+                    .padding(top = ControlsMargin, end = ControlsMargin - 4.dp, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2 + windowSpace)
                     .fillMaxHeight(),
             )
         }
+        gcodeWindow?.invoke(
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = ControlsMargin, end = ControlsMargin, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2)
+                .fillMaxWidth(),
+        )
         if (view.moves.size > 1) {
             OrcaMovePlayer(
                 moveCount = view.moves.size,

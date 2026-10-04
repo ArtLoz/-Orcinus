@@ -355,7 +355,9 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
     }
 
     const jclass type = env->FindClass("app/orcinus/shadow/render/gcode/NativeToolpathsSnapshot");
-    const jmethodID constructor = env->GetMethodID(type, "<init>", "(I[F[I[I[I[Z[F[I[I[ZFF[F[I[I[I[I[I[I)V");
+    // GCodeViewer::render(): the G-code line of the current move, which the G-code window shows.
+    const jint current_line = source.get_vertices_count() > 0 ? static_cast<jint>(source.get_current_vertex().gcode_id) : 0;
+    const jmethodID constructor = env->GetMethodID(type, "<init>", "(I[F[I[I[I[Z[F[I[I[ZFF[F[I[I[I[I[I[II)V");
     return env->NewObject(
         type,
         constructor,
@@ -377,7 +379,8 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
         int_array(env, moves),
         int_array(env, move_lines),
         int_array(env, tool_colors),
-        int_array(env, used_extruders)
+        int_array(env, used_extruders),
+        current_line
     );
 }
 

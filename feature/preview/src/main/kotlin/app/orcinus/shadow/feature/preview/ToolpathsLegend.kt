@@ -1,6 +1,7 @@
 package app.orcinus.shadow.feature.preview
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -20,12 +22,14 @@ import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaChoiceChips
 import app.orcinus.shadow.core.designsystem.component.OrcaColorScale
+import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaLegendItem
 import app.orcinus.shadow.core.designsystem.component.OrcaLegendSection
 import app.orcinus.shadow.core.designsystem.component.OrcaLegendValue
 import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaSummaryItem
 import app.orcinus.shadow.core.designsystem.component.OrcaSummaryRow
+import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.render.gcode.FilamentUsage
 import app.orcinus.shadow.render.gcode.OptionLegend
@@ -72,6 +76,9 @@ internal fun ToolpathsSheet(
     onViewTypeChange: (ToolpathsViewType) -> Unit,
     onRoleVisibleChange: (ToolpathsRole, Boolean) -> Unit,
     onOptionVisibleChange: (ToolpathsOption, Boolean) -> Unit,
+    /** show_gcode_window, which the legend's button toggles (GUI_App::toggle_show_gcode_window()). */
+    gcodeWindow: Boolean = true,
+    onGcodeWindowChange: (Boolean) -> Unit = {},
 ) {
     // render_legend() takes the estimated time of the time mode, or the viewer's own.
     val totalTime = if (statistics.time > 0f) statistics.time else view.estimatedTime
@@ -97,11 +104,22 @@ internal fun ToolpathsSheet(
         )
         // Collapsed, the sheet ends here, above the navigation bar.
         Spacer(Modifier.height(SUMMARY_BOTTOM + navigationBar))
-        OrcaChoiceChips(
-            items = LegendViewTypes.map { viewTypeName(it) },
-            selected = LegendViewTypes.indexOf(view.viewType).coerceAtLeast(0),
-            onSelect = { onViewTypeChange(LegendViewTypes[it]) },
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OrcaChoiceChips(
+                items = LegendViewTypes.map { viewTypeName(it) },
+                selected = LegendViewTypes.indexOf(view.viewType).coerceAtLeast(0),
+                onSelect = { onViewTypeChange(LegendViewTypes[it]) },
+                modifier = Modifier.weight(1f),
+            )
+            // The legend's G-code button beside the view types, lit while the window shows.
+            OrcaIconButton(
+                icon = DesignR.drawable.orca_im_code,
+                contentDescription = stringResource(R.string.gcode_window),
+                onClick = { onGcodeWindowChange(!gcodeWindow) },
+                tint = if (gcodeWindow) OrcaTheme.colors.accent else OrcaTheme.colors.textSide,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
         when (view.viewType) {
             ToolpathsViewType.FeatureType -> FeatureTypes(view, statistics, totalTime, imperial, onRoleVisibleChange, onOptionVisibleChange)
             ToolpathsViewType.Summary -> Summary(statistics, imperial)

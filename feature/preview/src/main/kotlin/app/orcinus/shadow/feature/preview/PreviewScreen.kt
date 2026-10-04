@@ -97,6 +97,7 @@ import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
 import app.orcinus.shadow.core.ui.settings.openInBrowser
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
+import app.orcinus.shadow.render.gcode.GcodeLines
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateNavigator
@@ -226,6 +227,11 @@ internal fun PreviewScreen(
     }
     val inspection = LocalInspectionMode.current
     val toolpaths = result?.toolpaths
+    // GCodeWindow::load_gcode(): the G-code of the slice, with where its lines end.
+    val gcodePath = result?.gcode?.value
+    val gcodeLines by produceState<GcodeLines?>(null, gcodePath) {
+        value = if (inspection) null else gcodePath?.let { GcodeLines.open(it) }
+    }
     // The plate view owns the layer once it has it.
     val layer by produceState<ToolpathsLayer?>(null, toolpaths) {
         value = if (inspection) null else toolpaths?.let { ToolpathsLayer.load(it) }
@@ -305,6 +311,8 @@ internal fun PreviewScreen(
                     onViewTypeChange = shown::setViewType,
                     onRoleVisibleChange = shown::setRoleVisible,
                     onOptionVisibleChange = shown::setOptionVisible,
+                    gcodeWindow = canvas.gcodeWindow,
+                    onGcodeWindowChange = { onSetCanvas(AppConfigKeys.SHOW_GCODE_WINDOW, it.toString()) },
                 )
             }
         },
@@ -431,6 +439,10 @@ internal fun PreviewScreen(
                         filamentColors = state.filamentColors.map { value -> parseFilamentColor(value)?.let { Color(it.red, it.green, it.blue, it.alpha) } ?: OrcaTheme.colors.accent },
                         actions = layerGcodeActions,
                     ),
+                    // GCodeViewer::SequentialView::render(): the window while it is on and the move has a line.
+                    gcodeWindow = gcodeLines?.takeIf { canvas.gcodeWindow && view.currentLine > 0 }?.let { lines ->
+                        { windowModifier -> GcodeWindow(lines, view.currentLine, windowModifier) }
+                    },
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),

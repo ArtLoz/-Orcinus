@@ -104,4 +104,6 @@ internal class NativeToolpathsSnapshot(
     /** RGB per tool. */
     @JvmField val toolColors: IntArray,
     @JvmField val usedExtruders: IntArray,
+    /** G-code line id of the current move (get_current_vertex()), 0 for none. */
+    @JvmField val currentLine: Int,
 )

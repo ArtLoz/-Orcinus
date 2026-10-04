@@ -111,4 +111,6 @@
     <string name="total">Всего:</string>
     <string name="filament_change_times">Смен прутка:</string>
     <string name="tool_changes">Смена инструмента:</string>
+    <!-- The legend's button of the G-code window (GCodeViewer::render_legend()). -->
+    <string name="gcode_window">Окно G-code</string>
 </resources>

@@ -111,4 +111,6 @@
     <string name="total">Total:</string>
     <string name="filament_change_times">Filament change times:</string>
     <string name="tool_changes">Tool changes:</string>
+    <!-- The legend's button of the G-code window (GCodeViewer::render_legend()). -->
+    <string name="gcode_window">G-code window</string>
 </resources>

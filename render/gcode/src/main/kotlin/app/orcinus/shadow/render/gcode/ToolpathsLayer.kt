@@ -279,5 +279,6 @@ private fun NativeToolpathsSnapshot.toView(): ToolpathsView {
         lastVisibleMove = lastVisibleMove,
         toolColors = toolColors.toList(),
         usedExtruders = usedExtruders.toList(),
+        currentLine = currentLine,
     )
 }

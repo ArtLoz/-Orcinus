@@ -88,6 +88,7 @@ class AppPreferences(private val store: AppConfigStore) {
             smoothNormals = AppConfigKeys.bool(values[AppConfigKeys.OPENGL_PHONG_SMOOTH_NORMALS]),
             axes = values[AppConfigKeys.SHOW_AXES]?.let { it == "true" } ?: true,
             gridlines = values[AppConfigKeys.SHOW_PLATE_GRIDLINES]?.let(AppConfigKeys::bool) ?: true,
+            gcodeWindow = values[AppConfigKeys.SHOW_GCODE_WINDOW]?.let(AppConfigKeys::bool) ?: true,
         )
     }
 }

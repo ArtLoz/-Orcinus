@@ -59,6 +59,8 @@ data class CanvasPreferences(
     val axes: Boolean = true,
     /** show_plate_gridlines: the plates' grids. */
     val gridlines: Boolean = true,
+    /** show_gcode_window: the preview's G-code window, which the legend's button toggles. */
+    val gcodeWindow: Boolean = true,
 )
 
 /** GizmoObjectManipulation's conversions, with which the canvas shows imperial units. */
@@ -106,6 +108,7 @@ object AppConfigKeys {
     const val SHOW_LABELS = "show_labels"
     const val SHOW_AXES = "show_axes"
     const val SHOW_PLATE_GRIDLINES = "show_plate_gridlines"
+    const val SHOW_GCODE_WINDOW = "show_gcode_window"
     const val USE_FREE_CAMERA = "use_free_camera"
     const val OPENGL_ANTIALIASING_SAMPLES = "opengl_antialiasing_samples"
     const val OPENGL_FXAA_ENABLED = "opengl_fxaa_enabled"
@@ -162,6 +165,7 @@ object AppConfigKeys {
         SHOW_LABELS,
         SHOW_AXES,
         SHOW_PLATE_GRIDLINES,
+        SHOW_GCODE_WINDOW,
         USE_FREE_CAMERA,
         OPENGL_ANTIALIASING_SAMPLES,
         OPENGL_FXAA_ENABLED,

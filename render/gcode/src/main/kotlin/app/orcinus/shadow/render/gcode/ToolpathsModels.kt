@@ -140,4 +140,6 @@ data class ToolpathsView(
     /** Colour (0xRRGGBB) of every tool, and the tools the G-code uses. */
     val toolColors: List<Int>,
     val usedExtruders: List<Int>,
+    /** The G-code line of the current move (the viewer's current vertex), from 1; 0 for none. */
+    val currentLine: Int = 0,
 )
