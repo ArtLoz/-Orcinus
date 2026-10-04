@@ -150,8 +150,8 @@ val orcaIconNames = listOf(
     "topbar_undo", "topbar_redo",
     // ObjectDataViewModel: the lock of a part of a cut (LockIcon) and its connectors' info item.
     "cut_", "cut_connectors",
-    // MainFrame's Project tab and AuxiliaryPanel: its files' placeholders, the cover mark and the add button.
-    "tab_auxiliary_active", "placeholder_excel", "placeholder_pdf", "placeholder_txt", "auxiliary_cover", "auxiliary_add_file", "auxiliary_delete",
+    // MainFrame's Project tab and AuxiliaryPanel: its files' placeholders, the add button and the delete button.
+    "tab_auxiliary_active", "placeholder_excel", "placeholder_pdf", "placeholder_txt", "auxiliary_add_file", "auxiliary_delete",
 )
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).

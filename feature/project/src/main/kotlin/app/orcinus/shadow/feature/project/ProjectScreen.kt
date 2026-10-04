@@ -162,22 +162,12 @@ private fun ProjectPage(info: ProjectInfo, onEdit: () -> Unit, onOpen: (Auxiliar
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val menu = listOf(text("t95", "Model Information"), text("t96", "Accessories"), text("t97", "Profile Information"))
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                menu.forEachIndexed { index, title ->
-                    Text(
-                        text = title,
-                        color = if (index == selected) colors.accent else colors.textSide,
-                        style = OrcaTheme.typography.body14,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .clip(OrcaTheme.shapes.control)
-                            .clickable { sections[index]?.let { top -> scope.launch { scroll.animateScrollTo(top) } } }
-                            .padding(horizontal = 6.dp, vertical = 8.dp),
-                    )
-                }
-            }
+            OrcaUnderlineTabs(
+                titles = menu,
+                selectedIndex = selected,
+                onSelect = { index -> sections[index]?.let { top -> scope.launch { scroll.animateScrollTo(top) } } },
+                modifier = Modifier.weight(1f),
+            )
             OrcaIconButton(DesignR.drawable.orca_edit, contentDescription = text("orca1", "Edit Project Info"), onClick = onEdit)
             Spacer(Modifier.width(8.dp))
         }
@@ -190,11 +180,23 @@ private fun ProjectPage(info: ProjectInfo, onEdit: () -> Unit, onOpen: (Auxiliar
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            Column(Modifier.onGloballyPositioned { sections[0] = it.positionInParent().y.toInt() }) { ModelBasic(info, text) }
-            Column(Modifier.onGloballyPositioned { sections[1] = it.positionInParent().y.toInt() }) { ModelAccessories(info, text, onOpen) }
-            Column(Modifier.onGloballyPositioned { sections[2] = it.positionInParent().y.toInt() }) { ModelProfile(info, text) }
+            Section({ sections[0] = it }) { ModelBasic(info, text) }
+            Section({ sections[1] = it }) { ModelAccessories(info, text, onOpen) }
+            Section({ sections[2] = it }) { ModelProfile(info, text) }
         }
     }
+}
+
+/** An InfoBlock of the page, which tells where it starts for the menu. */
+@Composable
+private fun Section(onTop: (Int) -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { onTop(it.positionInParent().y.toInt()) },
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        content = content,
+    )
 }
 
 /** Model_Basic: name, author (by the upload type), licence badge, pictures and description. */
@@ -212,7 +214,7 @@ private fun ColumnScope.ModelBasic(info: ProjectInfo, text: OrcaWebText) {
             }
             Text(authorType + ": " + info.author, color = colors.textSide, style = OrcaTheme.typography.body14)
         }
-        licenceBadge(info.license)?.let { Image(painterResource(it), contentDescription = info.license, modifier = Modifier.height(32.dp)) }
+        licenceBadge(info.license)?.let { Image(painterResource(it), contentDescription = info.license, modifier = Modifier.height(36.dp)) }
     }
     Pictures(info.filesIn(AuxiliaryFolder.MODEL_PICTURES))
     Text(text("t100", "Model description"), color = colors.text, style = OrcaTheme.typography.head14)
@@ -455,7 +457,7 @@ private fun AddFileTile(onClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
     ) {
-        Icon(painterResource(DesignR.drawable.orca_auxiliary_add_file), contentDescription = null, tint = colors.textSide, modifier = Modifier.size(32.dp))
+        Image(painterResource(DesignR.drawable.orca_auxiliary_add_file), contentDescription = null, modifier = Modifier.size(32.dp))
         Text(orcaString("Add File"), color = colors.textSide, style = OrcaTheme.typography.body14)
     }
 }
@@ -487,35 +489,40 @@ private fun FileTile(
             if (folder == AuxiliaryFolder.MODEL_PICTURES) {
                 FileImage(file, Modifier.fillMaxSize(), ContentScale.Fit)
             } else {
-                Icon(painterResource(placeholderOf(folder, file)), contentDescription = null, tint = colors.textSide, modifier = Modifier.size(72.dp))
+                Image(painterResource(placeholderOf(folder, file)), contentDescription = null, modifier = Modifier.size(96.dp))
             }
-            // AuFile::PaintForeground(): the cover's mark.
+            // AuFile::PaintForeground(): the cover's mark, "Cover" in white on it; the
+            // desktop's corner holds the delete button here, which a phone always shows.
             if (cover) {
-                Icon(
-                    painterResource(DesignR.drawable.orca_auxiliary_cover),
-                    contentDescription = orcaString("Cover"),
-                    tint = colors.accent,
+                // auxiliary_cover.svg: a rounded rectangle of #009688.
+                Text(
+                    orcaString("Cover"),
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = OrcaTheme.typography.body12,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
-                        .size(28.dp),
+                        .background(COVER_COLOR, androidx.compose.foundation.shape.RoundedCornerShape(5.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
                 )
             }
             // AuFile::PaintForeground(): the delete button in the corner.
-            OrcaIconButton(
-                DesignR.drawable.orca_auxiliary_delete,
+            Image(
+                painterResource(DesignR.drawable.orca_auxiliary_delete),
                 contentDescription = orcaString("Delete"),
-                onClick = onDelete,
-                modifier = Modifier.align(Alignment.TopEnd),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(CircleShape)
+                    .clickable(onClick = onDelete)
+                    .padding(8.dp)
+                    .size(24.dp),
             )
         }
         // The file's edit mask, "Set as cover" and "Rename", which the desktop shows under the pointer.
-        Row(Modifier.fillMaxWidth()) {
-            if (folder == AuxiliaryFolder.MODEL_PICTURES) {
-                MaskButton(orcaString("Set as cover"), onCover, Modifier.weight(1f))
-            }
-            MaskButton(orcaString("Rename"), onRename, Modifier.weight(1f))
+        if (folder == AuxiliaryFolder.MODEL_PICTURES) {
+            MaskButton(orcaString("Set as cover"), onCover, Modifier.fillMaxWidth())
         }
+        MaskButton(orcaString("Rename"), onRename, Modifier.fillMaxWidth())
         Text(
             text = file.name,
             color = colors.text,
@@ -533,11 +540,11 @@ private fun MaskButton(label: String, onClick: () -> Unit, modifier: Modifier) {
         text = label,
         color = OrcaTheme.colors.accent,
         style = OrcaTheme.typography.body13,
-        maxLines = 1,
+        maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
     )
 }
 
@@ -623,5 +630,6 @@ private val MIME_TYPES = mapOf(
 )
 
 private val TILE_WIDTH = 150.dp
+private val COVER_COLOR = androidx.compose.ui.graphics.Color(0xFF009688)
 private val TILE_HEIGHT = 170.dp
 private const val MAX_PICTURE = 1024
