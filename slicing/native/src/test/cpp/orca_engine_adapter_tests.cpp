@@ -4757,6 +4757,56 @@ TEST_CASE("Export as one STL or DRC writes the whole object", "[Adapter][Edit]")
     }
 }
 
+TEST_CASE("The File menu exports every object as one STL or as a file each", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("export-all.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<double> right = matrix_of(cube);
+    right[12] += 60.0;
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    plate.push_back(plate_of({}, right).front());
+
+    SECTION("every object merged where it stands")
+    {
+        const std::string path = output_path("export-all.stl");
+        const orca::MeshExport exported = orca::export_meshes(plate, {}, false, orca::MeshFormat::stl, k2_plus_profiles(), path);
+        INFO(exported.message);
+        REQUIRE(exported.status == orca::SceneStatus::success);
+        const auto triangles = stl_triangles(path);
+        REQUIRE(triangles.size() == 24);
+        float min_x = std::numeric_limits<float>::max();
+        float max_x = std::numeric_limits<float>::lowest();
+        for (const auto& corners : triangles) {
+            for (int corner = 0; corner < 3; ++corner) {
+                min_x = std::min(min_x, corners[corner * 3]);
+                max_x = std::max(max_x, corners[corner * 3]);
+            }
+        }
+        CHECK(max_x - min_x == Catch::Approx(80.0).margin(1e-3));
+        CHECK(exported.paths.empty());
+    }
+    SECTION("a file per object, named after it")
+    {
+        const std::string path = output_path("export-each");
+        const orca::MeshExport exported = orca::export_meshes(plate, {}, true, orca::MeshFormat::stl, k2_plus_profiles(), path);
+        INFO(exported.message);
+        REQUIRE(exported.status == orca::SceneStatus::success);
+        REQUIRE(exported.paths.size() == 2);
+        REQUIRE(exported.names.size() == 2);
+        CHECK(stl_triangles(exported.paths[0]).size() == 12);
+        CHECK(stl_triangles(exported.paths[1]).size() == 12);
+    }
+    SECTION("the selected copies alone")
+    {
+        const std::string path = output_path("export-selected.stl");
+        const orca::MeshExport exported = orca::export_meshes(plate, {{1, 0}}, false, orca::MeshFormat::stl, k2_plus_profiles(), path);
+        REQUIRE(exported.status == orca::SceneStatus::success);
+        CHECK(stl_triangles(path).size() == 12);
+        CHECK(orca::export_meshes(plate, {{2, 0}}, false, orca::MeshFormat::stl, k2_plus_profiles(), path).status != orca::SceneStatus::success);
+    }
+}
+
 TEST_CASE("Replace 3D file gives a volume the mesh of another file", "[Adapter][Edit]")
 {
     require_engine();
@@ -5775,6 +5825,25 @@ TEST_CASE("A project keeps its designer, license and auxiliary files through a s
     CHECK(info.find("\"license\":\"CC-BY\"") != std::string::npos);
     CHECK(info.find("\"description\":\"A cube\"") != std::string::npos);
     CHECK(read_file((fs::path(opened.project_info) / "Auxiliaries" / "Model Pictures" / "cover.png").string()) == "picture");
+}
+
+TEST_CASE("Export Generic 3MF writes the project without the production extension", "[Adapter][Project]")
+{
+    require_engine();
+    const std::string project = output_path("split-project.3mf");
+    const std::string generic = output_path("generic-project.3mf");
+    REQUIRE(orca::save_project(project, plate_of(""), k2_plus_profiles(), {orca::ProjectPlate{}}).status == orca::SceneStatus::success);
+    const orca::ProjectSave saved = orca::save_project(generic, plate_of(""), k2_plus_profiles(), {orca::ProjectPlate{}}, {}, 0, orca::SlicedPlates::generic);
+    INFO(saved.message);
+    REQUIRE(saved.status == orca::SceneStatus::success);
+    // SaveStrategy::SplitModel puts the objects in files of their own; Silence alone keeps them in the model.
+    CHECK(read_file(project).find("3D/Objects/") != std::string::npos);
+    CHECK(read_file(generic).find("3D/Objects/") == std::string::npos);
+
+    const orca::ImportedModels opened = orca::import_model(generic, k2_plus_profiles(), {}, import_prefix("generic-project"), {}, orca::ModelLoad::project);
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    CHECK(opened.objects.size() == 1);
 }
 
 TEST_CASE("A sliced plate's 3MF file carries its G-code, its slice info and its first layer", "[Adapter][Project]")

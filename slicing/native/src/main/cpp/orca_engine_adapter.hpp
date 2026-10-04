@@ -1665,6 +1665,10 @@ enum class SlicedPlates : std::int64_t {
     none = 0,
     current = 1,
     all = 2,
+    // Plater::export_core_3mf(): the project without some of the 3MF
+    // extensions (the production extension's split model and shared meshes),
+    // silently (SaveStrategy::Silence).
+    generic = 3,
 };
 
 struct ImportedModels {
@@ -2680,6 +2684,9 @@ struct MeshExport {
     // The notification OrcaSlicer shows when the negative volumes could not
     // be taken out of the mesh, which then holds its positive parts alone.
     std::string warning;
+    // export_meshes() with multi: every file written, and the object it is named after.
+    std::vector<std::string> paths;
+    std::vector<std::string> names;
 };
 
 // Plater::export_stl(false, true) for the object at object_index of plate,
@@ -2689,6 +2696,22 @@ struct MeshExport {
 MeshExport export_object_mesh(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,
+    MeshFormat format,
+    const ProfileSelection& profiles,
+    const std::string& path
+);
+
+// Plater::export_stl(false, selection_only, multi_stls) for the copies of
+// the selection, each an object of plate and a copy of it, or for every
+// object of plate when copies is empty (the File menu's "Export all
+// objects"). Without multi, their meshes merged where they stand into one
+// file at path; with multi, a file per copy (per object without a
+// selection), moved back by the object's origin_translation, at path + "-" +
+// its number + the format's extension, named after the object in names.
+MeshExport export_meshes(
+    const std::vector<PlateObject>& plate,
+    const std::vector<std::pair<std::int32_t, std::int32_t>>& copies,
+    bool multi,
     MeshFormat format,
     const ProfileSelection& profiles,
     const std::string& path

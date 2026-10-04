@@ -266,8 +266,12 @@ enum class MeshFormat(val extension: String) {
 }
 
 sealed interface MeshExportOutcome {
-    /** Written; [warning] is OrcaSlicer's notification when the negative volumes could not be taken out. */
-    data class Success(val warning: String? = null) : MeshExportOutcome
+    /**
+     * Written; [warning] is OrcaSlicer's notification when the negative
+     * volumes could not be taken out, and [files] every file written when
+     * each copy or object went into a file of its own.
+     */
+    data class Success(val warning: String? = null, val files: List<ExportedMesh> = emptyList()) : MeshExportOutcome
 
     data class Failure(val message: String) : MeshExportOutcome
 }
@@ -383,7 +387,14 @@ data class ProjectPlate(
  * for "Export plate sliced file", every sliced plate's for "Export all plate
  * sliced file".
  */
-enum class SlicedPlates { NONE, CURRENT, ALL }
+/** What a project's file holds besides the plates: the G-code of none, the current or every sliced plate; GENERIC is "Export Generic 3MF". */
+enum class SlicedPlates { NONE, CURRENT, ALL, GENERIC }
+
+/** A mesh file the engine wrote, and the object it is named after (ModelObject::name). */
+data class ExportedMesh(val name: String, val path: ScenePath)
+
+/** A copy the selection holds: the object by its index on the plate, and its copy, or -1 for every copy. */
+data class SelectedCopy(val objectIndex: Int, val instanceIndex: Int)
 
 /** A 3MF file opened as a project: its plates, at least one (PartPlateList::load_from_3mf_structure). */
 data class LoadedProject(

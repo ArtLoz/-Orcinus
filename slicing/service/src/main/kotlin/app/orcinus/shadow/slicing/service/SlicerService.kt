@@ -20,6 +20,7 @@ import app.orcinus.shadow.core.model.CreateFilamentRequest
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutPartSelection
+import app.orcinus.shadow.core.model.ExportedMesh
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
@@ -44,6 +45,7 @@ import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SimplifyOutcome
@@ -467,6 +469,30 @@ abstract class SlicerService<E> : Service()
                 when (outcome) {
                     is MeshExportOutcome.Failure -> it.error = outcome.message
                     is MeshExportOutcome.Success -> it.warning = outcome.warning
+                }
+            }
+        }
+
+        override fun exportMeshes(
+            plate: Array<PlacedModelParcel>,
+            objects: IntArray,
+            instances: IntArray,
+            multi: Boolean,
+            format: String,
+            profiles: ProfilesParcel,
+            path: String,
+        ): MeshExportParcel = runBlocking {
+            val copies = objects.indices.map { SelectedCopy(objects[it], instances.getOrElse(it) { -1 }) }
+            engine.exportMeshes(plate.toPlacedModels(), copies, multi, MeshFormat.valueOf(format), profiles.toProfiles(), ScenePath(path))
+        }.let { outcome ->
+            MeshExportParcel().also {
+                when (outcome) {
+                    is MeshExportOutcome.Failure -> it.error = outcome.message
+                    is MeshExportOutcome.Success -> {
+                        it.warning = outcome.warning
+                        it.names = outcome.files.map(ExportedMesh::name).toTypedArray()
+                        it.paths = outcome.files.map { file -> file.path.value }.toTypedArray()
+                    }
                 }
             }
         }

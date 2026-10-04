@@ -46,4 +46,19 @@ class AppDocumentFolders(context: Context) : DocumentFolders {
             null
         } ?: tree.lastPathSegment.orEmpty()
     }
+
+    override suspend fun create(folder: ExternalDocumentReference, name: String, mimeType: String): ExternalDocumentReference? =
+        withContext(Dispatchers.IO) {
+            val tree = Uri.parse(folder.value)
+            try {
+                val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+                DocumentsContract.createDocument(applicationContext.contentResolver, parent, mimeType, name)?.let { ExternalDocumentReference(it.toString()) }
+            } catch (error: IllegalArgumentException) {
+                null
+            } catch (error: SecurityException) {
+                null
+            } catch (error: java.io.FileNotFoundException) {
+                null
+            }
+        }
 }

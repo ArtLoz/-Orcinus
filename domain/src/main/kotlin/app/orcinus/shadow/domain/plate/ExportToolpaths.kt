@@ -64,7 +64,7 @@ class ExportToolpathsUseCase(
             sceneFiles.deleteImport(materials.prefix)
         }
     }
-
-    /** ModelObject::get_export_filename(): the object's name, which the engine gives the calibration cube when it has none. */
-    private fun PlateObject.exportName(): String = placed().name.ifEmpty { CALIBRATION_CUBE }
 }
+
+/** ModelObject::get_export_filename(): the object's name, which the engine gives the calibration cube when it has none. */
+internal fun PlateObject.exportName(): String = placed().name.ifEmpty { CALIBRATION_CUBE }

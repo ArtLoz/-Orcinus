@@ -175,6 +175,16 @@ interface ISlicerService {
         in ProfilesParcel profiles,
         String path
     );
+    /** export_meshes(): the copies by object and copy index, every object for none; format is the MeshFormat's name. */
+    MeshExportParcel exportMeshes(
+        in PlacedModelParcel[] plate,
+        in int[] objects,
+        in int[] instances,
+        boolean multi,
+        String format,
+        in ProfilesParcel profiles,
+        String path
+    );
     /** replace_volume(): the volume takes the mesh of the file at source. */
     /** simplify_volume(): the triangles of the decimated mesh and of the volume. */
     SimplifyParcel simplifyVolume(

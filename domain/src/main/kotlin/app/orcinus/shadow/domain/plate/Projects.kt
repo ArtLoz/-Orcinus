@@ -135,6 +135,27 @@ class SaveProjectUseCase(
     }
 
     /**
+     * Plater::export_core_3mf(): the plates written as a project without some
+     * of the 3MF extensions into [document]; the project keeps its name, its
+     * document and its unsaved changes (Silence). False when there is nothing
+     * to export (MainFrame::can_export_model()), or after the message box
+     * says it could not be written.
+     */
+    suspend fun exportGeneric(document: ExternalDocumentReference): Boolean {
+        val state = repository.state.value
+        if (state.objects.isEmpty()) return false
+        val prefix = sceneFiles.newImportPrefix()
+        val file = ScenePath("${prefix.value}-generic.3mf")
+        try {
+            val exported = write(state, file, prefix, SlicedPlates.GENERIC) && documents.copyTo(file.value, document)
+            if (!exported) repository.update { it.copy(plateNotices = it.plateNotices + SAVE_FAILED) }
+            return exported
+        } finally {
+            sceneFiles.deleteImport(prefix)
+        }
+    }
+
+    /**
      * The name a sliced plate's file is offered under: the G-code's, as
      * output_filepath_for_project() names it, with ".gcode.3mf".
      */

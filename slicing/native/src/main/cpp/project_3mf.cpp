@@ -931,7 +931,10 @@ ProjectSave save_project(
 
         // Plater::save_project(), and Plater::export_gcode_3mf() for a sliced plate's file.
         auto save_strategy = Slic3r::SaveStrategy::SplitModel | Slic3r::SaveStrategy::ShareMesh;
-        if (sliced != SlicedPlates::none) {
+        if (sliced == SlicedPlates::generic) {
+            // Plater::export_core_3mf()
+            save_strategy = Slic3r::SaveStrategy::Silence;
+        } else if (sliced != SlicedPlates::none) {
             save_strategy = Slic3r::SaveStrategy::Silence | Slic3r::SaveStrategy::SplitModel | Slic3r::SaveStrategy::WithGcode |
                             Slic3r::SaveStrategy::SkipModel;
         } else if (detail::engine().config->get_bool("export_sources_full_pathnames")) {

@@ -37,6 +37,7 @@ import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EmbossPlacement
 import app.orcinus.shadow.core.model.EmbossVolumeOutcome
 import app.orcinus.shadow.core.model.EngineStatus
+import app.orcinus.shadow.core.model.ExportedMesh
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
@@ -95,6 +96,7 @@ import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
+import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SettingsTabOutcome
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
@@ -570,6 +572,33 @@ class RemoteSlicerEngine(
         try {
             val parcel = service().exportMesh(plate.toParcels(), index, format.name, profiles.toParcel(), path.value)
             parcel.error?.let(MeshExportOutcome::Failure) ?: MeshExportOutcome.Success(parcel.warning)
+        } catch (_: RemoteException) {
+            MeshExportOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    override suspend fun exportMeshes(
+        plate: List<PlacedModel>,
+        copies: List<SelectedCopy>,
+        multi: Boolean,
+        format: MeshFormat,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): MeshExportOutcome = withContext(Dispatchers.IO) {
+        try {
+            val parcel = service().exportMeshes(
+                plate.toParcels(),
+                copies.map(SelectedCopy::objectIndex).toIntArray(),
+                copies.map(SelectedCopy::instanceIndex).toIntArray(),
+                multi,
+                format.name,
+                profiles.toParcel(),
+                path.value,
+            )
+            parcel.error?.let(MeshExportOutcome::Failure) ?: MeshExportOutcome.Success(
+                parcel.warning,
+                parcel.paths.orEmpty().mapIndexed { index, file -> ExportedMesh(parcel.names?.getOrNull(index).orEmpty(), ScenePath(file)) },
+            )
         } catch (_: RemoteException) {
             MeshExportOutcome.Failure(PROCESS_DIED)
         }

@@ -84,6 +84,7 @@ import app.orcinus.shadow.domain.plate.EnginePlateSync
 import app.orcinus.shadow.domain.plate.ExportConfigUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
+import app.orcinus.shadow.domain.plate.ExportPlateMeshesUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
 import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
@@ -740,6 +741,13 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         reloadFromDiskUseCase = reloadFromDisk,
         saveProject = saveProject,
         exportToolpaths = ExportToolpathsUseCase(AppDocumentExport(applicationContext), sceneFiles, plateRepository),
+        exportPlateMeshes = ExportPlateMeshesUseCase(
+            engine,
+            sceneFiles,
+            AppDocumentExport(applicationContext),
+            AppDocumentFolders(applicationContext),
+            plateRepository,
+        ),
         projectLifecycle = projectLifecycle,
         calibrateUseCase = CalibrateUseCase(projectLifecycle, engine, engine, platePresets, sceneFiles, plateRepository, applicationScope),
         describeCalibrationPrinterUseCase = DescribeCalibrationPrinterUseCase(engine, plateRepository),

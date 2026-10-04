@@ -24,6 +24,7 @@ import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.EmbossPlacement
 import app.orcinus.shadow.core.model.EmbossVolume
 import app.orcinus.shadow.core.model.EmbossVolumeOutcome
+import app.orcinus.shadow.core.model.ExportedMesh
 import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
@@ -39,6 +40,7 @@ import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PlateCircle
 import app.orcinus.shadow.core.model.PrintedObject
+import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgFileEdit
@@ -1012,6 +1014,38 @@ class NativeSlicerEngine(context: Context) :
             MeshExportOutcome.Failure(message.ifBlank { "OrcaSlicer could not export the object" })
         } else {
             MeshExportOutcome.Success(warning.ifBlank { null })
+        }
+    }
+
+    override suspend fun exportMeshes(
+        plate: List<PlacedModel>,
+        copies: List<SelectedCopy>,
+        multi: Boolean,
+        format: MeshFormat,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): MeshExportOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext MeshExportOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        val answer = NativeBindings.exportMeshes(
+            plate = nativePlate(plate),
+            objects = copies.map(SelectedCopy::objectIndex).toIntArray(),
+            instances = copies.map(SelectedCopy::instanceIndex).toIntArray(),
+            multi = multi,
+            format = format.ordinal.toLong(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            path = path.value,
+        )
+        if (answer[0].toLong() != NativeSceneStatus.SUCCESS) {
+            MeshExportOutcome.Failure(answer[1].ifBlank { "OrcaSlicer could not export the objects" })
+        } else {
+            val files = (3 until answer.size - 1 step 2).map { ExportedMesh(answer[it], ScenePath(answer[it + 1])) }
+            MeshExportOutcome.Success(answer[2].ifBlank { null }, files)
         }
     }
 

@@ -1383,6 +1383,24 @@ internal object NativeBindings {
     ): Array<String>
 
     /**
+     * export_meshes(): the copies, by object and copy index, or every object
+     * for none, into [path]; answers the status, the message and the warning,
+     * then the name and the path of every file written with [multi].
+     */
+    external fun exportMeshes(
+        plate: NativePlate,
+        objects: IntArray,
+        instances: IntArray,
+        multi: Boolean,
+        format: Long,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        path: String,
+    ): Array<String>
+
+    /**
      * paste_model_settings(): the settings of an item once [clipboardKeys] are
      * pasted into them; answers the status, the message, then every key with
      * its value.

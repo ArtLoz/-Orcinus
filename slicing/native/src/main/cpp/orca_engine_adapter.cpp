@@ -5126,6 +5126,68 @@ ImportedModels copy_objects(
     }
 }
 
+namespace {
+
+// Plater::export_stl()'s mesh_to_export_fff_no_boolean(): a combined mesh with
+// normals pointing outwards, of the copy instance_id of object or of all its
+// copies for -1; warning takes the notification when only the positive parts
+// could be merged.
+Slic3r::TriangleMesh mesh_to_export_fff_no_boolean(const Slic3r::ModelObject& object, int instance_id, std::string& warning)
+{
+    using namespace Slic3r;
+    TriangleMesh mesh;
+    // Prusa export negative parts
+    std::vector<csg::CSGPart> csgmesh;
+    csgmesh.reserve(2 * object.volumes.size());
+    csg::model_to_csgmesh(object, Transform3d::Identity(), std::back_inserter(csgmesh),
+                          csg::mpartsPositive | csg::mpartsNegative | csg::mpartsDoSplits);
+    auto csgrange = range(csgmesh);
+    if (csg::is_all_positive(csgrange)) {
+        mesh = TriangleMesh{csg::csgmesh_merge_positive_parts(csgrange)};
+    } else if (std::get<2>(csg::check_csgmesh_booleans(csgrange)) == csgrange.end()) {
+        try {
+            auto cgalm = csg::perform_csgmesh_booleans(csgrange);
+            mesh = MeshBoolean::cgal::cgal_to_triangle_mesh(*cgalm);
+        } catch (...) {}
+    }
+    if (mesh.empty()) {
+        warning = "Unable to perform boolean operation on model meshes. Only positive parts will be exported.";
+        for (const ModelVolume* v : object.volumes)
+            if (v->is_model_part()) {
+                TriangleMesh vol_mesh(v->mesh());
+                vol_mesh.transform(v->get_matrix(), true);
+                mesh.merge(vol_mesh);
+            }
+    }
+    if (instance_id == -1) {
+        TriangleMesh vols_mesh(mesh);
+        mesh = TriangleMesh();
+        for (const ModelInstance* i : object.instances) {
+            TriangleMesh m = vols_mesh;
+            m.transform(i->get_matrix(), true);
+            mesh.merge(m);
+        }
+    } else if (0 <= instance_id && instance_id < int(object.instances.size()))
+        mesh.transform(object.instances[instance_id]->get_matrix(), true);
+    return mesh;
+}
+
+// store_stl() or store_drc() with the app configuration's drc_bits.
+bool store_mesh(const std::string& path, Slic3r::TriangleMesh& mesh, MeshFormat format)
+{
+    switch (format) {
+    case MeshFormat::stl: return Slic3r::store_stl(path.c_str(), &mesh, true);
+    case MeshFormat::drc: {
+        const std::string bits = engine().config->get("drc_bits");
+        const int quality = bits.empty() ? DRC_BITS_DEFAULT : std::stoi(bits);
+        return Slic3r::store_drc(path.c_str(), &mesh, quality);
+    }
+    default: return false;
+    }
+}
+
+}  // namespace
+
 MeshExport export_object_mesh(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,
@@ -5159,43 +5221,8 @@ MeshExport export_object_mesh(
         }
         const ModelObject& mo = *model.objects[object_index];
 
-        // mesh_to_export_fff_no_boolean(): a combined mesh with normals pointing outwards.
         const auto mesh_to_export = [&result](const ModelObject& object, int instance_id) {
-            TriangleMesh mesh;
-            // Prusa export negative parts
-            std::vector<csg::CSGPart> csgmesh;
-            csgmesh.reserve(2 * object.volumes.size());
-            csg::model_to_csgmesh(object, Transform3d::Identity(), std::back_inserter(csgmesh),
-                                  csg::mpartsPositive | csg::mpartsNegative | csg::mpartsDoSplits);
-            auto csgrange = range(csgmesh);
-            if (csg::is_all_positive(csgrange)) {
-                mesh = TriangleMesh{csg::csgmesh_merge_positive_parts(csgrange)};
-            } else if (std::get<2>(csg::check_csgmesh_booleans(csgrange)) == csgrange.end()) {
-                try {
-                    auto cgalm = csg::perform_csgmesh_booleans(csgrange);
-                    mesh = MeshBoolean::cgal::cgal_to_triangle_mesh(*cgalm);
-                } catch (...) {}
-            }
-            if (mesh.empty()) {
-                result.warning = "Unable to perform boolean operation on model meshes. Only positive parts will be exported.";
-                for (const ModelVolume* v : object.volumes)
-                    if (v->is_model_part()) {
-                        TriangleMesh vol_mesh(v->mesh());
-                        vol_mesh.transform(v->get_matrix(), true);
-                        mesh.merge(vol_mesh);
-                    }
-            }
-            if (instance_id == -1) {
-                TriangleMesh vols_mesh(mesh);
-                mesh = TriangleMesh();
-                for (const ModelInstance* i : object.instances) {
-                    TriangleMesh m = vols_mesh;
-                    m.transform(i->get_matrix(), true);
-                    mesh.merge(m);
-                }
-            } else if (0 <= instance_id && instance_id < int(object.instances.size()))
-                mesh.transform(object.instances[instance_id]->get_matrix(), true);
-            return mesh;
+            return mesh_to_export_fff_no_boolean(object, instance_id, result.warning);
         };
 
         // selection.is_single_full_object() in Selection::Instance mode.
@@ -5203,20 +5230,96 @@ MeshExport export_object_mesh(
         if (mo.instances.size() == 1) mesh.translate(-mo.origin_translation.cast<float>());
 
         fs::create_directories(fs::path(path).parent_path());
-        bool stored = false;
-        switch (format) {
-        case MeshFormat::stl: stored = store_stl(path.c_str(), &mesh, true); break;
-        case MeshFormat::drc: {
-            const std::string bits = engine().config->get("drc_bits");
-            const int quality = bits.empty() ? DRC_BITS_DEFAULT : std::stoi(bits);
-            stored = store_drc(path.c_str(), &mesh, quality);
-            break;
-        }
-        default:
+        if (format != MeshFormat::stl && format != MeshFormat::drc) {
             result.message = "Unknown format";
             return result;
         }
-        if (!stored) {
+        if (!store_mesh(path, mesh, format)) {
+            result.status = SceneStatus::write_failed;
+            result.message = "Unable to write " + path;
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        return result;
+    }
+}
+
+MeshExport export_meshes(
+    const std::vector<PlateObject>& plate,
+    const std::vector<std::pair<std::int32_t, std::int32_t>>& copies,
+    bool multi,
+    MeshFormat format,
+    const ProfileSelection& profiles,
+    const std::string& path
+)
+{
+    using namespace Slic3r;
+    MeshExport result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    if (format != MeshFormat::stl && format != MeshFormat::drc) {
+        result.message = "Unknown format";
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (model.objects.empty()) {
+            result.message = "The plate has no objects";
+            return result;
+        }
+        // The selection's copies, or every object of the plate whole.
+        std::vector<std::pair<std::size_t, int>> exported;
+        if (copies.empty()) {
+            for (std::size_t object = 0; object < model.objects.size(); ++object) {
+                exported.emplace_back(object, -1);
+            }
+        } else {
+            for (const auto& [object, instance] : copies) {
+                if (object < 0 || std::size_t(object) >= model.objects.size() || instance < -1
+                    || instance >= int(model.objects[std::size_t(object)]->instances.size())) {
+                    result.message = "The copy is not on the plate";
+                    return result;
+                }
+                exported.emplace_back(std::size_t(object), instance);
+            }
+        }
+        const std::string extension = format == MeshFormat::stl ? ".stl" : ".drc";
+        fs::create_directories(fs::path(path).parent_path());
+        TriangleMesh merged;
+        for (const auto& [object, instance] : exported) {
+            const ModelObject& mo = *model.objects[object];
+            TriangleMesh mesh = mesh_to_export_fff_no_boolean(mo, instance, result.warning);
+            if (!multi) {
+                merged.merge(mesh);
+                continue;
+            }
+            mesh.translate(-mo.origin_translation.cast<float>());
+            const std::string file = path + "-" + std::to_string(result.paths.size() + 1) + extension;
+            if (!store_mesh(file, mesh, format)) {
+                result.status = SceneStatus::write_failed;
+                result.message = "Unable to write " + file;
+                return result;
+            }
+            result.paths.push_back(file);
+            result.names.push_back(mo.name);
+        }
+        if (!multi && !store_mesh(path, merged, format)) {
             result.status = SceneStatus::write_failed;
             result.message = "Unable to write " + path;
             return result;

@@ -3483,6 +3483,45 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_exportObjectMesh(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_exportMeshes(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jintArray objects,
+    jintArray instances,
+    jboolean multi,
+    jlong format,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring path
+)
+{
+    const std::vector<std::int32_t> object_indexes = to_ints(env, objects);
+    const std::vector<std::int32_t> instance_indexes = to_ints(env, instances);
+    std::vector<std::pair<std::int32_t, std::int32_t>> copies;
+    for (std::size_t index = 0; index < object_indexes.size() && index < instance_indexes.size(); ++index) {
+        copies.emplace_back(object_indexes[index], instance_indexes[index]);
+    }
+    const orcinus::orca::MeshExport exported = orcinus::orca::export_meshes(
+        to_plate(env, plate),
+        copies,
+        multi == JNI_TRUE,
+        static_cast<orcinus::orca::MeshFormat>(format),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+        to_utf8(env, path)
+    );
+    // status, message, warning, then the name and the path of every file.
+    std::vector<std::string> values{std::to_string(static_cast<int>(exported.status)), exported.message, exported.warning};
+    for (std::size_t index = 0; index < exported.paths.size(); ++index) {
+        values.push_back(index < exported.names.size() ? exported.names[index] : std::string());
+        values.push_back(exported.paths[index]);
+    }
+    return to_java(env, values);
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_simplifyVolume(
     JNIEnv* env,
     jobject /* this */,

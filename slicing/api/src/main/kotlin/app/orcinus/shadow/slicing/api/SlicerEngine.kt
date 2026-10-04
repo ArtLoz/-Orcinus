@@ -73,6 +73,7 @@ import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
+import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SettingsTabOutcome
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
@@ -234,6 +235,20 @@ interface PlateInspector {
         profiles: SlicingProfileSelection,
         path: ScenePath,
     ): MeshExportOutcome
+
+    /**
+     * Plater::export_stl(false, selection_only, multi_stls): the [copies] of
+     * the selection, or every object of [plate] when there are none, merged
+     * into one file at [path], or with [multi] a file each beside it.
+     */
+    suspend fun exportMeshes(
+        plate: List<PlacedModel>,
+        copies: List<SelectedCopy>,
+        multi: Boolean,
+        format: MeshFormat,
+        profiles: SlicingProfileSelection,
+        path: ScenePath,
+    ): MeshExportOutcome = MeshExportOutcome.Failure("Exporting meshes is not supported")
 
     /**
      * GLGizmoSimplify::process(): the mesh of the volume at [volume] of the

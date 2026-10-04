@@ -15,6 +15,7 @@ import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
+import app.orcinus.shadow.domain.plate.ExportPlateMeshesUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
 import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
 import app.orcinus.shadow.domain.plate.ObjectOrderUseCase
@@ -320,6 +321,8 @@ data class SidebarUiState(
      */
     val canExportSliced: Boolean = false,
     val canExportAllSliced: Boolean = false,
+    /** The Export menu's objects and Generic 3MF can be written (MainFrame::can_export_model()). */
+    val canExportModel: Boolean = false,
     /** The plates of the object list (ObjectDataViewModel's plate items), each with the objects under it. */
     val plates: List<ObjectListPlate> = listOf(ObjectListPlate(0)),
     /** The objects that stand on no plate whole, under "Outside". */
@@ -400,6 +403,7 @@ class SidebarViewModel(
     private val reloadFromDiskUseCase: ReloadFromDiskUseCase,
     private val saveProject: SaveProjectUseCase,
     private val exportToolpaths: ExportToolpathsUseCase,
+    private val exportPlateMeshes: ExportPlateMeshesUseCase? = null,
     private val projectLifecycle: ProjectLifecycleUseCase,
     private val calibrateUseCase: CalibrateUseCase,
     private val describeCalibrationPrinterUseCase: DescribeCalibrationPrinterUseCase,
@@ -503,6 +507,25 @@ class SidebarViewModel(
 
     /** The name "Export plate sliced file" offers. */
     fun slicedName(): String? = saveProject.slicedName()
+
+    /** Plater::export_core_3mf() into [document]. */
+    fun exportGeneric(document: ExternalDocumentReference) {
+        viewModelScope.launch { saveProject.exportGeneric(document) }
+    }
+
+    /** "Export all objects as one STL" (or DRC) into [document]. */
+    fun exportAllMeshes(format: MeshFormat, document: ExternalDocumentReference) {
+        viewModelScope.launch { exportPlateMeshes?.toDocument(format, document) }
+    }
+
+    /** "Export all objects as STLs" (or DRCs) into [folder]. */
+    fun exportEachMesh(format: MeshFormat, folder: ExternalDocumentReference) {
+        viewModelScope.launch { exportPlateMeshes?.toFolder(format, folder) }
+    }
+
+    /** The name "Export all objects as one STL" (or DRC) offers. */
+    fun allMeshesName(format: MeshFormat, untitled: String): String =
+        exportPlateMeshes?.suggestedName(format, untitled) ?: "$untitled.${format.extension}"
 
     /** The name "Export toolpaths as OBJ" offers its OBJ file under. */
     fun toolpathsName(untitled: String): String = exportToolpaths.suggestedName(untitled)
@@ -923,6 +946,7 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     canSaveProject = profiles != null && !busy,
     canExportSliced = profiles != null && !busy && objects.isNotEmpty() && result != null,
     canExportAllSliced = profiles != null && !busy && objects.isNotEmpty() && allSliceResultsReady(),
+    canExportModel = profiles != null && !busy && objects.isNotEmpty(),
     plates = objects.groupBy(::listPlateOf).let { groups ->
         partPlates().mapIndexed { index, plate ->
             ObjectListPlate(
@@ -1152,6 +1176,10 @@ internal class ProjectActions(
     val share: () -> Unit = {},
     /** "Export plate sliced file" (all = false) and "Export all plate sliced file" of the Export menu. */
     val exportSliced: (all: Boolean) -> Unit = {},
+    /** "Export all objects as one STL" (multi = false) or "as STLs", and their DRC kin. */
+    val exportMeshes: (format: MeshFormat, multi: Boolean) -> Unit = { _, _ -> },
+    /** "Export Generic 3MF". */
+    val exportGeneric: () -> Unit = {},
     /** "Export toolpaths as OBJ" of the Export menu; null while the preview shows no toolpaths. */
     val exportToolpaths: (() -> Unit)? = null,
     /** A test of the Calibration menu, which starts a project of its own. */
@@ -1179,6 +1207,7 @@ private fun ProjectTitle(
     actions: ProjectActions,
     canExportSliced: Boolean = false,
     canExportAllSliced: Boolean = false,
+    canExportModel: Boolean = false,
 ) {
     var fileMenu by remember { mutableStateOf(false) }
     var calibrationMenu by remember { mutableStateOf(false) }
@@ -1259,6 +1288,29 @@ private fun ProjectTitle(
                 )
                 // MainFrame's Export menu.
                 OrcaMenuSeparator()
+                listOf(
+                    Triple("Export all objects as one STL", MeshFormat.STL, false),
+                    Triple("Export all objects as STLs", MeshFormat.STL, true),
+                    Triple("Export all objects as one DRC", MeshFormat.DRC, false),
+                    Triple("Export all objects as DRCs", MeshFormat.DRC, true),
+                ).forEach { (label, format, multi) ->
+                    OrcaMenuItem(
+                        text = orcaString(label) + "…",
+                        onClick = {
+                            fileMenu = false
+                            actions.exportMeshes(format, multi)
+                        },
+                        enabled = canExportModel,
+                    )
+                }
+                OrcaMenuItem(
+                    text = orcaString("Export Generic 3MF") + "…",
+                    onClick = {
+                        fileMenu = false
+                        actions.exportGeneric()
+                    },
+                    enabled = canExportModel,
+                )
                 OrcaMenuItem(
                     text = orcaString("Export plate sliced file") + "…",
                     onClick = {
@@ -1491,6 +1543,23 @@ fun PlateSidebar(
         exportingAll = all
         slicedPicker.launch(viewModel.slicedName() ?: ((state.projectName ?: untitled) + ".gcode.3mf"))
     }
+    // Plater::export_stl()'s file dialog for every object merged, or its folder dialog for a file each.
+    var meshesFormat by rememberSaveable { mutableStateOf(MeshFormat.STL) }
+    val meshesPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(MESH_MIME_TYPE)) { uri ->
+        if (uri != null) viewModel.exportAllMeshes(meshesFormat, ExternalDocumentReference(uri.toString()))
+    }
+    val meshesFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) viewModel.exportEachMesh(meshesFormat, ExternalDocumentReference(uri.toString()))
+    }
+    val exportMeshes: (MeshFormat, Boolean) -> Unit = { format, multi ->
+        meshesFormat = format
+        if (multi) meshesFolderPicker.launch(null) else meshesPicker.launch(viewModel.allMeshesName(format, untitled))
+    }
+    // Plater::export_core_3mf(): get_export_file(FT_3MF), named after the project.
+    val genericPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME_TYPE)) { uri ->
+        if (uri != null) viewModel.exportGeneric(ExternalDocumentReference(uri.toString()))
+    }
+    val exportGeneric = { genericPicker.launch((state.projectName ?: untitled) + ".3mf") }
     // "Export toolpaths as OBJ": the preview's toolpaths go into the OBJ file
     // the user picks, and their materials into a second document beside it,
     // as a phone's picker grants the one document picked.
@@ -1693,6 +1762,8 @@ fun PlateSidebar(
             new = viewModel::newProject,
             share = shareProject,
             exportSliced = exportSliced,
+            exportMeshes = exportMeshes,
+            exportGeneric = exportGeneric,
             exportToolpaths = toolpathsWriter?.let { { toolpathsPicker.launch(viewModel.toolpathsName(untitled)) } },
             open = { openPicker.launch(arrayOf("*/*")) },
             calibrate = { params ->
@@ -1877,7 +1948,7 @@ internal fun PlateSidebarContent(
             .background(OrcaTheme.colors.window),
     ) {
         item(key = "project") {
-            ProjectTitle(state.projectName, state.projectDirty, state.canSaveProject, project, state.canExportSliced, state.canExportAllSliced)
+            ProjectTitle(state.projectName, state.projectDirty, state.canSaveProject, project, state.canExportSliced, state.canExportAllSliced, state.canExportModel)
         }
 
         item(key = "printer") {

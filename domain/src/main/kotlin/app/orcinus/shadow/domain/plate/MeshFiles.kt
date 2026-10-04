@@ -72,6 +72,95 @@ class ExportObjectMeshUseCase(
 }
 
 /**
+ * The File menu's "Export all objects as one STL" and "as one DRC", and "as
+ * STLs" and "as DRCs" (Plater::export_stl(false, false, multi_stls)): every
+ * object of the plate, every copy where it stands, merged into the document
+ * the user picked; or each object in a file of its own in the folder the user
+ * picked, named after the object as get_save_file() names it ("name.stl",
+ * then "name(1).stl" and on while the folder has the name). The plate shows
+ * why it failed, and OrcaSlicer's notification when only the positive
+ * volumes could be written.
+ */
+class ExportPlateMeshesUseCase(
+    private val inspector: PlateInspector,
+    private val sceneFiles: SceneFiles,
+    private val documents: DocumentExport,
+    private val folders: DocumentFolders,
+    private val repository: PlateRepository,
+) {
+    /**
+     * Plater::priv::get_export_file_path(): an STL file is named after the
+     * project; a Draco file too, once the project has a name, or else after
+     * the first object with a printable copy, or the first object
+     * (Model::propose_export_file_name_and_path()); [untitled] for none.
+     */
+    fun suggestedName(format: MeshFormat, untitled: String): String {
+        val state = repository.state.value
+        val base = when (format) {
+            MeshFormat.STL -> state.project.name ?: untitled
+            MeshFormat.DRC -> state.project.name ?: state.objects.let { objects ->
+                (objects.firstOrNull { plateObject -> plateObject.instances.any { it.printable } } ?: objects.firstOrNull())
+                    ?.exportName()?.substringBeforeLast('.')?.ifEmpty { null }
+            } ?: untitled
+        }
+        return "$base.${format.extension}"
+    }
+
+    /** Every object merged into [document]; false when nothing was written. */
+    suspend fun toDocument(format: MeshFormat, document: ExternalDocumentReference): Boolean =
+        export(format, multi = false) { outcome, file -> documents.copyTo(file.value, document) }
+
+    /** Every object into a file of its own in [folder]; false when not every file was written. */
+    suspend fun toFolder(format: MeshFormat, folder: ExternalDocumentReference): Boolean =
+        export(format, multi = true) { outcome, _ ->
+            outcome.files.all { mesh ->
+                // get_save_file(): the object's name, numbered while the folder has it.
+                var name = "${mesh.name}.${format.extension}"
+                var number = 1
+                while (folders.find(folder, name) != null) name = "${mesh.name}(${number++}).${format.extension}"
+                val document = folders.create(folder, name, MESH_MIME_TYPE)
+                document != null && documents.copyTo(mesh.path.value, document)
+            }
+        }
+
+    private suspend fun export(
+        format: MeshFormat,
+        multi: Boolean,
+        deliver: suspend (MeshExportOutcome.Success, ScenePath) -> Boolean,
+    ): Boolean {
+        val state = repository.state.value
+        val profiles = state.profiles
+        // MainFrame::can_export_model()
+        if (state.objects.isEmpty() || profiles == null) return false
+        val prefix = sceneFiles.newImportPrefix()
+        val file = ScenePath("${prefix.value}-export${if (multi) "" else ".${format.extension}"}")
+        try {
+            val outcome = try {
+                inspector.exportMeshes(state.objects.map { it.placed() }, emptyList(), multi, format, profiles, file)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                MeshExportOutcome.Failure(error.message.orEmpty())
+            }
+            val problem = when {
+                outcome is MeshExportOutcome.Failure -> PlateProblem(PlateProblemKind.EXPORT_FAILED, outcome.message)
+                !deliver(outcome as MeshExportOutcome.Success, file) -> PlateProblem(PlateProblemKind.EXPORT_FAILED)
+                outcome.warning != null -> PlateProblem(PlateProblemKind.EXPORT_WITHOUT_NEGATIVE_VOLUMES)
+                else -> null
+            }
+            problem?.let { repository.update { state -> state.copy(problem = it) } }
+            return problem?.kind != PlateProblemKind.EXPORT_FAILED
+        } finally {
+            sceneFiles.deleteImport(prefix)
+        }
+    }
+
+    private companion object {
+        const val MESH_MIME_TYPE = "application/octet-stream"
+    }
+}
+
+/**
  * "Replace 3D file" (Plater::priv::replace_with_stl): the volume at [volume]
  * (ModelObject::volumes) of the object with the [mesh] file takes the mesh of
  * the document the user picked, as one step of Undo ("Replace with 3D file").
