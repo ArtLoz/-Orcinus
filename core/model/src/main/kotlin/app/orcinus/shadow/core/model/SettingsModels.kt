@@ -175,6 +175,49 @@ data class BedShape(
     val points: List<Point2> = emptyList(),
 )
 
+/**
+ * Bed_2D::repaint()'s grid over a shape, in millimetres: its step, and its
+ * thin and bold polylines, clipped to the shape.
+ */
+data class BedPreview(
+    val step: Int = 0,
+    val thin: List<List<Point2>> = emptyList(),
+    val bold: List<List<Point2>> = emptyList(),
+)
+
+/** bed_preview_grid()'s numbers: the step, then the thin and bold polylines, each a count, then every polyline's count of points and their x and y. */
+fun bedPreviewOf(numbers: DoubleArray): BedPreview {
+    if (numbers.isEmpty()) return BedPreview()
+    var next = 1
+    fun polylines(): List<List<Point2>> = List(numbers.getOrElse(next++) { 0.0 }.toInt()) {
+        List(numbers[next++].toInt()) { Point2(numbers[next++], numbers[next++]) }
+    }
+    val thin = polylines()
+    val bold = polylines()
+    return BedPreview(numbers[0].toInt(), thin, bold)
+}
+
+/** The numbers bedPreviewOf() reads. */
+fun BedPreview.numbers(): DoubleArray {
+    if (step == 0) return DoubleArray(0)
+    val numbers = mutableListOf(step.toDouble())
+    for (lines in listOf(thin, bold)) {
+        numbers += lines.size.toDouble()
+        lines.forEach { line ->
+            numbers += line.size.toDouble()
+            line.forEach { numbers += it.x; numbers += it.y }
+        }
+    }
+    return numbers.toDoubleArray()
+}
+
+/** A texture or model BedShapeDialog loaded: its kept path, or Orca's message. */
+sealed interface BedFileOutcome {
+    data class Kept(val path: String) : BedFileOutcome
+
+    data class Failure(val message: String) : BedFileOutcome
+}
+
 sealed interface BedShapeOutcome {
     data class Success(val shape: BedShape) : BedShapeOutcome
 

@@ -3318,6 +3318,48 @@ TEST_CASE("The shape of the plate is described and set as its dialog does", "[Ad
         CHECK(changed.status != orca::SceneStatus::success);
     }
 
+    SECTION("a custom shape comes from an STL file, and the dialog draws its grid")
+    {
+        // A box 120 x 80 mm, as an ASCII STL of its twelve triangles.
+        const double v[8][3] = {{120, 80, 0}, {120, 0, 0}, {0, 0, 0}, {0, 80, 0}, {120, 80, 10}, {0, 80, 10}, {0, 0, 10}, {120, 0, 10}};
+        const int f[12][3] = {{0, 1, 2}, {0, 2, 3}, {4, 5, 6}, {4, 6, 7}, {0, 4, 7}, {0, 7, 1},
+                              {1, 7, 6}, {1, 6, 2}, {2, 6, 5}, {2, 5, 3}, {4, 0, 3}, {4, 3, 5}};
+        std::ostringstream stl;
+        stl << "solid box\n";
+        for (const auto& face : f) {
+            stl << "facet normal 0 0 0\nouter loop\n";
+            for (const int index : face) {
+                stl << "vertex " << v[index][0] << ' ' << v[index][1] << ' ' << v[index][2] << '\n';
+            }
+            stl << "endloop\nendfacet\n";
+        }
+        stl << "endsolid box\n";
+        const std::string path = device_dir + "/tmp/import/bed-box.stl";
+        fs::create_directories(fs::path(path).parent_path());
+        std::ofstream(path) << stl.str();
+
+        const orca::BedShapeState loaded = orca::load_bed_shape(path);
+        INFO(loaded.message);
+        REQUIRE(loaded.status == orca::SceneStatus::success);
+        REQUIRE(loaded.points.size() == 8);
+        // A file of another type is refused with Orca's message.
+        CHECK(orca::load_bed_shape(device_dir + "/data/20mm_cube.obj").message == "Invalid file format.");
+
+        const orca::PresetSettings changed = orca::set_bed_shape(orca::BedShapeKind::custom, 0.0, 0.0, 0.0, 0.0, 0.0, loaded.points, {}, {}, {});
+        INFO(changed.message);
+        REQUIRE(changed.status == orca::SceneStatus::success);
+        const orca::BedShapeState shape = orca::describe_bed_shape();
+        CHECK(shape.size_x == Catch::Approx(120.0));
+        CHECK(shape.size_y == Catch::Approx(80.0));
+
+        // Bed_2D: a grid of 10 mm, a bold line every five, clipped to the box:
+        // 13 vertical and 9 horizontal lines, of which x 0, 50, 100 and y 0, 50 are bold.
+        const std::vector<double> grid = orca::bed_preview_grid(loaded.points);
+        REQUIRE(!grid.empty());
+        CHECK(grid[0] == 10.0);
+        CHECK(static_cast<int>(grid[1]) == 17);
+    }
+
     // Every section leaves the printer as it is installed.
     REQUIRE(orca::reset_settings(orca::PresetKind::printer, {}, {}, {}, {}).status == orca::SceneStatus::success);
 }

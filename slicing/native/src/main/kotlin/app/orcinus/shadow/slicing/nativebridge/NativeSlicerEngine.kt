@@ -4,6 +4,7 @@ import android.content.Context
 import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.AssemblyAction
+import app.orcinus.shadow.core.model.BedPreview
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.BedTypeChoice
@@ -183,6 +184,7 @@ import app.orcinus.shadow.core.model.VolumeOrigin
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.WipeTowerOutcome
+import app.orcinus.shadow.core.model.bedPreviewOf
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.filamentUsagesOf
@@ -2480,7 +2482,15 @@ class NativeSlicerEngine(context: Context) :
         NativeBindings.describeBedShape().toOutcome()
     }
 
-    override suspend fun setBedShape(shape: BedShape, customPath: ModelPath?, answers: Map<String, Boolean>): PresetSettingsOutcome =
+    override suspend fun loadBedShape(path: ModelPath): BedShapeOutcome = whenReady(BedShapeOutcome::Failure) {
+        NativeBindings.loadBedShape(path.value).toOutcome()
+    }
+
+    override suspend fun bedPreview(points: List<Point2>): BedPreview = withContext(Dispatchers.IO) {
+        bedPreviewOf(NativeBindings.bedPreviewGrid(points.flatMap { listOf(it.x, it.y) }.toDoubleArray()))
+    }
+
+    override suspend fun setBedShape(shape: BedShape, answers: Map<String, Boolean>): PresetSettingsOutcome =
         whenReady(PresetSettingsOutcome::Failure) {
             NativeBindings.setBedShape(
                 kind = shape.kind.ordinal.toLong(),
@@ -2489,7 +2499,7 @@ class NativeSlicerEngine(context: Context) :
                 originX = shape.originX,
                 originY = shape.originY,
                 diameter = shape.diameter,
-                customPath = customPath?.value,
+                customPoints = shape.points.flatMap { listOf(it.x, it.y) }.toDoubleArray(),
                 texture = shape.texture,
                 model = shape.model,
                 answerIds = answers.answerIds(),

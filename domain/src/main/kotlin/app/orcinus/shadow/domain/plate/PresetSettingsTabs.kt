@@ -132,8 +132,8 @@ class PresetSettingsTabs(
      * preset; the printer tab then shows it. Whether it succeeded is what the
      * caller needs, since the plate follows the new area (SetBedShapeUseCase).
      */
-    suspend fun setBedShape(shape: BedShape, customPath: ModelPath? = null): Boolean {
-        val outcome = editor.setBedShape(shape, customPath)
+    suspend fun setBedShape(shape: BedShape): Boolean {
+        val outcome = editor.setBedShape(shape)
         when (outcome) {
             is PresetSettingsOutcome.Failure ->
                 repository.update { state -> state.withTab(PresetKind.PRINTER) { copy(problem = outcome.message) } }

@@ -24,6 +24,7 @@
 
 #include "engine_context.hpp"
 #include "libslic3r/BuildVolume.hpp"
+#include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -575,7 +576,7 @@ namespace {
 
 // BedShapePanel::update_shape(): the points the dialog builds for a shape.
 std::vector<Slic3r::Vec2d> bed_shape_points(const BedShapeKind kind, const double size_x, const double size_y, const double origin_x,
-                                            const double origin_y, const double diameter, const std::string& custom_path)
+                                            const double origin_y, const double diameter, const std::vector<double>& custom_points)
 {
     switch (kind) {
     case BedShapeKind::rectangle: {
@@ -605,25 +606,76 @@ std::vector<Slic3r::Vec2d> bed_shape_points(const BedShapeKind kind, const doubl
     }
     case BedShapeKind::custom:
     default: {
-        // BedShapePanel::load_stl(): the horizontal projection of the model.
-        const Slic3r::Model model = Slic3r::Model::read_from_file(custom_path);
-        const Slic3r::ExPolygons areas = model.mesh().horizontal_projection();
-        if (areas.empty()) {
-            throw std::runtime_error("The selected file contains no geometry.");
-        }
-        if (areas.size() > 1) {
-            throw std::runtime_error("The selected file contains several disjoint areas. This is not supported.");
-        }
-        Slic3r::Polygon contour = areas.front().contour;
-        contour.make_counter_clockwise();
+        // m_loaded_shape
         std::vector<Slic3r::Vec2d> points;
-        points.reserve(contour.points.size());
-        for (const Slic3r::Point& point : contour.points) {
-            points.push_back(Slic3r::unscale(point));
+        for (std::size_t index = 0; index + 1 < custom_points.size(); index += 2) {
+            points.emplace_back(custom_points[index], custom_points[index + 1]);
         }
         return points;
     }
     }
+}
+
+// Bed_2D::calculate_grid_step() and generate_grid() of slic3r/GUI/2DBed.cpp,
+// which belongs to the desktop GUI, carried over unchanged.
+int bed_2d_grid_step(const Slic3r::BoundingBox& bb, const double& scale)
+{
+    // Orca: use 500 x 500 bed size as baseline.
+    int min_edge = (bb.size() * (1 / scale)).minCoeff(); // Get short edge
+                                           // if the grid is too dense, we increase the step
+    return   min_edge >= 6000 ? 100        // Short edge >= 6000mm  Main Grid: 5 x 100 = 500mm
+           : min_edge >= 1200 ? 50         // Short edge >= 1200mm  Main Grid: 5 x 50  = 250mm
+           : min_edge >= 600  ? 20         // Short edge >= 600mm   Main Grid: 5 x 20  = 100mm
+           : 10;                           // Short edge <  600mm   Main Grid: 5 x 10  =  50mm
+}
+
+std::vector<Slic3r::Polylines> bed_2d_grid(const Slic3r::ExPolygon& poly, const Slic3r::BoundingBox& bb, const Slic3r::Vec2d& origin, const double& step, const double& scale)
+{
+    using Slic3r::Point;
+    using Slic3r::Polyline;
+
+    Slic3r::Polylines lines_thin, lines_bold;
+    int   count = 0;
+
+    // ORCA draw grid lines relative to origin
+    for (coord_t x = origin.x(); x >= bb.min(0); x -= step) { // Negative X axis
+        (count % 5 ? lines_thin : lines_bold).push_back(Polyline(
+            Point(x, bb.min(1)),
+            Point(x, bb.max(1))
+        ));
+        count ++;
+    }
+    count = 0;
+    for (coord_t x = origin.x(); x <= bb.max(0); x += step) { // Positive X axis
+        (count % 5 ? lines_thin : lines_bold).push_back(Polyline(
+            Point(x, bb.min(1)),
+            Point(x, bb.max(1))
+        ));
+        count ++;
+    }
+    count = 0;
+    for (coord_t y = origin.y(); y >= bb.min(1); y -= step) { // Negative Y axis
+        (count % 5 ? lines_thin : lines_bold).push_back(Polyline(
+            Point(bb.min(0), y),
+            Point(bb.max(0), y)
+        ));
+        count ++;
+    }
+    count = 0;
+    for (coord_t y = origin.y(); y <= bb.max(1); y += step) { // Positive Y axis
+        (count % 5 ? lines_thin : lines_bold).push_back(Polyline(
+            Point(bb.min(0), y),
+            Point(bb.max(0), y)
+        ));
+        count ++;
+    }
+
+    std::vector<Slic3r::Polylines> grid;
+    // clip with a slightly grown expolygon because our lines lay on the contours and may get erroneously clipped
+    auto scaled_poly = Slic3r::offset(poly, scale);
+    grid.push_back(Slic3r::intersection_pl(lines_thin, scaled_poly));
+    grid.push_back(Slic3r::intersection_pl(lines_bold, scaled_poly));
+    return grid;
 }
 
 }  // namespace
@@ -1502,12 +1554,12 @@ BedShapeState describe_bed_shape()
 }
 
 PresetSettings set_bed_shape(const BedShapeKind kind, const double size_x, const double size_y, const double origin_x, const double origin_y,
-                             const double diameter, const std::string& custom_path, const std::string& texture, const std::string& model,
+                             const double diameter, const std::vector<double>& custom_points, const std::string& texture, const std::string& model,
                              const DialogAnswers& answers)
 {
     std::vector<Slic3r::Vec2d> points;
     try {
-        points = bed_shape_points(kind, size_x, size_y, origin_x, origin_y, diameter, custom_path);
+        points = bed_shape_points(kind, size_x, size_y, origin_x, origin_y, diameter, custom_points);
     } catch (const std::exception& error) {
         return settings_failure(SceneStatus::model_read_failed, error.what());
     }
@@ -1521,6 +1573,68 @@ PresetSettings set_bed_shape(const BedShapeKind kind, const double size_x, const
         tab.load_key_value("bed_custom_texture", texture);
         tab.load_key_value("bed_custom_model", model);
     });
+}
+
+BedShapeState load_bed_shape(const std::string& path)
+{
+    BedShapeState result;
+    result.kind = BedShapeKind::custom;
+    if (!boost::algorithm::iends_with(path, ".stl")) {
+        result.message = "Invalid file format.";
+        return result;
+    }
+    Slic3r::Model model;
+    try {
+        model = Slic3r::Model::read_from_file(path);
+    } catch (const std::exception&) {
+        result.message = "Error! Invalid model";
+        return result;
+    }
+    const Slic3r::ExPolygons expolygons = model.mesh().horizontal_projection();
+    if (expolygons.empty()) {
+        result.message = "The selected file contains no geometry.";
+        return result;
+    }
+    if (expolygons.size() > 1) {
+        result.message = "The selected file contains several disjoint areas. This is not supported.";
+        return result;
+    }
+    Slic3r::Polygon polygon = expolygons[0].contour;
+    polygon.make_counter_clockwise();
+    for (const Slic3r::Point& point : polygon.points) {
+        const Slic3r::Vec2d unscaled = Slic3r::unscale(point);
+        result.points.push_back(unscaled.x());
+        result.points.push_back(unscaled.y());
+    }
+    result.status = SceneStatus::success;
+    return result;
+}
+
+std::vector<double> bed_preview_grid(const std::vector<double>& points)
+{
+    // Bed_2D::repaint(): the grid of the shape in millimetres, from the origin (m_pos).
+    Slic3r::ExPolygon bed_poly;
+    for (std::size_t index = 0; index + 1 < points.size(); index += 2) {
+        bed_poly.contour.append({points[index], points[index + 1]});
+    }
+    if (bed_poly.contour.points.size() < 3) {
+        return {};
+    }
+    const Slic3r::BoundingBox bed_bb = bed_poly.contour.bounding_box();
+    const int step = bed_2d_grid_step(bed_bb, 1.00);
+    const std::vector<Slic3r::Polylines> grid_lines = bed_2d_grid(bed_poly, bed_bb, Slic3r::Vec2d(0, 0), step, 1.00);
+    std::vector<double> result{double(step)};
+    for (const Slic3r::Polylines& lines : grid_lines) {
+        result.push_back(double(lines.size()));
+        for (const Slic3r::Polyline& line : lines) {
+            result.push_back(double(line.points.size()));
+            for (const Slic3r::Point& point : line.points) {
+                result.push_back(double(point.x()));
+                result.push_back(double(point.y()));
+            }
+        }
+    }
+    return result;
 }
 
 PresetNames compatible_preset_choices(const PresetKind kind, const std::string& key)

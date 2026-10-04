@@ -4423,7 +4423,7 @@ class PlateUseCasesTest {
 
         override suspend fun bedShape() = BedShapeOutcome.Failure("no bed shape")
 
-        override suspend fun setBedShape(shape: BedShape, customPath: ModelPath?, answers: Map<String, Boolean>) =
+        override suspend fun setBedShape(shape: BedShape, answers: Map<String, Boolean>) =
             PresetSettingsOutcome.Failure("no bed shape")
 
         override suspend fun setSettingsMode(kind: PresetKind, mode: SettingsMode, model: ModelSettingsRequest) =

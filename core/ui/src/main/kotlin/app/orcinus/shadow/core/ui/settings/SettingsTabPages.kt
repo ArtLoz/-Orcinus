@@ -51,7 +51,9 @@ class SettingsActions(
     val compatibleChoices: suspend (PresetKind, String) -> PresetNamesOutcome,
     /** BedShapeDialog: the printable area of the edited printer, and the shape it is set to. */
     val bedShape: suspend () -> BedShapeOutcome,
-    val setBedShape: suspend (BedShape, ModelPath?) -> Unit,
+    val setBedShape: suspend (BedShape) -> Unit,
+    /** BedShapeDialog's files and drawing. */
+    val bedShapeFiles: BedShapeFileActions = BedShapeFileActions.NONE,
     /** EditGCodeDialog: the G-code of a setting of a tab with the placeholders, and what one of them is. */
     val gcodePlaceholders: suspend (PresetKind, String) -> GcodePlaceholdersOutcome,
     val gcodePlaceholder: suspend (String, Boolean) -> GcodePlaceholderInfo,
@@ -157,7 +159,7 @@ class SettingsTabUi internal constructor(internal val scope: CoroutineScope) {
             checkPresetName = { _, _ -> PresetNameOutcome.Failure("") },
             compatibleChoices = { _, _ -> PresetNamesOutcome.Failure("") },
             bedShape = { BedShapeOutcome.Failure("") },
-            setBedShape = { _, _ -> },
+            setBedShape = {},
             gcodePlaceholders = { _, _ -> GcodePlaceholdersOutcome.Failure("") },
             gcodePlaceholder = { _, _ -> GcodePlaceholderInfo(emptyList(), "", emptyList(), undefined = true) },
         )
@@ -265,9 +267,10 @@ fun SettingsTabDialogs(ui: SettingsTabUi) {
     if (ui.bedShapeOpen) {
         BedShapeSheet(
             load = ui.actions.bedShape,
-            onApply = { shape, custom ->
+            files = ui.actions.bedShapeFiles,
+            onApply = { shape ->
                 ui.bedShapeOpen = false
-                ui.scope.launch { ui.actions.setBedShape(shape, custom) }
+                ui.scope.launch { ui.actions.setBedShape(shape) }
             },
             onDismiss = { ui.bedShapeOpen = false },
         )

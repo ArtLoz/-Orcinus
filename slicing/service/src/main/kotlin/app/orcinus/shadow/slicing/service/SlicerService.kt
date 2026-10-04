@@ -65,6 +65,7 @@ import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.clippingPlaneOf
 import app.orcinus.shadow.core.model.cutConnectors
+import app.orcinus.shadow.core.model.numbers
 import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.BrimEarsEditor
 import app.orcinus.shadow.slicing.api.EmbossEditor
@@ -1221,6 +1222,11 @@ abstract class SlicerService<E> : Service()
 
         override fun bedShape(): BedShapeParcel = runBlocking { engine.bedShape() }.toParcel()
 
+        override fun loadBedShape(path: String): BedShapeParcel = runBlocking { engine.loadBedShape(ModelPath(path)) }.toParcel()
+
+        override fun bedPreviewGrid(points: DoubleArray): DoubleArray =
+            runBlocking { engine.bedPreview((0 until points.size / 2).map { Point2(points[2 * it], points[2 * it + 1]) }) }.numbers()
+
         override fun setBedShape(
             kind: String,
             sizeX: Double,
@@ -1228,7 +1234,7 @@ abstract class SlicerService<E> : Service()
             originX: Double,
             originY: Double,
             diameter: Double,
-            customPath: String?,
+            customPoints: DoubleArray,
             texture: String,
             model: String,
             answerIds: Array<String>,
@@ -1244,8 +1250,8 @@ abstract class SlicerService<E> : Service()
                     diameter = diameter,
                     texture = texture,
                     model = model,
+                    points = (0 until customPoints.size / 2).map { Point2(customPoints[2 * it], customPoints[2 * it + 1]) },
                 ),
-                customPath = customPath?.let(::ModelPath),
                 answers = answersOf(answerIds, answers),
             )
         }.toParcel()

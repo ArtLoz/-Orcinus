@@ -3486,9 +3486,8 @@ BedShapeState describe_bed_shape();
 
 // BedShapePanel::update_shape() and TabPrinter::create_bed_shape_widget(): the
 // points the dialog builds are written into the edited printer preset, with the
-// texture and the model beside them. A custom shape is the horizontal
-// projection of the model at custom_path (BedShapePanel::load_stl); the other
-// shapes ignore it.
+// texture and the model beside them. A custom shape is custom_points, x and y
+// per point (BedShapePanel::m_loaded_shape); the other shapes ignore them.
 PresetSettings set_bed_shape(
     BedShapeKind kind,
     double size_x,
@@ -3496,11 +3495,23 @@ PresetSettings set_bed_shape(
     double origin_x,
     double origin_y,
     double diameter,
-    const std::string& custom_path,
+    const std::vector<double>& custom_points,
     const std::string& texture,
     const std::string& model,
     const DialogAnswers& answers
 );
+
+// BedShapePanel::load_stl(): the horizontal projection of the STL file at
+// path, counter-clockwise, as a custom shape's points; message is Orca's
+// error ("Invalid file format.", "Error! Invalid model", "The selected file
+// contains no geometry.", or several disjoint areas) when it gives none.
+BedShapeState load_bed_shape(const std::string& path);
+
+// Bed_2D::repaint(): the grid the dialog draws over the shape (points, x and
+// y per point): its step in millimetres, then the thin lines and the bold
+// ones, each a count of polylines followed by every polyline as its count of
+// points and their x and y.
+std::vector<double> bed_preview_grid(const std::vector<double>& points);
 
 // GUI_App::save_mode(), then the tab of kind with the saved mode.
 PresetSettings set_settings_mode(PresetKind kind, SettingsMode mode, const ModelSettingsRequest& model = {});

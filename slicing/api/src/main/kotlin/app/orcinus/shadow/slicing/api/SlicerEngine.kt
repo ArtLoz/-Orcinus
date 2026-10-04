@@ -1,6 +1,7 @@
 package app.orcinus.shadow.slicing.api
 
 import app.orcinus.shadow.core.model.AppConfigOutcome
+import app.orcinus.shadow.core.model.BedPreview
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.CalibrationParams
@@ -59,6 +60,7 @@ import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateValidation
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
@@ -1017,10 +1019,18 @@ interface PresetSettingsEditor {
 
     /**
      * The shape the dialog was closed with, written into the edited printer
-     * preset. A custom shape is the horizontal projection of the model at
-     * [customPath] (BedShapePanel::load_stl).
+     * preset; a custom shape is its points (BedShapePanel::m_loaded_shape).
      */
-    suspend fun setBedShape(shape: BedShape, customPath: ModelPath? = null, answers: Map<String, Boolean> = emptyMap()): PresetSettingsOutcome
+    suspend fun setBedShape(shape: BedShape, answers: Map<String, Boolean> = emptyMap()): PresetSettingsOutcome
+
+    /**
+     * BedShapePanel::load_stl(): the horizontal projection of the STL file at
+     * [path] as a custom shape's points, or Orca's message why it gives none.
+     */
+    suspend fun loadBedShape(path: ModelPath): BedShapeOutcome = BedShapeOutcome.Failure("Loading a bed shape is not supported")
+
+    /** Bed_2D::repaint(): the grid the dialog draws over [points]. */
+    suspend fun bedPreview(points: List<Point2>): BedPreview = BedPreview()
 
     /** Which settings the tabs show; remembered in the app configuration. */
     suspend fun setSettingsMode(

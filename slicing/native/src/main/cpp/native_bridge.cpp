@@ -2964,10 +2964,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setRammingParameters
     );
 }
 
-extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeBedShape(JNIEnv* env, jobject /* this */)
+static jobject to_java(JNIEnv* env, const orcinus::orca::BedShapeState& result)
 {
-    const orcinus::orca::BedShapeState result = orcinus::orca::describe_bed_shape();
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeBedShape");
     const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JDDDDDLjava/lang/String;Ljava/lang/String;[D)V");
     return env->NewObject(
@@ -2988,6 +2986,25 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeBedShape(JNI
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeBedShape(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::describe_bed_shape());
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_loadBedShape(JNIEnv* env, jobject /* this */, jstring path)
+{
+    return to_java(env, orcinus::orca::load_bed_shape(to_utf8(env, path)));
+}
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_bedPreviewGrid(JNIEnv* env, jobject /* this */, jdoubleArray points)
+{
+    const std::vector<double> grid = orcinus::orca::bed_preview_grid(to_doubles(env, points));
+    return to_java(env, grid.data(), grid.size());
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setBedShape(
     JNIEnv* env,
     jobject /* this */,
@@ -2997,7 +3014,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setBedShape(
     jdouble origin_x,
     jdouble origin_y,
     jdouble diameter,
-    jstring custom_path,
+    jdoubleArray custom_points,
     jstring texture,
     jstring model,
     jobjectArray answer_ids,
@@ -3013,7 +3030,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setBedShape(
             origin_x,
             origin_y,
             diameter,
-            custom_path != nullptr ? to_utf8(env, custom_path) : std::string(),
+            to_doubles(env, custom_points),
             texture != nullptr ? to_utf8(env, texture) : std::string(),
             model != nullptr ? to_utf8(env, model) : std::string(),
             to_answers(env, answer_ids, answers)

@@ -2278,12 +2278,19 @@ internal object NativeBindings {
         originX: Double,
         originY: Double,
         diameter: Double,
-        customPath: String?,
+        /** A custom shape's points, x and y per point. */
+        customPoints: DoubleArray,
         texture: String?,
         model: String?,
         answerIds: Array<String>,
         answers: BooleanArray,
     ): NativePresetSettings
+
+    /** load_bed_shape(): BedShapePanel::load_stl(). */
+    external fun loadBedShape(path: String): NativeBedShape
+
+    /** bed_preview_grid(): the step, then the thin and bold polylines, each a count of polylines, then a count of points and their x and y. */
+    external fun bedPreviewGrid(points: DoubleArray): DoubleArray
 
     /** The names the list of compatible presets offers. */
     external fun compatiblePresetChoices(kind: Long, key: String): NativePresetNames

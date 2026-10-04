@@ -30,6 +30,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsMode
+import app.orcinus.shadow.core.ui.settings.BedShapeFileActions
 import app.orcinus.shadow.core.ui.settings.SettingsSearchSheet
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.ui.R as UiR
@@ -67,6 +68,7 @@ import app.orcinus.shadow.core.ui.settings.SettingsTabDialogs
 import app.orcinus.shadow.core.ui.settings.rememberSettingsTab
 import app.orcinus.shadow.core.ui.settings.settingsTabItems
 import app.orcinus.shadow.core.ui.settings.tabTitle
+import app.orcinus.shadow.domain.plate.BedShapeFilesUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.SetBedShapeUseCase
@@ -94,6 +96,7 @@ class PresetSettingsViewModel(
     private val selectPreset: SelectPresetUseCase,
     private val settingsTabs: PresetSettingsTabs,
     private val setBedShape: SetBedShapeUseCase,
+    private val bedShapeFiles: BedShapeFilesUseCase? = null,
 ) : ViewModel() {
     val state: StateFlow<PresetSettingsUiState> = observePlate()
         .map { it.toUiState(kind) }
@@ -138,7 +141,17 @@ class PresetSettingsViewModel(
     /** BedShapeDialog: the printable area of the edited printer, and the shape it is set to. */
     suspend fun bedShape(): BedShapeOutcome = settingsTabs.bedShape()
 
-    suspend fun setBedShape(shape: BedShape, customPath: ModelPath?) = setBedShape.invoke(shape, customPath)
+    suspend fun setBedShape(shape: BedShape) = setBedShape.invoke(shape)
+
+    /** BedShapeDialog's files and drawing. */
+    val bedFiles: BedShapeFileActions = bedShapeFiles?.let { use ->
+        BedShapeFileActions(
+            loadShape = use::loadShape,
+            keep = use::keep,
+            preview = use::preview,
+            exists = use::exists,
+        )
+    } ?: BedShapeFileActions.NONE
 
     private companion object {
         const val STOP_TIMEOUT_MILLIS = 5_000L
@@ -185,6 +198,7 @@ fun PresetSettingsRoute(
             compatibleChoices = viewModel::compatiblePresetChoices,
             bedShape = viewModel::bedShape,
             setBedShape = viewModel::setBedShape,
+            bedShapeFiles = viewModel.bedFiles,
             gcodePlaceholders = viewModel::gcodePlaceholders,
             gcodePlaceholder = viewModel::gcodePlaceholder,
         ),

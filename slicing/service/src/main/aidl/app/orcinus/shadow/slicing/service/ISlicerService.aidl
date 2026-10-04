@@ -551,12 +551,15 @@ interface ISlicerService {
         double originX,
         double originY,
         double diameter,
-        @nullable String customPath,
+        in double[] customPoints,
         String texture,
         String model,
         in String[] answerIds,
         in boolean[] answers
     );
+    /** BedShapePanel::load_stl(), and Bed_2D's grid as bed_preview_grid() writes it. */
+    BedShapeParcel loadBedShape(String path);
+    double[] bedPreviewGrid(in double[] points);
     PresetSettingsParcel setSettingsMode(
         String kind,
         String mode,

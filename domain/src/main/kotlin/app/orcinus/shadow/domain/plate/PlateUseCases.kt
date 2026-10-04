@@ -1,7 +1,10 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.AppConfigKeys
+import app.orcinus.shadow.core.model.BedFileOutcome
+import app.orcinus.shadow.core.model.BedPreview
 import app.orcinus.shadow.core.model.BedShape
+import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
@@ -70,6 +73,7 @@ import app.orcinus.shadow.core.model.PlateRequest
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetCreationOutcome
@@ -130,6 +134,7 @@ import app.orcinus.shadow.domain.source
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
+import app.orcinus.shadow.storage.api.BedFiles
 import app.orcinus.shadow.storage.api.ConfigFiles
 import app.orcinus.shadow.storage.api.DocumentExport
 import app.orcinus.shadow.storage.api.FileShare
@@ -2038,10 +2043,40 @@ class SetBedShapeUseCase(
     private val presetManager: PresetManager,
     private val platePresets: PlatePresets,
 ) {
-    suspend operator fun invoke(shape: BedShape, customPath: ModelPath? = null) {
-        if (!settingsTabs.setBedShape(shape, customPath)) return
+    suspend operator fun invoke(shape: BedShape) {
+        if (!settingsTabs.setBedShape(shape)) return
         platePresets.apply(before = null, outcome = presetManager.presets())
     }
+}
+
+/**
+ * BedShapePanel's files: load_stl() reads the shape of an STL file;
+ * load_texture() and load_model() take a PNG or SVG texture and an STL model,
+ * which the app keeps a copy of for the preset to name; and Bed_2D's grid.
+ */
+class BedShapeFilesUseCase(
+    private val files: BedFiles,
+    private val editor: PresetSettingsEditor,
+) {
+    /** load_stl(): the shape of the STL file [document], or Orca's message why it has none. */
+    suspend fun loadShape(document: ExternalDocumentReference): BedShapeOutcome {
+        val path = files.keep(document) ?: return BedShapeOutcome.Failure("Error! Invalid model")
+        return editor.loadBedShape(ModelPath(path))
+    }
+
+    /**
+     * load_texture() ([texture]) and load_model(): the path of the kept file,
+     * or Orca's "Invalid file format." for a file of another type.
+     */
+    suspend fun keep(document: ExternalDocumentReference, texture: Boolean): BedFileOutcome {
+        val path = files.keep(document) ?: return BedFileOutcome.Failure("Invalid file format.")
+        val accepted = if (texture) path.endsWith(".png", ignoreCase = true) || path.endsWith(".svg", ignoreCase = true) else path.endsWith(".stl", ignoreCase = true)
+        return if (accepted) BedFileOutcome.Kept(path) else BedFileOutcome.Failure("Invalid file format.")
+    }
+
+    suspend fun preview(points: List<Point2>): BedPreview = editor.bedPreview(points)
+
+    fun exists(path: String): Boolean = files.exists(path)
 }
 
 /**

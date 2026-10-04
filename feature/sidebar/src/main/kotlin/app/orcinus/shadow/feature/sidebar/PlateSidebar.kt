@@ -17,7 +17,9 @@ import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuState
 import app.orcinus.shadow.core.ui.plate.selectionMenuState
 import app.orcinus.shadow.core.ui.plate.selectsSeveralObjects
+import app.orcinus.shadow.core.ui.settings.BedShapeFileActions
 import app.orcinus.shadow.core.ui.shareDocument
+import app.orcinus.shadow.domain.plate.BedShapeFilesUseCase
 import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.ExportPlateMeshesUseCase
@@ -362,6 +364,7 @@ class SidebarViewModel(
     private val settingsTabs: PresetSettingsTabs,
     private val customPrinter: CustomPrinterUseCase,
     private val setBedShape: SetBedShapeUseCase,
+    private val bedShapeFiles: BedShapeFilesUseCase? = null,
     private val selectPlateObject: SelectPlateObjectUseCase,
     private val selectObjectPart: SelectObjectPartUseCase,
     private val addLayerRange: AddLayerRangeUseCase,
@@ -943,7 +946,12 @@ class SidebarViewModel(
     /** BedShapeDialog: the printable area of the edited printer, and the shape it is set to. */
     suspend fun bedShape(): BedShapeOutcome = settingsTabs.bedShape()
 
-    suspend fun setBedShape(shape: BedShape, customPath: ModelPath?) = setBedShape.invoke(shape, customPath)
+    suspend fun setBedShape(shape: BedShape) = setBedShape.invoke(shape)
+
+    /** BedShapeDialog's files and drawing. */
+    val bedFiles: BedShapeFileActions = bedShapeFiles?.let { use ->
+        BedShapeFileActions(loadShape = use::loadShape, keep = use::keep, preview = use::preview, exists = use::exists)
+    } ?: BedShapeFileActions.NONE
 
     private companion object {
         // Keeps the upstream flow through configuration changes.
@@ -1839,6 +1847,7 @@ fun PlateSidebar(
             compatibleChoices = viewModel::compatiblePresetChoices,
             bedShape = viewModel::bedShape,
             setBedShape = viewModel::setBedShape,
+            bedShapeFiles = viewModel.bedFiles,
             gcodePlaceholders = viewModel::gcodePlaceholders,
             gcodePlaceholder = viewModel::gcodePlaceholder,
         ),
@@ -2537,7 +2546,7 @@ private fun PlateSidebarPreview() = OrcinusTheme {
             checkPresetName = { _, _ -> PresetNameOutcome.Failure("preview") },
             compatibleChoices = { _, _ -> PresetNamesOutcome.Failure("preview") },
             bedShape = { BedShapeOutcome.Failure("preview") },
-            setBedShape = { _, _ -> },
+            setBedShape = {},
             gcodePlaceholders = { _, _ -> GcodePlaceholdersOutcome.Failure("preview") },
             gcodePlaceholder = { _, _ -> GcodePlaceholderInfo(emptyList(), "", emptyList(), undefined = true) },
         ),

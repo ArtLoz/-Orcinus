@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.os.RemoteException
 import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.AssemblyAction
+import app.orcinus.shadow.core.model.BedPreview
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.BrimEarHit
@@ -82,6 +83,7 @@ import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateValidation
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
@@ -126,6 +128,7 @@ import app.orcinus.shadow.core.model.VolumeDescriptionOutcome
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTowerOutcome
+import app.orcinus.shadow.core.model.bedPreviewOf
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.values
@@ -1321,7 +1324,13 @@ class RemoteSlicerEngine(
 
     override suspend fun bedShape(): BedShapeOutcome = remote(BedShapeOutcome::Failure) { bedShape().toBedShapeOutcome() }
 
-    override suspend fun setBedShape(shape: BedShape, customPath: ModelPath?, answers: Map<String, Boolean>): PresetSettingsOutcome =
+    override suspend fun loadBedShape(path: ModelPath): BedShapeOutcome =
+        remote(BedShapeOutcome::Failure) { loadBedShape(path.value).toBedShapeOutcome() }
+
+    override suspend fun bedPreview(points: List<Point2>): BedPreview =
+        remote({ BedPreview() }) { bedPreviewOf(bedPreviewGrid(points.flatMap { listOf(it.x, it.y) }.toDoubleArray())) }
+
+    override suspend fun setBedShape(shape: BedShape, answers: Map<String, Boolean>): PresetSettingsOutcome =
         remote(PresetSettingsOutcome::Failure) {
             setBedShape(
                 shape.kind.name,
@@ -1330,7 +1339,7 @@ class RemoteSlicerEngine(
                 shape.originX,
                 shape.originY,
                 shape.diameter,
-                customPath?.value,
+                shape.points.flatMap { listOf(it.x, it.y) }.toDoubleArray(),
                 shape.texture,
                 shape.model,
                 answers.keys.toTypedArray(),

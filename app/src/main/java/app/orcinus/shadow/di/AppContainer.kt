@@ -52,6 +52,7 @@ import app.orcinus.shadow.domain.plate.ApplySetupUseCase
 import app.orcinus.shadow.domain.plate.AssemblySectionUseCase
 import app.orcinus.shadow.domain.plate.AutoSliceUseCase
 import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
+import app.orcinus.shadow.domain.plate.BedShapeFilesUseCase
 import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
 import app.orcinus.shadow.domain.plate.CloudLoginUseCase
@@ -197,6 +198,7 @@ import app.orcinus.shadow.network.printhost.PrintHostUploader
 import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
 import app.orcinus.shadow.storage.android.AndroidSystemFonts
+import app.orcinus.shadow.storage.android.AppBedFiles
 import app.orcinus.shadow.storage.android.AppConfigFiles
 import app.orcinus.shadow.storage.android.AppDocumentAccess
 import app.orcinus.shadow.storage.android.AppDocumentExport
@@ -700,6 +702,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)
 
+    /** BedShapeDialog's files: the shape, texture and model of a bed. */
+    private val bedShapeFiles by lazy { BedShapeFilesUseCase(AppBedFiles(applicationContext), engine) }
+
     fun homeViewModel() = HomeViewModel(recentProjects, projectLifecycle, addModelToPlate, observePlate)
 
     /** The Project tab's information, in the directory the next save writes into the 3MF file. */
@@ -724,6 +729,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         settingsTabs = settingsTabs,
         customPrinter = CustomPrinterUseCase(engine, platePresets),
         setBedShape = setBedShape,
+        bedShapeFiles = bedShapeFiles,
         selectPlateObject = selectPlateObject,
         selectObjectPart = selectObjectPart,
         addLayerRange = addLayerRange,
@@ -804,6 +810,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         selectPreset = selectPreset,
         settingsTabs = settingsTabs,
         setBedShape = setBedShape,
+        bedShapeFiles = bedShapeFiles,
     )
 
     fun setupWizardViewModel(start: SetupStart) = SetupWizardViewModel(
