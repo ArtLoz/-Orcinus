@@ -1262,8 +1262,8 @@ abstract class SlicerService<E> : Service()
         override fun checkPresetName(kind: String, name: String): PresetNameParcel =
             runBlocking { engine.checkPresetName(PresetKind.valueOf(kind), name) }.toParcel()
 
-        override fun savePreset(kind: String, name: String): PresetSettingsParcel =
-            runBlocking { engine.savePreset(PresetKind.valueOf(kind), name) }.toParcel()
+        override fun savePreset(kind: String, name: String, detach: Boolean, saveToProject: Boolean): PresetSettingsParcel =
+            runBlocking { engine.savePreset(PresetKind.valueOf(kind), name, detach, saveToProject) }.toParcel()
 
         override fun deletePreset(kind: String, answerIds: Array<String>, answers: BooleanArray): PresetSettingsParcel =
             runBlocking { engine.deletePreset(PresetKind.valueOf(kind), answersOf(answerIds, answers)) }.toParcel()

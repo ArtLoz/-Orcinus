@@ -1058,8 +1058,12 @@ interface PresetSettingsEditor {
     /** Whether the edited preset can be saved as [name]. */
     suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome
 
-    /** Saves the edited preset as the user preset [name] and selects it. */
-    suspend fun savePreset(kind: PresetKind, name: String): PresetSettingsOutcome
+    /**
+     * Saves the edited preset as [name] and selects it: a new preset as a user
+     * preset, or inside the project with [saveToProject]; [detach] cuts it from
+     * its parent (SavePresetDialog's "Detach from parent").
+     */
+    suspend fun savePreset(kind: PresetKind, name: String, detach: Boolean = false, saveToProject: Boolean = false): PresetSettingsOutcome
 
     /** Deletes the selected user preset, which asks first, and selects another. */
     suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean> = emptyMap()): PresetSettingsOutcome

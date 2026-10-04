@@ -1373,8 +1373,8 @@ class RemoteSlicerEngine(
     override suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome =
         remote(PresetNameOutcome::Failure) { checkPresetName(kind.name, name).toPresetNameOutcome() }
 
-    override suspend fun savePreset(kind: PresetKind, name: String): PresetSettingsOutcome =
-        remote(PresetSettingsOutcome::Failure) { savePreset(kind.name, name).toPresetSettingsOutcome() }
+    override suspend fun savePreset(kind: PresetKind, name: String, detach: Boolean, saveToProject: Boolean): PresetSettingsOutcome =
+        remote(PresetSettingsOutcome::Failure) { savePreset(kind.name, name, detach, saveToProject).toPresetSettingsOutcome() }
 
     override suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean>): PresetSettingsOutcome =
         remote(PresetSettingsOutcome::Failure) {

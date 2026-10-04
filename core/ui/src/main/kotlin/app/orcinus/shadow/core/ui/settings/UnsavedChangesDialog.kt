@@ -28,6 +28,7 @@ import app.orcinus.shadow.core.model.PresetChange
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNameOutcome
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
@@ -35,7 +36,7 @@ import app.orcinus.shadow.core.ui.orca.orcaText
 /** What the unsaved-changes dialog asks of the app (UnsavedChangesDialog's buttons). */
 class PresetChangeActions(
     val resolve: (PresetChangeAction) -> Unit,
-    val save: (String) -> Unit,
+    val save: (PresetSave) -> Unit,
     val cancel: () -> Unit,
 )
 
@@ -78,7 +79,7 @@ fun UnsavedChangesDialog(
     checkName: suspend (String) -> PresetNameOutcome,
     onTransfer: () -> Unit,
     onDiscard: () -> Unit,
-    onSave: (String) -> Unit,
+    onSave: (PresetSave) -> Unit,
     onCancel: () -> Unit,
 ) {
     val colors = OrcaTheme.colors
@@ -112,7 +113,12 @@ fun UnsavedChangesDialog(
         },
         confirmButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OrcaButton(orcaString("Save"), onClick = { saving = true }, style = OrcaButtonStyle.Regular)
+                // UnsavedChangesDialog::save(): only a preset that cannot be overwritten asks a name.
+                OrcaButton(
+                    orcaString("Save"),
+                    onClick = { if (change.saveCanOverwrite) onSave(PresetSave(change.saveName)) else saving = true },
+                    style = OrcaButtonStyle.Regular,
+                )
                 if (change.canTransfer) {
                     OrcaButton(orcaString("Transfer"), onClick = onTransfer, style = OrcaButtonStyle.Regular)
                 }
@@ -131,9 +137,9 @@ fun UnsavedChangesDialog(
             kind = change.kind,
             suggestedName = if (change.saveNameCopySuffix) "${change.saveName} - $copy" else change.saveName,
             checkName = checkName,
-            onSave = { name ->
+            onSave = { save ->
                 saving = false
-                onSave(name)
+                onSave(save)
             },
             onDismiss = { saving = false },
         )

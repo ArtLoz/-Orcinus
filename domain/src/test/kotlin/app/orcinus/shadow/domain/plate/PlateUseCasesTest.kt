@@ -4441,7 +4441,8 @@ class PlateUseCasesTest {
 
         override suspend fun checkPresetName(kind: PresetKind, name: String) = PresetNameOutcome.Failure("not used")
 
-        override suspend fun savePreset(kind: PresetKind, name: String) = PresetSettingsOutcome.Failure("not used")
+        override suspend fun savePreset(kind: PresetKind, name: String, detach: Boolean, saveToProject: Boolean) =
+            PresetSettingsOutcome.Failure("not used")
 
         override suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean>) = PresetSettingsOutcome.Failure("not used")
     }

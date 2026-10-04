@@ -963,6 +963,7 @@ internal fun PresetsOutcome.toParcel() = PresetsParcel().also { parcel ->
             parcel.canTransfer = canTransfer
             parcel.saveName = saveName
             parcel.saveNameCopySuffix = saveNameCopySuffix
+            parcel.saveCanOverwrite = saveCanOverwrite
             parcel.unsavedChanges = changes.map { it.toParcel() }.toTypedArray()
         }
     }
@@ -1058,6 +1059,7 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         canTransfer = canTransfer,
         saveName = saveName.orEmpty(),
         saveNameCopySuffix = saveNameCopySuffix,
+        saveCanOverwrite = saveCanOverwrite,
     )
 }
 

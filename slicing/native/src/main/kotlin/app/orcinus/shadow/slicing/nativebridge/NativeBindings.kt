@@ -194,6 +194,7 @@ internal class NativePresetState(
     @JvmField val canTransfer: Boolean,
     @JvmField val saveName: String,
     @JvmField val saveNameCopySuffix: Boolean,
+    @JvmField val saveCanOverwrite: Boolean,
 )
 
 /** Constructed by the native bridge; see DirtyPreset in orca_engine_adapter.hpp. */
@@ -635,6 +636,9 @@ internal class NativePresetNameValidation(
     /** PresetNameCheck. */
     @JvmField val check: Long,
     @JvmField val info: Array<NativeUiText>,
+    @JvmField val existing: Boolean,
+    @JvmField val existingInProject: Boolean,
+    @JvmField val editedInProject: Boolean,
 )
 
 /**
@@ -2334,7 +2338,7 @@ internal object NativeBindings {
 
     external fun checkPresetName(kind: Long, name: String): NativePresetNameValidation
 
-    external fun savePreset(kind: Long, name: String): NativePresetSettings
+    external fun savePreset(kind: Long, name: String, detach: Boolean, saveToProject: Boolean): NativePresetSettings
 
     external fun deletePreset(kind: Long, answerIds: Array<String>, answers: BooleanArray): NativePresetSettings
 

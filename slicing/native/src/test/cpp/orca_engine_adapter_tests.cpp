@@ -677,6 +677,54 @@ TEST_CASE("The process tab edits the print preset as the desktop app does", "[Ad
         CHECK_FALSE(file_left);
     }
 
+    SECTION("an edited preset is saved inside the project, or detached from its parent")
+    {
+        // SavePresetDialog's "User Preset" / "Preset Inside Project".
+        const orca::PresetNameValidation fresh = orca::check_preset_name(print, "Orcinus project process");
+        CHECK_FALSE(fresh.existing);
+        CHECK_FALSE(fresh.edited_in_project);
+        REQUIRE(orca::change_setting(print, quality, "layer_height", "0.16", {}).dirty);
+        const orca::PresetSettings saved = orca::save_preset(print, "Orcinus project process", false, true);
+        INFO(saved.message);
+        REQUIRE(saved.status == orca::SceneStatus::success);
+        const orca::PresetItem* item = find_item(orca::describe_presets().processes, "Orcinus project process");
+        REQUIRE(item != nullptr);
+        CHECK(item->group == orca::PresetGroup::project);
+        bool file_written = false;
+        for (fs::recursive_directory_iterator it(data_dir), end; it != end; ++it) {
+            file_written = file_written || it->path().filename() == "Orcinus project process.json";
+        }
+        CHECK_FALSE(file_written);
+        const orca::PresetNameValidation same = orca::check_preset_name(print, "Orcinus project process");
+        CHECK(same.existing);
+        CHECK(same.existing_in_project);
+        CHECK(same.edited_in_project);
+
+        // "Detach from parent": a user preset of its own.
+        REQUIRE(orca::change_setting(print, quality, "layer_height", "0.12", {}).dirty);
+        const orca::PresetSettings detached = orca::save_preset(print, "Orcinus detached process", true, false);
+        INFO(detached.message);
+        REQUIRE(detached.status == orca::SceneStatus::success);
+        CHECK(setting(detached, "layer_height").value == "0.12");
+        // Without a parent the file holds every value, not only the changed ones.
+        std::string detached_file;
+        for (fs::recursive_directory_iterator it(data_dir), end; it != end; ++it) {
+            if (it->path().filename() == "Orcinus detached process.json") {
+                std::ifstream input(it->path().string());
+                detached_file.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+            }
+        }
+        REQUIRE_FALSE(detached_file.empty());
+        CHECK(detached_file.find("\"wall_loops\"") != std::string::npos);
+
+        REQUIRE(orca::delete_preset(print, {{"delete_preset", true}}).status == orca::SceneStatus::success);
+        REQUIRE(orca::select_preset(orca::PresetChoice::process, "Orcinus project process").status == orca::SceneStatus::success);
+        REQUIRE(orca::delete_preset(print, {{"delete_preset", true}}).status == orca::SceneStatus::success);
+        CHECK(find_item(orca::describe_presets().processes, "Orcinus project process") == nullptr);
+        CHECK(find_item(orca::describe_presets().processes, "Orcinus detached process") == nullptr);
+        REQUIRE(orca::select_preset(orca::PresetChoice::process, standard).status == orca::SceneStatus::success);
+    }
+
     // The slicing tests use the saved preset.
     CHECK_FALSE(orca::reset_settings(print, quality, {}, {}).dirty);
 }

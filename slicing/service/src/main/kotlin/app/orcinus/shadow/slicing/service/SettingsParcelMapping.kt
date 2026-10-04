@@ -334,13 +334,18 @@ internal fun PresetNameOutcome.toParcel() = PresetNameParcel().also {
         is PresetNameOutcome.Success -> {
             it.check = validation.check.name
             it.info = validation.info.toParcels()
+            it.existing = validation.existing
+            it.existingInProject = validation.existingInProject
+            it.editedInProject = validation.editedInProject
         }
     }
 }
 
 internal fun PresetNameParcel.toPresetNameOutcome(): PresetNameOutcome {
     error?.let { return PresetNameOutcome.Failure(it) }
-    return PresetNameOutcome.Success(PresetNameValidation(PresetNameCheck.valueOf(checkNotNull(check)), info.toTexts()))
+    return PresetNameOutcome.Success(
+        PresetNameValidation(PresetNameCheck.valueOf(checkNotNull(check)), info.toTexts(), existing, existingInProject, editedInProject),
+    )
 }
 
 internal fun AppConfigOutcome.toParcel() = AppConfigParcel().also {

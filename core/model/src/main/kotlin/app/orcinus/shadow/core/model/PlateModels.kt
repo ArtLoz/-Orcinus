@@ -851,7 +851,7 @@ sealed interface PresetChangesAnswer {
     data object Discard : PresetChangesAnswer
 
     /** Save: the presets that cannot be overwritten under the names given, the others under their own. */
-    data class Save(val names: Map<PresetKind, String>) : PresetChangesAnswer
+    data class Save(val names: Map<PresetKind, PresetSave>) : PresetChangesAnswer
 }
 
 /**

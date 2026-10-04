@@ -3,6 +3,7 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.PlatePicture
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.SlicedPlates
@@ -439,8 +440,9 @@ class ProjectLifecycleUseCase(
     private suspend fun savePresets(dirty: List<DirtyPreset>, answer: PresetChangesAnswer.Save) {
         val before = repository.state.value.profiles
         for (preset in dirty) {
-            val name = if (preset.canOverwrite) preset.name else answer.names[preset.kind] ?: continue
-            settingsEditor.savePreset(preset.kind, name)
+            // A preset of its own name stays where it is; SavePresetDialog says where a new one goes.
+            val save = if (preset.canOverwrite) PresetSave(preset.name) else answer.names[preset.kind] ?: continue
+            settingsEditor.savePreset(preset.kind, save.name, saveToProject = save.toProject)
         }
         platePresets.apply(before, presetManager.presets())
     }

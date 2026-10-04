@@ -371,6 +371,10 @@ PresetNameValidation validate_preset_name(Slic3r::PresetCollection& presets, con
     result.status = SceneStatus::success;
     result.check = m_valid_type;
     result.info = std::move(info_line);
+    // BBS: add project embedded presets logic
+    result.existing = existing != nullptr;
+    result.existing_in_project = existing != nullptr && existing->is_project_embedded;
+    result.edited_in_project = presets.get_edited_preset().is_project_embedded;
     return result;
 }
 
@@ -1781,7 +1785,7 @@ PresetNameValidation check_preset_name(const PresetKind kind, const std::string&
     }
 }
 
-PresetSettings save_preset(const PresetKind kind, const std::string& name)
+PresetSettings save_preset(const PresetKind kind, const std::string& name, const bool detach, const bool save_to_project)
 {
     {
         const std::lock_guard<std::mutex> engine_lock(engine().mutex);
@@ -1821,7 +1825,7 @@ PresetSettings save_preset(const PresetKind kind, const std::string& name)
             }
 
             // Save the preset into Slic3r::data_dir / presets / section_name / preset_name.json
-            m_presets->save_current_preset(name, false, false, nullptr);
+            m_presets->save_current_preset(name, detach, save_to_project, nullptr);
 
             //BBS create new settings
             new_preset = m_presets->find_preset(name, false, true);

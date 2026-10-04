@@ -10,6 +10,7 @@ import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.ListClipboard
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.ui.ExportResultDialog
@@ -820,7 +821,7 @@ class SidebarViewModel(
 
     fun resolvePresetChange(action: PresetChangeAction) = selectPreset.resolve(action)
 
-    fun savePresetChange(name: String) = selectPreset.save(name)
+    fun savePresetChange(save: PresetSave) = selectPreset.save(save)
 
     fun cancelPresetChange() = selectPreset.cancelPresetChange()
 

@@ -336,11 +336,13 @@ fun SettingsPresetButtons(kind: PresetKind, settings: PresetSettings, enabled: B
             kind = kind,
             suggestedName = if (settings.saveNameCopySuffix) "${settings.saveName} - $copy" else settings.saveName,
             checkName = { name -> actions.checkPresetName(kind, name) },
-            onSave = { name ->
+            onSave = { save ->
                 saving = false
-                actions.request(kind, SettingsRequest.Save(name))
+                actions.request(kind, SettingsRequest.Save(save))
             },
             onDismiss = { saving = false },
+            // Tab::save_preset() passes the tab's mode.
+            developer = settings.mode == SettingsMode.DEVELOP,
         )
     }
 }

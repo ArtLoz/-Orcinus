@@ -27,6 +27,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsMode
@@ -114,7 +115,7 @@ class PresetSettingsViewModel(
 
     fun resolvePresetChange(action: PresetChangeAction) = selectPreset.resolve(action)
 
-    fun savePresetChange(name: String) = selectPreset.save(name)
+    fun savePresetChange(save: PresetSave) = selectPreset.save(save)
 
     fun cancelPresetChange() = selectPreset.cancelPresetChange()
 

@@ -7,4 +7,7 @@ parcelable PresetNameParcel {
     @nullable String error;
     @nullable String check;
     @nullable OrcaTextParcel[] info;
+    boolean existing;
+    boolean existingInProject;
+    boolean editedInProject;
 }

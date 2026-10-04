@@ -290,9 +290,11 @@ std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const S
 }
 
 // TabPresetComboBox::update() of the process tab: the visible presets
-// compatible with the printer, and the selected one.
+// compatible with the printer, and the selected one; the presets inside the
+// project come first ("Project-inside presets").
 std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::PresetCollection& collection)
 {
+    ComboEntries project_presets;
     ComboEntries user_presets;
     ComboEntries bundle_presets;
     ComboEntries system_presets;
@@ -305,9 +307,6 @@ std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::Pr
         if (!preset.is_visible || (!preset.is_compatible && i != idx_selected)) {
             continue;
         }
-        if (preset.is_project_embedded) {
-            continue;
-        }
         if (i == idx_selected) {
             selected = preset.name;
         }
@@ -315,6 +314,8 @@ std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::Pr
         const Slic3r::Preset& shown = i == idx_selected ? collection.get_edited_preset() : preset;
         if (preset.is_default || preset.is_system) {
             system_presets.emplace(preset.name, ComboEntry{shown.label(true)});
+        } else if (preset.is_project_embedded) {
+            project_presets.emplace(preset.name, ComboEntry{shown.label(true)});
         } else if (preset.is_from_bundle()) {
             bundle_presets.emplace(preset.name, ComboEntry{shown.label(false), {}, {}, bundle_name(bundle, preset)});
         } else {
@@ -324,6 +325,7 @@ std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::Pr
 
     std::vector<PresetItem> items;
     const auto no_subgroup = [](const ComboEntry&) { return Subgroup{}; };
+    append_items(items, in_order(project_presets), PresetGroup::project, selected, no_subgroup);
     append_items(items, in_order(user_presets), PresetGroup::user, selected, no_subgroup);
     append_items(items, in_order(bundle_presets), PresetGroup::bundle, selected, [](const ComboEntry& entry) { return Subgroup{entry.bundle}; });
     append_items(items, in_order(system_presets), PresetGroup::system, selected, no_subgroup);
@@ -565,6 +567,11 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
                 result.unsaved_changes = detail::preset_changes(kind);
                 result.can_transfer = may_transfer(bundle, choice, value);
                 result.save_name = detail::save_preset_name(preset_collection(bundle, kind).get_selected_preset(), result.save_name_copy_suffix);
+                result.save_can_overwrite = preset_collection(bundle, kind).get_edited_preset().can_overwrite();
+                if (result.save_can_overwrite) {
+                    result.save_name = preset_collection(bundle, kind).get_edited_preset().name;
+                    result.save_name_copy_suffix = false;
+                }
                 return result;
             }
             if (action == PresetChangeAction::transfer) {

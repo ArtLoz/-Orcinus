@@ -205,7 +205,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
         "[Ljava/lang/String;Ljava/lang/String;ZJ"
-        "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetChange;ZLjava/lang/String;Z)V"
+        "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetChange;ZLjava/lang/String;ZZ)V"
     );
     return env->NewObject(
         state_class,
@@ -237,7 +237,8 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
         ),
         state.can_transfer ? JNI_TRUE : JNI_FALSE,
         to_java(env, state.save_name),
-        state.save_name_copy_suffix ? JNI_TRUE : JNI_FALSE
+        state.save_name_copy_suffix ? JNI_TRUE : JNI_FALSE,
+        state.save_can_overwrite ? JNI_TRUE : JNI_FALSE
     );
 }
 
@@ -3130,7 +3131,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_checkPresetName(JNIE
     const jmethodID constructor = env->GetMethodID(
         result_class,
         "<init>",
-        "(JLjava/lang/String;J[Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;)V"
+        "(JLjava/lang/String;J[Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;ZZZ)V"
     );
     return env->NewObject(
         result_class,
@@ -3138,14 +3139,27 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_checkPresetName(JNIE
         static_cast<jlong>(result.status),
         to_java(env, result.message),
         static_cast<jlong>(result.check),
-        to_java(env, result.info)
+        to_java(env, result.info),
+        result.existing ? JNI_TRUE : JNI_FALSE,
+        result.existing_in_project ? JNI_TRUE : JNI_FALSE,
+        result.edited_in_project ? JNI_TRUE : JNI_FALSE
     );
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_savePreset(JNIEnv* env, jobject /* this */, jlong kind, jstring name)
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_savePreset(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong kind,
+    jstring name,
+    jboolean detach,
+    jboolean save_to_project
+)
 {
-    return to_java(env, orcinus::orca::save_preset(static_cast<orcinus::orca::PresetKind>(kind), to_utf8(env, name)));
+    return to_java(
+        env,
+        orcinus::orca::save_preset(static_cast<orcinus::orca::PresetKind>(kind), to_utf8(env, name), detach == JNI_TRUE, save_to_project == JNI_TRUE)
+    );
 }
 
 jobject to_java(JNIEnv* env, const orcinus::orca::AppConfigValues& values)

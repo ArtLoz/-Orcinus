@@ -8,6 +8,7 @@ import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.withLayerRangeAt
@@ -92,11 +93,11 @@ class PresetSettingsTabs(
     }
 
     /**
-     * Saves the edited preset under [name] and waits for it, as the Save button
-     * of the unsaved-changes dialog does before the preset is selected.
+     * Saves the edited preset as [save] says and waits for it, as the Save
+     * button of the unsaved-changes dialog does before the preset is selected.
      */
-    suspend fun save(kind: PresetKind, name: String) {
-        run(kind, SettingsRequest.Save(name), emptyMap())
+    suspend fun save(kind: PresetKind, save: PresetSave) {
+        run(kind, SettingsRequest.Save(save), emptyMap())
     }
 
     /** The first notice of the tab was dismissed. */
@@ -188,7 +189,7 @@ class PresetSettingsTabs(
             is SettingsRequest.SetVariant -> editor.setSettingsVariant(kind, page, request.variant, answers, model)
             is SettingsRequest.EditCustomGcode -> editor.editCustomGcode(kind, page, request.key, request.gcode, answers)
             is SettingsRequest.SetRammingParameters -> editor.setRammingParameters(kind, page, request.parameters, answers)
-            is SettingsRequest.Save -> editor.savePreset(kind, request.name)
+            is SettingsRequest.Save -> editor.savePreset(kind, request.save.name, request.save.detach, request.save.toProject)
             is SettingsRequest.SaveConnection -> editor.savePrinterConnection(request.settings, request.name)
             SettingsRequest.Delete -> editor.deletePreset(kind, answers)
         }

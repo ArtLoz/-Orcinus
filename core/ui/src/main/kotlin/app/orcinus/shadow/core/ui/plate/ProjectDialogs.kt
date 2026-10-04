@@ -28,6 +28,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.PresetChangesAnswer
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNameOutcome
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.ProjectPrompt
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
@@ -106,6 +107,7 @@ fun ProjectPresetChangesDialog(
     val naming = prompt.presets.filterNot { it.canOverwrite }
     var saving by rememberSaveable { mutableStateOf(false) }
     var names by rememberSaveable { mutableStateOf(mapOf<PresetKind, String>()) }
+    var toProject by rememberSaveable { mutableStateOf(mapOf<PresetKind, Boolean>()) }
     var remember by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { onAnswer(null, false) },
@@ -169,18 +171,21 @@ fun ProjectPresetChangesDialog(
             kind = next.kind,
             suggestedName = if (next.saveNameCopySuffix) "${next.saveName} - $copy" else next.saveName,
             checkName = { name -> checkName(next.kind, name) },
-            onSave = { name ->
-                val chosen = names + (next.kind to name)
+            onSave = { save ->
+                val chosen = names + (next.kind to save.name)
+                val inProject = toProject + (next.kind to save.toProject)
                 names = chosen
+                toProject = inProject
                 if (naming.all { it.kind in chosen }) {
                     saving = false
-                    onAnswer(PresetChangesAnswer.Save(chosen), remember)
+                    onAnswer(PresetChangesAnswer.Save(chosen.mapValues { (kind, name) -> PresetSave(name, inProject[kind] == true) }), remember)
                 }
             },
             onDismiss = {
                 // SavePresetDialog's Cancel: nothing is saved, the dialog stays.
                 saving = false
                 names = emptyMap()
+                toProject = emptyMap()
             },
         )
     }

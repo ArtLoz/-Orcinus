@@ -1150,9 +1150,12 @@ struct PresetState {
     // The changes can be moved to the preset that is selected (the dialog's
     // Transfer button, which a printer and a filament of another type lack).
     bool can_transfer{false};
-    // The name its Save button suggests (SavePresetDialog::Item::Item()).
+    // The name its Save button suggests (SavePresetDialog::Item::Item()), and
+    // whether the preset is saved under its own name without asking one
+    // (UnsavedChangesDialog::save(): Preset::can_overwrite()).
     std::string save_name;
     bool save_name_copy_suffix{false};
+    bool save_can_overwrite{false};
     // The plate types the selected printer model supports, curr_bed_type's
     // values with their labels, as the sidebar's plate type combo box and
     // PlateSettingsDialog list them; none for a printer of another vendor
@@ -3558,14 +3561,21 @@ struct PresetNameValidation {
     std::string message;
     PresetNameCheck check{PresetNameCheck::invalid};
     std::vector<UiText> info;
+    // SavePresetDialog's "User Preset" / "Preset Inside Project": a preset of
+    // that name decides it (and the choice is disabled); otherwise it opens on
+    // where the edited preset is.
+    bool existing{false};
+    bool existing_in_project{false};
+    bool edited_in_project{false};
 };
 
 PresetNameValidation check_preset_name(PresetKind kind, const std::string& name);
 
-// SavePresetDialog's OK and Tab::save_preset(): the edited preset is saved as a
-// user preset with name, replacing a user preset of that name, and becomes the
-// selection.
-PresetSettings save_preset(PresetKind kind, const std::string& name);
+// SavePresetDialog's OK and Tab::save_preset(): the edited preset is saved as
+// name, replacing a user preset of that name, and becomes the selection. A new
+// preset goes into the project with save_to_project ("Preset Inside
+// Project"), and loses its parent with detach ("Detach from parent").
+PresetSettings save_preset(PresetKind kind, const std::string& name, bool detach = false, bool save_to_project = false);
 
 // Tab::delete_preset() for the selected user preset, which asks first; another
 // preset is selected.

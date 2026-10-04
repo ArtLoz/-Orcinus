@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.text.input.KeyboardType
+import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
 import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
@@ -52,6 +54,7 @@ import app.orcinus.shadow.core.model.PresetNameCheck
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNameValidation
 import app.orcinus.shadow.core.model.PresetNamesOutcome
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
@@ -167,27 +170,37 @@ fun SavePresetDialog(
     kind: PresetKind,
     suggestedName: String,
     checkName: suspend (String) -> PresetNameOutcome,
-    onSave: (String) -> Unit,
+    onSave: (PresetSave) -> Unit,
     onDismiss: () -> Unit,
+    /** The tab's mode is the developer mode (comDevelop): "Detach from parent" is offered. */
+    developer: Boolean = false,
 ) {
     val colors = OrcaTheme.colors
     var name by rememberSaveable { mutableStateOf(suggestedName) }
     var validation by remember { mutableStateOf<PresetNameValidation?>(null) }
     var checkedName by remember { mutableStateOf<String?>(null) }
+    // m_save_to_project, which opens on where the edited preset is, and m_detach.
+    var toProject by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var detach by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(name) {
         // SavePresetDialog::Item::update() runs on every change of the text.
         delay(CHECK_DELAY_MILLIS)
-        validation = when (val outcome = checkName(name)) {
+        val checked = when (val outcome = checkName(name)) {
             is PresetNameOutcome.Success -> outcome.validation
             is PresetNameOutcome.Failure -> PresetNameValidation(PresetNameCheck.INVALID, listOf(OrcaText(outcome.message)))
         }
+        if (toProject == null) toProject = checked.editedInProject
+        // A preset of that name decides where the preset goes, and keeps it so.
+        if (checked.existing) toProject = checked.existingInProject
+        validation = checked
         checkedName = name
     }
     val current = validation.takeIf { checkedName == name }
     val canSave = current != null && current.check != PresetNameCheck.INVALID
+    val save = { onSave(PresetSave(name, toProject == true, detach)) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { OrcaButton(orcaString("OK"), onClick = { onSave(name) }, enabled = canSave) },
+        confirmButton = { OrcaButton(orcaString("OK"), onClick = save, enabled = canSave) },
         dismissButton = { OrcaButton(orcaString("Cancel"), onClick = onDismiss, style = OrcaButtonStyle.Regular) },
         title = { Text(orcaString("Save preset"), style = OrcaTheme.typography.head16) },
         text = {
@@ -200,7 +213,7 @@ fun SavePresetDialog(
                         .fillMaxWidth()
                         .padding(top = 8.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { if (canSave) onSave(name) }),
+                    keyboardActions = KeyboardActions(onDone = { if (canSave) save() }),
                 )
                 current?.info?.takeIf { it.isNotEmpty() }?.let { info ->
                     Text(
@@ -214,6 +227,22 @@ fun SavePresetDialog(
                             .verticalScroll(rememberScrollState()),
                     )
                 }
+                // ORCA RadioGroup: where the preset is saved.
+                val radioEnabled = current?.existing != true
+                SaveRadio(orcaString("User Preset"), selected = toProject != true, enabled = radioEnabled) { toProject = false }
+                SaveRadio(orcaString("Preset Inside Project"), selected = toProject == true, enabled = radioEnabled) { toProject = true }
+                if (developer) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = detach, role = Role.Checkbox, onValueChange = { detach = it })
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OrcaCheckBox(checked = detach, onCheckedChange = null)
+                        Text(orcaString("Detach from parent"), style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
             }
         },
         containerColor = colors.window,
@@ -221,6 +250,21 @@ fun SavePresetDialog(
         textContentColor = colors.text,
         shape = OrcaTheme.shapes.window,
     )
+}
+
+/** A choice of SavePresetDialog's RadioGroup. */
+@Composable
+private fun SaveRadio(text: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OrcaRadioButton(selected = selected, onClick = null, enabled = enabled)
+        Text(text, color = if (enabled) OrcaTheme.colors.text else OrcaTheme.colors.textDisabled, style = OrcaTheme.typography.body14)
+    }
 }
 
 /**

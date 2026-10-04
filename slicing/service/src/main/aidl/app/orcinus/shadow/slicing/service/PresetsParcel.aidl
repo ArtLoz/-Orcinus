@@ -30,4 +30,5 @@ parcelable PresetsParcel {
     boolean canTransfer;
     @nullable String saveName;
     boolean saveNameCopySuffix;
+    boolean saveCanOverwrite;
 }

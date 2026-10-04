@@ -79,6 +79,7 @@ import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNamesOutcome
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.PresetTransfer
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
@@ -374,6 +375,7 @@ class SelectPresetUseCase(
                                 canTransfer = outcome.canTransfer,
                                 saveName = outcome.saveName,
                                 saveNameCopySuffix = outcome.saveNameCopySuffix,
+                                saveCanOverwrite = outcome.saveCanOverwrite,
                             ),
                         )
                     }
@@ -405,10 +407,10 @@ class SelectPresetUseCase(
     }
 
     /**
-     * Its Save button: the changes are saved under [name], which leaves the
+     * Its Save button: the changes are saved as [save] says, which leaves the
      * preset unmodified, and the choice that waits runs.
      */
-    fun save(name: String) {
+    fun save(save: PresetSave) {
         val pending = repository.state.value.presetChange ?: return
         var selection: SlicingProfileSelection? = null
         repository.update { state ->
@@ -419,7 +421,7 @@ class SelectPresetUseCase(
         }
         val before = selection ?: return
         applicationScope.launch {
-            settingsTabs.save(pending.kind, name)
+            settingsTabs.save(pending.kind, save)
             select(pending.choice, PresetChangeAction.DISCARD, before)
         }
     }
@@ -441,6 +443,7 @@ class SelectPresetUseCase(
                         canTransfer = outcome.canTransfer,
                         saveName = outcome.saveName,
                         saveNameCopySuffix = outcome.saveNameCopySuffix,
+                        saveCanOverwrite = outcome.saveCanOverwrite,
                     ),
                 )
             }

@@ -2569,8 +2569,9 @@ class NativeSlicerEngine(context: Context) :
         NativeBindings.checkPresetName(kind.native, name).toOutcome()
     }
 
-    override suspend fun savePreset(kind: PresetKind, name: String): PresetSettingsOutcome = whenReady(PresetSettingsOutcome::Failure) {
-        NativeBindings.savePreset(kind.native, name).toOutcome()
+    override suspend fun savePreset(kind: PresetKind, name: String, detach: Boolean, saveToProject: Boolean): PresetSettingsOutcome =
+        whenReady(PresetSettingsOutcome::Failure) {
+        NativeBindings.savePreset(kind.native, name, detach, saveToProject).toOutcome()
     }
 
     override suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean>): PresetSettingsOutcome =
@@ -2612,6 +2613,7 @@ class NativeSlicerEngine(context: Context) :
                 canTransfer = canTransfer,
                 saveName = saveName,
                 saveNameCopySuffix = saveNameCopySuffix,
+                saveCanOverwrite = saveCanOverwrite,
             )
         }
         return PresetsOutcome.Success(toPresets())

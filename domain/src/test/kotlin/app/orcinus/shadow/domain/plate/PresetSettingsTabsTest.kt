@@ -20,6 +20,7 @@ import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PresetCreationOutcome
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.LayerRangeId
@@ -616,7 +617,8 @@ class PresetSettingsTabsTest {
 
         override suspend fun checkPresetName(kind: PresetKind, name: String) = PresetNameOutcome.Failure("not used")
 
-        override suspend fun savePreset(kind: PresetKind, name: String) = run(kind, "", SettingsRequest.Save(name), emptyMap())
+        override suspend fun savePreset(kind: PresetKind, name: String, detach: Boolean, saveToProject: Boolean) =
+            run(kind, "", SettingsRequest.Save(PresetSave(name, saveToProject, detach)), emptyMap())
 
         override suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean>) = run(kind, "", SettingsRequest.Delete, answers)
     }

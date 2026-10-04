@@ -100,6 +100,8 @@ sealed interface PresetsOutcome {
         /** The name the dialog's Save button suggests. */
         val saveName: String,
         val saveNameCopySuffix: Boolean,
+        /** Save keeps the preset's own name, [saveName], without asking one. */
+        val saveCanOverwrite: Boolean = false,
     ) : PresetsOutcome
 
     data class Failure(val message: String) : PresetsOutcome

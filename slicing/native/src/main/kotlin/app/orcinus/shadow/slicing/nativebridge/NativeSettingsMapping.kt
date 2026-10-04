@@ -219,6 +219,9 @@ internal fun NativePresetNameValidation.toOutcome(): PresetNameOutcome {
         PresetNameValidation(
             check = PresetNameCheck.entries.getOrElse(check.toInt()) { PresetNameCheck.INVALID },
             info = info.map { it.toText() },
+            existing = existing,
+            existingInProject = existingInProject,
+            editedInProject = editedInProject,
         ),
     )
 }

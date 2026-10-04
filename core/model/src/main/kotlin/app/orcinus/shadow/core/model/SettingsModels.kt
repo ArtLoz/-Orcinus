@@ -531,6 +531,23 @@ data class PresetNameValidation(
     val check: PresetNameCheck,
     /** Why, when the name is not simply valid. */
     val info: List<OrcaText>,
+    /**
+     * SavePresetDialog's "User Preset" / "Preset Inside Project": a preset of
+     * that name decides it ([existingInProject]) and the choice is disabled;
+     * otherwise it opens on where the edited preset is.
+     */
+    val existing: Boolean = false,
+    val existingInProject: Boolean = false,
+    val editedInProject: Boolean = false,
+)
+
+/** SavePresetDialog's OK: the name, and where the preset goes. */
+data class PresetSave(
+    val name: String,
+    /** "Preset Inside Project" rather than "User Preset". */
+    val toProject: Boolean = false,
+    /** "Detach from parent", which the developer mode offers. */
+    val detach: Boolean = false,
 )
 
 sealed interface PresetNameOutcome {
@@ -1359,6 +1376,11 @@ data class PendingPresetChange(
     /** The name the dialog's Save button suggests. */
     val saveName: String,
     val saveNameCopySuffix: Boolean,
+    /**
+     * UnsavedChangesDialog::save(): a preset that can be overwritten is saved
+     * under its own name, [saveName], without SavePresetDialog.
+     */
+    val saveCanOverwrite: Boolean = false,
 )
 
 /** A request to a settings tab, which runs again with the answers to its questions. */
@@ -1393,7 +1415,7 @@ sealed interface SettingsRequest {
     data class EditCustomGcode(val key: String, val gcode: String) : SettingsRequest
 
     /** SavePresetDialog's OK. */
-    data class Save(val name: String) : SettingsRequest
+    data class Save(val save: PresetSave) : SettingsRequest
 
     /**
      * PhysicalPrinterDialog's OK, of the printer tab: the host's [settings] on

@@ -579,7 +579,7 @@ interface ISlicerService {
     );
     OrcaTextParcel[] settingTooltip(String kind, String id);
     PresetNameParcel checkPresetName(String kind, String name);
-    PresetSettingsParcel savePreset(String kind, String name);
+    PresetSettingsParcel savePreset(String kind, String name, boolean detach, boolean saveToProject);
     PresetSettingsParcel deletePreset(String kind, in String[] answerIds, in boolean[] answers);
 
     /** PreferencesDialog: the app configuration's values of the keys. */
