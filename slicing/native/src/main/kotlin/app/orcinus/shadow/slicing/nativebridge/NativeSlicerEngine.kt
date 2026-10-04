@@ -1286,6 +1286,7 @@ class NativeSlicerEngine(context: Context) :
         source: ModelPath,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        objColor: ObjColorChoice?,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -1301,6 +1302,8 @@ class NativeSlicerEngine(context: Context) :
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             outputPrefix = prefix.value,
+            objColorChosen = objColor != null,
+            objColorFilaments = objColor?.clusterFilaments.orEmpty().toIntArray(),
         ).toOutcome()
     }
 

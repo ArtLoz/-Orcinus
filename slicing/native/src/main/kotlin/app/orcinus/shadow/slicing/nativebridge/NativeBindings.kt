@@ -1544,6 +1544,9 @@ internal object NativeBindings {
         filamentProfiles: Array<String>,
         processProfile: String,
         outputPrefix: String,
+        /** ObjColorChoice in orca_engine_adapter.hpp. */
+        objColorChosen: Boolean,
+        objColorFilaments: IntArray,
     ): NativeImportedModels
 
     /** load_volume(): [type] is VolumeType, the step values a StepMeshChoice. */

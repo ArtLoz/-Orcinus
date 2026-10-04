@@ -4082,6 +4082,7 @@ class PlateUseCasesTest {
             source: ModelPath,
             profiles: SlicingProfileSelection,
             prefix: ScenePath,
+            objColor: ObjColorChoice?,
         ): ModelLoadOutcome {
             reloads += Reload(index, volumes, source)
             return reload

@@ -5084,6 +5084,38 @@ TEST_CASE("Reload from disk gives a volume the mesh its file has now", "[Adapter
         CHECK(object.volume_origin.mesh_offset[0] == Catch::Approx(10.0));
         CHECK(object.volume_input_file == changed);
     }
+    SECTION("a file of the volume's name with colours asks ObjColorDialog, and its answer paints the volume")
+    {
+        const fs::path folder = fs::path(device_dir) / "tmp" / "reload-colored";
+        fs::remove_all(folder);
+        fs::create_directories(folder);
+        // The cube with red vertices at the bottom and blue ones at the top.
+        std::string obj;
+        std::istringstream cube(cube_obj(20.0));
+        std::string line;
+        while (std::getline(cube, line)) {
+            if (line.rfind("v ", 0) == 0) {
+                line += line.substr(line.rfind(' ') + 1) == "20" ? " 0 0 1" : " 1 0 0";
+            }
+            obj += line + "\n";
+        }
+        const std::string changed = (folder / "20mm_cube.obj").string();
+        write_text(changed, obj);
+
+        const orca::ImportedModels asked = orca::reload_volumes(plate, 0, {0}, changed, k2_plus_profiles(), import_prefix("reload-asked"));
+        INFO(asked.message);
+        REQUIRE(asked.obj_colors);
+        CHECK(asked.obj_color.cluster_colors.size() == 2);
+        orca::ObjColorChoice choice;
+        choice.chosen = true;
+        choice.cluster_filaments = {1, 2};
+        const orca::ImportedModels reloaded =
+            orca::reload_volumes(plate, 0, {0}, changed, k2_plus_profiles(), import_prefix("reload-painted"), choice);
+        INFO(reloaded.message);
+        REQUIRE(reloaded.objects.size() == 1);
+        CHECK_FALSE(reloaded.objects.front().painted.empty());
+        orca::release_obj_colors();
+    }
     SECTION("a file of another name reloads nothing")
     {
         const orca::ImportedModels other =

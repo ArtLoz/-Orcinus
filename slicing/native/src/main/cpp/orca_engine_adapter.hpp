@@ -2882,13 +2882,17 @@ ImportedModels move_volume(
 // sunk, its volumes sorted as order_volumes says. failed names the volumes
 // the file has nothing for. A file that cannot be read fails the call. The
 // object is written as import_model() writes objects when a volume changed.
+// An OBJ file with colours waits for ObjColorDialog (obj_colors) until
+// obj_color holds its answer; its colours stay kept for the reload's other
+// objects until release_obj_colors().
 ImportedModels reload_volumes(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,
     const std::vector<int>& volume_indices,
     const std::string& source_path,
     const ProfileSelection& profiles,
-    const std::string& output_prefix
+    const std::string& output_prefix,
+    const ObjColorChoice& obj_color = {}
 );
 
 // ObjectList::load_shape_object() and load_mesh_object(): a shape of

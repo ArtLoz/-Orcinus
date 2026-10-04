@@ -6168,7 +6168,8 @@ ImportedModels reload_volumes(
     const std::vector<int>& volume_indices,
     const std::string& source_path,
     const ProfileSelection& profiles,
-    const std::string& output_prefix
+    const std::string& output_prefix,
+    const ObjColorChoice& obj_color
 )
 {
     using namespace Slic3r;
@@ -6207,8 +6208,15 @@ ImportedModels reload_volumes(
                 new_model = Model::read_from_step(path, LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel, nullptr, nullptr, nullptr, linear,
                                                   angle, is_split);
             } else {
+                // reload_from_disk()'s obj_color_fun: ObjColorDialog for an OBJ file with colours.
+                ObjImportColorFn obj_color_fun;
+                if (boost::iends_with(path, ".obj")) {
+                    const auto* colours = engine().bundle->project_config.option<ConfigOptionStrings>("filament_colour");
+                    const std::string first = colours != nullptr && !colours->values.empty() ? colours->values.front() : std::string();
+                    obj_color_fun = detail::obj_color_function(path, first, obj_color);
+                }
                 new_model = Model::read_from_file(path, nullptr, nullptr, LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel, &plate_data,
-                                                  &project_presets);
+                                                  &project_presets, nullptr, nullptr, nullptr, nullptr, nullptr, 0, obj_color_fun);
             }
 
             for (ModelObject* model_object : new_model.objects) {
@@ -6340,6 +6348,11 @@ ImportedModels reload_volumes(
                 return result;
             }
         }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const detail::ObjColorPending& pending) {
+        result.obj_colors = true;
+        result.obj_color = pending.question;
         result.status = SceneStatus::success;
         return result;
     } catch (const std::exception& error) {

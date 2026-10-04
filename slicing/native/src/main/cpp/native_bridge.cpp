@@ -3849,11 +3849,18 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_reloadVolumes(
     jstring filament_profile,
     jobjectArray filament_profiles,
     jstring process_profile,
-    jstring output_prefix
+    jstring output_prefix,
+    jboolean obj_color_chosen,
+    jintArray obj_color_filaments
 )
 {
     std::vector<int> indices(static_cast<std::size_t>(env->GetArrayLength(volumes)));
     env->GetIntArrayRegion(volumes, 0, static_cast<jsize>(indices.size()), reinterpret_cast<jint*>(indices.data()));
+    orcinus::orca::ObjColorChoice obj_color;
+    obj_color.chosen = obj_color_chosen == JNI_TRUE;
+    for (const std::int32_t filament : to_ints(env, obj_color_filaments)) {
+        obj_color.cluster_filaments.push_back(filament);
+    }
     return to_java(
         env,
         orcinus::orca::reload_volumes(
@@ -3862,7 +3869,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_reloadVolumes(
             indices,
             to_utf8(env, source_path),
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
-            to_utf8(env, output_prefix)
+            to_utf8(env, output_prefix),
+            obj_color
         )
     );
 }

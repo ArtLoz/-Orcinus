@@ -270,14 +270,15 @@ interface ISlicerService {
         in ProfilesParcel profiles,
         String prefix
     );
-    /** reload_volumes() */
+    /** reload_volumes(): objColorFilaments null while ObjColorDialog has not answered. */
     ModelLoadParcel reloadVolumes(
         in PlacedModelParcel[] plate,
         int index,
         in int[] volumes,
         String source,
         in ProfilesParcel profiles,
-        String prefix
+        String prefix,
+        in @nullable int[] objColorFilaments
     );
     /** load_volume(): type is VolumeType's name. */
     ModelLoadParcel loadVolume(

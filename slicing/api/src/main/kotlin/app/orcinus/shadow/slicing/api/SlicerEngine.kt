@@ -361,7 +361,8 @@ interface PlateInspector {
      * the [volumes] (ModelObject::volumes) of the object at [index] that came
      * from a file of its name or are named after it; the engine writes the
      * object anew, named after [prefix], when one changed, and names the
-     * volumes the file had nothing for (ModelLoadOutcome.Success.failed).
+     * volumes the file had nothing for (ModelLoadOutcome.Success.failed). An
+     * OBJ file with colours waits for ObjColorDialog until [objColor] answers it.
      */
     suspend fun reloadVolumes(
         plate: List<PlacedModel>,
@@ -370,6 +371,7 @@ interface PlateInspector {
         source: ModelPath,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        objColor: ObjColorChoice? = null,
     ): ModelLoadOutcome = ModelLoadOutcome.Failure("Reloading volumes from a file is not supported")
 
     /**

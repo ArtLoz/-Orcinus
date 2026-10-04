@@ -655,8 +655,17 @@ abstract class SlicerService<E> : Service()
             source: String,
             profiles: ProfilesParcel,
             prefix: String,
+            objColorFilaments: IntArray?,
         ): ModelLoadParcel = runBlocking {
-            engine.reloadVolumes(plate.toPlacedModels(), index, volumes.toList(), ModelPath(source), profiles.toProfiles(), ScenePath(prefix))
+            engine.reloadVolumes(
+                plate.toPlacedModels(),
+                index,
+                volumes.toList(),
+                ModelPath(source),
+                profiles.toProfiles(),
+                ScenePath(prefix),
+                objColorFilaments?.let { ObjColorChoice(it.toList()) },
+            )
         }.toParcel()
 
         override fun loadVolume(

@@ -564,6 +564,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sceneFiles,
         plateRepository,
         applicationScope,
+        objColorPrompt,
     )
     val dismissPlateNotice = DismissPlateNoticeUseCase(plateRepository)
     private val dismissPlateProblem = DismissPlateProblemUseCase(plateRepository)

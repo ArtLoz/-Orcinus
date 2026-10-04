@@ -737,8 +737,17 @@ class RemoteSlicerEngine(
         source: ModelPath,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        objColor: ObjColorChoice?,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
-        reloadVolumes(plate.toParcels(), index, volumes.toIntArray(), source.value, profiles.toParcel(), prefix.value).toModelLoadOutcome()
+        reloadVolumes(
+            plate.toParcels(),
+            index,
+            volumes.toIntArray(),
+            source.value,
+            profiles.toParcel(),
+            prefix.value,
+            objColor?.clusterFilaments?.toIntArray(),
+        ).toModelLoadOutcome()
     }
 
     override suspend fun loadVolume(

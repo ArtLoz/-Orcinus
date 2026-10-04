@@ -5,6 +5,7 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
+import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.ReloadPrompt
@@ -48,6 +49,7 @@ class ReloadFromDiskUseCase(
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    private val objColorPrompt: ObjColorPrompt? = null,
 ) {
     private var picked: CompletableDeferred<ExternalDocumentReference?>? = null
     private var replacing: CompletableDeferred<Boolean>? = null
@@ -122,10 +124,17 @@ class ReloadFromDiskUseCase(
                         is ReloadSource.File -> input.path
                         is ReloadSource.Document -> (importModel(input.document) as? ModelImportOutcome.Success)?.model?.path ?: break@reading
                     }
+                    // obj_color_fun: ObjColorDialog once for the file, which every object reads alike.
+                    var objColor: ObjColorChoice? = null
                     for ((index, volumes) in selected.groupBy({ it.first }, { it.second })) {
                         val prefix = sceneFiles.newImportPrefix()
                         val outcome = try {
-                            inspector.reloadVolumes(objects.map { it.placed() }, index, volumes, path, profiles, prefix)
+                            var reloaded = inspector.reloadVolumes(objects.map { it.placed() }, index, volumes, path, profiles, prefix, objColor)
+                            if (reloaded is ModelLoadOutcome.ObjColors) {
+                                objColor = objColorPrompt?.ask(path, reloaded.question) ?: ObjColorChoice()
+                                reloaded = inspector.reloadVolumes(objects.map { it.placed() }, index, volumes, path, profiles, prefix, objColor)
+                            }
+                            reloaded
                         } catch (cancellation: CancellationException) {
                             sceneFiles.deleteImport(prefix)
                             throw cancellation
@@ -185,6 +194,8 @@ class ReloadFromDiskUseCase(
                     )
                 }
             } finally {
+                // The colours kept for ObjColorDialog go with the reload.
+                inspector.releaseObjColors()
                 val changed = objects != plate
                 repository.update { state ->
                     val done = state.copy(editing = false, plateNotices = state.plateNotices + notices)
