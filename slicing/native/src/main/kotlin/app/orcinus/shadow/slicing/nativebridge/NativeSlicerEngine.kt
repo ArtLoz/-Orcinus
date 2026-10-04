@@ -1181,6 +1181,31 @@ class NativeSlicerEngine(context: Context) :
         ).toOutcome()
     }
 
+    override suspend fun moveVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        from: Int,
+        to: Int,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.moveVolume(
+            plate = nativePlate(plate),
+            objectIndex = index,
+            from = from,
+            to = to,
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+        ).toOutcome()
+    }
+
     override suspend fun reloadVolumes(
         plate: List<PlacedModel>,
         index: Int,

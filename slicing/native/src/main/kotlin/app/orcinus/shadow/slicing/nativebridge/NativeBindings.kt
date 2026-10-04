@@ -1485,6 +1485,19 @@ internal object NativeBindings {
         outputPrefix: String,
     ): NativeImportedModels
 
+    /** move_volume(): [from] and [to] index the object's volumes (ModelObject::volumes). */
+    external fun moveVolume(
+        plate: NativePlate,
+        objectIndex: Int,
+        from: Int,
+        to: Int,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativeImportedModels
+
     /** reload_volumes(): [volumes] index the object's volumes (ModelObject::volumes). */
     external fun reloadVolumes(
         plate: NativePlate,

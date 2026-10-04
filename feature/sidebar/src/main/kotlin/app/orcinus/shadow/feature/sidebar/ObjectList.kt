@@ -1,5 +1,25 @@
 package app.orcinus.shadow.feature.sidebar
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.ObjectPart
@@ -81,6 +101,7 @@ import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.domain.plate.canMoveVolume
 
 /** What the object list asks of the app, as OrcaSlicer's object list does of the plater. */
 internal class ObjectListActions(
@@ -150,6 +171,10 @@ internal class ObjectListActions(
     /** switch_to_object_process(), copy_settings_to_clipboard() and paste_settings_into_list() of an item. */
     val editProcessSettings: (SettingsItem) -> Unit = {},
     val copyProcessSettings: (SettingsItem) -> Unit = {},
+    /** ObjectList::can_drop() of an object onto another, and ObjectList::OnDrop() of an object and of a volume. */
+    val canMoveObject: (from: ScenePath, to: ScenePath) -> Boolean = { _, _ -> false },
+    val moveObject: (from: ScenePath, to: ScenePath) -> Unit = { _, _ -> },
+    val moveVolume: (ScenePath, from: Int, to: Int) -> Unit = { _, _, _ -> },
     /** LayerRangeEditor's wxEVT_SET_FOCUS: a field of the selected range takes the focus. */
     val focusRangeField: (LayerRangeEditor) -> Unit = {},
     /** ObjectList::copy_layers_to_clipboard() of a range row, and of the "Layers" row. */
@@ -232,6 +257,8 @@ internal sealed interface RenameRequest {
 internal fun LazyListScope.objectListItems(
     state: SidebarUiState,
     enabled: Boolean,
+    /** The drag of a row onto another, which the list's rows share. */
+    drag: ObjectListDrag,
     /** Several objects are being picked: a tap adds the object or takes it out. */
     picking: Boolean,
     /** The colour of every filament of the plate, which the filament column shows. */
@@ -250,6 +277,20 @@ internal fun LazyListScope.objectListItems(
     /** An item is being renamed: the sidebar asks for the name. */
     onAskRename: (RenameRequest) -> Unit,
 ) {
+    // ObjectList::OnBeginDrag() vetoes a multiple selection; can_drop() and OnDrop().
+    drag.enabled = enabled && !picking && state.selectedInstances.size <= 1
+    drag.canDrop = { row, target ->
+        when {
+            row is DragRow.Object && target is DragRow.Object -> actions.canMoveObject(row.mesh, target.mesh)
+            row is DragRow.Volume && target is DragRow.Volume && row.mesh == target.mesh ->
+                state.objects.firstOrNull { it.mesh == row.mesh }?.canMoveVolume(row.index, target.index) == true
+            else -> false
+        }
+    }
+    drag.onDrop = { row, target ->
+        if (row is DragRow.Object && target is DragRow.Object) actions.moveObject(row.mesh, target.mesh)
+        if (row is DragRow.Volume && target is DragRow.Volume) actions.moveVolume(row.mesh, row.index, target.index)
+    }
     val plateDefinitions = state.plateSettings.tab?.definitions.orEmpty()
     val objectDefinitions = (state.objectSettings.tab ?: state.processSettings.tab)?.definitions.orEmpty()
     val partDefinitions = (state.partSettings.tab ?: state.processSettings.tab)?.definitions.orEmpty()
@@ -273,7 +314,7 @@ internal fun LazyListScope.objectListItems(
             )
         }
         settingsRow(key = "plate:$index", settings = plate.overrides, definitions = plateDefinitions) { actions.selectPlateSettings(index) }
-        objectRows(plate.objects, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
+        objectRows(plate.objects, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, drag, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
     }
     // The outside plate, which the list always has.
     item(key = "objects:outside") {
@@ -285,7 +326,7 @@ internal fun LazyListScope.objectListItems(
             onClick = {},
         )
     }
-    objectRows(state.outsideObjects, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
+    objectRows(state.outsideObjects, state, enabled, picking, filaments, menuFilaments, objectDefinitions, partDefinitions, rangeDefinitions, actions, drag, onChooseShape, onEditRange, onAskNumberOfInstances, onAskClone, onAskRename)
 }
 
 /**
@@ -346,6 +387,7 @@ private fun LazyListScope.objectRows(
     partDefinitions: Map<String, SettingDefinition>,
     rangeDefinitions: Map<String, SettingDefinition>,
     actions: ObjectListActions,
+    drag: ObjectListDrag,
     onChooseShape: (ScenePath, VolumeType) -> Unit,
     onEditRange: (LayerRangeId) -> Unit,
     onAskNumberOfInstances: (ScenePath) -> Unit,
@@ -381,6 +423,7 @@ private fun LazyListScope.objectRows(
                 onClick = { actions.select(ids.first(), picking) },
                 onPrintable = { printable -> actions.setObjectPrintable(mesh, printable) },
                 onLongClick = { actions.selectAlone(ids.first()) },
+                drag = RowDrag(DragRow.Object(mesh), drag),
                 menu = { dismiss ->
                     val name = plateObject.displayName()
                     // ObjectList's in-place rename, which a phone offers from the row's menu.
@@ -453,6 +496,7 @@ private fun LazyListScope.objectRows(
                 ObjectListRow(
                     name = plateObject.volumeName(at),
                     icon = volumeIcon(part),
+                    drag = RowDrag(DragRow.Volume(mesh, at), drag),
                     selected = partId == state.selectedPart,
                     hasSettings = part.settings.categories(partDefinitions).isNotEmpty(),
                     indent = true,
@@ -976,27 +1020,82 @@ private fun ObjectListRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
     onPrintable: (Boolean) -> Unit = {},
+    /** ObjectList::OnBeginDrag(): the row a finger may drag onto another; null for one that stays. */
+    drag: RowDrag? = null,
     menu: @Composable (dismiss: () -> Unit) -> Unit = {},
 ) {
     val colors = OrcaTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
-    val interaction = remember { MutableInteractionSource() }
+    var top by remember { mutableFloatStateOf(0f) }
+    val haptics = LocalHapticFeedback.current
+    val currentClick by rememberUpdatedState(onClick)
+    val currentLongClick by rememberUpdatedState(onLongClick)
+    val currentDrag by rememberUpdatedState(drag)
+    val row = drag?.row
+    val shared = drag?.drag
+    if (row != null && shared != null) {
+        DisposableEffect(row, shared) { onDispose { shared.bounds.remove(row) } }
+    }
+    val dropTarget = row != null && shared?.target == row
     Box(modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(if (selected) colors.accentSelected else Color.Transparent)
-                .combinedClickable(
-                    interactionSource = interaction,
-                    indication = null,
-                    role = Role.Button,
-                    onLongClick = {
-                        // The menu acts on the object it was opened over.
-                        onLongClick()
+                .alpha(if (row != null && shared?.dragged == row) 0.5f else 1f)
+                .background(if (selected || dropTarget) colors.accentSelected else Color.Transparent)
+                .then(if (dropTarget) Modifier.border(2.dp, colors.accent) else Modifier)
+                .onGloballyPositioned { coordinates ->
+                    val bounds = coordinates.boundsInWindow()
+                    top = bounds.top
+                    if (row != null) shared?.bounds?.set(row, bounds)
+                }
+                .semantics {
+                    role = Role.Button
+                    onClick { currentClick(); true }
+                    onLongClick {
+                        currentLongClick()
                         menuOpen = true
-                    },
-                    onClick = onClick,
-                )
+                        true
+                    }
+                }
+                // A tap selects the row and a long press opens its menu, which acts on
+                // the object it was opened over; a row held and moved goes onto the
+                // row it is dropped on (OnBeginDrag(), OnDropPossible(), OnDrop()).
+                .pointerInput(row) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val held = awaitLongPressOrCancellation(down.id)
+                        if (held == null) {
+                            val up = currentEvent.changes.firstOrNull { it.id == down.id }
+                            if (up != null && up.changedToUpIgnoreConsumed() && !up.isConsumed) currentClick()
+                            return@awaitEachGesture
+                        }
+                        currentLongClick()
+                        val dragging = currentDrag?.takeIf { it.drag.enabled }
+                        if (dragging == null) {
+                            menuOpen = true
+                            return@awaitEachGesture
+                        }
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        var moved = false
+                        dragging.drag.dragged = dragging.row
+                        val completed = drag(held.id) { change ->
+                            if (!moved && (change.position - held.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                            if (moved) {
+                                val under = dragging.drag.rowAt(top + change.position.y)
+                                dragging.drag.target = under?.takeIf { it != dragging.row && dragging.drag.canDrop(dragging.row, it) }
+                            }
+                            change.consume()
+                        }
+                        val target = dragging.drag.target
+                        dragging.drag.dragged = null
+                        dragging.drag.target = null
+                        when {
+                            !moved -> menuOpen = true
+                            completed && target != null -> dragging.drag.onDrop(dragging.row, target)
+                        }
+                    }
+                }
                 .heightIn(min = 40.dp)
                 .padding(start = if (deeper) 44.dp else if (indent) 24.dp else 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1061,3 +1160,32 @@ private fun ObjectListRow(
         }
     }
 }
+
+/** A row the list lets a finger drag (ObjectList::OnBeginDrag()): an object, or a volume of one. */
+internal sealed interface DragRow {
+    data class Object(val mesh: ScenePath) : DragRow
+
+    data class Volume(val mesh: ScenePath, val index: Int) : DragRow
+}
+
+/**
+ * The drag of a row of the object list: where the rows stand in the window,
+ * the row a finger holds, and the row under it that it may drop on
+ * (ObjectList::m_dragged_data). The list sets whether rows may be dragged and
+ * the rules of [canDrop] and [onDrop].
+ */
+@Stable
+internal class ObjectListDrag {
+    val bounds = HashMap<DragRow, Rect>()
+    var dragged by mutableStateOf<DragRow?>(null)
+    var target by mutableStateOf<DragRow?>(null)
+    var enabled = true
+    var canDrop: (row: DragRow, target: DragRow) -> Boolean = { _, _ -> false }
+    var onDrop: (row: DragRow, target: DragRow) -> Unit = { _, _ -> }
+
+    /** The row at the height [y] of the window. */
+    fun rowAt(y: Float): DragRow? = bounds.entries.firstOrNull { (_, rect) -> y >= rect.top && y < rect.bottom }?.key
+}
+
+/** A draggable row: which one it is, and the drag the list's rows share. */
+internal class RowDrag(val row: DragRow, val drag: ObjectListDrag)

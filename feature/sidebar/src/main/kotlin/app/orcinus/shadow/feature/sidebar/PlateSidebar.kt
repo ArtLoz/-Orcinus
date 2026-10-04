@@ -17,6 +17,7 @@ import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
 import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
+import app.orcinus.shadow.domain.plate.ObjectOrderUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.ui.settings.PrinterConnectionSheet
@@ -255,6 +256,7 @@ import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
 import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.canDeletePlate
+import app.orcinus.shadow.domain.plate.canMoveObject
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import java.util.Locale
 import kotlinx.coroutines.flow.Flow
@@ -356,6 +358,7 @@ class SidebarViewModel(
     private val selectLayerRange: SelectLayerRangeUseCase,
     private val editLayerRange: EditLayerRangeUseCase,
     private val copyLayerRanges: CopyLayerRangesUseCase,
+    private val objectOrder: ObjectOrderUseCase,
     private val setExtruder: SetExtruderUseCase,
     private val describeFlush: DescribeFlushVolumesUseCase,
     private val setFlush: SetFlushVolumesUseCase,
@@ -512,6 +515,8 @@ class SidebarViewModel(
     suspend fun saveToolpathMaterials(materials: ExportToolpathsUseCase.Materials, document: ExternalDocumentReference?): Boolean =
         exportToolpaths.saveMaterials(materials, document)
 
+    private val plateState = observePlate()
+
     val state: StateFlow<SidebarUiState> = observePlate()
         .map(PlateState::toSidebarUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toSidebarUiState())
@@ -570,6 +575,13 @@ class SidebarViewModel(
     fun focusRangeField(field: LayerRangeEditor) = selectLayerRange.focus(field)
 
     fun copyRange(id: LayerRangeId) = copyLayerRanges(id)
+
+    /** ObjectList::can_drop() of an object onto another, and OnDrop() of an object and of a volume. */
+    fun canMoveObject(from: ScenePath, to: ScenePath) = plateState.value.canMoveObject(from, to)
+
+    fun moveObject(from: ScenePath, to: ScenePath) = objectOrder.moveObject(from, to)
+
+    fun moveVolume(mesh: ScenePath, from: Int, to: Int) = objectOrder.moveVolume(mesh, from, to)
 
     fun copyRanges(mesh: ScenePath) = copyLayerRanges.all(mesh)
 
@@ -1602,6 +1614,9 @@ fun PlateSidebar(
             editProcessSettings = viewModel::editProcessSettings,
             copyProcessSettings = viewModel::copyProcessSettings,
             copyRange = viewModel::copyRange,
+            canMoveObject = viewModel::canMoveObject,
+            moveObject = viewModel::moveObject,
+            moveVolume = viewModel::moveVolume,
             copyRanges = viewModel::copyRanges,
             focusRangeField = viewModel::focusRangeField,
             pasteProcessSettings = viewModel::pasteProcessSettings,
@@ -1827,6 +1842,8 @@ internal fun PlateSidebarContent(
     var pickingColor by rememberSaveable { mutableStateOf<Int?>(null) }
     // The height range whose heights are being edited.
     var editingRange by remember { mutableStateOf<LayerRangeId?>(null) }
+    // The drag of a row of the object list onto another, which its rows share.
+    val rowDrag = remember { ObjectListDrag() }
     // Plater::set_number_of_copies() and ObjectList::rename_item() ask first.
     var askingCopies by remember { mutableStateOf<ScenePath?>(null) }
     var cloning by remember { mutableStateOf<ScenePath?>(null) }
@@ -2051,6 +2068,7 @@ internal fun PlateSidebarContent(
         objectListItems(
             state = state,
             enabled = enabled,
+            drag = rowDrag,
             picking = picking,
             filaments = filamentColors,
             menuFilaments = menuFilaments,

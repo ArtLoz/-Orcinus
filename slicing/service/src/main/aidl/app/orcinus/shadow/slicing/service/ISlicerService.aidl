@@ -237,6 +237,15 @@ interface ISlicerService {
         in ProfilesParcel profiles,
         String prefix
     );
+    /** move_volume() */
+    ModelLoadParcel moveVolume(
+        in PlacedModelParcel[] plate,
+        int index,
+        int from,
+        int to,
+        in ProfilesParcel profiles,
+        String prefix
+    );
     /** reload_volumes() */
     ModelLoadParcel reloadVolumes(
         in PlacedModelParcel[] plate,

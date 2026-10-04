@@ -5128,6 +5128,31 @@ TEST_CASE("A volume selected alone is described by its own sphere and boxes", "[
     CHECK(orca::describe_volume(plate_object_of(object), k2_plus_profiles(), placement, 2).status != orca::SceneStatus::success);
 }
 
+TEST_CASE("A volume dropped on another takes its place", "[Adapter][Edit][MoveVolume]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("move-cube"), {});
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    const orca::ImportedModels with_part = orca::load_volume({plate_object_of(imported.objects.front())}, 0, device_dir + "/data/2x20x10.obj",
+                                                             "2x20x10.obj", orca::VolumeType::part, k2_plus_profiles(), import_prefix("move-part"));
+    REQUIRE(with_part.status == orca::SceneStatus::success);
+    REQUIRE(with_part.objects.front().parts.size() == 1);
+    const std::string block = with_part.objects.front().parts.front().name;
+
+    // ObjectList::OnDrop(): the cube, dropped on the block, follows it.
+    const orca::ImportedModels moved = orca::move_volume({plate_object_of(with_part.objects.front())}, 0, 0, 1, k2_plus_profiles(),
+                                                         import_prefix("move-own"));
+    INFO(moved.message);
+    REQUIRE(moved.status == orca::SceneStatus::success);
+    REQUIRE(moved.objects.size() == 1);
+    REQUIRE(moved.objects.front().parts.size() == 1);
+    CHECK(moved.objects.front().volume_name == block);
+    CHECK(moved.objects.front().parts.front().name != block);
+    CHECK(moved.selected_volume == 1);
+    CHECK(moved.objects.front().instances.front().volume == Catch::Approx(8400.0).margin(0.01));
+}
+
 TEST_CASE("The object's own mesh is deleted and its part takes its place, but not the last solid part", "[Adapter][Edit][DeleteVolume]")
 {
     require_engine();

@@ -100,6 +100,7 @@ import app.orcinus.shadow.domain.plate.MeshBooleanUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObjectMeshRetention
+import app.orcinus.shadow.domain.plate.ObjectOrderUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
@@ -696,6 +697,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         selectLayerRange = selectLayerRange,
         editLayerRange = editLayerRange,
         copyLayerRanges = CopyLayerRangesUseCase(plateRepository),
+        objectOrder = ObjectOrderUseCase(engine, sceneFiles, plateRepository, applicationScope),
         setExtruder = setExtruder,
         describeFlush = DescribeFlushVolumesUseCase(engine, plateRepository),
         setFlush = SetFlushVolumesUseCase(plateRepository),

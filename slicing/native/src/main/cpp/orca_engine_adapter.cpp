@@ -5637,6 +5637,66 @@ ImportedModels mesh_boolean(
     }
 }
 
+ImportedModels move_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    int from,
+    int to,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    using namespace Slic3r;
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        if (object_index >= model.objects.size()) {
+            result.message = "The object is not on the plate";
+            return result;
+        }
+        ModelObject* object = model.objects[object_index];
+        const int volumes = int(object->volumes.size());
+        if (from < 0 || to < 0 || from >= volumes || to >= volumes || from == to) {
+            result.message = "The object has no such volumes";
+            return result;
+        }
+        // ObjectList::OnDrop(): the volumes swap one by one from the dragged one to the target.
+        const int delta = to < from ? -1 : 1;
+        for (int id = from, cnt = 0; cnt < std::abs(from - to); id += delta, ++cnt) {
+            std::swap(object->volumes[std::size_t(id)], object->volumes[std::size_t(id + delta)]);
+        }
+        // Plater::changed_object(): an FFF printer lets the object sink.
+        object->invalidate_bounding_box();
+        object->ensure_on_bed(true);
+        result.selected_volume = to;
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects({object}, output_prefix, result)) {
+            return result;
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.objects.clear();
+        return result;
+    }
+}
+
 ImportedModels reload_volumes(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,

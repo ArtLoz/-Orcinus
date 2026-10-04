@@ -2431,6 +2431,36 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a row dropped on another of its plate or of its kind takes its place`() {
+        fun cubeWith(mesh: String) = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/$mesh.mesh")))))
+        val other = cubeWith("other")
+        val third = cubeWith("third")
+        val repository = FakeRepository(readyState(CUBE, other, third))
+        val order = ObjectOrderUseCase(FakeInspector(), FakeSceneFiles(), repository, scope)
+
+        // ObjectList::OnDrop() of an object: the objects between move by one.
+        order.moveObject(third.mesh, CUBE.mesh)
+        assertEquals(listOf(third.mesh, CUBE.mesh, other.mesh), repository.state.value.objects.map { it.mesh })
+        assertEquals(setOf(PlateInstanceId(third.mesh)), repository.state.value.selectedInstances)
+        assertTrue(repository.state.value.canUndo)
+
+        // can_drop() of volumes: model parts among model parts, modifiers among modifiers.
+        val part = ObjectPart(shape = "Cube", type = VolumeType.PART, mesh = ScenePath("/scene/objects/a.mesh"), placement = Transform3.IDENTITY)
+        val modifier = part.copy(type = VolumeType.MODIFIER, mesh = ScenePath("/scene/objects/m.mesh"))
+        val parts = listOf(part, modifier, part.copy(mesh = ScenePath("/scene/objects/b.mesh")), modifier.copy(mesh = ScenePath("/scene/objects/n.mesh")))
+        val built = CUBE.copy(parts = parts)
+        assertTrue(built.canMoveVolume(3, 1))
+        assertTrue(built.canMoveVolume(4, 2))
+        assertFalse(built.canMoveVolume(2, 3))
+        assertFalse(CUBE.copy(parts = listOf(modifier)).canMoveVolume(0, 1))
+
+        val volumes = FakeRepository(readyState(built))
+        ObjectOrderUseCase(FakeInspector(), FakeSceneFiles(), volumes, scope).moveVolume(built.mesh, 3, 1)
+        assertEquals(listOf("b", "a", "m", "n"), volumes.state.value.objects.single().parts.map { it.mesh.value.substringAfterLast('/').substringBefore('.') })
+        assertEquals(ObjectPartId(built.mesh, 1), volumes.state.value.selectedPart)
+    }
+
+    @Test
     fun `a removed range takes the selection with it and the G-code no longer applies`() {
         val cube = CUBE.copy(layerRanges = listOf(LayerRange(0.0, 2.0), LayerRange(2.0, 4.0)))
         val repository = FakeRepository(

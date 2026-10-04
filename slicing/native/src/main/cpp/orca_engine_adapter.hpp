@@ -2765,6 +2765,21 @@ ImportedModels mesh_boolean(
     const std::string& output_prefix
 );
 
+// ObjectList::OnDrop() of a volume: the volume from (ModelObject::volumes)
+// of the object at object_index takes the place of the volume to, the
+// volumes between moving by one, and the object lands on the bed as
+// changed_object() lets it (sinking allowed). The object is written anew as
+// import_model() writes objects, and selected_volume is the moved one. The
+// app checks first that the volumes may change places (ObjectList::can_drop()).
+ImportedModels move_volume(
+    const std::vector<PlateObject>& plate,
+    std::size_t object_index,
+    int from,
+    int to,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
 // Plater::priv::reload_from_disk() of one file: the file at source_path
 // takes the place of the volumes at volume_indices of the object at
 // object_index whose file (source.input_file) or name is the file's name.

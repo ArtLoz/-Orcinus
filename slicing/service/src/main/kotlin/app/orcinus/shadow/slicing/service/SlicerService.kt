@@ -588,6 +588,17 @@ abstract class SlicerService<E> : Service()
             )
         }.toParcel()
 
+        override fun moveVolume(
+            plate: Array<PlacedModelParcel>,
+            index: Int,
+            from: Int,
+            to: Int,
+            profiles: ProfilesParcel,
+            prefix: String,
+        ): ModelLoadParcel = runBlocking {
+            engine.moveVolume(plate.toPlacedModels(), index, from, to, profiles.toProfiles(), ScenePath(prefix))
+        }.toParcel()
+
         override fun reloadVolumes(
             plate: Array<PlacedModelParcel>,
             index: Int,

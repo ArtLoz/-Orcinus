@@ -324,6 +324,21 @@ interface PlateInspector {
     ): ModelLoadOutcome = ModelLoadOutcome.Failure("Mesh booleans are not supported")
 
     /**
+     * ObjectList::OnDrop() of a volume: the volume [from] (ModelObject::volumes)
+     * of the object at [index] takes the place of the volume [to], the ones
+     * between moving by one; the engine writes the object anew, named after
+     * [prefix], and tells the moved volume.
+     */
+    suspend fun moveVolume(
+        plate: List<PlacedModel>,
+        index: Int,
+        from: Int,
+        to: Int,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+    ): ModelLoadOutcome = ModelLoadOutcome.Failure("Moving a volume is not supported")
+
+    /**
      * Plater::priv::reload_from_disk() of one file: [source] takes the place of
      * the [volumes] (ModelObject::volumes) of the object at [index] that came
      * from a file of its name or are named after it; the engine writes the
