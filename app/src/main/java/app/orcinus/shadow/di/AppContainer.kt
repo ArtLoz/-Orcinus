@@ -1,5 +1,6 @@
 package app.orcinus.shadow.di
 
+import android.app.ActivityManager
 import android.content.Context
 import android.net.wifi.WifiManager
 import app.orcinus.shadow.AndroidAppLanguage
@@ -173,6 +174,7 @@ import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
 import app.orcinus.shadow.domain.plate.TextFontsUseCase
 import app.orcinus.shadow.domain.plate.TextStylesUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.domain.plate.UndoStackMemoryLimit
 import app.orcinus.shadow.domain.plate.UpdateFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.OverhangUpdates
 import app.orcinus.shadow.domain.plate.PlateValidationUpdates
@@ -311,6 +313,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         PlateValidationUpdates(engine, plateRepository, appPreferences, engineLanguage, applicationScope).start()
         // Meshes go once neither the plate, its undo/redo stack nor the clipboard needs them.
         applicationScope.launch { ObjectMeshRetention(plateRepository, sceneFiles).run() }
+        applicationScope.launch {
+            val memory = ActivityManager.MemoryInfo().also { applicationContext.getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
+            UndoStackMemoryLimit(plateRepository, sceneFiles, UndoStackMemoryLimit.limitFor(memory.totalMem)).run()
+        }
         // "Auto backup", and the restore of a project an earlier run left.
         projectBackup.start()
     }

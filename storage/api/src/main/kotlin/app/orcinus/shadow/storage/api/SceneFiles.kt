@@ -35,6 +35,9 @@ interface SceneFiles {
     /** Deletes every object mesh; objects do not outlive the process that placed them. */
     fun deleteAllObjectMeshes()
 
+    /** The size of a file of the scene in bytes, 0 for one that is gone. */
+    fun sizeOf(path: ScenePath): Long = 0
+
     /** A new file for the toolpaths of a slice. */
     fun newToolpaths(): ScenePath
 

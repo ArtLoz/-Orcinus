@@ -1971,6 +1971,28 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `the undo stack lets its oldest snapshots go once its meshes outgrow the limit, but keeps the last one`() {
+        val meshes = (0..3).map { ScenePath("/scene/objects/mesh-$it.mesh") }
+        val snapshots = meshes.map { mesh -> readyState(CUBE.withInspection(INSPECTION.copy(mesh = mesh))).snapshot() }
+        val repository = FakeRepository(readyState(CUBE).copy(history = PlateHistory(undo = snapshots)))
+        val files = object : SceneFiles by FakeSceneFiles() {
+            override fun sizeOf(path: ScenePath) = if (path in meshes) 100L else 0L
+        }
+        val job = scope.launch { UndoStackMemoryLimit(repository, files, limitBytes = 250).run() }
+
+        // 400 bytes held, 250 allowed: the two oldest go.
+        assertEquals(snapshots.drop(2), repository.state.value.history.undo)
+
+        // However large the last snapshot to undo is, it stays.
+        repository.update { it.copy(history = PlateHistory(undo = snapshots.take(1))) }
+        assertEquals(snapshots.take(1), repository.state.value.history.undo)
+        job.cancel()
+
+        assertEquals(1L shl 30, UndoStackMemoryLimit.limitFor(12L shl 30))
+        assertEquals(400L shl 20, UndoStackMemoryLimit.limitFor(4000L shl 20))
+    }
+
+    @Test
     fun `painting is one step of Undo once the tool closes with the object painted otherwise`() {
         val repository = FakeRepository(readyState(CUBE))
         val inspector = FakeInspector()

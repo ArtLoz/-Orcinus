@@ -127,6 +127,50 @@ class ObjectMeshRetention(
     }
 }
 
+/**
+ * UndoRedo::Stack::release_least_recently_used(), which runs once a snapshot is
+ * taken and once the plate moved through the stack: while the stack holds more
+ * than its limit — a tenth of the device's memory, at most 1 GiB
+ * (StackImpl::m_memory_limit) — its oldest snapshot goes; the snapshot just
+ * before the active state stays, as the desktop does not release the last one
+ * to undo. The app keeps the stack's meshes as files, and their size is what
+ * the stack holds.
+ */
+class UndoStackMemoryLimit(
+    private val repository: PlateRepository,
+    private val sceneFiles: SceneFiles,
+    private val limitBytes: Long,
+) {
+    suspend fun run() {
+        repository.state.map { it.history }.distinctUntilChanged().collect(::release)
+    }
+
+    private fun release(history: PlateHistory) {
+        val others = history.redo + listOfNotNull(history.beforeTool)
+        var undo = history.undo
+        // m_snapshots: the undo snapshots, the active state and the redo ones.
+        while (memsize(undo + others) > limitBytes && undo.size + 1 + history.redo.size >= 3 && undo.size > 1) {
+            undo = undo.drop(1)
+        }
+        val released = history.undo.size - undo.size
+        if (released == 0) return
+        repository.update { state ->
+            // The stack moved on meanwhile: the next change of it is judged again.
+            if (state.history.undo.firstOrNull() !== history.undo.first()) return@update state
+            state.copy(history = state.history.copy(undo = state.history.undo.drop(released)))
+        }
+    }
+
+    /** StackImpl::memsize(): every mesh the snapshots hold, once. */
+    private fun memsize(snapshots: List<PlateSnapshot>): Long =
+        snapshots.flatMapTo(HashSet()) { snapshot -> snapshot.objects.flatMap { it.files() } }.sumOf(sceneFiles::sizeOf)
+
+    companion object {
+        /** StackImpl(): min(total_physical_memory() / 10, 1 GiB). */
+        fun limitFor(totalMemoryBytes: Long): Long = minOf(totalMemoryBytes / 10, 1L * 16384 * 65536)
+    }
+}
+
 /** Every mesh file the plate, its history and its clipboard refer to. */
 internal fun PlateState.referencedMeshes(): Set<ScenePath> = buildSet {
     objects.forEach { addAll(it.files()) }

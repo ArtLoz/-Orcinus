@@ -52,6 +52,8 @@ class AppSceneFiles(context: Context) : SceneFiles {
         if (file.parentFile == objects) file.delete()
     }
 
+    override fun sizeOf(path: ScenePath): Long = File(path.value).length()
+
     override fun deleteAllObjectMeshes() {
         objects.listFiles()?.forEach(File::deleteRecursively)
     }
