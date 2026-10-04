@@ -16,6 +16,7 @@ import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -34,6 +35,34 @@ class PrintHostUploaderTest {
         assertEquals("abcdef", request.headers["X-Api-Key"])
         assertEquals("true", request.fields["print"])
         assertEquals("plate.gcode", request.fileName)
+    }
+
+    @Test
+    fun `OctoPrint trusts the printer's HTTPS CA file, Duet does not take one`() {
+        val trusted = mutableListOf<String>()
+        val http = object : HttpClient by FakeHttpClient(Result.success("{}")) {
+            override fun withCaFile(path: String): HttpClient {
+                trusted += path
+                return this
+            }
+        }
+        val ca = mapOf("printhost_cafile" to "/certificates/home.pem")
+
+        runSuspend { PrintHostUploader(http).upload(printer("octoprint", "https://octopi.local", "key", ca), gcode(), "plate.gcode", startPrint = false) }
+        runSuspend { PrintHostUploader(http).test(printer("duet", "duet.local", "", ca)) }
+
+        assertEquals(listOf("/certificates/home.pem"), trusted)
+    }
+
+    @Test
+    fun `a CA file that cannot be read fails the HTTPS request, as curl's CAINFO does`() {
+        val file = File.createTempFile("orcinus", ".pem").also { it.writeText("not a certificate") }
+
+        // The client goes to the IO dispatcher, which runSuspend does not wait for.
+        val answer = runBlocking { UrlConnectionHttpClient().withCaFile(file.path).get("https://127.0.0.1:9/", emptyMap()) }
+
+        assertTrue(answer.exceptionOrNull()?.message.orEmpty().startsWith("Problem with the SSL CA cert"))
+        file.delete()
     }
 
     @Test

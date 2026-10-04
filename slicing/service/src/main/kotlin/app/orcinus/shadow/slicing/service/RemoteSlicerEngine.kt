@@ -1383,11 +1383,11 @@ class RemoteSlicerEngine(
             deletePreset(kind.name, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetSettingsOutcome()
         }
 
-    override suspend fun appConfigValues(keys: List<String>): AppConfigOutcome =
-        remote(AppConfigOutcome::Failure) { appConfigValues(keys.toTypedArray()).toAppConfigOutcome() }
+    override suspend fun appConfigValues(keys: List<String>, section: String): AppConfigOutcome =
+        remote(AppConfigOutcome::Failure) { appConfigValues(keys.toTypedArray(), section).toAppConfigOutcome() }
 
-    override suspend fun setAppConfigValue(key: String, value: String): AppConfigOutcome =
-        remote(AppConfigOutcome::Failure) { setAppConfigValue(key, value).toAppConfigOutcome() }
+    override suspend fun setAppConfigValue(key: String, value: String, section: String): AppConfigOutcome =
+        remote(AppConfigOutcome::Failure) { setAppConfigValue(key, value, section).toAppConfigOutcome() }
 
     override suspend fun recentProjects(): List<String>? = remote({ null }) { recentProjects().toRecentProjects() }
 

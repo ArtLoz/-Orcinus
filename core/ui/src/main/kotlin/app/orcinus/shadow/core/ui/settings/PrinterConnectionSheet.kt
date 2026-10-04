@@ -1,5 +1,7 @@
 package app.orcinus.shadow.core.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +60,7 @@ import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.CloudLoginOutcome
 import app.orcinus.shadow.core.model.CrealityHost
 import app.orcinus.shadow.core.model.ElegooOptions
+import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
@@ -122,6 +125,8 @@ fun PrinterConnectionSheet(
     cloudLogOut: suspend (PhysicalPrinter) -> Unit = {},
     /** Why the printers of the local network cannot be reached, when the system says so. */
     notice: String? = null,
+    /** The Browse button of the HTTPS CA file: the path of the copy the app keeps. */
+    keepCaFile: suspend (ExternalDocumentReference) -> String? = { null },
 ) {
     val colors = OrcaTheme.colors
     var connection by remember { mutableStateOf<PrinterConnection?>(null) }
@@ -156,7 +161,10 @@ fun PrinterConnectionSheet(
             if (loaded == null) {
                 if (problem == null) CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))
             } else {
-                ConnectionForm(loaded, checkName, onSave, onTest, lookup, scanCreality, loadPrinters, discoverFlashforge, CloudActions(cloudLogin, cloudLoggedIn, cloudLogOut))
+                ConnectionForm(
+                    loaded, checkName, onSave, onTest, lookup, scanCreality, loadPrinters, discoverFlashforge,
+                    CloudActions(cloudLogin, cloudLoggedIn, cloudLogOut), keepCaFile,
+                )
             }
         }
     }
@@ -174,6 +182,7 @@ private fun ConnectionForm(
     loadPrinters: suspend (PhysicalPrinter) -> HostPrintersOutcome,
     discoverFlashforge: suspend () -> FlashforgeDiscoveryOutcome,
     cloud: CloudActions,
+    keepCaFile: suspend (ExternalDocumentReference) -> String?,
 ) {
     val colors = OrcaTheme.colors
     val scope = rememberCoroutineScope()
@@ -232,6 +241,12 @@ private fun ConnectionForm(
         settings = next
         // What Test said was about another host; the desktop's message box is gone by now.
         if (key == "host_type" || key == "print_host") tested = null
+    }
+
+    // The Browse button's file dialog ("Open CA certificate file").
+    val caFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch { keepCaFile(ExternalDocumentReference(uri.toString()))?.let { path -> set("printhost_cafile", path) } }
     }
 
     Column(Modifier.padding(horizontal = 16.dp)) {
@@ -401,6 +416,25 @@ private fun ConnectionForm(
                 )
             }
         }
+        // "HTTPS CA File", which Http::ca_file_supported() offers with curl's
+        // OpenSSL as on Android, with its Browse button and the hint under it;
+        // SimplyPrint does not use it.
+        val caFileEnabled = type != PrintHostType.SIMPLYPRINT
+        Field(orcaString("HTTPS CA File"), settings.values["printhost_cafile"].orEmpty(), enabled = caFileEnabled) { set("printhost_cafile", it) }
+        OrcaButton(
+            text = orcaString("Browse") + " ...",
+            onClick = { caFilePicker.launch(arrayOf("*/*")) },
+            style = OrcaButtonStyle.Regular,
+            enabled = caFileEnabled,
+            icon = DesignR.drawable.orca_monitor_signal_strong,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        Text(
+            text = orcaString("HTTPS CA file is optional. It is only needed if you use HTTPS with a self-signed certificate."),
+            color = colors.textSide,
+            style = OrcaTheme.typography.body12,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
         OrcaButton(
             text = orcaString("OK"),
             onClick = { onSave(settings, name) },
@@ -631,6 +665,9 @@ fun SendToPrinterSheet(
     plateBedType: Int = 1,
     /** 3DPrinterOS's session check and the cloud's projects and printer types. */
     loadPrinter3dOsLists: suspend (PhysicalPrinter) -> Printer3dOsListsOutcome = { Printer3dOsListsOutcome.Failure("") },
+    /** The send dialogs' last choices, which OrcaSlicer.conf keeps in its "recent" section. */
+    loadRecent: suspend (List<String>) -> Map<String, String> = { emptyMap() },
+    keepRecent: (Map<String, String>) -> Unit = {},
 ) {
     val colors = OrcaTheme.colors
     var printer by remember { mutableStateOf<PhysicalPrinter?>(null) }
@@ -651,6 +688,18 @@ fun SendToPrinterSheet(
                 val connection = outcome.connection
                 printer = connection.printer(connection.settings.values["print_host"].orEmpty())
                 printerType = connection.printerType
+                // ElegooPrintHostSendDialog::init(): a Centauri opens with the choices it last uploaded with.
+                if (printer?.hostType == PrintHostType.ELEGOO_LINK && printerType in ElegooOptions.PRINTER_TYPES) {
+                    val recent = loadRecent(ELEGOO_KEYS)
+                    fun recentInt(key: String) = recent[key]?.takeIf { it.isNotEmpty() }?.toIntOrNull()
+                    // PrintHostPostUploadAction::StartPrint
+                    recentInt(ElegooOptions.UPLOAD_AND_PRINT_KEY)?.let { startPrint = it == 1 }
+                    elegoo = elegoo.copy(
+                        timeLapse = recentInt(ElegooOptions.TIMELAPSE_KEY)?.let { it != 0 } ?: elegoo.timeLapse,
+                        heatedBedLeveling = recentInt(ElegooOptions.HEATED_BED_LEVELING_KEY)?.let { it != 0 } ?: elegoo.heatedBedLeveling,
+                        bedType = recentInt(ElegooOptions.BED_TYPE_KEY) ?: elegoo.bedType,
+                    )
+                }
             }
             is PrinterConnectionOutcome.Failure -> problem = outcome.message
         }
@@ -696,6 +745,8 @@ fun SendToPrinterSheet(
                     loadSlots = loadFlashforgeSlots,
                     onBack = { flashforge = false },
                     onSend = { options -> onSend(host, startPrint, PrintOptions(flashforge = options)) },
+                    loadRecent = loadRecent,
+                    keepRecent = keepRecent,
                 )
                 return@Column
             }
@@ -756,6 +807,17 @@ fun SendToPrinterSheet(
                         // UploadOptionsDialog, which C3DPrinterOS::upload() opens.
                         cloudOptions = true
                     } else {
+                        // ElegooPrintHostSendDialog::EndModal(wxID_OK) keeps its choices.
+                        if (elegooOptions) {
+                            keepRecent(
+                                mapOf(
+                                    ElegooOptions.UPLOAD_AND_PRINT_KEY to (if (printNow) "1" else "0"),
+                                    ElegooOptions.TIMELAPSE_KEY to (if (elegoo.timeLapse) "1" else "0"),
+                                    ElegooOptions.HEATED_BED_LEVELING_KEY to (if (elegoo.heatedBedLeveling) "1" else "0"),
+                                    ElegooOptions.BED_TYPE_KEY to elegoo.bedType.toString(),
+                                ),
+                            )
+                        }
                         onSend(host, printNow, if (elegooOptions && printNow) PrintOptions(elegoo = elegoo) else PrintOptions())
                     }
                 },
@@ -766,6 +828,14 @@ fun SendToPrinterSheet(
         }
     }
 }
+
+/** The keys ElegooPrintHostSendDialog::init() reads. */
+private val ELEGOO_KEYS = listOf(
+    ElegooOptions.UPLOAD_AND_PRINT_KEY,
+    ElegooOptions.TIMELAPSE_KEY,
+    ElegooOptions.HEATED_BED_LEVELING_KEY,
+    ElegooOptions.BED_TYPE_KEY,
+)
 
 /**
  * CrealityPrintHostSendDialog: the printer's material boxes are read, and every

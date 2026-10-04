@@ -54,6 +54,9 @@ internal fun FlashforgeSendPage(
     loadSlots: suspend (PhysicalPrinter) -> FlashforgeSlotsOutcome,
     onBack: () -> Unit,
     onSend: (FlashforgeOptions) -> Unit,
+    /** The switches OrcaSlicer.conf keeps in "recent" (CONFIG_KEY_*). */
+    loadRecent: suspend (List<String>) -> Map<String, String> = { emptyMap() },
+    keepRecent: (Map<String, String>) -> Unit = {},
 ) {
     val colors = OrcaTheme.colors
     // FilamentInfo of the slice: the filaments it prints with.
@@ -68,8 +71,15 @@ internal fun FlashforgeSendPage(
         val answer = loadSlots(printer)
         outcome = answer
         if (answer is FlashforgeSlotsOutcome.Success) {
-            // init(): IFS is on when the printer supports it.
+            // init(): the levelling and the time-lapse the last upload chose; IFS is on
+            // when the printer supports it, which a stale "0" does not turn off.
+            val recent = loadRecent(listOf(FlashforgeOptions.LEVELING_KEY, FlashforgeOptions.TIMELAPSE_KEY, FlashforgeOptions.IFS_KEY))
+            recent[FlashforgeOptions.LEVELING_KEY]?.takeIf { it.isNotEmpty() }?.let { leveling = it == "1" }
+            recent[FlashforgeOptions.TIMELAPSE_KEY]?.takeIf { it.isNotEmpty() }?.let { timeLapse = it == "1" }
             useStation = answer.supportsMaterialStation
+            if (answer.supportsMaterialStation && recent[FlashforgeOptions.IFS_KEY].isNullOrEmpty()) {
+                keepRecent(mapOf(FlashforgeOptions.IFS_KEY to "1"))
+            }
             assigned = FlashforgeSend.autoAssign(used, answer.slots)
         }
     }
@@ -162,6 +172,14 @@ internal fun FlashforgeSendPage(
                             if (invalidMessage != null) {
                                 problem = invalidMessage
                             } else {
+                                // EndModal(wxID_OK) keeps the switches.
+                                keepRecent(
+                                    mapOf(
+                                        FlashforgeOptions.LEVELING_KEY to (if (leveling) "1" else "0"),
+                                        FlashforgeOptions.TIMELAPSE_KEY to (if (timeLapse) "1" else "0"),
+                                        FlashforgeOptions.IFS_KEY to (if (useStation) "1" else "0"),
+                                    ),
+                                )
                                 onSend(
                                     FlashforgeOptions(
                                         levelingBeforePrint = leveling,

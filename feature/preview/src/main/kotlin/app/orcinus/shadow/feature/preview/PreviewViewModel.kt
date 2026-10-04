@@ -36,11 +36,13 @@ import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.allPlatesStats
 import app.orcinus.shadow.domain.preferences.AppPreferences
+import app.orcinus.shadow.domain.preferences.RecentSendChoicesUseCase
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 data class PreviewUiState(
     /** The printer's plate for the 3D view; null until the engine described it. */
@@ -87,6 +89,8 @@ class PreviewViewModel(
     private val editLayerGcodes: EditLayerGcodesUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
+    /** The send dialogs' choices OrcaSlicer.conf keeps in "recent". */
+    private val recentSendChoices: RecentSendChoicesUseCase? = null,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -144,6 +148,15 @@ class PreviewViewModel(
 
     /** FlashforgePrintHostSendDialog: the slots of the printer's material station. */
     suspend fun flashforgeSlots(printer: PhysicalPrinter): FlashforgeSlotsOutcome = sendGcode.flashforgeSlots(printer)
+
+    /** The choices a send dialog opens with (init()). */
+    suspend fun recentSendChoices(keys: List<String>): Map<String, String> = recentSendChoices?.get(keys).orEmpty()
+
+    /** The choices a send dialog keeps when it uploads (EndModal(wxID_OK)); written after the sheet is gone. */
+    fun keepSendChoices(values: Map<String, String>) {
+        val choices = recentSendChoices ?: return
+        viewModelScope.launch { choices.set(values) }
+    }
 
     suspend fun printer3dOsLists(printer: PhysicalPrinter): Printer3dOsListsOutcome = sendGcode.printer3dOsLists(printer)
 

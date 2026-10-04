@@ -3041,9 +3041,9 @@ class PlateUseCasesTest {
     private class FakeAppConfig(values: Map<String, String>) : AppConfigStore {
         val values = mutableMapOf(AppConfigKeys.PROJECT_LOAD_BEHAVIOUR to AppConfigKeys.ASK_WHEN_RELEVANT) + values
 
-        override suspend fun appConfigValues(keys: List<String>) = AppConfigOutcome.Success(keys.associateWith { values[it].orEmpty() })
+        override suspend fun appConfigValues(keys: List<String>, section: String) = AppConfigOutcome.Success(keys.associateWith { values[it].orEmpty() })
 
-        override suspend fun setAppConfigValue(key: String, value: String) = AppConfigOutcome.Success(mapOf(key to value))
+        override suspend fun setAppConfigValue(key: String, value: String, section: String) = AppConfigOutcome.Success(mapOf(key to value))
     }
 
     /** The Preferences as the engine reports them once it has started. */

@@ -66,6 +66,14 @@ class PrintHostUploader(
     private val elegoo = ElegooLink(http, webSocket, elegooStartDelayMillis)
 
     /**
+     * The hosts' set_auth(): OctoPrint and the hosts built on it, Moonraker,
+     * Repetier, CrealityPrint and Obico trust the printer's HTTPS CA file
+     * (printhost_cafile) when it has one.
+     */
+    private fun httpFor(printer: PhysicalPrinter): HttpClient =
+        if (printer.caFile.isNotEmpty() && printer.hostType in CA_FILE_HOSTS) http.withCaFile(printer.caFile) else http
+
+    /**
      * [printer] is where it goes, [gcode] what is sent, [name] the name the
      * host stores it under, and [startPrint] whether printing starts at once.
      */
@@ -115,6 +123,7 @@ class PrintHostUploader(
      * firmware info; each answer also has to look like that host's answer.
      */
     suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome {
+        val http = httpFor(printer)
         val type = printer.hostType ?: return PrintHostTestOutcome.Failure("The printer has no host the app can send to")
         if (printer.host.isBlank()) return PrintHostTestOutcome.Failure("The printer has no address")
         return when (type) {
@@ -258,6 +267,7 @@ class PrintHostUploader(
      * upload goes to (printhost_port), which the dialog's Refresh button lists.
      */
     suspend fun printers(printer: PhysicalPrinter): HostPrintersOutcome {
+        val http = httpFor(printer)
         if (printer.hostType == PrintHostType.OBICO) return obicoPrinters(printer)
         if (printer.hostType != PrintHostType.REPETIER) return HostPrintersOutcome.Success(emptyList())
         val body = http.get(makeUrl(printer.host, "printer/list"), authHeaders(printer))
@@ -276,6 +286,7 @@ class PrintHostUploader(
      * carry an "api" field and a text that names the host.
      */
     private suspend fun versionTest(printer: PhysicalPrinter, names: List<String>, auth: HttpAuth?): PrintHostTestOutcome {
+        val http = httpFor(printer)
         val body = http.get(makeUrl(printer.host, "api/version"), authHeaders(printer), auth = auth)
             .getOrElse { return PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) }
         val version = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
@@ -323,6 +334,7 @@ class PrintHostUploader(
         options: PrintOptions,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
+        val http = httpFor(printer)
         val headers = bearer(printer)
         val info = http.get(makeUrl(printer.host, "info"), headers).getOrElse { return failure(it) }
         val model = runCatching { Json.parseToJsonElement(info).jsonObject["model"]?.jsonPrimitive?.contentOrNull }.getOrNull()
@@ -352,6 +364,7 @@ class PrintHostUploader(
         startPrint: Boolean,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
+        val http = httpFor(printer)
         val response = http.postMultipart(
             url = makeUrl(printer.host, "api/files/local"),
             headers = authHeaders(printer),
@@ -375,6 +388,7 @@ class PrintHostUploader(
         startPrint: Boolean,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
+        val http = httpFor(printer)
         val upload = http.postMultipart(
             url = makeUrl(printer.host, "server/files/upload"),
             headers = authHeaders(printer),
@@ -413,6 +427,7 @@ class PrintHostUploader(
         onProgress: ((sent: Long, total: Long) -> Unit)?,
         connect: Boolean,
     ): PrintHostUploadOutcome {
+        val http = httpFor(printer)
         val version = http.get(makeUrl(printer.host, "api/version"), authHeaders(printer), auth = login(printer))
             .getOrElse { return failure(it) }
         val usePut = runCatching {
@@ -463,6 +478,7 @@ class PrintHostUploader(
      * without a token there is nothing to test, and the dialog logs in.
      */
     private suspend fun obicoTest(printer: PhysicalPrinter): PrintHostTestOutcome {
+        val http = httpFor(printer)
         if (printer.apiKey.isEmpty()) return PrintHostTestOutcome.Failure("")
         return http.get(ObicoHost.url(printer.host, "api/v1/version/"), obicoAuth(printer)).fold(
             onSuccess = { PrintHostTestOutcome.Success("") },
@@ -476,6 +492,7 @@ class PrintHostUploader(
      * it cannot read is reported.
      */
     private suspend fun obicoPrinters(printer: PhysicalPrinter): HostPrintersOutcome {
+        val http = httpFor(printer)
         val body = http.get(ObicoHost.url(printer.host, "api/v1/printers/"), obicoAuth(printer))
             .getOrElse { return HostPrintersOutcome.Success(emptyList()) }
         val answer = runCatching { Json.parseToJsonElement(body) }.getOrNull()
@@ -502,6 +519,7 @@ class PrintHostUploader(
         startPrint: Boolean,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
+        val http = httpFor(printer)
         val tested = obicoTest(printer)
         if (tested is PrintHostTestOutcome.Failure) return PrintHostUploadOutcome.Failure(tested.message)
         val answer = http.postMultipart(
@@ -610,6 +628,7 @@ class PrintHostUploader(
         startPrint: Boolean,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
+        val http = httpFor(printer)
         val port = printer.port
         val path = if (startPrint) "printer/job/" + port else "printer/model/" + port
         val fields = buildMap {
@@ -845,6 +864,19 @@ class PrintHostUploader(
 
         /** Http::url_encode(): the name as one segment of the path. */
         fun urlEncoded(name: String): String = URLEncoder.encode(name, Charsets.UTF_8).replace("+", "%20")
+
+        /** The hosts whose requests take Http::ca_file(m_cafile); ElegooLink's other printers go through OctoPrint. */
+        private val CA_FILE_HOSTS = setOf(
+            PrintHostType.OCTOPRINT,
+            PrintHostType.PRUSA_LINK,
+            PrintHostType.PRUSA_CONNECT,
+            PrintHostType.ASTROBOX,
+            PrintHostType.REPETIER,
+            PrintHostType.MOONRAKER,
+            PrintHostType.CREALITY_PRINT,
+            PrintHostType.OBICO,
+            PrintHostType.ELEGOO_LINK,
+        )
 
         /** OctoPrint::make_url(): a host without a scheme is reached over http. */
         fun makeUrl(host: String, path: String): String {

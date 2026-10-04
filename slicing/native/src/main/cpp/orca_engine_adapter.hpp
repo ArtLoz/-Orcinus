@@ -3598,11 +3598,11 @@ struct AppConfigValues {
     std::vector<std::string> values;
 };
 
-AppConfigValues app_config_values(const std::vector<std::string>& keys);
+AppConfigValues app_config_values(const std::vector<std::string>& keys, const std::string& section = "app");
 
 // An item of PreferencesDialog: AppConfig::set() and save(), which reports the
 // value the key has after it. A new log level applies at once.
-AppConfigValues set_app_config_value(const std::string& key, const std::string& value);
+AppConfigValues set_app_config_value(const std::string& key, const std::string& value, const std::string& section = "app");
 
 // MainFrame's recent projects as OrcaSlicer.conf keeps them
 // (AppConfig::get_recent_projects()), the most recent first.

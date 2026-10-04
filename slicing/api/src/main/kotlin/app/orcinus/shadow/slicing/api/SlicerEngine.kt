@@ -765,11 +765,22 @@ interface PlateInspector {
  * the engine keeps and saves with the presets (OrcaSlicer.conf).
  */
 interface AppConfigStore {
-    /** AppConfig::get() of every key, its default where it was never set. */
-    suspend fun appConfigValues(keys: List<String>): AppConfigOutcome
+    /**
+     * AppConfig::get() of every key, its default where it was never set; of
+     * another [section] than "app", such as the "recent" choices of the send
+     * dialogs, AppConfig::get(section, key).
+     */
+    suspend fun appConfigValues(keys: List<String>, section: String = APP_SECTION): AppConfigOutcome
 
     /** AppConfig::set() and save(): the value the key has afterwards. */
-    suspend fun setAppConfigValue(key: String, value: String): AppConfigOutcome
+    suspend fun setAppConfigValue(key: String, value: String, section: String = APP_SECTION): AppConfigOutcome
+
+    companion object {
+        const val APP_SECTION = "app"
+
+        /** The section the send dialogs keep their last choices in. */
+        const val RECENT_SECTION = "recent"
+    }
 
     /**
      * AppConfig::get_recent_projects(): MainFrame's recent projects as

@@ -3177,15 +3177,21 @@ jobject to_java(JNIEnv* env, const orcinus::orca::AppConfigValues& values)
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_appConfigValues(JNIEnv* env, jobject /* this */, jobjectArray keys)
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_appConfigValues(JNIEnv* env, jobject /* this */, jobjectArray keys, jstring section)
 {
-    return to_java(env, orcinus::orca::app_config_values(to_strings(env, keys)));
+    return to_java(env, orcinus::orca::app_config_values(to_strings(env, keys), to_utf8(env, section)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setAppConfigValue(JNIEnv* env, jobject /* this */, jstring key, jstring value)
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setAppConfigValue(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring key,
+    jstring value,
+    jstring section
+)
 {
-    return to_java(env, orcinus::orca::set_app_config_value(to_utf8(env, key), to_utf8(env, value)));
+    return to_java(env, orcinus::orca::set_app_config_value(to_utf8(env, key), to_utf8(env, value), to_utf8(env, section)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL

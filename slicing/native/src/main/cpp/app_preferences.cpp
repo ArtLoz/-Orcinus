@@ -11,7 +11,7 @@ namespace orcinus::orca {
 
 using detail::engine;
 
-AppConfigValues app_config_values(const std::vector<std::string>& keys)
+AppConfigValues app_config_values(const std::vector<std::string>& keys, const std::string& section)
 {
     AppConfigValues result;
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
@@ -19,14 +19,15 @@ AppConfigValues app_config_values(const std::vector<std::string>& keys)
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
     }
+    // AppConfig::get(key) reads the "app" section; the send dialogs keep their choices in "recent".
     for (const std::string& key : keys) {
-        result.values.push_back(engine().config->get(key));
+        result.values.push_back(section == "app" ? engine().config->get(key) : engine().config->get(section, key));
     }
     result.status = SceneStatus::success;
     return result;
 }
 
-AppConfigValues set_app_config_value(const std::string& key, const std::string& value)
+AppConfigValues set_app_config_value(const std::string& key, const std::string& value, const std::string& section)
 {
     AppConfigValues result;
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
@@ -34,13 +35,17 @@ AppConfigValues set_app_config_value(const std::string& key, const std::string& 
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
     }
-    engine().config->set(key, value);
+    if (section == "app") {
+        engine().config->set(key, value);
+    } else {
+        engine().config->set(section, key, value);
+    }
     // create_item_loglevel_combobox(): the level the dialog picks applies at once.
     if (key == "log_severity_level") {
         Slic3r::set_logging_level(Slic3r::level_string_to_boost(value));
     }
     detail::save_config(engine());
-    result.values.push_back(engine().config->get(key));
+    result.values.push_back(section == "app" ? engine().config->get(key) : engine().config->get(section, key));
     result.status = SceneStatus::success;
     return result;
 }

@@ -2581,12 +2581,12 @@ class NativeSlicerEngine(context: Context) :
             NativeBindings.deletePreset(kind.native, answers.answerIds(), answers.answerFlags()).toOutcome()
         }
 
-    override suspend fun appConfigValues(keys: List<String>): AppConfigOutcome = whenReady(AppConfigOutcome::Failure) {
-        NativeBindings.appConfigValues(keys.toTypedArray()).toOutcome(keys)
+    override suspend fun appConfigValues(keys: List<String>, section: String): AppConfigOutcome = whenReady(AppConfigOutcome::Failure) {
+        NativeBindings.appConfigValues(keys.toTypedArray(), section).toOutcome(keys)
     }
 
-    override suspend fun setAppConfigValue(key: String, value: String): AppConfigOutcome = whenReady(AppConfigOutcome::Failure) {
-        NativeBindings.setAppConfigValue(key, value).toOutcome(listOf(key))
+    override suspend fun setAppConfigValue(key: String, value: String, section: String): AppConfigOutcome = whenReady(AppConfigOutcome::Failure) {
+        NativeBindings.setAppConfigValue(key, value, section).toOutcome(listOf(key))
     }
 
     override suspend fun recentProjects(): List<String>? = whenReady({ null }) {

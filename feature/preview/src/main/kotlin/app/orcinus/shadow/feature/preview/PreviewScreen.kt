@@ -138,6 +138,8 @@ internal fun PreviewRoute(
             flashforgeSlots = viewModel::flashforgeSlots,
             plateBedType = viewModel::plateBedType,
             printer3dOsLists = viewModel::printer3dOsLists,
+            recentChoices = viewModel::recentSendChoices,
+            keepChoices = viewModel::keepSendChoices,
         ),
         gcodeName = viewModel::gcodeName,
         onExportGcode = viewModel::exportGcode,
@@ -165,6 +167,9 @@ internal class PrinterActions(
     val plateBedType: () -> Int = { 1 },
     /** 3DPrinterOS's session check and the cloud's projects and printer types. */
     val printer3dOsLists: suspend (PhysicalPrinter) -> Printer3dOsListsOutcome = { Printer3dOsListsOutcome.Failure("") },
+    /** The send dialogs' last choices, which OrcaSlicer.conf keeps in "recent". */
+    val recentChoices: suspend (List<String>) -> Map<String, String> = { emptyMap() },
+    val keepChoices: (Map<String, String>) -> Unit = {},
 ) {
     companion object {
         val NONE = PrinterActions(
@@ -506,6 +511,8 @@ internal fun PreviewScreen(
             loadSlots = printers.slots,
             loadFlashforgeSlots = printers.flashforgeSlots,
             loadPrinter3dOsLists = printers.printer3dOsLists,
+            loadRecent = printers.recentChoices,
+            keepRecent = printers.keepChoices,
             plateBedType = printers.plateBedType(),
             filaments = printers.filaments(),
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,

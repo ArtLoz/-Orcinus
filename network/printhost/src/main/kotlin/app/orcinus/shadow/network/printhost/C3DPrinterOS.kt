@@ -137,6 +137,8 @@ internal class C3DPrinterOS(
         choice: Printer3dOsChoice?,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
+        // 3DPrinterOS::set_auth(): the printer's HTTPS CA file.
+        val http = if (printer.caFile.isNotEmpty()) this.http.withCaFile(printer.caFile) else this.http
         // The dialog was not shown, or was cancelled.
         if (choice == null) return PrintHostUploadOutcome.Failure("Canceled")
         val session = session()?.first.orEmpty()
@@ -170,6 +172,8 @@ internal class C3DPrinterOS(
      * error, becomes {"result": false, "message": ...}.
      */
     private suspend fun sendForm(printer: PhysicalPrinter, endpoint: String, body: String, httpErrors: Boolean = false): JsonObject {
+        // 3DPrinterOS::set_auth(): the printer's HTTPS CA file.
+        val http = if (printer.caFile.isNotEmpty()) this.http.withCaFile(printer.caFile) else this.http
         val answer = http.sendBytes(
             url(printer.host, endpoint),
             "POST",

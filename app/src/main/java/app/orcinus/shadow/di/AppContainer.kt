@@ -122,6 +122,7 @@ import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlatePresets
 import app.orcinus.shadow.domain.plate.PlateThumbnailRenderer
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
+import app.orcinus.shadow.domain.plate.PrintHostCertificateUseCase
 import app.orcinus.shadow.domain.plate.PrintHostDiscovery
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
@@ -177,6 +178,7 @@ import app.orcinus.shadow.domain.plate.OverhangUpdates
 import app.orcinus.shadow.domain.plate.PlateValidationUpdates
 import app.orcinus.shadow.domain.plate.WipeTowerUpdates
 import app.orcinus.shadow.domain.preferences.AppPreferences
+import app.orcinus.shadow.domain.preferences.RecentSendChoicesUseCase
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import app.orcinus.shadow.feature.about.NoticeViewModel
 import app.orcinus.shadow.feature.about.ThirdPartyViewModel
@@ -199,6 +201,7 @@ import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
 import app.orcinus.shadow.storage.android.AndroidSystemFonts
 import app.orcinus.shadow.storage.android.AppBedFiles
+import app.orcinus.shadow.storage.android.AppCertificateFiles
 import app.orcinus.shadow.storage.android.AppConfigFiles
 import app.orcinus.shadow.storage.android.AppDocumentAccess
 import app.orcinus.shadow.storage.android.AppDocumentExport
@@ -698,12 +701,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         editLayerGcodes = EditLayerGcodesUseCase(plateRepository),
         preferences = appPreferences,
         setPreference = setPreference,
+        recentSendChoices = RecentSendChoicesUseCase(engine),
     )
 
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)
 
     /** BedShapeDialog's files: the shape, texture and model of a bed. */
     private val bedShapeFiles by lazy { BedShapeFilesUseCase(AppBedFiles(applicationContext), engine) }
+    private val hostCertificates by lazy { PrintHostCertificateUseCase(AppCertificateFiles(applicationContext)) }
 
     fun homeViewModel() = HomeViewModel(recentProjects, projectLifecycle, addModelToPlate, observePlate)
 
@@ -730,6 +735,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         customPrinter = CustomPrinterUseCase(engine, platePresets),
         setBedShape = setBedShape,
         bedShapeFiles = bedShapeFiles,
+        hostCertificates = hostCertificates,
         selectPlateObject = selectPlateObject,
         selectObjectPart = selectObjectPart,
         addLayerRange = addLayerRange,

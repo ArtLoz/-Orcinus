@@ -136,6 +136,7 @@ import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.storage.api.BedFiles
+import app.orcinus.shadow.storage.api.CertificateFiles
 import app.orcinus.shadow.storage.api.ConfigFiles
 import app.orcinus.shadow.storage.api.DocumentExport
 import app.orcinus.shadow.storage.api.FileShare
@@ -2058,6 +2059,11 @@ class SetBedShapeUseCase(
         if (!settingsTabs.setBedShape(shape)) return
         platePresets.apply(before = null, outcome = presetManager.presets())
     }
+}
+
+/** PhysicalPrinterDialog's Browse button for the HTTPS CA file: the path of the kept copy. */
+class PrintHostCertificateUseCase(private val files: CertificateFiles) {
+    suspend fun keep(document: ExternalDocumentReference): String? = files.keep(document)
 }
 
 /**

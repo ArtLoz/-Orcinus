@@ -5,8 +5,14 @@ import java.io.IOException
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.KeyStore
 import java.security.MessageDigest
+import java.security.cert.CertificateFactory
 import java.util.UUID
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManagerFactory
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -75,13 +81,36 @@ interface HttpClient {
     suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String>
 
     suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth? = null): Result<String>
+
+    /**
+     * Http::ca_file(): the same client trusting the certificates of the file
+     * at [path] for HTTPS instead of the system's, as curl's CAINFO does.
+     */
+    fun withCaFile(path: String): HttpClient = this
 }
 
 /** The platform's own HTTP, which needs no dependency of its own. */
 class UrlConnectionHttpClient(
     private val connectTimeoutMillis: Int = 15_000,
     private val readTimeoutMillis: Int = 120_000,
+    /** printhost_cafile: the certificates HTTPS trusts instead of the system's; null for the system's. */
+    private val caFile: String? = null,
 ) : HttpClient {
+    override fun withCaFile(path: String): HttpClient = UrlConnectionHttpClient(connectTimeoutMillis, readTimeoutMillis, path)
+
+    /** The certificates of [caFile], read when the first HTTPS request needs them. */
+    private val caSocketFactory: Result<SSLSocketFactory>? by lazy {
+        caFile?.let { path ->
+            runCatching {
+                val certificates = File(path).inputStream().use { CertificateFactory.getInstance("X.509").generateCertificates(it) }
+                val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null, null) }
+                certificates.forEachIndexed { index, certificate -> store.setCertificateEntry("ca$index", certificate) }
+                val trust = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(store) }
+                SSLContext.getInstance("TLS").apply { init(null, trust.trustManagers, null) }.socketFactory
+            }
+        }
+    }
+
     override suspend fun postMultipart(
         url: String,
         headers: Map<String, String>,
@@ -285,6 +314,14 @@ class UrlConnectionHttpClient(
         }
         aborter.opened(connection)
         return try {
+            if (connection is HttpsURLConnection) {
+                // curl's "error setting certificate verify locations" for a file it cannot read.
+                caSocketFactory?.let { factory ->
+                    connection.sslSocketFactory = factory.getOrElse { error ->
+                        return Answer.Failed(IOException("Problem with the SSL CA cert (path? access rights?): $caFile", error))
+                    }
+                }
+            }
             connection.requestMethod = method
             connection.connectTimeout = connectTimeoutMillis
             connection.readTimeout = readTimeoutMillis

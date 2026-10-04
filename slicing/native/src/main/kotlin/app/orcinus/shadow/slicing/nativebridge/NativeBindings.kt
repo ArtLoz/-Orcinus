@@ -2346,9 +2346,9 @@ internal object NativeBindings {
 
     external fun deletePreset(kind: Long, answerIds: Array<String>, answers: BooleanArray): NativePresetSettings
 
-    external fun appConfigValues(keys: Array<String>): NativeAppConfigValues
+    external fun appConfigValues(keys: Array<String>, section: String): NativeAppConfigValues
 
-    external fun setAppConfigValue(key: String, value: String): NativeAppConfigValues
+    external fun setAppConfigValue(key: String, value: String, section: String): NativeAppConfigValues
 
     /** recent_projects(): the values are the documents, the most recent first. */
     external fun recentProjects(): NativeAppConfigValues

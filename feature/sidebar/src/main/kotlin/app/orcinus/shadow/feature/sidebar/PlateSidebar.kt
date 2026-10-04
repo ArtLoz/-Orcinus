@@ -239,6 +239,7 @@ import app.orcinus.shadow.domain.plate.PlateFilamentsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
+import app.orcinus.shadow.domain.plate.PrintHostCertificateUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
@@ -368,6 +369,7 @@ class SidebarViewModel(
     private val customPrinter: CustomPrinterUseCase,
     private val setBedShape: SetBedShapeUseCase,
     private val bedShapeFiles: BedShapeFilesUseCase? = null,
+    private val hostCertificates: PrintHostCertificateUseCase? = null,
     private val selectPlateObject: SelectPlateObjectUseCase,
     private val selectObjectPart: SelectObjectPartUseCase,
     private val addLayerRange: AddLayerRangeUseCase,
@@ -844,6 +846,9 @@ class SidebarViewModel(
 
     /** CreatePrinterPresetDialog: what its pages offer for what they are filled in with. */
     suspend fun printerOptions(request: CreatePrinterRequest): CreatePrinterOptionsOutcome = customPrinter.options(request)
+
+    /** PhysicalPrinterDialog's Browse button for the HTTPS CA file: the path of the kept copy. */
+    suspend fun keepCaFile(document: ExternalDocumentReference): String? = hostCertificates?.keep(document)
 
     /** load_texture() and load_model_stl() of the dialog: the file kept for the printer. */
     suspend fun keepPrinterBedFile(document: ExternalDocumentReference, texture: Boolean): BedFileOutcome =
@@ -1941,6 +1946,7 @@ fun PlateSidebar(
             cloudLogin = viewModel::cloudLogin,
             loggedIn = viewModel::cloudLoggedIn,
             logOut = viewModel::cloudLogOut,
+            keepCaFile = viewModel::keepCaFile,
         ),
     )
 }
@@ -1961,6 +1967,8 @@ internal class NetworkPrinterActions(
     val cloudLogin: suspend (PhysicalPrinter, (String) -> Unit) -> CloudLoginOutcome,
     val loggedIn: suspend (PhysicalPrinter) -> Boolean,
     val logOut: suspend (PhysicalPrinter) -> Unit,
+    /** The HTTPS CA file the Browse button picked, kept for the preset. */
+    val keepCaFile: suspend (ExternalDocumentReference) -> String? = { null },
 ) {
     companion object {
         val NONE = NetworkPrinterActions(
@@ -2317,6 +2325,7 @@ internal fun PlateSidebarContent(
             cloudLoggedIn = network.loggedIn,
             cloudLogOut = network.logOut,
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
+            keepCaFile = network.keepCaFile,
         )
     }
     // CreatePrinterPresetDialog, which the printer list opens. It closes itself

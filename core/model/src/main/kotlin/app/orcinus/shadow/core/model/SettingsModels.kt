@@ -737,6 +737,9 @@ data class PhysicalPrinter(
 
     val password: String get() = settings.values["printhost_password"].orEmpty()
 
+    /** printhost_cafile: the HTTPS CA file the host's requests trust. */
+    val caFile: String get() = settings.values["printhost_cafile"].orEmpty()
+
     /**
      * printhost_authorization_type: whether the host is given the key or the
      * user and password (atKeyPassword / atUserPassword).
@@ -828,6 +831,12 @@ data class ElegooOptions(
         /** The printer types ElegooPrintHostSendDialog::init() offers the options to. */
         val PRINTER_TYPES = setOf("Elegoo-CC", "Elegoo-C")
 
+        /** ElegooPrintHostSendDialog's CONFIG_KEY_*: the choices OrcaSlicer.conf keeps in "recent". */
+        const val UPLOAD_AND_PRINT_KEY = "elegoolink_upload_and_print"
+        const val TIMELAPSE_KEY = "elegoolink_timelapse"
+        const val HEATED_BED_LEVELING_KEY = "elegoolink_heated_bed_leveling"
+        const val BED_TYPE_KEY = "elegoolink_bed_type"
+
         /** s_keys_map_BedType: the BedType value of a curr_bed_type key. */
         fun bedTypeOf(key: String): Int? = when (key) {
             "Default Plate" -> 0
@@ -889,7 +898,14 @@ data class FlashforgeOptions(
     val timeLapseVideo: Boolean = false,
     val useMaterialStation: Boolean = false,
     val mappings: List<FlashforgeMapping> = emptyList(),
-)
+) {
+    companion object {
+        /** FlashforgePrintHostSendDialog's CONFIG_KEY_*: the switches OrcaSlicer.conf keeps in "recent". */
+        const val LEVELING_KEY = "flashforge_leveling_before_print"
+        const val TIMELAPSE_KEY = "flashforge_timelapse_video"
+        const val IFS_KEY = "flashforge_use_material_station"
+    }
+}
 
 /**
  * PhysicalPrinterDialog::update(), which runs when the dialog opens and when

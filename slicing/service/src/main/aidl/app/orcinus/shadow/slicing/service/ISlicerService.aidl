@@ -585,8 +585,8 @@ interface ISlicerService {
     PresetSettingsParcel deletePreset(String kind, in String[] answerIds, in boolean[] answers);
 
     /** PreferencesDialog: the app configuration's values of the keys. */
-    AppConfigParcel appConfigValues(in String[] keys);
-    AppConfigParcel setAppConfigValue(String key, String value);
+    AppConfigParcel appConfigValues(in String[] keys, String section);
+    AppConfigParcel setAppConfigValue(String key, String value, String section);
     /** MainFrame's recent projects: the values, the most recent first. */
     AppConfigParcel recentProjects();
     AppConfigParcel setRecentProjects(in String[] projects);

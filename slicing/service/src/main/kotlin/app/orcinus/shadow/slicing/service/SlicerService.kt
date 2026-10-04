@@ -1270,9 +1270,11 @@ abstract class SlicerService<E> : Service()
         override fun deletePreset(kind: String, answerIds: Array<String>, answers: BooleanArray): PresetSettingsParcel =
             runBlocking { engine.deletePreset(PresetKind.valueOf(kind), answersOf(answerIds, answers)) }.toParcel()
 
-        override fun appConfigValues(keys: Array<String>): AppConfigParcel = runBlocking { engine.appConfigValues(keys.toList()) }.toParcel()
+        override fun appConfigValues(keys: Array<String>, section: String): AppConfigParcel =
+            runBlocking { engine.appConfigValues(keys.toList(), section) }.toParcel()
 
-        override fun setAppConfigValue(key: String, value: String): AppConfigParcel = runBlocking { engine.setAppConfigValue(key, value) }.toParcel()
+        override fun setAppConfigValue(key: String, value: String, section: String): AppConfigParcel =
+            runBlocking { engine.setAppConfigValue(key, value, section) }.toParcel()
 
         override fun recentProjects(): AppConfigParcel = runBlocking { engine.recentProjects() }.toRecentProjectsParcel()
 
