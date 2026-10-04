@@ -1,9 +1,11 @@
 #include "orca_engine_adapter.hpp"
 
 // OrcaSlicer's CreatePrinterPresetDialog (CreatePresetsDialog.cpp): a printer
-// of the user's own. Its first page names the printer and its printable area,
-// its second page the presets it is made from; create_printer_options()
-// answers with what the pages offer, and create_printer() is its Create button.
+// of the user's own, or a nozzle for a printer that is installed. Its first
+// page names the printer, its nozzle and its printable area, its second page
+// the presets it is made from; create_printer_options() answers with what the
+// pages offer, check_printer_page() is the first page's OK, and
+// create_printer() the second page's Create button.
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem.hpp>
 
 #include "engine_context.hpp"
@@ -136,12 +139,42 @@ const std::map<std::string, std::vector<std::string>> printer_model_map =
 
 // nozzle_diameter_vec: the nozzles the dialog offers, in its order.
 const std::vector<std::string> nozzle_diameter_vec = {"0.4", "0.15", "0.2", "0.25", "0.3", "0.35", "0.5", "0.6", "0.75", "0.8", "1.0", "1.2", "1.75"};
+const std::map<std::string, float> nozzle_diameter_map = {{"0.15", 0.15f}, {"0.2", 0.2f}, {"0.25", 0.25f}, {"0.3", 0.3f},
+                                                          {"0.35", 0.35f}, {"0.4", 0.4f}, {"0.5", 0.5f},   {"0.6", 0.6f},
+                                                          {"0.75", 0.75f}, {"0.8", 0.8f}, {"1.0", 1.0f},   {"1.2", 1.2f},
+                                                          {"1.75", 1.75f}};
 
-// my_stof(): the number a text holds, or zero.
-float text_to_float(const std::string& text)
+// remove_special_key(): what a typed vendor or model keeps.
+std::string remove_special_key(const std::string& str)
 {
+    static const std::set<char> special_key = {'\n', '\t', '\r', '\v', '@', ';'};
+    std::string res_str;
+    for (const char c : str) {
+        if (special_key.find(c) == special_key.end()) {
+            res_str.push_back(c);
+        }
+    }
+    return res_str;
+}
+
+std::string trimmed(std::string text)
+{
+    boost::algorithm::trim(text);
+    return text;
+}
+
+// my_stof(): the number a text holds, with either decimal separator, or zero.
+float text_to_float(std::string text)
+{
+    const std::size_t alt_pos = text.find(',');
+    if (alt_pos != std::string::npos) {
+        text.replace(alt_pos, 1, 1, '.');
+    }
+    if (text == ".") {
+        return 0.0f;
+    }
     try {
-        return std::stof(text);
+        return static_cast<float>(std::stod(text));
     } catch (...) {
         return 0.0f;
     }
@@ -155,78 +188,273 @@ PresetCreation printer_failure(const SceneStatus status, std::string message)
     return result;
 }
 
-// get_exist_vendor_choices(): the vendors whose profiles the app can read.
-std::map<std::string, Slic3r::VendorProfile> installed_vendors()
+// get_printer_vendor() and get_printer_model(): as chosen, or as typed.
+std::string printer_vendor(const CreatePrinterRequest& request)
+{
+    return request.custom_printer ? trimmed(remove_special_key(request.vendor)) : request.vendor;
+}
+
+std::string printer_model(const CreatePrinterRequest& request)
+{
+    return request.custom_printer ? trimmed(remove_special_key(request.model)) : request.model;
+}
+
+// get_nozzle_diameter(): the nozzle as chosen or typed, "0.4" for no number.
+std::string nozzle_diameter(const CreatePrinterRequest& request)
+{
+    std::string diameter = request.custom_nozzle ? request.custom_nozzle_diameter : request.nozzle;
+    if (text_to_float(diameter) == 0.0f) {
+        diameter = "0.4";
+    }
+    return diameter;
+}
+
+// set_current_visible_printer(): the installed printers a nozzle is made for —
+// the visible ones that are their own base — once for every printer_model.
+std::vector<std::pair<std::string, const Slic3r::Preset*>> visible_printers(const Slic3r::PresetBundle& bundle)
+{
+    std::vector<std::pair<std::string, const Slic3r::Preset*>> printers;
+    for (const Slic3r::Preset& printer_preset : bundle.printers.get_presets()) {
+        if (!printer_preset.is_visible) {
+            continue;
+        }
+        if (bundle.printers.get_preset_base(printer_preset)->name != printer_preset.name) {
+            continue;
+        }
+        if (const auto* printer_model = printer_preset.config.opt<Slic3r::ConfigOptionString>("printer_model")) {
+            const bool listed = std::any_of(printers.begin(), printers.end(), [&](const auto& printer) { return printer.first == printer_model->value; });
+            if (!listed) {
+                printers.emplace_back(printer_model->value, &printer_preset);
+            }
+        }
+    }
+    return printers;
+}
+
+const Slic3r::Preset* visible_printer(const std::vector<std::pair<std::string, const Slic3r::Preset*>>& printers, const std::string& model)
+{
+    const auto found = std::find_if(printers.begin(), printers.end(), [&](const auto& printer) { return printer.first == model; });
+    return found == printers.end() ? nullptr : found->second;
+}
+
+// get_nozzle_size_for_printer_model(): how many nozzles the installed printer
+// of a printer_model has, one for a model that is not installed. Upstream
+// knows the installed printers once "Create Nozzle for Existing Printer" has
+// been chosen; before, every model has one nozzle.
+std::size_t nozzle_count(
+    const std::vector<std::pair<std::string, const Slic3r::Preset*>>& printers,
+    const CreatePrinterRequest& request,
+    const std::string& model
+)
+{
+    if (!request.create_nozzle && request.existing_printer.empty()) {
+        return 1;
+    }
+    if (const Slic3r::Preset* printer_preset = visible_printer(printers, model)) {
+        if (const auto* nozzles = printer_preset->config.opt<Slic3r::ConfigOptionFloats>("nozzle_diameter")) {
+            return nozzles->values.size();
+        }
+    }
+    return 1;
+}
+
+// get_custom_printer_model(): the model of the printer to create.
+std::string custom_printer_model(const Slic3r::PresetBundle& bundle, const CreatePrinterRequest& request)
+{
+    if (!request.create_nozzle) {
+        return printer_vendor(request) + " " + printer_model(request);
+    }
+    const Slic3r::Preset* printer_preset = visible_printer(visible_printers(bundle), request.existing_printer);
+    if (printer_preset == nullptr) {
+        return {};
+    }
+    const auto* printer_model = printer_preset->config.opt<Slic3r::ConfigOptionString>("printer_model");
+    return printer_model == nullptr ? std::string() : printer_model->value;
+}
+
+// get_exist_vendor_choices(): the vendors whose profiles the app can read, with
+// "Custom" for the printers of the user's own.
+std::map<std::string, Slic3r::VendorProfile> installed_vendors(const Slic3r::PresetBundle& bundle)
 {
     Slic3r::PresetBundle temp_preset_bundle;
     temp_preset_bundle.load_system_models_from_json(Slic3r::ForwardCompatibilitySubstitutionRule::EnableSystemSilent);
-    std::map<std::string, Slic3r::VendorProfile> vendors;
-    for (const auto& [name, vendor] : temp_preset_bundle.vendors) {
-        if (vendor.models.empty() || vendor.id.empty()) {
-            continue;
+    std::map<std::string, Slic3r::VendorProfile> vendors(temp_preset_bundle.vendors.begin(), temp_preset_bundle.vendors.end());
+    Slic3r::VendorProfile users_models = bundle.get_custom_vendor_models();
+    if (!users_models.models.empty()) {
+        vendors[users_models.name] = users_models;
+    }
+    for (auto vendor = vendors.begin(); vendor != vendors.end();) {
+        if (vendor->second.models.empty() || vendor->second.id.empty()) {
+            vendor = vendors.erase(vendor);
+        } else {
+            ++vendor;
         }
-        vendors.emplace(name, vendor);
     }
     return vendors;
 }
 
-// printer_preset_sort_with_nozzle_diameter(): the presets of a vendor, by the
-// nozzle of each, as "<model> @ <nozzle> nozzle".
-std::vector<std::string> vendor_printer_presets(const Slic3r::VendorProfile& vendor_profile)
+// printer_preset_sort_with_nozzle_diameter(): the printer presets of a vendor,
+// as "<model> @ <nozzle> nozzle", for models of as many nozzles as the chosen
+// installed printer, the nearest [nozzle_diameter] first.
+std::vector<std::string> vendor_printer_presets(
+    const Slic3r::VendorProfile& vendor_profile,
+    const float nozzle_diameter,
+    const std::vector<std::pair<std::string, const Slic3r::Preset*>>& printers,
+    const CreatePrinterRequest& request
+)
 {
     std::vector<std::pair<float, std::string>> preset_sort;
+    const std::size_t selected_nozzle_size = nozzle_count(printers, request, request.existing_printer);
     for (const Slic3r::VendorProfile::PrinterModel& model : vendor_profile.models) {
+        if (nozzle_count(printers, request, model.name) != selected_nozzle_size) {
+            continue;
+        }
         for (const Slic3r::VendorProfile::PrinterVariant& variant : model.variants) {
-            const float variant_diameter = text_to_float(variant.name);
-            if (variant_diameter == 0.0f) {
-                continue;
-            }
-            preset_sort.emplace_back(variant_diameter, model.name + " @ " + variant.name + " nozzle");
+            preset_sort.emplace_back(text_to_float(variant.name), model.name + " @ " + variant.name + " nozzle");
         }
     }
     std::stable_sort(preset_sort.begin(), preset_sort.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-    std::vector<std::string> presets;
-    for (const auto& [diameter, name] : preset_sort) {
-        presets.push_back(name);
+
+    int index_nearest_nozzle = -1;
+    float nozzle_diameter_diff = 1;
+    for (int i = 0; i < static_cast<int>(preset_sort.size()); ++i) {
+        const float curr_nozzle_diameter_diff = std::abs(nozzle_diameter - preset_sort[i].first);
+        if (curr_nozzle_diameter_diff < nozzle_diameter_diff) {
+            index_nearest_nozzle = i;
+            nozzle_diameter_diff = curr_nozzle_diameter_diff;
+            if (curr_nozzle_diameter_diff == 0) {
+                break;
+            }
+        }
+    }
+    std::vector<std::string> printer_preset_model_selection;
+    int right_index = index_nearest_nozzle + 1;
+    const int size = static_cast<int>(preset_sort.size());
+    while (index_nearest_nozzle >= 0 || right_index < size) {
+        if (index_nearest_nozzle >= 0 && right_index < size) {
+            const float left_nozzle_diff = std::abs(nozzle_diameter - preset_sort[index_nearest_nozzle].first);
+            const float right_nozzle_diff = std::abs(nozzle_diameter - preset_sort[right_index].first);
+            if (left_nozzle_diff < right_nozzle_diff) {
+                printer_preset_model_selection.push_back(preset_sort[index_nearest_nozzle--].second);
+            } else {
+                printer_preset_model_selection.push_back(preset_sort[right_index++].second);
+            }
+        } else if (index_nearest_nozzle >= 0) {
+            printer_preset_model_selection.push_back(preset_sort[index_nearest_nozzle--].second);
+        } else {
+            printer_preset_model_selection.push_back(preset_sort[right_index++].second);
+        }
+    }
+    return printer_preset_model_selection;
+}
+
+// load_system_and_user_presets_with_curr_model(): the printer preset chosen on
+// the second page, and a bundle of the presets it can be made with — the
+// vendor's and the templates for "Create from Template", the vendor's and the
+// user's that suit it for "Create Based on Current Printer". The dialog's
+// message when they cannot be read.
+std::string load_presets_with_model(
+    Slic3r::PresetBundle& temp_preset_bundle,
+    const Slic3r::VendorProfile& vendor_selected,
+    const std::string& curr_selected_model,
+    const bool just_template,
+    Slic3r::Preset& printer_preset
+)
+{
+    const std::size_t nozzle_index = curr_selected_model.find_first_of('@');
+    const std::string select_model = nozzle_index == std::string::npos ? curr_selected_model : curr_selected_model.substr(0, nozzle_index - 1);
+    const Slic3r::VendorProfile::PrinterModel* model_selected = nullptr;
+    for (const Slic3r::VendorProfile::PrinterModel& model : vendor_selected.models) {
+        if (model.name == select_model) {
+            model_selected = &model;
+            break;
+        }
+    }
+    if (vendor_selected.id.empty() || model_selected == nullptr || model_selected->id.empty()) {
+        return "Preset path was not found, please reselect vendor.";
+    }
+
+    const bool is_custom_vendor = PRESET_CUSTOM_VENDOR == vendor_selected.name || PRESET_CUSTOM_VENDOR == vendor_selected.id;
+    if (is_custom_vendor) {
+        temp_preset_bundle = *engine().bundle;
+    } else {
+        std::string preset_path;
+        if (boost::filesystem::exists(boost::filesystem::path(Slic3r::data_dir()) / PRESET_SYSTEM_DIR / vendor_selected.id)) {
+            preset_path = (boost::filesystem::path(Slic3r::data_dir()) / PRESET_SYSTEM_DIR).string();
+        } else if (boost::filesystem::exists(boost::filesystem::path(Slic3r::resources_dir()) / "profiles" / vendor_selected.id)) {
+            preset_path = (boost::filesystem::path(Slic3r::resources_dir()) / "profiles").string();
+        }
+        if (preset_path.empty()) {
+            return "Preset path was not found, please reselect vendor.";
+        }
+        try {
+            temp_preset_bundle.load_vendor_configs_from_json(
+                preset_path,
+                vendor_selected.id,
+                Slic3r::PresetBundle::LoadConfigBundleAttribute::LoadSystem,
+                Slic3r::ForwardCompatibilitySubstitutionRule::EnableSilent,
+                engine().bundle.get()
+            );
+        } catch (...) {
+            return "The printer model was not found, please reselect.";
+        }
+        if (!just_template) {
+            const std::string dir_user_presets = engine().config->get("preset_folder");
+            temp_preset_bundle.load_user_presets(dir_user_presets.empty() ? std::string(DEFAULT_USER_FOLDER_NAME) : dir_user_presets,
+                                                 Slic3r::ForwardCompatibilitySubstitutionRule::EnableSilent);
+        }
+    }
+
+    const std::size_t index_at = curr_selected_model.find(" @ ");
+    const std::size_t index_nozzle = curr_selected_model.find("nozzle");
+    if (index_at == std::string::npos || index_nozzle == std::string::npos) {
+        return "The nozzle diameter was not found, please reselect.";
+    }
+    const std::string varient = curr_selected_model.substr(index_at + 3, index_nozzle - index_at - 4);
+    const Slic3r::Preset* temp_printer_preset =
+        is_custom_vendor ? temp_preset_bundle.printers.find_custom_preset_by_model_and_variant(model_selected->id, varient)
+                         : temp_preset_bundle.printers.find_system_preset_by_model_and_variant(model_selected->id, varient);
+    if (temp_printer_preset == nullptr) {
+        return "The printer preset was not found, please reselect.";
+    }
+    printer_preset = *temp_printer_preset;
+
+    if (!just_template) {
+        temp_preset_bundle.printers.select_preset_by_name(printer_preset.name, true);
+        temp_preset_bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
+    } else {
+        const boost::filesystem::path templates = boost::filesystem::path(Slic3r::resources_dir()) / PRESET_PROFILES_TEMOLATE_DIR;
+        if (!boost::filesystem::exists(templates / PRESET_TEMPLATE_DIR)) {
+            return "Preset path was not found, please reselect vendor.";
+        }
+        try {
+            temp_preset_bundle.load_vendor_configs_from_json(
+                templates.string(),
+                PRESET_TEMPLATE_DIR,
+                Slic3r::PresetBundle::LoadConfigBundleAttribute::LoadSystem,
+                Slic3r::ForwardCompatibilitySubstitutionRule::EnableSilent
+            );
+        } catch (...) {
+            return "The printer model was not found, please reselect.";
+        }
+    }
+    return {};
+}
+
+// update_presets_list(): the presets the second page lists, which suit the
+// chosen printer preset.
+std::vector<const Slic3r::Preset*> listed_presets(const Slic3r::PresetCollection& collection)
+{
+    std::vector<const Slic3r::Preset*> presets;
+    for (const Slic3r::Preset& preset : collection.get_presets()) {
+        if (preset.is_compatible && !preset.is_default) {
+            presets.push_back(&preset);
+        }
     }
     return presets;
 }
 
-// The model and the nozzle "<model> @ <nozzle> nozzle" carries.
-std::pair<std::string, std::string> model_and_variant(const std::string& printer_preset)
-{
-    const std::size_t index_at = printer_preset.find(" @ ");
-    const std::size_t index_nozzle = printer_preset.find("nozzle");
-    if (index_at == std::string::npos || index_nozzle == std::string::npos) {
-        return {};
-    }
-    return {printer_preset.substr(0, index_at), printer_preset.substr(index_at + 3, index_nozzle - index_at - 4)};
-}
-
-// load_system_and_user_presets_with_curr_model(): the presets of the vendor the
-// printer is made from, read into a bundle of their own.
-bool load_vendor_presets(Slic3r::PresetBundle& temp_preset_bundle, const Slic3r::VendorProfile& vendor)
-{
-    std::string preset_path;
-    if (boost::filesystem::exists(boost::filesystem::path(Slic3r::data_dir()) / PRESET_SYSTEM_DIR / vendor.id)) {
-        preset_path = (boost::filesystem::path(Slic3r::data_dir()) / PRESET_SYSTEM_DIR).string();
-    } else if (boost::filesystem::exists(boost::filesystem::path(Slic3r::resources_dir()) / "profiles" / vendor.id)) {
-        preset_path = (boost::filesystem::path(Slic3r::resources_dir()) / "profiles").string();
-    }
-    if (preset_path.empty()) {
-        return false;
-    }
-    temp_preset_bundle.load_vendor_configs_from_json(
-        preset_path,
-        vendor.id,
-        Slic3r::PresetBundle::LoadConfigBundleAttribute::LoadSystem,
-        Slic3r::ForwardCompatibilitySubstitutionRule::EnableSilent,
-        engine().bundle.get()
-    );
-    return true;
-}
-
-// generate_process_presets_data(): a process preset takes the nozzle it prints with.
+// generate_process_presets_data(): a process template takes the nozzle it prints with.
 void apply_nozzle_to_process(Slic3r::Preset& preset, const float nozzle_dia)
 {
     if (auto* layer_height = preset.config.option<Slic3r::ConfigOptionFloat>("layer_height", true)) {
@@ -242,16 +470,57 @@ void apply_nozzle_to_process(Slic3r::Preset& preset, const float nozzle_dia)
             width->value = nozzle_dia;
         }
     }
+    if (auto* wall_loops = preset.config.option<Slic3r::ConfigOptionInt>("wall_loops", true)) {
+        wall_loops->value = std::max(2, static_cast<int>(std::ceil(2 * 0.4 / nozzle_dia)));
+    }
+    if (auto* top_shell_layers = preset.config.option<Slic3r::ConfigOptionInt>("top_shell_layers", true)) {
+        top_shell_layers->value = std::max(5, static_cast<int>(std::ceil(5 * 0.4 / nozzle_dia)));
+    }
+    if (auto* bottom_shell_layers = preset.config.option<Slic3r::ConfigOptionInt>("bottom_shell_layers", true)) {
+        bottom_shell_layers->value = std::max(3, static_cast<int>(std::ceil(3 * 0.4 / nozzle_dia)));
+    }
+}
+
+// check_printable_area()
+bool printable_area_valid(const CreatePrinterRequest& request)
+{
+    if (request.size_x == 0 || request.size_y == 0) {
+        return false;
+    }
+    return !(request.origin_x >= request.size_x || request.origin_y >= request.size_y);
+}
+
+// save_printable_area_config(): the printable area the printer gets, from the
+// first page, or from the installed printer a nozzle is made for.
+bool save_printable_area_config(const Slic3r::PresetBundle& bundle, const CreatePrinterRequest& request, Slic3r::DynamicPrintConfig& config)
+{
+    if (!request.create_nozzle) {
+        if (!printable_area_valid(request)) {
+            return false;
+        }
+        const double x0 = -request.origin_x;
+        const double y0 = -request.origin_y;
+        const double x1 = request.size_x - request.origin_x;
+        const double y1 = request.size_y - request.origin_y;
+        const std::vector<Slic3r::Vec2d> points = {Slic3r::Vec2d(x0, y0), Slic3r::Vec2d(x1, y0), Slic3r::Vec2d(x1, y1), Slic3r::Vec2d(x0, y1)};
+        config.set_key_value("printable_area", new Slic3r::ConfigOptionPoints(points));
+        config.set("printable_height", request.max_print_height);
+        // Utils::slash_to_back_slash()
+        std::string custom_texture = request.custom_texture;
+        std::string custom_model = request.custom_model;
+        std::replace(custom_texture.begin(), custom_texture.end(), '\\', '/');
+        std::replace(custom_model.begin(), custom_model.end(), '\\', '/');
+        config.set("bed_custom_model", custom_model);
+        config.set("bed_custom_texture", custom_texture);
+    } else if (const Slic3r::Preset* printer_preset = visible_printer(visible_printers(bundle), request.existing_printer)) {
+        config.apply_only(printer_preset->config, {"printable_area", "printable_height", "bed_custom_model", "bed_custom_texture"}, true);
+    }
+    return true;
 }
 
 }  // namespace
 
-CreatePrinterOptions create_printer_options(
-    const std::string& vendor,
-    const std::string& nozzle,
-    const std::string& preset_vendor,
-    const std::string& printer_preset
-)
+CreatePrinterOptions create_printer_options(const CreatePrinterRequest& request)
 {
     CreatePrinterOptions result;
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
@@ -261,77 +530,144 @@ CreatePrinterOptions create_printer_options(
     }
     try {
         follow_config(engine());
+        const Slic3r::PresetBundle& bundle = *engine().bundle;
         result.vendors = printer_vendors;
         result.nozzle_diameters = nozzle_diameter_vec;
-        const auto models = printer_model_map.find(vendor);
+        const auto models = printer_model_map.find(request.vendor);
         if (models != printer_model_map.end()) {
             result.models = models->second;
         }
+        const std::vector<std::pair<std::string, const Slic3r::Preset*>> printers = visible_printers(bundle);
+        for (const auto& [model, printer_preset] : printers) {
+            result.existing_printers.push_back(model);
+        }
+        result.template_allowed = nozzle_count(printers, request, request.existing_printer) <= 1;
 
-        const std::map<std::string, Slic3r::VendorProfile> vendors = installed_vendors();
+        const std::map<std::string, Slic3r::VendorProfile> vendors = installed_vendors(bundle);
         for (const auto& [name, profile] : vendors) {
             result.preset_vendors.push_back(name);
         }
-        const auto chosen_vendor = vendors.find(preset_vendor);
-        if (chosen_vendor == vendors.end()) {
-            result.status = SceneStatus::success;
-            return result;
-        }
-        result.printer_presets = vendor_printer_presets(chosen_vendor->second);
-
-        // The presets that come with the chosen printer preset (update_presets_list).
-        const auto [model_name, variant] = model_and_variant(printer_preset);
-        if (model_name.empty()) {
-            result.status = SceneStatus::success;
-            return result;
-        }
-        Slic3r::PresetBundle temp_preset_bundle;
-        if (!load_vendor_presets(temp_preset_bundle, chosen_vendor->second)) {
-            result.status = SceneStatus::profile_not_found;
-            result.message = "Preset path was not found, please reselect vendor.";
-            return result;
-        }
-        std::string model_id;
-        for (const Slic3r::VendorProfile::PrinterModel& model : chosen_vendor->second.models) {
-            if (model.name == model_name) {
-                model_id = model.id;
-                break;
-            }
-        }
-        const Slic3r::Preset* temp_printer_preset = temp_preset_bundle.printers.find_system_preset_by_model_and_variant(model_id, variant);
-        if (temp_printer_preset == nullptr) {
-            result.status = SceneStatus::profile_not_found;
-            result.message = "The printer preset was not found, please reselect.";
-            return result;
-        }
-        temp_preset_bundle.printers.select_preset_by_name(temp_printer_preset->name, true);
-        temp_preset_bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
-        for (const Slic3r::Preset& filament_preset : temp_preset_bundle.filaments.get_presets()) {
-            if (filament_preset.is_compatible && !filament_preset.is_default) {
-                result.filament_presets.push_back(filament_preset.name);
-            }
-        }
-        for (const Slic3r::Preset& process_preset : temp_preset_bundle.prints.get_presets()) {
-            if (process_preset.is_compatible && !process_preset.is_default) {
-                result.process_presets.push_back(process_preset.name);
-            }
-        }
-        // The printable area the printer preset brings, which page 1 opens with.
-        if (const auto* printable_area = temp_printer_preset->config.opt<Slic3r::ConfigOptionPoints>("printable_area")) {
-            for (const Slic3r::Vec2d& point : printable_area->values) {
-                result.printable_area.push_back(point.x());
-                result.printable_area.push_back(point.y());
-            }
-        }
-        if (const auto* printable_height = temp_printer_preset->config.opt<Slic3r::ConfigOptionFloat>("printable_height")) {
-            result.max_print_height = printable_height->value;
-        }
         result.status = SceneStatus::success;
+        const auto chosen_vendor = vendors.find(request.preset_vendor);
+        if (chosen_vendor == vendors.end()) {
+            return result;
+        }
+        // on_select_printer_model(): the vendor's printer presets, the nearest
+        // the nozzle chosen from the list first.
+        const auto nozzle = nozzle_diameter_map.find(request.nozzle);
+        result.printer_presets =
+            vendor_printer_presets(chosen_vendor->second, nozzle == nozzle_diameter_map.end() ? 0.0f : nozzle->second, printers, request);
+        if (result.printer_presets.empty()) {
+            result.message = "Current vendor has no models, please reselect.";
+            return result;
+        }
+        if (request.printer_preset.empty()) {
+            return result;
+        }
+
+        Slic3r::PresetBundle temp_preset_bundle;
+        Slic3r::Preset printer_preset(Slic3r::Preset::TYPE_PRINTER, {});
+        const bool just_template = request.from_template && result.template_allowed;
+        result.message = load_presets_with_model(temp_preset_bundle, chosen_vendor->second, request.printer_preset, just_template, printer_preset);
+        if (!result.message.empty()) {
+            return result;
+        }
+        for (const Slic3r::Preset* preset : listed_presets(temp_preset_bundle.filaments)) {
+            result.filament_presets.push_back(preset->name);
+        }
+        for (const Slic3r::Preset* preset : listed_presets(temp_preset_bundle.prints)) {
+            result.process_presets.push_back(preset->name);
+        }
     } catch (const std::exception& error) {
         result.status = SceneStatus::profile_not_found;
         result.message = error.what();
     }
     return result;
+}
+
+PresetCreation check_printer_page(const CreatePrinterRequest& request, const DialogAnswers& answers)
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return printer_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+    }
+    try {
+        Slic3r::PresetBundle& bundle = *engine().bundle;
+        follow_config(engine());
+        detail::SettingsDialogs dialogs(answers);
+        const auto ui_text = [](std::string msgid, std::vector<std::string> args = {}) { return detail::ui_text(std::move(msgid), std::move(args)); };
+
+        if (!request.create_nozzle) {
+            std::string vendor_name = printer_vendor(request);
+            std::string model_name = printer_model(request);
+            if (vendor_name.empty() || model_name.empty()) {
+                return printer_failure(SceneStatus::profile_not_found,
+                                       "You have not selected the vendor and model or entered the custom vendor and model.");
+            }
+            vendor_name = remove_special_key(vendor_name);
+            model_name = remove_special_key(model_name);
+            if (vendor_name.empty() || model_name.empty()) {
+                return printer_failure(SceneStatus::profile_not_found,
+                                       "There may be escape characters in the custom printer vendor or model. Please delete and re-enter.");
+            }
+            if (trimmed(vendor_name).empty() || trimmed(model_name).empty()) {
+                return printer_failure(SceneStatus::profile_not_found, "All inputs in the custom printer vendor or model are spaces. Please re-enter.");
+            }
+            if (!printable_area_valid(request)) {
+                return printer_failure(SceneStatus::profile_not_found, "Please check bed printable shape and origin input.");
+            }
+        } else if (request.existing_printer.empty()) {
+            return printer_failure(SceneStatus::profile_not_found, "You have not yet selected the printer to replace the nozzle, please choose.");
+        }
+
+        if (text_to_float(request.custom_nozzle ? request.custom_nozzle_diameter : request.nozzle) == 0.0f) {
+            return printer_failure(SceneStatus::profile_not_found, "The entered nozzle diameter is invalid, please re-enter:\n");
+        }
+
+        // get_custom_printer_name(): a system preset of that name is offered
+        // to switch to instead.
+        const std::string custom_printer_name = custom_printer_model(bundle, request) + " " + nozzle_diameter(request) + " nozzle";
+        const Slic3r::Preset* preset = bundle.printers.find_preset(custom_printer_name);
+        if (preset != nullptr && preset->is_system) {
+            std::string diameters;
+            const std::string printer_model = preset->config.opt_string("printer_model");
+            for (const Slic3r::Preset& printer : bundle.printers) {
+                if (printer.config.opt_string("printer_model") == printer_model) {
+                    diameters += printer.config.opt_string("printer_variant") + "  ";
+                }
+            }
+            const std::string name = preset->name;
+            const bool switch_preset = dialogs.ask(
+                "printer_system_preset",
+                {ui_text("The system preset does not allow creation. \nPlease re-enter the printer model or nozzle diameter."),
+                 ui_text("\n\nAvailable nozzle profiles for this printer:"), ui_text("%1%", {"\n" + diameters}),
+                 ui_text("\n\nChoose YES to switch existing preset:"), ui_text("%1%", {"\n" + name})}
+            );
+            if (!switch_preset) {
+                return printer_failure(SceneStatus::profile_not_found, {});
+            }
+            bundle.printers.select_preset_by_name(name, true);
+            bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
+            bundle.export_selections(*engine().config);
+            save_config(engine());
+            PresetCreation result;
+            result.status = SceneStatus::success;
+            result.name = name;
+            return result;
+        }
+
+        PresetCreation result;
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const detail::QuestionPending& pending) {
+        PresetCreation result;
+        result.status = SceneStatus::success;
+        result.has_question = true;
+        result.question = pending.dialog;
+        return result;
+    } catch (const std::exception& error) {
+        return printer_failure(SceneStatus::profile_not_found, error.what());
+    }
 }
 
 PresetCreation create_printer(const CreatePrinterRequest& request, const DialogAnswers& answers)
@@ -346,88 +682,87 @@ PresetCreation create_printer(const CreatePrinterRequest& request, const DialogA
         detail::SettingsDialogs dialogs(answers);
         const auto ui_text = [](std::string msgid, std::vector<std::string> args = {}) { return detail::ui_text(std::move(msgid), std::move(args)); };
 
-        if (request.printer_preset.empty()) {
+        // Confirm if the printer preset exists: the one the second page chose
+        // (update_presets_list()).
+        const std::map<std::string, Slic3r::VendorProfile> vendors = installed_vendors(bundle);
+        const auto chosen_vendor = vendors.find(request.preset_vendor);
+        Slic3r::PresetBundle temp_preset_bundle;
+        Slic3r::Preset printer_preset(Slic3r::Preset::TYPE_PRINTER, {});
+        const bool just_template = request.from_template && nozzle_count(visible_printers(bundle), request, request.existing_printer) <= 1;
+        if (chosen_vendor == vendors.end() || request.printer_preset.empty() ||
+            !load_presets_with_model(temp_preset_bundle, chosen_vendor->second, request.printer_preset, just_template, printer_preset).empty()) {
             return printer_failure(SceneStatus::profile_not_found,
                                    "You have not yet chosen which printer preset to create based on. Please choose the vendor and model of the printer");
         }
-        if (request.model.empty()) {
-            return printer_failure(SceneStatus::profile_not_found, "The printer model was not found, please reselect.");
-        }
-        // save_printable_area_config(): the area page 1 was filled in with.
-        if (request.printable_area.size() < 6 || request.printable_area.size() % 2 != 0 || request.max_print_height <= 0) {
+
+        if (!save_printable_area_config(bundle, request, printer_preset.config)) {
             return printer_failure(SceneStatus::profile_not_found,
                                    "You have entered an illegal input in the printable area section on the first page. Please check before creating it.");
         }
 
         // create preset name
-        std::string printer_nozzle_name = request.nozzle;
+        const std::string printer_model_name = custom_printer_model(bundle, request);
+        std::string printer_nozzle_name = nozzle_diameter(request);
         const std::size_t comma_pos = printer_nozzle_name.find(',');
         if (comma_pos != std::string::npos) {
             printer_nozzle_name.replace(comma_pos, 1, ".");
         }
-        const std::string printer_preset_name = request.model + " " + printer_nozzle_name + " nozzle";
+        const std::string printer_preset_name = printer_model_name + " " + printer_nozzle_name + " nozzle";
 
         // Confirm if the printer preset has a duplicate name
+        bool rewritten = false;
         if (bundle.printers.find_preset(printer_preset_name) != nullptr) {
-            dialogs.ask(
+            // wxYES | wxCANCEL: the other answer returns to the dialog.
+            rewritten = dialogs.ask(
                 "printer_name_exists",
                 {ui_text("The printer preset you created already has a preset with the same name. Do you want to overwrite it?\n\tYes: Overwrite the "
                          "printer preset with the same name, and filament and process presets with the same preset name will be recreated \nand filament "
                          "and process presets without the same preset name will be reserve.\n\tCancel: Do not create a preset, return to the creation "
                          "interface.")},
-                // wxYES | wxCANCEL: the other answer returns to the dialog.
                 {}, {}, ui_text("Cancel")
             );
         }
-        if (request.filament_presets.empty()) {
+
+        // Confirm if the filament preset is exist: presets of the printer's
+        // name are there already when none is checked.
+        const auto checked = [](const std::vector<std::string>& names, const Slic3r::Preset* preset) {
+            return std::find(names.begin(), names.end(), preset->name) != names.end();
+        };
+        bool filament_preset_is_exist = false;
+        std::vector<Slic3r::Preset> filament_copies;
+        for (const Slic3r::Preset* preset : listed_presets(temp_preset_bundle.filaments)) {
+            if (checked(request.filament_presets, preset)) {
+                filament_copies.push_back(*preset);
+            }
+            if (!filament_preset_is_exist && bundle.filaments.find_preset(preset->alias + " @ " + printer_preset_name) != nullptr) {
+                filament_preset_is_exist = true;
+            }
+        }
+        if (filament_copies.empty() && !filament_preset_is_exist) {
             return printer_failure(SceneStatus::profile_not_found, "You need to select at least one filament preset.");
         }
-        if (request.process_presets.empty()) {
+        // Upstream looks for the processes without the space after "@".
+        bool process_preset_is_exist = false;
+        std::vector<Slic3r::Preset> process_copies;
+        for (const Slic3r::Preset* preset : listed_presets(temp_preset_bundle.prints)) {
+            if (checked(request.process_presets, preset)) {
+                process_copies.push_back(*preset);
+            }
+            if (!process_preset_is_exist && bundle.prints.find_preset(preset->alias + " @" + printer_preset_name) != nullptr) {
+                process_preset_is_exist = true;
+            }
+        }
+        if (process_copies.empty() && !process_preset_is_exist) {
             return printer_failure(SceneStatus::profile_not_found, "You need to select at least one process preset.");
         }
 
-        // The vendor's presets, which the chosen ones are cloned from.
-        const std::map<std::string, Slic3r::VendorProfile> vendors = installed_vendors();
-        const auto chosen_vendor = vendors.find(request.preset_vendor);
-        if (chosen_vendor == vendors.end()) {
-            return printer_failure(SceneStatus::profile_not_found, "Vendor was not found, please reselect.");
-        }
-        Slic3r::PresetBundle temp_preset_bundle;
-        if (!load_vendor_presets(temp_preset_bundle, chosen_vendor->second)) {
-            return printer_failure(SceneStatus::profile_not_found, "Preset path was not found, please reselect vendor.");
-        }
-        const auto [model_name, variant] = model_and_variant(request.printer_preset);
-        std::string model_id;
-        for (const Slic3r::VendorProfile::PrinterModel& model : chosen_vendor->second.models) {
-            if (model.name == model_name) {
-                model_id = model.id;
-                break;
+        // Presets made from the templates print with the printer's nozzle.
+        if (just_template) {
+            const float nozzle_dia = text_to_float(nozzle_diameter(request));
+            for (Slic3r::Preset& preset : process_copies) {
+                apply_nozzle_to_process(preset, nozzle_dia);
             }
         }
-        const Slic3r::Preset* source_preset = temp_preset_bundle.printers.find_system_preset_by_model_and_variant(model_id, variant);
-        if (source_preset == nullptr) {
-            return printer_failure(SceneStatus::profile_not_found, "The printer preset was not found, please reselect.");
-        }
-        Slic3r::Preset printer_preset = *source_preset;
-        temp_preset_bundle.printers.select_preset_by_name(source_preset->name, true);
-        temp_preset_bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
-
-        // The presets the check boxes of page 2 chose.
-        std::vector<Slic3r::Preset> filament_copies;
-        std::vector<Slic3r::Preset> process_copies;
-        for (const Slic3r::Preset& preset : temp_preset_bundle.filaments.get_presets()) {
-            if (std::find(request.filament_presets.begin(), request.filament_presets.end(), preset.name) != request.filament_presets.end()) {
-                filament_copies.push_back(preset);
-            }
-        }
-        const float nozzle_dia = text_to_float(printer_nozzle_name);
-        for (const Slic3r::Preset& preset : temp_preset_bundle.prints.get_presets()) {
-            if (std::find(request.process_presets.begin(), request.process_presets.end(), preset.name) != request.process_presets.end()) {
-                process_copies.push_back(preset);
-                apply_nozzle_to_process(process_copies.back(), nozzle_dia);
-            }
-        }
-
         std::vector<const Slic3r::Preset*> selected_filament_presets;
         for (const Slic3r::Preset& preset : filament_copies) {
             selected_filament_presets.push_back(&preset);
@@ -440,7 +775,8 @@ PresetCreation create_printer(const CreatePrinterRequest& request, const DialogA
         // clone filament preset, then process preset, as the dialog does.
         std::vector<std::string> failures;
         const auto filament_id = [&bundle](const std::string& name) { return detail::filament_id_for(bundle, name); };
-        if (!bundle.filaments.clone_presets_for_printer(selected_filament_presets, failures, printer_preset_name, filament_id, false)) {
+        if (!selected_filament_presets.empty() &&
+            !bundle.filaments.clone_presets_for_printer(selected_filament_presets, failures, printer_preset_name, filament_id, rewritten)) {
             std::string message;
             for (const std::string& failure : failures) {
                 message += "\t" + failure + "\n";
@@ -450,7 +786,8 @@ PresetCreation create_printer(const CreatePrinterRequest& request, const DialogA
             bundle.filaments.clone_presets_for_printer(selected_filament_presets, failures, printer_preset_name, filament_id, true);
         }
         failures.clear();
-        if (!bundle.prints.clone_presets_for_printer(selected_process_presets, failures, printer_preset_name, filament_id, false)) {
+        if (!selected_process_presets.empty() &&
+            !bundle.prints.clone_presets_for_printer(selected_process_presets, failures, printer_preset_name, filament_id, rewritten)) {
             std::string message;
             for (const std::string& failure : failures) {
                 message += "\t" + failure + "\n";
@@ -460,25 +797,17 @@ PresetCreation create_printer(const CreatePrinterRequest& request, const DialogA
             bundle.prints.clone_presets_for_printer(selected_process_presets, failures, printer_preset_name, filament_id, true);
         }
 
-        // The printable area and the height of page 1 go into the printer preset.
-        std::vector<Slic3r::Vec2d> points;
-        for (std::size_t index = 0; index + 1 < request.printable_area.size(); index += 2) {
-            points.emplace_back(request.printable_area[index], request.printable_area[index + 1]);
-        }
-        printer_preset.config.set_key_value("printable_area", new Slic3r::ConfigOptionPoints(points));
-        printer_preset.config.set("printable_height", request.max_print_height);
-        printer_preset.config.set("bed_custom_model", request.custom_model);
-        printer_preset.config.set("bed_custom_texture", request.custom_texture);
-
         // clone printer preset
         if (auto* printer_model = printer_preset.config.option<Slic3r::ConfigOptionString>("printer_model", true)) {
-            printer_model->value = request.model;
+            printer_model->value = printer_model_name;
         }
         if (auto* printer_variant = printer_preset.config.option<Slic3r::ConfigOptionString>("printer_variant", true)) {
             printer_variant->value = printer_nozzle_name;
         }
-        if (auto* nozzle_diameter = printer_preset.config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter", true)) {
-            std::fill(nozzle_diameter->values.begin(), nozzle_diameter->values.end(), double(nozzle_dia));
+        if (auto* nozzle_diameters = printer_preset.config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter", true)) {
+            const auto known = nozzle_diameter_map.find(printer_nozzle_name);
+            const float diameter = known != nozzle_diameter_map.end() ? known->second : text_to_float(nozzle_diameter(request));
+            std::fill(nozzle_diameters->values.begin(), nozzle_diameters->values.end(), double(diameter));
         }
         bundle.printers.save_current_preset(printer_preset_name, true, false, &printer_preset);
         bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);

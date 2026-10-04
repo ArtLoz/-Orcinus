@@ -2632,76 +2632,121 @@ TEST_CASE("A printer of the user's own is created from a vendor's preset", "[Ada
 {
     require_engine();
     REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    const auto contains = [](const std::vector<std::string>& names, const std::string& name) {
+        return std::find(names.begin(), names.end(), name) != names.end();
+    };
+    const auto setting = [](const orca::PresetKind kind, const std::string& page, const std::string& id) {
+        const orca::PresetSettings settings = orca::describe_settings(kind, page, {});
+        for (const orca::SettingState& state : settings.settings) {
+            if (state.id == id) {
+                return state.value;
+            }
+        }
+        return std::string();
+    };
+    const std::string k2_height = setting(orca::PresetKind::printer, "Basic information", "printable_height");
+    REQUIRE_FALSE(k2_height.empty());
 
-    // The first page offers the vendors and models the dialog knows.
-    const orca::CreatePrinterOptions opened = orca::create_printer_options({}, {}, {}, {});
+    // The first page offers the vendors and models the dialog knows, the
+    // nozzles, and the installed printers a nozzle can be made for.
+    orca::CreatePrinterRequest request;
+    const orca::CreatePrinterOptions opened = orca::create_printer_options(request);
     INFO(opened.message);
     REQUIRE(opened.status == orca::SceneStatus::success);
-    CHECK(std::find(opened.vendors.begin(), opened.vendors.end(), "Creality") != opened.vendors.end());
-    CHECK(std::find(opened.nozzle_diameters.begin(), opened.nozzle_diameters.end(), "0.4") != opened.nozzle_diameters.end());
+    CHECK(contains(opened.vendors, "Creality"));
+    CHECK(contains(opened.nozzle_diameters, "0.4"));
     CHECK(opened.models.empty());
+    CHECK(contains(opened.existing_printers, "Creality K2 Plus"));
+    CHECK(opened.template_allowed);
 
-    const orca::CreatePrinterOptions of_vendor = orca::create_printer_options("Creality", "0.4", "Creality", {});
+    // validate_input_valid(): the first page's OK.
+    CHECK(orca::check_printer_page(request, {}).message == "You have not selected the vendor and model or entered the custom vendor and model.");
+    request.custom_printer = true;
+    request.vendor = " Orcinus@ ";
+    request.model = "Test;Printer";
+    request.nozzle = "0.4";
+    request.size_x = 200;
+    request.size_y = 200;
+    request.origin_x = 200;
+    request.max_print_height = 200;
+    CHECK(orca::check_printer_page(request, {}).message == "Please check bed printable shape and origin input.");
+    request.origin_x = 0;
+    const orca::PresetCreation first_page = orca::check_printer_page(request, {});
+    INFO(first_page.message);
+    REQUIRE(first_page.status == orca::SceneStatus::success);
+    CHECK_FALSE(first_page.has_question);
+    CHECK(first_page.name.empty());
+
+    // A nozzle the installed printer has a system preset for is offered to
+    // switch to; another one goes on to the second page.
+    orca::CreatePrinterRequest nozzle_request;
+    nozzle_request.create_nozzle = true;
+    nozzle_request.nozzle = "0.4";
+    CHECK(orca::check_printer_page(nozzle_request, {}).message == "You have not yet selected the printer to replace the nozzle, please choose.");
+    nozzle_request.existing_printer = "Creality K2 Plus";
+    const orca::PresetCreation system_preset = orca::check_printer_page(nozzle_request, {});
+    CHECK(system_preset.has_question);
+    CHECK(system_preset.question.id == "printer_system_preset");
+    nozzle_request.custom_nozzle = true;
+    nozzle_request.custom_nozzle_diameter = "0,45";
+    const orca::PresetCreation nozzle_page = orca::check_printer_page(nozzle_request, {});
+    INFO(nozzle_page.message);
+    REQUIRE(nozzle_page.status == orca::SceneStatus::success);
+    CHECK_FALSE(nozzle_page.has_question);
+
+    // The second page: the vendor's printer presets, those of the nozzle of
+    // the list first, and the presets of the templates or of the printer.
+    nozzle_request.preset_vendor = "Creality";
+    const orca::CreatePrinterOptions of_vendor = orca::create_printer_options(nozzle_request);
     INFO(of_vendor.message);
     REQUIRE(of_vendor.status == orca::SceneStatus::success);
-    CHECK_FALSE(of_vendor.models.empty());
-    CHECK(std::find(of_vendor.preset_vendors.begin(), of_vendor.preset_vendors.end(), "Creality") != of_vendor.preset_vendors.end());
     REQUIRE_FALSE(of_vendor.printer_presets.empty());
+    CHECK(of_vendor.printer_presets.front().find("@ 0.4 nozzle") != std::string::npos);
+    nozzle_request.printer_preset = "Creality K2 Plus @ 0.4 nozzle";
+    REQUIRE(contains(of_vendor.printer_presets, nozzle_request.printer_preset));
+    nozzle_request.from_template = false;
+    const orca::CreatePrinterOptions based = orca::create_printer_options(nozzle_request);
+    INFO(based.message);
+    REQUIRE(based.message.empty());
+    REQUIRE_FALSE(based.filament_presets.empty());
+    CHECK_FALSE(contains(based.filament_presets, "Generic PLA template"));
+    nozzle_request.from_template = true;
+    const orca::CreatePrinterOptions templates = orca::create_printer_options(nozzle_request);
+    INFO(templates.message);
+    REQUIRE(templates.message.empty());
+    REQUIRE(contains(templates.filament_presets, "Generic PLA template"));
+    REQUIRE(contains(templates.process_presets, "process template"));
 
-    // The second page offers the presets that come with the chosen printer.
-    const auto listed = std::find_if(of_vendor.printer_presets.begin(), of_vendor.printer_presets.end(),
-                                     [](const std::string& name) { return name.find("K2 Plus") != std::string::npos && name.find("0.4") != std::string::npos; });
-    REQUIRE(listed != of_vendor.printer_presets.end());
-    const std::string printer_preset = *listed;
-    const orca::CreatePrinterOptions chosen = orca::create_printer_options("Creality", "0.4", "Creality", printer_preset);
-    INFO(chosen.message);
-    REQUIRE(chosen.status == orca::SceneStatus::success);
-    REQUIRE_FALSE(chosen.filament_presets.empty());
-    REQUIRE_FALSE(chosen.process_presets.empty());
-    CHECK(chosen.max_print_height > 0);
-    CHECK(chosen.printable_area.size() >= 8);
-
-    orca::CreatePrinterRequest request;
-    request.model = "Orcinus Test Printer";
-    request.nozzle = "0.4";
-    request.printable_area = {0, 0, 200, 0, 200, 200, 0, 200};
-    request.max_print_height = 200;
-    request.preset_vendor = "Creality";
-    request.printer_preset = printer_preset;
-    request.filament_presets = {chosen.filament_presets.front()};
-    request.process_presets = {chosen.process_presets.front()};
-
+    // Create: a nozzle of 0.45 mm for the K2 Plus, with a process template
+    // that takes the nozzle (generate_process_presets_data()).
+    CHECK(orca::create_printer(nozzle_request, {}).message == "You need to select at least one filament preset.");
+    nozzle_request.filament_presets = {"Generic PLA template"};
+    nozzle_request.process_presets = {"process template"};
+    const std::string printer_name = "Creality K2 Plus 0.45 nozzle";
     // A printer of that name from an earlier run is overwritten, as answering
     // the dialog's question does.
     const orca::DialogAnswers answers = {
         {"printer_name_exists", true}, {"rewrite_filament_presets", true}, {"rewrite_process_presets", true}};
-    const orca::PresetCreation created = orca::create_printer(request, answers);
+    const orca::PresetCreation created = orca::create_printer(nozzle_request, answers);
     INFO(created.message);
     REQUIRE(created.status == orca::SceneStatus::success);
     CHECK_FALSE(created.has_question);
-    const std::string printer_name = "Orcinus Test Printer 0.4 nozzle";
     CHECK(created.name == printer_name);
 
-    // The printer is there, and it prints on the plate the dialog was given.
+    // The printer prints on the plate of the K2 Plus with the new nozzle.
     const orca::PresetState selected = orca::select_preset(orca::PresetChoice::printer, printer_name);
     INFO(selected.message);
     REQUIRE(selected.status == orca::SceneStatus::success);
     CHECK(selected.selection.printer == printer_name);
-    const orca::SettingState* area = nullptr;
-    const orca::PresetSettings printer_settings = orca::describe_settings(orca::PresetKind::printer, "Basic information", {});
-    REQUIRE(printer_settings.status == orca::SceneStatus::success);
-    for (const orca::SettingState& state : printer_settings.settings) {
-        if (state.id == "printable_height") {
-            area = &state;
-        }
-    }
-    REQUIRE(area != nullptr);
-    CHECK(area->value == "200");
+    CHECK(setting(orca::PresetKind::printer, "Basic information", "printable_height") == k2_height);
+    CHECK(selected.nozzle_diameter == "0.45");
+    const std::string process_name = "process template @" + printer_name;
+    REQUIRE(orca::select_preset(orca::PresetChoice::process, process_name).status == orca::SceneStatus::success);
+    CHECK(setting(orca::PresetKind::print, "Quality", "layer_height") == "0.225");
 
     // The test leaves the profiles as it found them: the presets it made go
     // first, then the printer they were made for.
-    const orca::PresetState state = orca::describe_presets();
-    for (const orca::PresetItem& item : state.filaments) {
+    for (const orca::PresetItem& item : orca::describe_presets().filaments) {
         if (item.name.find(printer_name) != std::string::npos) {
             orca::delete_filament_preset(item.name, {{"delete_filament_preset", true}});
         }
@@ -2712,6 +2757,7 @@ TEST_CASE("A printer of the user's own is created from a vendor's preset", "[Ada
             REQUIRE(orca::delete_preset(orca::PresetKind::print, {{"delete_preset", true}}).status == orca::SceneStatus::success);
         }
     }
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, printer_name).status == orca::SceneStatus::success);
     REQUIRE(orca::delete_preset(orca::PresetKind::printer, {{"delete_preset", true}}).status == orca::SceneStatus::success);
     REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
 }

@@ -29,6 +29,8 @@ class AppBedFiles(context: Context) : BedFiles {
 
     override fun exists(path: String): Boolean = File(path).exists()
 
+    override fun size(path: String): Long = File(path).length()
+
     private fun displayName(uri: Uri): String? =
         applicationContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)

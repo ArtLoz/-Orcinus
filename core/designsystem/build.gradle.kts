@@ -152,6 +152,8 @@ val orcaIconNames = listOf(
     "cut_", "cut_connectors",
     // MainFrame's Project tab and AuxiliaryPanel: its files' placeholders, the add button and the delete button.
     "tab_auxiliary_active", "placeholder_excel", "placeholder_pdf", "placeholder_txt", "auxiliary_add_file", "auxiliary_delete",
+    // CreatePrinterPresetDialog's steps, and CreatePresetSuccessfulDialog.
+    "step_1", "step_2", "step_2_ready", "step_is_ok", "create_success",
 )
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).

@@ -52,7 +52,7 @@ if ($Suite -contains 'orca_engine_adapter_tests') {
     $orcaResources = Join-Path $repo 'upstream/OrcaSlicer/resources'
     New-Item -ItemType Directory -Force -Path $deviceBinaries | Out-Null
     $archive = Join-Path $deviceBinaries 'resources.tar'
-    & "$env:SystemRoot\System32\tar.exe" -cf $archive -C $orcaResources profiles info flush printers handy_models calib
+    & "$env:SystemRoot\System32\tar.exe" -cf $archive -C $orcaResources profiles profiles_template info flush printers handy_models calib
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to archive the Orca resources'
     }

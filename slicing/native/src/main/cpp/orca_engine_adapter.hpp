@@ -3226,52 +3226,72 @@ struct PresetCreation {
 
 PresetCreation create_filament(const CreateFilamentRequest& request, const DialogAnswers& answers);
 
-// CreatePrinterPresetDialog: what its two pages offer — the printer it names
-// (the vendors and models the dialog knows, and the nozzles), and the presets
-// it is made from (the vendors whose profiles the app has, their printer
-// presets, and the filament and process presets that come with the chosen one).
+// What CreatePrinterPresetDialog's two pages are filled in with.
+struct CreatePrinterRequest {
+    // Create Type: "Create Printer", or "Create Nozzle for Existing Printer".
+    bool create_nozzle{false};
+    // The printer of "Create Printer": its vendor and model as chosen, or as
+    // typed ("Can't find my printer model").
+    bool custom_printer{false};
+    std::string vendor;
+    std::string model;
+    // The printer of "Create Nozzle for Existing Printer": the printer_model of
+    // an installed printer (m_select_printer).
+    std::string existing_printer;
+    // The nozzle chosen from the list ("0.4"), and the one typed instead
+    // ("Can't find my nozzle diameter").
+    std::string nozzle;
+    bool custom_nozzle{false};
+    std::string custom_nozzle_diameter;
+    // The printable space, its origin, and the height (0 for a field that holds
+    // no number), with the bed's model and texture files.
+    double size_x{0.0};
+    double size_y{0.0};
+    double origin_x{0.0};
+    double origin_y{0.0};
+    double max_print_height{0.0};
+    std::string custom_texture;
+    std::string custom_model;
+    // The second page: the vendor and the printer preset it is made from, the
+    // Presets choice ("Create from Template", or "Create Based on Current
+    // Printer"), and the filament and process presets checked.
+    std::string preset_vendor;
+    std::string printer_preset;
+    bool from_template{true};
+    std::vector<std::string> filament_presets;
+    std::vector<std::string> process_presets;
+};
+
+// What the pages offer for what they are filled in with: the vendors and
+// models of the first page and its nozzles, or the installed printers a nozzle
+// is made for; the vendors whose profiles the app has and their printer
+// presets, nearest the chosen nozzle first; and the filament and process
+// presets that come with the chosen one.
 struct CreatePrinterOptions {
     SceneStatus status{SceneStatus::engine_not_ready};
+    // The dialog's message when the chosen printer preset cannot be read.
     std::string message;
     std::vector<std::string> vendors;
     std::vector<std::string> models;
     std::vector<std::string> nozzle_diameters;
+    std::vector<std::string> existing_printers;
     std::vector<std::string> preset_vendors;
-    // "<model> @ <nozzle> nozzle", by the nozzle of each.
+    // "<model> @ <nozzle> nozzle"
     std::vector<std::string> printer_presets;
     std::vector<std::string> filament_presets;
     std::vector<std::string> process_presets;
-    // The printable area of the chosen printer preset, x and y of every point,
-    // and how high it prints; the first page opens with them.
-    std::vector<double> printable_area;
-    double max_print_height{0.0};
+    // data_init(): a printer of several nozzles is not made from the templates.
+    bool template_allowed{true};
 };
 
-CreatePrinterOptions create_printer_options(
-    const std::string& vendor,
-    const std::string& nozzle,
-    const std::string& preset_vendor,
-    const std::string& printer_preset
-);
+CreatePrinterOptions create_printer_options(const CreatePrinterRequest& request);
 
-// What the dialog's Create button was filled in with.
-struct CreatePrinterRequest {
-    // The printer the first page names: its model, its nozzle ("0.4"), and its
-    // printable area.
-    std::string model;
-    std::string nozzle;
-    std::vector<double> printable_area;
-    double max_print_height{0.0};
-    std::string custom_texture;
-    std::string custom_model;
-    // The presets of the second page: the vendor and the printer preset it is
-    // made from, and the filament and process presets that come with it.
-    std::string preset_vendor;
-    std::string printer_preset;
-    std::vector<std::string> filament_presets;
-    std::vector<std::string> process_presets;
-};
+// The first page's OK (validate_input_valid()): success when the second page
+// follows. A printer that is a system preset already is offered to switch to;
+// when the user agrees, it is selected and its name comes back.
+PresetCreation check_printer_page(const CreatePrinterRequest& request, const DialogAnswers& answers);
 
+// The second page's Create.
 PresetCreation create_printer(const CreatePrinterRequest& request, const DialogAnswers& answers);
 
 // GuideFrame::update_custom_filaments(): a filament of the user's own, which

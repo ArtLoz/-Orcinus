@@ -9,6 +9,7 @@ import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
+import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CustomFilament
 import app.orcinus.shadow.core.model.CustomFilamentsOutcome
 import app.orcinus.shadow.core.model.DialogIcon
@@ -547,31 +548,79 @@ internal fun CreatePrinterOptionsOutcome.toParcel() = CreatePrinterOptionsParcel
             parcel.vendors = vendors.toTypedArray()
             parcel.models = models.toTypedArray()
             parcel.nozzleDiameters = nozzleDiameters.toTypedArray()
+            parcel.existingPrinters = existingPrinters.toTypedArray()
             parcel.presetVendors = presetVendors.toTypedArray()
             parcel.printerPresets = printerPresets.toTypedArray()
             parcel.filamentPresets = filamentPresets.toTypedArray()
             parcel.processPresets = processPresets.toTypedArray()
-            parcel.printableArea = printableArea.flatMap { listOf(it.x, it.y) }.toDoubleArray()
-            parcel.maxPrintHeight = maxPrintHeight
+            parcel.templateAllowed = templateAllowed
+            parcel.message = message
         }
     }
 }
 
 internal fun CreatePrinterOptionsParcel.toCreatePrinterOptionsOutcome(): CreatePrinterOptionsOutcome {
     error?.let { return CreatePrinterOptionsOutcome.Failure(it) }
-    val area = printableArea ?: DoubleArray(0)
     return CreatePrinterOptionsOutcome.Success(
         vendors = vendors.orEmpty().toList(),
         models = models.orEmpty().toList(),
         nozzleDiameters = nozzleDiameters.orEmpty().toList(),
+        existingPrinters = existingPrinters.orEmpty().toList(),
         presetVendors = presetVendors.orEmpty().toList(),
         printerPresets = printerPresets.orEmpty().toList(),
         filamentPresets = filamentPresets.orEmpty().toList(),
         processPresets = processPresets.orEmpty().toList(),
-        printableArea = (area.indices step 2).mapNotNull { index -> area.getOrNull(index + 1)?.let { Point2(area[index], it) } },
-        maxPrintHeight = maxPrintHeight,
+        templateAllowed = templateAllowed,
+        message = message.orEmpty(),
     )
 }
+
+/** What CreatePrinterPresetDialog's pages are filled in with. */
+internal fun CreatePrinterRequest.toParcel() = CreatePrinterRequestParcel().also { parcel ->
+    parcel.createNozzle = createNozzle
+    parcel.customPrinter = customPrinter
+    parcel.vendor = vendor
+    parcel.model = model
+    parcel.existingPrinter = existingPrinter
+    parcel.nozzle = nozzle
+    parcel.customNozzle = customNozzle
+    parcel.customNozzleDiameter = customNozzleDiameter
+    parcel.sizeX = sizeX
+    parcel.sizeY = sizeY
+    parcel.originX = originX
+    parcel.originY = originY
+    parcel.maxPrintHeight = maxPrintHeight
+    parcel.customTexture = customTexture
+    parcel.customModel = customModel
+    parcel.presetVendor = presetVendor
+    parcel.printerPreset = printerPreset
+    parcel.fromTemplate = fromTemplate
+    parcel.filamentPresets = filamentPresets.toTypedArray()
+    parcel.processPresets = processPresets.toTypedArray()
+}
+
+internal fun CreatePrinterRequestParcel.toCreatePrinterRequest() = CreatePrinterRequest(
+    createNozzle = createNozzle,
+    customPrinter = customPrinter,
+    vendor = vendor.orEmpty(),
+    model = model.orEmpty(),
+    existingPrinter = existingPrinter.orEmpty(),
+    nozzle = nozzle.orEmpty(),
+    customNozzle = customNozzle,
+    customNozzleDiameter = customNozzleDiameter.orEmpty(),
+    sizeX = sizeX,
+    sizeY = sizeY,
+    originX = originX,
+    originY = originY,
+    maxPrintHeight = maxPrintHeight,
+    customTexture = customTexture.orEmpty(),
+    customModel = customModel.orEmpty(),
+    presetVendor = presetVendor.orEmpty(),
+    printerPreset = printerPreset.orEmpty(),
+    fromTemplate = fromTemplate,
+    filamentPresets = filamentPresets.orEmpty().toList(),
+    processPresets = processPresets.orEmpty().toList(),
+)
 
 /** What came of creating a filament, or of deleting one of its presets. */
 internal fun PresetCreationOutcome.toParcel() = PresetCreationParcel().also { parcel ->

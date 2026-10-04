@@ -10,6 +10,7 @@ import app.orcinus.shadow.slicing.service.BedShapeParcel;
 import app.orcinus.shadow.slicing.service.ConfigExportOptionsParcel;
 import app.orcinus.shadow.slicing.service.CreateFilamentOptionsParcel;
 import app.orcinus.shadow.slicing.service.CreatePrinterOptionsParcel;
+import app.orcinus.shadow.slicing.service.CreatePrinterRequestParcel;
 import app.orcinus.shadow.slicing.service.CustomFilamentsParcel;
 import app.orcinus.shadow.slicing.service.CutObjectParcel;
 import app.orcinus.shadow.slicing.service.CutParcel;
@@ -514,12 +515,11 @@ interface ISlicerService {
         String vendor, boolean customVendor, String type, String serial,
         in String[] printers, in String[] presets, in String[] answerIds, in boolean[] answers);
     /** CreatePrinterPresetDialog: what its two pages offer. */
-    CreatePrinterOptionsParcel createPrinterOptions(String vendor, String nozzle, String presetVendor, String printerPreset);
+    CreatePrinterOptionsParcel createPrinterOptions(in CreatePrinterRequestParcel request);
+    /** Its first page's OK. */
+    PresetCreationParcel checkPrinterPage(in CreatePrinterRequestParcel request, in String[] answerIds, in boolean[] answers);
     /** Its Create button. */
-    PresetCreationParcel createPrinter(
-        String model, String nozzle, in double[] printableArea, double maxPrintHeight,
-        String customTexture, String customModel, String presetVendor, String printerPreset,
-        in String[] filamentPresets, in String[] processPresets, in String[] answerIds, in boolean[] answers);
+    PresetCreationParcel createPrinter(in CreatePrinterRequestParcel request, in String[] answerIds, in boolean[] answers);
     /** The filaments of the user's own. */
     CustomFilamentsParcel customFilaments();
     /** EditFilamentPresetDialog: what it shows for one of them. */

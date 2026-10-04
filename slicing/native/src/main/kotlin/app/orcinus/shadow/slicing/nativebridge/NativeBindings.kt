@@ -435,13 +435,36 @@ internal class NativeCreatePrinterOptions(
     @JvmField val vendors: Array<String>,
     @JvmField val models: Array<String>,
     @JvmField val nozzleDiameters: Array<String>,
+    @JvmField val existingPrinters: Array<String>,
     @JvmField val presetVendors: Array<String>,
     @JvmField val printerPresets: Array<String>,
     @JvmField val filamentPresets: Array<String>,
     @JvmField val processPresets: Array<String>,
-    /** x and y of every point of the printable area. */
-    @JvmField val printableArea: DoubleArray,
+    @JvmField val templateAllowed: Boolean,
+)
+
+/** Read by the native bridge; see CreatePrinterRequest in orca_engine_adapter.hpp. */
+internal class NativeCreatePrinterRequest(
+    @JvmField val createNozzle: Boolean,
+    @JvmField val customPrinter: Boolean,
+    @JvmField val vendor: String,
+    @JvmField val model: String,
+    @JvmField val existingPrinter: String,
+    @JvmField val nozzle: String,
+    @JvmField val customNozzle: Boolean,
+    @JvmField val customNozzleDiameter: String,
+    @JvmField val sizeX: Double,
+    @JvmField val sizeY: Double,
+    @JvmField val originX: Double,
+    @JvmField val originY: Double,
     @JvmField val maxPrintHeight: Double,
+    @JvmField val customTexture: String,
+    @JvmField val customModel: String,
+    @JvmField val presetVendor: String,
+    @JvmField val printerPreset: String,
+    @JvmField val fromTemplate: Boolean,
+    @JvmField val filamentPresets: Array<String>,
+    @JvmField val processPresets: Array<String>,
 )
 
 /** Constructed by the native bridge; see PresetCreation in orca_engine_adapter.hpp. */
@@ -2191,29 +2214,14 @@ internal object NativeBindings {
         answers: BooleanArray,
     ): NativePresetCreation
 
-    /** CreatePrinterPresetDialog: what its two pages offer. */
-    external fun createPrinterOptions(
-        vendor: String,
-        nozzle: String,
-        presetVendor: String,
-        printerPreset: String,
-    ): NativeCreatePrinterOptions
+    /** CreatePrinterPresetDialog: what its two pages offer for what they are filled in with. */
+    external fun createPrinterOptions(request: NativeCreatePrinterRequest): NativeCreatePrinterOptions
+
+    /** Its first page's OK. */
+    external fun checkPrinterPage(request: NativeCreatePrinterRequest, answerIds: Array<String>, answers: BooleanArray): NativePresetCreation
 
     /** Its Create button: a printer of the user's own with the presets it prints with. */
-    external fun createPrinter(
-        model: String,
-        nozzle: String,
-        printableArea: DoubleArray,
-        maxPrintHeight: Double,
-        customTexture: String,
-        customModel: String,
-        presetVendor: String,
-        printerPreset: String,
-        filamentPresets: Array<String>,
-        processPresets: Array<String>,
-        answerIds: Array<String>,
-        answers: BooleanArray,
-    ): NativePresetCreation
+    external fun createPrinter(request: NativeCreatePrinterRequest, answerIds: Array<String>, answers: BooleanArray): NativePresetCreation
 
     /** The filaments of the user's own, which the app lists to edit. */
     external fun customFilaments(): NativeCustomFilaments

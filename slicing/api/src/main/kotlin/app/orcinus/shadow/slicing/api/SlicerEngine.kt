@@ -824,16 +824,17 @@ interface PresetManager {
     suspend fun createFilament(request: CreateFilamentRequest, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome
 
     /**
-     * CreatePrinterPresetDialog: the vendors and models its first page offers,
-     * the printer presets of [presetVendor] its second page offers, and the
-     * presets that come with [printerPreset].
+     * CreatePrinterPresetDialog: what its pages offer for what [request] fills
+     * them in with — the models of its vendor, the printer presets of its
+     * preset vendor, and the presets that come with its printer preset.
      */
-    suspend fun createPrinterOptions(
-        vendor: String = "",
-        nozzle: String = "",
-        presetVendor: String = "",
-        printerPreset: String = "",
-    ): CreatePrinterOptionsOutcome
+    suspend fun createPrinterOptions(request: CreatePrinterRequest): CreatePrinterOptionsOutcome
+
+    /**
+     * Its first page's OK: Success with no name when the second page follows,
+     * or with the name of the system printer the user switched to instead.
+     */
+    suspend fun checkPrinterPage(request: CreatePrinterRequest, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome
 
     /** Its Create button: a printer of the user's own with the presets it prints with. */
     suspend fun createPrinter(request: CreatePrinterRequest, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome

@@ -5,6 +5,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.DialogProperties
+import app.orcinus.shadow.core.model.BedFileOutcome
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRangeEditor
@@ -18,6 +19,7 @@ import app.orcinus.shadow.core.ui.plate.SelectionMenuState
 import app.orcinus.shadow.core.ui.plate.selectionMenuState
 import app.orcinus.shadow.core.ui.plate.selectsSeveralObjects
 import app.orcinus.shadow.core.ui.settings.BedShapeFileActions
+import app.orcinus.shadow.core.ui.settings.CreatePresetSuccessfulDialog
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.BedShapeFilesUseCase
 import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
@@ -839,11 +841,22 @@ class SidebarViewModel(
 
     suspend fun gcodePlaceholder(key: String, presets: Boolean): GcodePlaceholderInfo = settingsTabs.gcodePlaceholder(key, presets)
 
-    /** CreatePrinterPresetDialog: what its pages offer, and its Create button. */
-    suspend fun printerOptions(vendor: String, nozzle: String, presetVendor: String, printerPreset: String): CreatePrinterOptionsOutcome =
-        customPrinter.options(vendor, nozzle, presetVendor, printerPreset)
+    /** CreatePrinterPresetDialog: what its pages offer for what they are filled in with. */
+    suspend fun printerOptions(request: CreatePrinterRequest): CreatePrinterOptionsOutcome = customPrinter.options(request)
+
+    /** load_texture() and load_model_stl() of the dialog: the file kept for the printer. */
+    suspend fun keepPrinterBedFile(document: ExternalDocumentReference, texture: Boolean): BedFileOutcome =
+        bedShapeFiles?.keepForPrinter(document, texture) ?: BedFileOutcome.Failure("Invalid file format.")
 
     var printerQuestion: SettingsDialog? by mutableStateOf(null)
+        private set
+
+    /** The dialog's message box ("Info"). */
+    var printerMessage: String? by mutableStateOf(null)
+        private set
+
+    /** The page of the dialog: the second shows once the first page's OK is through. */
+    var printerPage: Int by mutableStateOf(1)
         private set
 
     /**
@@ -854,46 +867,84 @@ class SidebarViewModel(
     var creatingPrinter: Boolean by mutableStateOf(false)
         private set
 
+    /** CreatePresetSuccessfulDialog, which follows the dialog once the printer is made. */
+    var printerCreated: Boolean by mutableStateOf(false)
+        private set
+
     private var pendingPrinter: CreatePrinterRequest? = null
+    private var pendingPrinterCheck = false
     private var printerAnswers: Map<String, Boolean> = emptyMap()
 
     fun openCreatePrinter() {
         creatingPrinter = true
+        printerPage = 1
     }
 
     fun closeCreatePrinter() {
         creatingPrinter = false
+        printerPage = 1
         printerQuestion = null
+        printerMessage = null
         pendingPrinter = null
         printerAnswers = emptyMap()
     }
 
-    fun createPrinter(request: CreatePrinterRequest) {
-        pendingPrinter = request
-        printerAnswers = emptyMap()
-        runPrinterCreation()
+    /** The first page's OK (validate_input_valid()). */
+    fun checkPrinterPage(request: CreatePrinterRequest) = runPrinterRequest(request, check = true)
+
+    /** The second page's Return. */
+    fun returnToPrinterPage() {
+        printerPage = 1
     }
 
-    /** The question's Yes or Cancel: the creation runs again with the answer. */
+    fun createPrinter(request: CreatePrinterRequest) = runPrinterRequest(request, check = false)
+
+    fun dismissPrinterMessage() {
+        printerMessage = null
+    }
+
+    fun dismissPrinterCreated() {
+        printerCreated = false
+    }
+
+    /** The question's Yes or Cancel: the request runs again with the answer. */
     fun answerPrinterQuestion(yes: Boolean) {
         val question = printerQuestion ?: return
         printerQuestion = null
         printerAnswers = printerAnswers + (question.id to yes)
-        if (yes) runPrinterCreation() else pendingPrinter = null
+        if (yes) runPrinterRequest() else pendingPrinter = null
     }
 
-    private fun runPrinterCreation() {
+    private fun runPrinterRequest(request: CreatePrinterRequest, check: Boolean) {
+        pendingPrinter = request
+        pendingPrinterCheck = check
+        printerAnswers = emptyMap()
+        runPrinterRequest()
+    }
+
+    private fun runPrinterRequest() {
         val request = pendingPrinter ?: return
+        val check = pendingPrinterCheck
         viewModelScope.launch {
-            when (val outcome = customPrinter.create(request, printerAnswers)) {
+            val outcome = if (check) customPrinter.check(request, printerAnswers) else customPrinter.create(request, printerAnswers)
+            when (outcome) {
                 is PresetCreationOutcome.Question -> printerQuestion = outcome.question
                 is PresetCreationOutcome.Failure -> {
                     pendingPrinter = null
-                    configTransfer = ConfigTransferOutcome.Failure(outcome.message)
+                    printerMessage = outcome.message.takeIf { it.isNotEmpty() }
                 }
                 is PresetCreationOutcome.Success -> {
                     pendingPrinter = null
-                    creatingPrinter = false
+                    when {
+                        // data_init() and show_page2()
+                        check && outcome.name.isEmpty() -> printerPage = 2
+                        // The system printer the user switched to: EndModal(wxID_CANCEL).
+                        check -> closeCreatePrinter()
+                        else -> {
+                            closeCreatePrinter()
+                            printerCreated = true
+                        }
+                    }
                 }
             }
         }
@@ -1862,10 +1913,18 @@ fun PlateSidebar(
         ),
         printers = CustomPrinterActions(
             options = viewModel::printerOptions,
+            check = viewModel::checkPrinterPage,
             create = viewModel::createPrinter,
+            keepBedFile = viewModel::keepPrinterBedFile,
             answer = viewModel::answerPrinterQuestion,
             question = viewModel.printerQuestion,
+            message = viewModel.printerMessage,
+            dismissMessage = viewModel::dismissPrinterMessage,
+            page = viewModel.printerPage,
+            returnToFirstPage = viewModel::returnToPrinterPage,
             creating = viewModel.creatingPrinter,
+            created = viewModel.printerCreated,
+            dismissCreated = viewModel::dismissPrinterCreated,
             open = viewModel::openCreatePrinter,
             close = viewModel::closeCreatePrinter,
         ),
@@ -2262,14 +2321,21 @@ internal fun PlateSidebarContent(
     // CreatePrinterPresetDialog, which the printer list opens. It closes itself
     // once the printer is made, so a question keeps the filled-in pages.
     if (printers.creating) {
-        CreatePrinterDialog(
-            loadOptions = printers.options,
-            onCreate = printers.create,
-            onDismiss = printers.close,
-        )
+        CreatePrinterDialog(printers)
     }
     printers.question?.let { question ->
         SettingsQuestionDialog(question, onAnswer = printers.answer)
+    }
+    // Sidebar::create_printer_preset(): "Printer Setting" opens the printer's tab.
+    if (printers.created) {
+        CreatePresetSuccessfulDialog(
+            printer = true,
+            onOk = {
+                printers.dismissCreated()
+                onOpenSettings(PresetKind.PRINTER)
+            },
+            onDismiss = printers.dismissCreated,
+        )
     }
 
     if (searching) {

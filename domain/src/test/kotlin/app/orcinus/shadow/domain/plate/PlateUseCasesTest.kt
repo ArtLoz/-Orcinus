@@ -4473,8 +4473,10 @@ class PlateUseCasesTest {
         override suspend fun deleteFilamentPreset(preset: String, answers: Map<String, Boolean>) =
             PresetCreationOutcome.Failure("not used")
 
-        override suspend fun createPrinterOptions(vendor: String, nozzle: String, presetVendor: String, printerPreset: String) =
-            CreatePrinterOptionsOutcome.Failure("not used")
+        override suspend fun createPrinterOptions(request: CreatePrinterRequest) = CreatePrinterOptionsOutcome.Failure("not used")
+
+        override suspend fun checkPrinterPage(request: CreatePrinterRequest, answers: Map<String, Boolean>) =
+            PresetCreationOutcome.Failure("not used")
 
         override suspend fun createPrinter(request: CreatePrinterRequest, answers: Map<String, Boolean>) =
             PresetCreationOutcome.Failure("not used")

@@ -17,7 +17,6 @@ import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.CreateFilamentRequest
-import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutPartSelection
 import app.orcinus.shadow.core.model.ExportedMesh
@@ -1124,45 +1123,14 @@ abstract class SlicerService<E> : Service()
             )
         }.toParcel()
 
-        override fun createPrinterOptions(
-            vendor: String,
-            nozzle: String,
-            presetVendor: String,
-            printerPreset: String,
-        ): CreatePrinterOptionsParcel = runBlocking { engine.createPrinterOptions(vendor, nozzle, presetVendor, printerPreset) }.toParcel()
+        override fun createPrinterOptions(request: CreatePrinterRequestParcel): CreatePrinterOptionsParcel =
+            runBlocking { engine.createPrinterOptions(request.toCreatePrinterRequest()) }.toParcel()
 
-        override fun createPrinter(
-            model: String,
-            nozzle: String,
-            printableArea: DoubleArray,
-            maxPrintHeight: Double,
-            customTexture: String,
-            customModel: String,
-            presetVendor: String,
-            printerPreset: String,
-            filamentPresets: Array<String>,
-            processPresets: Array<String>,
-            answerIds: Array<String>,
-            answers: BooleanArray,
-        ): PresetCreationParcel = runBlocking {
-            engine.createPrinter(
-                CreatePrinterRequest(
-                    model = model,
-                    nozzle = nozzle,
-                    printableArea = (printableArea.indices step 2).mapNotNull { index ->
-                        printableArea.getOrNull(index + 1)?.let { Point2(printableArea[index], it) }
-                    },
-                    maxPrintHeight = maxPrintHeight,
-                    customTexture = customTexture,
-                    customModel = customModel,
-                    presetVendor = presetVendor,
-                    printerPreset = printerPreset,
-                    filamentPresets = filamentPresets.toList(),
-                    processPresets = processPresets.toList(),
-                ),
-                answersOf(answerIds, answers),
-            )
-        }.toParcel()
+        override fun checkPrinterPage(request: CreatePrinterRequestParcel, answerIds: Array<String>, answers: BooleanArray): PresetCreationParcel =
+            runBlocking { engine.checkPrinterPage(request.toCreatePrinterRequest(), answersOf(answerIds, answers)) }.toParcel()
+
+        override fun createPrinter(request: CreatePrinterRequestParcel, answerIds: Array<String>, answers: BooleanArray): PresetCreationParcel =
+            runBlocking { engine.createPrinter(request.toCreatePrinterRequest(), answersOf(answerIds, answers)) }.toParcel()
 
         override fun customFilaments(): CustomFilamentsParcel = runBlocking { engine.customFilaments() }.toParcel()
 

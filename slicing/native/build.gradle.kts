@@ -121,6 +121,8 @@ val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
         // DevPrinterConfigUtil's printer types, which ConfigManipulation asks.
         orcaResourcesDirectory.dir("printers").asFileTree.matching { include("*.json") },
         orcaResourcesDirectory.dir("profiles").asFileTree.matching { include("**/*.json", "**/*.png", "**/*.stl", "**/*.svg") },
+        // The presets CreatePrinterPresetDialog makes a printer from with "Create from Template".
+        orcaResourcesDirectory.dir("profiles_template").asFileTree.matching { include("**/*.json") },
         // MenuFactory::append_submenu_add_handy_model()
         orcaResourcesDirectory.dir("handy_models").asFileTree.matching { include("*.drc", "*.3mf") },
         // The models of the Calibration menu (Plater::calib_*).

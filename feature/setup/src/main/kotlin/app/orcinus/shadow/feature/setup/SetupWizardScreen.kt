@@ -79,6 +79,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.SetupPrinterModel
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.settings.CreateFilamentDialog
+import app.orcinus.shadow.core.ui.settings.CreatePresetSuccessfulDialog
 import app.orcinus.shadow.core.ui.settings.EditFilamentDialog
 import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import kotlinx.coroutines.Dispatchers
@@ -483,6 +484,9 @@ private fun CustomFilamentDialogs(
     }
     viewModel.filamentQuestion?.let { question ->
         SettingsQuestionDialog(question, onAnswer = viewModel::answerFilamentQuestion)
+    }
+    if (viewModel.filamentCreated) {
+        CreatePresetSuccessfulDialog(printer = false, onOk = viewModel::dismissFilamentCreated, onDismiss = viewModel::dismissFilamentCreated)
     }
     viewModel.filamentProblem?.let { problem ->
         AlertDialog(

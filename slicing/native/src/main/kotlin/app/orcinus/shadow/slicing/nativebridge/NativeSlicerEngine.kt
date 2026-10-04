@@ -2197,47 +2197,59 @@ class NativeSlicerEngine(context: Context) :
             ).toOutcome()
         }
 
-    override suspend fun createPrinterOptions(
-        vendor: String,
-        nozzle: String,
-        presetVendor: String,
-        printerPreset: String,
-    ): CreatePrinterOptionsOutcome = whenReady(CreatePrinterOptionsOutcome::Failure) {
-        val result = NativeBindings.createPrinterOptions(vendor, nozzle, presetVendor, printerPreset)
-        if (result.status != NativeSceneStatus.SUCCESS) {
-            CreatePrinterOptionsOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not list the printers" })
-        } else {
-            CreatePrinterOptionsOutcome.Success(
-                vendors = result.vendors.toList(),
-                models = result.models.toList(),
-                nozzleDiameters = result.nozzleDiameters.toList(),
-                presetVendors = result.presetVendors.toList(),
-                printerPresets = result.printerPresets.toList(),
-                filamentPresets = result.filamentPresets.toList(),
-                processPresets = result.processPresets.toList(),
-                printableArea = result.printableArea.toPoints(),
-                maxPrintHeight = result.maxPrintHeight,
-            )
+    override suspend fun createPrinterOptions(request: CreatePrinterRequest): CreatePrinterOptionsOutcome =
+        whenReady(CreatePrinterOptionsOutcome::Failure) {
+            val result = NativeBindings.createPrinterOptions(request.toNative())
+            if (result.status != NativeSceneStatus.SUCCESS) {
+                CreatePrinterOptionsOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not list the printers" })
+            } else {
+                CreatePrinterOptionsOutcome.Success(
+                    vendors = result.vendors.toList(),
+                    models = result.models.toList(),
+                    nozzleDiameters = result.nozzleDiameters.toList(),
+                    existingPrinters = result.existingPrinters.toList(),
+                    presetVendors = result.presetVendors.toList(),
+                    printerPresets = result.printerPresets.toList(),
+                    filamentPresets = result.filamentPresets.toList(),
+                    processPresets = result.processPresets.toList(),
+                    templateAllowed = result.templateAllowed,
+                    message = result.message,
+                )
+            }
         }
-    }
+
+    override suspend fun checkPrinterPage(request: CreatePrinterRequest, answers: Map<String, Boolean>): PresetCreationOutcome =
+        whenReady(PresetCreationOutcome::Failure) {
+            NativeBindings.checkPrinterPage(request.toNative(), answers.answerIds(), answers.answerFlags()).toOutcome()
+        }
 
     override suspend fun createPrinter(request: CreatePrinterRequest, answers: Map<String, Boolean>): PresetCreationOutcome =
         whenReady(PresetCreationOutcome::Failure) {
-            NativeBindings.createPrinter(
-                request.model,
-                request.nozzle,
-                request.printableArea.flatMap { listOf(it.x, it.y) }.toDoubleArray(),
-                request.maxPrintHeight,
-                request.customTexture,
-                request.customModel,
-                request.presetVendor,
-                request.printerPreset,
-                request.filamentPresets.toTypedArray(),
-                request.processPresets.toTypedArray(),
-                answers.answerIds(),
-                answers.answerFlags(),
-            ).toOutcome()
+            NativeBindings.createPrinter(request.toNative(), answers.answerIds(), answers.answerFlags()).toOutcome()
         }
+
+    private fun CreatePrinterRequest.toNative() = NativeCreatePrinterRequest(
+        createNozzle = createNozzle,
+        customPrinter = customPrinter,
+        vendor = vendor,
+        model = model,
+        existingPrinter = existingPrinter,
+        nozzle = nozzle,
+        customNozzle = customNozzle,
+        customNozzleDiameter = customNozzleDiameter,
+        sizeX = sizeX,
+        sizeY = sizeY,
+        originX = originX,
+        originY = originY,
+        maxPrintHeight = maxPrintHeight,
+        customTexture = customTexture,
+        customModel = customModel,
+        presetVendor = presetVendor,
+        printerPreset = printerPreset,
+        fromTemplate = fromTemplate,
+        filamentPresets = filamentPresets.toTypedArray(),
+        processPresets = processPresets.toTypedArray(),
+    )
 
     override suspend fun customFilaments(): CustomFilamentsOutcome = whenReady(CustomFilamentsOutcome::Failure) {
         val result = NativeBindings.customFilaments()

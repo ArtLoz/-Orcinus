@@ -1211,31 +1211,17 @@ class RemoteSlicerEngine(
             ).toPresetCreationOutcome()
         }
 
-    override suspend fun createPrinterOptions(
-        vendor: String,
-        nozzle: String,
-        presetVendor: String,
-        printerPreset: String,
-    ): CreatePrinterOptionsOutcome = remote(CreatePrinterOptionsOutcome::Failure) {
-        createPrinterOptions(vendor, nozzle, presetVendor, printerPreset).toCreatePrinterOptionsOutcome()
-    }
+    override suspend fun createPrinterOptions(request: CreatePrinterRequest): CreatePrinterOptionsOutcome =
+        remote(CreatePrinterOptionsOutcome::Failure) { createPrinterOptions(request.toParcel()).toCreatePrinterOptionsOutcome() }
+
+    override suspend fun checkPrinterPage(request: CreatePrinterRequest, answers: Map<String, Boolean>): PresetCreationOutcome =
+        remote(PresetCreationOutcome::Failure) {
+            checkPrinterPage(request.toParcel(), answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetCreationOutcome()
+        }
 
     override suspend fun createPrinter(request: CreatePrinterRequest, answers: Map<String, Boolean>): PresetCreationOutcome =
         remote(PresetCreationOutcome::Failure) {
-            createPrinter(
-                request.model,
-                request.nozzle,
-                request.printableArea.flatMap { listOf(it.x, it.y) }.toDoubleArray(),
-                request.maxPrintHeight,
-                request.customTexture,
-                request.customModel,
-                request.presetVendor,
-                request.printerPreset,
-                request.filamentPresets.toTypedArray(),
-                request.processPresets.toTypedArray(),
-                answers.keys.toTypedArray(),
-                answers.values.toBooleanArray(),
-            ).toPresetCreationOutcome()
+            createPrinter(request.toParcel(), answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetCreationOutcome()
         }
 
     override suspend fun customFilaments(): CustomFilamentsOutcome =

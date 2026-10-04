@@ -199,6 +199,14 @@ class SetupWizardViewModel(
         filamentProblem = null
     }
 
+    /** CreatePresetSuccessfulDialog, which follows the dialog once the filament is made (on_create_filament). */
+    internal var filamentCreated: Boolean by mutableStateOf(false)
+        private set
+
+    internal fun dismissFilamentCreated() {
+        filamentCreated = false
+    }
+
     private var pendingCreation: CreateFilamentRequest? = null
     private var pendingDeletion: String? = null
     private var answers: Map<String, Boolean> = emptyMap()
@@ -220,6 +228,7 @@ class SetupWizardViewModel(
                     pendingDeletion = null
                 }
                 is PresetCreationOutcome.Success -> {
+                    if (request != null) filamentCreated = true
                     pendingCreation = null
                     pendingDeletion = null
                     creatingFilament = false

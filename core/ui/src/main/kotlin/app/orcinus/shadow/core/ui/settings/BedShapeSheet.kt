@@ -144,6 +144,8 @@ fun BedShapeSheet(
             when (val kept = files.keep(ExternalDocumentReference(uri.toString()), true)) {
                 is BedFileOutcome.Kept -> texture = kept.path
                 is BedFileOutcome.Failure -> error = kept.message
+                // BedShapeDialog takes a file of any size.
+                is BedFileOutcome.TooLarge -> Unit
             }
         }
     }
@@ -154,6 +156,8 @@ fun BedShapeSheet(
             when (val kept = files.keep(ExternalDocumentReference(uri.toString()), false)) {
                 is BedFileOutcome.Kept -> model = kept.path
                 is BedFileOutcome.Failure -> error = kept.message
+                // BedShapeDialog takes a file of any size.
+                is BedFileOutcome.TooLarge -> Unit
             }
         }
     }

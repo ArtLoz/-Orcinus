@@ -216,6 +216,12 @@ sealed interface BedFileOutcome {
     data class Kept(val path: String) : BedFileOutcome
 
     data class Failure(val message: String) : BedFileOutcome
+
+    /**
+     * CreatePrinterPresetDialog takes no file over [limitMb] megabytes
+     * (Utils::is_file_too_large()); it says so where the file's name would be.
+     */
+    data class TooLarge(val limitMb: Int) : BedFileOutcome
 }
 
 sealed interface BedShapeOutcome {
@@ -1145,32 +1151,58 @@ sealed interface CreatePrinterOptionsOutcome {
         val vendors: List<String>,
         val models: List<String>,
         val nozzleDiameters: List<String>,
-        /** The second page: the vendors whose profiles the app has, and their printer presets. */
+        /** The installed printers a nozzle is made for, by printer_model. */
+        val existingPrinters: List<String> = emptyList(),
+        /**
+         * The second page: the vendors whose profiles the app has, and their
+         * printer presets ("<model> @ <nozzle> nozzle"), the nearest the chosen
+         * nozzle first.
+         */
         val presetVendors: List<String>,
         val printerPresets: List<String>,
         /** The presets that come with the chosen printer preset. */
         val filamentPresets: List<String>,
         val processPresets: List<String>,
-        /** The printable area of the chosen printer preset, and how high it prints. */
-        val printableArea: List<Point2>,
-        val maxPrintHeight: Double,
+        /** Whether "Create from Template" can be chosen: not for a printer of several nozzles. */
+        val templateAllowed: Boolean = true,
+        /** The dialog's message when the chosen printer preset cannot be read. */
+        val message: String = "",
     ) : CreatePrinterOptionsOutcome
 
     data class Failure(val message: String) : CreatePrinterOptionsOutcome
 }
 
-/** What its Create button was filled in with. */
+/** What CreatePrinterPresetDialog's two pages are filled in with. */
 data class CreatePrinterRequest(
-    val model: String,
-    val nozzle: String,
-    val printableArea: List<Point2>,
-    val maxPrintHeight: Double,
+    /** Create Type: "Create Nozzle for Existing Printer" rather than "Create Printer". */
+    val createNozzle: Boolean = false,
+    /** "Can't find my printer model": [vendor] and [model] are typed rather than chosen. */
+    val customPrinter: Boolean = false,
+    val vendor: String = "",
+    val model: String = "",
+    /** The printer_model of the installed printer a nozzle is made for. */
+    val existingPrinter: String = "",
+    /** The nozzle chosen from the list ("0.4"). */
+    val nozzle: String = "",
+    /** "Can't find my nozzle diameter": the nozzle is [customNozzleDiameter] as typed. */
+    val customNozzle: Boolean = false,
+    val customNozzleDiameter: String = "",
+    /** The printable space, its origin, and the height; 0 for a field that holds no number. */
+    val sizeX: Double = 0.0,
+    val sizeY: Double = 0.0,
+    val originX: Double = 0.0,
+    val originY: Double = 0.0,
+    val maxPrintHeight: Double = 0.0,
+    /** The bed's texture and model files ("Hot Bed SVG", "Hot Bed STL"). */
     val customTexture: String = "",
     val customModel: String = "",
-    val presetVendor: String,
-    val printerPreset: String,
-    val filamentPresets: List<String>,
-    val processPresets: List<String>,
+    /** The second page: the vendor and printer preset it is made from. */
+    val presetVendor: String = "",
+    val printerPreset: String = "",
+    /** Presets: "Create from Template" rather than "Create Based on Current Printer". */
+    val fromTemplate: Boolean = true,
+    val filamentPresets: List<String> = emptyList(),
+    val processPresets: List<String> = emptyList(),
 )
 
 /** What its Create button was filled in with. */

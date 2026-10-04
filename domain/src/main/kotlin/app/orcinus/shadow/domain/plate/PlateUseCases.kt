@@ -508,13 +508,21 @@ class CustomPrinterUseCase(
     private val presetManager: PresetManager,
     private val platePresets: PlatePresets,
 ) {
-    /** What the dialog's pages offer for what has been chosen so far. */
-    suspend fun options(
-        vendor: String = "",
-        nozzle: String = "",
-        presetVendor: String = "",
-        printerPreset: String = "",
-    ): CreatePrinterOptionsOutcome = presetManager.createPrinterOptions(vendor, nozzle, presetVendor, printerPreset)
+    /** What the dialog's pages offer for what they are filled in with. */
+    suspend fun options(request: CreatePrinterRequest): CreatePrinterOptionsOutcome = presetManager.createPrinterOptions(request)
+
+    /**
+     * The first page's OK: Success with no name when the second page follows.
+     * A system printer the user switched to instead is installed, and the
+     * sidebar and the plate follow it.
+     */
+    suspend fun check(request: CreatePrinterRequest, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome {
+        val outcome = presetManager.checkPrinterPage(request, answers)
+        if (outcome is PresetCreationOutcome.Success && outcome.name.isNotEmpty()) {
+            platePresets.apply(before = null, outcome = presetManager.presets())
+        }
+        return outcome
+    }
 
     /** Its Create button, with what the user answered so far. */
     suspend fun create(request: CreatePrinterRequest, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome {
@@ -2074,9 +2082,29 @@ class BedShapeFilesUseCase(
         return if (accepted) BedFileOutcome.Kept(path) else BedFileOutcome.Failure("Invalid file format.")
     }
 
+    /**
+     * CreatePrinterPresetDialog's load_texture() ([texture]) and
+     * load_model_stl(): as [keep], and a file over STL_SVG_MAX_FILE_SIZE_MB is
+     * not taken.
+     */
+    suspend fun keepForPrinter(document: ExternalDocumentReference, texture: Boolean): BedFileOutcome {
+        val kept = keep(document, texture)
+        if (kept !is BedFileOutcome.Kept) return kept
+        return if (files.size(kept.path).toDouble() / 1024 / 1024 > STL_SVG_MAX_FILE_SIZE_MB) {
+            BedFileOutcome.TooLarge(STL_SVG_MAX_FILE_SIZE_MB)
+        } else {
+            kept
+        }
+    }
+
     suspend fun preview(points: List<Point2>): BedPreview = editor.bedPreview(points)
 
     fun exists(path: String): Boolean = files.exists(path)
+
+    private companion object {
+        /** FileHelp.hpp */
+        const val STL_SVG_MAX_FILE_SIZE_MB = 3
+    }
 }
 
 /**

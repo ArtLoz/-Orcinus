@@ -2449,28 +2449,60 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_createFilament(
     return to_java(env, orcinus::orca::create_filament(request, to_answers(env, answer_ids, answers)));
 }
 
-extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_createPrinterOptions(
-    JNIEnv* env,
-    jobject /* this */,
-    jstring vendor,
-    jstring nozzle,
-    jstring preset_vendor,
-    jstring printer_preset
-)
+namespace {
+
+// What CreatePrinterPresetDialog's pages are filled in with, from a NativeCreatePrinterRequest.
+orcinus::orca::CreatePrinterRequest to_create_printer_request(JNIEnv* env, jobject native_request)
 {
-    const orcinus::orca::CreatePrinterOptions result = orcinus::orca::create_printer_options(
-        to_utf8(env, vendor),
-        to_utf8(env, nozzle),
-        to_utf8(env, preset_vendor),
-        to_utf8(env, printer_preset)
-    );
+    const jclass request_class = env->GetObjectClass(native_request);
+    const auto text = [env, native_request, request_class](const char* name) {
+        return to_utf8(env, static_cast<jstring>(env->GetObjectField(native_request, env->GetFieldID(request_class, name, "Ljava/lang/String;"))));
+    };
+    const auto flag = [env, native_request, request_class](const char* name) {
+        return env->GetBooleanField(native_request, env->GetFieldID(request_class, name, "Z")) == JNI_TRUE;
+    };
+    const auto number = [env, native_request, request_class](const char* name) {
+        return static_cast<double>(env->GetDoubleField(native_request, env->GetFieldID(request_class, name, "D")));
+    };
+    const auto texts = [env, native_request, request_class](const char* name) {
+        return to_strings(env, static_cast<jobjectArray>(env->GetObjectField(native_request, env->GetFieldID(request_class, name, "[Ljava/lang/String;"))));
+    };
+    orcinus::orca::CreatePrinterRequest request;
+    request.create_nozzle = flag("createNozzle");
+    request.custom_printer = flag("customPrinter");
+    request.vendor = text("vendor");
+    request.model = text("model");
+    request.existing_printer = text("existingPrinter");
+    request.nozzle = text("nozzle");
+    request.custom_nozzle = flag("customNozzle");
+    request.custom_nozzle_diameter = text("customNozzleDiameter");
+    request.size_x = number("sizeX");
+    request.size_y = number("sizeY");
+    request.origin_x = number("originX");
+    request.origin_y = number("originY");
+    request.max_print_height = number("maxPrintHeight");
+    request.custom_texture = text("customTexture");
+    request.custom_model = text("customModel");
+    request.preset_vendor = text("presetVendor");
+    request.printer_preset = text("printerPreset");
+    request.from_template = flag("fromTemplate");
+    request.filament_presets = texts("filamentPresets");
+    request.process_presets = texts("processPresets");
+    return request;
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_createPrinterOptions(JNIEnv* env, jobject /* this */, jobject request)
+{
+    const orcinus::orca::CreatePrinterOptions result = orcinus::orca::create_printer_options(to_create_printer_request(env, request));
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeCreatePrinterOptions");
     const jmethodID constructor = env->GetMethodID(
         result_class,
         "<init>",
         "(JLjava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
-        "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[DD)V"
+        "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z)V"
     );
     return env->NewObject(
         result_class,
@@ -2480,45 +2512,37 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_createPrinterOptions
         to_java(env, result.vendors),
         to_java(env, result.models),
         to_java(env, result.nozzle_diameters),
+        to_java(env, result.existing_printers),
         to_java(env, result.preset_vendors),
         to_java(env, result.printer_presets),
         to_java(env, result.filament_presets),
         to_java(env, result.process_presets),
-        to_java(env, result.printable_area.data(), result.printable_area.size()),
-        static_cast<jdouble>(result.max_print_height)
+        result.template_allowed ? JNI_TRUE : JNI_FALSE
     );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_checkPrinterPage(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject request,
+    jobjectArray answer_ids,
+    jbooleanArray answers
+)
+{
+    return to_java(env, orcinus::orca::check_printer_page(to_create_printer_request(env, request), to_answers(env, answer_ids, answers)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_createPrinter(
     JNIEnv* env,
     jobject /* this */,
-    jstring model,
-    jstring nozzle,
-    jdoubleArray printable_area,
-    jdouble max_print_height,
-    jstring custom_texture,
-    jstring custom_model,
-    jstring preset_vendor,
-    jstring printer_preset,
-    jobjectArray filament_presets,
-    jobjectArray process_presets,
+    jobject request,
     jobjectArray answer_ids,
     jbooleanArray answers
 )
 {
-    orcinus::orca::CreatePrinterRequest request;
-    request.model = to_utf8(env, model);
-    request.nozzle = to_utf8(env, nozzle);
-    request.printable_area = to_doubles(env, printable_area);
-    request.max_print_height = max_print_height;
-    request.custom_texture = to_utf8(env, custom_texture);
-    request.custom_model = to_utf8(env, custom_model);
-    request.preset_vendor = to_utf8(env, preset_vendor);
-    request.printer_preset = to_utf8(env, printer_preset);
-    request.filament_presets = to_strings(env, filament_presets);
-    request.process_presets = to_strings(env, process_presets);
-    return to_java(env, orcinus::orca::create_printer(request, to_answers(env, answer_ids, answers)));
+    return to_java(env, orcinus::orca::create_printer(to_create_printer_request(env, request), to_answers(env, answer_ids, answers)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL

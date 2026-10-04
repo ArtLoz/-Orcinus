@@ -7,11 +7,12 @@ parcelable CreatePrinterOptionsParcel {
     @nullable String[] vendors;
     @nullable String[] models;
     @nullable String[] nozzleDiameters;
+    @nullable String[] existingPrinters;
     @nullable String[] presetVendors;
     @nullable String[] printerPresets;
     @nullable String[] filamentPresets;
     @nullable String[] processPresets;
-    /** x and y of every point of the printable area. */
-    @nullable double[] printableArea;
-    double maxPrintHeight;
+    boolean templateAllowed;
+    /** The dialog's message when the chosen printer preset cannot be read. */
+    @nullable String message;
 }

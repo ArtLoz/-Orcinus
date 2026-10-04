@@ -14,4 +14,7 @@ interface BedFiles {
 
     /** Whether the file at [path] is still there (the dialog draws a missing one red). */
     fun exists(path: String): Boolean
+
+    /** The size of the file at [path] in bytes. */
+    fun size(path: String): Long
 }
