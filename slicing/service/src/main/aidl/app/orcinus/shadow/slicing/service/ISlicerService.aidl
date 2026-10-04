@@ -101,6 +101,16 @@ interface ISlicerService {
         in boolean[] answers,
         in @nullable CutParcel cut
     );
+    /** edit_objects(): edit is the ObjectEdit's name. */
+    ModelLoadParcel editObjects(
+        in PlacedModelParcel[] plate,
+        in int[] indexes,
+        String edit,
+        in ProfilesParcel profiles,
+        String prefix,
+        in String[] answerIds,
+        in boolean[] answers
+    );
     /** begin_cut(): the cut gizmo opened on a copy of the object. */
     CutObjectParcel beginCut(in PlacedModelParcel plateObject, int instance, in ProfilesParcel profiles);
     CutPlaneParcel describeCutPlane(

@@ -224,7 +224,7 @@ fun exportFileName(name: String, format: MeshFormat): String =
     "${name.substringBeforeLast('.', name).ifEmpty { name }}.${format.extension}"
 
 /** The object's own mesh as a volume, which volumeAt() lists only once the object has parts. */
-private fun PlateObject.ownVolume() = ObjectPart(
+internal fun PlateObject.ownVolume() = ObjectPart(
     shape = "",
     type = VolumeType.PART,
     mesh = mesh,

@@ -3022,6 +3022,12 @@ class PrepareViewModel(
 
     fun setSelectionFilament(filament: Int) = setExtruder.selected(filament)
 
+    /** "Assemble", "Fix model" and the conversions of units over the selected objects. */
+    fun editSelection(edit: ObjectEdit) = editPlateObject.selected(edit)
+
+    /** "Replace all with 3D files" of the selected objects, from [folder]. */
+    fun replaceAllInSelection(folder: String) = replaceAllVolumesUseCase.selected(ExternalDocumentReference(folder))
+
     /** export_stl(false, true, multi): the selected objects into [document], one file, or a file each into the folder. */
     fun exportSelection(format: MeshFormat, multi: Boolean, document: String) {
         val reference = ExternalDocumentReference(document)

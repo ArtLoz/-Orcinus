@@ -282,6 +282,25 @@ class RemoteSlicerEngine(
         ).toModelLoadOutcome()
     }
 
+    override suspend fun editObjects(
+        plate: List<PlacedModel>,
+        indexes: List<Int>,
+        edit: ObjectEdit,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        answers: Map<String, Boolean>,
+    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
+        editObjects(
+            plate.toParcels(),
+            indexes.toIntArray(),
+            edit.name,
+            profiles.toParcel(),
+            prefix.value,
+            answers.keys.toTypedArray(),
+            answers.values.toBooleanArray(),
+        ).toModelLoadOutcome()
+    }
+
     override suspend fun beginCut(plateObject: PlacedModel, instance: Int, profiles: SlicingProfileSelection): CutObjectOutcome =
         remote({ CutObjectOutcome.Failure(it) }) { beginCut(listOf(plateObject).toParcels().first(), instance, profiles.toParcel()).toOutcome() }
 

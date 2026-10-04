@@ -6,6 +6,7 @@ import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.selectedCopies
+import app.orcinus.shadow.core.model.selectedObjectMeshes
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.OrcaText
@@ -263,6 +264,9 @@ class ReplaceAllVolumesUseCase(
     private val stepMeshPrompt: StepMeshPrompt,
 ) {
     operator fun invoke(copy: PlateInstanceId, folder: ExternalDocumentReference) = replaceAll(listOf(copy.mesh), folder)
+
+    /** The multi-selection menu's item: every volume of the selected objects. */
+    fun selected(folder: ExternalDocumentReference) = replaceAll(repository.state.value.selectedObjectMeshes(), folder)
 
     /** A plate item: the objects whose first copy stands on the plate whole (PartPlate::contain_instance_totally). */
     fun onPlate(index: Int, folder: ExternalDocumentReference) {

@@ -17,6 +17,7 @@ import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsRequest
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.selectedObjectMeshes
 import app.orcinus.shadow.core.model.withName
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateInspector
@@ -50,6 +51,19 @@ class EditPlateObjectUseCase(
     fun cut(mesh: ScenePath, cut: ObjectCut) = start(PlateRequest.Edit(mesh, ObjectEdit.CUT, cut = cut))
 
     /**
+     * The multi-selection menu's "Assemble" (ObjectList::merge(true)), "Fix
+     * model" (ObjectList::fix_through_cgal()) and conversions of units
+     * (Plater::convert_unit()) over the selected objects, as one change:
+     * the assembly, or the converted objects, join the end of the plate's
+     * list in place of them; the repaired objects keep their places.
+     */
+    fun selected(edit: ObjectEdit) {
+        val meshes = repository.state.value.selectedObjectMeshes()
+        if (meshes.isEmpty()) return
+        start(PlateRequest.Edit(meshes.first(), edit, others = meshes.drop(1)))
+    }
+
+    /**
      * ObjectList::del_subobject_from_object() of the object's own mesh, which
      * the engine takes out of the object with the [mesh] file (its other
      * volumes stay, the first of them in its place; the last solid part
@@ -71,7 +85,7 @@ class EditPlateObjectUseCase(
     private fun start(request: PlateRequest.Edit) {
         var started = false
         repository.update { state ->
-            started = !state.busy && state.profiles != null && state.objects.withMesh(request.mesh) != null
+            started = !state.busy && state.profiles != null && request.meshes.all { state.objects.withMesh(it) != null }
             if (started) state.copy(editing = true, problem = null) else state
         }
         if (!started) return
@@ -92,12 +106,17 @@ class EditPlateObjectUseCase(
 
     private suspend fun run(request: PlateRequest.Edit, answers: Map<String, Boolean>, shown: List<SettingsDialog>) {
         val state = repository.state.value
-        val index = state.objects.indexOfFirst { it.mesh == request.mesh }
+        val indexes = request.meshes.map { mesh -> state.objects.indexOfFirst { it.mesh == mesh } }
         val profiles = state.profiles
-        if (index < 0 || profiles == null) return finish(request, ModelLoadOutcome.Failure("The object is not on the plate"), answers, shown)
+        if (indexes.any { it < 0 } || profiles == null) return finish(request, ModelLoadOutcome.Failure("The object is not on the plate"), answers, shown)
         val prefix = sceneFiles.newImportPrefix()
         val outcome = try {
-            inspector.edit(state.objects.map { it.placed() }, index, request.edit, request.volume, profiles, prefix, answers, request.cut)
+            val plate = state.objects.map { it.placed() }
+            if (request.others.isEmpty()) {
+                inspector.edit(plate, indexes.single(), request.edit, request.volume, profiles, prefix, answers, request.cut)
+            } else {
+                inspector.editObjects(plate, indexes, request.edit, profiles, prefix, answers)
+            }
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation
@@ -123,13 +142,16 @@ class EditPlateObjectUseCase(
                 // An edit reads no STEP file.
                 is ModelLoadOutcome.StepMesh -> informed.copy(editing = false)
                 is ModelLoadOutcome.Success -> {
-                    val old = state.objects.withMesh(request.mesh)
-                    if (old == null || outcome.objects.isEmpty()) return@update informed.copy(editing = false)
-                    val edited = outcome.objects.map { it.toPlateObjectOf(old) }
+                    val olds = request.meshes.mapNotNull(state.objects::withMesh)
+                    if (olds.size != request.meshes.size || outcome.objects.isEmpty()) return@update informed.copy(editing = false)
+                    // A converted object is written of its own; an assembly of the first.
+                    val edited = outcome.objects.mapIndexed { index, loaded -> loaded.toPlateObjectOf(olds.getOrElse(index) { olds.first() }) }
                     val placed = if (outcome.appended) {
-                        state.objects.filterNot { it.mesh == old.mesh } + edited
+                        state.objects.filterNot { it.mesh in request.meshes } + edited
                     } else {
-                        state.objects.map { if (it.mesh == old.mesh) edited.single() else it }
+                        // Each repaired object, or the one edited, in its place.
+                        val replacements = request.meshes.zip(edited).toMap()
+                        state.objects.map { replacements[it.mesh] ?: it }
                     }
                     // perform_cut() ends with synchronize_model_after_cut().
                     val cutId = edited.firstNotNullOfOrNull { it.cutId }.takeIf { request.edit == ObjectEdit.CUT }

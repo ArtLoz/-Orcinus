@@ -1832,6 +1832,9 @@ enum class ObjectEdit : std::int64_t {
     // ObjectList::del_subobject_from_object() of a volume: the object keeps
     // its other volumes, the first of them in the volume's place.
     delete_volume = 10,
+    // ObjectList::merge(true) ("Assemble"): the objects become the parts of
+    // one object (edit_objects() alone).
+    assemble = 11,
 };
 
 // A connector of the cut (CutConnector of Model.hpp) as the gizmo places it on
@@ -1914,6 +1917,22 @@ ImportedModels edit_object(
     const DialogAnswers& answers,
     // What ObjectEdit::cut cuts with.
     const ObjectCut& cut = {}
+);
+
+// The commands of the multi-selection menu over the objects at objects of
+// plate, selected whole, as one change: fix (ObjectList::fix_through_cgal():
+// each repaired in turn, then one notification naming the repaired and the
+// failed; the objects come back in their order), the conversions of units
+// (Plater::convert_unit(): each converted, the new objects appended in place
+// of them) and assemble (ObjectList::merge(true): one object of their volumes
+// appended in place of them).
+ImportedModels edit_objects(
+    const std::vector<PlateObject>& plate,
+    const std::vector<std::size_t>& objects,
+    ObjectEdit edit,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix,
+    const DialogAnswers& answers
 );
 
 // GLGizmoCut3D::bounding_box() of the copy the cut gizmo opened on: its solid

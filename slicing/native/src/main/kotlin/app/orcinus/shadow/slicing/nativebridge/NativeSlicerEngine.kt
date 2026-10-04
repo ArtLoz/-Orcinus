@@ -375,6 +375,32 @@ class NativeSlicerEngine(context: Context) :
         ).toOutcome()
     }
 
+    override suspend fun editObjects(
+        plate: List<PlacedModel>,
+        indexes: List<Int>,
+        edit: ObjectEdit,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        answers: Map<String, Boolean>,
+    ): ModelLoadOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext ModelLoadOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        NativeBindings.editObjects(
+            plate = nativePlate(plate),
+            objects = indexes.toIntArray(),
+            edit = edit.ordinal.toLong(),
+            printerProfile = profiles.printer.value,
+            filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+            processProfile = profiles.process.value,
+            outputPrefix = prefix.value,
+            answerIds = answers.keys.toTypedArray(),
+            answers = answers.values.toBooleanArray(),
+        ).toOutcome()
+    }
+
     override suspend fun edit(
         plate: List<PlacedModel>,
         index: Int,

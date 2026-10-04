@@ -1385,6 +1385,26 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `Assemble of the selected objects puts one object at the end of the plate in their place, as one step`() {
+        val other = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))))
+        val third = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/third.mesh")))))
+        val selected = setOf(PlateInstanceId(CUBE.mesh, 0), PlateInstanceId(third.mesh, 0))
+        val repository = FakeRepository(readyState(CUBE, other, third).copy(selectedInstances = selected))
+        val inspector = FakeInspector()
+        inspector.editOutcome = { ModelLoadOutcome.Success(listOf(LOADED), emptyList(), appended = true) }
+
+        EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope).selected(ObjectEdit.ASSEMBLE)
+
+        val state = repository.state.value
+        assertEquals(FakeInspector.Edit(-1, ObjectEdit.ASSEMBLE, null, emptyMap()), inspector.edits.single())
+        assertEquals(listOf(0, 2), inspector.editedObjects)
+        val assembly = LOADED.instances.single().inspection.mesh
+        assertEquals(listOf(other.mesh, assembly), state.objects.map { it.mesh })
+        assertEquals(setOf(PlateInstanceId(assembly)), state.selectedInstances)
+        assertEquals(listOf(CUBE, other, third), state.history.undo.single().objects)
+    }
+
+    @Test
     fun `the cut gizmo cuts the object with its plane, and the halves join the end of the plate`() {
         val upper = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/cut-0.mesh")))))
         val lower = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/cut-1.mesh")))))
@@ -3828,6 +3848,23 @@ class PlateUseCasesTest {
             cut: ObjectCut?,
         ): ModelLoadOutcome {
             edits += Edit(index, edit, volume, answers, cut)
+            this.plate = plate
+            return editOutcome(answers)
+        }
+
+        /** The objects the last edit of several changed (edit_objects()). */
+        var editedObjects = emptyList<Int>()
+
+        override suspend fun editObjects(
+            plate: List<PlacedModel>,
+            indexes: List<Int>,
+            edit: ObjectEdit,
+            profiles: SlicingProfileSelection,
+            prefix: ScenePath,
+            answers: Map<String, Boolean>,
+        ): ModelLoadOutcome {
+            edits += Edit(-1, edit, null, answers)
+            editedObjects = indexes
             this.plate = plate
             return editOutcome(answers)
         }

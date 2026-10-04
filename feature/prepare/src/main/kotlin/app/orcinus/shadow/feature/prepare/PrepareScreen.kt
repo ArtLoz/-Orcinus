@@ -246,6 +246,9 @@ internal fun PrepareRoute(
         if (uri != null) viewModel.exportSelection(selectionExportFormat, multi = true, uri.toString())
     }
     val untitledName = orcaString("Untitled")
+    val selectionReplacementFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) viewModel.replaceAllInSelection(uri.toString())
+    }
     var replaceAllTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var replaceAllInstance by rememberSaveable { mutableStateOf(0) }
     val replacementFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -325,6 +328,7 @@ internal fun PrepareRoute(
                 cut = { viewModel.cutSelection() },
                 copy = { viewModel.copySelection() },
                 paste = { viewModel.pasteIntoSelection() },
+                edit = { viewModel.editSelection(it) },
                 center = { viewModel.centerSelection() },
                 drop = { viewModel.dropSelection() },
                 delete = { viewModel.deleteSelection() },
@@ -336,6 +340,7 @@ internal fun PrepareRoute(
                 },
                 pasteProcessSettings = { viewModel.pasteSelectionProcessSettings() },
                 setFilament = { viewModel.setSelectionFilament(it) },
+                replaceAll = { selectionReplacementFolder.launch(null) },
                 export = { format, multi ->
                     selectionExportFormat = format
                     if (multi) selectionExportFolder.launch(null) else selectionExport.launch(viewModel.selectionExportName(format, untitledName))

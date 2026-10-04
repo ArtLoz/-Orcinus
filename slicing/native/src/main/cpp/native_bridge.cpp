@@ -4095,6 +4095,39 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObject(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObjects(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject plate,
+    jintArray objects,
+    jlong edit,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix,
+    jobjectArray answer_ids,
+    jbooleanArray answers
+)
+{
+    std::vector<std::size_t> indexes;
+    for (const std::int32_t index : to_ints(env, objects)) {
+        indexes.push_back(static_cast<std::size_t>(index));
+    }
+    return to_java(
+        env,
+        orcinus::orca::edit_objects(
+            to_plate(env, plate),
+            indexes,
+            static_cast<orcinus::orca::ObjectEdit>(edit),
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix),
+            to_answers(env, answer_ids, answers)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginCut(
     JNIEnv* env,
     jobject /* this */,

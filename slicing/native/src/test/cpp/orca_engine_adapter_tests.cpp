@@ -4458,6 +4458,63 @@ TEST_CASE("Convert from inches scales an object, and Restore to inches scales it
     CHECK_FALSE(restored.objects.front().volume_from_inches);
 }
 
+TEST_CASE("Assemble makes one object of the selected objects and their copies, and Fix model names them all", "[Adapter][Edit]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("assemble.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    // A cube at x 100, and one of two copies at x 150 and 200, the second not printed.
+    std::vector<double> left = matrix_of(cube);
+    left[12] = 100.0;
+    left[13] = 100.0;
+    std::vector<double> right = left;
+    right[12] = 150.0;
+    std::vector<double> far = left;
+    far[12] = 200.0;
+    std::vector<orca::PlateObject> plate = plate_of({}, left);
+    plate.push_back(plate_of({}, right).front());
+    orca::ObjectPlacement& far_copy = plate[1].instances.emplace_back();
+    far_copy.matrix = far;
+    far_copy.printable = false;
+
+    SECTION("assemble")
+    {
+        const orca::ImportedModels assembled =
+            orca::edit_objects(plate, {0, 1}, orca::ObjectEdit::assemble, k2_plus_profiles(), import_prefix("assembly"), {});
+        INFO(assembled.message);
+        REQUIRE(assembled.status == orca::SceneStatus::success);
+        CHECK(assembled.appended);
+        REQUIRE(assembled.objects.size() == 1);
+        const orca::ImportedObject& assembly = assembled.objects.front();
+        CHECK(assembly.name == "Assembly");
+        // Each copy became a part: its own mesh and two more, where the copies stood.
+        CHECK(assembly.parts.size() == 2);
+        REQUIRE(assembly.instances.size() == 1);
+        CHECK(assembly.instances.front().size_x == Catch::Approx(120.0).margin(1e-3));
+        CHECK(assembly.instances.front().box_center[0] == Catch::Approx(150.0).margin(1e-3));
+        CHECK(assembly.instances.front().box_center[1] == Catch::Approx(100.0).margin(1e-3));
+        // A copy that was not printed makes the assembly not printed.
+        REQUIRE(assembly.printables.size() == 1);
+        CHECK_FALSE(assembly.printables.front());
+    }
+    SECTION("fix model")
+    {
+        const orca::ImportedModels fixed =
+            orca::edit_objects(plate, {0, 1}, orca::ObjectEdit::fix, k2_plus_profiles(), import_prefix("fixed-pair"), {});
+        INFO(fixed.message);
+        REQUIRE(fixed.status == orca::SceneStatus::success);
+        CHECK_FALSE(fixed.appended);
+        CHECK(fixed.objects.size() == 2);
+        // One CgalFinished notification over both.
+        REQUIRE(fixed.notices.size() == 1);
+        CHECK(fixed.notices.front().id == "fix_finished");
+        REQUIRE(fixed.notices.front().text.size() == 5);
+        CHECK(fixed.notices.front().text.front().msgid_plural == "Following model objects have been repaired");
+        CHECK(fixed.notices.front().text.front().count == 2);
+        CHECK(fixed.notices.front().text[2].msgid == "\n   - %s");
+    }
+}
+
 TEST_CASE("A model that looks like metres offers to be scaled to millimetres", "[Adapter][Import]")
 {
     require_engine();

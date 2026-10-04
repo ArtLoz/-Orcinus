@@ -188,6 +188,25 @@ abstract class SlicerService<E> : Service()
             )
         }.toParcel()
 
+        override fun editObjects(
+            plate: Array<PlacedModelParcel>,
+            indexes: IntArray,
+            edit: String,
+            profiles: ProfilesParcel,
+            prefix: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): ModelLoadParcel = runBlocking {
+            engine.editObjects(
+                plate.toPlacedModels(),
+                indexes.toList(),
+                ObjectEdit.valueOf(edit),
+                profiles.toProfiles(),
+                ScenePath(prefix),
+                answerIds.zip(answers.toList()).toMap(),
+            )
+        }.toParcel()
+
         override fun beginCut(plateObject: PlacedModelParcel, instance: Int, profiles: ProfilesParcel): CutObjectParcel = runBlocking {
             engine.beginCut(arrayOf(plateObject).toPlacedModels().first(), instance, profiles.toProfiles())
         }.toParcel()

@@ -5332,6 +5332,240 @@ MeshExport export_meshes(
     }
 }
 
+ImportedModels edit_objects(
+    const std::vector<PlateObject>& plate,
+    const std::vector<std::size_t>& object_indexes,
+    ObjectEdit edit,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix,
+    const DialogAnswers& answers
+)
+{
+    ImportedModels result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.status = SceneStatus::engine_not_ready;
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    detail::SettingsDialogs dialogs(answers);
+    try {
+        Slic3r::DynamicPrintConfig config;
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+            status != SliceStatus::success) {
+            result.status = scene_status(status);
+            return result;
+        }
+        Slic3r::Model model;
+        if (!load_plate(plate, config, model, result.message)) {
+            return result;
+        }
+        std::vector<Slic3r::ModelObject*> objects;
+        for (const std::size_t index : object_indexes) {
+            if (index >= model.objects.size()) {
+                result.message = "The object is not on the plate";
+                return result;
+            }
+            objects.push_back(model.objects[index]);
+        }
+        if (objects.empty()) {
+            result.message = "No object is selected";
+            return result;
+        }
+        const bool keep_painting = engine().config->get_bool("keep_painting");
+        const Slic3r::BoundingBoxf bed = build_volume_of(config).bounding_volume2d();
+        const Slic3r::Vec3d bed_size = Slic3r::to_3d(bed.size(), 1.0) - 2.0 * Slic3r::Vec3d::Ones();
+        std::vector<Slic3r::ModelObject*> edited;
+
+        switch (edit) {
+        case ObjectEdit::fix: {
+            // ObjectList::fix_through_cgal(): FIX_THROUGH_CGAL_ALWAYS repairs every object.
+            std::vector<std::string> succes_models;
+            std::vector<std::pair<std::string, std::string>> failed_models;
+            for (Slic3r::ModelObject* object : objects) {
+                if (!keep_painting) {
+                    clear_before_change_mesh(*object, dialogs);
+                }
+                try {
+                    fix_model_with_cgal(*object, -1, keep_painting);
+                    object->ensure_on_bed();
+                    succes_models.push_back(object->name);
+                } catch (const std::exception& error) {
+                    failed_models.push_back({object->name, error.what()});
+                }
+                edited.push_back(object);
+            }
+            // The CgalFinished notification.
+            std::vector<UiText> summary;
+            if (!succes_models.empty()) {
+                UiText repaired = detail::ui_text("Following model object has been repaired");
+                repaired.msgid_plural = "Following model objects have been repaired";
+                repaired.count = int(succes_models.size());
+                summary.push_back(repaired);
+                summary.push_back(detail::ui_text("%s", {":"}));
+                for (const std::string& model_name : succes_models) {
+                    summary.push_back(detail::ui_text("\n   - %s", {model_name}));
+                }
+                summary.push_back(detail::ui_text("%s", {"\n\n"}));
+            }
+            if (!failed_models.empty()) {
+                UiText failed = detail::ui_text("Failed to repair following model object");
+                failed.msgid_plural = "Failed to repair following model objects";
+                failed.count = int(failed_models.size());
+                summary.push_back(failed);
+                summary.push_back(detail::ui_text("%s", {":\n"}));
+                for (const auto& [model_name, reason] : failed_models) {
+                    summary.push_back(detail::ui_text("\n   - %s: %s", {model_name, reason}));
+                }
+            }
+            if (summary.empty()) {
+                summary.push_back(detail::ui_text("Repairing was canceled"));
+            }
+            dialogs.inform("fix_finished", summary, {}, DialogIcon::info);
+            break;
+        }
+        case ObjectEdit::convert_from_inches:
+        case ObjectEdit::restore_to_inches:
+        case ObjectEdit::convert_from_meters:
+        case ObjectEdit::restore_to_meters: {
+            const Slic3r::ConversionType type = edit == ObjectEdit::convert_from_inches ? Slic3r::ConversionType::CONV_FROM_INCH :
+                                                edit == ObjectEdit::restore_to_inches   ? Slic3r::ConversionType::CONV_TO_INCH :
+                                                edit == ObjectEdit::convert_from_meters ? Slic3r::ConversionType::CONV_FROM_METER :
+                                                                                          Slic3r::ConversionType::CONV_TO_METER;
+            // Plater::convert_unit(): the objects converted from the last, then loaded in their order.
+            Slic3r::ModelObjectPtrs converted;
+            for (auto object = objects.rbegin(); object != objects.rend(); ++object) {
+                (*object)->convert_units(converted, type, {});
+                model.delete_object(*object);
+            }
+            std::reverse(converted.begin(), converted.end());
+            Slic3r::Model discarded;
+            discarded.objects = converted;
+            for (const Slic3r::ModelObject* added : converted) {
+                Slic3r::ModelObject* joined = model.add_object(*added);
+                offer_to_scale_down(*joined, bed_size, dialogs, edited.size());
+                joined->ensure_on_bed(false);
+                edited.push_back(joined);
+            }
+            result.appended = true;
+            break;
+        }
+        case ObjectEdit::assemble: {
+            // ObjectList::merge(true) of objects selected whole: get_object_idxs()
+            // first separates the copies of an object of several, which keeps its
+            // first copy in its place and appends the others to the list.
+            std::vector<std::pair<Slic3r::ModelObject*, Slic3r::ModelInstance*>> copies;
+            for (Slic3r::ModelObject* object : objects) {
+                copies.emplace_back(object, object->instances.front());
+            }
+            for (Slic3r::ModelObject* object : objects) {
+                for (std::size_t instance = 1; instance < object->instances.size(); ++instance) {
+                    copies.emplace_back(object, object->instances[instance]);
+                }
+            }
+            Slic3r::ModelObject* new_object = model.add_object();
+            new_object->name = Slic3r::I18N::translate("Assembly");
+            Slic3r::ModelConfig& config_of_new = new_object->config;
+            for (const auto& [object, copy] : copies) {
+                const Slic3r::Geometry::Transformation& transformation = copy->get_transformation();
+                if (copy == copies.front().second) {
+                    new_object->add_instance();
+                }
+                const Slic3r::Transform3d& transformation_matrix = transformation.get_matrix();
+                for (const Slic3r::ModelVolume* volume : object->volumes) {
+                    Slic3r::ModelVolume* new_volume = new_object->add_volume(*volume);
+                    const Slic3r::Transform3d& volume_matrix = new_volume->get_matrix();
+                    new_volume->set_transformation(Slic3r::Transform3d(transformation_matrix * volume_matrix));
+                    if (object->volumes.size() > 1) {
+                        new_volume->config.assign_config(volume->config);
+                    }
+                    if (new_volume->config.option("extruder") == nullptr) {
+                        if (const Slic3r::ConfigOption* opt = object->config.option("extruder")) {
+                            new_volume->config.set_key_value("extruder", new Slic3r::ConfigOptionInt(opt->getInt()));
+                        }
+                    }
+                }
+                new_object->sort_volumes(true);
+
+                const auto new_opt_keys = config_of_new.keys();
+                const Slic3r::ModelConfig& from_config = object->config;
+                const auto opt_keys = from_config.keys();
+                for (const auto& opt_key : opt_keys) {
+                    if (std::find(new_opt_keys.begin(), new_opt_keys.end(), opt_key) == new_opt_keys.end()) {
+                        const Slic3r::ConfigOption* option = from_config.option(opt_key);
+                        std::unique_ptr<Slic3r::DynamicPrintConfig> defaults;
+                        if (option == nullptr) {
+                            defaults.reset(Slic3r::DynamicPrintConfig::new_from_defaults_keys({opt_key}));
+                            option = defaults->option(opt_key);
+                        }
+                        config_of_new.set_key_value(opt_key, option->clone());
+                    }
+                }
+                if (object->volumes.size() == 1 && std::find(opt_keys.begin(), opt_keys.end(), "extruder") != opt_keys.end()) {
+                    if (const Slic3r::ConfigOption* option = from_config.option("extruder")) {
+                        new_object->volumes.back()->config.set_key_value("extruder", option->clone());
+                    }
+                }
+                if (!copy->printable) {
+                    new_object->printable = false;
+                    new_object->instances[0]->printable = false;
+                }
+                if (!copy->auto_drop) {
+                    new_object->instances[0]->auto_drop = false;
+                }
+                for (const auto& range : object->layer_config_ranges) {
+                    new_object->layer_config_ranges.emplace(range);
+                }
+                Slic3r::BrimPoints brim_points = object->brim_points;
+                for (auto& point : brim_points) {
+                    point.set_transform(transformation_matrix);
+                    new_object->brim_points.push_back(point);
+                }
+            }
+            new_object->ensure_on_bed();
+            new_object->center_around_origin();
+            new_object->translate_instances(-new_object->origin_translation);
+            new_object->origin_translation = Slic3r::Vec3d::Zero();
+            const Slic3r::Geometry::Transformation new_object_trsf = new_object->instances[0]->get_transformation();
+            new_object->instances[0]->set_assemble_transformation(new_object_trsf);
+            const Slic3r::Transform3d new_object_inverse_matrix = new_object_trsf.get_matrix().inverse();
+            for (auto& point : new_object->brim_points) {
+                point.set_transform(new_object_inverse_matrix);
+            }
+            // remove(): the objects it was made of leave.
+            for (Slic3r::ModelObject* object : objects) {
+                model.delete_object(object);
+            }
+            edited.push_back(new_object);
+            result.appended = true;
+            break;
+        }
+        default:
+            result.message = "Unknown edit";
+            return result;
+        }
+
+        model.update_print_volume_state(build_volume_of(config));
+        if (!write_objects(edited, output_prefix, result)) {
+            return result;
+        }
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const detail::QuestionPending& pending) {
+        result.has_question = true;
+        result.question = pending.dialog;
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        result.notices = dialogs.take_notices();
+        result.objects.clear();
+        return result;
+    }
+}
+
 ImportedModels replace_volume(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,

@@ -683,9 +683,20 @@ sealed interface PlateRequest {
 
     /**
      * [edit] of the object with the [mesh] file, or of its volume at [volume]
-     * (ObjectPartId.index); [cut] is what ObjectEdit.CUT cuts with.
+     * (ObjectPartId.index); [cut] is what ObjectEdit.CUT cuts with. With
+     * [others], the multi-selection menu's edit of the objects with [mesh]
+     * and those files, in the plate's order, as one change.
      */
-    data class Edit(val mesh: ScenePath, val edit: ObjectEdit, val volume: Int? = null, val cut: ObjectCut? = null) : PlateRequest
+    data class Edit(
+        val mesh: ScenePath,
+        val edit: ObjectEdit,
+        val volume: Int? = null,
+        val cut: ObjectCut? = null,
+        val others: List<ScenePath> = emptyList(),
+    ) : PlateRequest {
+        /** Every object the edit changes. */
+        val meshes: List<ScenePath> get() = listOf(mesh) + others
+    }
 
     /**
      * The handy model Orca String Hell loaded: OrcaSlicer suggests "One Wall
@@ -891,6 +902,9 @@ enum class ObjectEdit {
      * its other volumes, the first of them in its place.
      */
     DELETE_VOLUME,
+
+    /** ObjectList::merge(true) ("Assemble"): the selected objects become the parts of one. */
+    ASSEMBLE,
 }
 
 /**

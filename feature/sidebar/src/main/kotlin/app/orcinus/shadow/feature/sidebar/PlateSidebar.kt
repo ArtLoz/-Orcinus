@@ -461,6 +461,9 @@ class SidebarViewModel(
     /** The plate menu's "Replace all with 3D files": the objects the list shows under the plate. */
     fun replaceAllOnPlate(index: Int, folder: ExternalDocumentReference) = replaceAllVolumesUseCase.onPlate(index, folder)
 
+    /** The multi-selection menu's "Replace all with 3D files", from [folder]. */
+    fun replaceAllInSelection(folder: ExternalDocumentReference) = replaceAllVolumesUseCase.selected(folder)
+
     /** The plate menu of the object list (MenuFactory::create_plate_menu) for the current plate. */
     fun selectPlateObjects() = plateObjects.selectCurrentPlate()
 
@@ -533,10 +536,11 @@ class SidebarViewModel(
     }
 
     /** The multi-selection menu's items over the selected objects. */
-    fun selectionActions(openSettings: () -> Unit, export: (MeshFormat, Boolean) -> Unit) = SelectionMenuActions(
+    fun selectionActions(openSettings: () -> Unit, replaceAll: () -> Unit, export: (MeshFormat, Boolean) -> Unit) = SelectionMenuActions(
         cut = { plateState.value.selectedCopies().takeIf { it.isNotEmpty() }?.let { copyToClipboard.objects(it.toSet(), cut = true) } },
         copy = { plateState.value.selectedCopies().takeIf { it.isNotEmpty() }?.let { copyToClipboard.objects(it.toSet()) } },
         paste = { plateState.value.selectedCopies().firstOrNull()?.let { pasteFromClipboard(it) } },
+        edit = { editPlateObject.selected(it) },
         center = { selectionMenu?.center() },
         drop = { selectionMenu?.drop() },
         delete = { selectionMenu?.delete() },
@@ -548,6 +552,7 @@ class SidebarViewModel(
         },
         pasteProcessSettings = { pasteSettings.selected() },
         setFilament = { setExtruder.selected(it) },
+        replaceAll = replaceAll,
         export = export,
     )
 
@@ -1527,6 +1532,9 @@ fun PlateSidebar(
             viewModel.replaceAllVolumes(PlateInstanceId(ScenePath(target.first), target.second), ExternalDocumentReference(uri.toString()))
         }
     }
+    val selectionFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) viewModel.replaceAllInSelection(ExternalDocumentReference(uri.toString()))
+    }
     // The plate menu's "Replace all with 3D files" (Plater::priv::replace_all_with_stl of a plate item).
     var replacingPlate by rememberSaveable { mutableStateOf<Int?>(null) }
     val plateFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -1677,7 +1685,7 @@ fun PlateSidebar(
         onChoose = viewModel::choose,
         onChooseScope = viewModel::chooseSettingsScope,
         objectList = ObjectListActions(
-            selection = viewModel.selectionActions(openSettings = {}, export = exportSelection),
+            selection = viewModel.selectionActions(openSettings = {}, replaceAll = { selectionFolderPicker.launch(null) }, export = exportSelection),
             select = viewModel::chooseSettingsTarget,
             selectAlone = { viewModel.chooseSettingsTarget(it, add = false) },
             selectSettings = viewModel::openSettingsOf,

@@ -1607,6 +1607,20 @@ internal object NativeBindings {
         outputPrefix: String,
     ): NativeImportedModels
 
+    /** edit_objects(): [edit] (ObjectEdit in orca_engine_adapter.hpp) of the objects at [objects] of [plate]. */
+    external fun editObjects(
+        plate: NativePlate,
+        objects: IntArray,
+        edit: Long,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+        answerIds: Array<String>,
+        answers: BooleanArray,
+    ): NativeImportedModels
+
     /**
      * edit_object(): [edit] (ObjectEdit in orca_engine_adapter.hpp) of the
      * object at [objectIndex] of [plate], or of its volume at [volume] (-1 for

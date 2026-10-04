@@ -498,6 +498,19 @@ interface PlateInspector {
     ): ModelLoadOutcome
 
     /**
+     * The multi-selection menu's commands that change meshes: [edit] of the
+     * objects at [indexes] of [plate] as one change (edit_objects()).
+     */
+    suspend fun editObjects(
+        plate: List<PlacedModel>,
+        indexes: List<Int>,
+        edit: ObjectEdit,
+        profiles: SlicingProfileSelection,
+        prefix: ScenePath,
+        answers: Map<String, Boolean> = emptyMap(),
+    ): ModelLoadOutcome = ModelLoadOutcome.Failure("Editing several objects is not supported")
+
+    /**
      * GLGizmoCut3D opened on the copy at [instance] of [plateObject]: the
      * engine keeps the object until [endCut], as the gizmo's clippers keep its
      * meshes, and reports the bounding box its plane starts in the centre of.
