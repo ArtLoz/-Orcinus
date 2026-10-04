@@ -321,6 +321,7 @@ internal fun PrepareRoute(
             sectionPlane = viewModel::setPaintingSectionPlane,
         ),
         onPlaceObject = viewModel::placeObject,
+        onPlaceObjects = viewModel::placeObjects,
         onSetAutoDrop = viewModel::setAutoDrop,
         onDeleteObject = viewModel::deleteObject,
         objectMenuActions = PrepareObjectMenuActions(
@@ -666,6 +667,7 @@ internal fun PrepareScreen(
     onTogglePainting: (PaintKind) -> Unit,
     paintingActions: PaintingActions,
     onPlaceObject: (Int, Transform3, Manipulation) -> Unit,
+    onPlaceObjects: (List<Pair<Int, Transform3>>) -> Unit,
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
     onDeleteObject: (index: Int) -> Unit,
     objectMenuActions: PrepareObjectMenuActions,
@@ -807,6 +809,7 @@ internal fun PrepareScreen(
                 editable = state.canEditPlate,
                 onSelectObject = onSelectObject,
                 onPlaceObject = onPlaceObject,
+                onPlaceObjects = onPlaceObjects,
                 onOpenObjectMenu = { index, position -> objectMenu = ObjectMenu(index, position) },
                 onOpenPlateMenu = { position -> plateMenu = position },
                 contentDescription = stringResource(R.string.plate_view),
@@ -2850,7 +2853,7 @@ private val PreviewState = PrepareUiState(
 @Composable
 private fun PrepareCompactPreview() = OrcinusTheme {
     PrepareScreen(
-        PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, {}, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }
@@ -2867,7 +2870,7 @@ private fun PrepareWidePreview() = OrcinusTheme {
             canEditPlate = true,
             canSlice = true,
         ),
-        OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, {}, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }

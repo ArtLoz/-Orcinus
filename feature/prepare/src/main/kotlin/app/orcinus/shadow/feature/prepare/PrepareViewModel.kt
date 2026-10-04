@@ -3394,6 +3394,13 @@ class PrepareViewModel(
         state.value.sceneCopies.getOrNull(index)?.let { placePlateObject(it.id, placement, manipulation) }
     }
 
+    /** GLCanvas3D::do_move() of a selection the finger dragged: every copy placed, as one step of Undo ("Move Object"). */
+    fun placeObjects(placements: List<Pair<Int, Transform3>>) {
+        val copies = state.value.sceneCopies
+        placements.mapNotNull { (index, placement) -> copies.getOrNull(index)?.let { it.id to placement } }
+            .forEachIndexed { step, (id, placement) -> placePlateObject(id, placement, Manipulation.Move, record = step == 0) }
+    }
+
     /** The object menu's "Auto Drop": ObjectList::toggle_auto_drop() for the object [index]. */
     fun setAutoDrop(index: Int, enabled: Boolean) {
         state.value.sceneCopies.getOrNull(index)?.let { setPlateObjectAutoDrop(it.id, enabled) }

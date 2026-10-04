@@ -110,7 +110,8 @@ data class VolumeScaleFrame(val reference: Transform3, val box: VolumeBox)
  * [objects] are the plate's objects, painted with the filament colour, and
  * [selectedObject] indexes them. Objects change only while [editable]; a
  * finished manipulation reports the object's new placement to [onPlaceObject],
- * and a held object its index and the finger's position in the view to
+ * a selection of several dragged together the placements of its copies to
+ * [onPlaceObjects], and a held object its index and the finger's position in the view to
  * [onOpenObjectMenu]. A [layer], such as the G-code toolpaths of the preview,
  * is drawn after the bed; the view owns it and releases it when it is replaced.
  */
@@ -156,6 +157,7 @@ fun PlateView(
     onSelectObject: (Int?) -> Unit,
     onPlaceObject: (index: Int, placement: Transform3, manipulation: Manipulation) -> Unit,
     onOpenObjectMenu: (index: Int, position: Offset) -> Unit,
+    onPlaceObjects: (placements: List<Pair<Int, Transform3>>) -> Unit = {},
     contentDescription: String,
     modifier: Modifier = Modifier,
     layer: PlateLayer? = null,
@@ -551,6 +553,7 @@ fun PlateView(
             controller.onSelectObject = onSelectObject
             controller.onSelectPlate = onSelectPlate
             controller.onPlaceObject = onPlaceObject
+            controller.onPlaceObjects = onPlaceObjects
             controller.onMoveWipeTower = onMoveWipeTower
             controller.onPaint = { ray, starts ->
                 val direction = ray.b - ray.a
@@ -1029,6 +1032,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
     var onPaint: (Line3, starts: Boolean) -> Unit = { _, _ -> }
     var onPlaceObject: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
+    var onPlaceObjects: (List<Pair<Int, Transform3>>) -> Unit = {}
     var onOpenObjectMenu: (Int, Float, Float) -> Unit = { _, _, _ -> }
     var onOpenPlateMenu: ((Float, Float) -> Unit)? = null
     /** A tap on another plate, with its index; null where plates are not picked. */
@@ -1046,10 +1050,17 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /**
      * GLCanvas3D::Mouse::Drag: the object itself, touched at [startPosition].
      * A copy of a multiple selection is [held]: the finger keeps the selection
-     * for its menu, as a right click does, and moves nothing.
+     * for its menu, as a right click does, and moved, drags the whole
+     * selection, the [others] copies from where they stood.
      */
-    private class ObjectDrag(index: Int, startWorld: Affine3, val startPosition: Vec3, key: String? = null, val held: Boolean = false) :
-        Drag(index, startWorld, key)
+    private class ObjectDrag(
+        index: Int,
+        startWorld: Affine3,
+        val startPosition: Vec3,
+        key: String? = null,
+        val held: Boolean = false,
+        val others: List<Pair<Int, Affine3>> = emptyList(),
+    ) : Drag(index, startWorld, key)
 
     /** GLGizmoBase::use_grabbers(): the move gizmo's grabber of [axis] at [startGrabber], the box centre at [startCenter]. */
     private class MoveGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val startGrabber: Vec3, val startCenter: Vec3, key: String?) :
@@ -1746,7 +1757,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         // volume was selected).
         val target = objects.firstOrNull { it.index == volume.index } ?: volume
         if (volumeKey == null && selectedIndexes.size > 1 && target.index in selectedIndexes) {
-            drag = if (editable) ObjectDrag(target.index, target.world, hit, held = true) else null
+            val others = selectedIndexes.filter { it != target.index }.mapNotNull { index -> objects.firstOrNull { it.index == index }?.let { index to it.world } }
+            drag = if (editable) ObjectDrag(target.index, target.world, hit, held = true, others = others) else null
             return true
         }
         if (volumeKey != null && target.index == selectedIndex) onSelectObject(target.index) else select(target.index)
@@ -1851,7 +1863,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val offset = when (drag) {
             is RotateGrabberDrag, is ScaleGrabberDrag, is BrimEarDrag -> return
             // GLCanvas3D::on_mouse(): the assembly view moves nothing a finger drags.
-            is ObjectDrag -> if (assembly != null || drag.held) return else objectOffset(drag, ray) ?: return
+            is ObjectDrag -> if (assembly != null) return else objectOffset(drag, ray) ?: return
             is MoveGrabberDrag -> {
                 // GLGizmoMove3D::on_dragging(): the displacement along the grabber's
                 // axis, the world's or the copy's (Selection::translate() in instance coordinates).
@@ -1862,6 +1874,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         drag.moved = true
         replaceObject(target.withWorld(drag.startWorld.withTranslation(drag.startWorld.translation() + offset)), alone = drag.key != null)
+        // Selection::translate(): the other copies of the selection go the same way.
+        (drag as? ObjectDrag)?.others?.forEach { (index, start) ->
+            objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(start.withTranslation(start.translation() + offset))) }
+        }
     }
 
     private fun objectOffset(drag: ObjectDrag, ray: Line3): Vec3? {
@@ -1915,7 +1931,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         val drag = drag ?: return
         this.drag = null
-        if (drag is ObjectDrag && drag.held) {
+        if (drag is ObjectDrag && drag.held && !drag.moved) {
             // Let go without the menu, the copy is a click on it: it is selected alone (Selection::add()).
             selectedIndex = drag.index
             invalidate()
@@ -1995,6 +2011,17 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             val spread = (target.world * drag.startWorld.inverse()).transformVector(target.explosion) * (view.explosionRatio - 1.0)
             val assemble = target.world.withTranslation(target.world.translation() - spread)
             onPlaceInAssembly(target.index, Transform3(assemble.elements().toList()), manipulation)
+            return
+        }
+        if (drag is ObjectDrag && drag.held) {
+            // do_move() of the selection: each copy rests on the plate unless its
+            // auto drop is off, and the app places them all as one step.
+            val placed = (listOf(target) + drag.others.mapNotNull { (index, _) -> objects.firstOrNull { it.index == index } }).map { copy ->
+                val shift = copy.minZ()
+                if (copy.autoDrop && shift > SINKING_Z_THRESHOLD) copy.withWorld(copy.world.withTranslation(copy.world.translation() - Vec3(0.0, 0.0, shift))) else copy
+            }
+            placed.forEach(::replaceObject)
+            onPlaceObjects(placed.map { it.index to Transform3(it.world.elements().toList()) })
             return
         }
         val shiftZ = target.minZ()
