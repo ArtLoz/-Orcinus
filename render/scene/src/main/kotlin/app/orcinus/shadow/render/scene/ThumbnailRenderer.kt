@@ -63,9 +63,15 @@ class ThumbnailRenderer(context: Context) {
         sizes: List<ThumbnailSize>,
         picture: PlatePicture,
         fileFor: (ThumbnailSize) -> ScenePath,
+        /**
+         * The volumes the 3D view draws are the ones the thumbnails are drawn
+         * with: with smooth normals in the realistic view with "Smooth normals"
+         * (GLModel::init_from(its)).
+         */
+        smoothNormals: Boolean = false,
     ): List<ThumbnailImage> = withContext(dispatcher) {
         val plateBox = buildVolume(plate, origin)
-        val volumes = visibleVolumes(objects, plate, plateBox, filamentColors, picture.printableOnly)
+        val volumes = visibleVolumes(objects, plate, plateBox, filamentColors, picture.printableOnly, smoothNormals)
         OffscreenContext().use {
             // GLCanvas3D::render_thumbnail(): the pick picture is drawn with the flat shader.
             val program = GlProgram(assets, if (picture == PlatePicture.PICK) FLAT_SHADER else THUMBNAIL_SHADER)
@@ -100,8 +106,10 @@ class ThumbnailRenderer(context: Context) {
         view: CameraView,
         size: ThumbnailSize,
         file: ScenePath,
+        /** As [render]'s. */
+        smoothNormals: Boolean = false,
     ): ThumbnailImage? = withContext(dispatcher) {
-        val volumes = objectVolumes(plateObject, filamentColors)
+        val volumes = objectVolumes(plateObject, filamentColors, smoothNormals)
         if (volumes.isEmpty()) return@withContext null
         OffscreenContext().use {
             val program = GlProgram(assets, THUMBNAIL_SHADER)
@@ -124,12 +132,12 @@ class ThumbnailRenderer(context: Context) {
      * own mesh, its model parts and the filaments painted on it, each in the
      * colour of its filament.
      */
-    private fun objectVolumes(plateObject: PlateObject, filamentColors: List<String>): List<ThumbnailVolume> {
+    private fun objectVolumes(plateObject: PlateObject, filamentColors: List<String>, smoothNormals: Boolean): List<ThumbnailVolume> {
         val colors = filamentColors.map { parseFilamentColor(it) }
         val default = ColorRgba(0.5f, 0.5f, 0.5f, 1f)
         fun colorOf(extruder: Int): ColorRgba = colors.getOrNull(extruder - 1) ?: default
         val instance = plateObject.instances.firstOrNull() ?: return emptyList()
-        val meshes = MeshCache()
+        val meshes = MeshCache().also { it.smoothNormals = smoothNormals }
         val copy = ThumbnailVolume(SceneLoader.loadObject(0, plateObject, instance, colorOf(plateObject.extruderNumber), meshes), plateObject.extruderNumber, 1)
         val parts = plateObject.parts.filter { it.type == VolumeType.PART }.map { part ->
             val extruder = part.settings.extruderNumber.takeIf { it > 0 } ?: plateObject.extruderNumber
@@ -163,12 +171,13 @@ class ThumbnailRenderer(context: Context) {
         buildVolume: Box3,
         filamentColors: List<String>,
         printableOnly: Boolean,
+        smoothNormals: Boolean,
     ): List<ThumbnailVolume> {
         val colors = filamentColors.map { parseFilamentColor(it) }
         val default = plate.filamentColor
         fun colorOf(extruder: Int): ColorRgba = colors.getOrNull(extruder - 1) ?: default
         val plateBox = Box3(buildVolume.min.copy(z = -1e10), buildVolume.max)
-        val meshes = MeshCache()
+        val meshes = MeshCache().also { it.smoothNormals = smoothNormals }
         var label = 0
         return objects.flatMap { plateObject ->
             plateObject.instances.mapNotNull { instance -> (++label).takeIf { instance.printable || !printableOnly }?.let { instance to it } }

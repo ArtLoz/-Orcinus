@@ -327,8 +327,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     // renderer; the app's renderer draws them offscreen before it slices.
     private val thumbnailRenderer = ThumbnailRenderer(applicationContext)
     private val plateThumbnails = PlateThumbnailRenderer { objects, plate, origin, colors, sizes, picture, fileFor ->
-        thumbnailRenderer.render(objects, plate, origin, colors, sizes, picture, fileFor)
+        thumbnailRenderer.render(objects, plate, origin, colors, sizes, picture, fileFor, thumbnailSmoothNormals())
     }
+
+    /** The realistic view with "Smooth normals", whose volumes the thumbnails are drawn with. */
+    private fun thumbnailSmoothNormals(): Boolean = appPreferences.canvas.value.let { it.realistic && it.smoothNormals }
     private val renderThumbnails = RenderThumbnailsUseCase(
         engine = engine,
         renderer = plateThumbnails,
@@ -366,7 +369,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         plateRepository,
         applicationScope,
         sceneFiles,
-        { plateObject, colors, view, size, file -> thumbnailRenderer.renderObject(plateObject, colors, view, size, file) },
+        { plateObject, colors, view, size, file -> thumbnailRenderer.renderObject(plateObject, colors, view, size, file, thumbnailSmoothNormals()) },
     )
 
     private val editPlateObject = EditPlateObjectUseCase(engine, sceneFiles, plateRepository, applicationScope)
