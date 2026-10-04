@@ -68,18 +68,27 @@ fun OrcaTabBar(
         tabs.forEachIndexed { index, tab ->
             val selected = index == selectedIndex
             val content = if (selected) colors.onTabBar else colors.onTabBarInactive
+            // On a phone the tabs share its width: the selected one with its
+            // title, the others with their icons alone, which still name them.
+            val iconOnly = fillWidth && tab.title.isNotEmpty() && !selected
+            val titled = tab.title.isNotEmpty() && !iconOnly
             Row(
                 modifier = Modifier
-                    .then(if (fillWidth && tab.title.isNotEmpty()) Modifier.weight(1f) else Modifier)
+                    .then(if (iconOnly) Modifier.weight(1f) else Modifier)
                     .fillMaxHeight()
                     .background(if (selected) colors.accent else Color.Transparent)
                     .selectable(selected = selected, role = Role.Tab, onClick = { onSelect(index) })
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = if (iconOnly) 4.dp else 16.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(painterResource(tab.icon), contentDescription = tab.description, tint = content, modifier = Modifier.size(OrcaTheme.dimensions.icon))
-                if (tab.title.isNotEmpty()) {
+                Icon(
+                    painterResource(tab.icon),
+                    contentDescription = tab.description ?: tab.title.takeUnless { titled },
+                    tint = content,
+                    modifier = Modifier.size(OrcaTheme.dimensions.icon),
+                )
+                if (titled) {
                     Text(
                         text = tab.title,
                         color = content,

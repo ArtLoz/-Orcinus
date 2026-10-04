@@ -124,6 +124,7 @@ import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.PrintHostDiscovery
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
+import app.orcinus.shadow.domain.plate.ProjectInfoUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.RecentProjectsUseCase
 import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
@@ -184,6 +185,7 @@ import app.orcinus.shadow.feature.home.HomeViewModel
 import app.orcinus.shadow.feature.preferences.PreferencesViewModel
 import app.orcinus.shadow.feature.prepare.PrepareViewModel
 import app.orcinus.shadow.feature.preview.PreviewViewModel
+import app.orcinus.shadow.feature.project.ProjectViewModel
 import app.orcinus.shadow.feature.settings.PresetSettingsViewModel
 import app.orcinus.shadow.feature.setup.SetupStart
 import app.orcinus.shadow.feature.setup.SetupWizardViewModel
@@ -204,6 +206,7 @@ import app.orcinus.shadow.storage.android.AppGcodeOutputs
 import app.orcinus.shadow.storage.android.AppModelSources
 import app.orcinus.shadow.storage.android.AppPlateCache
 import app.orcinus.shadow.storage.android.AppProjectBackupFiles
+import app.orcinus.shadow.storage.android.AppProjectInfoFiles
 import app.orcinus.shadow.storage.android.AppSceneFiles
 import app.orcinus.shadow.storage.android.ContentResolverModelFileImporter
 import java.io.File
@@ -698,6 +701,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)
 
     fun homeViewModel() = HomeViewModel(recentProjects, projectLifecycle, addModelToPlate, observePlate)
+
+    /** The Project tab's information, in the directory the next save writes into the 3MF file. */
+    private val projectInfo by lazy { ProjectInfoUseCase(AppProjectInfoFiles(applicationContext), plateRepository) }
+
+    fun projectViewModel() = ProjectViewModel(projectInfo, observePlate) { path, name -> fileShare.shareable(path, name) }
 
     /** The Preferences' "Default page" once OrcaSlicer.conf is read: "0" for Home, "1" for Prepare; null before. */
     val defaultPage: Flow<String?> = appPreferences.values.map { values -> if (values.isEmpty()) null else values[AppConfigKeys.DEFAULT_PAGE].orEmpty() }

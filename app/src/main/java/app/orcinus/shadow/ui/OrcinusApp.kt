@@ -98,6 +98,8 @@ import app.orcinus.shadow.feature.prepare.navigation.prepareEntry
 import app.orcinus.shadow.feature.preview.R as PreviewR
 import app.orcinus.shadow.feature.preview.navigation.PreviewNavKey
 import app.orcinus.shadow.feature.preview.navigation.previewEntry
+import app.orcinus.shadow.feature.project.navigation.ProjectNavKey
+import app.orcinus.shadow.feature.project.navigation.projectEntry
 import app.orcinus.shadow.feature.settings.navigation.PresetSettingsNavKey
 import app.orcinus.shadow.feature.settings.navigation.presetSettingsEntry
 import app.orcinus.shadow.feature.setup.SetupStart
@@ -435,7 +437,7 @@ private fun Workspace(
     val shownTab = backStack.lastOrNull()
     LaunchedEffect(shownTab) { shell.showingPreview(shownTab == PreviewNavKey) }
 
-    val destinations = listOf(HomeNavKey, PrepareNavKey, PreviewNavKey, DeviceNavKey)
+    val destinations = listOf(HomeNavKey, PrepareNavKey, PreviewNavKey, DeviceNavKey, ProjectNavKey)
     val tabs = listOf(
         // MainFrame's Home tab has its icon alone.
         OrcaTab("", DesignR.drawable.orca_tab_home_active, description = orcaString("Home")),
@@ -443,6 +445,8 @@ private fun Workspace(
         OrcaTab(stringResource(PreviewR.string.preview_title), DesignR.drawable.orca_tab_preview_active),
         // MainFrame::show_device(): the Device tab, after the preview.
         OrcaTab(orcaString("Device"), DesignR.drawable.orca_tab_monitor_active),
+        // MainFrame's Project tab (ProjectPanel), after the device.
+        OrcaTab(orcaString("Project"), DesignR.drawable.orca_tab_auxiliary_active),
     )
 
     OrcaSidebarLayout(
@@ -523,6 +527,7 @@ private fun Workspace(
                 )
                 previewEntry(createViewModel = container::previewViewModel, onSliceRequested = onSliceRequested)
                 deviceEntry(createViewModel = container::deviceViewModel)
+                projectEntry(createViewModel = container::projectViewModel)
             },
         )
     }

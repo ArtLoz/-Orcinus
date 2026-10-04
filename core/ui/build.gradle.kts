@@ -77,9 +77,32 @@ android {
     }
 }
 
+/** The texts of OrcaSlicer's web pages, data/text.js, as the asset orca/web/text.js (OrcaWebTexts.kt). */
+abstract class PrepareOrcaWebTexts : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val texts: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val root = outputDirectory.get().asFile
+        root.deleteRecursively()
+        texts.get().asFile.copyTo(root.resolve("orca/web/text.js"))
+    }
+}
+
+val prepareOrcaWebTexts = tasks.register<PrepareOrcaWebTexts>("prepareOrcaWebTexts") {
+    texts.set(rootProject.layout.projectDirectory.file("upstream/OrcaSlicer/resources/web/data/text.js"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/orcaWebTexts"))
+}
+
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(prepareOrcaCatalogues, PrepareOrcaCatalogues::outputDirectory)
+        variant.sources.assets?.addGeneratedSourceDirectory(prepareOrcaWebTexts, PrepareOrcaWebTexts::outputDirectory)
     }
 }
 

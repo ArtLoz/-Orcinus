@@ -60,6 +60,7 @@ import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.orca.rememberOrcaWebText
 import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import java.time.Instant
 import java.time.ZoneId
@@ -106,7 +107,7 @@ private fun HomeScreen(
     onRemove: (RecentFile) -> Unit,
     onClearAll: () -> Unit,
 ) {
-    val text = rememberHomeText()
+    val text = rememberOrcaWebText()
     val colors = OrcaTheme.colors
     val missing = orcaString("File is missing")
     val remove = text("t88", "clear")

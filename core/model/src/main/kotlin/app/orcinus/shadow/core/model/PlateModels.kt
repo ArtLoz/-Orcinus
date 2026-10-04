@@ -784,6 +784,12 @@ data class PlateProject(
     val filamentColors: List<String> = emptyList(),
     /** What the project opened from a file holds besides its objects (LoadedProject.info), which Save writes again. */
     val info: ScenePath? = null,
+    /**
+     * put_other_changes(): the project's information changed since it was
+     * opened, saved or started (a file added, a cover chosen), which a save
+     * clears (clear_other_changes()).
+     */
+    val otherChanges: Boolean = false,
 )
 
 /**
@@ -1282,13 +1288,13 @@ data class PlateState(
      * Plater::up_to_date(): a plate without objects, or one that has not
      * changed since the project was opened, saved or started, needs no save.
      */
-    val projectUpToDate: Boolean get() = objects.isEmpty() || projectContent() == project.baseline
+    val projectUpToDate: Boolean get() = objects.isEmpty() || projectContent() == project.baseline && !project.otherChanges
 
     /**
      * ProjectDirtyStateManager::is_dirty(), the star of the desktop title: the
      * plate changed, or other presets or filament colours are selected.
      */
     val projectDirty: Boolean
-        get() = projectContent() != project.baseline ||
+        get() = projectContent() != project.baseline || project.otherChanges ||
             (project.presets != null && (profiles != project.presets || presets?.filamentColors.orEmpty() != project.filamentColors))
 }

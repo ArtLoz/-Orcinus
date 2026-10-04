@@ -498,4 +498,5 @@ internal fun PlateState.projectBaseline(): PlateProject = project.copy(
     baseline = projectContent(),
     presets = profiles,
     filamentColors = presets?.filamentColors.orEmpty(),
+    otherChanges = false,
 )

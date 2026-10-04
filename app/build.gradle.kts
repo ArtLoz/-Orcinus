@@ -133,6 +133,7 @@ dependencies {
     implementation(project(":feature:home"))
     implementation(project(":feature:preferences"))
     implementation(project(":feature:prepare"))
+    implementation(project(":feature:project"))
     implementation(project(":feature:device"))
     implementation(project(":feature:preview"))
     implementation(project(":feature:settings"))

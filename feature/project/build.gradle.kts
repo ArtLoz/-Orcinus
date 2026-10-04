@@ -5,8 +5,8 @@ plugins {
 }
 
 /**
- * Copies files of OrcaSlicer's home page (resources/web) as they are, each to
- * its path under the output directory: the pictures of homepage/img as
+ * Copies files of OrcaSlicer's project page (resources/web/model) as they are,
+ * each to its path under the output directory: the pictures of model/img as
  * drawables named after them. Its texts come with core:ui (OrcaWebTexts.kt).
  */
 abstract class CopyOrcaFiles : DefaultTask() {
@@ -31,19 +31,20 @@ abstract class CopyOrcaFiles : DefaultTask() {
     }
 }
 
-val orcaWeb = rootProject.layout.projectDirectory.dir("upstream/OrcaSlicer/resources/web")
+val orcaWebModel = rootProject.layout.projectDirectory.dir("upstream/OrcaSlicer/resources/web/model/img")
 
-val prepareHomeImages = tasks.register<CopyOrcaFiles>("prepareHomeImages") {
-    orcaDirectory.set(orcaWeb.dir("homepage/img"))
-    // The pictures of "New Project" and "Open Project", and of a recent file without its own.
-    files.put("drawable-nodpi/homepage_i4.png", "i4.png")
-    files.put("drawable-nodpi/homepage_i5.png", "i5.png")
-    files.put("drawable-nodpi/homepage_d.png", "d.png")
-    outputDirectory.set(layout.buildDirectory.dir("generated/homeImages"))
+val prepareProjectImages = tasks.register<CopyOrcaFiles>("prepareProjectImages") {
+    orcaDirectory.set(orcaWebModel)
+    // "No model information", the icons of the accessories, and the licences' badges (ShowModelInfo()).
+    listOf(
+        "null", "excel", "pdf", "default",
+        "cc-zero", "by", "by-sa", "by-nd", "by-nc", "by-nc-sa", "by-nc-nd",
+    ).forEach { name -> files.put("drawable-nodpi/project_${name.replace('-', '_')}.png", "$name.png") }
+    outputDirectory.set(layout.buildDirectory.dir("generated/projectImages"))
 }
 
 android {
-    namespace = "app.orcinus.shadow.feature.home"
+    namespace = "app.orcinus.shadow.feature.project"
     compileSdk = 37
 
     defaultConfig {
@@ -62,7 +63,7 @@ android {
 
 androidComponents {
     onVariants(selector().all()) { variant ->
-        variant.sources.res?.addGeneratedSourceDirectory(prepareHomeImages, CopyOrcaFiles::outputDirectory)
+        variant.sources.res?.addGeneratedSourceDirectory(prepareProjectImages, CopyOrcaFiles::outputDirectory)
     }
 }
 

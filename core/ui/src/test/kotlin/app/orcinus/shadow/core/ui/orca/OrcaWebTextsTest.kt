@@ -1,12 +1,11 @@
-package app.orcinus.shadow.feature.home
+package app.orcinus.shadow.core.ui.orca
 
-import app.orcinus.shadow.core.ui.orca.ORCA_LANGUAGES
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class HomeTextsTest {
-    private val texts = HomeTexts.parse(File("../../upstream/OrcaSlicer/resources/web/data/text.js").readText())
+class OrcaWebTextsTest {
+    private val texts = OrcaWebTexts.parse(File("../../upstream/OrcaSlicer/resources/web/data/text.js").readText())
 
     @Test
     fun `the home page's texts come from OrcaSlicer's text js in the page's language`() {
