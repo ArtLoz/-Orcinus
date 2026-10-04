@@ -1173,6 +1173,11 @@ data class PlateState(
     /** Which settings the app shows: the presets, or the ones of an object (ParamsPanel's Global and Objects). */
     val settingsScope: SettingsScope = SettingsScope.GLOBAL,
     val slicing: PlateSlicing? = null,
+    /**
+     * How many slices went through, which SlicingProgressNotification's
+     * completed state ("Slice ok.") follows.
+     */
+    val slicesCompleted: Int = 0,
     /** What the slice button slices, as its drop-down chose (MainFrame::m_slice_select). */
     val sliceMode: SliceMode = SliceMode.PLATE,
     /**

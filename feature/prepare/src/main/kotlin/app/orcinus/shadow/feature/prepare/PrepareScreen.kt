@@ -170,6 +170,7 @@ import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
 import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
@@ -1554,6 +1555,7 @@ private fun Notifications(
             onCancel = onCancelSlicing,
         )
     } else {
+        SliceCompletedNotification(state.slicesCompleted)
         state.objectInfo?.let { ObjectInfoNotification(it, imperial, onRepairObject) }
     }
 }

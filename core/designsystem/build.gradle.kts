@@ -154,6 +154,8 @@ val orcaIconNames = listOf(
     "tab_auxiliary_active", "placeholder_excel", "placeholder_pdf", "placeholder_txt", "auxiliary_add_file", "auxiliary_delete",
     // CreatePrinterPresetDialog's steps, and CreatePresetSuccessfulDialog.
     "step_1", "step_2", "step_2_ready", "step_is_ok", "create_success",
+    // SlicingProgressNotification's complete icon and the notifications' close button.
+    "notification_slicing_complete", "notification_close",
 )
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).

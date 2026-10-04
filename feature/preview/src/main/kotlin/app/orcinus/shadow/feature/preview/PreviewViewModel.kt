@@ -58,6 +58,8 @@ data class PreviewUiState(
     val filamentColors: List<String> = emptyList(),
     /** How far the slice that is running has got, from 0 to 1; null when nothing is being sliced. */
     val slicingProgress: Float? = null,
+    /** PlateState.slicesCompleted, which "Slice ok." follows. */
+    val slicesCompleted: Int = 0,
     /** Where every plate stands (PartPlateList), and the one whose G-code the preview shows. */
     val plateOrigins: List<Point2> = listOf(Point2(0.0, 0.0)),
     val currentPlate: Int = 0,
@@ -184,6 +186,9 @@ class PreviewViewModel(
 
     suspend fun exportGcode(document: ExternalDocumentReference): Boolean = exportGcode.invoke(document)
 
+    /** The name the exported document goes by, which the export's notification shows. */
+    suspend fun exportedName(document: ExternalDocumentReference): String = exportGcode.displayName(document) ?: gcodeName()
+
     /** The G-code as the share sheet takes it; null when there is none. */
     suspend fun shareGcode(): ExternalDocumentReference? = shareGcode.invoke()
 
@@ -202,6 +207,7 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     layerGcodes = layerGcodes,
     filamentColors = presets?.filamentColors.orEmpty(),
     slicingProgress = slicing?.let { it.progress?.fraction ?: 0f },
+    slicesCompleted = slicesCompleted,
     plateOrigins = plateOrigins(),
     currentPlate = currentPlate,
     canSelectPlate = !busy && !slicingAll,

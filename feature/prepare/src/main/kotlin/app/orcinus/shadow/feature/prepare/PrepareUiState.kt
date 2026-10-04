@@ -285,6 +285,8 @@ data class PrepareUiState(
     /** GLCanvas3D::EWarning::ObjectClashed: an object lies across the plate boundary or above the build height. */
     val objectClashed: Boolean,
     val slicing: PlateSlicing?,
+    /** PlateState.slicesCompleted, which "Slice ok." follows. */
+    val slicesCompleted: Int = 0,
     val problem: PlateProblem?,
     val canEditPlate: Boolean,
     val canSlice: Boolean,
@@ -996,6 +998,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         uniformScale = uniformScale,
         objectClashed = copies.any { it.instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE },
         slicing = slicing,
+        slicesCompleted = slicesCompleted,
         problem = problem,
         // Objects are loaded and placed by the engine.
         canEditPlate = canEditPlate,

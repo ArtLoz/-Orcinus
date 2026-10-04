@@ -1742,6 +1742,9 @@ class ExportGcodeUseCase(
         val result = repository.state.value.result ?: return false
         return documents.copyTo(result.gcode.value, document)
     }
+
+    /** The name [document] goes by; null when the system does not tell. */
+    suspend fun displayName(document: ExternalDocumentReference): String? = documents.displayName(document)
 }
 
 /**
@@ -2589,6 +2592,7 @@ class SlicePlateUseCase(
         return when (outcome) {
             is SliceOutcome.Success -> copy(
                 slicing = null,
+                slicesCompleted = slicesCompleted + 1,
                 result = PlateSliceResult(
                     outcome.jobId,
                     objects,

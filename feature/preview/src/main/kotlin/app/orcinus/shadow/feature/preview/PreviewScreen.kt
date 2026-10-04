@@ -89,8 +89,10 @@ import app.orcinus.shadow.core.ui.filamentLength
 import app.orcinus.shadow.core.ui.network.rememberLocalNetworkAccess
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
+import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
@@ -143,6 +145,7 @@ internal fun PreviewRoute(
         ),
         gcodeName = viewModel::gcodeName,
         onExportGcode = viewModel::exportGcode,
+        exportedName = viewModel::exportedName,
         onShareGcode = viewModel::shareGcode,
         layerGcodeActions = LayerGcodeActions(
             addPause = viewModel::addPause,
@@ -200,6 +203,8 @@ internal fun PreviewScreen(
     /** Export G-code: the name the file is offered under, and the save itself. */
     gcodeName: () -> String = { "plate.gcode" },
     onExportGcode: suspend (ExternalDocumentReference) -> Boolean = { false },
+    /** The name the exported document goes by, for its notification. */
+    exportedName: suspend (ExternalDocumentReference) -> String = { "" },
     /** The G-code as Android's share sheet takes it; null when there is none. */
     onShareGcode: suspend () -> ExternalDocumentReference? = { null },
     layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
@@ -226,10 +231,18 @@ internal fun PreviewScreen(
     // Http::on_progress while the file travels; null when nothing is going out.
     var progress by remember { mutableStateOf<Float?>(null) }
     var saved by remember { mutableStateOf<Boolean?>(null) }
+    // ExportFinishedNotification: the name of the file the last export wrote.
+    var exported by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     // Export G-code: the file goes into a document of the user's own.
     val gcodePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(GCODE_MIME_TYPE)) { uri ->
-        uri?.let { scope.launch { saved = onExportGcode(ExternalDocumentReference(it.toString())) } }
+        uri?.let {
+            scope.launch {
+                val document = ExternalDocumentReference(it.toString())
+                // Plater::export_gcode(): a notification says where the file went; a failure keeps its message box.
+                if (onExportGcode(document)) exported = exportedName(document) else saved = false
+            }
+        }
     }
     val inspection = LocalInspectionMode.current
     val toolpaths = result?.toolpaths
@@ -404,6 +417,18 @@ internal fun PreviewScreen(
                     filamentColors = state.filamentColors.map { value -> parseFilamentColor(value)?.let { Color(it.red, it.green, it.blue, it.alpha) } ?: OrcaTheme.colors.accent },
                     modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
                 )
+            }
+            // The notifications of the preview's canvas, under the plate bar and clear of the layer slider.
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(start = 64.dp, end = 64.dp, top = 56.dp),
+            ) {
+                SliceCompletedNotification(state.slicesCompleted)
+                exported?.let { name -> ExportFinishedNotification(name, onClose = { exported = null }) }
             }
             // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), once there are several.
             if (state.plateOrigins.size > 1) {
