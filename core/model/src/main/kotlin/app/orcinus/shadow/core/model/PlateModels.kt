@@ -1292,9 +1292,12 @@ data class PlateState(
 
     /**
      * ProjectDirtyStateManager::is_dirty(), the star of the desktop title: the
-     * plate changed, or other presets or filament colours are selected.
+     * plate changed, other presets or filament colours are selected, or a
+     * preset changed since the project was saved or started
+     * (GUI_App::has_unsaved_preset_changes()).
      */
     val projectDirty: Boolean
         get() = projectContent() != project.baseline || project.otherChanges ||
-            (project.presets != null && (profiles != project.presets || presets?.filamentColors.orEmpty() != project.filamentColors))
+            (project.presets != null && (profiles != project.presets || presets?.filamentColors.orEmpty() != project.filamentColors)) ||
+            settingsTabs.values.any { it.settings?.savedDirty == true }
 }

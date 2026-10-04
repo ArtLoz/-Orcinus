@@ -112,6 +112,7 @@ internal fun NativePresetSettings.toOutcome(): PresetSettingsOutcome {
             preset = preset,
             label = label,
             dirty = dirty,
+            savedDirty = savedDirty,
             isDefault = isDefault,
             isSystem = isSystem,
             hasParent = hasParent,

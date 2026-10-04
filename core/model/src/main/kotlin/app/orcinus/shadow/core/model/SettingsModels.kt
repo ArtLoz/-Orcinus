@@ -472,6 +472,8 @@ data class PresetSettings(
     /** What the preset combo box shows: the name, after "* " when modified. */
     val label: String,
     val dirty: Boolean,
+    /** The preset changed since the project was last saved or started (Tab::saved_preset_is_dirty()). */
+    val savedDirty: Boolean = false,
     val isDefault: Boolean,
     val isSystem: Boolean,
     /** The preset inherits from another one, whose values count as system values. */

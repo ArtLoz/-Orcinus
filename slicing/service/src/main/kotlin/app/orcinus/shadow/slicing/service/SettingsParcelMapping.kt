@@ -204,6 +204,7 @@ internal fun PresetSettingsOutcome.toParcel() = PresetSettingsParcel().also {
             it.preset = settings.preset
             it.label = settings.label
             it.dirty = settings.dirty
+            it.savedDirty = settings.savedDirty
             it.isDefault = settings.isDefault
             it.isSystem = settings.isSystem
             it.hasParent = settings.hasParent
@@ -231,6 +232,7 @@ internal fun PresetSettingsParcel.toPresetSettingsOutcome(): PresetSettingsOutco
             preset = preset.orEmpty(),
             label = label.orEmpty(),
             dirty = dirty,
+            savedDirty = savedDirty,
             isDefault = isDefault,
             isSystem = isSystem,
             hasParent = hasParent,

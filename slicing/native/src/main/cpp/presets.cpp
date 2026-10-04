@@ -717,6 +717,18 @@ PresetState reset_project_presets()
     }
 }
 
+void update_saved_presets()
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return;
+    }
+    Slic3r::PresetBundle& bundle = *engine().bundle;
+    for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {
+        preset_collection(bundle, kind).update_saved_preset_from_current_preset();
+    }
+}
+
 PresetState transfer_preset_options(const PresetKind kind, const std::string& from, const std::string& to, const std::vector<std::string>& options)
 {
     PresetChoice choice = PresetChoice::process;

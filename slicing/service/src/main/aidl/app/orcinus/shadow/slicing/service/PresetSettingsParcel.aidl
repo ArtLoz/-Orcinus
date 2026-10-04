@@ -18,6 +18,7 @@ parcelable PresetSettingsParcel {
     @nullable String preset;
     @nullable String label;
     boolean dirty;
+    boolean savedDirty;
     boolean isDefault;
     boolean isSystem;
     boolean hasParent;

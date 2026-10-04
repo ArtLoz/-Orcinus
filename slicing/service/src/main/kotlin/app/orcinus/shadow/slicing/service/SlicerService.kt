@@ -981,6 +981,8 @@ abstract class SlicerService<E> : Service()
 
         override fun resetProjectPresets(): PresetsParcel = runBlocking { engine.resetProjectPresets() }.toParcel()
 
+        override fun updateSavedPresets() = runBlocking { engine.updateSavedPresets() }
+
         override fun selectPreset(kind: String, value: String, action: String): PresetsParcel =
             runBlocking { engine.selectPreset(presetChoiceOf(kind, value), PresetChangeAction.valueOf(action)) }.toParcel()
 

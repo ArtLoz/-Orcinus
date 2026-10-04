@@ -1980,6 +1980,8 @@ class NativeSlicerEngine(context: Context) :
         NativeBindings.discardPresetChanges().toOutcome()
     }
 
+    override suspend fun updateSavedPresets() = whenReady({ }) { NativeBindings.updateSavedPresets() }
+
     override suspend fun resetProjectPresets(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
         NativeBindings.resetProjectPresets().toOutcome()
     }

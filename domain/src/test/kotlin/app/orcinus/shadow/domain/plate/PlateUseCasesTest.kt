@@ -1192,6 +1192,55 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a preset changed since the project was saved stars the project until it is saved again`() {
+        val process = PresetSettings(
+            kind = PresetKind.PRINT,
+            preset = "process",
+            label = "* process",
+            dirty = true,
+            savedDirty = true,
+            isDefault = false,
+            isSystem = true,
+            hasParent = true,
+            canDelete = false,
+            mode = SettingsMode.SIMPLE,
+            pages = emptyList(),
+            activePage = "",
+            settings = emptyList(),
+            saveName = "process",
+            saveNameCopySuffix = true,
+        )
+        val ready = readyState()
+        val repository = FakeRepository(ready.copy(project = ready.projectBaseline()))
+        assertFalse(repository.state.value.projectDirty)
+        repository.update { it.copy(settingsTabs = it.settingsTabs + (PresetKind.PRINT to SettingsTabState(PresetKind.PRINT, settings = process))) }
+        // GUI_App::has_unsaved_preset_changes()
+        assertTrue(repository.state.value.projectDirty)
+
+        var savedPresets = 0
+        val presetManager = object : PresetManager by FakePresetManager() {
+            override suspend fun updateSavedPresets() {
+                savedPresets++
+            }
+        }
+        val save = SaveProjectUseCase(
+            FakeInspector(),
+            { _, _, _, _, _, _, _ -> emptyList() },
+            FakeSceneFiles(),
+            FakeDocuments(name = "Box.3mf"),
+            repository,
+            scope,
+            presetManager = presetManager,
+        ) { _, _ -> null }
+        save(ExternalDocumentReference("content://documents/box"))
+
+        assertEquals(1, savedPresets)
+        assertFalse(repository.state.value.projectDirty)
+        // The preset keeps its changes; only the project has them now.
+        assertTrue(repository.state.value.settingsTabs.getValue(PresetKind.PRINT).settings!!.dirty)
+    }
+
+    @Test
     fun `a sliced plate's file carries the plate's G-code and slice info, and the project keeps its name`() {
         val result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/box.gcode"), STATISTICS, sliceInfo = ScenePath("/scene/box.slice.json"))
         val repository = FakeRepository(readyState(CUBE))

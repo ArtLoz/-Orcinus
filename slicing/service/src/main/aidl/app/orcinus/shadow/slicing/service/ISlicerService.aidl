@@ -440,6 +440,8 @@ interface ISlicerService {
     DirtyPresetsParcel dirtyPresets();
     PresetsParcel discardPresetChanges();
     PresetsParcel resetProjectPresets();
+    /** update_saved_presets() */
+    void updateSavedPresets();
     PresetsParcel addFilament(@nullable String color);
     PresetsParcel removeFilament(int index);
     PresetsParcel selectFilament(int index, String name, String action);

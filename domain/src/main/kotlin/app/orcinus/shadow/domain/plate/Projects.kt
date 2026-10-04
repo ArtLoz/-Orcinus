@@ -57,6 +57,8 @@ class SaveProjectUseCase(
     private val applicationScope: CoroutineScope,
     /** set_project_filename() adds the project to the recent files. */
     private val recentProjects: RecentProjects? = null,
+    /** update_saved_preset_from_current_preset() once the project is saved. */
+    private val presetManager: PresetManager? = null,
     private val files: FileShare,
 ) {
     /** "Save Project" has no document to write again and asks for one, as "Save Project as" does. */
@@ -76,10 +78,11 @@ class SaveProjectUseCase(
         try {
             val saved = write(state, file, prefix) && documents.copyTo(file.value, document)
             val savedName = if (saved) documents.displayName(document)?.let(::projectNameOf) else null
+            if (saved) presetManager?.updateSavedPresets()
             repository.update { current ->
                 if (saved) {
                     // Plater::reset_project_dirty_after_save(): what was saved is the project now.
-                    current.copy(
+                    current.withPresetsSaved().copy(
                         project = state.projectBaseline().copy(name = savedName ?: current.project.name, document = document),
                     )
                 } else {
@@ -298,10 +301,11 @@ class ProjectLifecycleUseCase(
         if (!confirm(newProject = true)) return false
         val before = repository.state.value.profiles
         val presets = presetManager.resetProjectPresets()
+        presetManager.updateSavedPresets()
         repository.update { current ->
             val kept = current.projectConfigSettings()
             val selected = (presets as? PresetsOutcome.Success)?.presets ?: current.presets
-            current.copy(
+            current.withPresetsSaved().copy(
                 presets = selected,
                 objects = emptyList(),
                 selectedInstances = emptySet(),
@@ -494,6 +498,10 @@ internal fun PlateState.projectConfigSettings(): ModelSettings = ModelSettings(p
 private val PROJECT_CONFIG_KEYS = setOf("flush_volumes_matrix", "flush_multiplier")
 
 internal fun projectNameOf(displayName: String): String = displayName.substringBeforeLast('.').ifEmpty { displayName }
+
+/** update_saved_preset_from_current_preset(): no tab's preset counts as changed since the project. */
+internal fun PlateState.withPresetsSaved(): PlateState =
+    copy(settingsTabs = settingsTabs.mapValues { (_, tab) -> tab.copy(settings = tab.settings?.copy(savedDirty = false)) })
 
 /** The project with what [this] plate holds now and the presets it has, as the project's saved state. */
 internal fun PlateState.projectBaseline(): PlateProject = project.copy(

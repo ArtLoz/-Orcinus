@@ -947,7 +947,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetSettings& settings)
     const jmethodID constructor = env->GetMethodID(
         settings_class,
         "<init>",
-        "(JLjava/lang/String;JLjava/lang/String;Ljava/lang/String;ZZZZZJ"
+        "(JLjava/lang/String;JLjava/lang/String;Ljava/lang/String;ZZZZZZJ"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativeSettingsPage;"
         "Ljava/lang/String;"
         "[Ljava/lang/String;J"
@@ -967,6 +967,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetSettings& settings)
         to_java(env, settings.preset),
         to_java(env, settings.label),
         settings.dirty ? JNI_TRUE : JNI_FALSE,
+        settings.saved_dirty ? JNI_TRUE : JNI_FALSE,
         settings.is_default ? JNI_TRUE : JNI_FALSE,
         settings.is_system ? JNI_TRUE : JNI_FALSE,
         settings.has_parent ? JNI_TRUE : JNI_FALSE,
@@ -2255,6 +2256,12 @@ extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_resetProjectPresets(JNIEnv* env, jobject /* this */)
 {
     return to_java(env, orcinus::orca::reset_project_presets());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_updateSavedPresets(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::update_saved_presets();
 }
 
 extern "C" JNIEXPORT jobject JNICALL

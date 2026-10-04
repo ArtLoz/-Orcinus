@@ -807,6 +807,13 @@ interface PresetManager {
     suspend fun resetProjectPresets(): PresetsOutcome = presets()
 
     /**
+     * GUI_App::update_saved_preset_from_current_preset(): a saved or new
+     * project has the edited presets, which no longer count as unsaved
+     * changes of the project.
+     */
+    suspend fun updateSavedPresets() {}
+
+    /**
      * DiffPresetDialog's Transfer (Tab::transfer_options): the values [options]
      * hold in the preset [from] move into the preset [to] of [kind], which the
      * app selects and edits with them as unsaved changes.

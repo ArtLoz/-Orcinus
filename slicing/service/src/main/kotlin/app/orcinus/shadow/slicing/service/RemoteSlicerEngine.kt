@@ -1089,6 +1089,8 @@ class RemoteSlicerEngine(
 
     override suspend fun resetProjectPresets(): PresetsOutcome = remote(PresetsOutcome::Failure) { resetProjectPresets().toPresetsOutcome() }
 
+    override suspend fun updateSavedPresets() = remote({ }) { updateSavedPresets() }
+
     override suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction): PresetsOutcome =
         remote(PresetsOutcome::Failure) { selectPreset(choice.parcelKind(), choice.parcelValue(), action.name).toPresetsOutcome() }
 

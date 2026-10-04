@@ -341,7 +341,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     /** MainFrame's recent projects, which the home page lists. */
     val recentProjects = RecentProjectsUseCase(engine, appPreferences, documentAccess, plateRepository, applicationScope)
     private val saveProject =
-        SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope, recentProjects, fileShare)
+        SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope, recentProjects, engine, fileShare)
     val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope, appPreferences)
 
     /** SavePresetDialog's check of a name, which the project's questions ask too. */

@@ -375,6 +375,7 @@ internal class NativePresetSettings(
     @JvmField val preset: String,
     @JvmField val label: String,
     @JvmField val dirty: Boolean,
+    @JvmField val savedDirty: Boolean,
     @JvmField val isDefault: Boolean,
     @JvmField val isSystem: Boolean,
     @JvmField val hasParent: Boolean,
@@ -2094,6 +2095,9 @@ internal object NativeBindings {
     external fun discardPresetChanges(): NativePresetState
 
     external fun resetProjectPresets(): NativePresetState
+
+    /** update_saved_presets() */
+    external fun updateSavedPresets()
 
     /** Sidebar::add_custom_filament() with the colour ("#RRGGBB", or empty for the palette's), delete_filament() and the combo box of a slot. */
     external fun addFilament(color: String): NativePresetState

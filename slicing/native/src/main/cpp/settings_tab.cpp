@@ -1583,6 +1583,9 @@ PresetSettings Tab::describe()
     // TabPresetComboBox::get_preset_name()
     result.label = edited.is_from_bundle() ? edited.label(false) : edited.label(true);
     result.dirty = edited.is_dirty;
+    // GUI_App::has_unsaved_preset_changes() asks the tabs of tabs_list.
+    result.saved_dirty = (m_type == Preset::TYPE_PRINT || m_type == Preset::TYPE_FILAMENT || m_type == Preset::TYPE_PRINTER) &&
+                         m_presets->saved_is_dirty();
     result.is_default = selected.is_default;
     result.is_system = selected.is_system;
     const Preset* parent = m_presets->get_selected_preset_parent();

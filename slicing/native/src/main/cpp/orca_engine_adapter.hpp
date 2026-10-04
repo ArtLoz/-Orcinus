@@ -1234,6 +1234,10 @@ PresetState discard_preset_changes();
 // brought go (PresetBundle::reset_project_embedded_presets).
 PresetState reset_project_presets();
 
+// GUI_App::update_saved_preset_from_current_preset(), when a project is saved
+// or a new one starts: the edited presets are what the project has.
+void update_saved_presets();
+
 // Sidebar::add_custom_filament(): another filament joins the plate, with
 // color ("#RRGGBB"), or without one the next colour of OrcaSlicer's palette
 // (Plater::get_next_color_for_filament).
@@ -1499,6 +1503,10 @@ struct PresetSettings {
     // Preset::label(): the name or the alias, after the "* " of a modified preset.
     std::string label;
     bool dirty{false};
+    // Tab::saved_preset_is_dirty(): the edited preset changed since the project
+    // was last saved or started (GUI_App::has_unsaved_preset_changes(), which
+    // puts the star on the project's name).
+    bool saved_dirty{false};
     bool is_default{false};
     bool is_system{false};
     // The edited preset inherits from another one (get_selected_preset_parent()).

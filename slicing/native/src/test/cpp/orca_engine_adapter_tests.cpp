@@ -683,7 +683,15 @@ TEST_CASE("The process tab edits the print preset as the desktop app does", "[Ad
         const orca::PresetNameValidation fresh = orca::check_preset_name(print, "Orcinus project process");
         CHECK_FALSE(fresh.existing);
         CHECK_FALSE(fresh.edited_in_project);
-        REQUIRE(orca::change_setting(print, quality, "layer_height", "0.16", {}).dirty);
+        // A change stars the project until the project is saved
+        // (update_saved_preset_from_current_preset()); the preset stays modified.
+        const orca::PresetSettings changed = orca::change_setting(print, quality, "layer_height", "0.16", {});
+        REQUIRE(changed.dirty);
+        CHECK(changed.saved_dirty);
+        orca::update_saved_presets();
+        const orca::PresetSettings project_saved = orca::describe_settings(print, quality, {});
+        CHECK(project_saved.dirty);
+        CHECK_FALSE(project_saved.saved_dirty);
         const orca::PresetSettings saved = orca::save_preset(print, "Orcinus project process", false, true);
         INFO(saved.message);
         REQUIRE(saved.status == orca::SceneStatus::success);
