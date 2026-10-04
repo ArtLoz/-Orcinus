@@ -570,6 +570,8 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
             if (action == PresetChangeAction::transfer) {
                 detail::cache_preset_changes(kind);
             }
+            // The changes leave with the preset, even when it is selected again.
+            preset_collection(bundle, kind).discard_current_changes();
         }
         switch (choice) {
         case PresetChoice::printer:
