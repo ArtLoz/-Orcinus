@@ -103,6 +103,7 @@ class ToolpathsLayer private constructor(
 
     /** m_show_marker of the G-code this layer shows. */
     private var markerShown = false
+    private var speedProfile: ActualSpeedProfile? = null
 
     @Synchronized
     override fun onContextCreated() {
@@ -173,7 +174,9 @@ class ToolpathsLayer private constructor(
         // GCodeViewer::render(): m_show_marker stays on from the first time the
         // visible moves end before the last, until the G-code is loaded again.
         markerShown = markerShown || !snapshot.atEnd
-        mutableView.value = snapshot.toView(markerShown)
+        // The widget keeps the data it was last given (set_actual_speed_data()).
+        snapshot.speedProfile()?.let { speedProfile = it }
+        mutableView.value = snapshot.toView(markerShown).copy(speedProfile = speedProfile)
     }
 
     @Synchronized
@@ -318,6 +321,16 @@ private fun NativeToolpathsSnapshot.vertex(): ToolpathsVertex? {
         layer = vertexKinds[3],
         extruder = vertexKinds[4],
         color = vertexKinds[5],
+    )
+}
+
+private fun NativeToolpathsSnapshot.speedProfile(): ActualSpeedProfile? {
+    if (speedProfile.isEmpty() || speedRange.size < 2) return null
+    return ActualSpeedProfile(
+        points = List(speedProfile.size / 3) { ActualSpeedPoint(speedProfile[it * 3], speedProfile[it * 3 + 1], speedProfile[it * 3 + 2] != 0f) },
+        lowest = speedRange[0],
+        highest = speedRange[1],
+        levels = speedLevels.indices.map { speedLevels[it] to speedLevelColors.getOrElse(it) { 0 } },
     )
 }
 

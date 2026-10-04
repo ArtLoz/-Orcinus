@@ -126,4 +126,13 @@ internal class NativeToolpathsSnapshot(
      */
     @JvmField val vertexValues: FloatArray,
     @JvmField val vertexKinds: IntArray,
+    /**
+     * The actual speed along the current move's line: position, speed and
+     * whether the point is internal (1) for every point, empty for none; the
+     * actual speed range, its levels and their colours (RGB).
+     */
+    @JvmField val speedProfile: FloatArray,
+    @JvmField val speedRange: FloatArray,
+    @JvmField val speedLevels: FloatArray,
+    @JvmField val speedLevelColors: IntArray,
 )

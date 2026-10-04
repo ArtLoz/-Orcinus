@@ -99,6 +99,7 @@ import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.GcodeLines
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
+import app.orcinus.shadow.render.gcode.ToolpathsMoveType
 import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateNavigator
 import app.orcinus.shadow.render.scene.PlateShells
@@ -229,6 +230,7 @@ internal fun PreviewScreen(
     val toolpaths = result?.toolpaths
     // render_position_window()'s properties_shown, kept while the app runs.
     var propertiesShown by rememberSaveable { mutableStateOf(false) }
+    var profileShown by rememberSaveable { mutableStateOf(false) }
     // GCodeWindow::load_gcode(): the G-code of the slice, with where its lines end.
     val gcodePath = result?.gcode?.value
     val gcodeLines by produceState<GcodeLines?>(null, gcodePath) {
@@ -453,7 +455,12 @@ internal fun PreviewScreen(
                         }
                     },
                     positionDetails = view.vertex?.takeIf { propertiesShown }?.let { vertex ->
-                        { windowModifier -> ToolPropertiesWindow(vertex, windowModifier) }
+                        {
+                            // The profile's window by the properties (ToolPositionTableWnd), above them here.
+                            val profileExists = vertex.extrusion || vertex.type == ToolpathsMoveType.Travel || vertex.type == ToolpathsMoveType.Wipe
+                            view.speedProfile?.takeIf { profileShown && profileExists }?.let { ActualSpeedWindow(it, Modifier.fillMaxWidth()) }
+                            ToolPropertiesWindow(vertex, profileShown, { profileShown = it }, Modifier.fillMaxWidth())
+                        }
                     },
                     modifier = Modifier
                         .fillMaxSize()

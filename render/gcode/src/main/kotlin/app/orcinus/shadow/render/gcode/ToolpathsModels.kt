@@ -166,7 +166,24 @@ data class ToolpathsView(
     val marker: Vector3? = null,
     /** The move the marker's position window describes; null with the marker hidden. */
     val vertex: ToolpathsVertex? = null,
+    /** The actual speed along the current move's G-code line, as last worked out; null before. */
+    val speedProfile: ActualSpeedProfile? = null,
 )
+
+/**
+ * GCodeViewer::SequentialView::ActualSpeedImguiWidget's data: the points of a
+ * move's G-code line, the actual speed range of the G-code and its levels,
+ * each with its colour (0xRRGGBB).
+ */
+data class ActualSpeedProfile(
+    val points: List<ActualSpeedPoint>,
+    val lowest: Float,
+    val highest: Float,
+    val levels: List<Pair<Float, Int>>,
+)
+
+/** A point of the profile: millimetres along the line, the speed there, and whether it is internal. */
+data class ActualSpeedPoint(val position: Float, val speed: Float, val internal: Boolean)
 
 /** libvgcode's PathVertex as Marker::render_position_window() describes it. */
 data class ToolpathsVertex(

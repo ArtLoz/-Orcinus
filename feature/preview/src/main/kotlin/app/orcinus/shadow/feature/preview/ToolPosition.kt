@@ -1,26 +1,45 @@
 package app.orcinus.shadow.feature.preview
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
+import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.render.gcode.ActualSpeedPoint
+import app.orcinus.shadow.render.gcode.ActualSpeedProfile
 import app.orcinus.shadow.render.gcode.ToolpathsMoveType
 import app.orcinus.shadow.render.gcode.ToolpathsVertex
 import app.orcinus.shadow.render.gcode.ToolpathsViewType
@@ -80,10 +99,20 @@ internal fun ToolPositionWindow(
     }
 }
 
-/** Marker::render_position_window() unfolded: the move's properties, labels in Orca's colour. */
+/**
+ * Marker::render_position_window() unfolded: the move's properties, labels in
+ * Orca's colour, and the button of the actual speed profile, which a move
+ * that extrudes, travels or wipes has.
+ */
 @Composable
-internal fun ToolPropertiesWindow(vertex: ToolpathsVertex, modifier: Modifier = Modifier) {
+internal fun ToolPropertiesWindow(
+    vertex: ToolpathsVertex,
+    profileShown: Boolean,
+    onProfileShownChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = OrcaTheme.colors
+    val profileExists = vertex.extrusion || vertex.type == ToolpathsMoveType.Travel || vertex.type == ToolpathsMoveType.Wipe
     Surface(modifier = modifier, shape = RoundedCornerShape(8.dp), color = colors.window.copy(alpha = 0.8f)) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             for ((label, value) in positionProperties(vertex)) {
@@ -92,9 +121,128 @@ internal fun ToolPropertiesWindow(vertex: ToolpathsVertex, modifier: Modifier = 
                     Text(value, color = colors.text, style = OrcaTheme.typography.body13, modifier = Modifier.weight(1f))
                 }
             }
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OrcaButton(
+                    text = if (profileShown) orcaString("Hide") else orcaString("Show"),
+                    onClick = { onProfileShownChange(!profileShown) },
+                    enabled = profileExists,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(orcaString("Actual speed profile"), color = colors.text, style = OrcaTheme.typography.body13)
+            }
         }
     }
 }
+
+/**
+ * ActualSpeedImguiWidget::plot() and the table beside it: the actual speed
+ * along the move's line with the range's levels on the left, a line at every
+ * point (internal ones in Orca's colour), and the positions and speeds; a
+ * finger on the plot picks the segment under it, as hovering does, and its
+ * two rows light up.
+ */
+@Composable
+internal fun ActualSpeedWindow(profile: ActualSpeedProfile, modifier: Modifier = Modifier) {
+    val colors = OrcaTheme.colors
+    var hovered by remember(profile) { mutableIntStateOf(-1) }
+    val points = profile.points
+    Surface(modifier = modifier, shape = RoundedCornerShape(8.dp), color = colors.window.copy(alpha = 0.8f)) {
+        Column(Modifier.padding(10.dp)) {
+            val frame = colors.buttonBackground
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(PlotHeight)
+                    .background(frame, RoundedCornerShape(3.dp))
+                    .pointerInput(profile) {
+                        awaitEachGesture {
+                            var change = awaitFirstDown()
+                            while (true) {
+                                hovered = segmentAt(points, change.position.x, size.width.toFloat())
+                                val event = awaitPointerEvent()
+                                change = event.changes.firstOrNull { it.pressed } ?: break
+                            }
+                        }
+                    },
+            ) {
+                val inner = Rect(PlotPadding.toPx(), PlotPadding.toPx(), size.width - PlotPadding.toPx(), size.height - PlotPadding.toPx())
+                val offset = LevelStrip.toPx()
+                val sizeY = profile.highest - profile.lowest
+                val sizeX = points.last().position - points.first().position
+                if (sizeX > 0f && points.size >= 2) {
+                    val inverseY = if (sizeY == 0f) 0f else 1f / sizeY
+                    val x0 = points.first().position
+                    fun x(position: Float) = inner.left + offset + ((position - x0) / sizeX).coerceIn(0f, 1f) * (inner.width - offset)
+                    fun y(speed: Float) = inner.top + (1f - ((speed - profile.lowest) * inverseY).coerceIn(0f, 1f)) * inner.height
+                    // horizontal levels
+                    for ((level, color) in profile.levels) {
+                        val levelY = inner.top + (1f - ((level - profile.lowest) * inverseY).coerceIn(0f, 1f)) * inner.height
+                        drawLine(rgb(color).copy(alpha = 0.5f), Offset(inner.left + 0.1f * offset, levelY), Offset(inner.left + 0.9f * offset, levelY), 3f)
+                    }
+                    // vertical positions
+                    for (n in 0 until points.size - 1) {
+                        val lineX = x(points[n].position)
+                        drawLine(if (points[n].internal) GridSecondary else GridMain, Offset(lineX, inner.top), Offset(lineX, inner.bottom))
+                    }
+                    drawLine(GridMain, Offset(inner.right, inner.top), Offset(inner.right, inner.bottom))
+                    // profile
+                    for (n in 0 until points.size - 1) {
+                        drawLine(
+                            if (hovered == n) Orca else ProfileBase,
+                            Offset(x(points[n].position), y(points[n].speed)),
+                            Offset(x(points[n + 1].position), y(points[n + 1].speed)),
+                            2f * density,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Row {
+                Text(orcaString("Position") + " (" + orcaString("mm") + ")", color = colors.text, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
+                Text(orcaString("Speed") + " (" + orcaString("mm/s") + ")", color = colors.text, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
+            }
+            Column(Modifier.heightIn(max = TableHeight).verticalScroll(rememberScrollState())) {
+                points.forEachIndexed { index, point ->
+                    val highlight = hovered >= 0 && (index == hovered || index == hovered + 1)
+                    val text = if (highlight) colors.accent else colors.text
+                    Row(Modifier.fillMaxWidth().background(if (point.internal) InternalRow else ExternalRow)) {
+                        Text(String.format(Locale.ROOT, "%.3f", point.position), color = text, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
+                        Text(String.format(Locale.ROOT, "%.1f", point.speed), color = text, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** plot()'s hovered segment: the one whose x span holds the finger's, or -1. */
+private fun segmentAt(points: List<ActualSpeedPoint>, x: Float, width: Float): Int {
+    if (points.size < 2) return -1
+    val sizeX = points.last().position - points.first().position
+    if (sizeX <= 0f) return -1
+    val t = (x / width).coerceIn(0f, 0.9999f)
+    for (n in 0 until points.size - 1) {
+        val t1 = ((points[n].position - points.first().position) / sizeX).coerceIn(0f, 1f)
+        val t2 = ((points[n + 1].position - points.first().position) / sizeX).coerceIn(0f, 1f)
+        if (t1 < t && t < t2) return n
+    }
+    return -1
+}
+
+private fun rgb(color: Int) = Color(0xFF000000.toInt() or color)
+
+private val PlotHeight = 135.dp
+private val TableHeight = 160.dp
+private val PlotPadding = 4.dp
+/** plot()'s offset: the strip on the left where the range's levels stand. */
+private val LevelStrip = 10.dp
+private val GridMain = Color(0.5f, 0.5f, 0.5f, 0.5f)
+private val GridSecondary = Color(0f, 150f / 255f, 136f / 255f, 0.5f)
+private val ProfileBase = Color(0.8f, 0.8f, 0.8f, 1f)
+private val Orca = Color(0f, 150f / 255f, 136f / 255f, 1f)
+private val InternalRow = Color(0f, 150f / 255f, 136f / 255f, 0.15f)
+private val ExternalRow = Color(0.2f, 0.2f, 0.2f, 0.25f)
 
 @Composable
 private fun stringResourceOf(propertiesShown: Boolean): String = if (propertiesShown) orcaString("Hide") else orcaString("Show")

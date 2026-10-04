@@ -3,6 +3,7 @@ package app.orcinus.shadow.feature.preview
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -63,7 +64,7 @@ internal fun ToolpathsControls(
     gcodeWindow: (@Composable (Modifier) -> Unit)? = null,
     /** The tool's position window right over the move slider, and its properties above the windows; null while hidden. */
     positionWindow: (@Composable (Modifier) -> Unit)? = null,
-    positionDetails: (@Composable (Modifier) -> Unit)? = null,
+    positionDetails: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     // The layer slider stands above the windows, which stand above the move slider;
     // the position's properties stand over the canvas above them.
@@ -153,11 +154,15 @@ internal fun ToolpathsControls(
                 positionWindow?.invoke(Modifier)
             }
         }
-        positionDetails?.invoke(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .padding(start = ControlsMargin, end = ControlsMargin, bottom = windowsBottom + windowSpace),
-        )
+        if (positionDetails != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = ControlsMargin, end = ControlsMargin, bottom = windowsBottom + windowSpace),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = positionDetails,
+            )
+        }
         if (view.moves.size > 1) {
             OrcaMovePlayer(
                 moveCount = view.moves.size,

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <cfloat>
+#include <cmath>
 #include <exception>
 #include <memory>
 #include <string>
@@ -403,7 +404,97 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
             static_cast<jint>(vertex.layer_id), static_cast<jint>(vertex.extruder_id), static_cast<jint>(vertex.color_id),
         };
     }
-    const jmethodID constructor = env->GetMethodID(type, "<init>", "(I[F[I[I[I[Z[F[I[I[ZFF[F[I[I[I[I[I[II[FZ[F[I)V");
+    // GCodeViewer::update_sequential_view_current(): while the visible moves
+    // end before the enabled ones, the actual speed along the current move's
+    // G-code line, compressed as Orca compresses it, with the actual speed
+    // range and its levels.
+    std::vector<jfloat> speed_profile;
+    std::vector<jfloat> speed_range;
+    std::vector<jfloat> speed_levels;
+    std::vector<jint> speed_level_colors;
+    if (has_vertices && enabled[1] != source.get_view_visible_range()[1]) {
+        const libvgcode::PathVertex& curr_vertex = source.get_current_vertex();
+        if (curr_vertex.is_extrusion() || curr_vertex.is_travel() || curr_vertex.is_wipe() || curr_vertex.type == libvgcode::EMoveType::Seam) {
+            const libvgcode::ColorRange& color_range = source.get_color_range(libvgcode::EViewType::ActualSpeed);
+            const std::array<float, 2>& interval = color_range.get_range();
+            const std::size_t vertices_count = source.get_vertices_count();
+            // collect vertices sharing the same gcode_id
+            const std::size_t curr_id = source.get_current_vertex_id();
+            std::size_t start_id = curr_id;
+            while (start_id > 0) {
+                --start_id;
+                if (curr_vertex.gcode_id != source.get_vertex_at(start_id).gcode_id) {
+                    break;
+                }
+            }
+            std::size_t end_id = curr_id;
+            while (end_id < vertices_count - 1) {
+                ++end_id;
+                if (curr_vertex.gcode_id != source.get_vertex_at(end_id).gcode_id) {
+                    break;
+                }
+            }
+            if (end_id > 0 && source.get_vertex_at(end_id - 1).type == libvgcode::EMoveType::Seam) {
+                --end_id;
+            }
+            struct Item {
+                float pos;
+                float speed;
+                bool internal;
+            };
+            std::vector<Item> data;
+            float total_len = 0.0f;
+            for (std::size_t i = start_id; i < end_id; ++i) {
+                const libvgcode::PathVertex& v = source.get_vertex_at(i);
+                float len = 0.0f;
+                if (i > start_id) {
+                    const libvgcode::PathVertex& previous = source.get_vertex_at(i - 1);
+                    const float dx = v.position[0] - previous.position[0];
+                    const float dy = v.position[1] - previous.position[1];
+                    const float dz = v.position[2] - previous.position[2];
+                    len = std::sqrt(dx * dx + dy * dy + dz * dz);
+                }
+                total_len += len;
+                if (i == start_id || len > 1e-4f) {
+                    data.push_back({total_len, v.actual_feedrate, v.times[0] == 0.0f});
+                }
+            }
+            for (const float value : color_range.get_values()) {
+                speed_levels.push_back(value);
+                speed_level_colors.push_back(to_rgb(color_range.get_color_at(value)));
+            }
+            // ORCA Compress consecutive duplicate speeds with 0.1 precision
+            const auto same_speed = [](float a, float b) {
+                return static_cast<int>(std::roundf(a * 10.0f)) == static_cast<int>(std::roundf(b * 10.0f));
+            };
+            std::vector<Item> compressed;
+            if (!data.empty()) {
+                compressed.push_back(data[0]);
+                for (int i = 1; i < static_cast<int>(data.size()); ++i) {
+                    const bool same_as_prev = same_speed(data[i].speed, data[i - 1].speed);
+                    const bool same_as_next = (i + 1 < static_cast<int>(data.size())) && same_speed(data[i].speed, data[i + 1].speed);
+                    if (!same_as_prev) {
+                        if (!same_speed(compressed.back().speed, data[i - 1].speed)) {
+                            compressed.push_back(data[i - 1]);
+                        }
+                        compressed.push_back(data[i]);
+                    } else if (!same_as_next) {
+                        compressed.push_back(data[i]);
+                    }
+                }
+                if (compressed.back().pos != data.back().pos) {
+                    compressed.push_back(data.back());
+                }
+            }
+            for (const Item& item : compressed) {
+                speed_profile.push_back(item.pos);
+                speed_profile.push_back(item.speed);
+                speed_profile.push_back(item.internal ? 1.0f : 0.0f);
+            }
+            speed_range = {interval[0], interval[1]};
+        }
+    }
+    const jmethodID constructor = env->GetMethodID(type, "<init>", "(I[F[I[I[I[Z[F[I[I[ZFF[F[I[I[I[I[I[II[FZ[F[I[F[F[F[I)V");
     return env->NewObject(
         type,
         constructor,
@@ -430,7 +521,11 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
         float_array(env, marker),
         at_end,
         float_array(env, values),
-        int_array(env, kinds)
+        int_array(env, kinds),
+        float_array(env, speed_profile),
+        float_array(env, speed_range),
+        float_array(env, speed_levels),
+        int_array(env, speed_level_colors)
     );
 }
 
