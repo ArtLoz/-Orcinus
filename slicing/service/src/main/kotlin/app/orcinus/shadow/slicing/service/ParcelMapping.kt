@@ -805,6 +805,7 @@ internal fun PlateDescriptionOutcome.toParcel() = PlateDescriptionParcel().also 
             it.filamentColor = floatArrayOf(filamentColor.red, filamentColor.green, filamentColor.blue, filamentColor.alpha)
             it.buildVolumeShape = geometry.buildVolumeShape.name
             it.circle = geometry.circle?.let { circle -> doubleArrayOf(circle.center.x, circle.center.y, circle.radius) }
+            it.hotendModel = hotendModel?.value
         }
     }
 }
@@ -827,6 +828,7 @@ internal fun PlateDescriptionParcel.toPlateDescriptionOutcome(): PlateDescriptio
                 circle = circle?.let { PlateCircle(Point2(it[0], it[1]), it[2]) },
             ),
             filamentColor = ColorRgba(color[0], color[1], color[2], color[3]),
+            hotendModel = hotendModel?.let(::ScenePath),
         ),
     )
 }

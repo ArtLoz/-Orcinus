@@ -101,6 +101,9 @@ class ToolpathsLayer private constructor(
         return NativeToolpaths.exportToObj(viewer, path)
     }
 
+    /** m_show_marker of the G-code this layer shows. */
+    private var markerShown = false
+
     @Synchronized
     override fun onContextCreated() {
         // The viewer's GL objects died with the old context; its data is read again.
@@ -167,7 +170,10 @@ class ToolpathsLayer private constructor(
             appliedVisibleMoves = moves
         }
         snapshot = NativeToolpaths.snapshot(viewer)
-        mutableView.value = snapshot.toView()
+        // GCodeViewer::render(): m_show_marker stays on from the first time the
+        // visible moves end before the last, until the G-code is loaded again.
+        markerShown = markerShown || !snapshot.atEnd
+        mutableView.value = snapshot.toView(markerShown)
     }
 
     @Synchronized
@@ -251,7 +257,7 @@ private fun NativeToolpathsStatistics.toStatistics(): ToolpathsStatistics {
     )
 }
 
-private fun NativeToolpathsSnapshot.toView(): ToolpathsView {
+private fun NativeToolpathsSnapshot.toView(markerShown: Boolean): ToolpathsView {
     // GCodeViewer::render_legend()'s append_range(): highest value first.
     val range = when {
         rangeValues.isEmpty() || rangePalette.isEmpty() -> emptyList()
@@ -280,5 +286,36 @@ private fun NativeToolpathsSnapshot.toView(): ToolpathsView {
         toolColors = toolColors.toList(),
         usedExtruders = usedExtruders.toList(),
         currentLine = currentLine,
+        marker = markerPosition.takeIf { markerShown && it.size == 3 }?.let { Vector3(it[0].toDouble(), it[1].toDouble(), it[2].toDouble()) },
+        vertex = takeIf { markerShown }?.vertex(),
     )
 }
+
+private fun NativeToolpathsSnapshot.vertex(): ToolpathsVertex? {
+    if (vertexValues.size < VERTEX_VALUES || vertexKinds.size < VERTEX_KINDS) return null
+    val values = vertexValues
+    return ToolpathsVertex(
+        position = Vector3(values[0].toDouble(), values[1].toDouble(), values[2].toDouble()),
+        type = ToolpathsMoveType.entries.getOrElse(vertexKinds[0]) { ToolpathsMoveType.Noop },
+        role = ToolpathsRole.entries.getOrNull(vertexKinds[1]),
+        extrusion = vertexKinds[2] != 0,
+        width = values[3],
+        height = values[4],
+        feedrate = values[5],
+        acceleration = values[6],
+        jerk = values[7],
+        volumetricRate = values[8],
+        fanSpeed = values[9],
+        temperature = values[10],
+        pressureAdvance = values[11],
+        layerDuration = values[12],
+        estimatedTime = values[13],
+        time = values[14],
+        layer = vertexKinds[3],
+        extruder = vertexKinds[4],
+        color = vertexKinds[5],
+    )
+}
+
+private const val VERTEX_VALUES = 15
+private const val VERTEX_KINDS = 6

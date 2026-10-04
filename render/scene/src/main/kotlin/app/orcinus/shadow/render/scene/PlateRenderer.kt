@@ -22,6 +22,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** What one frame shows from where: computed on the main thread from the camera. */
+/** Marker::init()'s colour alpha and m_model_z_offset. */
+private const val MARKER_ALPHA = 0.5f
+private const val MARKER_Z_OFFSET = 0.5
+
 /** GCodeViewer::render_shells()' emission_factor. */
 private const val SHELL_EMISSION = 0.1f
 
@@ -183,6 +187,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var shells: List<SceneObject> = emptyList()
     private var pendingShells: List<SceneObject> = emptyList()
     private var shellsChanged = false
+    /** GCodeViewer::SequentialView::Marker: the hotend's mesh, on the GPU, and where it stands. */
+    private var pendingMarkerMesh: MeshData? = null
+    private var pendingMarkerPosition: Vec3? = null
+    private var markerChanged = false
+    private var gpuMarker: Pair<MeshData, GlVertexArray>? = null
+    private var markerPosition: Vec3? = null
     private var selectionBox: Triple<Box3, Boolean, GlVertexArray>? = null
     private var grabberCone: GlVertexArray? = null
     private var grabberCube: GlVertexArray? = null
@@ -253,6 +263,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         shellsChanged = true
     }
 
+    fun setToolMarker(mesh: MeshData?, position: Vec3?) = synchronized(lock) {
+        pendingMarkerMesh = mesh
+        pendingMarkerPosition = position
+        markerChanged = true
+    }
+
     /** Frees the layers once the GL thread has ended: the context and its objects went with it. */
     fun releaseLayers() = synchronized(lock) {
         layer?.release()
@@ -276,6 +292,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         gpuObjects.clear()
         gpuWireframes.clear()
         gpuShells.clear()
+        gpuMarker = null
         selectionBox = null
         grabberCone = null
         grabberCube = null
@@ -298,6 +315,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             bedChanged = true
             objectsChanged = true
             shellsChanged = true
+            markerChanged = true
         }
         GLES30.glGetFloatv(GLES30.GL_ALIASED_LINE_WIDTH_RANGE, lineWidthRange, 0)
     }
@@ -536,6 +554,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         // GCodeViewer::render() drawing its shells before the toolpaths.
         renderShells(programs.gouraudLight, frame)
         layer?.draw(frame.view.toFloatArray(), frame.projection)
+        renderToolMarker(programs.gouraudLight, frame)
         // GLCanvas3D::_render_objects(): "phong" in the realistic view with Phong shading, "gouraud" otherwise.
         renderObjects(if (frame.phong) programs.phong else programs.gouraud, frame)
         frame.section?.let { section ->
@@ -559,9 +578,17 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val bed: SceneBed?
         val newObjects: List<SceneObject>?
         val newShells: List<SceneObject>?
+        var newMarker: MeshData? = null
+        val markerMoved: Boolean
         synchronized(lock) {
             newShells = if (shellsChanged) pendingShells else null
             shellsChanged = false
+            markerMoved = markerChanged
+            if (markerChanged) {
+                newMarker = pendingMarkerMesh
+                markerPosition = pendingMarkerPosition
+                markerChanged = false
+            }
             bed = if (bedChanged) pendingBed else null
             val replaceBed = bedChanged
             bedChanged = false
@@ -608,6 +635,37 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             }
             shells = newShells
         }
+        if (markerMoved && gpuMarker?.first !== newMarker) {
+            gpuMarker?.second?.release()
+            gpuMarker = newMarker?.let { it to meshArray(it) }
+        }
+    }
+
+    /**
+     * GCodeViewer::SequentialView::Marker::render(): the hotend in white at
+     * half alpha with gouraud_light, blended, turned upside down and lifted by
+     * its height and m_model_z_offset over the current vertex.
+     */
+    private fun renderToolMarker(light: GlProgram, frame: SceneFrame) {
+        val (mesh, array) = gpuMarker ?: return
+        val position = markerPosition ?: return
+        val height = mesh.bounds.max.z - mesh.bounds.min.z
+        val world = Affine3.assemble(Vec3(position.x, position.y, position.z + MARKER_Z_OFFSET + height), Vec3(Math.PI, 0.0, 0.0), Vec3(1.0, 1.0, 1.0))
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glEnable(GLES30.GL_CULL_FACE)
+        GLES30.glCullFace(GLES30.GL_BACK)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        light.use()
+        light.setFloat("emission_factor", 0f)
+        light.setMatrix4("projection_matrix", frame.projection)
+        light.setVec4("uniform_color", 1f, 1f, 1f, MARKER_ALPHA)
+        light.setMatrix4("view_model_matrix", (frame.view * world).toFloatArray())
+        light.setMatrix3("view_normal_matrix", normalMatrix(frame.view, world))
+        array.draw()
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
     }
 
     /**

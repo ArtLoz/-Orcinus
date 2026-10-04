@@ -379,7 +379,7 @@ internal fun viewTypeName(type: ToolpathsViewType): String = stringResource(
 
 /** ExtrusionEntity::role_to_string(). */
 @Composable
-private fun roleName(role: ToolpathsRole): String = stringResource(
+internal fun roleName(role: ToolpathsRole): String = stringResource(
     when (role) {
         ToolpathsRole.None -> R.string.role_none
         ToolpathsRole.Perimeter -> R.string.role_inner_wall

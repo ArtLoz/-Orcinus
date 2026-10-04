@@ -356,8 +356,41 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
 
     const jclass type = env->FindClass("app/orcinus/shadow/render/gcode/NativeToolpathsSnapshot");
     // GCodeViewer::render(): the G-code line of the current move, which the G-code window shows.
-    const jint current_line = source.get_vertices_count() > 0 ? static_cast<jint>(source.get_current_vertex().gcode_id) : 0;
-    const jmethodID constructor = env->GetMethodID(type, "<init>", "(I[F[I[I[I[Z[F[I[I[ZFF[F[I[I[I[I[I[II)V");
+    const bool has_vertices = source.get_vertices_count() > 0;
+    const jint current_line = has_vertices ? static_cast<jint>(source.get_current_vertex().gcode_id) : 0;
+    // The tool marker stands at the current vertex once the visible range ends
+    // before the full one (m_show_marker).
+    std::vector<jfloat> marker;
+    jboolean at_end = JNI_TRUE;
+    std::vector<jfloat> values;
+    std::vector<jint> kinds;
+    if (has_vertices) {
+        const libvgcode::PathVertex& current = source.get_current_vertex();
+        marker = {current.position[0], current.position[1], current.position[2]};
+        at_end = source.get_view_visible_range()[1] == source.get_view_full_range()[1] ? JNI_TRUE : JNI_FALSE;
+        // Marker::render_position_window(): a seam's data may be arbitrary, so
+        // outside the feature type view the last visible vertex before it speaks.
+        libvgcode::PathVertex vertex = current;
+        std::size_t vertex_id = source.get_current_vertex_id();
+        if (source.get_view_type() != libvgcode::EViewType::FeatureType && vertex.type == libvgcode::EMoveType::Seam) {
+            const libvgcode::Interval& visible_range = source.get_view_visible_range();
+            if (visible_range[1] > 0) {
+                vertex_id = static_cast<std::size_t>(visible_range[1]) - 1;
+                vertex = source.get_vertex_at(vertex_id);
+            }
+        }
+        values = {
+            vertex.position[0], vertex.position[1], vertex.position[2], vertex.width, vertex.height, vertex.feedrate,
+            vertex.acceleration, vertex.jerk, vertex.volumetric_rate(), vertex.fan_speed, vertex.temperature,
+            vertex.pressure_advance, vertex.layer_duration, source.get_estimated_time_at(vertex_id),
+            vertex.times[static_cast<std::size_t>(source.get_time_mode())],
+        };
+        kinds = {
+            static_cast<jint>(vertex.type), static_cast<jint>(vertex.role), vertex.is_extrusion() ? 1 : 0,
+            static_cast<jint>(vertex.layer_id), static_cast<jint>(vertex.extruder_id), static_cast<jint>(vertex.color_id),
+        };
+    }
+    const jmethodID constructor = env->GetMethodID(type, "<init>", "(I[F[I[I[I[Z[F[I[I[ZFF[F[I[I[I[I[I[II[FZ[F[I)V");
     return env->NewObject(
         type,
         constructor,
@@ -380,7 +413,11 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
         int_array(env, move_lines),
         int_array(env, tool_colors),
         int_array(env, used_extruders),
-        current_line
+        current_line,
+        float_array(env, marker),
+        at_end,
+        float_array(env, values),
+        int_array(env, kinds)
     );
 }
 

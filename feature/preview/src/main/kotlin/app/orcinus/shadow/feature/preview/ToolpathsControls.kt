@@ -1,6 +1,8 @@
 package app.orcinus.shadow.feature.preview
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -8,11 +10,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -56,9 +61,17 @@ internal fun ToolpathsControls(
     layerGcodes: LayerGcodeUi? = null,
     /** The G-code window over the move slider; null while it is hidden. */
     gcodeWindow: (@Composable (Modifier) -> Unit)? = null,
+    /** The tool's position window right over the move slider, and its properties above the windows; null while hidden. */
+    positionWindow: (@Composable (Modifier) -> Unit)? = null,
+    positionDetails: (@Composable (Modifier) -> Unit)? = null,
 ) {
-    // The layer slider stands above the G-code window, which stands above the move slider.
-    val windowSpace = if (gcodeWindow != null) GcodeWindowHeight + ControlsMargin else 0.dp
+    // The layer slider stands above the windows, which stand above the move slider;
+    // the position's properties stand over the canvas above them.
+    var windowsHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+    val windowed = gcodeWindow != null || positionWindow != null
+    val windowSpace = if (windowed) windowsHeight + ControlsMargin else 0.dp
+    val windowsBottom = bottomInset + MovePlayerHeight + ControlsMargin * 2
     var oneLayer by rememberSaveable { mutableStateOf(false) }
     // The layer whose menu is open, the layer whose G-code is being edited, and the jump dialog.
     var menuLayer by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -125,11 +138,25 @@ internal fun ToolpathsControls(
                     .fillMaxHeight(),
             )
         }
-        gcodeWindow?.invoke(
+        if (windowed) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = ControlsMargin, end = ControlsMargin, bottom = windowsBottom)
+                    .fillMaxWidth()
+                    .onSizeChanged { windowsHeight = with(density) { it.height.toDp() } },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                gcodeWindow?.invoke(Modifier.fillMaxWidth())
+                // render_position_window(): at the bottom, in the middle.
+                positionWindow?.invoke(Modifier)
+            }
+        }
+        positionDetails?.invoke(
             Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = ControlsMargin, end = ControlsMargin, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2)
-                .fillMaxWidth(),
+                .align(Alignment.BottomCenter)
+                .padding(start = ControlsMargin, end = ControlsMargin, bottom = windowsBottom + windowSpace),
         )
         if (view.moves.size > 1) {
             OrcaMovePlayer(

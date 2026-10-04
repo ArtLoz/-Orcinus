@@ -305,6 +305,8 @@ data class PlateDescription(
     val geometry: PlateGeometry,
     /** Colour of the first filament, which OrcaSlicer paints objects with. */
     val filamentColor: ColorRgba,
+    /** Mesh of the printer's hotend, the preview's tool marker (GCodeViewer::init()); null when it has none. */
+    val hotendModel: ScenePath? = null,
 )
 
 /**

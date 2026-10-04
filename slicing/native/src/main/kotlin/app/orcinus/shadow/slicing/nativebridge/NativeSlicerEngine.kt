@@ -312,6 +312,7 @@ class NativeSlicerEngine(context: Context) :
                         ?.let { PlateCircle(Point2(it[0], it[1]), it[2]) },
                 ),
                 filamentColor = decodeColor(plate.filamentColour),
+                hotendModel = plate.hotendModelMesh.ifBlank { null }?.let(::ScenePath),
             ),
         )
     }

@@ -1350,6 +1350,13 @@ TEST_CASE("The K2 Plus plate is described as OrcaSlicer draws it", "[Adapter][Sc
 
     REQUIRE_FALSE(plate.bed_texture.empty());
     CHECK(read_file(plate.bed_texture).compare(1, 3, "PNG") == 0);
+
+    // GCodeViewer::init(): the K2 Plus names no hotend model, so the marker is OrcaSlicer's hotend.stl.
+    REQUIRE_FALSE(plate.hotend_model_mesh.empty());
+    const std::string hotend = read_file(plate.hotend_model_mesh);
+    REQUIRE(hotend.size() >= 16);
+    CHECK(hotend.compare(0, 4, "OMSH") == 0);
+    CHECK(read_u32(hotend, 12) > 0);
 }
 
 TEST_CASE("A model is placed and meshed the way slicing places it", "[Adapter][Scene]")

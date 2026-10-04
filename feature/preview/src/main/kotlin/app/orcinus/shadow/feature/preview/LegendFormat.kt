@@ -106,5 +106,23 @@ internal object LegendFormat {
     fun cost(value: Double): String = String.format(Locale.ROOT, "%.2f", value)
 
     /** A colour range value with the view type's decimals. */
+    /** get_time_dhms(): days, hours, minutes and seconds, each part from the largest one there is. */
+    fun dhms(seconds: Float): String {
+        var time = seconds
+        val days = (time / 86_400f).toInt()
+        time -= days * 86_400f
+        val hours = (time / 3_600f).toInt()
+        time -= hours * 3_600f
+        val minutes = (time / 60f).toInt()
+        time -= minutes * 60f
+        return when {
+            days > 0 -> "${days}d ${hours}h ${minutes}m ${time.toInt()}s"
+            hours > 0 -> "${hours}h ${minutes}m ${time.toInt()}s"
+            minutes > 0 -> "${minutes}m ${time.toInt()}s"
+            time > 1 -> "${time.toInt()}s"
+            else -> String.format(Locale.ROOT, "%fs", time)
+        }
+    }
+
     fun decimal(value: Float, decimals: Int): String = String.format(Locale.ROOT, "%.${decimals}f", value)
 }

@@ -1597,7 +1597,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describePlate(
     const jmethodID constructor = env->GetMethodID(
         result_class,
         "<init>",
-        "(JLjava/lang/String;[DD[F[F[F[FLjava/lang/String;Ljava/lang/String;Ljava/lang/String;I[D)V"
+        "(JLjava/lang/String;[DD[F[F[F[FLjava/lang/String;Ljava/lang/String;Ljava/lang/String;I[DLjava/lang/String;)V"
     );
     const double circle[3] = {plate.circle_center_x, plate.circle_center_y, plate.circle_radius};
     return env->NewObject(
@@ -1615,7 +1615,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describePlate(
         to_java(env, plate.bed_texture),
         to_java(env, plate.filament_colour),
         static_cast<jint>(plate.build_volume_type),
-        to_java(env, circle, 3)
+        to_java(env, circle, 3),
+        to_java(env, plate.hotend_model_mesh)
     );
 }
 

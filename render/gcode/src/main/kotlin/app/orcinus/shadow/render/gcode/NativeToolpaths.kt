@@ -106,4 +106,16 @@ internal class NativeToolpathsSnapshot(
     @JvmField val usedExtruders: IntArray,
     /** G-code line id of the current move (get_current_vertex()), 0 for none. */
     @JvmField val currentLine: Int,
+    /** The current vertex's position, empty for none; whether the visible range ends where the full one does. */
+    @JvmField val markerPosition: FloatArray,
+    @JvmField val atEnd: Boolean,
+    /**
+     * The vertex the position window describes: x, y, z, width, height,
+     * feedrate, acceleration, jerk, volumetric rate, fan speed, temperature,
+     * pressure advance, layer duration, estimated time at it, its own time;
+     * and its move type, extrusion role, whether it extrudes, layer, extruder
+     * and colour. Empty for none.
+     */
+    @JvmField val vertexValues: FloatArray,
+    @JvmField val vertexKinds: IntArray,
 )

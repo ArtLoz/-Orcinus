@@ -16,4 +16,6 @@ parcelable PlateDescriptionParcel {
     /** BuildVolumeShape name, and the circle of a circular bed: x, y, radius. */
     @nullable String buildVolumeShape;
     @nullable double[] circle;
+    /** The mesh of the printer's hotend, the preview's tool marker. */
+    @nullable String hotendModel;
 }

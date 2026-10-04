@@ -1432,6 +1432,25 @@ std::string system_bed_texture(Slic3r::PresetBundle& bundle)
     return printer_model == nullptr || printer_model->value.empty() ? std::string() : bundle.get_texture_for_printer_model(printer_model->value);
 }
 
+// GCodeViewer::init(): the tool marker is the hotend model of the selected
+// printer's model, or OrcaSlicer's own hotend.
+std::string hotend_model(Slic3r::PresetBundle& bundle)
+{
+    const Slic3r::Preset& printer = bundle.printers.get_selected_preset();
+    if (printer.is_system) {
+        return Slic3r::PresetUtils::system_printer_hotend_model(printer);
+    }
+    std::string filename;
+    const auto* printer_model = printer.config.opt<Slic3r::ConfigOptionString>("printer_model");
+    if (printer_model != nullptr && !printer_model->value.empty()) {
+        filename = bundle.get_hotend_model_for_printer_model(printer_model->value);
+    }
+    if (filename.empty()) {
+        filename = bundle.get_hotend_model_for_printer_model(Slic3r::PresetBundle::ORCA_DEFAULT_PRINTER_MODEL);
+    }
+    return filename;
+}
+
 bool file_exists(const std::string& path)
 {
     boost::system::error_code error;
@@ -2133,6 +2152,17 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
             }
             if (written) {
                 result.bed_texture = texture_png;
+            }
+        }
+
+        // GCodeViewer::SequentialView::Marker::init(): GLModel::init_from_file() of the hotend.
+        const std::string hotend = hotend_model(*engine().bundle);
+        const std::string hotend_mesh = (fs::path(output_dir) / "hotend_model.mesh").string();
+        remove_file(hotend_mesh);
+        if (file_exists(hotend)) {
+            const Slic3r::TriangleMesh mesh = Slic3r::Model::read_from_file(hotend).mesh();
+            if (write_mesh(mesh.its, hotend_mesh)) {
+                result.hotend_model_mesh = hotend_mesh;
             }
         }
 

@@ -53,6 +53,7 @@ internal class NativePlateDescription(
     /** BuildVolume_Type, and the circle of a circular bed: x, y, radius. */
     @JvmField val buildVolumeType: Int,
     @JvmField val circle: DoubleArray,
+    @JvmField val hotendModelMesh: String,
 )
 
 /** Constructed by the native bridge; see WipeTowerState in orca_engine_adapter.hpp. */

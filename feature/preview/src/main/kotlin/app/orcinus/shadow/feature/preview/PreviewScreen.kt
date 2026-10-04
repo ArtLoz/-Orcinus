@@ -227,6 +227,8 @@ internal fun PreviewScreen(
     }
     val inspection = LocalInspectionMode.current
     val toolpaths = result?.toolpaths
+    // render_position_window()'s properties_shown, kept while the app runs.
+    var propertiesShown by rememberSaveable { mutableStateOf(false) }
     // GCodeWindow::load_gcode(): the G-code of the slice, with where its lines end.
     val gcodePath = result?.gcode?.value
     val gcodeLines by produceState<GcodeLines?>(null, gcodePath) {
@@ -342,6 +344,7 @@ internal fun PreviewScreen(
                     layer = shown,
                     // Preview::load_print_as_fff(): the shells, more see-through once the G-code shows.
                     shells = PlateShells(state.shells, if (view != null) SHELL_ALPHA_GCODE else SHELL_ALPHA),
+                    toolMarker = view?.marker,
                     filamentColors = state.filamentColors.mapNotNull(::parseFilamentColor),
                     // The toolpaths stand where the current plate does (GCodeProcessor::set_xy_offset).
                     plateOrigins = state.plateOrigins,
@@ -442,6 +445,15 @@ internal fun PreviewScreen(
                     // GCodeViewer::SequentialView::render(): the window while it is on and the move has a line.
                     gcodeWindow = gcodeLines?.takeIf { canvas.gcodeWindow && view.currentLine > 0 }?.let { lines ->
                         { windowModifier -> GcodeWindow(lines, view.currentLine, windowModifier) }
+                    },
+                    // SequentialView::render(): the marker's position window while the marker shows.
+                    positionWindow = view.vertex?.let { vertex ->
+                        { windowModifier ->
+                            ToolPositionWindow(vertex, view.viewType, propertiesShown, { propertiesShown = it }, windowModifier)
+                        }
+                    },
+                    positionDetails = view.vertex?.takeIf { propertiesShown }?.let { vertex ->
+                        { windowModifier -> ToolPropertiesWindow(vertex, windowModifier) }
                     },
                     modifier = Modifier
                         .fillMaxSize()

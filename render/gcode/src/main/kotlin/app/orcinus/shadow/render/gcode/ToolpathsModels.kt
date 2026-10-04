@@ -1,5 +1,7 @@
 package app.orcinus.shadow.render.gcode
 
+import app.orcinus.shadow.core.model.Vector3
+
 /** libvgcode::EViewType, in its order. */
 enum class ToolpathsViewType {
     Summary,
@@ -142,4 +144,38 @@ data class ToolpathsView(
     val usedExtruders: List<Int>,
     /** The G-code line of the current move (the viewer's current vertex), from 1; 0 for none. */
     val currentLine: Int = 0,
+    /**
+     * GCodeViewer's tool marker: the current vertex, once the move slider has
+     * left the end of the moves since the G-code was loaded (m_show_marker);
+     * null while it hides.
+     */
+    val marker: Vector3? = null,
+    /** The move the marker's position window describes; null with the marker hidden. */
+    val vertex: ToolpathsVertex? = null,
+)
+
+/** libvgcode's PathVertex as Marker::render_position_window() describes it. */
+data class ToolpathsVertex(
+    val position: Vector3,
+    val type: ToolpathsMoveType,
+    /** Its extrusion role; null for one the app does not know. */
+    val role: ToolpathsRole?,
+    val extrusion: Boolean,
+    val width: Float,
+    val height: Float,
+    val feedrate: Float,
+    val acceleration: Float,
+    val jerk: Float,
+    val volumetricRate: Float,
+    val fanSpeed: Float,
+    val temperature: Float,
+    val pressureAdvance: Float,
+    val layerDuration: Float,
+    /** Layer, extruder and colour, from 0. */
+    val layer: Int,
+    val extruder: Int,
+    val color: Int,
+    /** get_estimated_time_at(), and the move's own time in the time mode. */
+    val estimatedTime: Float,
+    val time: Float,
 )

@@ -72,6 +72,7 @@ import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Line3
 import app.orcinus.shadow.render.scene.math.Vec3
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
@@ -198,6 +199,8 @@ fun PlateView(
     layerRangeHint: LayerRangeHint? = null,
     /** The preview's shells (GCodeViewer::load_shells()); null for none. */
     shells: PlateShells? = null,
+    /** GCodeViewer's tool marker, the plate's hotend model standing at this point; null while it hides. */
+    toolMarker: Vector3? = null,
     /**
      * The variable layer height while it is on: the object it edits is drawn
      * in the colours of its layers, and the bar the page placed with
@@ -341,6 +344,12 @@ fun PlateView(
         val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
         val meshes = remember { MeshCache() }
         val shellMeshes = remember { MeshCache() }
+        // Marker::init(): the hotend of the printer, read once for the plate.
+        val hotendPath = plate?.hotendModel
+        val hotend by produceState<MeshData?>(null, hotendPath) {
+            value = hotendPath?.let { path -> withContext(Dispatchers.IO) { runCatching { MeshFiles.read(File(path.value)) }.getOrNull() } }
+        }
+        LaunchedEffect(hotend, toolMarker) { controller.setToolMarker(hotend, toolMarker?.let { Vec3(it.x, it.y, it.z) }) }
         LaunchedEffect(shells, color, filamentColors, smoothNormals) {
             val loaded = withContext(Dispatchers.IO) {
                 shellMeshes.smoothNormals = smoothNormals
@@ -1266,6 +1275,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     fun setShells(shells: List<SceneObject>) {
         renderer.setShells(shells)
+        invalidate()
+    }
+
+    fun setToolMarker(mesh: MeshData?, position: Vec3?) {
+        renderer.setToolMarker(mesh, position)
         invalidate()
     }
 

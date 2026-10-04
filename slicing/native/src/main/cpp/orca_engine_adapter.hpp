@@ -463,6 +463,9 @@ struct PlateDescription {
     double circle_center_x{0.0};
     double circle_center_y{0.0};
     double circle_radius{0.0};
+    // Mesh file of the printer's hotend, the preview's tool marker
+    // (GCodeViewer::init()); empty when it cannot be read.
+    std::string hotend_model_mesh;
 };
 
 PlateDescription describe_plate(const ProfileSelection& profiles, const std::string& output_dir);
