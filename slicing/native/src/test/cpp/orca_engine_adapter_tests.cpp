@@ -1199,6 +1199,12 @@ TEST_CASE("Bundled K2 Plus profiles slice the calibration cube into Orca G-code"
     CHECK(statistics.time[0] == Catch::Approx(static_cast<float>(result.estimated_print_time_seconds)).margin(1.0));
     CHECK(statistics.total_used_filament == Catch::Approx(result.filament_micrometers / 1000.0).margin(0.01));
     CHECK(statistics.model_filament[0] == Catch::Approx(statistics.total_used_filament / 1000.0).epsilon(0.05));
+    // The ColorPrint legend's columns: the one filament's model column holds it all.
+    REQUIRE(statistics.filament_per_extruder.size() == 1);
+    CHECK(statistics.filament_per_extruder.front().first == 0);
+    CHECK((statistics.filament_listed.front() & 1) != 0);
+    CHECK(statistics.filament_per_extruder.front().second[0] == Catch::Approx(statistics.model_filament[0]));
+    CHECK(statistics.filament_per_extruder.front().second[1] == Catch::Approx(statistics.model_filament[1]));
     CHECK(statistics.total_weight > 0.0);
     CHECK(statistics.total_travel_moves > 0);
     CHECK_FALSE(statistics.used_filament_per_role.empty());

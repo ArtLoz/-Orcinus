@@ -106,6 +106,20 @@ data class ToolpathsStatistics(
     val totalExtruderChanges: Int,
     val totalToolChangeTime: Float,
     val moves: Map<ToolpathsMoveType, MoveStatistics>,
+    /** The model, support, flushed and wipe tower filament of every extruder the volume maps list, from 0. */
+    val filamentPerExtruder: Map<Int, ExtruderFilament> = emptyMap(),
+)
+
+/**
+ * The filament of an extruder as the ColorPrint legend's columns show it
+ * (render_legend()'s model_used_filaments_m and the like); null where the
+ * statistics list none of it.
+ */
+data class ExtruderFilament(
+    val model: FilamentUsage?,
+    val support: FilamentUsage?,
+    val flushed: FilamentUsage?,
+    val wipeTower: FilamentUsage?,
 )
 
 /** A feature type the viewer draws, with its colour (0xRRGGBB) and normal-mode time in seconds. */

@@ -169,8 +169,18 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_statistics(JNIEnv* env, job
         statistics.wipe_tower_filament[0], statistics.wipe_tower_filament[1],
     };
 
+    std::vector<jint> extruders;
+    std::vector<jint> extruder_listed;
+    std::vector<jdouble> extruder_filament;
+    for (std::size_t index = 0; index < statistics.filament_per_extruder.size(); ++index) {
+        extruders.push_back(statistics.filament_per_extruder[index].first);
+        extruder_listed.push_back(statistics.filament_listed[index]);
+        const auto& values = statistics.filament_per_extruder[index].second;
+        extruder_filament.insert(extruder_filament.end(), values.begin(), values.end());
+    }
+
     const jclass type = env->FindClass("app/orcinus/shadow/render/gcode/NativeToolpathsStatistics");
-    const jmethodID constructor = env->GetMethodID(type, "<init>", "([F[F[I[D[DDDDFIFIIF[I[F[F)V");
+    const jmethodID constructor = env->GetMethodID(type, "<init>", "([F[F[I[D[DDDDFIFIIF[I[F[F[I[I[D)V");
     return env->NewObject(
         type,
         constructor,
@@ -190,7 +200,10 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_statistics(JNIEnv* env, job
         statistics.total_tool_change_time,
         int_array(env, move_counts),
         float_array(env, move_times),
-        float_array(env, move_distances)
+        float_array(env, move_distances),
+        int_array(env, extruders),
+        int_array(env, extruder_listed),
+        double_array(env, extruder_filament)
     );
 }
 

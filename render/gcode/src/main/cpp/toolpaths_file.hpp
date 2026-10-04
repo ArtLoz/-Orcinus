@@ -26,7 +26,7 @@
 namespace orcinus::toolpaths {
 
 inline constexpr std::array<char, 4> FILE_MAGIC{'O', 'T', 'P', 'F'};
-inline constexpr std::uint32_t FILE_VERSION = 2;
+inline constexpr std::uint32_t FILE_VERSION = 3;
 
 inline constexpr std::size_t MOVE_TYPES_COUNT = static_cast<std::size_t>(libvgcode::EMoveType::COUNT);
 
@@ -44,6 +44,12 @@ struct Statistics {
     std::array<double, 2> support_filament{0.0, 0.0};
     std::array<double, 2> flushed_filament{0.0, 0.0};
     std::array<double, 2> wipe_tower_filament{0.0, 0.0};
+    // The same per extruder, for the extruders each volume map lists: the
+    // extruder, then metres and grams of the model, support, flushed, and
+    // wipe tower filament, and which of the four the maps list (bits 1, 2, 4
+    // and 8).
+    std::vector<std::pair<std::uint8_t, std::array<double, 8>>> filament_per_extruder;
+    std::vector<std::uint8_t> filament_listed;
     // PrintStatistics.
     double total_used_filament{0.0};
     double total_weight{0.0};
@@ -130,6 +136,11 @@ inline bool put_statistics(std::FILE* file, const Statistics& statistics)
     for (const auto& [role, used] : statistics.used_filament_per_role) {
         ok = ok && put(file, role) && put(file, used);
     }
+    ok = ok && put(file, static_cast<std::uint32_t>(statistics.filament_per_extruder.size()));
+    for (std::size_t index = 0; index < statistics.filament_per_extruder.size(); ++index) {
+        ok = ok && put(file, statistics.filament_per_extruder[index].first) && put(file, statistics.filament_per_extruder[index].second) &&
+            put(file, statistics.filament_listed[index]);
+    }
     return ok && put(file, statistics.model_filament) && put(file, statistics.support_filament) &&
         put(file, statistics.flushed_filament) && put(file, statistics.wipe_tower_filament) &&
         put(file, statistics.total_used_filament) && put(file, statistics.total_weight) && put(file, statistics.total_cost) &&
@@ -149,6 +160,18 @@ inline bool get_statistics(std::FILE* file, Statistics& statistics)
     statistics.used_filament_per_role.resize(roles);
     for (auto& [role, used] : statistics.used_filament_per_role) {
         if (!get(file, role) || !get(file, used)) {
+            return false;
+        }
+    }
+    std::uint32_t extruders = 0;
+    if (!get(file, extruders) || extruders > 256) {
+        return false;
+    }
+    statistics.filament_per_extruder.resize(extruders);
+    statistics.filament_listed.resize(extruders);
+    for (std::size_t index = 0; index < extruders; ++index) {
+        if (!get(file, statistics.filament_per_extruder[index].first) || !get(file, statistics.filament_per_extruder[index].second) ||
+            !get(file, statistics.filament_listed[index])) {
             return false;
         }
     }

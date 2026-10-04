@@ -31,6 +31,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSummaryItem
 import app.orcinus.shadow.core.designsystem.component.OrcaSummaryRow
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ImperialUnits
+import app.orcinus.shadow.render.gcode.ExtruderFilament
 import app.orcinus.shadow.render.gcode.FilamentUsage
 import app.orcinus.shadow.render.gcode.OptionLegend
 import app.orcinus.shadow.render.gcode.ToolpathsMoveType
@@ -266,27 +267,44 @@ private fun Summary(statistics: ToolpathsStatistics, imperial: Boolean) {
 
 @Composable
 private fun ColorPrint(view: ToolpathsView, statistics: ToolpathsStatistics, imperial: Boolean) {
-    // The filament of each extruder: the model's, and support, flushed, or tower filament when there is any.
-    val parts = listOf(
-        R.string.header_model to statistics.modelFilament,
-        R.string.header_support to statistics.supportFilament,
-        R.string.header_flushed to statistics.flushedFilament,
-        R.string.header_tower to statistics.wipeTowerFilament,
-    ).filter { (title, usage) -> title == R.string.header_model || usage.meters > 0.0 || usage.grams > 0.0 }
-    val detail = parts.map { (title, usage) -> "${stringResource(title)} ${LegendFormat.spacedMeters(usage.meters, imperial)}" }.joinToString(" · ")
+    // render_legend(): the columns any used extruder has filament listed in,
+    // each extruder's filament in them, and their sum when there is more than the model's.
+    val columns = listOf<Pair<Int, (ExtruderFilament) -> FilamentUsage?>>(
+        R.string.header_model to ExtruderFilament::model,
+        R.string.header_support to ExtruderFilament::support,
+        R.string.header_flushed to ExtruderFilament::flushed,
+        R.string.header_tower to ExtruderFilament::wipeTower,
+    ).filter { (_, of) -> view.usedExtruders.any { extruder -> statistics.filamentPerExtruder[extruder]?.let(of) != null } }
+    val none = FilamentUsage(0.0, 0.0)
+    val usages = view.usedExtruders.map { extruder ->
+        columns.map { (_, of) -> statistics.filamentPerExtruder[extruder]?.let(of) ?: none }
+    }
+    val titles = columns.map { stringResource(it.first) }
+    @Composable
+    fun FilamentRow(color: Color, title: String, usage: List<FilamentUsage>) {
+        val total = FilamentUsage(usage.sumOf { it.meters }, usage.sumOf { it.grams })
+        OrcaLegendItem(
+            color = color,
+            title = title,
+            // With more than the model's column, each column's filament, then their total.
+            detail = usage.takeIf { columns.size > 1 }
+                ?.mapIndexed { index, part -> "${titles[index]} ${LegendFormat.spacedMeters(part.meters, imperial)}" }
+                ?.joinToString(" · "),
+            share = null,
+            usage = LegendFormat.spacedMeters(total.meters, imperial),
+            usageDetail = LegendFormat.compactWeight(total.grams, imperial),
+            visible = null,
+            onToggle = null,
+        )
+    }
     OrcaLegendSection(viewTypeName(ToolpathsViewType.ColorPrint)) {
-        view.usedExtruders.forEach { extruder ->
-            val total = FilamentUsage(parts.sumOf { it.second.meters }, parts.sumOf { it.second.grams })
-            OrcaLegendItem(
-                color = view.toolColors.getOrNull(extruder)?.let(::rgb) ?: Color.Gray,
-                title = (extruder + 1).toString(),
-                detail = detail,
-                share = null,
-                usage = LegendFormat.spacedMeters(total.meters, imperial),
-                usageDetail = LegendFormat.compactWeight(total.grams, imperial),
-                visible = null,
-                onToggle = null,
-            )
+        view.usedExtruders.forEachIndexed { index, extruder ->
+            FilamentRow(view.toolColors.getOrNull(extruder)?.let(::rgb) ?: Color.Gray, (extruder + 1).toString(), usages[index])
+        }
+        // The sum of all rows, for more than one extruder.
+        if (view.usedExtruders.size > 1) {
+            val sums = columns.indices.map { column -> FilamentUsage(usages.sumOf { it[column].meters }, usages.sumOf { it[column].grams }) }
+            FilamentRow(Color.Transparent, stringResource(R.string.header_total), sums)
         }
         OrcaLegendValue(stringResource(R.string.filament_change_times), LegendFormat.compactCount(statistics.totalFilamentChanges.toLong()))
         OrcaLegendValue(stringResource(R.string.tool_changes), LegendFormat.compactCount(statistics.totalExtruderChanges.toLong()))

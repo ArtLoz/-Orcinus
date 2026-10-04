@@ -73,6 +73,14 @@ internal class NativeToolpathsStatistics(
     /** Per libvgcode::EMoveType, then per time mode. */
     @JvmField val moveTimes: FloatArray,
     @JvmField val moveDistances: FloatArray,
+    /**
+     * The extruders the volume maps list, which of the model, support,
+     * flushed and wipe tower maps list each (bits 1, 2, 4, 8), and for each
+     * extruder metres and grams of the four.
+     */
+    @JvmField val extruders: IntArray,
+    @JvmField val extruderListed: IntArray,
+    @JvmField val extruderFilament: DoubleArray,
 )
 
 /** Constructed by the native bridge: what the viewer shows after the commands so far. */

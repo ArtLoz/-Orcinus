@@ -1136,15 +1136,20 @@ orcinus::toolpaths::Statistics toolpaths_statistics(const Slic3r::GCodeProcessor
     for (const auto& [role, used] : estimated.used_filaments_per_role) {
         statistics.used_filament_per_role.push_back({static_cast<std::uint8_t>(libvgcode::convert(role)), {used.first, used.second}});
     }
-    // render_legend()'s get_used_filament_from_volume(), summed over the extruders.
-    const auto filament = [&gcode_result](const std::map<std::size_t, double>& volumes) {
+    // render_legend()'s get_used_filament_from_volume(): metres and grams of a volume of an extruder's filament.
+    const auto used = [&gcode_result](const std::size_t extruder, const double volume) {
+        if (extruder >= gcode_result.filament_diameters.size() || extruder >= gcode_result.filament_densities.size()) {
+            return std::array<double, 2>{0.0, 0.0};
+        }
+        const double radius = 0.5 * gcode_result.filament_diameters[extruder];
+        return std::array<double, 2>{0.001 * volume / (PI * radius * radius), volume * gcode_result.filament_densities[extruder] * 0.001};
+    };
+    const auto filament = [&used](const std::map<std::size_t, double>& volumes) {
         std::array<double, 2> sum{0.0, 0.0};
         for (const auto& [extruder, volume] : volumes) {
-            if (extruder < gcode_result.filament_diameters.size() && extruder < gcode_result.filament_densities.size()) {
-                const double radius = 0.5 * gcode_result.filament_diameters[extruder];
-                sum[0] += 0.001 * volume / (PI * radius * radius);
-                sum[1] += volume * gcode_result.filament_densities[extruder] * 0.001;
-            }
+            const std::array<double, 2> usage = used(extruder, volume);
+            sum[0] += usage[0];
+            sum[1] += usage[1];
         }
         return sum;
     };
@@ -1152,6 +1157,25 @@ orcinus::toolpaths::Statistics toolpaths_statistics(const Slic3r::GCodeProcessor
     statistics.support_filament = filament(estimated.support_volumes_per_extruder);
     statistics.flushed_filament = filament(estimated.flush_per_filament);
     statistics.wipe_tower_filament = filament(estimated.wipe_tower_volumes_per_extruder);
+    // The ColorPrint legend's columns, per extruder and listed or not.
+    std::map<std::size_t, std::pair<std::array<double, 8>, std::uint8_t>> per_extruder;
+    const std::array<const std::map<std::size_t, double>*, 4> maps{
+        &estimated.model_volumes_per_extruder, &estimated.support_volumes_per_extruder, &estimated.flush_per_filament,
+        &estimated.wipe_tower_volumes_per_extruder,
+    };
+    for (std::size_t column = 0; column < maps.size(); ++column) {
+        for (const auto& [extruder, volume] : *maps[column]) {
+            auto& [values, listed] = per_extruder[extruder];
+            const std::array<double, 2> usage = used(extruder, volume);
+            values[column * 2] = usage[0];
+            values[column * 2 + 1] = usage[1];
+            listed = static_cast<std::uint8_t>(listed | (1u << column));
+        }
+    }
+    for (const auto& [extruder, entry] : per_extruder) {
+        statistics.filament_per_extruder.push_back({static_cast<std::uint8_t>(extruder), entry.first});
+        statistics.filament_listed.push_back(entry.second);
+    }
     statistics.total_used_filament = print_statistics.total_used_filament;
     statistics.total_weight = print_statistics.total_weight;
     statistics.total_cost = print_statistics.total_cost;
