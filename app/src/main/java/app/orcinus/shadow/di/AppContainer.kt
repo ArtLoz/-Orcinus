@@ -142,6 +142,7 @@ import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateUseCase
 import app.orcinus.shadow.domain.plate.SelectPresetUseCase
 import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
+import app.orcinus.shadow.domain.plate.SelectionMenuUseCase
 import app.orcinus.shadow.domain.plate.SendGcodeUseCase
 import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetArrangeSettingsUseCase
@@ -616,6 +617,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             copyProcessSettings = copyProcessSettings,
             pasteProcessSettings = pasteProcessSettings,
             exportObjectMesh = exportObjectMesh,
+            selectionMenu = SelectionMenuUseCase(plateRepository, placePlateObject, deletePlateObject),
+            exportPlateMeshes = ExportPlateMeshesUseCase(
+                engine,
+                sceneFiles,
+                AppDocumentExport(applicationContext),
+                AppDocumentFolders(applicationContext),
+                plateRepository,
+            ),
             replaceObjectVolume = replaceObjectVolume,
             openSimplify = openSimplify,
             previewSimplify = PreviewSimplifyUseCase(engine, sceneFiles, plateRepository),
@@ -748,6 +757,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             AppDocumentFolders(applicationContext),
             plateRepository,
         ),
+        selectionMenu = SelectionMenuUseCase(plateRepository, placePlateObject, deletePlateObject),
         projectLifecycle = projectLifecycle,
         calibrateUseCase = CalibrateUseCase(projectLifecycle, engine, engine, platePresets, sceneFiles, plateRepository, applicationScope),
         describeCalibrationPrinterUseCase = DescribeCalibrationPrinterUseCase(engine, plateRepository),

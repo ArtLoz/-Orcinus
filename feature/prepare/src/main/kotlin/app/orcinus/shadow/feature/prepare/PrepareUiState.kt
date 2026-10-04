@@ -70,6 +70,9 @@ import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withPainted
 import app.orcinus.shadow.core.model.withPartAt
+import app.orcinus.shadow.core.ui.plate.SelectionMenuState
+import app.orcinus.shadow.core.ui.plate.selectionMenuState
+import app.orcinus.shadow.core.ui.plate.selectsSeveralObjects
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.canAddPlate
 import app.orcinus.shadow.domain.plate.canDeletePlate
@@ -142,6 +145,8 @@ data class PrepareUiState(
     val selectedObject: Int?,
     /** Every selected object, which the 3D view draws as selected. */
     val selectedObjects: Set<Int> = emptySet(),
+    /** MenuFactory::multi_selection_menu() while the selection holds several objects whole; null otherwise. */
+    val selectionMenu: SelectionMenuState? = null,
     /** The open gizmo; gizmos need a selected object on a plate that can change. */
     val gizmo: PlateGizmo?,
     /** The faces the selected object can lie on while "Lay on face" is open. */
@@ -828,6 +833,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         sceneCopies = copies,
         selectedObject = selectedObject,
         selectedObjects = selectedIndexes,
+        selectionMenu = takeIf { !view.assemblyView && it.selectsSeveralObjects() }
+            ?.let { selectionMenuState(it, canEditPlate, clipboard, settingsClipboard, emptyList()) },
         gizmo = gizmo.takeIf { selectedObject != null && canEditPlate },
         flatteningPlanes = if (gizmo == PlateGizmo.LAY_ON_FACE) view.flatteningPlanes else emptyList(),
         painting = view.painting?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },

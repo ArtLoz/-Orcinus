@@ -7,8 +7,10 @@ import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.core.model.SettingsItemKind
 import app.orcinus.shadow.core.model.flushesInto
 import app.orcinus.shadow.core.model.kind
+import app.orcinus.shadow.core.model.selectedObjectMeshes
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withLayerRangeAt
 import app.orcinus.shadow.core.model.withSettings
@@ -60,6 +62,35 @@ class PasteProcessSettingsUseCase(
                 if (current.busy || latest?.settingsOf(item) != target) return@update current
                 changed = true
                 current.recorded().copy(objects = current.objects.replaced(latest.withSettingsOf(item, pasted.settings)), result = null)
+            }
+            if (changed) settingsTabs.refresh()
+        }
+    }
+
+    /**
+     * paste_settings_into_list() over the objects the selection holds: each
+     * takes the copied settings, as one step of Undo.
+     */
+    fun selected() {
+        val state = repository.state.value
+        val clipboard = state.settingsClipboard?.takeIf { it.kind == SettingsItemKind.OBJECT } ?: return
+        val items = state.selectedObjectMeshes().map(SettingsItem::Object)
+        if (state.busy || items.isEmpty()) return
+        val targets = items.mapNotNull { item -> state.objects.withMesh(item.mesh)?.settingsOf(item)?.let { item to it } }
+        applicationScope.launch {
+            val pasted = targets.mapNotNull { (item, target) ->
+                (editor.pasteModelSettings(clipboard.settings, target, null) as? ModelSettingsOutcome.Success)?.let { Triple(item, target, it.settings) }
+            }
+            var changed = false
+            repository.update { current ->
+                if (current.busy) return@update current
+                // An object that changed meanwhile keeps its change.
+                val updated = pasted.mapNotNull { (item, target, settings) ->
+                    current.objects.withMesh(item.mesh)?.takeIf { it.settingsOf(item) == target }?.withSettingsOf(item, settings)
+                }
+                if (updated.isEmpty()) return@update current
+                changed = true
+                current.recorded().copy(objects = updated.fold(current.objects) { objects, plateObject -> objects.replaced(plateObject) }, result = null)
             }
             if (changed) settingsTabs.refresh()
         }

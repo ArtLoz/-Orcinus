@@ -754,7 +754,7 @@ private const val MAX_COPIES = 1000
 private const val SINKING_Z_THRESHOLD = 0.001
 
 /** GUI::dots */
-private const val DOTS = "..."
+internal const val DOTS = "..."
 
 /** The submenu of append_menu_items_mirror(): the axis, its text and its icon. */
 private val MIRROR_ITEMS = listOf(

@@ -1043,8 +1043,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         var moved = false
     }
 
-    /** GLCanvas3D::Mouse::Drag: the object itself, touched at [startPosition]. */
-    private class ObjectDrag(index: Int, startWorld: Affine3, val startPosition: Vec3, key: String? = null) : Drag(index, startWorld, key)
+    /**
+     * GLCanvas3D::Mouse::Drag: the object itself, touched at [startPosition].
+     * A copy of a multiple selection is [held]: the finger keeps the selection
+     * for its menu, as a right click does, and moves nothing.
+     */
+    private class ObjectDrag(index: Int, startWorld: Affine3, val startPosition: Vec3, key: String? = null, val held: Boolean = false) :
+        Drag(index, startWorld, key)
 
     /** GLGizmoBase::use_grabbers(): the move gizmo's grabber of [axis] at [startGrabber], the box centre at [startCenter]. */
     private class MoveGrabberDrag(index: Int, startWorld: Affine3, val axis: Int, val startGrabber: Vec3, val startCenter: Vec3, key: String?) :
@@ -1740,6 +1745,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         // of a model part takes the instance mode, even of the copy whose
         // volume was selected).
         val target = objects.firstOrNull { it.index == volume.index } ?: volume
+        if (volumeKey == null && selectedIndexes.size > 1 && target.index in selectedIndexes) {
+            drag = if (editable) ObjectDrag(target.index, target.world, hit, held = true) else null
+            return true
+        }
         if (volumeKey != null && target.index == selectedIndex) onSelectObject(target.index) else select(target.index)
         drag = if (editable) ObjectDrag(target.index, target.world, hit) else null
         return true
@@ -1842,7 +1851,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val offset = when (drag) {
             is RotateGrabberDrag, is ScaleGrabberDrag, is BrimEarDrag -> return
             // GLCanvas3D::on_mouse(): the assembly view moves nothing a finger drags.
-            is ObjectDrag -> if (assembly != null) return else objectOffset(drag, ray) ?: return
+            is ObjectDrag -> if (assembly != null || drag.held) return else objectOffset(drag, ray) ?: return
             is MoveGrabberDrag -> {
                 // GLGizmoMove3D::on_dragging(): the displacement along the grabber's
                 // axis, the world's or the copy's (Selection::translate() in instance coordinates).
@@ -1906,6 +1915,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         val drag = drag ?: return
         this.drag = null
+        if (drag is ObjectDrag && drag.held) {
+            // Let go without the menu, the copy is a click on it: it is selected alone (Selection::add()).
+            selectedIndex = drag.index
+            invalidate()
+            onSelectObject(drag.index)
+            return
+        }
         if (drag is TextDrag) {
             // write transformation from UI into model
             drag.volume?.let(onTextDragged)

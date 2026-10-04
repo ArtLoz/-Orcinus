@@ -3,7 +3,9 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.PlacedModel
+import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.listPlateOf
+import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.OrcaText
@@ -106,13 +108,17 @@ class ExportPlateMeshesUseCase(
         return "$base.${format.extension}"
     }
 
-    /** Every object merged into [document]; false when nothing was written. */
-    suspend fun toDocument(format: MeshFormat, document: ExternalDocumentReference): Boolean =
-        export(format, multi = false) { outcome, file -> documents.copyTo(file.value, document) }
+    /**
+     * Every object, or with [selection] every copy of the selected objects
+     * (export_stl(false, true)), merged into [document]; false when nothing
+     * was written.
+     */
+    suspend fun toDocument(format: MeshFormat, document: ExternalDocumentReference, selection: Boolean = false): Boolean =
+        export(format, multi = false, selection) { _, file -> documents.copyTo(file.value, document) }
 
-    /** Every object into a file of its own in [folder]; false when not every file was written. */
-    suspend fun toFolder(format: MeshFormat, folder: ExternalDocumentReference): Boolean =
-        export(format, multi = true) { outcome, _ ->
+    /** Every object, or every selected copy, into a file of its own in [folder]; false when not every file was written. */
+    suspend fun toFolder(format: MeshFormat, folder: ExternalDocumentReference, selection: Boolean = false): Boolean =
+        export(format, multi = true, selection) { outcome, _ ->
             outcome.files.all { mesh ->
                 // get_save_file(): the object's name, numbered while the folder has it.
                 var name = "${mesh.name}.${format.extension}"
@@ -126,17 +132,24 @@ class ExportPlateMeshesUseCase(
     private suspend fun export(
         format: MeshFormat,
         multi: Boolean,
+        selection: Boolean,
         deliver: suspend (MeshExportOutcome.Success, ScenePath) -> Boolean,
     ): Boolean {
         val state = repository.state.value
         val profiles = state.profiles
+        // Selection::get_selected_object_instances() of the objects the selection holds whole.
+        val copies = if (!selection) {
+            emptyList()
+        } else {
+            state.selectedCopies().map { id -> SelectedCopy(state.objects.indexOfFirst { it.mesh == id.mesh }, id.instance) }
+        }
         // MainFrame::can_export_model()
-        if (state.objects.isEmpty() || profiles == null) return false
+        if (state.objects.isEmpty() || profiles == null || (selection && copies.isEmpty())) return false
         val prefix = sceneFiles.newImportPrefix()
         val file = ScenePath("${prefix.value}-export${if (multi) "" else ".${format.extension}"}")
         try {
             val outcome = try {
-                inspector.exportMeshes(state.objects.map { it.placed() }, emptyList(), multi, format, profiles, file)
+                inspector.exportMeshes(state.objects.map { it.placed() }, copies, multi, format, profiles, file)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {

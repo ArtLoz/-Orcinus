@@ -1823,6 +1823,28 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `the multi-selection menu centres the selected objects as one box and sets them all at once`() {
+        val moved = Transform3(INSPECTION.placement.columns.mapIndexed { index, value -> if (index == 12) 40.0 else value })
+        val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh"), boxCenter = Vector3(40.0, 0.0, 10.0), placement = moved))
+        val selected = setOf(PlateInstanceId(CUBE.mesh, 0), PlateInstanceId(other.mesh, 0))
+        val repository = FakeRepository(readyState(CUBE, other).copy(plate = PLATE, selectedInstances = selected))
+        val inspector = FakeInspector(placed = null)
+        val menu = SelectionMenuUseCase(repository, PlacePlateObjectUseCase(PlaceModelUseCase(inspector), repository, scope), DeletePlateObjectUseCase(repository))
+
+        // Selection::center(): the box spans -10..50 by -10..10, its centre (20, 0) goes over the plate's (175, 175).
+        menu.center()
+        assertEquals(listOf(155.0, 195.0), inspector.placements.map { it.columns[12] })
+        assertEquals(listOf(175.0, 175.0), inspector.placements.map { it.columns[13] })
+        assertEquals(1, repository.state.value.history.undo.size)
+
+        menu.setPrintable(false)
+        assertTrue(repository.state.value.objects.all { plateObject -> plateObject.instances.none { it.printable } })
+        menu.delete()
+        assertTrue(repository.state.value.objects.isEmpty())
+        assertEquals(3, repository.state.value.history.undo.size)
+    }
+
+    @Test
     fun `adding a copy is one step of Undo, the placing of the copy included`() {
         val repository = FakeRepository(readyState(CUBE).copy(plate = PLATE))
         val inspector = FakeInspector()

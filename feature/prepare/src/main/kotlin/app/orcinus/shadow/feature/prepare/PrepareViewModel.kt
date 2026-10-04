@@ -83,6 +83,7 @@ import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.model.times
 import app.orcinus.shadow.core.model.translationTransform
 import app.orcinus.shadow.domain.DescribeFlatteningPlanesUseCase
@@ -112,6 +113,7 @@ import app.orcinus.shadow.domain.plate.EmbossUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedBrimUseCase
 import app.orcinus.shadow.domain.plate.EnablePaintedFuzzySkinUseCase
 import app.orcinus.shadow.domain.plate.ExportObjectMeshUseCase
+import app.orcinus.shadow.domain.plate.ExportPlateMeshesUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
 import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
@@ -145,6 +147,7 @@ import app.orcinus.shadow.domain.plate.RequestEmbossUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateUseCase
+import app.orcinus.shadow.domain.plate.SelectionMenuUseCase
 import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetArrangeSettingsUseCase
 import app.orcinus.shadow.domain.plate.SetExtruderUseCase
@@ -287,6 +290,9 @@ class PrepareViewModel(
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
+    /** MenuFactory::multi_selection_menu()'s items over the selected objects. */
+    private val selectionMenu: SelectionMenuUseCase? = null,
+    private val exportPlateMeshes: ExportPlateMeshesUseCase? = null,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -2991,6 +2997,42 @@ class PrepareViewModel(
     fun copyObjectAt(index: Int) = copyAt(index)?.let { copyToClipboard.objects(setOf(it)) }
 
     fun pasteInto(index: Int) = copyAt(index)?.let { pasteFromClipboard(it) }
+
+    /** The multi-selection menu: Cut, Copy and Paste over the selected objects. */
+    fun cutSelection() = plate.value.selectedCopies().takeIf { it.isNotEmpty() }?.let { copyToClipboard.objects(it.toSet(), cut = true) }
+
+    fun copySelection() = plate.value.selectedCopies().takeIf { it.isNotEmpty() }?.let { copyToClipboard.objects(it.toSet()) }
+
+    fun pasteIntoSelection() = plate.value.selectedCopies().firstOrNull()?.let { pasteFromClipboard(it) }
+
+    fun centerSelection() = selectionMenu?.center()
+
+    fun dropSelection() = selectionMenu?.drop()
+
+    fun deleteSelection() = selectionMenu?.delete()
+
+    fun setSelectionPrintable(printable: Boolean) = selectionMenu?.setPrintable(printable)
+
+    fun setSelectionAutoDrop(enabled: Boolean) = selectionMenu?.setAutoDrop(enabled)
+
+    /** ObjectList::switch_to_object_process() over the selection: the settings of the selected objects. */
+    fun editSelectionProcessSettings() = setSettingsScope(SettingsScope.OBJECT)
+
+    fun pasteSelectionProcessSettings() = pasteProcessSettings.selected()
+
+    fun setSelectionFilament(filament: Int) = setExtruder.selected(filament)
+
+    /** export_stl(false, true, multi): the selected objects into [document], one file, or a file each into the folder. */
+    fun exportSelection(format: MeshFormat, multi: Boolean, document: String) {
+        val reference = ExternalDocumentReference(document)
+        viewModelScope.launch {
+            if (multi) exportPlateMeshes?.toFolder(format, reference, selection = true) else exportPlateMeshes?.toDocument(format, reference, selection = true)
+        }
+    }
+
+    /** The name "Export as one STL" of the selection offers. */
+    fun selectionExportName(format: MeshFormat, untitled: String): String =
+        exportPlateMeshes?.suggestedName(format, untitled) ?: "$untitled.${format.extension}"
 
     /** The canvas menu's "Add Primitive" and "Add Handy models". */
     fun addPrimitiveShape(shape: String, name: String) = addPrimitive(shape, name)

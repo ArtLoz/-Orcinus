@@ -25,6 +25,8 @@ import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.reloadableVolumes
+import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
+import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.conversionsOf
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.hasConnectors
@@ -105,6 +107,8 @@ import app.orcinus.shadow.domain.plate.canMoveVolume
 
 /** What the object list asks of the app, as OrcaSlicer's object list does of the plater. */
 internal class ObjectListActions(
+    /** The multi-selection menu's items, which the row of a selected object offers while several are selected. */
+    val selection: SelectionMenuActions? = null,
     /**
      * The row was picked: the plate, or a copy of one of its objects
      * (GLCanvas3D's Selection). While several are being picked the copy joins
@@ -398,6 +402,8 @@ private fun LazyListScope.objectRows(
         val mesh = plateObject.mesh
         val copies = plateObject.instances.size > 1
         val ids = plateObject.instances.indices.map { PlateInstanceId(mesh, it) }
+        val selectionMenu = state.selectionMenu
+        val inSelection = ids.any { it in state.selectedInstances }
         item(key = "objects:${mesh.value}") {
             ObjectListRow(
                 name = plateObject.displayName(),
@@ -422,9 +428,15 @@ private fun LazyListScope.objectRows(
                 variableHeight = if (plateObject.hasVariableLayerHeight) ({ actions.editLayers(mesh) }) else null,
                 onClick = { actions.select(ids.first(), picking) },
                 onPrintable = { printable -> actions.setObjectPrintable(mesh, printable) },
-                onLongClick = { actions.selectAlone(ids.first()) },
+                // ObjectList::show_context_menu(): a row of a selection of several objects keeps it.
+                onLongClick = { if (selectionMenu == null || !inSelection) actions.selectAlone(ids.first()) },
                 drag = RowDrag(DragRow.Object(mesh), drag),
                 menu = { dismiss ->
+                    val selectionActions = actions.selection
+                    if (selectionMenu != null && inSelection && selectionActions != null) {
+                        SelectionMenuItems(selectionMenu.copy(filaments = menuFilaments.takeIf { it.size > 1 }.orEmpty()), selectionActions, dismiss)
+                        return@ObjectListRow
+                    }
                     val name = plateObject.displayName()
                     // ObjectList's in-place rename, which a phone offers from the row's menu.
                     RenameItem(enabled) {

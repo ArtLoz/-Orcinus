@@ -167,6 +167,8 @@ import app.orcinus.shadow.core.ui.plate.PlateMenuItems
 import app.orcinus.shadow.core.ui.plate.PlateNameDialog
 import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
 import app.orcinus.shadow.core.ui.plate.PlateStrip
+import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
+import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
@@ -235,6 +237,15 @@ internal fun PrepareRoute(
         exportTarget = null
         if (uri != null && mesh != null) viewModel.exportMesh(ScenePath(mesh), exportFormat, uri.toString())
     }
+    // The multi-selection menu's export: one file, or the folder of a file each.
+    var selectionExportFormat by rememberSaveable { mutableStateOf(MeshFormat.STL) }
+    val selectionExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(MESH_MIME_TYPE)) { uri ->
+        if (uri != null) viewModel.exportSelection(selectionExportFormat, multi = false, uri.toString())
+    }
+    val selectionExportFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) viewModel.exportSelection(selectionExportFormat, multi = true, uri.toString())
+    }
+    val untitledName = orcaString("Untitled")
     var replaceAllTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var replaceAllInstance by rememberSaveable { mutableStateOf(0) }
     val replacementFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -310,6 +321,26 @@ internal fun PrepareRoute(
         onSetAutoDrop = viewModel::setAutoDrop,
         onDeleteObject = viewModel::deleteObject,
         objectMenuActions = PrepareObjectMenuActions(
+            selection = SelectionMenuActions(
+                cut = { viewModel.cutSelection() },
+                copy = { viewModel.copySelection() },
+                paste = { viewModel.pasteIntoSelection() },
+                center = { viewModel.centerSelection() },
+                drop = { viewModel.dropSelection() },
+                delete = { viewModel.deleteSelection() },
+                setPrintable = { viewModel.setSelectionPrintable(it) },
+                setAutoDrop = { viewModel.setSelectionAutoDrop(it) },
+                editProcessSettings = {
+                    viewModel.editSelectionProcessSettings()
+                    onOpenSidebar()
+                },
+                pasteProcessSettings = { viewModel.pasteSelectionProcessSettings() },
+                setFilament = { viewModel.setSelectionFilament(it) },
+                export = { format, multi ->
+                    selectionExportFormat = format
+                    if (multi) selectionExportFolder.launch(null) else selectionExport.launch(viewModel.selectionExportName(format, untitledName))
+                },
+            ),
             addInstance = viewModel::addInstanceOf,
             removeInstance = viewModel::removeInstanceOf,
             setNumberOfInstances = viewModel::setInstancesOf,
@@ -1282,6 +1313,8 @@ internal class PrepareObjectMenuActions(
     val loadPart: (index: Int, type: VolumeType) -> Unit = { _, _ -> },
     /** Plater::reload_from_disk() of the object's volumes. */
     val reloadFromDisk: (index: Int) -> Unit = {},
+    /** The multi-selection menu's items over the selected objects. */
+    val selection: SelectionMenuActions? = null,
 ) {
     companion object {
         val NONE = PrepareObjectMenuActions(
@@ -1386,6 +1419,21 @@ private fun ObjectContextMenu(
     ) {
         if (copy == null) return@OrcaContextMenu
         val index = menu.index
+        // Plater::priv::on_right_click() over a copy of a selection of several objects.
+        val selection = actions.selection
+        val selectionMenu = state.selectionMenu
+        if (selection != null && selectionMenu != null && index in state.selectedObjects) {
+            SelectionMenuItems(
+                state = selectionMenu.copy(
+                    filaments = state.filamentNames.zip(state.filamentColors) { filament, color ->
+                        MenuFilament(filament, Color(color.red, color.green, color.blue, color.alpha))
+                    }.takeIf { it.size > 1 }.orEmpty(),
+                ),
+                actions = selection,
+                dismiss = onDismiss,
+            )
+            return@OrcaContextMenu
+        }
         val name = copy.plateObject.displayName()
         ObjectMenuItems(
             state = objectMenuState(

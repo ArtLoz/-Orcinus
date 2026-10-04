@@ -10,8 +10,13 @@ import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.ListClipboard
 import app.orcinus.shadow.core.model.allSliceResultsReady
+import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.ui.ExportResultDialog
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
+import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
+import app.orcinus.shadow.core.ui.plate.SelectionMenuState
+import app.orcinus.shadow.core.ui.plate.selectionMenuState
+import app.orcinus.shadow.core.ui.plate.selectsSeveralObjects
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
@@ -246,6 +251,7 @@ import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateUseCase
 import app.orcinus.shadow.domain.plate.SelectPresetUseCase
+import app.orcinus.shadow.domain.plate.SelectionMenuUseCase
 import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetBedShapeUseCase
 import app.orcinus.shadow.domain.plate.SetExtruderUseCase
@@ -305,6 +311,8 @@ data class SidebarUiState(
     val flushing: WipeTower = WipeTower(),
     /** What "Copy Process Settings" took. */
     val settingsClipboard: SettingsClipboard? = null,
+    /** MenuFactory::multi_selection_menu() while the selection holds several objects whole; null otherwise. */
+    val selectionMenu: SelectionMenuState? = null,
     /** The height ranges the object list copied. */
     val listClipboard: ListClipboard? = null,
     /** The Simplify gizmo is open on the canvas. */
@@ -404,6 +412,7 @@ class SidebarViewModel(
     private val saveProject: SaveProjectUseCase,
     private val exportToolpaths: ExportToolpathsUseCase,
     private val exportPlateMeshes: ExportPlateMeshesUseCase? = null,
+    private val selectionMenu: SelectionMenuUseCase? = null,
     private val projectLifecycle: ProjectLifecycleUseCase,
     private val calibrateUseCase: CalibrateUseCase,
     private val describeCalibrationPrinterUseCase: DescribeCalibrationPrinterUseCase,
@@ -513,15 +522,34 @@ class SidebarViewModel(
         viewModelScope.launch { saveProject.exportGeneric(document) }
     }
 
-    /** "Export all objects as one STL" (or DRC) into [document]. */
-    fun exportAllMeshes(format: MeshFormat, document: ExternalDocumentReference) {
-        viewModelScope.launch { exportPlateMeshes?.toDocument(format, document) }
+    /** "Export all objects as one STL" (or DRC) into [document], or with [selection] "Export as one STL" of the selected objects. */
+    fun exportAllMeshes(format: MeshFormat, document: ExternalDocumentReference, selection: Boolean = false) {
+        viewModelScope.launch { exportPlateMeshes?.toDocument(format, document, selection) }
     }
 
-    /** "Export all objects as STLs" (or DRCs) into [folder]. */
-    fun exportEachMesh(format: MeshFormat, folder: ExternalDocumentReference) {
-        viewModelScope.launch { exportPlateMeshes?.toFolder(format, folder) }
+    /** "Export all objects as STLs" (or DRCs) into [folder], or with [selection] "Export as STLs" of the selected objects. */
+    fun exportEachMesh(format: MeshFormat, folder: ExternalDocumentReference, selection: Boolean = false) {
+        viewModelScope.launch { exportPlateMeshes?.toFolder(format, folder, selection) }
     }
+
+    /** The multi-selection menu's items over the selected objects. */
+    fun selectionActions(openSettings: () -> Unit, export: (MeshFormat, Boolean) -> Unit) = SelectionMenuActions(
+        cut = { plateState.value.selectedCopies().takeIf { it.isNotEmpty() }?.let { copyToClipboard.objects(it.toSet(), cut = true) } },
+        copy = { plateState.value.selectedCopies().takeIf { it.isNotEmpty() }?.let { copyToClipboard.objects(it.toSet()) } },
+        paste = { plateState.value.selectedCopies().firstOrNull()?.let { pasteFromClipboard(it) } },
+        center = { selectionMenu?.center() },
+        drop = { selectionMenu?.drop() },
+        delete = { selectionMenu?.delete() },
+        setPrintable = { selectionMenu?.setPrintable(it) },
+        setAutoDrop = { selectionMenu?.setAutoDrop(it) },
+        editProcessSettings = {
+            setSettingsScope(SettingsScope.OBJECT)
+            openSettings()
+        },
+        pasteProcessSettings = { pasteSettings.selected() },
+        setFilament = { setExtruder.selected(it) },
+        export = export,
+    )
 
     /** The name "Export all objects as one STL" (or DRC) offers. */
     fun allMeshesName(format: MeshFormat, untitled: String): String =
@@ -939,6 +967,7 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     clipboard = clipboard,
     flushing = flushing,
     settingsClipboard = settingsClipboard,
+    selectionMenu = takeIf { it.selectsSeveralObjects() }?.let { selectionMenuState(it, profiles != null && !busy, clipboard, settingsClipboard, emptyList()) },
     listClipboard = listClipboard,
     simplifying = simplifyTarget != null,
     projectName = project.name,
@@ -1545,14 +1574,22 @@ fun PlateSidebar(
     }
     // Plater::export_stl()'s file dialog for every object merged, or its folder dialog for a file each.
     var meshesFormat by rememberSaveable { mutableStateOf(MeshFormat.STL) }
+    var meshesFromSelection by rememberSaveable { mutableStateOf(false) }
     val meshesPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(MESH_MIME_TYPE)) { uri ->
-        if (uri != null) viewModel.exportAllMeshes(meshesFormat, ExternalDocumentReference(uri.toString()))
+        if (uri != null) viewModel.exportAllMeshes(meshesFormat, ExternalDocumentReference(uri.toString()), meshesFromSelection)
     }
     val meshesFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) viewModel.exportEachMesh(meshesFormat, ExternalDocumentReference(uri.toString()))
+        if (uri != null) viewModel.exportEachMesh(meshesFormat, ExternalDocumentReference(uri.toString()), meshesFromSelection)
     }
     val exportMeshes: (MeshFormat, Boolean) -> Unit = { format, multi ->
         meshesFormat = format
+        meshesFromSelection = false
+        if (multi) meshesFolderPicker.launch(null) else meshesPicker.launch(viewModel.allMeshesName(format, untitled))
+    }
+    // The multi-selection menu's "Export as one STL" and "Export as STLs", into the same pickers.
+    val exportSelection: (MeshFormat, Boolean) -> Unit = { format, multi ->
+        meshesFormat = format
+        meshesFromSelection = true
         if (multi) meshesFolderPicker.launch(null) else meshesPicker.launch(viewModel.allMeshesName(format, untitled))
     }
     // Plater::export_core_3mf(): get_export_file(FT_3MF), named after the project.
@@ -1640,6 +1677,7 @@ fun PlateSidebar(
         onChoose = viewModel::choose,
         onChooseScope = viewModel::chooseSettingsScope,
         objectList = ObjectListActions(
+            selection = viewModel.selectionActions(openSettings = {}, export = exportSelection),
             select = viewModel::chooseSettingsTarget,
             selectAlone = { viewModel.chooseSettingsTarget(it, add = false) },
             selectSettings = viewModel::openSettingsOf,
