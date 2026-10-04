@@ -1020,7 +1020,19 @@ data class PrintOptions(
     val elegoo: ElegooOptions? = null,
     /** UploadOptionsDialog's choices, which a 3DPrinterOS upload needs. */
     val printer3dOs: Printer3dOsChoice? = null,
+    /** PrintHostSendDialog's group of a Repetier server ("#" its default group); empty for none. */
+    val group: String = "",
+    /** PrintHostSendDialog's storage (PrusaLink's path, Moonraker's root); empty for the host's own. */
+    val storage: String = "",
 )
+
+/** The storages PrintHostSendDialog offers (PrintHost::get_storage()): their paths and their names. */
+sealed interface HostStorageOutcome {
+    data class Success(val paths: List<String>, val names: List<String>) : HostStorageOutcome
+
+    /** The IOError get_storage() throws: Orca shows it and sends nothing. */
+    data class Failure(val message: String) : HostStorageOutcome
+}
 
 /**
  * The printer's host as the edited printer preset holds it, which the

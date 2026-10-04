@@ -1,6 +1,7 @@
 package app.orcinus.shadow.network.printhost
 
 import app.orcinus.shadow.core.model.HostPrintersOutcome
+import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
@@ -299,6 +300,62 @@ class PrintHostUploaderTest {
         assertEquals(PrintHostUploadOutcome.Success("plate.gcode"), outcome)
         assertTrue(http.files.isEmpty())
         assertEquals("http://host/api/files/local", http.multipart.single().url)
+    }
+
+    @Test
+    fun `the upload path's folder goes where each host takes it, with the storage and the group the dialog chose`() {
+        val octo = FakeHttpClient(answer = Result.success("{}"))
+        runSuspend { PrintHostUploader(octo).upload(printer("octoprint", "host", "key"), gcode(), "parts/plate.gcode", startPrint = false) }
+        assertEquals("parts", octo.multipart.single().fields["path"])
+        assertEquals("plate.gcode", octo.multipart.single().fileName)
+
+        // PrusaLink's PUT: the storage, then every element of the path escaped on its own.
+        val link = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "2.0", "text": "PrusaLink 0.7.0", "capabilities": {"upload-by-put": "true"}}""")
+        runSuspend {
+            PrintHostUploader(link).upload(printer("prusalink", "host", "key"), gcode(), "my parts/plate one.gcode", false, PrintOptions(storage = "/usb"))
+        }
+        assertEquals("http://host/api/v1/files/usb/my%20parts/plate%20one.gcode", link.files.single().url)
+
+        // Moonraker: the root chosen, the file by its name alone.
+        val moon = FakeHttpClient(answer = Result.success("{}"))
+        runSuspend { PrintHostUploader(moon).upload(printer("moonraker", "host", "key"), gcode(), "parts/plate.gcode", false, PrintOptions(storage = "timelapse")) }
+        assertEquals("timelapse", moon.multipart.single().fields["root"])
+        assertEquals("plate.gcode", moon.multipart.single().fileName)
+
+        // Repetier: a group of its own; its default group ("#") is not sent.
+        val repetier = FakeHttpClient(answer = Result.success("{}"))
+        val server = printer("repetier", "host", "key", mapOf("printhost_port" to "mk3"))
+        runSuspend { PrintHostUploader(repetier).upload(server, gcode(), "plate.gcode", false, PrintOptions(group = "Parts")) }
+        runSuspend { PrintHostUploader(repetier).upload(server, gcode(), "plate.gcode", false, PrintOptions(group = "#")) }
+        assertEquals("Parts", repetier.multipart[0].fields["group"])
+        assertTrue("group" !in repetier.multipart[1].fields)
+    }
+
+    @Test
+    fun `PrusaLink offers its writable storages with free space, and fails when it has none`() {
+        val listing = """{"storage_list": [
+            {"name": "USB", "path": "/usb", "read_only": false, "free_space": "1000", "available": true},
+            {"name": "SD", "path": "/sdcard", "ro": true, "available": true},
+            {"name": "Gone", "path": "/gone", "available": false}]}"""
+        val http = FakeHttpClient(answer = Result.success("{}"), info = listing)
+        assertEquals(
+            HostStorageOutcome.Success(listOf("/usb"), listOf("USB")),
+            runSuspend { PrintHostUploader(http).storage(printer("prusalink", "host", "key")) },
+        )
+
+        val full = FakeHttpClient(answer = Result.success("{}"), info = """{"storage_list": [{"name": "SD", "path": "/sdcard", "ro": true}]}""")
+        val failed = runSuspend { PrintHostUploader(full).storage(printer("prusalink", "host", "key")) }
+        assertEquals(
+            HostStorageOutcome.Failure("Upload has failed. There is no suitable storage found at host.\n\nStorages found: \n/sdcard : read only\n"),
+            failed,
+        )
+
+        // Moonraker: the roots a file can be written to.
+        val roots = FakeHttpClient(
+            answer = Result.success("{}"),
+            info = """{"result": [{"name": "gcodes", "permissions": "rw"}, {"name": "config", "permissions": "r"}]}""",
+        )
+        assertEquals(HostStorageOutcome.Success(listOf("gcodes"), listOf("gcodes")), runSuspend { PrintHostUploader(roots).storage(printer("moonraker", "host", "")) })
     }
 
     @Test

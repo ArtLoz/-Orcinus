@@ -4,6 +4,7 @@ import app.orcinus.shadow.core.model.CloudLoginOutcome
 import app.orcinus.shadow.core.model.ElegooKind
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
+import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.ObicoHost
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
@@ -21,6 +22,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -74,8 +76,10 @@ class PrintHostUploader(
         if (printer.caFile.isNotEmpty() && printer.hostType in CA_FILE_HOSTS) http.withCaFile(printer.caFile) else http
 
     /**
-     * [printer] is where it goes, [gcode] what is sent, [name] the name the
-     * host stores it under, and [startPrint] whether printing starts at once.
+     * [printer] is where it goes, [gcode] what is sent, [name] the upload path
+     * of PrintHostSendDialog ("folder/plate.gcode"; each host takes its folder
+     * and its file name as Orca's does), and [startPrint] whether printing
+     * starts at once.
      */
     suspend fun upload(
         printer: PhysicalPrinter,
@@ -90,29 +94,31 @@ class PrintHostUploader(
         val type = printer.hostType ?: return PrintHostUploadOutcome.Failure("The printer has no host the app can send to")
         if (printer.host.isBlank()) return PrintHostUploadOutcome.Failure("The printer has no address")
         if (!gcode.isFile) return PrintHostUploadOutcome.Failure("The G-code file is gone")
+        // upload_path.filename(): the hosts that store the file by its name alone.
+        val fileName = fileNameOf(name)
         return when (type) {
             PrintHostType.OCTOPRINT -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
-            PrintHostType.MOONRAKER -> uploadToMoonraker(printer, gcode, name, startPrint, onProgress)
+            PrintHostType.MOONRAKER -> uploadToMoonraker(printer, gcode, fileName, startPrint, options.storage, onProgress)
             PrintHostType.CREALITY_PRINT -> uploadToCreality(printer, gcode, name, startPrint, options, onProgress)
-            PrintHostType.PRUSA_LINK -> uploadToPrusaLink(printer, gcode, name, startPrint, onProgress, connect = false)
-            PrintHostType.PRUSA_CONNECT -> uploadToPrusaLink(printer, gcode, name, startPrint, onProgress, connect = true)
+            PrintHostType.PRUSA_LINK -> uploadToPrusaLink(printer, gcode, name, startPrint, options.storage, onProgress, connect = false)
+            PrintHostType.PRUSA_CONNECT -> uploadToPrusaLink(printer, gcode, name, startPrint, options.storage, onProgress, connect = true)
             PrintHostType.MKS -> uploadToMks(printer, gcode, name, startPrint, onProgress)
             PrintHostType.DUET -> uploadToDuet(printer, gcode, name, startPrint, onProgress)
-            PrintHostType.REPETIER -> uploadToRepetier(printer, gcode, name, startPrint, onProgress)
+            PrintHostType.REPETIER -> uploadToRepetier(printer, gcode, fileName, startPrint, options.group, onProgress)
             // AstroBox took OctoPrint's API, and the same request works for it.
             PrintHostType.ASTROBOX -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
-            PrintHostType.ESP3D -> uploadToEsp3d(printer, gcode, name, startPrint, onProgress)
+            PrintHostType.ESP3D -> uploadToEsp3d(printer, gcode, fileName, startPrint, onProgress)
             PrintHostType.FLASHAIR -> uploadToFlashAir(printer, gcode, name, onProgress)
-            PrintHostType.FLASHFORGE -> flashforge.upload(printer, gcode, name, startPrint, options.flashforge)
+            PrintHostType.FLASHFORGE -> flashforge.upload(printer, gcode, fileName, startPrint, options.flashforge)
             // ElegooLink: OctoPrint's upload for a printer other than a Centauri.
             PrintHostType.ELEGOO_LINK -> if (printer.elegooKind == ElegooKind.OTHER) {
                 uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
             } else {
-                elegoo.upload(printer, gcode, name, startPrint && printer.canStartPrint, options.elegoo, onProgress)
+                elegoo.upload(printer, gcode, fileName, startPrint && printer.canStartPrint, options.elegoo, onProgress)
             }
             PrintHostType.OBICO -> uploadToObico(printer, gcode, name, startPrint, onProgress)
-            PrintHostType.SIMPLYPRINT -> simplyPrint.upload(gcode, name, onProgress)
-            PrintHostType.PRINTER_3D_OS -> printer3dOs.upload(printer, gcode, name, startPrint, options.printer3dOs, onProgress)
+            PrintHostType.SIMPLYPRINT -> simplyPrint.upload(gcode, fileName, onProgress)
+            PrintHostType.PRINTER_3D_OS -> printer3dOs.upload(printer, gcode, fileName, startPrint, options.printer3dOs, onProgress)
         }
     }
 
@@ -282,6 +288,91 @@ class PrintHostUploader(
     }
 
     /**
+     * Repetier::get_groups(): the model groups of the server's printer, "#"
+     * for its default group; none for another host or when the server does
+     * not answer.
+     */
+    suspend fun groups(printer: PhysicalPrinter): List<String> {
+        if (printer.hostType != PrintHostType.REPETIER) return emptyList()
+        val http = httpFor(printer)
+        val body = http.postFields(makeUrl(printer.host, "printer/api/" + printer.port), authHeaders(printer), mapOf("a" to "listModelGroups"))
+            .getOrElse { return emptyList() }
+        return runCatching {
+            Json.parseToJsonElement(body).jsonObject.getValue("groupNames").jsonArray.map { it.jsonPrimitive.content }
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * PrintHost::get_storage(): where the file can go. PrusaLink lists its
+     * storages (api/v1/storage) that are not read only and have free space,
+     * and fails the upload when it lists none (or cannot be reached at all);
+     * Moonraker lists its roots that can be written (server/files/roots). The
+     * other hosts have none.
+     */
+    suspend fun storage(printer: PhysicalPrinter): HostStorageOutcome = when (printer.hostType) {
+        PrintHostType.PRUSA_LINK, PrintHostType.PRUSA_CONNECT -> prusaLinkStorage(printer)
+        PrintHostType.MOONRAKER -> moonrakerRoots(printer)
+        else -> HostStorageOutcome.Success(emptyList(), emptyList())
+    }
+
+    private suspend fun prusaLinkStorage(printer: PhysicalPrinter): HostStorageOutcome {
+        val http = httpFor(printer)
+        val headers = authHeaders(printer) + ("Accept-Language" to Locale.getDefault().language.take(2))
+        val answer = http.get(makeUrl(printer.host, "api/v1/storage"), headers, auth = login(printer))
+        var errorMessage = ""
+        // A printer that answers with an error may not have the endpoint, which is no error;
+        // one that does not answer at all is.
+        var res = true
+        val storages = mutableListOf<PrusaLinkStorage>()
+        answer.fold(
+            onSuccess = { body ->
+                runCatching {
+                    val list = Json.parseToJsonElement(body).jsonObject["storage_list"]?.jsonArray ?: error("no storage_list")
+                    list.forEach { item ->
+                        val entry = item.jsonObject
+                        val path = entry["path"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                        if (entry["available"]?.jsonPrimitive?.booleanOrNull == false) return@forEach
+                        // PrusaLink 0.7.0RC2 keeps read_only under "ro".
+                        val readOnly = entry["read_only"]?.jsonPrimitive?.booleanOrNull ?: entry["ro"]?.jsonPrimitive?.booleanOrNull ?: false
+                        val space = entry["free_space"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 1L
+                        storages += PrusaLinkStorage(path, entry["name"]?.jsonPrimitive?.contentOrNull.orEmpty(), readOnly, space)
+                    }
+                }.onFailure { res = false }
+            },
+            onFailure = { error ->
+                errorMessage = "\n\n" + (error.message ?: NO_ANSWER)
+                res = error !is HttpStatusException
+            },
+        )
+        val usable = storages.filter { !it.readOnly && it.freeSpace > 0 }
+        if (res && usable.isEmpty()) {
+            if (storages.isNotEmpty()) {
+                errorMessage = "\n\nStorages found: \n" + storages.joinToString("") { (if (it.readOnly) "${it.path} : read only" else "${it.path} : no free space") + "\n" }
+            }
+            return HostStorageOutcome.Failure("Upload has failed. There is no suitable storage found at ${printer.host}.$errorMessage")
+        }
+        return HostStorageOutcome.Success(usable.map { it.path }, usable.map { it.name })
+    }
+
+    private data class PrusaLinkStorage(val path: String, val name: String, val readOnly: Boolean, val freeSpace: Long)
+
+    /** Moonraker::get_storage(): the roots whose permissions let a file in. */
+    private suspend fun moonrakerRoots(printer: PhysicalPrinter): HostStorageOutcome {
+        val http = httpFor(printer)
+        val body = http.get(makeUrl(printer.host, "server/files/roots"), authHeaders(printer))
+            .getOrElse { return HostStorageOutcome.Success(emptyList(), emptyList()) }
+        val roots = runCatching {
+            Json.parseToJsonElement(body).jsonObject["result"]?.jsonArray.orEmpty().mapNotNull { item ->
+                val entry = item.jsonObject
+                val root = entry["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val permissions = entry["permissions"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                root.takeIf { it.isNotEmpty() && 'w' in permissions }
+            }
+        }.getOrDefault(emptyList())
+        return HostStorageOutcome.Success(roots, roots)
+    }
+
+    /**
      * OctoPrint::test() and the hosts that took its API: api/version has to
      * carry an "api" field and a text that names the host.
      */
@@ -340,11 +431,11 @@ class PrintHostUploader(
         val model = runCatching { Json.parseToJsonElement(info).jsonObject["model"]?.jsonPrimitive?.contentOrNull }.getOrNull()
         val multiColor = model in MULTI_COLOR_MODELS
         // safe_filename(): the printer stores no spaces.
-        val stored = name.replace(' ', '_')
+        val stored = fileNameOf(name).replace(' ', '_')
         val upload = http.postMultipart(
             url = makeUrl(printer.host, "upload/" + urlEncoded(stored)),
             headers = headers,
-            fields = if (multiColor) emptyMap() else mapOf("path" to ""),
+            fields = if (multiColor) emptyMap() else mapOf("path" to parentOf(name)),
             fileField = "file",
             fileName = stored,
             file = gcode,
@@ -368,9 +459,10 @@ class PrintHostUploader(
         val response = http.postMultipart(
             url = makeUrl(printer.host, "api/files/local"),
             headers = authHeaders(printer),
-            fields = mapOf("print" to startPrint.toString(), "path" to ""),
+            // The folder of the upload path, and the file's name.
+            fields = mapOf("print" to startPrint.toString(), "path" to parentOf(name)),
             fileField = "file",
-            fileName = name,
+            fileName = fileNameOf(name),
             file = gcode,
             onProgress = onProgress,
         )
@@ -386,13 +478,15 @@ class PrintHostUploader(
         gcode: File,
         name: String,
         startPrint: Boolean,
+        /** The root the dialog chose; empty for "gcodes". */
+        storage: String,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
         val http = httpFor(printer)
         val upload = http.postMultipart(
             url = makeUrl(printer.host, "server/files/upload"),
             headers = authHeaders(printer),
-            fields = mapOf("root" to MOONRAKER_ROOT),
+            fields = mapOf("root" to storage.ifEmpty { MOONRAKER_ROOT }),
             fileField = "file",
             fileName = name,
             file = gcode,
@@ -424,6 +518,8 @@ class PrintHostUploader(
         gcode: File,
         name: String,
         startPrint: Boolean,
+        /** The storage the dialog chose; empty for "/local". */
+        storage: String,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
         connect: Boolean,
     ): PrintHostUploadOutcome {
@@ -433,25 +529,28 @@ class PrintHostUploader(
         val usePut = runCatching {
             Json.parseToJsonElement(version).jsonObject["capabilities"]?.jsonObject?.get("upload-by-put")?.jsonPrimitive?.content == "true"
         }.getOrDefault(false)
-        if (!usePut && connect) {
-            // post_inner() with PrusaConnect's own fields.
+        // upload_inner_with_host(): the storage the file goes into.
+        val files = (if (usePut) "api/v1/files" else "api/files") + storage.ifEmpty { "/local" }
+        if (!usePut) {
+            // post_inner() with set_http_post_header_args() of PrusaLink or of PrusaConnect.
             val response = http.postMultipart(
-                url = makeUrl(printer.host, "api/files/local"),
-                headers = authHeaders(printer) + ("Accept-Language" to Locale.getDefault().language.take(2)),
+                url = makeUrl(printer.host, files),
+                headers = authHeaders(printer) + if (connect) mapOf("Accept-Language" to Locale.getDefault().language.take(2)) else emptyMap(),
                 fields = buildMap {
-                    if (startPrint) put("to_print", "True")
-                    put("path", "")
+                    if (connect) {
+                        if (startPrint) put("to_print", "True")
+                    } else {
+                        put("print", startPrint.toString())
+                    }
+                    put("path", parentOf(name))
                 },
                 fileField = "file",
-                fileName = name,
+                fileName = fileNameOf(name),
                 file = gcode,
                 onProgress = onProgress,
                 auth = login(printer),
             )
             return response.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
-        }
-        if (!usePut) {
-            return uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
         }
         // put_inner(): the name is escaped into the url, and the headers say
         // what to do with the file.
@@ -463,7 +562,8 @@ class PrintHostUploader(
             if (startPrint) put("Print-After-Upload", "?1")
         }
         val answer = http.sendFile(
-            url = makeUrl(printer.host, "api/v1/files/local/" + urlEncoded(name)),
+            // put_inner(): every element of the path escaped on its own.
+            url = makeUrl(printer.host, files + "/" + escapePathByElement(name)),
             method = "PUT",
             headers = headers,
             file = gcode,
@@ -525,9 +625,9 @@ class PrintHostUploader(
         val answer = http.postMultipart(
             url = ObicoHost.url(printer.host, "api/v1/g_code_files/"),
             headers = obicoAuth(printer),
-            fields = linkedMapOf("print" to startPrint.toString(), "path" to "", "printer_id" to printer.port, "filename" to name),
+            fields = linkedMapOf("print" to startPrint.toString(), "path" to parentOf(name), "printer_id" to printer.port, "filename" to fileNameOf(name)),
             fileField = "file",
-            fileName = name,
+            fileName = fileNameOf(name),
             file = gcode,
             onProgress = onProgress,
         )
@@ -626,12 +726,15 @@ class PrintHostUploader(
         gcode: File,
         name: String,
         startPrint: Boolean,
+        /** The dialog's group; "#" (its "Default") and none send no group. */
+        group: String,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
         val http = httpFor(printer)
         val port = printer.port
         val path = if (startPrint) "printer/job/" + port else "printer/model/" + port
         val fields = buildMap {
+            if (group.isNotEmpty() && group != REPETIER_DEFAULT_GROUP) put("group", group)
             if (startPrint) {
                 put("name", name)
                 // See PrusaSlicer #7807: the server prints it only with this.
@@ -690,13 +793,14 @@ class PrintHostUploader(
     ): PrintHostUploadOutcome {
         http.get(makeUrl(printer.host, "upload.cgi?WRITEPROTECT=ON&FTIME=" + timestamp()), emptyMap())
             .getOrElse { return failure(it) }
-        http.get(makeUrl(printer.host, "upload.cgi?UPDIR=/"), emptyMap()).getOrElse { return failure(it) }
+        // The folder of the upload path, the card's root without one.
+        http.get(makeUrl(printer.host, "upload.cgi?UPDIR=" + parentOf(name).ifEmpty { "/" }), emptyMap()).getOrElse { return failure(it) }
         val answer = http.postMultipart(
             url = makeUrl(printer.host, "upload.cgi"),
             headers = emptyMap(),
             fields = emptyMap(),
             fileField = "file",
-            fileName = name,
+            fileName = fileNameOf(name),
             file = gcode,
             onProgress = onProgress,
         )
@@ -864,6 +968,22 @@ class PrintHostUploader(
 
         /** Http::url_encode(): the name as one segment of the path. */
         fun urlEncoded(name: String): String = URLEncoder.encode(name, Charsets.UTF_8).replace("+", "%20")
+
+        /** boost::filesystem::path::filename() of an upload path. */
+        fun fileNameOf(path: String): String = path.substringAfterLast('/')
+
+        /** boost::filesystem::path::parent_path(): "" without a folder, "/" for a file at the root. */
+        fun parentOf(path: String): String = when (val slash = path.lastIndexOf('/')) {
+            -1 -> ""
+            0 -> "/"
+            else -> path.substring(0, slash)
+        }
+
+        /** escape_path_by_element() of PrusaLink's PUT: every folder and the file escaped on its own. */
+        fun escapePathByElement(path: String): String = path.split('/').filter { it.isNotEmpty() }.joinToString("/") { urlEncoded(it) }
+
+        /** Repetier's name of a printer's default model group, which Orca shows as "Default". */
+        const val REPETIER_DEFAULT_GROUP = "#"
 
         /** The hosts whose requests take Http::ca_file(m_cafile); ElegooLink's other printers go through OctoPrint. */
         private val CA_FILE_HOSTS = setOf(
