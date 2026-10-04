@@ -18,6 +18,8 @@ fun PlateObject.volumeName(at: Int): String {
     val part = volumeAt(at) ?: return displayName()
     return when {
         at == 0 -> part.name.ifEmpty { displayName() }
+        // A volume of no shape that has no name of its own goes by its object's.
+        part.shape.isEmpty() -> part.name.ifEmpty { displayName() }
         else -> part.name.ifEmpty { stringResource(partName(part.type), stringResource(shapeName(part.shape))) }
     }
 }
