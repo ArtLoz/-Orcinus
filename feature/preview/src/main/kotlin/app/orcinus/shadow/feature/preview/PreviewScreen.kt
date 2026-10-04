@@ -100,6 +100,7 @@ import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateNavigator
+import app.orcinus.shadow.render.scene.PlateShells
 import app.orcinus.shadow.render.scene.PlateView
 import app.orcinus.shadow.render.scene.PlateViewOptions
 import app.orcinus.shadow.render.scene.rememberPlateViewCamera
@@ -170,6 +171,10 @@ internal class PrinterActions(
         )
     }
 }
+
+/** GCodeViewer::load_shells()' alpha, and GLCanvas3D::set_shell_transparence()'s once the G-code is loaded. */
+private const val SHELL_ALPHA = 0.5f
+private const val SHELL_ALPHA_GCODE = 0.2f
 
 /**
  * OrcaSlicer's Preview page. The canvas fills the window edge to edge with the
@@ -327,6 +332,9 @@ internal fun PreviewScreen(
                     contentDescription = stringResource(R.string.preview_view),
                     modifier = Modifier.fillMaxSize(),
                     layer = shown,
+                    // Preview::load_print_as_fff(): the shells, more see-through once the G-code shows.
+                    shells = PlateShells(state.shells, if (view != null) SHELL_ALPHA_GCODE else SHELL_ALPHA),
+                    filamentColors = state.filamentColors.mapNotNull(::parseFilamentColor),
                     // The toolpaths stand where the current plate does (GCodeProcessor::set_xy_offset).
                     plateOrigins = state.plateOrigins,
                     currentPlate = state.currentPlate,

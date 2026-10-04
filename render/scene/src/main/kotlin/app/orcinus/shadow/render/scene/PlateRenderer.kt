@@ -22,6 +22,9 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** What one frame shows from where: computed on the main thread from the camera. */
+/** GCodeViewer::render_shells()' emission_factor. */
+private const val SHELL_EMISSION = 0.1f
+
 internal class SceneFrame(
     val view: Affine3,
     val projection: FloatArray,
@@ -175,6 +178,11 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     /** The edges of the triangles of the meshes drawn as a wireframe, by mesh. */
     private val gpuWireframes = LinkedHashMap<String, GlVertexArray>()
     private var objects: List<SceneObject> = emptyList()
+    /** GCodeViewer::m_shells: their meshes on the GPU by key, as the objects' are. */
+    private val gpuShells = LinkedHashMap<String, Pair<MeshData, GlVertexArray>>()
+    private var shells: List<SceneObject> = emptyList()
+    private var pendingShells: List<SceneObject> = emptyList()
+    private var shellsChanged = false
     private var selectionBox: Triple<Box3, Boolean, GlVertexArray>? = null
     private var grabberCone: GlVertexArray? = null
     private var grabberCube: GlVertexArray? = null
@@ -240,6 +248,11 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         layerChanged = true
     }
 
+    fun setShells(shells: List<SceneObject>) = synchronized(lock) {
+        pendingShells = shells
+        shellsChanged = true
+    }
+
     /** Frees the layers once the GL thread has ended: the context and its objects went with it. */
     fun releaseLayers() = synchronized(lock) {
         layer?.release()
@@ -262,6 +275,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         gpuBed = null
         gpuObjects.clear()
         gpuWireframes.clear()
+        gpuShells.clear()
         selectionBox = null
         grabberCone = null
         grabberCube = null
@@ -283,6 +297,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         synchronized(lock) {
             bedChanged = true
             objectsChanged = true
+            shellsChanged = true
         }
         GLES30.glGetFloatv(GLES30.GL_ALIASED_LINE_WIDTH_RANGE, lineWidthRange, 0)
     }
@@ -517,7 +532,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         }
         if (frame.shadows) renderCastShadows(programs.flat, frame)
-        // GLCanvas3D::_render() for the preview: the G-code after the bed.
+        // GLCanvas3D::_render() for the preview: the G-code after the bed,
+        // GCodeViewer::render() drawing its shells before the toolpaths.
+        renderShells(programs.gouraudLight, frame)
         layer?.draw(frame.view.toFloatArray(), frame.projection)
         // GLCanvas3D::_render_objects(): "phong" in the realistic view with Phong shading, "gouraud" otherwise.
         renderObjects(if (frame.phong) programs.phong else programs.gouraud, frame)
@@ -541,7 +558,10 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private fun uploadChanges() {
         val bed: SceneBed?
         val newObjects: List<SceneObject>?
+        val newShells: List<SceneObject>?
         synchronized(lock) {
+            newShells = if (shellsChanged) pendingShells else null
+            shellsChanged = false
             bed = if (bedChanged) pendingBed else null
             val replaceBed = bedChanged
             bedChanged = false
@@ -576,6 +596,53 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             }
             objects = newObjects
         }
+        if (newShells != null) {
+            val keys = newShells.mapTo(HashSet()) { it.key }
+            gpuShells.keys.filter { it !in keys }.forEach { gpuShells.remove(it)?.second?.release() }
+            newShells.forEach { shell ->
+                val uploaded = gpuShells[shell.key]
+                if (uploaded?.first !== shell.mesh) {
+                    uploaded?.second?.release()
+                    gpuShells[shell.key] = shell.mesh to meshArray(shell.mesh)
+                }
+            }
+            shells = newShells
+        }
+    }
+
+    /**
+     * GCodeViewer::render_shells(): gouraud_light with emission 0.1, blended
+     * without writing the depth (GLVolumeCollection::render() of the
+     * transparent volumes, the farthest first), so the toolpaths drawn after
+     * them show through.
+     */
+    private fun renderShells(light: GlProgram, frame: SceneFrame) {
+        if (shells.isEmpty()) return
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDepthMask(false)
+        GLES30.glEnable(GLES30.GL_CULL_FACE)
+        GLES30.glCullFace(GLES30.GL_BACK)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        light.use()
+        light.setFloat("emission_factor", SHELL_EMISSION)
+        light.setMatrix4("projection_matrix", frame.projection)
+        // volumes_to_render(): by the top of their boxes in the camera's frame.
+        for (shell in shells.sortedBy { it.mesh.bounds.transformed(frame.view * it.world).max.z }) {
+            val mesh = gpuShells[shell.key]?.second ?: continue
+            light.setVec4("uniform_color", shell.color.red, shell.color.green, shell.color.blue, shell.color.alpha)
+            light.setMatrix4("view_model_matrix", (frame.view * shell.world).toFloatArray())
+            light.setMatrix3("view_normal_matrix", normalMatrix(frame.view, shell.world))
+            val leftHanded = shell.world.isLeftHanded
+            if (leftHanded) GLES30.glFrontFace(GLES30.GL_CW)
+            mesh.draw()
+            if (leftHanded) GLES30.glFrontFace(GLES30.GL_CCW)
+        }
+        light.setFloat("emission_factor", 0f)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        GLES30.glDepthMask(true)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
     }
 
     /** Bed3D::render_model(). */

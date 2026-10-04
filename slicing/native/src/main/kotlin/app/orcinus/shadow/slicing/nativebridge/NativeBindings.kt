@@ -546,6 +546,8 @@ internal class NativePlateValidation(
     @JvmField val clearanceFill: DoubleArray,
     @JvmField val heightFill: DoubleArray,
     @JvmField val sequence: IntArray,
+    @JvmField val printObjects: IntArray,
+    @JvmField val printZMin: DoubleArray,
 )
 
 internal class NativeThumbnailSizes(

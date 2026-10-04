@@ -583,7 +583,8 @@ data class PlateValidationMessage(
  * at the height a copy printed before the last may reach, as triangles
  * ([heightLimitFill]). [sequence] numbers every copy of the plate in its print
  * order, object by object, -1 for one not printed, while the plate prints by
- * object or in the object list's order; empty otherwise.
+ * object or in the object list's order; empty otherwise. [printObjects] are
+ * the objects the print holds, which the preview draws as its shells.
  */
 data class PlateValidation(
     val error: PlateValidationMessage? = null,
@@ -592,5 +593,13 @@ data class PlateValidation(
     val clearanceFill: List<Point2> = emptyList(),
     val heightLimitFill: List<Vector3> = emptyList(),
     val sequence: List<Int> = emptyList(),
+    val printObjects: List<PrintedObject> = emptyList(),
 )
+
+/**
+ * An object the print holds (PrintObject), by its index among the objects
+ * validated, and the height it stands at above the plate
+ * (SlicingParameters::object_print_z_min), which a raft raises.
+ */
+data class PrintedObject(val objectIndex: Int, val printZMin: Double)
 

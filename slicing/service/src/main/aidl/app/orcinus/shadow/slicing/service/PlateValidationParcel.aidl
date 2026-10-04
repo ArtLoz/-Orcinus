@@ -19,4 +19,7 @@ parcelable PlateValidationParcel {
     /** The height limits as triangles, x, y and z of every corner. */
     @nullable double[] heightFill;
     @nullable int[] sequence;
+    /** The objects the print holds, by their index on the plate, and the height each stands at. */
+    @nullable int[] printObjects;
+    @nullable double[] printZMin;
 }

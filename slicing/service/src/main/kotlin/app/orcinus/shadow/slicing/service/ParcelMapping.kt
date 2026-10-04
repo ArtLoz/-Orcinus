@@ -41,6 +41,7 @@ import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PlateCircle
+import app.orcinus.shadow.core.model.PrintedObject
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.SvgPreviewOutcome
@@ -1336,6 +1337,8 @@ internal fun PlateValidation.toParcel() = PlateValidationParcel().also { parcel 
     parcel.clearanceFill = clearanceFill.flatMap { listOf(it.x, it.y) }.toDoubleArray()
     parcel.heightFill = heightLimitFill.flatMap { listOf(it.x, it.y, it.z) }.toDoubleArray()
     parcel.sequence = sequence.toIntArray()
+    parcel.printObjects = printObjects.map(PrintedObject::objectIndex).toIntArray()
+    parcel.printZMin = printObjects.map(PrintedObject::printZMin).toDoubleArray()
 }
 
 internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
@@ -1355,6 +1358,7 @@ internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
         clearanceFill = (clearanceFill ?: DoubleArray(0)).let { fill -> List(fill.size / 2) { Point2(fill[it * 2], fill[it * 2 + 1]) } },
         heightLimitFill = (heightFill ?: DoubleArray(0)).let { fill -> List(fill.size / 3) { Vector3(fill[it * 3], fill[it * 3 + 1], fill[it * 3 + 2]) } },
         sequence = (sequence ?: IntArray(0)).toList(),
+        printObjects = (printObjects ?: IntArray(0)).mapIndexed { at, index -> PrintedObject(index, printZMin?.getOrNull(at) ?: 0.0) },
     )
 }
 

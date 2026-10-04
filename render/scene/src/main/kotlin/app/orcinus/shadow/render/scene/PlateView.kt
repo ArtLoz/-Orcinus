@@ -196,6 +196,8 @@ fun PlateView(
     clearance: PlateClearance? = null,
     /** The height range the object list edits (Selection::render_sidebar_layers_hints()); null for none. */
     layerRangeHint: LayerRangeHint? = null,
+    /** The preview's shells (GCodeViewer::load_shells()); null for none. */
+    shells: PlateShells? = null,
     /**
      * The variable layer height while it is on: the object it edits is drawn
      * in the colours of its layers, and the bar the page placed with
@@ -338,6 +340,16 @@ fun PlateView(
 
         val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
         val meshes = remember { MeshCache() }
+        val shellMeshes = remember { MeshCache() }
+        LaunchedEffect(shells, color, filamentColors, smoothNormals) {
+            val loaded = withContext(Dispatchers.IO) {
+                shellMeshes.smoothNormals = smoothNormals
+                val objects = shells?.objects.orEmpty().map { it.first }
+                shellMeshes.retain(objects.flatMapTo(HashSet()) { listOf(it.mesh.value) + it.parts.map { part -> part.mesh.value } })
+                shells?.let { runCatching { ShellLoader.load(it, filamentColors, color, shellMeshes) }.getOrNull() }.orEmpty()
+            }
+            controller.setShells(loaded)
+        }
         // The tower stands on the current plate, where wipe_tower_x and wipe_tower_y of the plate put it.
         val towerOrigin = plateOrigins.getOrElse(currentPlate) { Point2(0.0, 0.0) }
         LaunchedEffect(wipeTower, filamentColors, builtWipeTower, towerOrigin, smoothNormals, inAssembly) {
@@ -1249,6 +1261,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 currentPlateBox()?.let { camera.selectPlateView(it.center()) }
             }
         }
+        invalidate()
+    }
+
+    fun setShells(shells: List<SceneObject>) {
+        renderer.setShells(shells)
         invalidate()
     }
 

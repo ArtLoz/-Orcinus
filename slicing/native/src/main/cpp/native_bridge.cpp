@@ -2785,7 +2785,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_validatePlate(
     const jmethodID constructor = env->GetMethodID(
         result_class,
         "<init>",
-        "(ZLjava/lang/String;IILjava/lang/String;Ljava/lang/String;IILjava/lang/String;[I[D[D[D[I)V"
+        "(ZLjava/lang/String;IILjava/lang/String;Ljava/lang/String;IILjava/lang/String;[I[D[D[D[I[I[D)V"
     );
     return env->NewObject(
         result_class,
@@ -2803,7 +2803,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_validatePlate(
         to_java(env, result.clearance.data(), result.clearance.size()),
         to_java(env, result.clearance_fill.data(), result.clearance_fill.size()),
         to_java(env, result.height_fill.data(), result.height_fill.size()),
-        ints(result.sequence)
+        ints(result.sequence),
+        ints(result.print_objects),
+        to_java(env, result.print_z_min.data(), result.print_z_min.size())
     );
 }
 

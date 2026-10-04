@@ -38,6 +38,7 @@ import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PlateCircle
+import app.orcinus.shadow.core.model.PrintedObject
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgFileEdit
@@ -2310,6 +2311,7 @@ class NativeSlicerEngine(context: Context) :
                 Vector3(result.heightFill[it * 3], result.heightFill[it * 3 + 1], result.heightFill[it * 3 + 2])
             },
             sequence = result.sequence.toList(),
+            printObjects = result.printObjects.indices.map { PrintedObject(result.printObjects[it], result.printZMin[it]) },
         )
     }
 

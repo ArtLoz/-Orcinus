@@ -11,6 +11,7 @@ import app.orcinus.shadow.core.model.ElegooOptions
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PlateDescription
+import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.Point2
@@ -66,6 +67,8 @@ data class PreviewUiState(
     val allPlates: AllPlatesStats? = null,
     /** "Slice all" can start, which the all plates stats item does. */
     val canSliceAll: Boolean = false,
+    /** GCodeViewer::load_shells(): the objects the print holds, each with the height its raft lifts it to. */
+    val shells: List<Pair<PlateObject, Double>> = emptyList(),
 ) {
     /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
     val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
@@ -192,4 +195,5 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     plateNames = plates.map(PartPlate::name),
     allPlates = allPlatesStats(),
     canSliceAll = canSliceAll,
+    shells = validation?.printObjects.orEmpty().mapNotNull { printed -> objects.getOrNull(printed.objectIndex)?.let { it to printed.printZMin } },
 )

@@ -779,6 +779,11 @@ struct PlateValidation {
     // One number per copy of the plate, object by object, -1 for a copy that
     // is not printed; empty when the plate prints otherwise.
     std::vector<std::int32_t> sequence;
+    // GCodeViewer::load_shells(): the objects the print holds (Print::objects()),
+    // by their index on the plate, and the height each stands at above the
+    // plate (SlicingParameters::object_print_z_min, which a raft raises).
+    std::vector<std::int32_t> print_objects;
+    std::vector<double> print_z_min;
 };
 
 PlateValidation validate_plate(

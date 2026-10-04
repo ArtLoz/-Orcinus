@@ -1869,6 +1869,13 @@ PlateValidation validate_plate(
         print.is_BBL_printer() = engine().bundle->is_bbl_vendor();
         print.apply(model, config);
         result.read = true;
+        for (const Slic3r::PrintObject* print_object : print.objects()) {
+            const auto found = objects.find(print_object->model_object()->id().id);
+            if (found != objects.end()) {
+                result.print_objects.push_back(found->second);
+                result.print_z_min.push_back(print_object->slicing_parameters().object_print_z_min);
+            }
+        }
         // background_process.empty(): a plate with nothing to print is not validated.
         if (print.empty()) {
             return result;

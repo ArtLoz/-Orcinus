@@ -2005,6 +2005,18 @@ TEST_CASE("The plate is validated after a change as the desktop app's background
     REQUIRE(by_layer.read);
     CHECK(by_layer.error.text.empty());
     CHECK(by_layer.sequence.empty());
+    // GCodeViewer::load_shells(): both objects are in the print, on the plate.
+    CHECK(by_layer.print_objects == std::vector<std::int32_t>{0, 1});
+    REQUIRE(by_layer.print_z_min.size() == 2);
+    CHECK(by_layer.print_z_min[0] == Catch::Approx(0.0));
+    // A raft lifts its object (SlicingParameters::object_print_z_min).
+    plate.front().settings.keys = {"raft_layers"};
+    plate.front().settings.values = {"3"};
+    const orca::PlateValidation raft = orca::validate_plate(plate, k2_plus_profiles(), {});
+    REQUIRE(raft.print_z_min.size() == 2);
+    CHECK(raft.print_z_min[0] > 0.4);
+    CHECK(raft.print_z_min[1] == Catch::Approx(0.0));
+    plate.front().settings = {};
 
     // By object: Print::validate() numbers the copies in the object list's order.
     orca::ModelSettings by_object;
