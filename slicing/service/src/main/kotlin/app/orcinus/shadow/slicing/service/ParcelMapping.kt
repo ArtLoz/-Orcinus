@@ -9,6 +9,7 @@ import app.orcinus.shadow.core.model.BrimEarsOutcome
 import app.orcinus.shadow.core.model.BrimEarsSetup
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.BuildVolumeShape
 import app.orcinus.shadow.core.model.BuiltInModel
 import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
@@ -39,6 +40,7 @@ import app.orcinus.shadow.core.model.MeasureSelection
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.PlateCircle
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.SvgPreviewOutcome
@@ -800,6 +802,8 @@ internal fun PlateDescriptionOutcome.toParcel() = PlateDescriptionParcel().also 
             it.bedModel = geometry.bedModel?.value
             it.bedTexture = geometry.bedTexture?.value
             it.filamentColor = floatArrayOf(filamentColor.red, filamentColor.green, filamentColor.blue, filamentColor.alpha)
+            it.buildVolumeShape = geometry.buildVolumeShape.name
+            it.circle = geometry.circle?.let { circle -> doubleArrayOf(circle.center.x, circle.center.y, circle.radius) }
         }
     }
 }
@@ -818,6 +822,8 @@ internal fun PlateDescriptionParcel.toPlateDescriptionOutcome(): PlateDescriptio
                 boldGridLines = boldGridLines.toPoints(),
                 bedModel = bedModel?.let(::ScenePath),
                 bedTexture = bedTexture?.let(::ScenePath),
+                buildVolumeShape = buildVolumeShape?.let(BuildVolumeShape::valueOf) ?: BuildVolumeShape.RECTANGLE,
+                circle = circle?.let { PlateCircle(Point2(it[0], it[1]), it[2]) },
             ),
             filamentColor = ColorRgba(color[0], color[1], color[2], color[3]),
         ),

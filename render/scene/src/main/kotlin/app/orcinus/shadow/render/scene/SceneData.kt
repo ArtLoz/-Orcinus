@@ -3,9 +3,11 @@ package app.orcinus.shadow.render.scene
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.BuildVolumeShape
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.PaintedMesh
+import app.orcinus.shadow.core.model.PlateCircle
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
@@ -71,6 +73,9 @@ internal class SceneBed(
     val texture: TextureImage?,
     /** Printable area with the printable height: BuildVolume::bounding_volume(). */
     val buildVolume: Box3,
+    /** BuildVolume::type(), and the circle of a circular bed. */
+    val shape: BuildVolumeShape = BuildVolumeShape.RECTANGLE,
+    val circle: PlateCircle? = null,
 ) {
     /** Bed3D::update_model_offset(): the model's origin at the plate centre, below the texture. */
     val modelOffset = Vec3(buildVolume.center().x, buildVolume.center().y, BED_MODEL_Z.toDouble())
@@ -414,6 +419,8 @@ internal object SceneLoader {
             texture = geometry.bedTexture?.let { decodeTexture(File(it.value)) },
             buildVolume = Box3.of(geometry.printableArea.map { Vec3(it.x, it.y, 0.0) })
                 .let { Box3(it.min, Vec3(it.max.x, it.max.y, geometry.printableHeight)) },
+            shape = geometry.buildVolumeShape,
+            circle = geometry.circle,
         )
     }
 

@@ -2060,6 +2060,15 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
             result.printable_area.push_back(point.y());
         }
 
+        // Bed3D::build_volume(): the shape the 3D view darkens objects outside and casts shadows inside.
+        const Slic3r::BuildVolume build_volume(shape, result.printable_height, {}, {});
+        result.build_volume_type = static_cast<int>(build_volume.type());
+        if (build_volume.type() == Slic3r::BuildVolume_Type::Circle) {
+            result.circle_center_x = Slic3r::unscaled<double>(build_volume.circle().center.x());
+            result.circle_center_y = Slic3r::unscaled<double>(build_volume.circle().center.y());
+            result.circle_radius = Slic3r::unscaled<double>(build_volume.circle().radius);
+        }
+
         Slic3r::ExPolygon print_polygon;
         for (const Slic3r::Vec2d& point : shape) {
             print_polygon.contour.append({scale_(point(0)), scale_(point(1))});

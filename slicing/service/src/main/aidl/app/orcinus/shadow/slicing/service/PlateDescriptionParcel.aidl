@@ -13,4 +13,7 @@ parcelable PlateDescriptionParcel {
     @nullable String bedTexture;
     /** Red, green, blue, alpha. */
     @nullable float[] filamentColor;
+    /** BuildVolumeShape name, and the circle of a circular bed: x, y, radius. */
+    @nullable String buildVolumeShape;
+    @nullable double[] circle;
 }

@@ -289,7 +289,17 @@ data class PlateGeometry(
     val bedModel: ScenePath?,
     /** RGBA PNG of the bed texture; null when it has none. */
     val bedTexture: ScenePath?,
+    /** BuildVolume::type() of the printable area. */
+    val buildVolumeShape: BuildVolumeShape = BuildVolumeShape.RECTANGLE,
+    /** BuildVolume::circle() of a circular one; null for another shape. */
+    val circle: PlateCircle? = null,
 )
+
+/** BuildVolume_Type, in its order: the shape of the printable area. */
+enum class BuildVolumeShape { RECTANGLE, CIRCLE, CONVEX, CUSTOM }
+
+/** The circle of a circular bed, in millimetres on the first plate. */
+data class PlateCircle(val center: Point2, val radius: Double)
 
 data class PlateDescription(
     val geometry: PlateGeometry,

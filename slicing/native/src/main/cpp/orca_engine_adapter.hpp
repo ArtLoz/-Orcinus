@@ -456,6 +456,13 @@ struct PlateDescription {
     std::string bed_texture;
     // Colour of the first filament, "#RRGGBB" as in its profile.
     std::string filament_colour;
+    // BuildVolume::type() of the printable area (BuildVolume_Type): 0 a
+    // rectangle, 1 a circle, 2 a convex and 3 any other shape; and
+    // BuildVolume::circle() of a circular one, its centre and radius.
+    int build_volume_type{0};
+    double circle_center_x{0.0};
+    double circle_center_y{0.0};
+    double circle_radius{0.0};
 };
 
 PlateDescription describe_plate(const ProfileSelection& profiles, const std::string& output_dir);

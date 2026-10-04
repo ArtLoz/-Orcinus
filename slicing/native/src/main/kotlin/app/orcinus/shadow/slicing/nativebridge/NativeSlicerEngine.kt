@@ -13,6 +13,7 @@ import app.orcinus.shadow.core.model.BrimEarsOutcome
 import app.orcinus.shadow.core.model.BrimEarsSetup
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.BuildVolumeShape
 import app.orcinus.shadow.core.model.CalibrationMode
 import app.orcinus.shadow.core.model.CalibrationParams
 import app.orcinus.shadow.core.model.CalibrationPrinter
@@ -36,6 +37,7 @@ import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.PaintPlacement
+import app.orcinus.shadow.core.model.PlateCircle
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgFileEdit
@@ -304,6 +306,9 @@ class NativeSlicerEngine(context: Context) :
                     boldGridLines = plate.boldGridLines.toPoints(),
                     bedModel = plate.bedModelMesh.ifBlank { null }?.let(::ScenePath),
                     bedTexture = plate.bedTexture.ifBlank { null }?.let(::ScenePath),
+                    buildVolumeShape = BuildVolumeShape.entries.getOrElse(plate.buildVolumeType) { BuildVolumeShape.CUSTOM },
+                    circle = plate.circle.takeIf { plate.buildVolumeType == BuildVolumeShape.CIRCLE.ordinal }
+                        ?.let { PlateCircle(Point2(it[0], it[1]), it[2]) },
                 ),
                 filamentColor = decodeColor(plate.filamentColour),
             ),

@@ -4,6 +4,7 @@ import android.content.res.AssetManager
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import androidx.compose.ui.geometry.Rect
+import app.orcinus.shadow.core.model.BuildVolumeShape
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.render.scene.gl.GlDepthTarget
 import app.orcinus.shadow.render.scene.gl.GlOffscreenFrame
@@ -14,8 +15,11 @@ import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Vec3
 import javax.microedition.khronos.egl.EGLConfig
+import kotlin.math.PI
 import kotlin.math.abs
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.cos
+import kotlin.math.sin
 
 /** What one frame shows from where: computed on the main thread from the camera. */
 internal class SceneFrame(
@@ -178,7 +182,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     /** The cut gizmo's connector shapes, by mesh file. */
     private val gizmoMeshes = HashMap<String, Pair<MeshData, GlVertexArray>>()
     /** The build volume of the current plate while the objects are drawn. */
-    private var printVolume: Box3? = null
+    private var printVolume: PrintVolume? = null
     /** PartPlateList::m_idx_textures, made as the plates need them. */
     private val labelTextures = HashMap<Int, GlTexture>()
     private val lineWidthRange = FloatArray(2)
@@ -213,7 +217,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     /** SequentialPrintClearance's models: the perimeter, the fill and the height limits of the clearance they were made of. */
     private var clearanceArrays: Pair<SceneClearance, List<GlVertexArray>>? = null
     /** GLCanvas3D::m_plate_shadow_mask, with the build volume it was made for (m_plate_shadow_mask_key). */
-    private var shadowMask: Pair<Box3, GlVertexArray>? = null
+    private var shadowMask: Pair<PrintVolume, GlVertexArray>? = null
     /** LayersEditing::m_layers_texture and m_z_texture_id, with what it was generated from. */
     private var layerTexture: LayerHeightTexture? = null
     private var layerTextureId = 0
@@ -418,21 +422,48 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
      * SSAO pass mark in the stencil (m_plate_shadow_mask, made again for
      * another build volume as its key tells).
      */
+    /**
+     * _render_cast_shadows_on_plate()'s mask of the plate: the build volume's
+     * rectangle, or its circle as a fan of 64 triangles; no mask, and so no
+     * shadow, for another shape.
+     */
     private fun plateMask(): GlVertexArray? {
-        val bed = gpuBed ?: return null
-        val origin = plates.currentOrigin
-        val plate = Box3(bed.scene.buildVolume.min + origin, bed.scene.buildVolume.max + origin)
-        shadowMask?.takeIf { it.first == plate }?.let { return it.second }
+        val volume = currentPrintVolume() ?: return null
+        shadowMask?.takeIf { it.first == volume }?.let { return it.second }
         shadowMask?.second?.release()
-        val x0 = plate.min.x.toFloat()
-        val y0 = plate.min.y.toFloat()
-        val x1 = plate.max.x.toFloat()
-        val y1 = plate.max.y.toFloat()
-        return GlVertexArray(
-            GlVertexArray.floatBuffer(floatArrayOf(x0, y0, 0f, x1, y0, 0f, x1, y1, 0f, x0, y0, 0f, x1, y1, 0f, x0, y1, 0f)),
-            listOf(GlProgram.POSITION to 3),
-            GLES30.GL_TRIANGLES,
-        ).also { shadowMask = plate to it }
+        shadowMask = null
+        val triangles = volume.maskTriangles() ?: return null
+        return GlVertexArray(GlVertexArray.floatBuffer(triangles), listOf(GlProgram.POSITION to 3), GLES30.GL_TRIANGLES)
+            .also { shadowMask = volume to it }
+    }
+
+    /**
+     * GLCanvas3D::_render_objects()' print volume of the current plate: its
+     * rectangle grown by BuildVolume::SceneEpsilon, its circle, or no bounds
+     * for another shape.
+     */
+    private fun currentPrintVolume(): PrintVolume? {
+        val scene = gpuBed?.scene ?: return null
+        val origin = plates.currentOrigin
+        val circle = scene.circle
+        return when {
+            scene.shape == BuildVolumeShape.RECTANGLE -> PrintVolume(
+                0,
+                listOf(
+                    (scene.buildVolume.min.x + origin.x - SCENE_EPSILON).toFloat(),
+                    (scene.buildVolume.min.y + origin.y - SCENE_EPSILON).toFloat(),
+                    (scene.buildVolume.max.x + origin.x + SCENE_EPSILON).toFloat(),
+                    (scene.buildVolume.max.y + origin.y + SCENE_EPSILON).toFloat(),
+                ),
+                listOf(0f, scene.buildVolume.max.z.toFloat()),
+            )
+            scene.shape == BuildVolumeShape.CIRCLE && circle != null -> PrintVolume(
+                1,
+                listOf((circle.center.x + origin.x).toFloat(), (circle.center.y + origin.y).toFloat(), (circle.radius + SCENE_EPSILON).toFloat(), 0f),
+                listOf(0f, (scene.buildVolume.max.z + SCENE_EPSILON).toFloat()),
+            )
+            else -> PrintVolume(scene.shape.ordinal, listOf(-Float.MAX_VALUE, -Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE), listOf(-Float.MAX_VALUE, Float.MAX_VALUE))
+        }
     }
 
     /** GLCanvas3D::_render_fxaa_pass(): the frame drawn over the view through the fxaa shader. */
@@ -813,11 +844,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         }
         program.setBoolean("is_outline", false)
         program.setBoolean("slope.actived", false)
-        printVolume = bed?.let { scene ->
-            // The current plate's rectangular build volume, grown by BuildVolume::SceneEpsilon.
-            val origin = plates.currentOrigin
-            Box3(scene.buildVolume.min + origin, scene.buildVolume.max + origin)
-        }
+        printVolume = currentPrintVolume()
         // GLCanvas3D::_render_objects() with the variable layer height on:
         // the model parts of its object are drawn by render_volumes().
         val layerEditing = frame.layerEditing
@@ -1015,15 +1042,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         // boundary is darkened outside it; the others are drawn as they are.
         val volume = printVolume?.takeIf { sceneObject.partlyInside }
         if (volume != null) {
-            program.setInt("print_volume.type", 0)
-            program.setVec4(
-                "print_volume.xy_data",
-                (volume.min.x - SCENE_EPSILON).toFloat(),
-                (volume.min.y - SCENE_EPSILON).toFloat(),
-                (volume.max.x + SCENE_EPSILON).toFloat(),
-                (volume.max.y + SCENE_EPSILON).toFloat(),
-            )
-            program.setVec2("print_volume.z_data", 0f, volume.max.z.toFloat())
+            program.setInt("print_volume.type", volume.type)
+            program.setVec4("print_volume.xy_data", volume.xyData[0], volume.xyData[1], volume.xyData[2], volume.xyData[3])
+            program.setVec2("print_volume.z_data", volume.zData[0], volume.zData[1])
         } else {
             program.setInt("print_volume.type", -1)
         }
@@ -1461,4 +1482,47 @@ internal fun normalMatrix(view: Affine3, world: Affine3): FloatArray {
         }
     }
     return result
+}
+
+/**
+ * GLVolumeCollection::PrintVolume: the shader's print_volume, BuildVolume_Type
+ * with its xy_data (a rectangle's corners, or a circle's centre and radius)
+ * and z_data (the heights).
+ */
+internal data class PrintVolume(val type: Int, val xyData: List<Float>, val zData: List<Float>) {
+    /** The plate's mask of _render_cast_shadows_on_plate(), GL_TRIANGLES corners; null for no mask. */
+    fun maskTriangles(): FloatArray? = when (type) {
+        0 -> {
+            // The bounding volume without the epsilon the shader adds.
+            val x0 = xyData[0] + EPSILON
+            val y0 = xyData[1] + EPSILON
+            val x1 = xyData[2] - EPSILON
+            val y1 = xyData[3] - EPSILON
+            floatArrayOf(x0, y0, 0f, x1, y0, 0f, x1, y1, 0f, x0, y0, 0f, x1, y1, 0f, x0, y1, 0f)
+        }
+        1 -> {
+            val cx = xyData[0]
+            val cy = xyData[1]
+            val r = xyData[2] - EPSILON
+            FloatArray(SEGMENTS * 9).also { out ->
+                for (i in 0 until SEGMENTS) {
+                    val a1 = 2.0 * PI * i / SEGMENTS
+                    val a2 = 2.0 * PI * ((i + 1) % SEGMENTS) / SEGMENTS
+                    val base = i * 9
+                    out[base] = cx
+                    out[base + 1] = cy
+                    out[base + 3] = cx + r * cos(a1).toFloat()
+                    out[base + 4] = cy + r * sin(a1).toFloat()
+                    out[base + 6] = cx + r * cos(a2).toFloat()
+                    out[base + 7] = cy + r * sin(a2).toFloat()
+                }
+            }
+        }
+        else -> null
+    }
+
+    private companion object {
+        const val SEGMENTS = 64
+        const val EPSILON = 1e-4f
+    }
 }

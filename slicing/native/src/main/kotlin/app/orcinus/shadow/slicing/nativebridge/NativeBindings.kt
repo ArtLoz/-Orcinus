@@ -50,6 +50,9 @@ internal class NativePlateDescription(
     @JvmField val bedModelMesh: String,
     @JvmField val bedTexture: String,
     @JvmField val filamentColour: String,
+    /** BuildVolume_Type, and the circle of a circular bed: x, y, radius. */
+    @JvmField val buildVolumeType: Int,
+    @JvmField val circle: DoubleArray,
 )
 
 /** Constructed by the native bridge; see WipeTowerState in orca_engine_adapter.hpp. */
