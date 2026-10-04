@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,6 +21,8 @@ import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
+import app.orcinus.shadow.core.designsystem.component.OrcaProgressNotification
+import app.orcinus.shadow.core.ui.orca.OrcaHintsFile
 import app.orcinus.shadow.core.ui.orca.orcaString
 import kotlinx.coroutines.delay
 
@@ -30,7 +33,7 @@ import kotlinx.coroutines.delay
  * slice that finished before the canvas showed is not announced again.
  */
 @Composable
-fun SliceCompletedNotification(completions: Int) {
+fun SliceCompletedNotification(completions: Int, tips: (@Composable () -> Unit)? = null) {
     var announced by remember { mutableIntStateOf(completions) }
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(completions) {
@@ -46,7 +49,36 @@ fun SliceCompletedNotification(completions: Int) {
             Image(painterResource(DesignR.drawable.orca_notification_slicing_complete), contentDescription = null, modifier = Modifier.size(24.dp))
             Row(Modifier.padding(start = 6.dp)) { OrcaNotificationText(orcaString("Slice ok."), emphasized = true) }
         }
+        // The daily tips stay under the completed state.
+        tips?.invoke()
     }
+}
+
+/**
+ * SlicingProgressNotification while a slice runs: its status and progress
+ * with Cancel, and DailyTipsPanel under them ([showHints], show_hints, and
+ * its keeping). Every slice that begins draws another hint.
+ */
+@Composable
+fun SlicingNotification(
+    job: Any,
+    title: String,
+    detail: String?,
+    progress: Float,
+    cancelLabel: String,
+    onCancel: () -> Unit,
+    showHints: Boolean,
+    onShowHints: (Boolean) -> Unit,
+) {
+    LaunchedEffect(job) { OrcaHintsFile.loaded?.size?.let(DailyTips::random) }
+    OrcaProgressNotification(
+        title = title,
+        detail = detail,
+        progress = progress,
+        cancelLabel = cancelLabel,
+        onCancel = onCancel,
+        below = { DailyTipsPanel(showHints, onShowHints, Modifier.widthIn(max = 280.dp)) },
+    )
 }
 
 /**

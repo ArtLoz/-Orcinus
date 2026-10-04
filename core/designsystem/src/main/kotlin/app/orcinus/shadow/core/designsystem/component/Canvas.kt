@@ -272,6 +272,8 @@ fun OrcaProgressNotification(
     cancelLabel: String,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    /** What the notification holds under a separator line, such as SlicingProgressNotification's daily tips. */
+    below: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val colors = OrcaTheme.colors
     OrcaNotification(modifier) {
@@ -296,5 +298,15 @@ fun OrcaProgressNotification(
                 .width(240.dp),
         )
         detail?.let { Text(it, color = colors.textSide, style = OrcaTheme.typography.body12) }
+        below?.let { content ->
+            Box(
+                Modifier
+                    .padding(vertical = 6.dp)
+                    .width(240.dp)
+                    .height(1.dp)
+                    .background(colors.canvasPanelSeparator),
+            )
+            content()
+        }
     }
 }

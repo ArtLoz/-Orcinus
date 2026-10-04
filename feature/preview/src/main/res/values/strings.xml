@@ -25,6 +25,7 @@
     <!-- IMSlider's menu of a layer, which the desktop app opens with a right click on the handle. -->
     <string name="layer_codes">Layer commands</string>
     <string name="slicing_progress">Slicing: %1$d%%</string>
+    <string name="slicing_cancelling">Canceling…</string>
     <string name="layer_codes_outdated">The layer commands changed. Slice the plate again to put them into the G-code.</string>
 
     <!-- The legend's summary in the collapsed sheet. -->

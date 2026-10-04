@@ -90,10 +90,12 @@ import app.orcinus.shadow.core.ui.filamentLength
 import app.orcinus.shadow.core.ui.network.rememberLocalNetworkAccess
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
+import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
+import app.orcinus.shadow.core.ui.plate.SlicingNotification
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
@@ -151,6 +153,7 @@ internal fun PreviewRoute(
             openDevice = onOpenDevice,
         ),
         gcodeName = viewModel::gcodeName,
+        onCancelSlicing = viewModel::cancelSlicing,
         onExportGcode = viewModel::exportGcode,
         exportedName = viewModel::exportedName,
         onShareGcode = viewModel::shareGcode,
@@ -217,6 +220,8 @@ internal fun PreviewScreen(
     printers: PrinterActions = PrinterActions.NONE,
     /** Export G-code: the name the file is offered under, and the save itself. */
     gcodeName: () -> String = { "plate.gcode" },
+    /** SlicingProgressNotification's Cancel. */
+    onCancelSlicing: () -> Unit = {},
     onExportGcode: suspend (ExternalDocumentReference) -> Boolean = { false },
     /** The name the exported document goes by, for its notification. */
     exportedName: suspend (ExternalDocumentReference) -> String = { "" },
@@ -442,7 +447,29 @@ internal fun PreviewScreen(
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                     .padding(start = 64.dp, end = 64.dp, top = 56.dp),
             ) {
-                SliceCompletedNotification(state.slicesCompleted)
+                val showHints = canvas.showHints
+                val keepHints = { on: Boolean -> onSetCanvas(AppConfigKeys.SHOW_HINTS, on.toString()) }
+                // The slicing progress Orca shows on the preview's canvas once Slice moved there.
+                val progress = state.slicingProgress
+                val job = state.slicingJob
+                if (progress != null && job != null) {
+                    SlicingNotification(
+                        job = job,
+                        title = if (state.slicingCancelling) {
+                            stringResource(R.string.slicing_cancelling)
+                        } else {
+                            stringResource(R.string.slicing_progress, (progress * 100).roundToInt())
+                        },
+                        detail = state.slicingDetail,
+                        progress = progress,
+                        cancelLabel = orcaString("Cancel"),
+                        onCancel = onCancelSlicing,
+                        showHints = showHints,
+                        onShowHints = keepHints,
+                    )
+                } else {
+                    SliceCompletedNotification(state.slicesCompleted) { DailyTipsPanel(showHints, keepHints) }
+                }
                 exported?.let { name -> ExportFinishedNotification(name, onClose = { exported = null }) }
             }
             // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), once there are several.

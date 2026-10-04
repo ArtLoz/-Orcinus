@@ -67,6 +67,8 @@ class AppPreferences(private val store: AppConfigStore) {
             // CloneDialog compares with "true" alone.
             autoArrange = values[AppConfigKeys.AUTO_ARRANGE] == "true",
             imperialUnits = AppConfigKeys.imperialUnits(values[AppConfigKeys.USE_INCHES]),
+            // DailyTipsPanel compares with "true" alone.
+            showHints = values[AppConfigKeys.SHOW_HINTS] == "true",
             freeCamera = AppConfigKeys.bool(values[AppConfigKeys.USE_FREE_CAMERA]),
             // GLCanvas3D::on_mouse_wheel() compares with "true" alone.
             zoomToMouse = values[AppConfigKeys.ZOOM_TO_MOUSE] == "true",

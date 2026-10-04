@@ -156,6 +156,8 @@ val orcaIconNames = listOf(
     "step_1", "step_2", "step_2_ready", "step_is_ok", "create_success",
     // SlicingProgressNotification's complete icon and the notifications' close button.
     "notification_slicing_complete", "notification_close",
+    // DailyTipsPanel's arrows.
+    "notification_collapse", "notification_expand", "notification_arrow_left", "notification_arrow_right",
 )
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).

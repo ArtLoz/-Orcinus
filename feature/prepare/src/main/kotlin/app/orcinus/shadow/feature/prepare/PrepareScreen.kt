@@ -157,6 +157,7 @@ import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.CloneDialog
+import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.MenuFilament
 import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
 import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
@@ -171,6 +172,7 @@ import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
+import app.orcinus.shadow.core.ui.plate.SlicingNotification
 import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
@@ -1263,7 +1265,13 @@ internal fun PrepareScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         // GLCanvas3D::_render() renders no notifications over the assembly view.
-                        if (state.assemblyView == null) Notifications(state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onRepairObject, onJumpTo)
+                        if (state.assemblyView == null) {
+                            Notifications(
+                                state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onRepairObject, onJumpTo,
+                                showHints = canvas.showHints,
+                                onShowHints = { onSetCanvas(AppConfigKeys.SHOW_HINTS, it.toString()) },
+                            )
+                        }
                         // In a wide window the slice button sits in the tab bar, as on desktop.
                         if (layout == OrcaWindowLayout.Compact) {
                             SliceButton(mode = state.sliceMode, enabled = state.sliceEnabled, onSlice = onSlice, onModeChange = onSliceModeChange)
@@ -1512,6 +1520,9 @@ private fun Notifications(
     onDismissProblem: () -> Unit,
     onRepairObject: () -> Unit,
     onJumpTo: (ValidationNotice) -> Unit,
+    /** show_hints: whether the daily tips under the slicing progress are expanded, and its keeping. */
+    showHints: Boolean = false,
+    onShowHints: (Boolean) -> Unit = {},
 ) {
     // Plater::priv::process_validation_warning() and push_validate_error_notification().
     state.validationWarning?.let { ValidationNotification(it, OrcaNotificationLevel.Warning, orcaString("WARNING:"), onJumpTo) }
@@ -1543,7 +1554,8 @@ private fun Notifications(
     val slicing = state.slicing
     if (slicing != null) {
         val fraction = slicing.progress?.fraction ?: 0f
-        OrcaProgressNotification(
+        SlicingNotification(
+            job = slicing.jobId,
             title = if (slicing.cancelling) {
                 stringResource(R.string.slicing_cancelling)
             } else {
@@ -1553,9 +1565,11 @@ private fun Notifications(
             progress = fraction,
             cancelLabel = stringResource(R.string.cancel),
             onCancel = onCancelSlicing,
+            showHints = showHints,
+            onShowHints = onShowHints,
         )
     } else {
-        SliceCompletedNotification(state.slicesCompleted)
+        SliceCompletedNotification(state.slicesCompleted) { DailyTipsPanel(showHints, onShowHints) }
         state.objectInfo?.let { ObjectInfoNotification(it, imperial, onRepairObject) }
     }
 }

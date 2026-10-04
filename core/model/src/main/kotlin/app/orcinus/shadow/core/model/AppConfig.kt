@@ -47,6 +47,8 @@ data class CanvasPreferences(
     val labels: Boolean = false,
     /** opengl_realistic_mode: the canvas's "Realistic View". */
     val realistic: Boolean = false,
+    /** show_hints: DailyTipsPanel is expanded. */
+    val showHints: Boolean = false,
     /** opengl_realistic_phong: the realistic view shades the objects with Phong's model. */
     val phong: Boolean = true,
     /** opengl_phong_ssao: the realistic view darkens the frame's hollows (screen-space ambient occlusion). */
@@ -110,6 +112,9 @@ object AppConfigKeys {
     const val SHOW_PLATE_GRIDLINES = "show_plate_gridlines"
     const val SHOW_GCODE_WINDOW = "show_gcode_window"
 
+    /** DailyTipsPanel's expanded state (AppConfig::set_defaults(): false). */
+    const val SHOW_HINTS = "show_hints"
+
     /** PrintHostSendDialog's "Switch to Device tab after upload.", which the send dialog keeps. */
     const val OPEN_DEVICE_TAB_POST_UPLOAD = "open_device_tab_post_upload"
     const val USE_FREE_CAMERA = "use_free_camera"
@@ -149,6 +154,7 @@ object AppConfigKeys {
     val ALL = listOf(
         USE_INCHES,
         OPEN_DEVICE_TAB_POST_UPLOAD,
+        SHOW_HINTS,
         NO_WARN_WHEN_MODIFIED_GCODES,
         DRC_BITS,
         EXPORT_SOURCES_FULL_PATHNAMES,

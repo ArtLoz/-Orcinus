@@ -22,10 +22,12 @@ import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
+import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.domain.plate.AllPlatesStats
+import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
@@ -60,6 +62,10 @@ data class PreviewUiState(
     val filamentColors: List<String> = emptyList(),
     /** How far the slice that is running has got, from 0 to 1; null when nothing is being sliced. */
     val slicingProgress: Float? = null,
+    /** The slice that runs, its status text, and whether it is being cancelled (SlicingProgressNotification). */
+    val slicingJob: SliceJobId? = null,
+    val slicingDetail: String? = null,
+    val slicingCancelling: Boolean = false,
     /** PlateState.slicesCompleted, which "Slice ok." follows. */
     val slicesCompleted: Int = 0,
     /** Where every plate stands (PartPlateList), and the one whose G-code the preview shows. */
@@ -95,6 +101,8 @@ class PreviewViewModel(
     private val setPreference: SetPreferenceUseCase,
     /** The send dialogs' choices OrcaSlicer.conf keeps in "recent". */
     private val recentSendChoices: RecentSendChoicesUseCase? = null,
+    /** SlicingProgressNotification's Cancel on the preview's canvas. */
+    private val cancelPlateSlicing: CancelPlateSlicingUseCase? = null,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -164,6 +172,10 @@ class PreviewViewModel(
 
     fun keepSwitchToDeviceTab(on: Boolean) = setPreference(AppConfigKeys.OPEN_DEVICE_TAB_POST_UPLOAD, if (on) "1" else "0")
 
+    fun cancelSlicing() {
+        cancelPlateSlicing?.invoke()
+    }
+
     /** The choices a send dialog opens with (init()). */
     suspend fun recentSendChoices(keys: List<String>): Map<String, String> = recentSendChoices?.get(keys).orEmpty()
 
@@ -220,6 +232,9 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     layerGcodes = layerGcodes,
     filamentColors = presets?.filamentColors.orEmpty(),
     slicingProgress = slicing?.let { it.progress?.fraction ?: 0f },
+    slicingJob = slicing?.jobId,
+    slicingDetail = slicing?.progress?.detail,
+    slicingCancelling = slicing?.cancelling == true,
     slicesCompleted = slicesCompleted,
     plateOrigins = plateOrigins(),
     currentPlate = currentPlate,

@@ -99,10 +99,33 @@ val prepareOrcaWebTexts = tasks.register<PrepareOrcaWebTexts>("prepareOrcaWebTex
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaWebTexts"))
 }
 
+/** The hints of DailyTipsPanel, data/hints.ini, as the asset orca/data/hints.ini (OrcaHints.kt). */
+abstract class PrepareOrcaHints : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val hints: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val root = outputDirectory.get().asFile
+        root.deleteRecursively()
+        hints.get().asFile.copyTo(root.resolve("orca/data/hints.ini"))
+    }
+}
+
+val prepareOrcaHints = tasks.register<PrepareOrcaHints>("prepareOrcaHints") {
+    hints.set(rootProject.layout.projectDirectory.file("upstream/OrcaSlicer/resources/data/hints.ini"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/orcaHints"))
+}
+
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(prepareOrcaCatalogues, PrepareOrcaCatalogues::outputDirectory)
         variant.sources.assets?.addGeneratedSourceDirectory(prepareOrcaWebTexts, PrepareOrcaWebTexts::outputDirectory)
+        variant.sources.assets?.addGeneratedSourceDirectory(prepareOrcaHints, PrepareOrcaHints::outputDirectory)
     }
 }
 
