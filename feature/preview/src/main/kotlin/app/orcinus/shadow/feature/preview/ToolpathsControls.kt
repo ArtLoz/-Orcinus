@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,6 +37,9 @@ import java.util.Locale
 
 private val MovePlayerHeight = 52.dp
 private val ControlsMargin = 12.dp
+
+/** The room the page's sidebar button and the 3D navigator's top keep above the position's properties. */
+private val DetailsTop = 64.dp
 
 /** The desktop slider's colour of a code that is no filament change (IMSlider::draw_ticks). */
 private val CodeMarkColor = Color(255, 111, 0)
@@ -158,8 +163,10 @@ internal fun ToolpathsControls(
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(start = ControlsMargin, end = ControlsMargin, bottom = windowsBottom + windowSpace),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    // Below the sidebar's button, scrolling when it is taller than the room left.
+                    .padding(start = ControlsMargin, end = ControlsMargin, top = DetailsTop, bottom = windowsBottom + windowSpace)
+                    .verticalScroll(rememberScrollState(), reverseScrolling = true),
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
                 content = positionDetails,
             )
         }
