@@ -122,20 +122,40 @@ fun OrcaRadioButton(
     }
 }
 
-/** OrcaSlicer's toggle switch (Widgets/SwitchButton): grey track, accent thumb when on. */
+/**
+ * OrcaSlicer's toggle switch (Widgets/SwitchButton): grey track, accent thumb
+ * when on. A [mixed] switch stands for values that differ, as the half-checked
+ * check box (CheckBox::SetHalfChecked()) does: the thumb in the middle, and a
+ * tap switches it on.
+ */
 @Composable
 fun OrcaSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    mixed: Boolean = false,
 ) {
     val colors = OrcaTheme.colors
-    val thumbOffset by animateDpAsState(if (checked) 18.dp else 2.dp, label = "thumb")
+    val on = checked && !mixed
+    val thumbOffset by animateDpAsState(
+        when {
+            mixed -> 10.dp
+            on -> 18.dp
+            else -> 2.dp
+        },
+        label = "thumb",
+    )
     Box(
         modifier = modifier
             .minimumInteractiveComponentSize()
-            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange),
+            .then(
+                if (mixed) {
+                    Modifier.triStateToggleable(ToggleableState.Indeterminate, enabled = enabled, role = Role.Switch) { onCheckedChange(true) }
+                } else {
+                    Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -143,7 +163,7 @@ fun OrcaSwitch(
                 .width(36.dp)
                 .height(20.dp)
                 .clip(CircleShape)
-                .background(if (checked && enabled) colors.accent.copy(alpha = 0.35f) else colors.switchTrack),
+                .background(if (on && enabled) colors.accent.copy(alpha = 0.35f) else colors.switchTrack),
         ) {
             Box(
                 Modifier
@@ -153,7 +173,7 @@ fun OrcaSwitch(
                     .background(
                         when {
                             !enabled -> colors.textDisabledOnBox
-                            checked -> colors.accent
+                            on -> colors.accent
                             else -> colors.switchThumb
                         },
                     ),

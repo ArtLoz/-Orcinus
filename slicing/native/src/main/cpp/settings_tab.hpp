@@ -270,6 +270,9 @@ public:
     virtual void toggle_options() = 0;
     virtual void reload_config();
     virtual void on_value_change(const std::string& opt_key, const boost::any& value);
+    // A field the tab shows no value for (TabPrintModel's m_null_keys): any
+    // text is a change, as Field::value_was_changed() compares with nothing.
+    virtual bool shows_no_value(const std::string& /*opt_id*/) const { return false; }
     virtual void on_preset_loaded() {}
     // TabPrinter::apply_extruder_cnt_from_cache(): the extruders a preset
     // change moved to the selected printer.

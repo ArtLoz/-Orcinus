@@ -441,6 +441,11 @@ void TabPrintModel::on_value_change(const std::string& opt_id, const boost::any&
     TabPrint::on_value_change(opt_id, value);
 }
 
+bool TabPrintModel::shows_no_value(const std::string& opt_id) const
+{
+    return std::find(m_null_keys.begin(), m_null_keys.end(), opt_id) != m_null_keys.end();
+}
+
 void TabPrintModel::reload_config()
 {
     TabPrint::reload_config();

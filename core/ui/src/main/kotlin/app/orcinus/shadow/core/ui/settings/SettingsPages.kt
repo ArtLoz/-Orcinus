@@ -291,10 +291,12 @@ private fun SettingField(
         return
     }
     when (kind) {
+        // TabPrintModel: a value the selected objects disagree on is half checked.
         SettingFieldKind.CHECK_BOX -> OrcaSwitch(
             checked = state.value == "1",
             onCheckedChange = { onCommit(if (it) "1" else "0") },
             enabled = enabled,
+            mixed = state.mixed,
         )
         SettingFieldKind.CHOICE -> ChoiceField(view.choices(definition, state), state.value, enabled, onCommit)
         SettingFieldKind.OPEN_CHOICE -> CommitTextField(

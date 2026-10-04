@@ -507,7 +507,7 @@ void Tab::change_field(const std::string& opt_id, const std::string& text)
             }
             const auto entry = group->opt_map().find(opt_id);
             const int index = entry == group->opt_map().end() ? -1 : entry->second.second;
-            const boost::any value = field_value(option->second.opt, opt_id, *m_config, index, text, m_dialogs);
+            const boost::any value = field_value(option->second.opt, opt_id, *m_config, index, text, m_dialogs, !shows_no_value(opt_id));
             if (!value.empty()) {
                 group->on_change_OG(opt_id, value);
             }

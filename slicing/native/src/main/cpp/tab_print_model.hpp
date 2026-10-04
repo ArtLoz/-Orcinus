@@ -17,6 +17,8 @@ namespace orcinus::orca::detail {
 // for. A change writes the new value into every one of them.
 class TabPrintModel : public TabPrint {
 public:
+    // The selected objects disagree on the setting, whose field shows no value.
+    bool shows_no_value(const std::string& opt_id) const override;
     TabPrintModel(Slic3r::Preset::Type type, std::vector<std::string> keys, Slic3r::PresetBundle& bundle, Slic3r::AppConfig& app_config,
                   TabState& state, SettingsDialogs& dialogs);
 

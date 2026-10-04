@@ -1072,6 +1072,19 @@ TEST_CASE("The settings of an object and of the plate override the process prese
         // The walls they agreed on stay as they were.
         CHECK(overridden(changed.model_settings[0], "wall_loops") == "5");
         CHECK(overridden(changed.model_settings[1], "wall_loops") == "5");
+
+        // A check box they disagree on holds apply_null_fff_config()'s "on"
+        // behind the field that shows nothing: checking it is still a change.
+        orca::ModelSettingsRequest supports;
+        orca::ModelSettings supported;
+        supported.keys = {"enable_support"};
+        supported.values = {"1"};
+        supports.settings = {supported, orca::ModelSettings{}};
+        const orca::PresetSettings checked = orca::change_setting(object, frequent, "enable_support", "1", {}, supports);
+        INFO(checked.message);
+        REQUIRE(checked.status == orca::SceneStatus::success);
+        REQUIRE(checked.model_settings.size() == 2);
+        CHECK(overridden(checked.model_settings[1], "enable_support") == "1");
     }
 
     SECTION("the plate tab holds the settings of the plate, starting from the project's bed type")
