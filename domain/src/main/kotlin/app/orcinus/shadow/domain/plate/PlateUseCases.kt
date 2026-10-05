@@ -676,53 +676,62 @@ class AddModelToPlateUseCase(
         }
     }
 
+    /** Open Project: Plater::load_project() of the file the user picked. */
+    fun openProject(reference: ExternalDocumentReference) = loadProject(reference)
+
     /**
-     * Open Project (Plater::load_project with the file the user picked): the
-     * document opens as a project once the project before let it
-     * (close_with_confirm), whatever the plate holds.
+     * MainFrame::open_recent_project(): Plater::load_project() of a file of the
+     * home page's list, a 3MF file or a model file, which the list holds with
+     * "Add STL/STEP files to recent files list".
      */
-    fun openProject(reference: ExternalDocumentReference) {
+    fun openRecent(reference: ExternalDocumentReference) = loadProject(reference)
+
+    private fun loadProject(reference: ExternalDocumentReference) {
         if (!start()) return
         applicationScope.launch {
             when (val imported = importModel(reference)) {
                 is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
                 is ModelImportOutcome.Success ->
-                    openProject(imported.model.path, ImportBatch(document = reference, displayName = imported.model.displayName))
+                    loadProject(imported.model.path, ImportBatch(document = reference, displayName = imported.model.displayName))
             }
         }
     }
 
     /**
-     * MainFrame::open_recent_project(): Plater::load_project() of a file of the
-     * home page's list. A 3MF file opens as Open Project opens it. A model
-     * file, which the list holds with "Add STL/STEP files to recent files
-     * list", takes the plate's place once the project before let it:
-     * load_project() resets the plate (Plater::priv::reset(), which takes away
-     * the presets the project before brought) and loads the file, and the
-     * project then goes by the file's name.
+     * Plater::load_project(): once the project before let it go
+     * (close_with_confirm), determine_load_type() of the Preferences' "Load
+     * behaviour" decides how the file loads: as geometry only, as the user
+     * chooses in ProjectDropDialog ([openAs]), or otherwise as a project, with
+     * "Ask When Relevant" too. Either way it takes the plate's place
+     * ([replacePlate]) and the project goes by the file's name.
      */
-    fun openRecent(reference: ExternalDocumentReference) {
-        if (!start()) return
-        applicationScope.launch {
-            when (val imported = importModel(reference)) {
-                is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
-                is ModelImportOutcome.Success -> {
-                    val path = imported.model.path
-                    val picked = ImportBatch(document = reference, displayName = imported.model.displayName)
-                    when {
-                        path.value.endsWith(".3mf", ignoreCase = true) -> openProject(path, picked)
-                        !confirmClose.confirm(newProject = false) -> repository.update { it.copy(importing = false) }
-                        else -> {
-                            val before = repository.state.value.profiles
-                            val presets = presetManager.resetProjectPresets()
-                            (presets as? PresetsOutcome.Success)?.let { reset -> repository.update { it.copy(presets = reset.presets) } }
-                            platePresets.apply(before, presets)
-                            load(ImportFiles(path), picked.copy(load = ModelLoad.PROJECT), emptyMap(), emptyList())
-                        }
-                    }
-                }
-            }
+    private suspend fun loadProject(path: ModelPath, picked: ImportBatch) {
+        if (!confirmClose.confirm(newProject = false)) {
+            repository.update { it.copy(importing = false) }
+            return
         }
+        val batch = picked.copy(loadProject = true)
+        when (preferences[AppConfigKeys.PROJECT_LOAD_BEHAVIOUR]) {
+            AppConfigKeys.LOAD_GEOMETRY_ONLY -> replacePlate(path, batch.copy(load = ModelLoad.GEOMETRY))
+            AppConfigKeys.ALWAYS_ASK -> repository.update { it.copy(projectDrop = path, projectDropBatch = batch) }
+            else -> replacePlate(path, batch.copy(load = ModelLoad.PROJECT))
+        }
+    }
+
+    /**
+     * load_project()'s reset() and load_files(): the plate is emptied
+     * (Plater::priv::reset(), which takes away the presets the project before
+     * brought) and the file loads. A 3MF file that opens as a project takes
+     * those presets away itself as it brings its own.
+     */
+    private suspend fun replacePlate(path: ModelPath, batch: ImportBatch) {
+        if (batch.load != ModelLoad.PROJECT || !path.value.endsWith(".3mf", ignoreCase = true)) {
+            val before = repository.state.value.profiles
+            val presets = presetManager.resetProjectPresets()
+            (presets as? PresetsOutcome.Success)?.let { reset -> repository.update { it.copy(presets = reset.presets) } }
+            platePresets.apply(before, presets)
+        }
+        load(ImportFiles(path), batch, emptyMap(), emptyList())
     }
 
     /**
@@ -761,6 +770,8 @@ class AddModelToPlateUseCase(
     /**
      * ProjectDropDialog's choice for the 3MF file that waits; null cancels its
      * load, and the other files of the batch load still, as add_file() goes on.
+     * The file load_project() asked about takes the plate's place either way,
+     * the project before having let it go already.
      */
     fun openAs(load: ModelLoad?) {
         var source: ModelPath? = null
@@ -780,10 +791,10 @@ class AddModelToPlateUseCase(
             return
         }
         applicationScope.launch {
-            if (load == ModelLoad.PROJECT) {
-                openProject(path, picked, chosen = true)
-            } else {
-                load(ImportFiles(path), picked.copy(load = load, chosen = true), emptyMap(), emptyList())
+            when {
+                picked.loadProject -> replacePlate(path, picked.copy(load = load, chosen = true))
+                load == ModelLoad.PROJECT -> openProject(path, picked, chosen = true)
+                else -> load(ImportFiles(path), picked.copy(load = load, chosen = true), emptyMap(), emptyList())
             }
         }
     }
@@ -843,7 +854,7 @@ class AddModelToPlateUseCase(
         val profiles = state.profiles ?: return finish(ModelLoadOutcome.Failure("No printer is set up"))
         val prefix = sceneFiles.newImportPrefix()
         // Plater::load_project() resets the plate before the project loads.
-        val plate = if (batch.load == ModelLoad.PROJECT) emptyList() else state.objects.map { it.placed() }
+        val plate = if (batch.load == ModelLoad.PROJECT || batch.loadProject) emptyList() else state.objects.map { it.placed() }
         val outcome = try {
             inspector.load(files.files, profiles, plate, prefix, answers, batch.load, batch.chosen, batch.stepMeshes, files.askMulti, batch.objColors)
         } catch (cancellation: CancellationException) {
@@ -941,6 +952,8 @@ class AddModelToPlateUseCase(
                             // Plater::priv::reset()
                             projectResets = state.projectResets + 1,
                             result = null,
+                            // ParamsPanel::switch_to_object_if_has_object_configs()
+                            settingsScope = if (informed.hasObjectConfigs(added)) SettingsScope.OBJECT else state.settingsScope,
                         ).let { loaded ->
                             loaded.copy(
                                 project = loaded.projectBaseline().copy(
@@ -953,13 +966,14 @@ class AddModelToPlateUseCase(
                                 },
                             )
                         }
-                    } else if (batch.load == ModelLoad.PROJECT) {
+                    } else if (batch.load == ModelLoad.PROJECT || batch.loadProject) {
                         // Plater::load_project() of a file that brings no project, such
-                        // as a model file of the recent files: the reset plate holds the
-                        // file's objects alone (Plater::priv::reset()), Undo starts
-                        // afresh, and the project goes by the file's name. Orca saves
-                        // the project of a model file beside it as a 3MF file; the
-                        // document of a model takes no project, so Save asks for one.
+                        // as a model file of the recent files or a 3MF file as geometry
+                        // only: the reset plate holds the file's objects alone
+                        // (Plater::priv::reset()), Undo starts afresh, and the project
+                        // goes by the file's name. Orca saves the project of a model
+                        // file beside it as a 3MF file; the document of a model takes
+                        // no project, so Save asks for one.
                         val settings = state.projectConfigSettings()
                         val document = batch.document?.takeIf { batch.displayName?.endsWith(".3mf", ignoreCase = true) == true }
                         informed.copy(
@@ -1027,7 +1041,7 @@ class AddModelToPlateUseCase(
         // set_project_filename() of a project that opened adds it to the recent files
         // (add_to_recent_projects()), as add_file() adds its models that loaded.
         if (outcome is ModelLoadOutcome.Success && outcome.objects.isNotEmpty()) {
-            if (batch.load == ModelLoad.PROJECT) {
+            if (batch.load == ModelLoad.PROJECT || batch.loadProject) {
                 batch.document?.let { recentProjects?.add(listOf(it)) }
             } else {
                 files?.recentModels?.let { recentProjects?.add(it) }
@@ -1055,7 +1069,26 @@ class AddModelToPlateUseCase(
         load = ModelLoad.GEOMETRY,
         chosen = false,
         displayName = null,
+        loadProject = false,
     )
+
+    /**
+     * ParamsPanel::notify_object_config_changed(): an object of [objects] or a
+     * volume of one overrides settings that fall into a category
+     * (SettingsFactory::get_bundle()); with one filament the "Extruders" and
+     * "Wipe options" ones do not count (is_improper_category()).
+     */
+    private fun PlateState.hasObjectConfigs(objects: List<PlateObject>): Boolean {
+        val definitions = settingsTabs[PresetKind.PRINT]?.tab?.definitions.orEmpty()
+        val oneFilament = (presets?.selection?.allFilaments?.size ?: 1) == 1
+        fun ModelSettings.counts() = values.keys.any { key ->
+            val category = definitions[key]?.category.orEmpty()
+            category.isNotEmpty() && !(oneFilament && (category == "Extruders" || category == "Wipe options"))
+        }
+        return objects.any { plateObject ->
+            plateObject.settings.counts() || plateObject.volume.settings.counts() || plateObject.parts.any { it.settings.counts() }
+        }
+    }
 
     /**
      * The handy model Orca String Hell has text embossed on its top: with

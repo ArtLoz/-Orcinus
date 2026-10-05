@@ -62,11 +62,22 @@ import kotlinx.coroutines.delay
 
 /** A message box OrcaSlicer showed while it applied a change: OK dismisses it. */
 @Composable
-fun SettingsNoticeDialog(dialog: SettingsDialog, onDismiss: () -> Unit) {
+fun SettingsNoticeDialog(dialog: SettingsDialog, onDismiss: () -> Unit) =
+    SettingsNoticeDialog(dialog, onDismissChecked = { onDismiss() })
+
+/**
+ * A message box with MsgDialog::show_dsa_button()'s check box under it when it
+ * has one ([SettingsDialog.checkbox]): however it is dismissed, the box's
+ * state comes along.
+ */
+@Composable
+fun SettingsNoticeDialog(dialog: SettingsDialog, onDismissChecked: (checked: Boolean) -> Unit) {
+    var checked by rememberSaveable(dialog) { mutableStateOf(dialog.checked) }
     SettingsAlert(
         dialog = dialog,
-        onDismissRequest = onDismiss,
-        confirm = { OrcaButton(orcaString("OK"), onClick = onDismiss) },
+        onDismissRequest = { onDismissChecked(checked) },
+        confirm = { OrcaButton(orcaString("OK"), onClick = { onDismissChecked(checked) }) },
+        below = dialog.checkbox?.let { label -> { DialogCheckBox(label, checked) { checked = it } } },
     )
 }
 
@@ -93,20 +104,22 @@ fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswerChecked: (yes: Boolea
         dismiss = {
             OrcaButton(dialog.no?.let { orcaText(it) } ?: orcaString("No"), onClick = { onAnswerChecked(false, checked) }, style = OrcaButtonStyle.Regular)
         },
-        below = dialog.checkbox?.let { label ->
-            {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(top = 12.dp)
-                        .toggleable(value = checked, role = Role.Checkbox, onValueChange = { checked = it }),
-                ) {
-                    OrcaCheckBox(checked = checked, onCheckedChange = null)
-                    Text(orcaText(label), style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 8.dp))
-                }
-            }
-        },
+        below = dialog.checkbox?.let { label -> { DialogCheckBox(label, checked) { checked = it } } },
     )
+}
+
+/** The check box under a message box, with its label. */
+@Composable
+private fun DialogCheckBox(label: OrcaText, checked: Boolean, onChecked: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(top = 12.dp)
+            .toggleable(value = checked, role = Role.Checkbox, onValueChange = onChecked),
+    ) {
+        OrcaCheckBox(checked = checked, onCheckedChange = null)
+        Text(orcaText(label), style = OrcaTheme.typography.body14, modifier = Modifier.padding(start = 8.dp))
+    }
 }
 
 @Composable

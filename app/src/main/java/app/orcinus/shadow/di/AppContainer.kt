@@ -592,7 +592,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         applicationScope,
         objColorPrompt,
     )
-    val dismissPlateNotice = DismissPlateNoticeUseCase(plateRepository)
+    val dismissPlateNotice = DismissPlateNoticeUseCase(plateRepository, appPreferences, applicationScope)
     private val dismissPlateProblem = DismissPlateProblemUseCase(plateRepository)
 
     val appInfo = AppInfo(

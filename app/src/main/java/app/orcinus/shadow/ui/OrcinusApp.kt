@@ -147,7 +147,8 @@ class AppShellViewModel(
     /** OrcaSlicer's message boxes while it changes the plate: a load or the object menu. */
     fun answer(yes: Boolean, checked: Boolean) = answerPlateQuestion(yes, checked)
 
-    fun dismissNotice() = dismissPlateNotice()
+    /** OK of the message box, with its "Don't show again" when it has one. */
+    fun dismissNotice(checked: Boolean) = dismissPlateNotice(checked)
 
     /** ProjectDropDialog's choice for the 3MF file that waits; null cancels. */
     fun openProjectAs(load: ModelLoad?) = addModelToPlate.openAs(load)
@@ -317,7 +318,7 @@ private fun Workspace(
         shell.reloadPick(uri?.let { ExternalDocumentReference(it.toString()) })
     }
     when {
-        notice != null -> SettingsNoticeDialog(notice, onDismiss = shell::dismissNotice)
+        notice != null -> SettingsNoticeDialog(notice, onDismissChecked = shell::dismissNotice)
         question != null -> SettingsQuestionDialog(question, onAnswerChecked = shell::answer)
         stepMesh != null -> StepMeshDialog(stepMesh, countTriangles = shell::stepTriangleCount, onAnswer = shell::answerStepMesh)
         objColor != null -> ObjColorDialog(

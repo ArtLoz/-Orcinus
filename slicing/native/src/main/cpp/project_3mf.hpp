@@ -36,6 +36,9 @@ struct Archive3mf {
     std::size_t filament_count{0};
     // Model::plates_custom_gcodes of the file.
     std::map<int, Slic3r::CustomGCode::Info> custom_gcodes;
+    // A project of BambuStudio or OrcaSlicer older than 1.5.9 with plates,
+    // which laid them out wider (load_files()'s translate_old).
+    bool translate_old{false};
 };
 
 // Reads the 3MF file at path, as a project when project is set, and shows what

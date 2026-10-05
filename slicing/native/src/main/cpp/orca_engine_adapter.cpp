@@ -534,6 +534,52 @@ int plate_of(const Slic3r::ModelObject& object, const std::size_t instance, cons
     return -1;
 }
 
+// load_files()'s translate_old: a project older than 1.5.9 laid count plates
+// out as wide and deep as the plates were then, each a whole millimetre more
+// (reset_size(current_width + Bed3D::Axes::DefaultTipRadius, ...)), so the
+// copies of every plate but the first move to where their plate stands now
+// (PartPlate::translate_all_instance() by compute_origin_using_new_size() less
+// the old origin). A copy belongs to the first plate of the old layout it
+// crosses (reload_all_objects()). The sizes are those of config, the printer
+// selected before the load (get_plate_size()).
+void translate_old_plates(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const int count)
+{
+    constexpr double logical_part_plate_gap = 1. / 5.;
+    // Bed3D::Axes::DefaultTipRadius
+    constexpr float default_tip_radius = 2.5f * 0.5f;
+    const PlateLayout layout = plate_layout_of(config);
+    const int old_width = static_cast<int>(layout.width + default_tip_radius);
+    const int old_depth = static_cast<int>(layout.depth + default_tip_radius);
+    const int columns = plate_columns(count);
+    const auto origin = [columns](const int index, const double stride_x, const double stride_y) {
+        return Slic3r::Vec2d((index % columns) * stride_x, -(index / columns) * stride_y);
+    };
+    const Slic3r::BoundingBoxf area(config.option<Slic3r::ConfigOptionPoints>("printable_area")->values);
+    const double eps = Slic3r::BuildVolume::SceneEpsilon;
+    const double height = config.opt_float("printable_height");
+    for (Slic3r::ModelObject* object : model.objects) {
+        for (std::size_t instance = 0; instance < object->instances.size(); ++instance) {
+            const Slic3r::BoundingBoxf3 box = object->instance_convex_hull_bounding_box(instance);
+            for (int plate = 0; plate < count; ++plate) {
+                const Slic3r::Vec2d old_origin =
+                    origin(plate, old_width * (1. + logical_part_plate_gap), old_depth * (1. + logical_part_plate_gap));
+                const Slic3r::BoundingBoxf3 old_box(
+                    Slic3r::Vec3d(area.min.x() + old_origin.x() - eps, area.min.y() + old_origin.y() - eps, -eps),
+                    Slic3r::Vec3d(area.max.x() + old_origin.x() + eps, area.max.y() + old_origin.y() + eps, height + eps));
+                if (!old_box.intersects(box)) {
+                    continue;
+                }
+                if (plate > 0) {
+                    const Slic3r::Vec2d shift = origin(plate, layout.stride_x, layout.stride_y) - old_origin;
+                    Slic3r::ModelInstance* copy = object->instances[instance];
+                    copy->set_offset(copy->get_offset() + Slic3r::Vec3d(shift.x(), shift.y(), 0.));
+                }
+                break;
+            }
+        }
+    }
+}
+
 // PartPlate::get_build_volume() of the current plate.
 Slic3r::BoundingBoxf3 plate_box_of(const Slic3r::DynamicPrintConfig& config)
 {
@@ -4218,6 +4264,9 @@ ImportedModels import_models(
             try {
                 if (type_3mf) {
                     model = detail::read_3mf(source_path, load == ModelLoad::project, config, dialogs, archive);
+                    if (archive.translate_old) {
+                        translate_old_plates(model, config, static_cast<int>(archive.plate_data.size()));
+                    }
                 } else {
                     const StepMeshChoice step_mesh = reading < step_meshes.size() ? step_meshes[reading] : StepMeshChoice{};
                     // load_files()'s obj_color_fun: ObjColorDialog for an OBJ file with colours,

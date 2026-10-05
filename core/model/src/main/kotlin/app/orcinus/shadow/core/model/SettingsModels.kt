@@ -416,9 +416,10 @@ data class SettingsDialog(
     val yes: OrcaText?,
     val no: OrcaText?,
     /**
-     * RichMessageDialog::ShowCheckBox(): the check box under the question,
-     * none without one, and whether it starts checked; its state answers
-     * under [checkboxAnswer].
+     * RichMessageDialog::ShowCheckBox(), or MsgDialog::show_dsa_button() of a
+     * box that only informs: the check box under the message, none without
+     * one, and whether it starts checked. A question's answer carries its
+     * state under [checkboxAnswer]; a box that informs is dismissed with it.
      */
     val checkbox: OrcaText? = null,
     val checked: Boolean = false,

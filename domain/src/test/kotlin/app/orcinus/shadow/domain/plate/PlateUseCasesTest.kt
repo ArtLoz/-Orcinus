@@ -134,12 +134,16 @@ import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ReloadPrompt
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
+import app.orcinus.shadow.core.model.SettingControl
+import app.orcinus.shadow.core.model.SettingDefinition
 import app.orcinus.shadow.core.model.SettingState
+import app.orcinus.shadow.core.model.SettingType
 import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SettingsItemKind
 import app.orcinus.shadow.core.model.SettingsMode
+import app.orcinus.shadow.core.model.SettingsScope
 import app.orcinus.shadow.core.model.SettingsTab
 import app.orcinus.shadow.core.model.SettingsTabOutcome
 import app.orcinus.shadow.core.model.SettingsTabState
@@ -1099,6 +1103,91 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `Open Project goes by the load behaviour, and the file takes the plate's place however it loads`() {
+        val file = ImportedModelFile(ModelPath("/imports/p.3mf"), "p.3mf")
+        fun opening(behaviour: String): Triple<FakeRepository, FakeInspector, AddModelToPlateUseCase> {
+            val repository = FakeRepository(readyState(CUBE))
+            val inspector = FakeInspector()
+            val addModel = addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles(), preferences(AppConfigKeys.PROJECT_LOAD_BEHAVIOUR to behaviour))
+            addModel.openProject(REFERENCE)
+            return Triple(repository, inspector, addModel)
+        }
+
+        // Ask When Relevant: load_project() opens a project without asking, over a plate with objects too.
+        val (relevant, relevantInspector) = opening(AppConfigKeys.ASK_WHEN_RELEVANT)
+        assertEquals(ModelLoad.PROJECT, relevantInspector.loads.single().load)
+        assertNull(relevant.state.value.projectDrop)
+
+        // Load Geometry Only: the geometry alone takes the plate's place, and the project goes by the file, saved into it.
+        val (geometry, geometryInspector) = opening(AppConfigKeys.LOAD_GEOMETRY_ONLY)
+        assertEquals(ModelLoad.GEOMETRY, geometryInspector.loads.single().load)
+        val state = geometry.state.value
+        assertFalse(state.importing)
+        assertFalse(state.objects.single() is PlateObject.CalibrationCube)
+        assertEquals(1, state.projectResets)
+        assertEquals("p", state.project.name)
+        assertEquals(REFERENCE, state.project.document)
+
+        // Always Ask: ProjectDropDialog, whose "Import geometry only" takes the plate's place too.
+        val (asked, askedInspector, askedAddModel) = opening(AppConfigKeys.ALWAYS_ASK)
+        assertEquals(file.path, asked.state.value.projectDrop)
+        assertTrue(askedInspector.loads.isEmpty())
+        askedAddModel.openAs(ModelLoad.GEOMETRY)
+        assertEquals(ModelLoad.GEOMETRY, askedInspector.loads.single().load)
+        assertTrue(askedInspector.loads.single().chosen)
+        assertFalse(asked.state.value.objects.single() is PlateObject.CalibrationCube)
+        assertEquals(1, asked.state.value.projectResets)
+    }
+
+    @Test
+    fun `a project whose objects override settings opens on the objects' settings, and its G-code warning can stay away`() {
+        val strength = SettingDefinition(
+            key = "sparse_infill_density",
+            type = SettingType.PERCENT,
+            label = "Sparse infill density",
+            sidetext = "%",
+            category = "Strength",
+            mode = SettingsMode.SIMPLE,
+            control = SettingControl.DEFAULT,
+            enumValues = emptyList(),
+            enumLabels = emptyList(),
+            multiline = false,
+            fullWidth = false,
+            isCode = false,
+            height = -1,
+        )
+        val warning = SettingsDialog(
+            "modified_gcodes", DialogIcon.WARNING, listOf(OrcaText("Modified G-code")), listOf(OrcaText("modified")), false, null, null,
+            checkbox = OrcaText("Don't show again"),
+        )
+        fun opened(settings: ModelSettings): FakeRepository {
+            val ready = readyState()
+            val repository = FakeRepository(
+                ready.copy(settingsTabs = ready.settingsTabs + (PresetKind.PRINT to SettingsTabState(PresetKind.PRINT, SettingsTab(PresetKind.PRINT, mapOf(strength.key to strength))))),
+            )
+            val inspector = FakeInspector()
+            inspector.load = {
+                ModelLoadOutcome.Success(listOf(LOADED.copy(settings = settings)), listOf(warning), project = LoadedProject(listOf(ProjectPlate())))
+            }
+            addModel(repository, ModelImportOutcome.Success(ImportedModelFile(ModelPath("/imports/p.3mf"), "p.3mf")), inspector, FakeSceneFiles())
+                .openProject(REFERENCE)
+            return repository
+        }
+
+        // ParamsPanel::switch_to_object_if_has_object_configs(): the filament a volume prints with does not count.
+        assertEquals(SettingsScope.GLOBAL, opened(ModelSettings()).state.value.settingsScope)
+        val repository = opened(ModelSettings(mapOf(strength.key to "20%")))
+        assertEquals(SettingsScope.OBJECT, repository.state.value.settingsScope)
+
+        // "Don't show again" left checked sets no_warn_when_modified_gcodes.
+        assertEquals(listOf(warning), repository.state.value.plateNotices)
+        val preferences = preferences()
+        DismissPlateNoticeUseCase(repository, preferences, scope)(checked = true)
+        assertTrue(repository.state.value.plateNotices.isEmpty())
+        assertEquals("true", preferences[AppConfigKeys.NO_WARN_WHEN_MODIFIED_GCODES])
+    }
+
+    @Test
     fun `a STEP file waits for StepMeshDialog, loads with its values and keeps them, and Cancel loads nothing`() {
         val file = ImportedModelFile(ModelPath("/imports/part.step"), "part.step")
         val asked = StepMeshOptions(linearDeflection = 0.003, angleDeflection = 0.5, splitCompound = false)
@@ -1347,7 +1436,7 @@ class PlateUseCasesTest {
         // Nothing the load wrote before it asked stays.
         assertEquals(files.importPrefixes, files.deletedImports)
 
-        DismissPlateNoticeUseCase(repository)()
+        DismissPlateNoticeUseCase(repository, preferences(), scope)()
         addModel.answer(true)
 
         val loaded = repository.state.value

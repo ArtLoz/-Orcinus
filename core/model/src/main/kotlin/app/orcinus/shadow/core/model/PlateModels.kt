@@ -766,6 +766,12 @@ data class ImportBatch(
      * under the name of [document] and stays unsaved.
      */
     val restore: Boolean = false,
+    /**
+     * Plater::load_project() of a file the user opened: the project before
+     * let it go, and the file takes the plate's place as a project or, as
+     * determine_load_type() chose, as geometry only.
+     */
+    val loadProject: Boolean = false,
 )
 
 /**

@@ -24,8 +24,11 @@ class SettingsDialogs {
 public:
     explicit SettingsDialogs(const DialogAnswers& answers);
 
-    // MessageDialog(..., wxOK).ShowModal()
-    void inform(std::string id, std::vector<UiText> text, std::vector<UiText> title = {}, DialogIcon icon = DialogIcon::warning);
+    // MessageDialog(..., wxOK).ShowModal(), with show_dsa_button(checkbox)
+    // when checkbox names one: whether it was checked comes with the
+    // dismissal of the box.
+    void inform(std::string id, std::vector<UiText> text, std::vector<UiText> title = {}, DialogIcon icon = DialogIcon::warning,
+                UiText checkbox = {});
 
     // show_error(): an ErrorDialog.
     void error(std::string id, std::vector<UiText> text);

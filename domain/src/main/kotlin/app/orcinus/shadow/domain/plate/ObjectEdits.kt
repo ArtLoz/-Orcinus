@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.ModelLoadOutcome
@@ -20,6 +21,7 @@ import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.selectedObjectMeshes
 import app.orcinus.shadow.core.model.withName
 import app.orcinus.shadow.domain.placed
+import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.storage.api.SceneFiles
 import kotlinx.coroutines.CancellationException
@@ -200,10 +202,30 @@ class AnswerPlateQuestionUseCase(
     }
 }
 
-/** The first message box of a change of the plate was dismissed. */
-class DismissPlateNoticeUseCase(private val repository: PlateRepository) {
-    operator fun invoke() = repository.update { state ->
-        if (state.plateNotices.isEmpty()) state else state.copy(plateNotices = state.plateNotices.drop(1))
+/**
+ * The first message box of a change of the plate was dismissed, with its
+ * "Don't show again" [checked] when it has one: the warnings about a
+ * project's modified G-code then set no_warn_when_modified_gcodes.
+ */
+class DismissPlateNoticeUseCase(
+    private val repository: PlateRepository,
+    private val preferences: AppPreferences,
+    private val applicationScope: CoroutineScope,
+) {
+    operator fun invoke(checked: Boolean = false) {
+        var dismissed: SettingsDialog? = null
+        repository.update { state ->
+            dismissed = state.plateNotices.firstOrNull()
+            if (state.plateNotices.isEmpty()) state else state.copy(plateNotices = state.plateNotices.drop(1))
+        }
+        val notice = dismissed ?: return
+        if (checked && notice.checkbox != null && MODIFIED_GCODE_WARNINGS.any(notice.id::startsWith)) {
+            applicationScope.launch { preferences.set(AppConfigKeys.NO_WARN_WHEN_MODIFIED_GCODES, "true") }
+        }
+    }
+
+    private companion object {
+        val MODIFIED_GCODE_WARNINGS = listOf("modified_gcodes", "customized_presets")
     }
 }
 

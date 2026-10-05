@@ -242,8 +242,9 @@ void migrate_prime_tower(Slic3r::DynamicPrintConfig& config)
 }
 
 // The warnings of load_files() about presets of the project that are not
-// the system's, or whose G-code differs from theirs; the desktop app's "Don't
-// show again" is kept in no_warn_when_modified_gcodes.
+// the system's, or whose G-code differs from theirs; their "Don't show again"
+// (show_dsa_button()) sets no_warn_when_modified_gcodes, which the app writes
+// as the box is dismissed checked.
 void warn_about_modified_gcodes(const std::string& file_name, Slic3r::DynamicPrintConfig& config, SettingsDialogs& dialogs)
 {
     auto choise = engine().config->get("no_warn_when_modified_gcodes");
@@ -263,12 +264,12 @@ void warn_about_modified_gcodes(const std::string& file_name, Slic3r::DynamicPri
         dialogs.inform("modified_gcodes",
                        {ui_text("The 3MF has the following modified G-code in filament or printer presets:"), literal(warning_message),
                         ui_text("Please confirm that all modified G-code is safe to prevent any damage to the machine!")},
-                       {ui_text("Modified G-code")});
+                       {ui_text("Modified G-code")}, DialogIcon::warning, ui_text("Don't show again"));
     } else if (validated == validate_presets_printer_not_found || validated == validate_presets_filaments_not_found) {
         dialogs.inform("customized_presets",
                        {ui_text("The 3MF has the following customized filament or printer presets:"), literal(warning_message),
                         ui_text("Please confirm that the G-code within these presets is safe to prevent any damage to the machine!")},
-                       {ui_text("Customized Preset")});
+                       {ui_text("Customized Preset")}, DialogIcon::warning, ui_text("Don't show again"));
     }
 }
 
@@ -569,6 +570,10 @@ Slic3r::Model read_3mf(
             migrate_prime_tower(config);
         }
         warn_about_modified_gcodes(boost::filesystem::path(path).filename().string(), config, dialogs);
+        // load_files()'s translate_old
+        Slic3r::Semver old_version(1, 5, 9);
+        archive.translate_old = (en_3mf_file_type == Slic3r::En3mfType::From_BBS || en_3mf_file_type == Slic3r::En3mfType::From_Orca) &&
+            file_version < old_version && !archive.plate_data.empty();
         archive.load_config = true;
         archive.config = std::move(config);
     }

@@ -15,13 +15,14 @@ UiText ui_text(std::string msgid, std::vector<std::string> args, const bool tran
 
 SettingsDialogs::SettingsDialogs(const DialogAnswers& answers) : m_answers(answers) {}
 
-void SettingsDialogs::inform(std::string id, std::vector<UiText> text, std::vector<UiText> title, const DialogIcon icon)
+void SettingsDialogs::inform(std::string id, std::vector<UiText> text, std::vector<UiText> title, const DialogIcon icon, UiText checkbox)
 {
     SettingsDialog& dialog = m_notices.emplace_back();
     dialog.id = std::move(id) + m_scope;
     dialog.icon = icon;
     dialog.title = std::move(title);
     dialog.text = std::move(text);
+    dialog.checkbox = std::move(checkbox);
 }
 
 void SettingsDialogs::error(std::string id, std::vector<UiText> text)
