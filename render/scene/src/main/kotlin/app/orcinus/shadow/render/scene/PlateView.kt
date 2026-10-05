@@ -732,6 +732,15 @@ class PlateViewCamera {
     }
 
     /**
+     * Plater::priv::apply_free_camera_correction() of update_ui_from_settings(),
+     * which the View menu's "Use Perspective View" and "Use Orthogonal View"
+     * run: with "Use free camera" on, the camera stands up again.
+     */
+    fun applyFreeCameraCorrection() {
+        controller?.applyFreeCameraCorrection()
+    }
+
+    /**
      * Where a ray through [at] of the view (the copy's volume whose outline
      * on the screen centres nearest the view's centre without it, as
      * start_create_volume_without_position() looks) hits the copy [copy]
@@ -2459,6 +2468,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             dragging -> autoType(true)
             clickedBox >= 0 -> autoType(clickedBox !in ViewNavigator.FACE_BOXES)
         }
+        invalidate()
+    }
+
+    /** apply_free_camera_correction(): the camera type follows OrcaSlicer.conf (setOptions()); a free camera stands up. */
+    fun applyFreeCameraCorrection() {
+        if (!freeCamera) return
+        camera.recoverFromFreeCamera()
         invalidate()
     }
 

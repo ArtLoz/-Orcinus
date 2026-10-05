@@ -432,7 +432,11 @@ internal fun PreviewScreen(
                     CanvasViewButtons(
                         canvas = canvas,
                         onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
-                        onSet = onSetCanvas,
+                        onSet = { key, value ->
+                            onSetCanvas(key, value)
+                            // MainFrame's camera menu items run update_ui_from_settings().
+                            if (key == AppConfigKeys.USE_PERSPECTIVE_CAMERA) viewCamera.applyFreeCameraCorrection()
+                        },
                         onZoom = viewCamera::zoomToFit,
                         preview = true,
                     )
