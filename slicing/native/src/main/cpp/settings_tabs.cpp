@@ -30,6 +30,7 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r_version.h"
 #include "settings_dialogs.hpp"
 #include "settings_fields.hpp"
 #include "settings_tab.hpp"
@@ -1878,7 +1879,27 @@ PresetSettings delete_preset(const PresetKind kind, const DialogAnswers& answers
                 }
                 // TRN  remove/delete
                 const std::string action = "Delete";
+                bool confirm_delete_third_party_printer = false;
+                bool is_base_preset = false;
                 if (m_presets->get_preset_base(current_preset) == &current_preset) { //root preset
+                    is_base_preset = true;
+                    if (current_preset.type == Slic3r::Preset::Type::TYPE_PRINTER && !current_preset.is_system) { //Customize third-party printers
+                        int filament_preset_num = 0;
+                        int process_preset_num = 0;
+                        for (const Slic3r::Preset& preset : bundle.filaments.get_presets()) {
+                            if (preset.is_compatible && !preset.is_default) { filament_preset_num++; }
+                        }
+                        for (const Slic3r::Preset& preset : bundle.prints.get_presets()) {
+                            if (preset.is_compatible && !preset.is_default) { process_preset_num++; }
+                        }
+                        // DeleteConfirmDialog: Cancel, and Delete.
+                        if (!dialogs.ask("delete_printer_presets",
+                                         {ui_text("%d Filament Preset and %d Process Preset is attached to this printer. Those presets would be deleted if the printer is deleted.",
+                                                  {std::to_string(filament_preset_num), std::to_string(process_preset_num)})},
+                                         {ui_text(SLIC3R_APP_FULL_NAME " - "), ui_text("Delete")}, ui_text("Delete"), ui_text("Cancel")))
+                            return;
+                        confirm_delete_third_party_printer = true;
+                    }
                     int count = 0;
                     std::string presets;
                     for (auto &preset2 : *m_presets)
@@ -1897,9 +1918,37 @@ PresetSettings delete_preset(const PresetKind kind, const DialogAnswers& answers
                     }
                 }
 
-                if (!dialogs.ask("delete_preset", {ui_text("Are you sure to %1% the selected preset?", {action}, true)},
-                                 {ui_text("%1% Preset", {action}, true)}))
+                UiText msg = is_base_preset && current_preset.type == Slic3r::Preset::Type::TYPE_FILAMENT
+                    ? ui_text("Are you sure to delete the selected preset?\nIf the preset corresponds to a filament currently in use on your printer, please reset the filament information for that slot.")
+                    : ui_text("Are you sure to %1% the selected preset?", {action}, true);
+                if (!confirm_delete_third_party_printer && !dialogs.ask("delete_preset", {msg}, {ui_text("%1% Preset", {action}, true)}))
                     return;
+
+                // Tab::select_preset(): the filament and process presets of a
+                // printer of the user's own go with it.
+                bool delete_third_printer = false;
+                std::deque<Slic3r::Preset> filament_presets;
+                std::deque<Slic3r::Preset> process_presets;
+                if (m_presets->get_preset_base(current_preset) == &current_preset && kind == PresetKind::printer && !current_preset.is_system &&
+                    !current_preset.is_from_bundle()) {
+                    delete_third_printer = true;
+                    for (const Slic3r::Preset& preset : bundle.filaments.get_presets()) {
+                        if (preset.is_compatible && !preset.is_default) {
+                            if (preset.inherits() != "")
+                                filament_presets.push_front(preset);
+                            else
+                                filament_presets.push_back(preset);
+                        }
+                    }
+                    for (const Slic3r::Preset& preset : bundle.prints.get_presets()) {
+                        if (preset.is_compatible && !preset.is_default) {
+                            if (preset.inherits() != "")
+                                process_presets.push_front(preset);
+                            else
+                                process_presets.push_back(preset);
+                        }
+                    }
+                }
 
                 // Find an alternate preset to be selected after the current preset is deleted.
                 const std::deque<Slic3r::Preset> &presets = m_presets->get_presets();
@@ -1917,6 +1966,20 @@ PresetSettings delete_preset(const PresetKind kind, const DialogAnswers& answers
                 m_presets->delete_current_preset();
                 m_presets->select_preset_by_name(preset_name, false);
                 bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always, Slic3r::PresetSelectCompatibleType::Always);
+
+                if (delete_third_printer) {
+                    std::string old_filament_name = bundle.filaments.get_edited_preset().name;
+                    std::string old_process_name = bundle.prints.get_edited_preset().name;
+                    for (const Slic3r::Preset& preset : filament_presets) {
+                        bundle.filaments.delete_preset(preset.name);
+                    }
+                    for (const Slic3r::Preset& preset : process_presets) {
+                        bundle.prints.delete_preset(preset.name);
+                    }
+                    bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
+                    bundle.filaments.select_preset_by_name(old_filament_name, true);
+                    bundle.prints.select_preset_by_name(old_process_name, true);
+                }
 
                 // Sidebar::update_presets()
                 bundle.export_selections(*engine().config);

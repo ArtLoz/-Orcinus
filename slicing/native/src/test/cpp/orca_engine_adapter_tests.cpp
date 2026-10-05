@@ -2818,6 +2818,67 @@ TEST_CASE("A printer of the user's own is created from a vendor's preset", "[Ada
     REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
 }
 
+TEST_CASE("A printer of the user's own takes its filament and process presets with it when it is deleted", "[Adapter][Settings]")
+{
+    require_engine();
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+
+    // A printer of a vendor and model of the user's own, made from templates.
+    orca::CreatePrinterRequest request;
+    request.custom_printer = true;
+    request.vendor = "Orcinus";
+    request.model = "Delete test";
+    request.nozzle = "0.4";
+    request.size_x = 200;
+    request.size_y = 200;
+    request.max_print_height = 200;
+    request.preset_vendor = "Creality";
+    request.printer_preset = "Creality K2 Plus @ 0.4 nozzle";
+    request.from_template = true;
+    request.filament_presets = {"Generic PLA template"};
+    request.process_presets = {"process template"};
+    const orca::DialogAnswers answers = {
+        {"printer_name_exists", true}, {"rewrite_filament_presets", true}, {"rewrite_process_presets", true}};
+    const orca::PresetCreation created = orca::create_printer(request, answers);
+    INFO(created.message);
+    REQUIRE(created.status == orca::SceneStatus::success);
+    const std::string printer = created.name;
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, printer).status == orca::SceneStatus::success);
+    const auto of_printer = [&printer](const std::vector<orca::PresetItem>& items) {
+        return std::count_if(items.begin(), items.end(), [&printer](const orca::PresetItem& item) { return item.name.find(printer) != std::string::npos; });
+    };
+    REQUIRE(of_printer(orca::describe_presets().filaments) == 1);
+    REQUIRE(of_printer(orca::describe_presets().processes) == 1);
+
+    // Tab::delete_preset(): DeleteConfirmDialog says how many presets go with
+    // the printer, and asks nothing more.
+    const orca::PresetSettings asked = orca::delete_preset(orca::PresetKind::printer, {});
+    INFO(asked.message);
+    REQUIRE(asked.has_question);
+    CHECK(asked.question.id == "delete_printer_presets");
+    // It counts every compatible preset, the system ones among them, but
+    // PresetCollection::delete_preset() deletes only those of the user.
+    REQUIRE_FALSE(asked.question.text.empty());
+    REQUIRE(asked.question.text.front().args.size() == 2);
+    CHECK(std::stoi(asked.question.text.front().args[0]) > 1);
+    CHECK(asked.question.text.front().args[1] == "1");
+
+    const orca::PresetSettings deleted = orca::delete_preset(orca::PresetKind::printer, {{"delete_printer_presets", true}});
+    INFO(deleted.message);
+    REQUIRE(deleted.status == orca::SceneStatus::success);
+    CHECK_FALSE(deleted.has_question);
+    const orca::PresetState after = orca::describe_presets();
+    CHECK(after.selection.printer != printer);
+    CHECK(std::none_of(after.printers.begin(), after.printers.end(), [&printer](const orca::PresetItem& item) { return item.name == printer; }));
+
+    // The presets of the printer are gone, whichever printer shows them.
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    const orca::PresetState k2 = orca::describe_presets();
+    CHECK(of_printer(k2.filaments) == 0);
+    CHECK(of_printer(k2.processes) == 0);
+    CHECK(std::any_of(k2.filaments.begin(), k2.filaments.end(), [](const orca::PresetItem& item) { return item.name == k2_plus_profiles().filament; }));
+}
+
 TEST_CASE("A filament of the user's own is created from an installed one", "[Adapter][Settings]")
 {
     require_engine();
