@@ -1592,7 +1592,7 @@ class PlateUseCasesTest {
                 edit,
                 settingsTabs(repository),
                 DeletePlateObjectUseCase(repository),
-                CopyToClipboardUseCase(inspector, FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), scope),
+                CopyToClipboardUseCase(inspector, FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), EditPlateObjectUseCase(FakeInspector(), FakeSceneFiles(), repository, scope), scope),
                 InvalidateCutInfoUseCase(repository),
             )(false)
         }
@@ -1772,6 +1772,7 @@ class PlateUseCasesTest {
             files,
             repository,
             RemoveObjectPartUseCase(repository),
+            EditPlateObjectUseCase(FakeInspector(), FakeSceneFiles(), repository, scope),
             scope,
         )
 
@@ -1805,6 +1806,7 @@ class PlateUseCasesTest {
             files,
             repository,
             RemoveObjectPartUseCase(repository),
+            EditPlateObjectUseCase(FakeInspector(), FakeSceneFiles(), repository, scope),
             scope,
         )
 
@@ -1819,6 +1821,26 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `cut of the object's own mesh takes it out as Delete does`() {
+        val withPart = LOADED.toPlateObject("model.stl")
+        val repository = FakeRepository(readyState(withPart))
+        val editor = FakeInspector()
+        val copy = CopyToClipboardUseCase(
+            FakeInspector(),
+            FakeSceneFiles(),
+            repository,
+            RemoveObjectPartUseCase(repository),
+            EditPlateObjectUseCase(editor, FakeSceneFiles(), repository, scope),
+            scope,
+        )
+
+        copy.volumes(PlateInstanceId(withPart.mesh), setOf(0), cut = true)
+
+        assertEquals(listOf(0), (repository.state.value.clipboard as PlateClipboard.Volumes).volumes)
+        assertEquals(FakeInspector.Edit(0, ObjectEdit.DELETE_VOLUME, 0, emptyMap()), editor.edits.single())
+    }
+
+    @Test
     fun `copied volumes join the object they are pasted into and are selected`() {
         val withPart = LOADED.toPlateObject("model.stl")
         val repository = FakeRepository(readyState(withPart))
@@ -1829,6 +1851,7 @@ class PlateUseCasesTest {
             files,
             repository,
             RemoveObjectPartUseCase(repository),
+            EditPlateObjectUseCase(FakeInspector(), FakeSceneFiles(), repository, scope),
             scope,
         )
         val target = PlateInstanceId(withPart.mesh)
@@ -2282,7 +2305,7 @@ class PlateUseCasesTest {
             EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope),
             tabs,
             DeletePlateObjectUseCase(repository),
-            CopyToClipboardUseCase(inspector, FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), scope),
+            CopyToClipboardUseCase(inspector, FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), EditPlateObjectUseCase(FakeInspector(), FakeSceneFiles(), repository, scope), scope),
             InvalidateCutInfoUseCase(repository),
         )(true)
 
@@ -2652,7 +2675,7 @@ class PlateUseCasesTest {
         assertTrue(state.canUndo)
 
         // ObjectList::copy_to_clipboard() of objects resets the list's clipboard.
-        CopyToClipboardUseCase(FakeInspector(), FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), scope)
+        CopyToClipboardUseCase(FakeInspector(), FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), EditPlateObjectUseCase(FakeInspector(), FakeSceneFiles(), repository, scope), scope)
             .objects(setOf(PlateInstanceId(cube.mesh)))
         assertNull(repository.state.value.listClipboard)
     }

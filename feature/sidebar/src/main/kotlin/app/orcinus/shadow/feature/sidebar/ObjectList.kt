@@ -550,7 +550,7 @@ private fun LazyListScope.objectRows(
                         ClipboardItems(
                             enabled = enabled,
                             canPaste = enabled && state.clipboard is PlateClipboard.Volumes,
-                            cut = if (at > 0) ({ dismiss(); actions.copyVolumes(first, setOf(at), true) }) else null,
+                            cut = { dismiss(); actions.copyVolumes(first, setOf(at), true) },
                             copy = { dismiss(); actions.copyVolumes(first, setOf(at), false) },
                             paste = { dismiss(); actions.paste(first) },
                         )

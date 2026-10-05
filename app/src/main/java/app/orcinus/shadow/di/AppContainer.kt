@@ -545,6 +545,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sceneFiles,
         plateRepository,
         removeObjectPart,
+        editPlateObject,
         applicationScope,
     )
     private val pasteFromClipboard = PasteFromClipboardUseCase(engine, sceneFiles, plateRepository, applicationScope)

@@ -36,6 +36,7 @@ class CopyToClipboardUseCase(
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
     private val removeObjectPart: RemoveObjectPartUseCase,
+    private val editPlateObject: EditPlateObjectUseCase,
     private val applicationScope: CoroutineScope,
 ) {
     /** Copy, or Cut when [cut], of the [copies] of objects (Selection::Instance mode). */
@@ -49,8 +50,9 @@ class CopyToClipboardUseCase(
 
     /**
      * Copy, or Cut when [cut], of the [volumes] (ObjectPartId.index) of the
-     * object over its copy [id] (Selection::Volume mode). Cut leaves the
-     * object's own mesh, which the app cannot take out of it yet.
+     * object over its copy [id] (Selection::Volume mode). Cut erases them as
+     * the object list deletes volumes (ObjectList::del_subobject_from_object()):
+     * the parts, then the object's own mesh, which the engine takes out of it.
      */
     fun volumes(id: PlateInstanceId, volumes: Set<Int>, cut: Boolean = false) {
         val copy = begin { state ->
@@ -64,7 +66,9 @@ class CopyToClipboardUseCase(
         } ?: return
         applicationScope.launch {
             val kept = keep(copy) { added -> PlateClipboard.Volumes(added.single(), volumes.sorted()) }
-            if (kept && cut) volumes.filter { it > 0 }.sortedDescending().forEach { removeObjectPart(ObjectPartId(id.mesh, it)) }
+            if (!kept || !cut) return@launch
+            volumes.filter { it > 0 }.sortedDescending().forEach { removeObjectPart(ObjectPartId(id.mesh, it)) }
+            if (0 in volumes) editPlateObject.deleteOwnVolume(id.mesh)
         }
     }
 
