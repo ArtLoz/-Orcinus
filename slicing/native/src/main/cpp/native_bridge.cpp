@@ -1610,12 +1610,13 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describePlate(
     jobject /* this */,
     jstring printer_profile,
     jstring filament_profile,
+    jobjectArray filament_profiles,
     jstring process_profile,
     jstring output_dir
 )
 {
     const orcinus::orca::PlateDescription plate = orcinus::orca::describe_plate(
-        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_utf8(env, output_dir)
     );
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePlateDescription");
@@ -1652,6 +1653,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_inspectModel(
     jstring model_path,
     jstring printer_profile,
     jstring filament_profile,
+    jobjectArray filament_profiles,
     jstring process_profile,
     jstring mesh_path,
     jobject plate
@@ -1659,7 +1661,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_inspectModel(
 {
     const orcinus::orca::ModelInspection inspection = orcinus::orca::inspect_model(
         to_utf8(env, model_path),
-        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_utf8(env, mesh_path),
         to_plate(env, plate)
     );
@@ -1673,6 +1675,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
     jobject object,
     jstring printer_profile,
     jstring filament_profile,
+    jobjectArray filament_profiles,
     jstring process_profile,
     jdoubleArray previous_placement,
     jdoubleArray placement,
@@ -1688,7 +1691,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
     const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
     const orcinus::orca::ModelInspection inspection = orcinus::orca::place_model(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
-        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_doubles(env, previous_placement),
         to_doubles(env, placement),
         auto_drop == JNI_TRUE,
@@ -1794,6 +1797,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_addObjectPart(
     jlong type,
     jstring printer_profile,
     jstring filament_profile,
+    jobjectArray filament_profiles,
     jstring process_profile,
     jstring mesh_path
 )
@@ -1803,7 +1807,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_addObjectPart(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
         to_utf8(env, shape),
         static_cast<orcinus::orca::VolumeType>(type),
-        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_utf8(env, mesh_path)
     );
     return to_java(env, inspection);
@@ -1816,6 +1820,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFlatteningPl
     jobject object,
     jstring printer_profile,
     jstring filament_profile,
+    jobjectArray filament_profiles,
     jstring process_profile,
     jdoubleArray placement
 )
@@ -1823,7 +1828,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeFlatteningPl
     const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
     const orcinus::orca::FlatteningPlanes result = orcinus::orca::describe_flattening_planes(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
-        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_doubles(env, placement)
     );
     std::vector<double> normals;
@@ -1856,6 +1861,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeVolume(
     jobject object,
     jstring printer_profile,
     jstring filament_profile,
+    jobjectArray filament_profiles,
     jstring process_profile,
     jdoubleArray placement,
     jint volume
@@ -1864,7 +1870,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeVolume(
     const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
     const orcinus::orca::VolumeDescription result = orcinus::orca::describe_volume(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
-        to_profiles(env, printer_profile, filament_profile, process_profile),
+        to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_doubles(env, placement),
         static_cast<std::size_t>(volume)
     );

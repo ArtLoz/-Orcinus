@@ -1352,6 +1352,8 @@ internal object NativeBindings {
     external fun describePlate(
         printerProfile: String,
         filamentProfile: String,
+        /** Every filament of the plate, in the order the sidebar lists them. */
+        filamentProfiles: Array<String>,
         processProfile: String,
         outputDirectory: String,
     ): NativePlateDescription
@@ -1361,6 +1363,8 @@ internal object NativeBindings {
         modelPath: String,
         printerProfile: String,
         filamentProfile: String,
+        /** Every filament of the plate, in the order the sidebar lists them. */
+        filamentProfiles: Array<String>,
         processProfile: String,
         meshPath: String,
         plate: NativePlate,
@@ -2017,6 +2021,8 @@ internal object NativeBindings {
         plateObject: NativePlate,
         printerProfile: String,
         filamentProfile: String,
+        /** Every filament of the plate, in the order the sidebar lists them. */
+        filamentProfiles: Array<String>,
         processProfile: String,
         previousPlacement: DoubleArray,
         placement: DoubleArray,
@@ -2061,6 +2067,8 @@ internal object NativeBindings {
         type: Long,
         printerProfile: String,
         filamentProfile: String,
+        /** Every filament of the plate, in the order the sidebar lists them. */
+        filamentProfiles: Array<String>,
         processProfile: String,
         meshPath: String,
     ): NativeModelInspection
@@ -2069,6 +2077,8 @@ internal object NativeBindings {
         plateObject: NativePlate,
         printerProfile: String,
         filamentProfile: String,
+        /** Every filament of the plate, in the order the sidebar lists them. */
+        filamentProfiles: Array<String>,
         processProfile: String,
         placement: DoubleArray,
     ): NativeFlatteningPlanes
@@ -2077,6 +2087,8 @@ internal object NativeBindings {
         plateObject: NativePlate,
         printerProfile: String,
         filamentProfile: String,
+        /** Every filament of the plate, in the order the sidebar lists them. */
+        filamentProfiles: Array<String>,
         processProfile: String,
         placement: DoubleArray,
         volume: Int,

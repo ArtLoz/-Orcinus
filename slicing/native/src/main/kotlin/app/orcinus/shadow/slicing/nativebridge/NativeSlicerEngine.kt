@@ -296,6 +296,7 @@ class NativeSlicerEngine(context: Context) :
         val plate = NativeBindings.describePlate(
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             outputDirectory = directory.value,
         )
@@ -337,6 +338,7 @@ class NativeSlicerEngine(context: Context) :
             modelPath = model.nativePath(),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             meshPath = mesh.value,
             plate = nativePlate(plate),
@@ -1534,6 +1536,7 @@ class NativeSlicerEngine(context: Context) :
             plateObject = nativePlate(listOf(plateObject)),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             previousPlacement = previous.columns.toDoubleArray(),
             placement = placement.columns.toDoubleArray(),
@@ -1890,6 +1893,7 @@ class NativeSlicerEngine(context: Context) :
             type = type.ordinal.toLong(),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             meshPath = mesh.value,
         ).toOutcome(mesh)
@@ -1908,6 +1912,7 @@ class NativeSlicerEngine(context: Context) :
             plateObject = nativePlate(listOf(plateObject)),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             placement = placement.columns.toDoubleArray(),
         )
@@ -1942,6 +1947,7 @@ class NativeSlicerEngine(context: Context) :
             plateObject = nativePlate(listOf(plateObject)),
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
+            filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             placement = placement.columns.toDoubleArray(),
             volume = volume,

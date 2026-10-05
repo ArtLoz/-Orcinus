@@ -40,6 +40,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
@@ -187,6 +188,9 @@ fun BedShapeSheet(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
+        // The three shapes side by side need more than a phone dialog's usual width.
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 16.dp),
         confirmButton = { OrcaButton(orcaString("OK"), onClick = apply, enabled = current != null) },
         dismissButton = { OrcaButton(orcaString("Cancel"), onClick = onDismiss, style = OrcaButtonStyle.Regular) },
         title = { Text(orcaString("Bed Shape"), style = OrcaTheme.typography.head16) },
