@@ -248,7 +248,7 @@ BrimEars begin_brim_ears(const std::vector<PlateObject>& plate, int index, int i
     }
 }
 
-BrimEarHit hit_brim_ears(const std::vector<double>& origin, const std::vector<double>& direction)
+BrimEarHit hit_brim_ears(const std::vector<double>& origin, const std::vector<double>& direction, const std::vector<double>& clipping_plane)
 {
     const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
     BrimEarHit result;
@@ -258,14 +258,28 @@ BrimEarHit hit_brim_ears(const std::vector<double>& origin, const std::vector<do
     // unproject_on_mesh2(): the hit nearest the eye among the model parts, in the object.
     const Vec3d ray_origin(origin[0], origin[1], origin[2]);
     const Vec3d ray_direction(direction[0], direction[1], direction[2]);
+    // clp_dist != 0. ? clp : nullptr
+    const bool clipping = clipping_plane.size() >= 4 && clipping_plane[3] != std::numeric_limits<double>::max();
+    const Vec3d clip_normal = clipping ? Vec3d(clipping_plane[0], clipping_plane[1], clipping_plane[2]).normalized() : Vec3d::UnitZ();
+    const double clip_offset = clipping ? clipping_plane[3] : 0.0;
     double closest = std::numeric_limits<double>::max();
     Vec3d position_on_model = Vec3d::Zero();
     for (const EarPart& part : current.parts) {
         const Transform3d world = current.instance * part.volume;
         const Transform3d inverse = world.inverse();
-        const Slic3r::AABBMesh::hit_result hit = part.raycaster->query_ray_hit(inverse * ray_origin, (inverse.linear() * ray_direction).normalized());
-        if (!hit.is_hit())
+        // MeshRaycaster::unproject_on_mesh(): the nearest hit above the bed
+        // (sinking objects) and not cut by the clipping plane; with an odd
+        // number of such hits the nearest is from inside the mesh.
+        const std::vector<Slic3r::AABBMesh::hit_result> hits = part.raycaster->query_ray_hits(inverse * ray_origin, inverse.linear() * ray_direction);
+        std::size_t first = 0;
+        for (; first < hits.size(); ++first) {
+            const Vec3d transformed_hit = world * hits[first].position();
+            if (transformed_hit.z() >= Slic3r::SINKING_Z_THRESHOLD && (!clipping || clip_normal.dot(transformed_hit) <= clip_offset))
+                break;
+        }
+        if (first == hits.size() || (hits.size() - first) % 2 != 0)
             continue;
+        const Slic3r::AABBMesh::hit_result& hit = hits[first];
         const double distance = (world * hit.position() - ray_origin).norm();
         if (distance < closest) {
             closest = distance;

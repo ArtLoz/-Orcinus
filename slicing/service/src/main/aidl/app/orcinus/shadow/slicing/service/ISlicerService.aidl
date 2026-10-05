@@ -167,8 +167,8 @@ interface ISlicerService {
     void endMeasure();
     /** begin_brim_ears() and the calls of the brim ears tool; points hold x, y, z and the radius of every ear. */
     BrimEarsParcel beginBrimEars(in PlacedModelParcel[] plate, int index, int instance, in ProfilesParcel profiles);
-    /** The hit's position and the ear's, one after the other; empty without a hit. */
-    double[] hitBrimEars(in double[] origin, in double[] direction);
+    /** The hit's position and the ear's, one after the other; empty without a hit. The section's plane is ClippingPlane's four values. */
+    double[] hitBrimEars(in double[] origin, in double[] direction, in double[] clippingPlane);
     double[] generateBrimEars(in double[] points, double maxAngle, double detectionRadius, double headDiameter);
     int[] checkBrimEars(in double[] points);
     void endBrimEars();

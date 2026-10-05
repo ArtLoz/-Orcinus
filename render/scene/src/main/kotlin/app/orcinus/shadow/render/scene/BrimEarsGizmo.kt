@@ -11,13 +11,15 @@ import kotlin.math.hypot
 /**
  * The brim ears tool while it is open on the copy [copy] (GLGizmoBrimEars):
  * its ears and the ear the finger would place ([hover], on the model where the
- * finger is), which the view draws as render_points() does; a finger on the
- * copy places ears, and on an ear selects, drags or removes it.
+ * finger is), which the view draws as render_points() does, and its "Section
+ * view" ([section]; null for none), which clips the copy but not the ears; a
+ * finger on the copy places ears, and on an ear selects, drags or removes it.
  */
 data class BrimEarsView(
     val copy: PlateInstanceId,
     val ears: List<BrimEarView>,
     val hover: BrimEarView? = null,
+    val section: PaintSectionView? = null,
 )
 
 /** An ear as render_points() draws it: its centre in the world, its radius, and its state. */

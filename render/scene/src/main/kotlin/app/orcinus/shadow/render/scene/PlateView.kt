@@ -461,8 +461,8 @@ fun PlateView(
             }
             controller.setAssemblySection(loaded)
         }
-        // ObjectClipper::render_cut() of the painting tool's section.
-        val paintCutPath = painting?.section?.cut
+        // ObjectClipper::render_cut() of the painting tool's section, or of the brim ears tool's.
+        val paintCutPath = (painting?.section ?: brimEars?.section)?.cut
         LaunchedEffect(paintCutPath) {
             val loaded = withContext(Dispatchers.IO) {
                 paintCutPath?.let { runCatching { MeshFiles.read(java.io.File(it.value)).cornerPositions() }.getOrNull() }
@@ -615,7 +615,7 @@ fun PlateView(
             controller.volumeSphere = selectedVolumeSphere
             controller.volumeScale = selectedVolumeScale
             controller.onPaintSection = onPaintSection
-            controller.setPaintSection(painting?.section)
+            controller.setPaintSection(painting?.section ?: brimEars?.section)
             controller.settleVolume(editable, objects)
         }
 
@@ -1427,7 +1427,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             brimRay = null
             if (drag is BrimEarDrag) drag = null
         }
-        invalidate()
+        showHiddenCopies()
     }
 
     /** The move gizmo's reference system: the copy's placement in object coordinates, null in the world's. */
@@ -1445,7 +1445,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (meshBoolean == view && meshBooleanIndex == index) return
         meshBoolean = view
         meshBooleanIndex = index
-        invalidate()
+        showHiddenCopies()
     }
 
     fun setCut(cut: CutView?, index: Int?) {
@@ -1490,6 +1490,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         painting = value
         paintingStroke = false
         drag = null
+        showHiddenCopies()
     }
 
     /**
@@ -1505,7 +1506,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /**
      * ObjectClipper::set_position_by_ratio(): the slider keeps the plane's
      * normal, which the camera gives the first time, and "Reset direction"
-     * takes the camera's anew; the tool closing lets the plane go (on_release()).
+     * takes the camera's anew; the brim ears tool's plane is level
+     * (vertical_normal); the tool closing lets the plane go (on_release()).
      */
     fun setPaintSection(section: PaintSectionView?) {
         val previous = paintSection
@@ -1517,7 +1519,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         } else if (previous?.position != section.position || previous.resets != section.resets) {
             val reset = previous != null && previous.resets != section.resets
             if (section.position > 0.0 || paintSectionPlane != null || reset) {
-                val normal = paintSectionNormal?.takeIf { !reset } ?: -camera.dirForward()
+                val normal = if (section.level) Vec3(0.0, 0.0, 1.0) else paintSectionNormal?.takeIf { !reset } ?: -camera.dirForward()
                 paintSectionNormal = normal
                 val center = Vec3(section.center.x, section.center.y, section.center.z)
                 val plane = normal to (normal.dot(center) + section.radius - section.position * 2.0 * section.radius)
@@ -1533,9 +1535,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
-    /** GLGizmoPainterBase::get_clipping_plane_data(): the section's plane while it is past 0, as the shader takes it. */
+    /**
+     * GLGizmoPainterBase::get_clipping_plane_data(), and GLGizmosManager::get_clipping_plane()
+     * for the brim ears tool: the section's plane while it is past 0, as the shader takes it.
+     */
     private fun paintingClippingPlane(): FloatArray? {
-        if (!painting || (paintSection?.position ?: 0.0) <= 0.0) return null
+        if ((!painting && brimEars == null) || (paintSection?.position ?: 0.0) <= 0.0) return null
         val (normal, offset) = paintSectionPlane ?: return null
         return floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), offset.toFloat())
     }
@@ -1573,7 +1578,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     fun setSelection(index: Int?) {
         if (selectedIndex == index) return
         selectedIndex = index
-        invalidate()
+        showHiddenCopies()
     }
 
     /** The support painting tool's overhang highlight, slope.normal_z; null while it is closed. */
@@ -1700,7 +1705,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 invalidate()
                 return true
             }
-            if (objects.none { it.index == brimEarsIndex && !it.modifier && it.raycast(ray) != null }) return false
+            // unproject_on_mesh2(): the model parts' raycasters, which pass by what
+            // the section clips and what sinks under the plate.
+            val plane = paintSectionPlane?.takeIf { (paintSection?.position ?: 0.0) > 0.0 }
+            val clipped = { point: Vec3 -> plane != null && plane.first.dot(point) > plane.second }
+            if (objects.none { it.index == brimEarsIndex && !it.modifier && it.unproject(ray, true, clipped) != null }) return false
             brimRay = ray
             onBrimEars(BrimEarsTouch.Explore(ray.a.toVector(), (ray.b - ray.a).toVector()))
             return true
@@ -2723,10 +2732,27 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The dovetail's parts, or the pieces of a right click, stand in the object's place. */
     private var shownPreview = false
 
+    /**
+     * InstancesHider of GLGizmoBrimEars, GLGizmoMeshBoolean and the painting
+     * tools: the copy the open tool works on, which the scene shows alone, the
+     * wipe tower hidden too (toggle_model_objects_visibility()); null for none.
+     */
+    private fun hiderIndex(): Int? = brimEarsIndex ?: meshBooleanIndex ?: selectedIndex?.takeIf { painting }
+
+    /** The copy InstancesHider showed alone the last time the scene was shown. */
+    private var shownHider: Int? = null
+
+    /** The scene anew once another tool hides the other copies, or none. */
+    private fun showHiddenCopies() {
+        if (hiderIndex() != shownHider) showObjects(plateObjects + wipeTower) else invalidate()
+    }
+
     private fun showObjects(objects: List<SceneObject>) {
         val preview = cut?.previewParts.orEmpty().let { parts -> parts.isNotEmpty() && parts.all { it.mesh.value in cutPartMeshes } }
         shownPreview = cut?.previewParts.orEmpty().isNotEmpty()
         val measured = measure
+        val hider = hiderIndex()
+        shownHider = hider
         val shown = when {
             // toggle_selected_volume_visibility() leaves the wipe tower as it is.
             measured != null -> objects.filter { volume ->
@@ -2735,6 +2761,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             }
             // The volumes made for the other view wait for those of this one; the assembly view has no wipe tower.
             objectsInAssembly != (assembly != null) -> emptyList()
+            hider != null -> objects.filter { it.index == hider }
             assembly != null -> objects.filter { it.index != WIPE_TOWER_INDEX }
             cut == null -> objects
             preview -> emptyList()
@@ -3021,13 +3048,22 @@ data class PaintingView(
 )
 
 /**
- * A painting tool's "Section view" (ObjectClipper): how far its plane has
- * gone through the copy, 0 to 1, 0 clipping nothing; how many times "Reset
- * direction" was pressed; the point the plane passes at 0.5 and how far it
- * goes either side ([center] and [radius]: the copy's offset and the radius
- * of its box); and the cut the engine made, null for none.
+ * A painting tool's or the brim ears tool's "Section view" (ObjectClipper):
+ * how far its plane has gone through the copy, 0 to 1, 0 clipping nothing;
+ * how many times "Reset direction" was pressed; the point the plane passes at
+ * 0.5 and how far it goes either side ([center] and [radius]: the copy's
+ * offset and the radius of its box); the cut the engine made, null for none;
+ * and whether the plane is level, coming down from the top
+ * (set_position_by_ratio()'s vertical_normal), rather than facing the camera.
  */
-data class PaintSectionView(val position: Double, val resets: Int, val center: Vector3, val radius: Double, val cut: ScenePath?)
+data class PaintSectionView(
+    val position: Double,
+    val resets: Int,
+    val center: Vector3,
+    val radius: Double,
+    val cut: ScenePath?,
+    val level: Boolean = false,
+)
 
 /** Geometry::convex_hull() of points of the screen: Andrew's monotone chain, counterclockwise. */
 internal fun convexHull(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> {

@@ -5446,9 +5446,15 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginBrimEars(
 
 // The hit's position and the ear's, one after the other; empty without a hit.
 extern "C" JNIEXPORT jdoubleArray JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_hitBrimEars(JNIEnv* env, jobject /* this */, jdoubleArray origin, jdoubleArray direction)
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_hitBrimEars(
+    JNIEnv* env,
+    jobject /* this */,
+    jdoubleArray origin,
+    jdoubleArray direction,
+    jdoubleArray clipping_plane)
 {
-    const orcinus::orca::BrimEarHit hit = orcinus::orca::hit_brim_ears(to_doubles(env, origin), to_doubles(env, direction));
+    const orcinus::orca::BrimEarHit hit =
+        orcinus::orca::hit_brim_ears(to_doubles(env, origin), to_doubles(env, direction), to_doubles(env, clipping_plane));
     std::vector<double> values;
     if (hit.hit) {
         values = hit.position;

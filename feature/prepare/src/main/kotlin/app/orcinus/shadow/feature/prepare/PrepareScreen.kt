@@ -592,6 +592,7 @@ internal fun PrepareRoute(
             removeSelected = viewModel::removeSelectedBrimEars,
             removeAll = viewModel::removeAllBrimEars,
             setPainted = viewModel::setPaintedBrim,
+            setSection = viewModel::setBrimEarsSection,
         ),
         layerActions = LayerEditingActions(
             toggle = viewModel::toggleLayerEditing,
@@ -3021,5 +3022,6 @@ private fun brimEarsViewOf(state: PrepareUiState, mode: BrimEarsMode): BrimEarsV
             BrimEarView(world(point.position), point.radius, shown)
         },
         hover = mode.hover?.let { point -> BrimEarView(world(point), (mode.headDiameter ?: 0.0) / 2, BrimEarState.HOVER) },
+        section = state.paintSection,
     )
 }

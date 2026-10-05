@@ -7866,13 +7866,25 @@ TEST_CASE("The brim ears tool places, generates and checks ears on the first lay
     // A press on the top of the cube places an ear on the plate under it.
     const double cx = cube.box_center[0];
     const double cy = cube.box_center[1];
-    const orca::BrimEarHit hit = orca::hit_brim_ears({cx + 2.0, cy + 3.0, 100.0}, {0.0, 0.0, -1.0});
+    const std::vector<double> clips_nothing{0.0, 0.0, 1.0, std::numeric_limits<double>::max()};
+    const orca::BrimEarHit hit = orca::hit_brim_ears({cx + 2.0, cy + 3.0, 100.0}, {0.0, 0.0, -1.0}, clips_nothing);
     REQUIRE(hit.hit);
     REQUIRE(hit.position.size() == 3);
     REQUIRE(hit.ear.size() == 3);
     CHECK(hit.position[2] == Catch::Approx(10.0).margin(1e-3));
     CHECK(hit.ear[2] == Catch::Approx(-10.0001).margin(1e-3));
-    CHECK_FALSE(orca::hit_brim_ears({cx + 50.0, cy, 100.0}, {0.0, 0.0, -1.0}).hit);
+    CHECK_FALSE(orca::hit_brim_ears({cx + 50.0, cy, 100.0}, {0.0, 0.0, -1.0}, clips_nothing).hit);
+
+    // "Section view" at 15 mm: the press from above passes by the clipped top
+    // and meets the cube from inside, which places nothing (unproject_on_mesh());
+    // a press on the side under the plane still places an ear.
+    const std::vector<double> section{0.0, 0.0, 1.0, 15.0};
+    CHECK_FALSE(orca::hit_brim_ears({cx + 2.0, cy + 3.0, 100.0}, {0.0, 0.0, -1.0}, section).hit);
+    const orca::BrimEarHit side = orca::hit_brim_ears({cx + 100.0, cy, 5.0}, {-1.0, 0.0, 0.0}, section);
+    REQUIRE(side.hit);
+    CHECK(side.position[0] == Catch::Approx(10.0).margin(1e-3));
+    CHECK_FALSE(orca::hit_brim_ears({cx + 100.0, cy, 18.0}, {-1.0, 0.0, 0.0}, section).hit);
+    CHECK(orca::hit_brim_ears({cx + 2.0, cy + 3.0, 100.0}, {0.0, 0.0, -1.0}, {0.0, 0.0, 1.0, 25.0}).hit);
 
     // Auto-generate at 125 degrees: an ear at each of the cube's four corners, which touch its first layer.
     const std::vector<double> generated = orca::generate_brim_ears({}, 125.0, 1.0, opened.default_head_diameter);

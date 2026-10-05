@@ -549,8 +549,8 @@ class RemoteSlicerEngine(
     override suspend fun beginBrimEars(plate: List<PlacedModel>, index: Int, instance: Int, profiles: SlicingProfileSelection): BrimEarsOutcome =
         remote({ BrimEarsOutcome.Failure(it) }) { beginBrimEars(plate.toParcels(), index, instance, profiles.toParcel()).toBrimEarsOutcome() }
 
-    override suspend fun hitBrimEars(origin: Vector3, direction: Vector3): BrimEarHit? = remote({ null }) {
-        hitBrimEars(origin.toDoubles(), direction.toDoubles())?.takeIf { it.size >= 6 }?.let { values ->
+    override suspend fun hitBrimEars(origin: Vector3, direction: Vector3, clipping: ClippingPlane?): BrimEarHit? = remote({ null }) {
+        hitBrimEars(origin.toDoubles(), direction.toDoubles(), clipping.values())?.takeIf { it.size >= 6 }?.let { values ->
             BrimEarHit(Vector3(values[0], values[1], values[2]), Vector3(values[3], values[4], values[5]))
         }
     }

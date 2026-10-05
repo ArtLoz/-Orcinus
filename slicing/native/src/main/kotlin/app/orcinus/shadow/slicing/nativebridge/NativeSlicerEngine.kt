@@ -958,8 +958,8 @@ class NativeSlicerEngine(context: Context) :
             }
         }
 
-    override suspend fun hitBrimEars(origin: Vector3, direction: Vector3): BrimEarHit? = withContext(Dispatchers.IO) {
-        NativeBindings.hitBrimEars(origin.values(), direction.values()).takeIf { it.size >= 6 }?.let { values ->
+    override suspend fun hitBrimEars(origin: Vector3, direction: Vector3, clipping: ClippingPlane?): BrimEarHit? = withContext(Dispatchers.IO) {
+        NativeBindings.hitBrimEars(origin.values(), direction.values(), clipping.values()).takeIf { it.size >= 6 }?.let { values ->
             BrimEarHit(Vector3(values[0], values[1], values[2]), Vector3(values[3], values[4], values[5]))
         }
     }

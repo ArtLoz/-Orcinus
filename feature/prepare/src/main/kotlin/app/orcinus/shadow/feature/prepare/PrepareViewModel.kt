@@ -1009,10 +1009,12 @@ class PrepareViewModel(
 
     /**
      * The 3D view placed the section's plane: strokes keep to its near side
-     * while the section is past 0, and the engine cuts the copy there.
+     * while the section is past 0, and the engine cuts the copy there. With
+     * the brim ears tool open, it is that tool's section.
      */
     fun setPaintingSectionPlane(normal: Vector3, offset: Double) {
         val plane = ClippingPlane(normal, offset)
+        if (view.value.painting == null) return setBrimEarsSectionPlane(plane)
         view.update { state -> state.painting?.let { state.copy(painting = it.copy(sectionPlane = plane)) } ?: state }
         paintingSectionJob?.cancel()
         val mode = view.value.painting ?: return
@@ -2738,10 +2740,33 @@ class PrepareViewModel(
         view.update { it.copy(brimEars = BrimEarsMode(copy)) }
     }
 
-    /** "Done" (reset_all_gizmos()): the tool closes; the object keeps its ears. */
+    /** "Done" (reset_all_gizmos()): the tool closes; the object keeps its ears, and the section goes (ObjectClipper::on_release()). */
     fun closeBrimEars() {
         if (view.value.brimEars == null) return
+        paintingSectionJob?.cancel()
+        paintingSection.clear()
         view.update { it.copy(brimEars = null) }
+    }
+
+    /** "Section view" (set_position_by_ratio(clp_dist, false, true)). */
+    fun setBrimEarsSection(position: Double) {
+        updateBrimEars { it.copy(sectionPosition = position.coerceIn(0.0, 1.0)) }
+    }
+
+    /** The 3D view placed the section's level plane: presses pass by what it clips, and the engine cuts the copy there. */
+    private fun setBrimEarsSectionPlane(plane: ClippingPlane) {
+        updateBrimEars { it.copy(sectionPlane = plane) }
+        paintingSectionJob?.cancel()
+        val mode = view.value.brimEars ?: return
+        if (mode.sectionPosition <= 0.0) {
+            paintingSection.clear()
+            updateBrimEars { it.copy(section = null) }
+            return
+        }
+        paintingSectionJob = viewModelScope.launch {
+            val cut = paintingSection.section(mode.copy, plane)
+            view.update { state -> state.brimEars?.takeIf { it.sectionPlane == plane }?.let { state.copy(brimEars = it.copy(section = cut)) } ?: state }
+        }
     }
 
     /** What a finger does on the 3D view while the tool is open. */
@@ -2813,14 +2838,14 @@ class PrepareViewModel(
         val points = brimEarsOf(plate.value, mode) ?: return
         when (touch) {
             // Moving: the ear the mouse would place, on the copy under it.
-            is BrimEarsTouch.Explore -> brimEarsTool.hit(touch.origin, touch.direction).let { hit -> updateBrimEars { it.copy(hover = hit?.position) } }
+            is BrimEarsTouch.Explore -> brimEarsTool.hit(touch.origin, touch.direction, mode.clipping).let { hit -> updateBrimEars { it.copy(hover = hit?.position) } }
             BrimEarsTouch.Leave -> updateBrimEars { it.copy(hover = null) }
             is BrimEarsTouch.Place -> {
                 updateBrimEars { it.copy(hover = null) }
                 // If there is some selection, don't add new point and deselect everything instead.
                 if (mode.selected.isNotEmpty()) return updateBrimEars { it.copy(selected = emptySet()) }
                 val diameter = mode.headDiameter ?: return
-                val hit = brimEarsTool.hit(touch.origin, touch.direction) ?: return
+                val hit = brimEarsTool.hit(touch.origin, touch.direction, mode.clipping) ?: return
                 val ear = BrimPoint(hit.ear, diameter / 2)
                 // add_point_to_cache(): an ear there already is is not added again.
                 if (ear !in points) brimEarsTool.commit(mode.copy.mesh, points + ear)
@@ -2831,7 +2856,7 @@ class PrepareViewModel(
             is BrimEarsTouch.Drag -> {
                 val ear = points.getOrNull(touch.index) ?: return
                 // on_start_dragging() selects the ear alone; on_dragging() moves it in X and Y to the copy under the finger.
-                val hit = brimEarsTool.hit(touch.origin, touch.direction)
+                val hit = brimEarsTool.hit(touch.origin, touch.direction, mode.clipping)
                 val moved = hit?.let { ear.copy(position = Vector3(it.position.x, it.position.y, ear.position.z)) } ?: ear
                 updateBrimEars {
                     it.copy(

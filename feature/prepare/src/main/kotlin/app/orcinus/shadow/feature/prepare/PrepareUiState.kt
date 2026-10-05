@@ -279,7 +279,7 @@ data class PrepareUiState(
     val scaleCoordinates: CoordinateSystem? = null,
     /** The scale gizmo of the selected volume, once the engine measured it. */
     val volumeScale: VolumeScaleFrame? = null,
-    /** The painting tool's "Section view" on the painted copy. */
+    /** The "Section view" of the painting tool on the painted copy, or of the brim ears tool on its copy. */
     val paintSection: PaintSectionView? = null,
     /**
      * GLGizmoMmuSegmentation::update_used_filaments(): the filaments, 0-based,
@@ -547,14 +547,23 @@ data class MeshBooleanMode(
     val deleteInput: Boolean = true,
 )
 
+/** ObjectClipper's m_active_inst_bb_radius: the radius of the copy's box. */
+private fun clipperRadius(copy: SceneCopy): Double {
+    val size = copy.instance.inspection.dimensions
+    return 0.5 * sqrt(size.widthMillimeters.pow(2) + size.depthMillimeters.pow(2) + size.heightMillimeters.pow(2))
+}
+
 /**
  * GLGizmoBrimEars while it is open on [copy]: what the engine opened it with
  * ([setup]), the ears while one is dragged ([draft]; the object's otherwise),
  * the selected ones, the ear the finger holds (m_hover_id), the head
  * diameter of a new ear (m_new_point_head_diameter; null until the engine
  * told the default), the window's "Max angle" and "Detection radius", the
- * ears that touch nothing (find_single()), and the point of the copy under
- * the finger (render_hover_point), in the object's coordinates.
+ * ears that touch nothing (find_single()), the point of the copy under the
+ * finger (render_hover_point), in the object's coordinates, and "Section
+ * view" (ObjectClipper with a level plane): how far its plane has come down
+ * through the copy, 0 to 1, 0 clipping nothing, the plane the 3D view placed,
+ * and the cut the engine made.
  */
 data class BrimEarsMode(
     val copy: PlateInstanceId,
@@ -567,7 +576,13 @@ data class BrimEarsMode(
     val detectionRadius: Double = 1.0,
     val invalid: Set<Int> = emptySet(),
     val hover: Vector3? = null,
-)
+    val sectionPosition: Double = 0.0,
+    val sectionPlane: ClippingPlane? = null,
+    val section: ScenePath? = null,
+) {
+    /** clp_dist != 0. ? clp : nullptr: the plane a press passes by while the section clips. */
+    val clipping: ClippingPlane? get() = sectionPlane.takeIf { sectionPosition > 0.0 }
+}
 
 /**
  * GLGizmoMeasure while it is open: the selections and what they measure as
@@ -1038,9 +1053,12 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             } else {
                 copy.instance.inspection.placement.translation
             }
-            val size = copy.instance.inspection.dimensions
-            val radius = 0.5 * sqrt(size.widthMillimeters.pow(2) + size.depthMillimeters.pow(2) + size.heightMillimeters.pow(2))
-            PaintSectionView(mode.sectionPosition, mode.sectionResets, center, radius, mode.section.takeIf { mode.sectionPosition > 0.0 })
+            PaintSectionView(mode.sectionPosition, mode.sectionResets, center, clipperRadius(copy), mode.section.takeIf { mode.sectionPosition > 0.0 })
+        } ?: view.brimEars?.let { mode ->
+            // set_position_by_ratio(ratio, false, true): a level plane about the copy's offset.
+            val copy = copies.firstOrNull { it.id == mode.copy } ?: return@let null
+            val center = copy.instance.inspection.placement.translation
+            PaintSectionView(mode.sectionPosition, 0, center, clipperRadius(copy), mode.section.takeIf { mode.sectionPosition > 0.0 }, level = true)
         },
         volumeScale = if (volume != null && selected != null && volumeBox != null) {
             val reference = when (scaleCoordinates) {

@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
+import app.orcinus.shadow.core.designsystem.component.textLocale
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.render.scene.BrimEarsTouch
@@ -35,16 +36,18 @@ internal class BrimEarsActions(
     val removeAll: () -> Unit,
     /** The warning's "Set the brim type of this object to "painted"". */
     val setPainted: () -> Unit,
+    /** "Section view". */
+    val setSection: (Double) -> Unit,
 ) {
     companion object {
-        val NONE = BrimEarsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+        val NONE = BrimEarsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 }
 
 /**
  * GLGizmoBrimEars::on_render_input_window(): "Head diameter", "Max angle"
  * and "Detection radius", "Create" with "Auto-generate", "Remove" with
- * "Selected" and "All", "Done", and the warnings that the object's brim is
+ * "Selected" and "All", "Section view", "Done", and the warnings that the object's brim is
  * not painted (with the link that makes it so) and of the ears that touch
  * nothing. A finger places an ear where it lets go on the copy, selects an
  * ear with a tap, drags it, and removes it with a long press (the right
@@ -106,6 +109,13 @@ internal fun BrimEarsPanel(mode: BrimEarsMode, ears: Int, actions: BrimEarsActio
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
+        PaintingSlider(
+            label = orcaString("Section view"),
+            value = mode.sectionPosition.toFloat(),
+            range = 0f..1f,
+            text = String.format(textLocale(), "%.2f", mode.sectionPosition),
+            onChange = { actions.setSection(it.toDouble()) },
+        )
         if (setup != null && !setup.painted) {
             Text(
                 text = orcaString("Warning: The brim type is not set to \"painted\", the brim ears will not take effect!"),

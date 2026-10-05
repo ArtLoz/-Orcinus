@@ -2022,8 +2022,12 @@ internal object NativeBindings {
         processProfile: String,
     ): NativeBrimEars
 
-    /** hit_brim_ears(): the hit's position and the ear's, one after the other; empty without a hit. */
-    external fun hitBrimEars(origin: DoubleArray, direction: DoubleArray): DoubleArray
+    /**
+     * hit_brim_ears(): the hit's position and the ear's, one after the other;
+     * empty without a hit. The ray passes by what the section's plane (normal and
+     * offset) clips.
+     */
+    external fun hitBrimEars(origin: DoubleArray, direction: DoubleArray, clippingPlane: DoubleArray): DoubleArray
 
     /** generate_brim_ears(): x, y, z and the radius of every ear. */
     external fun generateBrimEars(points: DoubleArray, maxAngle: Double, detectionRadius: Double, headDiameter: Double): DoubleArray

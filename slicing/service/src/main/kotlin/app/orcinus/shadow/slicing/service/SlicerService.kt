@@ -447,8 +447,8 @@ abstract class SlicerService<E> : Service()
         override fun beginBrimEars(plate: Array<PlacedModelParcel>, index: Int, instance: Int, profiles: ProfilesParcel) =
             runBlocking { engine.beginBrimEars(plate.toPlacedModels(), index, instance, profiles.toProfiles()) }.toParcel()
 
-        override fun hitBrimEars(origin: DoubleArray, direction: DoubleArray): DoubleArray = runBlocking {
-            engine.hitBrimEars(origin.toVector3(), direction.toVector3())?.let { hit -> listOf(hit.position, hit.ear).flatMap { listOf(it.x, it.y, it.z) }.toDoubleArray() }
+        override fun hitBrimEars(origin: DoubleArray, direction: DoubleArray, clippingPlane: DoubleArray): DoubleArray = runBlocking {
+            engine.hitBrimEars(origin.toVector3(), direction.toVector3(), clippingPlaneOf(clippingPlane))?.let { hit -> listOf(hit.position, hit.ear).flatMap { listOf(it.x, it.y, it.z) }.toDoubleArray() }
                 ?: DoubleArray(0)
         }
 

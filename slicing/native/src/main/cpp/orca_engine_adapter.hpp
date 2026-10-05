@@ -2408,14 +2408,16 @@ BrimEars begin_brim_ears(const std::vector<PlateObject>& plate, int index, int i
 
 // unproject_on_mesh2(): where a ray (world coordinates) hits the copy's model
 // parts, in the object's coordinates, and where an ear placed there stands,
-// on the plate under the point.
+// on the plate under the point. The tool's "Section view" (the normal and the
+// offset of ObjectClipper's plane; ClippingPlane::ClipsNothing() for none)
+// lets the ray pass by what it clips.
 struct BrimEarHit {
     bool hit{false};
     std::vector<double> position;
     std::vector<double> ear;
 };
 
-BrimEarHit hit_brim_ears(const std::vector<double>& origin, const std::vector<double>& direction);
+BrimEarHit hit_brim_ears(const std::vector<double>& origin, const std::vector<double>& direction, const std::vector<double>& clipping_plane);
 
 // auto_generate(): points (x, y, z and the radius of each, in the object's
 // coordinates) with ears added along the corners of the first layer sharper

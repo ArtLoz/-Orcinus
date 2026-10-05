@@ -3,6 +3,7 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.BrimEarHit
 import app.orcinus.shadow.core.model.BrimEarsOutcome
 import app.orcinus.shadow.core.model.BrimPoint
+import app.orcinus.shadow.core.model.ClippingPlane
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateInstanceId
@@ -68,8 +69,8 @@ class EditBrimEarsUseCase(
         return outcome
     }
 
-    /** unproject_on_mesh2(): where a ray hits the copy, and the ear a press there places. */
-    suspend fun hit(origin: Vector3, direction: Vector3): BrimEarHit? = editor.hitBrimEars(origin, direction)
+    /** unproject_on_mesh2(): where a ray hits the copy past the section's plane ([clipping]), and the ear a press there places. */
+    suspend fun hit(origin: Vector3, direction: Vector3, clipping: ClippingPlane?): BrimEarHit? = editor.hitBrimEars(origin, direction, clipping)
 
     /** auto_generate(): [points] with the ears along the first layer's corners added. */
     suspend fun generate(points: List<BrimPoint>, maxAngle: Double, detectionRadius: Double, headDiameter: Double): List<BrimPoint> =
