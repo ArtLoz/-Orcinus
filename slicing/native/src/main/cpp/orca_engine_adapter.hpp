@@ -332,6 +332,11 @@ struct PlateObject {
     std::string volume_input_file;
     VolumeOrigin volume_origin;
     MeshErrors volume_mesh_errors;
+    // ModelObject::origin_translation: how far the object was moved to be
+    // centred as it was loaded, which places the volumes later loaded into it
+    // (ObjectList::load_modifier()) and the STL it exports; a project does not
+    // keep it.
+    std::array<double, 3> origin_translation{0.0, 0.0, 0.0};
     // The cut the object is a part of, and what the cut made of its own mesh.
     ObjectCutId cut_id;
     VolumeCutInfo volume_cut_info;
@@ -1687,6 +1692,8 @@ struct ImportedObject {
     std::string volume_input_file;
     VolumeOrigin volume_origin;
     MeshErrors volume_mesh_errors;
+    // ModelObject::origin_translation, as PlateObject::origin_translation.
+    std::array<double, 3> origin_translation{0.0, 0.0, 0.0};
     // ModelObject::layer_config_ranges
     std::vector<LayerRange> layer_ranges;
     // ModelObject::layer_height_profile

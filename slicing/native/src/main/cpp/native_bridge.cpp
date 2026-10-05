@@ -702,6 +702,11 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
     for (std::size_t index = 0; index < plate.size(); ++index) {
         plate[index].volume_mesh_errors = mesh_errors_at(volume_mesh_errors, index);
     }
+    // How far every object was moved to be centred as it was loaded, three each.
+    const std::vector<double> origin_translations = to_doubles(env, static_cast<jdoubleArray>(field("originTranslations", "[D")));
+    for (std::size_t index = 0; index < plate.size() && 3 * (index + 1) <= origin_translations.size(); ++index) {
+        plate[index].origin_translation = {origin_translations[3 * index], origin_translations[3 * index + 1], origin_translations[3 * index + 2]};
+    }
     // The mesh file and the name of every part, in the plate's order.
     const std::vector<std::string> sources = to_strings(env, static_cast<jobjectArray>(field("partSources", strings)));
     const std::vector<std::string> names = to_strings(env, static_cast<jobjectArray>(field("partNames", strings)));
@@ -3312,7 +3317,7 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
         "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;[D"
-        "Ljava/lang/String;J[Ljava/lang/String;[J[D[D[Z[D[D[D[J[J)V"
+        "Ljava/lang/String;J[Ljava/lang/String;[J[D[D[Z[D[D[D[J[J[D)V"
     );
     // The cut the object is a part of, and the cut info of its own mesh and of every part.
     const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
@@ -3420,7 +3425,8 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         to_java(env, volume_origin.data(), volume_origin.size()),
         to_java(env, part_origins.data(), part_origins.size()),
         to_java(env, volume_mesh_errors),
-        to_java(env, part_mesh_errors)
+        to_java(env, part_mesh_errors),
+        to_java(env, object.origin_translation.data(), object.origin_translation.size())
     );
 }
 

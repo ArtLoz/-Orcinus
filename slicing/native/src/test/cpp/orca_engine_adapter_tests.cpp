@@ -3766,6 +3766,8 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
     object.volume_cut_info = imported.volume_cut_info;
     object.volume_emboss = imported.volume_emboss;
     object.volume_origin = imported.volume_origin;
+    object.volume_mesh_errors = imported.volume_mesh_errors;
+    object.origin_translation = imported.origin_translation;
     for (const orca::ImportedPart& part : imported.parts) {
         orca::ObjectPart& added = object.parts.emplace_back();
         added.model_path = part.model_path;
@@ -3780,6 +3782,7 @@ orca::PlateObject plate_object_of(const orca::ImportedObject& imported)
         added.cut_info = part.cut_info;
         added.emboss = part.emboss;
         added.origin = part.origin;
+        added.mesh_errors = part.mesh_errors;
     }
     for (std::size_t index = 0; index < imported.instances.size(); ++index) {
         orca::ObjectPlacement& instance = object.instances.emplace_back();
@@ -5248,6 +5251,9 @@ TEST_CASE("Load... adds a volume from a file where it stood beside the object's 
     // ModelVolume::source of the cube's mesh: its centre in the file, which the app keeps.
     CHECK(cube.volume_origin.mesh_offset[0] == Catch::Approx(10.0));
     CHECK(cube.volume_origin.mesh_offset[2] == Catch::Approx(10.0));
+    // ModelObject::origin_translation: centre_around_origin() moved it by as much back.
+    CHECK(cube.origin_translation[0] == Catch::Approx(-10.0));
+    CHECK(cube.origin_translation[2] == Catch::Approx(-10.0));
     const std::vector<orca::PlateObject> plate{plate_object_of(cube)};
     const auto extruder_of = [](const orca::ModelSettings& settings) {
         const auto found = std::find(settings.keys.begin(), settings.keys.end(), "extruder");
@@ -5279,6 +5285,33 @@ TEST_CASE("Load... adds a volume from a file where it stood beside the object's 
         // A part prints with the object's filament.
         const std::string object_extruder = extruder_of(object.settings);
         CHECK(extruder_of(part.settings) == (object_extruder.empty() ? "0" : object_extruder));
+    }
+    SECTION("a part of a file of several objects moves by the object's origin_translation")
+    {
+        // load_modifier(): each object of the file is centred and moved by
+        // the difference of the origin translations, and the merged mesh
+        // goes where its centre then is.
+        const std::string amf = device_dir + "/tmp/import/stacked-part.amf";
+        write_text(amf, stacked_cubes_amf());
+        const orca::ImportedModels kept = orca::load_volume(plate, 0, amf, "stacked-part.amf", orca::VolumeType::part, k2_plus_profiles(),
+                                                            import_prefix("load-volume-stacked"));
+        std::vector<orca::PlateObject> centred = plate;
+        centred.front().origin_translation = {0.0, 0.0, 0.0};
+        const orca::ImportedModels plain = orca::load_volume(centred, 0, amf, "stacked-part.amf", orca::VolumeType::part, k2_plus_profiles(),
+                                                             import_prefix("load-volume-stacked-plain"));
+        INFO(kept.message);
+        INFO(plain.message);
+        REQUIRE(kept.status == orca::SceneStatus::success);
+        REQUIRE(plain.status == orca::SceneStatus::success);
+        REQUIRE(kept.objects.front().parts.size() == 1);
+        REQUIRE(plain.objects.front().parts.size() == 1);
+        const std::vector<double>& with = kept.objects.front().parts.front().matrix;
+        const std::vector<double>& without = plain.objects.front().parts.front().matrix;
+        CHECK(with[12] - without[12] == Catch::Approx(cube.origin_translation[0]).margin(1e-4));
+        CHECK(with[13] - without[13] == Catch::Approx(cube.origin_translation[1]).margin(1e-4));
+        CHECK(with[14] - without[14] == Catch::Approx(cube.origin_translation[2]).margin(1e-4));
+        // The object keeps its origin translation.
+        CHECK(kept.objects.front().origin_translation[0] == Catch::Approx(cube.origin_translation[0]));
     }
     SECTION("a modifier has no filament of its own")
     {

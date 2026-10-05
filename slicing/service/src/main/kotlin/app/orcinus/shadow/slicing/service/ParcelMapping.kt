@@ -296,6 +296,7 @@ internal fun List<PlacedModel>.toParcels(): Array<PlacedModelParcel> = Array(siz
         parcel.cutId = placed.cutId?.values()
         parcel.layerHeightProfile = placed.layerHeightProfile.toDoubleArray()
         parcel.brimPoints = with(BrimPoint) { placed.brimPoints.values() }
+        parcel.originTranslation = placed.originTranslation.let { doubleArrayOf(it.x, it.y, it.z) }
     }
 }
 
@@ -366,8 +367,13 @@ internal fun Array<PlacedModelParcel>.toPlacedModels(): List<PlacedModel> = map 
         cutId = CutId.of(parcel.cutId),
         layerHeightProfile = parcel.layerHeightProfile?.toList().orEmpty(),
         brimPoints = parcel.brimPoints?.let(BrimPoint::of).orEmpty(),
+        originTranslation = parcel.originTranslation.toOriginTranslation(),
     )
 }
+
+/** ModelObject::origin_translation flattened; none for null. */
+private fun DoubleArray?.toOriginTranslation(): Vector3 =
+    this?.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) } ?: Vector3(0.0, 0.0, 0.0)
 
 private fun ObjectPart.toParcel() = ObjectPartParcel().also {
     it.shape = shape
@@ -516,6 +522,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
                 parcel.inputFile = loaded.inputFile.takeUnless(String::isEmpty)
                 parcel.layerHeightProfile = loaded.layerHeightProfile.toDoubleArray()
                 parcel.brimPoints = with(BrimPoint) { loaded.brimPoints.values() }
+                parcel.originTranslation = loaded.originTranslation.let { doubleArrayOf(it.x, it.y, it.z) }
             }
         }.toTypedArray()
     }
@@ -557,6 +564,7 @@ internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
                 inputFile = parcel.inputFile.orEmpty(),
                 layerHeightProfile = parcel.layerHeightProfile?.toList().orEmpty(),
                 brimPoints = parcel.brimPoints?.let(BrimPoint::of).orEmpty(),
+                originTranslation = parcel.originTranslation.toOriginTranslation(),
             )
         },
         shown,

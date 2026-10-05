@@ -792,6 +792,7 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         message = "Unable to read model " + object.model_path;
         return nullptr;
     }
+    loaded->origin_translation = Slic3r::Vec3d(object.origin_translation[0], object.origin_translation[1], object.origin_translation[2]);
     set_frame(*loaded, object.matrix);
     if (!object.instances.empty()) {
         place_at(*loaded, object.instances);
@@ -4016,6 +4017,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
         out.volume_input_file = own.source.input_file;
         out.volume_origin = origin_of(own.source);
         out.volume_mesh_errors = mesh_errors_of(own);
+        out.origin_translation = {object.origin_translation.x(), object.origin_translation.y(), object.origin_translation.z()};
         out.volume_cut_info = detail::cut_info_from(own.cut_info);
         out.volume_emboss = detail::write_emboss(own, base + ".emboss");
         out.volume_emboss_kind = detail::emboss_kind_of(own);

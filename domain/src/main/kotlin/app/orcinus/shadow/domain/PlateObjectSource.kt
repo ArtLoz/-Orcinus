@@ -35,4 +35,5 @@ internal fun PlateObject.placed() = PlacedModel(
     cutId = cutId,
     layerHeightProfile = layerHeightProfile,
     brimPoints = brimPoints,
+    originTranslation = originTranslation,
 )

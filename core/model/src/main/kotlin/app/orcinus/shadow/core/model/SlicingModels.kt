@@ -178,6 +178,8 @@ data class PlacedModel(
     val cutId: CutId? = null,
     /** ModelObject::brim_points; empty for none. */
     val brimPoints: List<BrimPoint> = emptyList(),
+    /** ModelObject::origin_translation (PlateObject.originTranslation). */
+    val originTranslation: Vector3 = Vector3(0.0, 0.0, 0.0),
 )
 
 /**
@@ -208,6 +210,8 @@ data class LoadedObject(
     val layerHeightProfile: List<Double> = emptyList(),
     /** ModelObject::brim_points; empty for none. */
     val brimPoints: List<BrimPoint> = emptyList(),
+    /** ModelObject::origin_translation (PlateObject.originTranslation). */
+    val originTranslation: Vector3 = Vector3(0.0, 0.0, 0.0),
 )
 
 /** What moved a volume: GLCanvas3D::do_move(), do_rotate() or do_scale(), which drop the copies differently. */

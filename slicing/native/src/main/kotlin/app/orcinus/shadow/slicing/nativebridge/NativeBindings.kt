@@ -719,6 +719,8 @@ internal class NativePlate(
     /** The mesh stats of every own mesh and every part, six each (MeshErrors.values). */
     @JvmField val volumeMeshErrors: LongArray,
     @JvmField val partMeshErrors: LongArray,
+    /** ModelObject::origin_translation of every object, three each. */
+    @JvmField val originTranslations: DoubleArray,
 )
 
 /** Constructed by the native bridge; see ImportedObject in orca_engine_adapter.hpp. */
@@ -786,6 +788,8 @@ internal class NativeImportedObject(
     /** The mesh stats of its own mesh and of every part (MeshErrors.values). */
     @JvmField val volumeMeshErrors: LongArray,
     @JvmField val partMeshErrors: LongArray,
+    /** ModelObject::origin_translation: x, y and z. */
+    @JvmField val originTranslation: DoubleArray,
 )
 
 /** Constructed by the native bridge; see SvgWarning in orca_engine_adapter.hpp. */

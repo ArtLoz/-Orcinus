@@ -33,4 +33,6 @@ parcelable LoadedObjectParcel {
     @nullable double[] layerHeightProfile;
     /** ModelObject::brim_points: x, y, z and the radius of each; null for none. */
     @nullable double[] brimPoints;
+    /** ModelObject::origin_translation: x, y and z; null for none. */
+    @nullable double[] originTranslation;
 }

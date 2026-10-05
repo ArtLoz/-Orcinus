@@ -251,6 +251,7 @@ private val CLOSE_TOOLS_FIRST = SettingsDialog(
 internal fun LoadedObject.toPlateObject(inputName: String) = PlateObject.ImportedModel(
     file = ImportedModelFile(source, name),
     inputName = inputName,
+    originTranslation = originTranslation,
     instances = instances,
     settings = settings,
     parts = parts,

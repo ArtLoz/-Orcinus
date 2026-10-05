@@ -2841,6 +2841,7 @@ class NativeSlicerEngine(context: Context) :
             inputFile = inputFile,
             layerHeightProfile = layerHeightProfile.toList(),
             brimPoints = BrimPoint.of(brimPoints),
+            originTranslation = originTranslation.takeIf { it.size == 3 }?.let { Vector3(it[0], it[1], it[2]) } ?: Vector3(0.0, 0.0, 0.0),
         )
     }
 
@@ -3012,6 +3013,7 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
         partOrigins = parts.flatMap { it.origin.values().asList() }.toDoubleArray(),
         volumeMeshErrors = objects.flatMap { it.volume.meshErrors.values().asList() }.toLongArray(),
         partMeshErrors = parts.flatMap { it.meshErrors.values().asList() }.toLongArray(),
+        originTranslations = objects.flatMap { listOf(it.originTranslation.x, it.originTranslation.y, it.originTranslation.z) }.toDoubleArray(),
     )
 }
 

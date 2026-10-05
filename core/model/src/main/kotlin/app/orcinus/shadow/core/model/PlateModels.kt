@@ -312,6 +312,14 @@ sealed interface PlateObject {
     val cutId: CutId?
 
     /**
+     * ModelObject::origin_translation: how far the object was moved to be
+     * centred as it was loaded, which places a volume later loaded into it
+     * from a file of several objects and the STL it exports; a project does
+     * not keep it.
+     */
+    val originTranslation: Vector3
+
+    /**
      * An object of a model file: [file] names its own mesh (its first volume)
      * and the object, and [frame] places that mesh in the object as the file
      * loaded it; without one the mesh is centred around the origin.
@@ -331,6 +339,7 @@ sealed interface PlateObject {
         /** The name of the document it came from (ModelObject::input_file), which names the G-code. */
         val inputName: String = file.displayName,
         override val cutId: CutId? = null,
+        override val originTranslation: Vector3 = Vector3(0.0, 0.0, 0.0),
     ) : PlateObject
 
     /** The engine's built-in 20 mm calibration cube. */
@@ -347,6 +356,7 @@ sealed interface PlateObject {
         /** The name the user gave it; null for the app's own. */
         val name: String? = null,
         override val cutId: CutId? = null,
+        override val originTranslation: Vector3 = Vector3(0.0, 0.0, 0.0),
     ) : PlateObject
 }
 
