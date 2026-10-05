@@ -677,9 +677,10 @@ void TabPrintPlate::on_value_change(const std::string& opt_key, const boost::any
         m_all_keys.erase(std::remove(m_all_keys.begin(), m_all_keys.end(), opt_key), m_all_keys.end());
     } else {
         plate.apply_only(*m_config, {opt_key}, true);
-        // The order the layers print in is a sequence per filament, which the
-        // desktop app edits in its plate settings dialog; the app has no such
-        // dialog, so a customized sequence starts as the plain one.
+        // The order the layers print in is a sequence per filament: a
+        // customized sequence starts as the filaments' order, and the app then
+        // opens the plate settings dialog with the sequences alone
+        // (EVT_OPEN_PLATESETTINGSDIALOG with "only_layer_sequence").
         if (opt_key == "first_layer_sequence_choice") {
             if (m_config->opt_enum<LayerSeq>("first_layer_sequence_choice") == flsAuto) {
                 plate.erase("first_layer_print_sequence");

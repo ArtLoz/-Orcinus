@@ -1084,6 +1084,12 @@ data class PlateState(
     val projectDrop: ModelPath? = null,
     /** The document of that file, which a project opened from it is saved into. */
     val projectDropBatch: ImportBatch = ImportBatch(),
+    /**
+     * EVT_OPEN_PLATESETTINGSDIALOG with "only_layer_sequence": "Customize" of
+     * a filament sequence in the plate's tab opens PlateSettingsDialog for the
+     * current plate with the sequences alone, until it closes.
+     */
+    val layerSequencePrompt: Boolean = false,
     /** StepMeshDialog, which a load or a replacement of a STEP file waits for. */
     val stepMesh: StepMeshQuestion? = null,
     /** ObjColorDialog, which a load of an OBJ file with colours waits for. */

@@ -297,6 +297,7 @@ internal fun PrepareRoute(
             orient = viewModel::orientPlate,
             arrange = viewModel::arrangePlate,
             settings = viewModel::setPlateSettings,
+            cancelSettings = viewModel::cancelPlateSettings,
         ),
         onTogglePainting = viewModel::togglePainting,
         paintingActions = PaintingActions(
@@ -978,7 +979,9 @@ internal fun PrepareScreen(
                 },
             )
         }
-        customizingPlate?.takeIf { it == state.currentPlate && state.canEditPlate }?.let { index ->
+        // The plate tab's "Customize" of a filament sequence opens the dialog with the sequences alone.
+        val sequencesOnly = customizingPlate == null && state.layerSequencePrompt
+        (customizingPlate ?: state.currentPlate.takeIf { sequencesOnly })?.takeIf { it == state.currentPlate && state.canEditPlate }?.let { index ->
             PlateSettingsSheet(
                 name = state.plateNames.getOrNull(index).orEmpty(),
                 choice = state.plateSettings,
@@ -986,8 +989,10 @@ internal fun PrepareScreen(
                 filamentColors = state.filamentColors.map { Color(it.red, it.green, it.blue, it.alpha) },
                 spiralOn = state.spiralVaseMode,
                 i3 = state.printerI3,
+                onlyLayerSequence = sequencesOnly,
                 onDismiss = { name ->
                     customizingPlate = null
+                    plateActions.cancelSettings()
                     plateActions.rename(index, name)
                 },
                 onConfirm = { name, choice, agreed ->
@@ -1353,9 +1358,11 @@ internal class PlateActions(
     val arrange: (index: Int) -> Unit,
     /** PlateSettingsDialog's OK for the current plate, and whether the user agreed to what spiral vase mode needs. */
     val settings: (PlateSettingsChoice, vaseSettingsAgreed: Boolean) -> Unit,
+    /** PlateSettingsDialog closed without OK. */
+    val cancelSettings: () -> Unit,
 ) {
     companion object {
-        val NONE = PlateActions({}, {}, {}, {}, { _, _ -> }, {}, {}, {}, { _, _ -> })
+        val NONE = PlateActions({}, {}, {}, {}, { _, _ -> }, {}, {}, {}, { _, _ -> }, {})
     }
 }
 

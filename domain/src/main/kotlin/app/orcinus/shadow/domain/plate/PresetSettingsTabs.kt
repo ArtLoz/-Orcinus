@@ -221,6 +221,14 @@ class PresetSettingsTabs(
                     val before = repository.state.value.profiles
                     platePresets().apply(before, presetManager.presets())
                 }
+                // TabPrintPlate::on_value_change(): "Customize" of a filament sequence,
+                // which the plate takes in the filaments' order, posts
+                // EVT_OPEN_PLATESETTINGSDIALOG with "only_layer_sequence".
+                if (kind == PresetKind.PLATE && request is SettingsRequest.Change &&
+                    request.id.substringBefore('#') in LAYER_SEQUENCE_CHOICES && request.text == CUSTOMIZE
+                ) {
+                    repository.update { it.copy(layerSequencePrompt = true) }
+                }
             }
         }
     }
@@ -329,6 +337,10 @@ class PresetSettingsTabs(
 
         /** The printer setting the plate's filament slots follow. */
         const val EXTRUDERS_COUNT_KEY = "extruders_count"
+
+        /** The plate's choices of a filament sequence, and their LayerSeq::flsCustomize. */
+        val LAYER_SEQUENCE_CHOICES = setOf("first_layer_sequence_choice", "other_layers_sequence_choice")
+        const val CUSTOMIZE = "Customize"
     }
 
     private fun PlateState.withTab(kind: PresetKind, change: SettingsTabState.() -> SettingsTabState) =

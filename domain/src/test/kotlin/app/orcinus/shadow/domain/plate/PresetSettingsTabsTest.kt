@@ -400,6 +400,26 @@ class PresetSettingsTabsTest {
     }
 
     @Test
+    fun `Customize of a filament sequence in the plate's tab opens the plate settings with the sequences alone`() {
+        val repository = FakeRepository(READY.copy(objects = listOf(CUBE)))
+        val customized = ModelSettings(mapOf("first_layer_print_sequence" to "1"))
+        val editor = FakeEditor {
+            PresetSettingsOutcome.Success(STANDARD.copy(kind = PresetKind.PLATE, modelSettings = listOf(customized)), emptyList())
+        }
+        val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
+
+        tabs.request(PresetKind.PLATE, SettingsRequest.Change("first_layer_sequence_choice", "Auto"))
+        assertFalse(repository.state.value.layerSequencePrompt)
+
+        tabs.request(PresetKind.PLATE, SettingsRequest.Change("first_layer_sequence_choice", "Customize"))
+        assertTrue(repository.state.value.layerSequencePrompt)
+
+        // The dialog's Cancel, like its OK, closes it.
+        SetPlateSettingsUseCase(repository).cancel()
+        assertFalse(repository.state.value.layerSequencePrompt)
+    }
+
+    @Test
     fun `only the tabs the app has opened are described again`() {
         val repository = FakeRepository(READY)
         val editor = FakeEditor()

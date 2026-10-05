@@ -67,6 +67,8 @@ import kotlin.math.roundToInt
  * the dialog's DragCanvas does. OK asks first before spiral vase mode is
  * enabled ([spiralOn] is the plate's mode now), as PartPlate::set_spiral_vase_mode()
  * does; the name is kept however the sheet closes, as the dialog keeps it.
+ * [onlyLayerSequence] shows the filament sequences alone, as the dialog the
+ * plate tab's "Customize" opens ("only_layer_sequence").
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +80,7 @@ fun PlateSettingsSheet(
     spiralOn: Boolean,
     /** printer_structure is I3: the question adds that such printers make no timelapse. */
     i3: Boolean,
+    onlyLayerSequence: Boolean = false,
     onDismiss: (name: String) -> Unit,
     onConfirm: (name: String, choice: PlateSettingsChoice, vaseSettingsAgreed: Boolean) -> Unit,
 ) {
@@ -118,35 +121,37 @@ fun PlateSettingsSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(orcaString("Plate Settings"), color = colors.text, style = OrcaTheme.typography.head16)
-            SettingRow(orcaString("Plate name")) {
-                OrcaTextField(value = plateName, onValueChange = { plateName = it.take(PLATE_NAME_LENGTH) }, modifier = Modifier.fillMaxWidth())
-            }
-            SettingRow(orcaString("Bed type")) {
-                ChoiceField(
-                    options = listOf(orcaString("Same as Global Plate Type")) + bedTypes.map { orcaString(it.label) },
-                    selected = bedTypes.indexOfFirst { it.value == bedType } + 1,
-                    // PlateSettingsDialog disables it for a printer of another vendor than Bambu Lab.
-                    enabled = bedTypes.isNotEmpty(),
-                    onSelect = { bedType = bedTypes.getOrNull(it - 1)?.value },
-                )
-            }
-            SettingRow(orcaString("Print sequence")) {
-                ChoiceField(
-                    options = listOf(orcaString("Same as Global Print Sequence"), orcaString("By Layer"), orcaString("By Object")),
-                    selected = PRINT_SEQUENCES.indexOf(printSequence).coerceAtLeast(0),
-                    onSelect = { printSequence = PRINT_SEQUENCES[it] },
-                )
-            }
-            SettingRow(orcaString("Spiral vase")) {
-                ChoiceField(
-                    options = listOf(orcaString("Same as Global"), orcaString("Enable"), orcaString("Disable")),
-                    selected = when (spiral) {
-                        null -> 0
-                        true -> 1
-                        false -> 2
-                    },
-                    onSelect = { spiral = listOf(null, true, false)[it] },
-                )
+            if (!onlyLayerSequence) {
+                SettingRow(orcaString("Plate name")) {
+                    OrcaTextField(value = plateName, onValueChange = { plateName = it.take(PLATE_NAME_LENGTH) }, modifier = Modifier.fillMaxWidth())
+                }
+                SettingRow(orcaString("Bed type")) {
+                    ChoiceField(
+                        options = listOf(orcaString("Same as Global Plate Type")) + bedTypes.map { orcaString(it.label) },
+                        selected = bedTypes.indexOfFirst { it.value == bedType } + 1,
+                        // PlateSettingsDialog disables it for a printer of another vendor than Bambu Lab.
+                        enabled = bedTypes.isNotEmpty(),
+                        onSelect = { bedType = bedTypes.getOrNull(it - 1)?.value },
+                    )
+                }
+                SettingRow(orcaString("Print sequence")) {
+                    ChoiceField(
+                        options = listOf(orcaString("Same as Global Print Sequence"), orcaString("By Layer"), orcaString("By Object")),
+                        selected = PRINT_SEQUENCES.indexOf(printSequence).coerceAtLeast(0),
+                        onSelect = { printSequence = PRINT_SEQUENCES[it] },
+                    )
+                }
+                SettingRow(orcaString("Spiral vase")) {
+                    ChoiceField(
+                        options = listOf(orcaString("Same as Global"), orcaString("Enable"), orcaString("Disable")),
+                        selected = when (spiral) {
+                            null -> 0
+                            true -> 1
+                            false -> 2
+                        },
+                        onSelect = { spiral = listOf(null, true, false)[it] },
+                    )
+                }
             }
             SettingRow(orcaString("First layer filament sequence")) {
                 ChoiceField(

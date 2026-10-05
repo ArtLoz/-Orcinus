@@ -393,7 +393,8 @@ private val WIPE_TOWER_KEYS = setOf("wipe_tower_x", "wipe_tower_y")
  * prints differently.
  */
 class SetPlateSettingsUseCase(private val repository: PlateRepository) {
-    operator fun invoke(choice: PlateSettingsChoice, vaseSettingsAgreed: Boolean) = repository.update { state ->
+    operator fun invoke(choice: PlateSettingsChoice, vaseSettingsAgreed: Boolean) = repository.update { closing ->
+        val state = closing.copy(layerSequencePrompt = false)
         if (!state.canChangePlates) return@update state
         val before = state.plateSettings.plateSettingsChoice()
         val enabling = choice.spiralMode == true && !state.spiralVaseMode()
@@ -408,6 +409,9 @@ class SetPlateSettingsUseCase(private val repository: PlateRepository) {
         if (settings == state.plateSettings && objects == state.objects) return@update state
         state.copy(plateSettings = settings, objects = objects, result = null)
     }
+
+    /** The dialog closed without OK. */
+    fun cancel() = repository.update { state -> if (state.layerSequencePrompt) state.copy(layerSequencePrompt = false) else state }
 }
 
 /** PartPlate::get_spiral_vase_mode() of the current plate: its own, or the process preset's. */

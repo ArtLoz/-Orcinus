@@ -852,6 +852,9 @@ class PrepareViewModel(
     /** PlateSettingsDialog's OK for the current plate. */
     fun setPlateSettings(choice: PlateSettingsChoice, vaseSettingsAgreed: Boolean) = setPlateSettings.invoke(choice, vaseSettingsAgreed)
 
+    /** PlateSettingsDialog closed without OK. */
+    fun cancelPlateSettings() = setPlateSettings.cancel()
+
     /**
      * The painting gizmos (GLGizmoPainterBase): the tool of [kind] opens on
      * the selected object, paints while a finger moves over it, and keeps the

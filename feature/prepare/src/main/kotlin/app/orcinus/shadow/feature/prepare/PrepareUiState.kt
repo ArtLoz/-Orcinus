@@ -240,6 +240,8 @@ data class PrepareUiState(
     val customizedPlates: Set<Int> = emptySet(),
     /** What PlateSettingsDialog shows for the current plate. */
     val plateSettings: PlateSettingsChoice = PlateSettingsChoice(),
+    /** PlateSettingsDialog opens with the filament sequences alone (PlateState.layerSequencePrompt). */
+    val layerSequencePrompt: Boolean = false,
     val bedTypes: List<BedTypeChoice> = emptyList(),
     /** The current plate prints in spiral vase mode, its own or the process preset's. */
     val spiralVaseMode: Boolean = false,
@@ -916,6 +918,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         lockedPlates = lockedPlates(),
         customizedPlates = partPlates().indices.filterTo(mutableSetOf()) { partPlates()[it].settings.plateSettingsChoice() != PlateSettingsChoice() },
         plateSettings = plateSettings.plateSettingsChoice(),
+        layerSequencePrompt = layerSequencePrompt,
         bedTypes = presets?.bedTypes.orEmpty(),
         spiralVaseMode = spiralVaseMode(),
         printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",
