@@ -41,6 +41,7 @@ import app.orcinus.shadow.core.model.LayerRangeId
 import app.orcinus.shadow.core.model.ListClipboard
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.Manipulation
+import app.orcinus.shadow.core.model.MeshBooleanPicks
 import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ModelInspectionOutcome
@@ -1652,9 +1653,15 @@ class SelectObjectPartUseCase(private val repository: PlateRepository) {
     }
 }
 
-/** Whether a tool of the 3D view is open, which some commands of the plate wait for. */
+/**
+ * The tools of the 3D view as the plate knows them: whether one is open,
+ * which some commands of the plate wait for, and the mesh boolean tool's
+ * state, which the snapshots of the undo stack keep.
+ */
 class SetGizmoOpenUseCase(private val repository: PlateRepository) {
     operator fun invoke(open: Boolean) = repository.update { state -> if (state.gizmoOpen == open) state else state.copy(gizmoOpen = open) }
+
+    fun meshBoolean(picks: MeshBooleanPicks?) = repository.update { state -> if (state.meshBooleanTool == picks) state else state.copy(meshBooleanTool = picks) }
 }
 
 /**

@@ -64,6 +64,7 @@ import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.MeshBooleanOperation
+import app.orcinus.shadow.core.model.MeshBooleanPicks
 import app.orcinus.shadow.core.model.MeshErrors
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
@@ -3569,6 +3570,36 @@ class PlateUseCasesTest {
         assertFalse(runBlocking { boolean(PlateInstanceId(result.mesh), 0, 1, MeshBooleanOperation.DIFFERENCE, deleteInput = true).await() })
         assertEquals(PlateProblemKind.MESH_BOOLEAN_FAILED, repository.state.value.problem?.kind)
         assertEquals(result, repository.state.value.objects.single())
+    }
+
+    @Test
+    fun `Undo of a mesh boolean opens the tool again with the volumes it had picked, and Redo closes it`() {
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement)
+        val cube = CUBE.withParts(listOf(part))
+        val picks = MeshBooleanPicks(PlateInstanceId(cube.mesh), MeshBooleanOperation.DIFFERENCE, true, 0, 1, deleteDifference = false, deleteIntersection = true)
+        val repository = FakeRepository(readyState(cube).copy(meshBooleanTool = picks))
+        val inspector = FakeInspector()
+        val afterOperation = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/boolean-a.mesh")))))
+        val afterDelete = LOADED.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/objects/boolean-b.mesh")))), parts = emptyList())
+        inspector.booleans += ModelLoadOutcome.Success(listOf(afterOperation, afterDelete), emptyList(), selectedVolume = 0)
+        val history = UndoRedoPlateUseCase(repository, placePlateObjects(inspector, repository), settingsTabs(repository), scope)
+
+        assertTrue(runBlocking { MeshBooleanUseCase(inspector, FakeSceneFiles(), repository, scope)(picks.copy, 0, 1, MeshBooleanOperation.DIFFERENCE, true).await() })
+        // The tool closes once the volumes changed.
+        SetGizmoOpenUseCase(repository).meshBoolean(null)
+
+        // "Delete part": the result in the source's place, the tool still beside it, both picked.
+        history.undo()
+        assertEquals(picks.copy(copy = PlateInstanceId(ScenePath("/scene/objects/boolean-a.mesh"))), repository.state.value.meshBooleanTool)
+        assertEquals(1, repository.state.value.gizmoRestores)
+        // "Mesh Boolean": the volumes as they were, as picked.
+        history.undo()
+        assertEquals(picks, repository.state.value.meshBooleanTool)
+
+        history.redo()
+        history.redo()
+        assertNull(repository.state.value.meshBooleanTool)
+        assertEquals(4, repository.state.value.gizmoRestores)
     }
 
     @Test

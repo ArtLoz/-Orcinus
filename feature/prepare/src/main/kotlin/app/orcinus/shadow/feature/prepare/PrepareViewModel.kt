@@ -40,6 +40,7 @@ import app.orcinus.shadow.core.model.MeasureRay
 import app.orcinus.shadow.core.model.MeasureReset
 import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.MeshBooleanOperation
+import app.orcinus.shadow.core.model.MeshBooleanPicks
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
@@ -420,6 +421,12 @@ class PrepareViewModel(
         }
         // GLGizmosManager::get_current_type(): the plate knows while a tool is open.
         viewModelScope.launch { view.map { it.gizmoOpen }.distinctUntilChanged().collect { setGizmoOpen(it) } }
+        // GLGizmoMeshBoolean::on_save(): the snapshots keep the mesh boolean tool's picks ...
+        viewModelScope.launch { view.map { it.meshBooleanPicks() }.distinctUntilChanged().collect { setGizmoOpen.meshBoolean(it) } }
+        // ... and on_load() after Undo or Redo opens it again with them, or closes it.
+        viewModelScope.launch {
+            plate.map { it.gizmoRestores }.distinctUntilChanged().drop(1).collect { restoreMeshBoolean(plate.value.meshBooleanTool) }
+        }
         viewModelScope.launch {
             for (asked in cutPlanes) {
                 val plane = asked.plane ?: continue
@@ -2635,6 +2642,25 @@ class PrepareViewModel(
         closeOtherTools()
         closeEmbossTools()
         view.update { it.copy(meshBoolean = MeshBooleanMode(copy)) }
+    }
+
+    /** GLGizmosManager::load() of the mesh boolean tool: open with the snapshot's picks, or closed. */
+    private fun restoreMeshBoolean(picks: MeshBooleanPicks?) {
+        if (picks == null) {
+            if (view.value.meshBoolean != null) closeMeshBoolean()
+            return
+        }
+        if (view.value.meshBoolean == null) {
+            closeOtherTools()
+            closeEmbossTools()
+        }
+        view.update {
+            it.copy(
+                meshBoolean = MeshBooleanMode(picks.copy, picks.operation, picks.selectingTool, picks.source, picks.tool),
+                meshBooleanDeleteDifference = picks.deleteDifference,
+                meshBooleanDeleteIntersection = picks.deleteIntersection,
+            )
+        }
     }
 
     /** "Done": the tool closes, and with it its warning (close_plater_warning_notification()). */

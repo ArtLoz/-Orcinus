@@ -85,9 +85,15 @@ class MeshBooleanUseCase(
                     else -> {
                         changed = true
                         val last = written.last()
-                        // "Mesh Boolean", then "Delete part" when the tool went.
+                        // "Mesh Boolean", then "Delete part" when the tool went. The
+                        // result takes the source's place in the object, so the tool,
+                        // open until the end, keeps its picks for the object written
+                        // anew (GLGizmoMeshBoolean::on_save() of "Delete part").
                         val steps = written.fold(done) { step, result ->
-                            step.recorded().copy(objects = step.objects.mapIndexed { position, it -> if (position == at) result else it })
+                            step.recorded().copy(
+                                objects = step.objects.mapIndexed { position, it -> if (position == at) result else it },
+                                meshBooleanTool = step.meshBooleanTool?.copy(copy = PlateInstanceId(result.mesh, copy.instance)),
+                            )
                         }
                         val question = target.cutVolumeQuestion(toolType)?.takeIf { askCut }
                         steps.copy(

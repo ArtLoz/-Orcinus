@@ -27,6 +27,7 @@ import app.orcinus.shadow.core.model.ListClipboard
 import app.orcinus.shadow.core.model.MeasureHover
 import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.MeshBooleanOperation
+import app.orcinus.shadow.core.model.MeshBooleanPicks
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintTool
@@ -518,6 +519,11 @@ internal data class PrepareViewState(
     val gizmoOpen: Boolean
         get() = gizmo != null || painting != null || cut != null || simplify != null || text != null || svg != null ||
             measure != null || brimEars != null || meshBoolean != null
+
+    /** GLGizmoMeshBoolean::on_save() while the tool is open. */
+    fun meshBooleanPicks(): MeshBooleanPicks? = meshBoolean?.let {
+        MeshBooleanPicks(it.copy, it.operation, it.selectingTool, it.source, it.tool, meshBooleanDeleteDifference, meshBooleanDeleteIntersection)
+    }
 }
 
 /**

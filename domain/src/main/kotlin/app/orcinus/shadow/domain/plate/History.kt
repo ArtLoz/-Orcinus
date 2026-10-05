@@ -27,6 +27,7 @@ internal fun PlateState.snapshot() = PlateSnapshot(
     plates = partPlates().map { PartPlate(name = it.name, locked = it.locked, settings = it.settings) },
     currentPlate = currentPlate,
     layerEditing = layerEditing,
+    meshBoolean = meshBooleanTool,
 )
 
 /**
@@ -102,6 +103,9 @@ class UndoRedoPlateUseCase(
             // Plater::priv::undo_redo_to(): the variable layer height is on after
             // the jump as it was when the snapshot was taken, where it is allowed.
             layerEditing = target.layerEditing,
+            // GLGizmosManager::load(): the mesh boolean tool as it was then.
+            meshBooleanTool = target.meshBoolean,
+            gizmoRestores = gizmoRestores + 1,
         ).withPlates(plates, target.currentPlate.coerceIn(plates.indices)).let { restored ->
             if (restored.layerEditing && restored.layerEditingObject() == null) restored.copy(layerEditing = false) else restored
         }

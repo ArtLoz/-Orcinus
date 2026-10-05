@@ -557,6 +557,24 @@ data class PlateSnapshot(
     val currentPlate: Int,
     /** UndoRedo::SnapshotData::VARIABLE_LAYER_EDITING_ACTIVE: the variable layer height was on. */
     val layerEditing: Boolean = false,
+    /** The mesh boolean tool as it was open then (GLGizmosManager::save()); null while it was closed. */
+    val meshBoolean: MeshBooleanPicks? = null,
+)
+
+/**
+ * GLGizmoMeshBoolean::on_save(): the copy it is open on, its operation,
+ * whether a finger picks the tool, the source and the tool picked
+ * (ModelObject::volumes), and "Delete input" of the difference and of the
+ * intersection.
+ */
+data class MeshBooleanPicks(
+    val copy: PlateInstanceId,
+    val operation: MeshBooleanOperation,
+    val selectingTool: Boolean,
+    val source: Int?,
+    val tool: Int?,
+    val deleteDifference: Boolean,
+    val deleteIntersection: Boolean,
 )
 
 /**
@@ -1168,6 +1186,16 @@ data class PlateState(
     val layerSequencePrompt: Boolean = false,
     /** GLGizmosManager::get_current_type() != Undefined: a tool of the 3D view is open. */
     val gizmoOpen: Boolean = false,
+    /**
+     * GLGizmoMeshBoolean's state while it is open (on_save()), which every
+     * snapshot taken meanwhile keeps; null while it is closed.
+     */
+    val meshBooleanTool: MeshBooleanPicks? = null,
+    /**
+     * Undo and Redo so far: each one opens again the tools its snapshot had
+     * open (GLGizmosManager::load()), the mesh boolean with its picks.
+     */
+    val gizmoRestores: Int = 0,
     /** StepMeshDialog, which a load or a replacement of a STEP file waits for. */
     val stepMesh: StepMeshQuestion? = null,
     /** ObjColorDialog, which a load of an OBJ file with colours waits for. */
