@@ -99,6 +99,7 @@ import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.core.model.SliceFailureCode
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceOutcome
+import app.orcinus.shadow.core.model.SliceOutputNaming
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
@@ -1736,8 +1737,17 @@ class ExportGcodeUseCase(
     private val documents: DocumentExport,
     private val repository: PlateRepository,
 ) {
-    /** The name the file is offered under, as the slice named it. */
-    fun suggestedName(): String? = repository.state.value.result?.gcode?.value?.let { java.io.File(it).name }
+    /**
+     * The name the file is offered under: the slice's Print::output_filename(),
+     * or the G-code file's own name when the slice gave none.
+     */
+    fun suggestedName(): String? = repository.state.value.result?.let { result -> result.outputName.ifEmpty { java.io.File(result.gcode.value).name } }
+
+    /**
+     * Plater::export_gcode() and Plater::send_gcode() stop with this message,
+     * when filename_format could not name the G-code; null when it could.
+     */
+    fun nameError(): String? = repository.state.value.result?.outputNameError?.ifEmpty { null }
 
     suspend operator fun invoke(document: ExternalDocumentReference): Boolean {
         val result = repository.state.value.result ?: return false
@@ -1757,8 +1767,9 @@ class ShareGcodeUseCase(
     private val repository: PlateRepository,
 ) {
     suspend operator fun invoke(): ExternalDocumentReference? {
-        val gcode = repository.state.value.result?.gcode?.value ?: return null
-        return files.shareable(gcode, java.io.File(gcode).name)
+        val result = repository.state.value.result ?: return null
+        val gcode = result.gcode.value
+        return files.shareable(gcode, result.outputName.ifEmpty { java.io.File(gcode).name })
     }
 }
 
@@ -2534,6 +2545,8 @@ class SlicePlateUseCase(
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    /** ModelInfo::model_name of the project whose information sits in the directory; "" for none. */
+    private val projectModelName: suspend (ScenePath) -> String = { "" },
 ) {
     operator fun invoke() {
         val job = start { it.canSlice } ?: return
@@ -2568,6 +2581,9 @@ class SlicePlateUseCase(
             plate.plates.size > 1 -> "_plate_${plate.currentPlate + 1}"
             else -> ""
         }
+        // Plater::export_gcode(): the project's name once the project has a file.
+        val filenameBase = plate.project.name?.takeIf { plate.project.document != null }.orEmpty()
+        val projectInfo = plate.project.info
 
         return {
             val toolpaths = sceneFiles.newToolpaths()
@@ -2588,6 +2604,7 @@ class SlicePlateUseCase(
                 layerGcodes = layerGcodes,
                 calibration = calibration,
                 paPattern = paPattern,
+                naming = SliceOutputNaming(filenameBase, plateName, projectInfo?.let { projectModelName(it) }.orEmpty()),
             )
             val outcome = try {
                 sliceModel(request, SliceProgressObserver { progress ->
@@ -2631,6 +2648,8 @@ class SlicePlateUseCase(
                     sliceInfo = outcome.sliceInfo,
                     layerGcodes = sliced,
                     layerGcodeRules = outcome.layerGcodeRules,
+                    outputName = outcome.outputName,
+                    outputNameError = outcome.outputNameError,
                 ),
                 // IMSlider::SetTicksValues(): the codes this print does not allow go.
                 layerGcodes = layerGcodes.allowedBy(outcome.layerGcodeRules),

@@ -35,4 +35,8 @@ parcelable SliceRequestParcel {
     @nullable CalibrationParcel calibration;
     /** The PA pattern the plate's handles print; null for none. */
     @nullable CalibrationParcel paPattern;
+    /** SliceOutputNaming: what the G-code's name is made of. */
+    @nullable String outputFilenameBase;
+    @nullable String outputPlateName;
+    @nullable String outputModelName;
 }

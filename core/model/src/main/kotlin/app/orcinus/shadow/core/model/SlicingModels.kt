@@ -498,6 +498,20 @@ data class SliceRequest(
      * print in place of the layer codes; null for none.
      */
     val paPattern: CalibrationParams? = null,
+    /** What the G-code's name is made of (SliceOutcome.Success.outputName). */
+    val naming: SliceOutputNaming = SliceOutputNaming(),
+)
+
+/**
+ * What Print::output_filename() names the G-code after: the project's name once
+ * the project has a file (Plater::priv::get_project_filename()), or else the
+ * first printed object's name; the plate's name and the project's model name
+ * (ModelInfo::model_name).
+ */
+data class SliceOutputNaming(
+    val filenameBase: String = "",
+    val plateName: String = "",
+    val modelName: String = "",
 )
 
 /** CalibMode of calib.hpp: the calibration a plate prints, in its order. */
@@ -797,6 +811,13 @@ sealed interface SliceOutcome {
         /** The requested slice info, or null when none was written. */
         val sliceInfo: ScenePath? = null,
         val layerGcodeRules: LayerGcodeRules = LayerGcodeRules(),
+        /**
+         * The name Export G-code and Send offer the G-code under
+         * (Print::output_filename() of filename_format, folded to ASCII); empty,
+         * with [outputNameError], when the template could not be processed.
+         */
+        val outputName: String = "",
+        val outputNameError: String = "",
     ) : SliceOutcome
 
     data class Failure(

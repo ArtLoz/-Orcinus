@@ -64,6 +64,7 @@
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r_version.h"
+#include "slic3r/Utils/ASCIIFolding.hpp"
 
 #include "nanosvg/nanosvg.h"
 #include "nanosvg/nanosvgrast.h"
@@ -1642,7 +1643,8 @@ SliceResult slice(
     const std::vector<LayerGcode>& layer_gcodes,
     const CalibrationParams& calibration,
     const CalibrationParams& pa_pattern,
-    const std::string& slice_info_path
+    const std::string& slice_info_path,
+    const OutputNaming& naming
 )
 {
     if (!acquire_job(job_id)) {
@@ -1701,6 +1703,12 @@ SliceResult slice(
             pa_pattern_gcodes(model, presets_config, pa_pattern);
         }
 
+        // The project's model name, which filename_format may name the G-code after.
+        if (!naming.model_name.empty()) {
+            model.model_info = std::make_shared<Slic3r::ModelInfo>();
+            model.model_info->model_name = naming.model_name;
+        }
+
         Slic3r::Print print;
         // PartPlate::set_print() and set_index(): the print of the current
         // plate starts at its origin, which G-code coordinates are relative
@@ -1708,6 +1716,7 @@ SliceResult slice(
         // wipe tower position.
         print.set_plate_origin(Slic3r::to_3d(plate_origin_of(config), 0.));
         print.set_plate_index(engine().plate_index);
+        print.set_plate_name(naming.plate_name);
         // The calibration the Calibration menu set on the plate's print.
         print.set_calib_params(detail::calib_params(calibration));
         print.set_status_callback([&on_progress](const Slic3r::PrintBase::SlicingStatus& status) {
@@ -1760,6 +1769,15 @@ SliceResult slice(
         result.estimated_print_time_seconds = std::llround(print_time);
         result.filament_micrometers = std::llround(print.print_statistics().total_used_filament * 1'000.0);
         result.total_cost = print.print_statistics().total_cost;
+        // Plater::export_gcode(): BackgroundSlicingProcess::output_filepath_for_project()
+        // of the finished print, whose statistics fill the template, folded to
+        // ASCII; the file dialog offers its name alone.
+        try {
+            const std::string name = Slic3r::fold_utf8_to_ascii(print.output_filename(naming.filename_base));
+            result.output_name = fs::path(name).filename().string();
+        } catch (const Slic3r::PlaceholderParserError& error) {
+            result.output_name_error = error.what();
+        }
         result.filaments = filament_usage(gcode_result, filaments, config.option<Slic3r::ConfigOptionStrings>("filament_colour")->values.size());
         result.toolpaths_written = !toolpaths_path.empty() && write_toolpaths(gcode_result, print, config, toolpaths_path);
         result.slice_info_written = !slice_info_path.empty() && detail::write_slice_info(print, gcode_result, slice_info_path);

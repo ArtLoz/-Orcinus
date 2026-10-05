@@ -345,6 +345,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sceneFiles,
         plateRepository,
         applicationScope,
+        projectModelName = { directory -> withContext(Dispatchers.IO) { AppProjectInfoFiles(applicationContext).read(directory).modelName } },
     )
     private val sliceAllPlates = SliceAllPlatesUseCase(slicePlate, plateRepository, applicationScope)
     val sliceAction = SliceActionUseCase(slicePlate, sliceAllPlates, plateRepository)

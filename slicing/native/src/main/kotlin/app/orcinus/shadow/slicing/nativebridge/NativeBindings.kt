@@ -23,6 +23,9 @@ internal class NativeSliceResult(
     @JvmField val filaments: IntArray,
     @JvmField val filamentAmounts: DoubleArray,
     @JvmField val sliceInfoWritten: Boolean,
+    /** Print::output_filename(), and the template's error when there is none. */
+    @JvmField val outputName: String,
+    @JvmField val outputNameError: String,
 ) {
     companion object {
         const val SUCCESS = 0L
@@ -1154,6 +1157,10 @@ internal object NativeBindings {
         paPattern: NativeCalibration?,
         /** Where what the plate keeps of its slice for its 3MF files goes; null writes none. */
         sliceInfoPath: String?,
+        /** What the G-code's name is made of (OutputNaming in orca_engine_adapter.hpp). */
+        outputFilenameBase: String,
+        outputPlateName: String,
+        outputModelName: String,
     ): NativeSliceResult
 
     /** prepare_calibration(): the calibration's model set up on the empty plate, and the presets changed. */

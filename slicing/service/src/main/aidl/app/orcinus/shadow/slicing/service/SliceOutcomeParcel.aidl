@@ -30,4 +30,7 @@ parcelable SliceOutcomeParcel {
     boolean sequential;
     boolean canChangeFilament;
     boolean hasTemplate;
+    /** The name of a success's G-code, or the template's error. */
+    @nullable String outputName;
+    @nullable String outputNameError;
 }

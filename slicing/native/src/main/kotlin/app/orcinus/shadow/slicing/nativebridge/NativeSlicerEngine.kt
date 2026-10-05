@@ -269,6 +269,9 @@ class NativeSlicerEngine(context: Context) :
                     calibration = request.calibration?.toNative(),
                     paPattern = request.paPattern?.toNative(),
                     sliceInfoPath = request.sliceInfo?.value,
+                    outputFilenameBase = request.naming.filenameBase,
+                    outputPlateName = request.naming.plateName,
+                    outputModelName = request.naming.modelName,
                 )
             }
             try {
@@ -2886,6 +2889,8 @@ class NativeSlicerEngine(context: Context) :
                     canChangeFilament = result.canChangeFilament,
                     hasTemplate = result.hasTemplate,
                 ),
+                outputName = result.outputName,
+                outputNameError = result.outputNameError,
             )
 
             NativeSliceResult.CANCELLED -> SliceOutcome.Cancelled(request.jobId)

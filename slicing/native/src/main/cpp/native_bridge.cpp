@@ -1223,7 +1223,10 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     jobjectArray layer_gcode_extras,
     jobject calibration,
     jobject pa_pattern,
-    jstring slice_info_path
+    jstring slice_info_path,
+    jstring output_filename_base,
+    jstring output_plate_name,
+    jstring output_model_name
 )
 {
     const std::vector<orcinus::orca::LayerGcode> layer_gcodes =
@@ -1253,7 +1256,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         layer_gcodes,
         to_calibration(env, calibration),
         to_calibration(env, pa_pattern),
-        slice_info_path != nullptr ? to_utf8(env, slice_info_path) : std::string()
+        slice_info_path != nullptr ? to_utf8(env, slice_info_path) : std::string(),
+        orcinus::orca::OutputNaming{to_utf8(env, output_filename_base), to_utf8(env, output_plate_name), to_utf8(env, output_model_name)}
     );
 
     // The filaments the plate prints with, and eight amounts for each: metres
@@ -1269,7 +1273,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     const jintArray filament_array = env->NewIntArray(static_cast<jsize>(filaments.size()));
     env->SetIntArrayRegion(filament_array, 0, static_cast<jsize>(filaments.size()), filaments.data());
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZZZZD[I[DZ)V");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZZZZD[I[DZLjava/lang/String;Ljava/lang/String;)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1286,7 +1290,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         static_cast<jdouble>(result.total_cost),
         filament_array,
         to_java(env, amounts.data(), amounts.size()),
-        result.slice_info_written ? JNI_TRUE : JNI_FALSE
+        result.slice_info_written ? JNI_TRUE : JNI_FALSE,
+        to_java(env, result.output_name),
+        to_java(env, result.output_name_error)
     );
 }
 

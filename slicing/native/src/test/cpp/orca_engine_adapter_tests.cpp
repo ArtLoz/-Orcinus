@@ -1196,6 +1196,44 @@ TEST_CASE("The settings of an object and of the plate override the process prese
     }
 }
 
+TEST_CASE("The G-code is named after the process's filename_format", "[Adapter]")
+{
+    require_engine();
+    const auto starts_with = [](const std::string& text, const std::string& start) { return text.rfind(start, 0) == 0; };
+    const auto ends_with = [](const std::string& text, const std::string& end) {
+        return text.size() >= end.size() && text.compare(text.size() - end.size(), end.size(), end) == 0;
+    };
+
+    // "{input_filename_base}_{filament_type[initial_tool]}_{print_time}.gcode":
+    // without a project file, the first printed object's name.
+    const orca::SliceResult unnamed = orca::slice("named", plate_of({}), output_path("named.gcode"), {}, k2_plus_profiles(), {},
+                                                  [](int, const std::string&) {});
+    INFO(unnamed.message);
+    REQUIRE(unnamed.status == orca::SliceStatus::success);
+    INFO(unnamed.output_name);
+    CHECK(starts_with(unnamed.output_name, "calibration-cube-20mm_PLA_"));
+    CHECK(ends_with(unnamed.output_name, ".gcode"));
+    CHECK(unnamed.output_name_error.empty());
+
+    // The project's name, its accented letters folded as Plater::export_gcode() folds them.
+    orca::OutputNaming project;
+    project.filename_base = "\xC3\x89t\xC3\xA9";
+    const orca::SliceResult named = orca::slice("named", plate_of({}), output_path("named.gcode"), {}, k2_plus_profiles(), {},
+                                                [](int, const std::string&) {}, {}, {}, {}, {}, {}, {}, project);
+    INFO(named.output_name);
+    CHECK(starts_with(named.output_name, "Ete_PLA_"));
+
+    // A template that cannot be processed leaves no name and Orca's message.
+    orca::ModelSettings broken;
+    broken.keys = {"filename_format"};
+    broken.values = {"{input_filename_base"};
+    const orca::SliceResult failed = orca::slice("named", plate_of({}), output_path("named.gcode"), {}, k2_plus_profiles(), broken,
+                                                 [](int, const std::string&) {});
+    REQUIRE(failed.status == orca::SliceStatus::success);
+    CHECK(failed.output_name.empty());
+    CHECK(failed.output_name_error.find("Failed processing of the filename_format template.") != std::string::npos);
+}
+
 TEST_CASE("Bundled K2 Plus profiles slice the calibration cube into Orca G-code", "[Adapter]")
 {
     require_engine();

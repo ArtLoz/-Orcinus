@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -153,6 +154,7 @@ internal fun PreviewRoute(
             openDevice = onOpenDevice,
         ),
         gcodeName = viewModel::gcodeName,
+        gcodeNameError = viewModel::gcodeNameError,
         onCancelSlicing = viewModel::cancelSlicing,
         onExportGcode = viewModel::exportGcode,
         exportedName = viewModel::exportedName,
@@ -220,6 +222,8 @@ internal fun PreviewScreen(
     printers: PrinterActions = PrinterActions.NONE,
     /** Export G-code: the name the file is offered under, and the save itself. */
     gcodeName: () -> String = { "plate.gcode" },
+    /** The message that stops Export and Send when filename_format could not name the G-code. */
+    gcodeNameError: () -> String? = { null },
     /** SlicingProgressNotification's Cancel. */
     onCancelSlicing: () -> Unit = {},
     onExportGcode: suspend (ExternalDocumentReference) -> Boolean = { false },
@@ -247,6 +251,10 @@ internal fun PreviewScreen(
         localNetworkDenied = denied
         sending = true
     }
+    // Plater::export_gcode() and Plater::send_gcode(): a template that could
+    // not name the file shows its error, and nothing is saved or sent.
+    var nameError by remember { mutableStateOf<String?>(null) }
+    val send = { gcodeNameError()?.let { nameError = it } ?: openSending() }
     var sent by remember { mutableStateOf<PrintHostUploadOutcome?>(null) }
     // Http::on_progress while the file travels; null when nothing is going out.
     var progress by remember { mutableStateOf<Float?>(null) }
@@ -327,12 +335,12 @@ internal fun PreviewScreen(
                         // Export G-code of the desktop app's File menu.
                         OrcaButton(
                             text = stringResource(UiR.string.gcode_save),
-                            onClick = { gcodePicker.launch(gcodeName()) },
+                            onClick = { gcodeNameError()?.let { nameError = it } ?: gcodePicker.launch(gcodeName()) },
                             modifier = Modifier.weight(1f),
                         )
                         OrcaButton(
                             text = stringResource(UiR.string.printer_host_send),
-                            onClick = openSending,
+                            onClick = send,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(start = 8.dp),
@@ -548,7 +556,7 @@ internal fun PreviewScreen(
                     // PrintHost::upload: the G-code goes to a printer of the user.
                     OrcaButton(
                         text = stringResource(UiR.string.printer_host_send),
-                        onClick = openSending,
+                        onClick = send,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -603,6 +611,36 @@ internal fun PreviewScreen(
     saved?.let { written ->
         ExportResultDialog(orcaString("Export G-code"), written, stringResource(UiR.string.gcode_saved), onDismiss = { saved = null })
     }
+    nameError?.let { message ->
+        NameErrorDialog(message, onDismiss = { nameError = null })
+    }
+}
+
+/**
+ * show_error() with a monospaced font, as Plater shows a PlaceholderParserError:
+ * "Failed processing of the filename_format template." and the parser's message.
+ */
+@Composable
+private fun NameErrorDialog(message: String, onDismiss: () -> Unit) {
+    val colors = OrcaTheme.colors
+    val first = message.substringBefore('\n')
+    val rest = message.substringAfter('\n', "")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { OrcaButton(orcaString("OK"), onClick = onDismiss) },
+        title = { Text(orcaString("Error"), style = OrcaTheme.typography.head16) },
+        text = {
+            Text(
+                text = orcaString(first) + if (rest.isEmpty()) "" else "\n" + rest,
+                color = colors.text,
+                style = OrcaTheme.typography.body13.copy(fontFamily = FontFamily.Monospace),
+            )
+        },
+        containerColor = colors.window,
+        titleContentColor = colors.text,
+        textContentColor = colors.text,
+        shape = OrcaTheme.shapes.window,
+    )
 }
 
 /** What the upload did, as the desktop app reports it. */

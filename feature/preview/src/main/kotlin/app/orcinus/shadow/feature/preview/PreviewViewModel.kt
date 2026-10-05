@@ -209,6 +209,9 @@ class PreviewViewModel(
     /** Export G-code: the name the file is offered under, and the save itself. */
     fun gcodeName(): String = exportGcode.suggestedName() ?: "plate.gcode"
 
+    /** Why filename_format could not name the G-code, which stops Export and Send; null when it could. */
+    fun gcodeNameError(): String? = exportGcode.nameError()
+
     suspend fun exportGcode(document: ExternalDocumentReference): Boolean = exportGcode.invoke(document)
 
     /** The name the exported document goes by, which the export's notification shows. */

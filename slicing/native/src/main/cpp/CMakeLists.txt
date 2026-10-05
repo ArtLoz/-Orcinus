@@ -39,6 +39,8 @@ add_library(orca_engine_adapter STATIC
     wipe_tower.cpp
     # libvgcode::convert() from GCodeProcessorResult, as the desktop preview loads G-code.
     "${LIBDIR}/slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp"
+    # fold_utf8_to_ascii(), which the desktop app names exported and uploaded G-code with.
+    "${LIBDIR}/slic3r/Utils/ASCIIFolding.cpp"
 )
 target_include_directories(orca_engine_adapter PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
 # LibVGCodeWrapper.hpp includes libvgcode relative to src/slic3r, and

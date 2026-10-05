@@ -44,6 +44,7 @@ import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjColorQuestion
 import app.orcinus.shadow.core.model.PlateCircle
 import app.orcinus.shadow.core.model.PrintedObject
+import app.orcinus.shadow.core.model.SliceOutputNaming
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.SvgPreviewOutcome
@@ -176,6 +177,9 @@ internal fun SliceRequest.toParcel() = SliceRequestParcel().also {
     it.layerGcodeExtras = layerGcodes.map(LayerGcode::extra).toTypedArray()
     it.calibration = calibration?.toParcel()
     it.paPattern = paPattern?.toParcel()
+    it.outputFilenameBase = naming.filenameBase
+    it.outputPlateName = naming.plateName
+    it.outputModelName = naming.modelName
 }
 
 internal fun CalibrationParams.toParcel() = CalibrationParcel().also {
@@ -250,6 +254,7 @@ internal fun SliceRequestParcel.toSliceRequest() = SliceRequest(
     layerGcodes = layerGcodesOf(layerGcodeHeights, layerGcodeTypes, layerGcodeExtruders, layerGcodeColors, layerGcodeExtras),
     calibration = calibration?.toCalibrationParams(),
     paPattern = paPattern?.toCalibrationParams(),
+    naming = SliceOutputNaming(outputFilenameBase.orEmpty(), outputPlateName.orEmpty(), outputModelName.orEmpty()),
 )
 
 internal fun ThumbnailSizesOutcome.toParcel() = ThumbnailSizesParcel().also {
@@ -584,6 +589,8 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.sequential = layerGcodeRules.sequential
             it.canChangeFilament = layerGcodeRules.canChangeFilament
             it.hasTemplate = layerGcodeRules.hasTemplate
+            it.outputName = outputName
+            it.outputNameError = outputNameError
         }
 
         is SliceOutcome.Failure -> {
@@ -614,6 +621,8 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             wipeTower = wipeTowerPath?.let(::ScenePath),
             sliceInfo = sliceInfoPath?.let(::ScenePath),
             layerGcodeRules = LayerGcodeRules(sequential, canChangeFilament, hasTemplate),
+            outputName = outputName.orEmpty(),
+            outputNameError = outputNameError.orEmpty(),
         )
 
         SliceOutcomeParcel.FAILURE -> SliceOutcome.Failure(

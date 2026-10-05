@@ -619,6 +619,9 @@ data class PlateSliceResult(
     val layerGcodes: List<LayerGcode> = emptyList(),
     /** What the layer slider's menu offers for this print. */
     val layerGcodeRules: LayerGcodeRules = LayerGcodeRules(),
+    /** SliceOutcome.Success.outputName and outputNameError. */
+    val outputName: String = "",
+    val outputNameError: String = "",
 )
 
 enum class PlateProblemKind {

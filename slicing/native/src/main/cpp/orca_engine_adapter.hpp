@@ -101,6 +101,23 @@ struct SliceResult {
     bool sequential{false};
     bool can_change_filament{true};
     bool has_template{false};
+    // The name Plater::export_gcode() and Plater::send_gcode() offer the
+    // G-code under: Print::output_filename() of the process's filename_format,
+    // its accented latin letters folded (fold_utf8_to_ascii). Empty, with
+    // output_name_error, when the template could not be processed.
+    std::string output_name;
+    std::string output_name_error;
+};
+
+// What Print::output_filename() names the G-code after: the project's name once
+// the project has a file (Plater::priv::get_project_filename()), or else the
+// first printed object's name or file (PrintBase::update_object_placeholders());
+// the plate's name (PartPlate::set_plate_name()) and the project's model name
+// (ModelInfo::model_name).
+struct OutputNaming {
+    std::string filename_base;
+    std::string plate_name;
+    std::string model_name;
 };
 
 // CustomGCode::Type of CustomGCode.hpp: what a code on a layer does.
@@ -376,7 +393,9 @@ SliceResult slice(
     const CalibrationParams& pa_pattern = {},
     // Where what the plate keeps of its slice for the 3MF files of the
     // project and its sliced plates is written (slice_info.hpp); empty writes none.
-    const std::string& slice_info_path = {}
+    const std::string& slice_info_path = {},
+    // What the G-code's name is made of (SliceResult::output_name).
+    const OutputNaming& naming = {}
 );
 
 // Returns true only when job_id is the active job and cancellation was requested.
