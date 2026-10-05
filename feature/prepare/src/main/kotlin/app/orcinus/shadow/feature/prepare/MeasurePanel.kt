@@ -25,8 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
@@ -92,17 +95,20 @@ internal fun MeasurePanel(mode: MeasureMode, actions: MeasureActions, imperial: 
     val scale = if (imperial) ImperialUnits.MM_TO_IN else 1.0
     PaintingPanelFrame(orcaString("Measure"), orcaString("Done"), actions.close) {
         // show_selection_ui()
+        val captionWidth = selectionCapLength(orcaString("Selection") + " 1")
         SelectionRow(
             title = orcaString("Selection") + " 1",
             text = selectionText(measurement.first, units, scale),
             color = SELECTED_1ST_COLOR,
             onReset = { actions.reset(MeasureReset.FIRST) }.takeIf { measurement.first != null },
+            titleWidth = captionWidth,
         )
         SelectionRow(
             title = orcaString("Selection") + " 2",
             text = selectionText(measurement.second, units, scale),
             color = SELECTED_2ND_COLOR,
             onReset = { actions.reset(MeasureReset.SECOND) }.takeIf { measurement.first != null && measurement.second != null },
+            titleWidth = captionWidth,
         )
         // The window drops the tip once both features are selected again.
         if (measurement.showResetFirstTip && measurement.second == null) {
@@ -176,11 +182,22 @@ internal fun MeasureScaleDialog(distance: Double, imperial: Boolean, onScale: (v
     )
 }
 
+/**
+ * show_selection_ui()'s selection_cap_length: the width of [caption], and a
+ * fifth more, which the names of the selections stand in.
+ */
+@Composable
+private fun selectionCapLength(caption: String): Dp {
+    val measurer = rememberTextMeasurer()
+    val style = OrcaTheme.typography.body13
+    return with(LocalDensity.current) { (measurer.measure(caption, style).size.width * 1.2f).toDp() }
+}
+
 /** A selection's row: its name in its colour, what it is, and its reset button. */
 @Composable
-private fun SelectionRow(title: String, text: String, color: Color, onReset: (() -> Unit)?) {
+private fun SelectionRow(title: String, text: String, color: Color, onReset: (() -> Unit)?, titleWidth: Dp) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-        Text(title, color = color, style = OrcaTheme.typography.body13, modifier = Modifier.width(SELECTION_TITLE_WIDTH))
+        Text(title, color = color, style = OrcaTheme.typography.body13, modifier = Modifier.width(titleWidth))
         Text(text, color = color, style = OrcaTheme.typography.body13, modifier = Modifier.weight(1f))
         if (onReset != null) {
             OrcaIconButton(icon = DesignR.drawable.orca_revert_btn, contentDescription = orcaString("Reset"), onClick = onReset, tint = Color.Unspecified)
@@ -325,7 +342,6 @@ private val AXIS_X_COLOR = Color(255 / 255f, 60 / 255f, 91 / 255f)
 private val AXIS_Y_COLOR = Color(100 / 255f, 200 / 255f, 24 / 255f)
 private val AXIS_Z_COLOR = Color(47 / 255f, 136 / 255f, 233 / 255f)
 
-private val SELECTION_TITLE_WIDTH = 88.dp
 private val AXIS_LABEL_WIDTH = 32.dp
 private val RESET_PLACE = 40.dp
 
@@ -387,17 +403,20 @@ internal fun AssemblyPanel(mode: MeasureMode, actions: MeasureActions, assembly:
             modifier = Modifier.padding(top = 6.dp),
         )
         val kind = orcaString(if (faceToFace) "Face" else "Point")
+        val captionWidth = selectionCapLength(orcaString("Selection") + " 1" + orcaString(" (Moving)"))
         SelectionRow(
             title = kind + " 1" + orcaString(" (Fixed)"),
             text = selectionText(measurement.first, units, scale),
             color = SELECTED_1ST_COLOR,
             onReset = { actions.reset(MeasureReset.FIRST) }.takeIf { measurement.first != null },
+            titleWidth = captionWidth,
         )
         SelectionRow(
             title = kind + " 2" + orcaString(" (Moving)"),
             text = selectionText(measurement.second, units, scale),
             color = SELECTED_2ND_COLOR,
             onReset = { actions.reset(MeasureReset.SECOND) }.takeIf { measurement.first != null && measurement.second != null },
+            titleWidth = captionWidth,
         )
         if (measurement.showResetFirstTip && measurement.second == null) {
             Text(
