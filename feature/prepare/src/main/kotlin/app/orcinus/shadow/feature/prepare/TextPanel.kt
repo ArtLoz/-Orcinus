@@ -129,12 +129,14 @@ internal class TextActions(
     val setCollection: (Int) -> Unit,
     /** The text where a finger left it on its object (SurfaceDrag). */
     val drag: (Transform3) -> Unit,
+    /** The text let go on its rotation ring, turned by the angle (radians) about its own Z axis. */
+    val turn: (Double) -> Unit,
 ) {
     companion object {
         val NONE = TextActions(
             { _, _, _ -> }, { _, _, _, _, _ -> }, { _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
             {}, {}, {}, {}, {}, { _, _ -> }, {},
-            {}, {}, {}, {}, {}, {},
+            {}, {}, {}, {}, {}, {}, {},
         )
     }
 }

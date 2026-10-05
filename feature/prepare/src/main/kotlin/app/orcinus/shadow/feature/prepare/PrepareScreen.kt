@@ -514,6 +514,7 @@ internal fun PrepareRoute(
             faceCamera = viewModel::faceTextToCamera,
             setCollection = viewModel::setTextCollection,
             drag = viewModel::dragText,
+            turn = viewModel::turnText,
         ),
         textFamilies = textFamilies,
         svgActions = SvgActions(
@@ -542,6 +543,7 @@ internal fun PrepareRoute(
             bake = viewModel::bakeSvg,
             saveAs = { viewModel.svgSaveName()?.let(svgSaver::launch) },
             drag = viewModel::dragSvg,
+            turn = viewModel::turnSvg,
         ),
         measureActions = MeasureActions(
             toggle = viewModel::toggleMeasure,
@@ -857,6 +859,7 @@ internal fun PrepareScreen(
                 textDrag = state.text?.takeUnless { it.busy }?.let { embossDragOf(it.volume, it.described, keepUp = true, state.sceneCopies) }
                     ?: state.svg?.takeUnless { it.busy }?.let { embossDragOf(it.volume, it.described, keepUp = it.keepUp, state.sceneCopies) },
                 onTextDragged = { placement -> if (state.text != null) textActions.drag(placement) else svgActions.drag(placement) },
+                onTextTurned = { turn -> if (state.text != null) textActions.turn(turn) else svgActions.turn(turn) },
                 measure = state.measure?.let { mode ->
                     MeasureView(
                         copies = state.measuredCopies,

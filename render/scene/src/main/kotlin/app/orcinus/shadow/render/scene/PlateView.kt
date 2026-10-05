@@ -68,6 +68,7 @@ import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.extruderNumber
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.rotationPart
 import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Line3
@@ -77,6 +78,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -213,6 +215,8 @@ fun PlateView(
     textDrag: TextDragView? = null,
     /** The text's transformation in its object where the finger let it go. */
     onTextDragged: (Transform3) -> Unit = {},
+    /** The text or SVG let go on its rotation ring, turned by the angle (radians) about its own Z axis. */
+    onTextTurned: (Double) -> Unit = {},
     /**
      * The measuring tool while it is open (GLGizmoMeasure): the view shows the
      * measured volumes alone, a finger on them explores their features and
@@ -571,6 +575,7 @@ fun PlateView(
             }
             controller.onCutLine = onCutLine
             controller.onTextDragged = { volume -> onTextDragged(Transform3(volume.elements().toList())) }
+            controller.onTextTurned = onTextTurned
             controller.setTextDrag(textDrag)
             controller.onMeasure = onMeasure
             controller.setMeasure(measure, measuredIndexes)
@@ -1132,14 +1137,25 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         var volume: Affine3? = null
     }
 
+    /**
+     * The rotation ring of the text or SVG tool held by its grabber
+     * (m_rotate_gizmo): the ring as it stood when the drag began, the ring's
+     * angle (up, PI / 2, at rest), and the scene as it stood then.
+     */
+    private class TextRotateDrag(index: Int, startWorld: Affine3, val ring: RotateGizmo, val startScene: List<SceneObject>) : Drag(index, startWorld) {
+        var angle = 0.5 * PI
+    }
+
     /** The text tool's text, which a finger drags over its object's surface. */
     private var textDrag: TextDragView? = null
     var onTextDragged: (Affine3) -> Unit = {}
+    var onTextTurned: (Double) -> Unit = {}
 
     fun setTextDrag(view: TextDragView?) {
         if (textDrag == view) return
         textDrag = view
-        if (drag is TextDrag) drag = null
+        if (drag is TextDrag || drag is TextRotateDrag) drag = null
+        invalidate()
     }
 
     /** Where the camera stands and looks, for the text tool's "Set text to face camera". */
@@ -1732,6 +1748,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return true
         }
         textDrag?.let { text ->
+            // on_mouse_for_rotation() before on_mouse_for_translate(): the ring's grabber first.
+            pressTextRing(text, x, y, grabberRadius)?.let { started ->
+                drag = started
+                invalidate()
+                return true
+            }
             pressText(text, x, y)?.let { start ->
                 drag = TextDrag(start, start.world, plateObjects)
                 return true
@@ -1827,6 +1849,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val drag = drag ?: return
         if (drag is TextDrag) {
             dragText(drag, x, y)
+            return
+        }
+        if (drag is TextRotateDrag) {
+            turnText(drag, x, y)
             return
         }
         if (drag is CutDrag) {
@@ -1963,6 +1989,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             drag.volume?.let(onTextDragged)
             return
         }
+        if (drag is TextRotateDrag) {
+            // on_stop_dragging(): the rotation is applied, and the grabber stands up again.
+            if (drag.moved) onTextTurned(drag.angle - 0.5 * PI)
+            invalidate()
+            return
+        }
         if (drag is CutConnectorDrag) {
             val position = drag.position
             if (drag.moved && position != null) {
@@ -2083,6 +2115,56 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val upLimit = UP_LIMIT.takeIf { text.keepUp }
         val startAngle = upLimit?.let { calcUp(world, it) }?.let { if (world.isLeftHanded) -it else it }
         return TextDragStart(hovered.index, screenX - x, screenY - y, world, instance.inverse(), startAngle, fix, upLimit)
+    }
+
+    /**
+     * The rotation ring of the text or SVG tool (m_rotate_gizmo, the Z ring
+     * in the volume's own axes, set_force_local_coordinate()): about the
+     * selection's bounding sphere, in the axes of the text's transformation
+     * to the world (get_bounding_box_in_reference_system(Local)).
+     */
+    private fun textRing(text: TextDragView): RotateGizmo? {
+        val target = selectedTarget() ?: return null
+        val (center, radius) = rotationSphere(target) ?: return null
+        val volume = objects.firstOrNull { it.index == selectedIndex && it.key in text.keys } ?: return null
+        val placement = Affine3(text.placement.columns.toDoubleArray())
+        val sceneFrame = Affine3(text.sceneFrame.columns.toDoubleArray())
+        val world = volume.world * sceneFrame.inverse() * placement
+        val orientation = Affine3(Transform3(world.elements().toList()).rotationPart().columns.toDoubleArray())
+        return RotateGizmo(center, radius, pixel(), orientation)
+    }
+
+    /** use_grabbers() of the ring: a press on its grabber, which stands up (set_angle(PI / 2)). */
+    private fun pressTextRing(text: TextDragView, x: Float, y: Float, grabberRadius: Float): TextRotateDrag? {
+        if (!editable) return null
+        val ring = textRing(text) ?: return null
+        val index = selectedIndex ?: return null
+        val (from, to) = ring.grabberEnds(RotateGizmo.Z, 0.5 * PI)
+        val base = camera.project(from) ?: return null
+        val tip = camera.project(to) ?: return null
+        if (distanceToSegment(x.toDouble(), y.toDouble(), base, tip) > grabberRadius) return null
+        val start = objects.firstOrNull { it.index == index } ?: return null
+        return TextRotateDrag(index, start.world, ring, plateObjects)
+    }
+
+    /**
+     * dragging_rotate_gizmo(): the ring's angle less the grabber's up turns
+     * the text about its own Z axis (Selection::rotate() in local
+     * coordinates), on every copy of the object.
+     */
+    private fun turnText(drag: TextRotateDrag, x: Float, y: Float) {
+        val text = textDrag ?: return
+        val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
+        drag.angle = drag.ring.dragAngle(RotateGizmo.Z, ray)
+        drag.moved = true
+        val placement = Affine3(text.placement.columns.toDoubleArray())
+        val sceneFrame = Affine3(text.sceneFrame.columns.toDoubleArray())
+        val volume = placement * Affine3.assemble(Vec3.ZERO, Vec3(0.0, 0.0, drag.angle - 0.5 * PI), Vec3(1.0, 1.0, 1.0))
+        val toScene = volume * placement.inverse() * sceneFrame
+        plateObjects = drag.startScene.map { sceneObject ->
+            if (sceneObject.key in text.keys) sceneObject.withWorld(sceneObject.world * sceneFrame.inverse() * toScene) else sceneObject
+        }
+        showObjects(plateObjects + wipeTower)
     }
 
     /**
@@ -2885,6 +2967,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 line = (drag as? CutLineDrag)?.takeIf { it.moved }?.let { it.begin to it.end },
                 pixelScale = density,
             )
+        }
+        // GLGizmoEmboss and GLGizmoSVG::on_render(): the ring, but while the text is dragged over its object.
+        textDrag?.takeIf { drag !is TextDrag }?.let { text ->
+            val turning = drag as? TextRotateDrag
+            (turning?.ring ?: textRing(text))?.let { ring -> return ring.textFrame(turning != null, turning?.angle ?: (0.5 * PI), density) }
         }
         val target = selectedTarget() ?: return null
         return when (gizmo) {

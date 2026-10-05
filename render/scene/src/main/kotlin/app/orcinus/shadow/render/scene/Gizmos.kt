@@ -109,6 +109,12 @@ internal object GizmoColors {
     // The grey of GLGizmoRotate's grabber connection while nothing is dragged.
     val ROTATE_CONNECTION = ColorRgba(0.6f, 0.6f, 0.6f)
 
+    // GLGizmoEmboss and GLGizmoSVG::on_init(): the highlight colour of their rotation ring.
+    val TEXT_ROTATE = ColorRgba(0.6f, 0.6f, 0.6f, 0.3f)
+
+    // GLGizmoBase::GRABBER_HOVER_COL, a grabber's own colour while it is held.
+    val GRABBER_HOVER = ColorRgba(0.863f, 0.125f, 0.063f)
+
     // GLGizmoBase::FLATTEN_COLOR and FLATTEN_HOVER_COLOR
     val FLATTEN = ColorRgba(0.96f, 0.93f, 0.93f, 0.5f)
     val FLATTEN_HOVER = ColorRgba(1f, 1f, 1f, 0.75f)
@@ -313,14 +319,15 @@ internal class MoveGizmo(box: Box3, private val pixel: Double, private val frame
 /**
  * GLGizmoRotate3D: a ring per axis around the selection's bounding sphere,
  * each with a grabber. [pixel] is the size in millimetres of one desktop pixel
- * at the camera target.
+ * at the camera target. The rings lie along the world's axes, or along those
+ * of [orientation] (m_orient_matrix of a ring in local coordinates).
  */
-internal class RotateGizmo(val center: Vec3, sphereRadius: Double, private val pixel: Double) {
+internal class RotateGizmo(val center: Vec3, sphereRadius: Double, private val pixel: Double, private val orientation: Affine3 = Affine3()) {
     // GLGizmoRotate::init_data_from_selection(): Offset is in millimetres.
     val radius = OFFSET + sphereRadius
 
     /** GLGizmoRotate::local_transform() in world coordinates: the ring of [axis] lies in its XY plane. */
-    fun ringMatrix(axis: Int): Affine3 = Affine3().translated(center) * LOCAL_ROTATIONS[axis]
+    fun ringMatrix(axis: Int): Affine3 = Affine3().translated(center) * orientation * LOCAL_ROTATIONS[axis]
 
     /** The grabber of [axis] turned by [angle]: GLGizmoRotate::on_render(). */
     fun grabberBase(axis: Int, angle: Double): Affine3 {
@@ -366,6 +373,33 @@ internal class RotateGizmo(val center: Vec3, sphereRadius: Double, private val p
     }
 
     /**
+     * The rotation ring of the text and SVG tools (m_rotate_gizmo of
+     * GLGizmoEmboss and GLGizmoSVG): the Z ring alone, its grabber at [angle]
+     * from the ring's X (up at rest), in the tools' grey, white while it is
+     * [dragging] with the scale, the snap radii, the reference radius and the
+     * arc of the angle in that grey, and its grabber in the hover colour.
+     */
+    fun textFrame(dragging: Boolean, angle: Double, pixelScale: Float): GizmoFrame {
+        val ring = ringMatrix(Z)
+        val width = (if (dragging) 2f else 1.5f) * pixelScale
+        val color = if (dragging) GizmoColors.DRAG else GizmoColors.TEXT_ROTATE
+        val lines = ArrayList<GizmoLines>()
+        lines += GizmoLines(ring.segments(circle()), color, width)
+        if (dragging) {
+            lines += GizmoLines(ring.segments(scale() + snapRadii() + referenceRadius()), color, width)
+            if (angle > 0.0) lines += GizmoLines(ring.segments(angleArc(angle)), GizmoColors.TEXT_ROTATE, width)
+        }
+        val grabberDistance = radius * (1.0 + GRABBER_OFFSET)
+        val grabberCenter = Vec3(cos(angle) * grabberDistance, sin(angle) * grabberDistance, 0.0)
+        lines += GizmoLines(
+            ring.segments(listOf(Vec3.ZERO, grabberCenter)),
+            if (dragging) GizmoColors.DRAG else GizmoColors.ROTATE_CONNECTION,
+            width,
+        )
+        return GizmoFrame(lines, grabber(Z, angle, if (dragging) GizmoColors.GRABBER_HOVER else GizmoColors.TEXT_ROTATE))
+    }
+
+    /**
      * GLGizmoRotate::on_dragging(): the angle of the point of [ray] in the
      * ring's plane, measured from the ring's X axis and snapped to the coarse
      * regions near the centre or the scale at the rim.
@@ -390,7 +424,8 @@ internal class RotateGizmo(val center: Vec3, sphereRadius: Double, private val p
 
     /** GLGizmoRotate::mouse_position_in_local_plane() in world coordinates. */
     private fun mousePositionInLocalPlane(axis: Int, ray: Line3): Vec3 {
-        val toLocal = PLANE_ROTATIONS[axis] * Affine3().translated(-center)
+        val toPlane = PLANE_ROTATIONS[axis] * orientation.inverse()
+        val toLocal = toPlane * Affine3().translated(-center)
         val a = toLocal.transformPoint(ray.a)
         val b = toLocal.transformPoint(ray.b)
         val vector = b - a
@@ -398,7 +433,7 @@ internal class RotateGizmo(val center: Vec3, sphereRadius: Double, private val p
             // The ray is parallel to the plane of the ring.
             if (abs(vector.y) > 1.0 - EPSILON) return Vec3.UNIT_X
             val world = if (a.x >= 0.0) ray.a - center else ray.b - center
-            return (PLANE_ROTATIONS[axis]).transformPoint(world)
+            return toPlane.transformPoint(world)
         }
         return Line3(a, b).intersectPlane(0.0)
     }
@@ -463,6 +498,9 @@ internal class RotateGizmo(val center: Vec3, sphereRadius: Double, private val p
     }
 
     companion object {
+        // GLGizmoRotate::Axis::Z
+        const val Z = 2
+
         // GLGizmoRotate.cpp
         const val OFFSET = 5.0
         const val ANGLE_RESOLUTION = 64

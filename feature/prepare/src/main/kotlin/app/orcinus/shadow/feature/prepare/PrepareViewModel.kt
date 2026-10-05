@@ -1851,6 +1851,17 @@ class PrepareViewModel(
     }
 
     /**
+     * The rotation ring let go (on_stop_dragging()): the text turns by [turn]
+     * radians about its own Z axis, as the Rotation slider turns it, after the
+     * snapshot "Text rotate", and its angle is measured anew
+     * (volume_transformation_changed()).
+     */
+    fun turnText(turn: Double) {
+        if (view.value.text == null || abs(turn) < ANGLE_EPSILON) return
+        transformEmboss(EmbossTransform(rotate = turn), reEmboss = false, angleFromVolume = true)
+    }
+
+    /**
      * The From surface slider let go: the text moves along its own Z axis to
      * [distance] millimetres from the surface (do_local_z_move()); unset
      * moves it back onto it.
@@ -2096,6 +2107,12 @@ class PrepareViewModel(
         angle = atan2(sin(angle), cos(angle))
         val turn = angle - (open.angle ?: 0.0)
         if (abs(turn) < ANGLE_EPSILON) return
+        transformSvg(EmbossTransform(rotate = turn))
+    }
+
+    /** The rotation ring let go (on_stop_dragging()): the SVG turned by [turn] radians about its own Z axis, after "SVG rotate". */
+    fun turnSvg(turn: Double) {
+        if (view.value.svg == null || abs(turn) < ANGLE_EPSILON) return
         transformSvg(EmbossTransform(rotate = turn))
     }
 

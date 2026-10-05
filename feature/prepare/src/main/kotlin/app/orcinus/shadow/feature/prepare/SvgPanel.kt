@@ -85,10 +85,12 @@ internal class SvgActions(
     val saveAs: () -> Unit,
     /** The SVG where a finger left it on its object (SurfaceDrag). */
     val drag: (Transform3) -> Unit,
+    /** The SVG let go on its rotation ring, turned by the angle (radians) about its own Z axis. */
+    val turn: (Double) -> Unit,
 ) {
     companion object {
         val NONE = SvgActions(
-            { _, _, _, _ -> }, { _, _ -> }, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+            { _, _, _, _ -> }, { _, _ -> }, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
         )
     }
 }

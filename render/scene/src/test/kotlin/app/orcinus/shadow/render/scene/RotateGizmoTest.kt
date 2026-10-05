@@ -42,6 +42,26 @@ class RotateGizmoTest {
     }
 
     @Test
+    fun aTextRingLiesInTheTextsOwnPlane() {
+        // A text standing on the cube's front face: its own Z is the world's -Y.
+        val standing = Affine3.assemble(Vec3.ZERO, Vec3(0.5 * PI, 0.0, 0.0), Vec3(1.0, 1.0, 1.0))
+        val ring = RotateGizmo(center, 5.0, pixel = 0.5, orientation = standing)
+        assertVec(Vec3(0.0, -1.0, 0.0), ring.ringMatrix(RotateGizmo.Z).transformVector(Vec3.UNIT_Z))
+
+        // A ray along the world's Y through the point up the text (its own Y, the world's Z) is at PI / 2.
+        val up = center + Vec3(0.0, 0.0, 0.8 * ring.radius)
+        assertEquals(0.5 * PI, ring.dragAngle(RotateGizmo.Z, Line3(up - Vec3(0.0, 100.0, 0.0), up + Vec3(0.0, 100.0, 0.0))), 1e-9)
+
+        val idle = ring.textFrame(dragging = false, angle = 0.5 * PI, pixelScale = 1f)
+        val dragging = ring.textFrame(dragging = true, angle = 0.5 * PI, pixelScale = 1f)
+        // The grabber's cube and cones, in the tools' grey at rest and the hover colour held.
+        assertEquals(3, idle.grabbers.size)
+        assertEquals(GizmoColors.TEXT_ROTATE, idle.grabbers.first().color)
+        assertEquals(GizmoColors.GRABBER_HOVER, dragging.grabbers.first().color)
+        assertEquals(true, dragging.lines.size > idle.lines.size)
+    }
+
+    @Test
     fun anObjectTurnsAboutTheSphereCentre() {
         val start = Affine3().translated(Vec3(175.0, 175.0, 10.0))
 
