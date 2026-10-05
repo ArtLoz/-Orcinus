@@ -257,7 +257,7 @@ class EmbossUseCase(
         val outcome = run(prefix) {
             editor.updateText(state.objects.map { it.placed() }, index, volume.index, text, style, placement, profiles, prefix)
         }
-        return joined(outcome, prefix, state.objects[index], newObjectName = "")
+        return joined(outcome, prefix, state.objects[index], newObjectName = "", edited = volume)
     }
 
     /**
@@ -275,7 +275,7 @@ class EmbossUseCase(
         val outcome = run(prefix) {
             editor.transformEmboss(state.objects.map { it.placed() }, index, instance, volume.index, transform, text, style, reEmboss, profiles, prefix)
         }
-        return joined(outcome, prefix, state.objects[index], newObjectName = "")
+        return joined(outcome, prefix, state.objects[index], newObjectName = "", edited = volume)
     }
 
     /**
@@ -306,7 +306,7 @@ class EmbossUseCase(
         val outcome = run(prefix) {
             editor.updateSvg(state.objects.map { it.placed() }, index, volume.index, depth, useSurface, svg, placement, profiles, prefix)
         }
-        return joined(outcome, prefix, state.objects[index], newObjectName = "")
+        return joined(outcome, prefix, state.objects[index], newObjectName = "", edited = volume)
     }
 
     /**
@@ -350,7 +350,7 @@ class EmbossUseCase(
         if (state.busy || profiles == null || old == null || old == type) return null
         val prefix = sceneFiles.newImportPrefix()
         val outcome = run(prefix) { inspector.setVolumeType(state.objects.map { it.placed() }, index, volume.index, type, profiles, prefix) }
-        val changed = joined(outcome, prefix, state.objects[index], newObjectName = "") ?: return null
+        val changed = joined(outcome, prefix, state.objects[index], newObjectName = "", edited = volume) ?: return null
         // Update volume position when switch (from part) or (into part)
         if (old != VolumeType.PART && type != VolumeType.PART) return changed
         return updateSvg(changed, depth, useSurface) ?: changed
@@ -367,7 +367,7 @@ class EmbossUseCase(
         if (state.busy || profiles == null || index < 0) return null
         val prefix = sceneFiles.newImportPrefix()
         val outcome = run(prefix) { editor.editSvgFile(state.objects.map { it.placed() }, index, volume.index, edit, path, profiles, prefix) }
-        return joined(outcome, prefix, state.objects[index], newObjectName = "")
+        return joined(outcome, prefix, state.objects[index], newObjectName = "", edited = volume)
     }
 
     /** GLGizmoSVG::draw_preview() and draw_filename(): the SVG [volume]'s picture, at most [maxSize] pixels, and its warnings. */
@@ -395,7 +395,7 @@ class EmbossUseCase(
         if (state.busy || profiles == null || old == null || old == type) return null
         val prefix = sceneFiles.newImportPrefix()
         val outcome = run(prefix) { inspector.setVolumeType(state.objects.map { it.placed() }, index, volume.index, type, profiles, prefix) }
-        val changed = joined(outcome, prefix, state.objects[index], newObjectName = "") ?: return null
+        val changed = joined(outcome, prefix, state.objects[index], newObjectName = "", edited = volume) ?: return null
         // Update volume position when switch (from part) or (into part)
         if (old != VolumeType.PART && type != VolumeType.PART) return changed
         return update(changed, text, style) ?: changed
@@ -413,10 +413,11 @@ class EmbossUseCase(
 
     /**
      * The edited object in the place of [source], or a new object at the end
-     * of the plate, selected with its embossed volume; null when the engine
-     * made nothing, with its message shown.
+     * of the plate, selected with its embossed volume: the one the engine
+     * names, or else the [edited] volume, which an edit leaves in its place;
+     * null when the engine made nothing, with its message shown.
      */
-    private fun joined(outcome: ModelLoadOutcome, prefix: ScenePath, source: PlateObject?, newObjectName: String): ObjectPartId? {
+    private fun joined(outcome: ModelLoadOutcome, prefix: ScenePath, source: PlateObject?, newObjectName: String, edited: ObjectPartId? = null): ObjectPartId? {
         val success = outcome as? ModelLoadOutcome.Success
         val loaded = success?.objects?.singleOrNull()
         val made = when {
@@ -431,7 +432,7 @@ class EmbossUseCase(
             repository.update { state -> state.copy(problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, message)) }
             return null
         }
-        val volume = ObjectPartId(made.mesh, success?.selectedVolume?.takeIf { it >= 0 } ?: 0)
+        val volume = ObjectPartId(made.mesh, success?.selectedVolume?.takeIf { it >= 0 } ?: edited?.index ?: 0)
         var placed = false
         repository.update { state ->
             placed = false
