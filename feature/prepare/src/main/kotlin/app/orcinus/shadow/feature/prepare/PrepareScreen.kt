@@ -43,15 +43,19 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -1125,55 +1129,61 @@ internal fun PrepareScreen(
                 val rotation = state.selectedRotation
                 val scale = state.selectedScale
                 val size = state.selectedSize
-                when {
-                    state.simplify != null -> SimplifyPanel(
-                        state.sceneCopies.firstOrNull { it.id.mesh == state.simplify.volume.mesh }?.plateObject,
-                        state.simplify,
-                        simplifyActions,
-                    )
-                    state.cut != null -> CutPanel(
-                        state.cut,
-                        cutActions,
-                        imperial = canvas.imperialUnits,
-                        plateSize = state.plate?.geometry?.printableArea?.let { area ->
-                            maxOf(area.maxOf { it.x } - area.minOf { it.x }, area.maxOf { it.y } - area.minOf { it.y })
-                        } ?: 350.0,
-                    )
-                    state.painting?.kind == PaintKind.COLOR -> PaintingPanel(state, state.painting, paintingActions)
-                    state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
-                    state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
-                    state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
-                    state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye)
-                    state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye)
-                    state.measure?.assembly != null -> AssemblyPanel(state.measure, measureActions, assemblyActions, canvas.imperialUnits)
-                    state.measure != null -> MeasurePanel(state.measure, measureActions, canvas.imperialUnits)
-                    state.meshBoolean != null -> MeshBooleanPanel(
-                        state.meshBoolean,
-                        state.sceneCopies.firstOrNull { it.id == state.meshBoolean.copy }?.plateObject,
-                        meshBooleanActions,
-                    )
-                    state.brimEars != null -> BrimEarsPanel(
-                        state.brimEars,
-                        ears = (state.brimEars.draft ?: state.sceneCopies.firstOrNull { it.id == state.brimEars.copy }?.plateObject?.brimPoints).orEmpty().size,
-                        actions = brimEarsActions,
-                    )
-                    state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
-                    state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
-                    state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
-                        ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo)
-                    state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(
-                        position = position,
-                        imperial = canvas.imperialUnits,
-                        objectCoordinates = state.moveObjectCoordinates,
-                        canObjectCoordinates = state.canMoveObjectCoordinates,
-                        // A volume shows its offset in the object; a copy, how far it moves along its own axes.
-                        relative = state.selectedVolume == null,
-                        onCoordinates = onSetMoveObjectCoordinates,
-                        onSetPosition = onSetPosition,
-                        onTranslate = onTranslateInObject,
-                        onDone = onCloseGizmo,
-                    )
-                    state.gizmo == PlateGizmo.ROTATE && rotation != null -> RotateGizmoPanel(state, rotation, rotationActions, onCloseGizmo)
+                // A tool's window keeps folded while the engine rewrites the volume it works on,
+                // when the window leaves the screen for a moment; it opens unfolded again.
+                val toolWindowFolds = remember { mutableStateMapOf<String, Boolean>() }
+                LaunchedEffect(state.toolOpen) { if (!state.toolOpen) toolWindowFolds.clear() }
+                CompositionLocalProvider(LocalToolWindowFolds provides toolWindowFolds) {
+                    when {
+                        state.simplify != null -> SimplifyPanel(
+                            state.sceneCopies.firstOrNull { it.id.mesh == state.simplify.volume.mesh }?.plateObject,
+                            state.simplify,
+                            simplifyActions,
+                        )
+                        state.cut != null -> CutPanel(
+                            state.cut,
+                            cutActions,
+                            imperial = canvas.imperialUnits,
+                            plateSize = state.plate?.geometry?.printableArea?.let { area ->
+                                maxOf(area.maxOf { it.x } - area.minOf { it.x }, area.maxOf { it.y } - area.minOf { it.y })
+                            } ?: 350.0,
+                        )
+                        state.painting?.kind == PaintKind.COLOR -> PaintingPanel(state, state.painting, paintingActions)
+                        state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
+                        state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
+                        state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
+                        state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye)
+                        state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye)
+                        state.measure?.assembly != null -> AssemblyPanel(state.measure, measureActions, assemblyActions, canvas.imperialUnits)
+                        state.measure != null -> MeasurePanel(state.measure, measureActions, canvas.imperialUnits)
+                        state.meshBoolean != null -> MeshBooleanPanel(
+                            state.meshBoolean,
+                            state.sceneCopies.firstOrNull { it.id == state.meshBoolean.copy }?.plateObject,
+                            meshBooleanActions,
+                        )
+                        state.brimEars != null -> BrimEarsPanel(
+                            state.brimEars,
+                            ears = (state.brimEars.draft ?: state.sceneCopies.firstOrNull { it.id == state.brimEars.copy }?.plateObject?.brimPoints).orEmpty().size,
+                            actions = brimEarsActions,
+                        )
+                        state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
+                        state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
+                        state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
+                            ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo)
+                        state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(
+                            position = position,
+                            imperial = canvas.imperialUnits,
+                            objectCoordinates = state.moveObjectCoordinates,
+                            canObjectCoordinates = state.canMoveObjectCoordinates,
+                            // A volume shows its offset in the object; a copy, how far it moves along its own axes.
+                            relative = state.selectedVolume == null,
+                            onCoordinates = onSetMoveObjectCoordinates,
+                            onSetPosition = onSetPosition,
+                            onTranslate = onTranslateInObject,
+                            onDone = onCloseGizmo,
+                        )
+                        state.gizmo == PlateGizmo.ROTATE && rotation != null -> RotateGizmoPanel(state, rotation, rotationActions, onCloseGizmo)
+                    }
                 }
             }
             when {
@@ -2340,6 +2350,9 @@ internal fun PaintingCheck(text: String, checked: Boolean, onChange: (Boolean) -
     }
 }
 
+/** Which tool windows, by title, the finger folded while their tools are open. */
+internal val LocalToolWindowFolds = compositionLocalOf<SnapshotStateMap<String, Boolean>?> { null }
+
 /**
  * The window of a painting tool: its title with "Done", and its controls,
  * which fold away into the title row so the finger reaches the model under
@@ -2347,7 +2360,9 @@ internal fun PaintingCheck(text: String, checked: Boolean, onChange: (Boolean) -
  */
 @Composable
 internal fun PaintingPanelFrame(title: String, done: String, onDone: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    var expanded by rememberSaveable { mutableStateOf(true) }
+    val folds = LocalToolWindowFolds.current
+    var ownExpanded by rememberSaveable { mutableStateOf(true) }
+    val expanded = folds?.let { it[title] != true } ?: ownExpanded
     OrcaGizmoPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -2359,7 +2374,7 @@ internal fun PaintingPanelFrame(title: String, done: String, onDone: () -> Unit,
             OrcaIconButton(
                 icon = DesignR.drawable.orca_drop_down,
                 contentDescription = stringResource(if (expanded) R.string.painting_collapse else R.string.painting_expand),
-                onClick = { expanded = !expanded },
+                onClick = { if (folds != null) folds[title] = expanded else ownExpanded = !ownExpanded },
                 tint = OrcaTheme.colors.onCanvasPanel,
                 modifier = Modifier.rotate(if (expanded) 180f else 0f),
             )

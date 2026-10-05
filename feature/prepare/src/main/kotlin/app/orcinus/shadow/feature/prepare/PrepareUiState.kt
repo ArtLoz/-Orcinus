@@ -282,6 +282,11 @@ data class PrepareUiState(
     val scaleCoordinates: CoordinateSystem? = null,
     /** The scale gizmo of the selected volume, once the engine measured it. */
     val volumeScale: VolumeScaleFrame? = null,
+    /**
+     * A tool of the canvas is open (PrepareViewState.gizmoOpen), which stays
+     * so while the engine rewrites what the tool works on.
+     */
+    val toolOpen: Boolean = false,
     /** The "Section view" of the painting tool on the painted copy, or of the brim ears tool on its copy. */
     /**
      * Selection::get_bounding_sphere() of the selected volume, which its
@@ -1065,6 +1070,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             val painted = target.paintedMeshes.filter { it.kind == PaintKind.COLOR }.map { it.state - 1 }
             (bases + painted).filter { it in 0 until count }.toSortedSet().toList()
         }.orEmpty(),
+        toolOpen = view.gizmoOpen,
         volumeSphere = volume?.description?.sphere?.let { sphere ->
             val copy = selectedObject?.let(copies::get)
             if (!view.assemblyView || copy == null) return@let sphere
