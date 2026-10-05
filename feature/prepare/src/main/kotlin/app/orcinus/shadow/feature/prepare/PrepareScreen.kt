@@ -408,6 +408,7 @@ internal fun PrepareRoute(
         plateMenuActions = PlateMenuActions(
             addPrimitive = viewModel::addPrimitiveShape,
             addHandyModel = viewModel::addHandyModel,
+            showLabels = { viewModel.setCanvasOption(AppConfigKeys.SHOW_LABELS, it.toString()) },
         ),
         onToggleGizmo = viewModel::toggleGizmo,
         onCloseGizmo = viewModel::closeGizmo,
@@ -904,6 +905,7 @@ internal fun PrepareScreen(
                 onAddModel = onAddModel,
                 onPaste = onPaste,
                 actions = plateMenuActions,
+                labels = canvas.labels,
                 // An object of a text standing where the finger held the bed.
                 onAddText = { textActions.add(null, VolumeType.PART, null, viewCamera.bedPoint(position), defaultText) },
                 onAddSvg = {
@@ -1371,17 +1373,19 @@ internal class PlateMenuActions(
     /** ObjectList::load_shape_object(): a shape of create_mesh() with its translated name. */
     val addPrimitive: (shape: String, name: String) -> Unit,
     val addHandyModel: (HandyModel) -> Unit,
+    /** Plater::show_view3D_labels(), which keeps show_labels. */
+    val showLabels: (Boolean) -> Unit,
 ) {
     companion object {
-        val NONE = PlateMenuActions({ _, _ -> }, {})
+        val NONE = PlateMenuActions({ _, _ -> }, {}, {})
     }
 }
 
 /**
- * MenuFactory::default_menu(), which the canvas opens over empty space, with
- * the items the app has: Add Primitive, Add Handy models and Add Models. Paste
- * stands first, as a phone offers it where a finger is held, for the Edit
- * menu's Paste.
+ * MenuFactory::default_menu(), which the canvas opens over empty space:
+ * Add Primitive, Add Handy models and Add Models, then Show Labels, checked
+ * while the 3D view shows the objects' names ([labels]). Paste stands first,
+ * as a phone offers it where a finger is held, for the Edit menu's Paste.
  */
 @Composable
 private fun PlateContextMenu(
@@ -1391,6 +1395,7 @@ private fun PlateContextMenu(
     onAddModel: () -> Unit,
     onPaste: () -> Unit,
     actions: PlateMenuActions,
+    labels: Boolean,
     onAddText: () -> Unit = {},
     onAddSvg: () -> Unit = {},
 ) {
@@ -1416,6 +1421,18 @@ private fun PlateContextMenu(
             addModels = onAddModel,
             addText = onAddText,
             addSvg = onAddSvg,
+        )
+        OrcaMenuSeparator()
+        // Plater::is_view3D_shown(): the assembly view has no labels.
+        val shown = state.assemblyView == null
+        OrcaMenuCheckItem(
+            text = orcaString("Show Labels"),
+            checked = labels && shown,
+            enabled = shown,
+            onClick = {
+                onDismiss()
+                actions.showLabels(!labels)
+            },
         )
     }
 }
