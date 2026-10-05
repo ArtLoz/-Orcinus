@@ -111,6 +111,7 @@ import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
 import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.model.plateOrigin
+import app.orcinus.shadow.core.model.scalingFactor
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withInstances
@@ -120,6 +121,7 @@ import app.orcinus.shadow.core.model.withName
 import app.orcinus.shadow.core.model.withPart
 import app.orcinus.shadow.core.model.withPartAt
 import app.orcinus.shadow.core.model.withParts
+import app.orcinus.shadow.core.model.withScalingFactor
 import app.orcinus.shadow.core.model.withSettings
 import app.orcinus.shadow.core.model.withVolume
 import app.orcinus.shadow.core.model.withVolumeAt
@@ -1319,7 +1321,14 @@ class PlacePlateObjectUseCase(
                 }
                 when (outcome) {
                     is ModelInspectionOutcome.Success -> state.copy(
-                        objects = state.objects.replaced(current.with(id.instance, outcome.inspection, placing = false)),
+                        objects = state.objects.replaced(
+                            current.with(id.instance, outcome.inspection, placing = false).let { placed ->
+                                // Selection::scale_and_translate(): the copy's place in the assembly view takes its new scale.
+                                val assemble = copy.assemble?.takeIf { manipulation == Manipulation.Scale }
+                                    ?.withScalingFactor(outcome.inspection.placement.scalingFactor())
+                                if (assemble == null) placed else placed.withInstance(id.instance, placed.instances[id.instance].copy(assemble = assemble))
+                            },
+                        ),
                         result = state.result.takeIf { outcome.inspection.placement == previous },
                     )
                     is ModelInspectionOutcome.Failure -> state.copy(

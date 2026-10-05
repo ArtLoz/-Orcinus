@@ -179,6 +179,8 @@ import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.meshErrors
 import app.orcinus.shadow.core.model.partPlates
+import app.orcinus.shadow.core.model.scalingFactor
+import app.orcinus.shadow.core.model.translation
 import app.orcinus.shadow.core.model.translationTransform
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.withInstance
@@ -2048,6 +2050,29 @@ class PlateUseCasesTest {
         menu.delete()
         assertTrue(repository.state.value.objects.isEmpty())
         assertEquals(3, repository.state.value.history.undo.size)
+    }
+
+    @Test
+    fun `a scaled copy's place in the assembly view takes its new scale and keeps its own spot`() {
+        // A quarter turn about z, 30 mm along x, in the assembly view.
+        val turned = Transform3(listOf(0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 30.0, 0.0, 0.0, 1.0))
+        val assembled = CUBE.withInstance(0, CUBE.instances.single().copy(assemble = turned))
+        val repository = FakeRepository(readyState(assembled))
+        val doubled = Transform3(INSPECTION.placement.columns.mapIndexed { index, value -> if (index == 0 || index == 5 || index == 10) value * 2.0 else value })
+
+        placePlateObject(FakeInspector(), repository)(PlateInstanceId(CUBE.mesh), doubled, Manipulation.Scale)
+
+        val assemble = checkNotNull(repository.state.value.objects.single().instances.single().assemble)
+        val factor = assemble.scalingFactor()
+        assertEquals(2.0, factor.x, 1e-9)
+        assertEquals(2.0, factor.z, 1e-9)
+        assertEquals(30.0, assemble.translation.x, 1e-9)
+        // The turn stays: x goes to y.
+        assertEquals(2.0, assemble.columns[1], 1e-9)
+
+        // A move leaves it as it was.
+        placePlateObject(FakeInspector(), repository)(PlateInstanceId(CUBE.mesh), moved(doubled, 10.0), Manipulation.Move)
+        assertEquals(assemble, repository.state.value.objects.single().instances.single().assemble)
     }
 
     @Test

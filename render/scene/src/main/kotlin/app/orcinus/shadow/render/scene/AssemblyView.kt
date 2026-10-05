@@ -5,6 +5,9 @@ import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
+import app.orcinus.shadow.core.model.rotationPart
+import app.orcinus.shadow.core.model.scalingFactor
+import app.orcinus.shadow.core.model.withoutRotation
 import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Vec3
 import kotlin.math.abs
@@ -106,56 +109,14 @@ object AssemblyTransforms {
         return Vector3(shown(x), shown(y), shown(z))
     }
 
-    /**
-     * Transformation::get_rotation_matrix(): the rotation of [transform]'s
-     * linear part, without its scale and mirroring, and without its offset.
-     */
-    fun rotation(transform: Transform3): Transform3 {
-        val linear = Affine3(transform.columns.toDoubleArray()).withTranslation(Vec3.ZERO)
-        val scale = Affine3(withoutRotation(transform).columns.toDoubleArray()).withTranslation(Vec3.ZERO)
-        return Transform3((linear * scale.inverse()).elements().toList())
-    }
+    /** Transformation::get_rotation_matrix() (Transform3.rotationPart). */
+    fun rotation(transform: Transform3): Transform3 = transform.rotationPart()
 
-    /**
-     * Transformation::reset_rotation(): the offset, the scale without the
-     * rotation (V S V^T of the linear part's singular values, the symmetric
-     * square root of its square) and the mirroring.
-     */
-    fun withoutRotation(transform: Transform3): Transform3 {
-        val c = transform.columns
-        val m0 = arrayOf(doubleArrayOf(c[0], c[4], c[8]), doubleArrayOf(c[1], c[5], c[9]), doubleArrayOf(c[2], c[6], c[10]))
-        val determinant = m0[0][0] * (m0[1][1] * m0[2][2] - m0[1][2] * m0[2][1]) -
-            m0[0][1] * (m0[1][0] * m0[2][2] - m0[1][2] * m0[2][0]) +
-            m0[0][2] * (m0[1][0] * m0[2][1] - m0[1][1] * m0[2][0])
-        // TransformationSVD: a mirroring is taken off along x first, and put back after.
-        val mirror = determinant < 0.0
-        val m = Array(3) { row -> DoubleArray(3) { column -> if (mirror && column == 0) -m0[row][column] else m0[row][column] } }
-        val square = Array(3) { row -> DoubleArray(3) { column -> (0 until 3).sumOf { m[it][row] * m[it][column] } } }
-        val root = symmetricSquareRoot(square)
-        val columns = transform.columns.toMutableList()
-        for (row in 0 until 3) {
-            for (column in 0 until 3) {
-                columns[column * 4 + row] = if (mirror && column == 0) -root[row][column] else root[row][column]
-            }
-        }
-        return Transform3(columns)
-    }
+    /** Transformation::reset_rotation() (Transform3.withoutRotation). */
+    fun withoutRotation(transform: Transform3): Transform3 = transform.withoutRotation()
 
-    /**
-     * Transformation::get_scaling_factor(): the absolute diagonal of the
-     * scaling Eigen's computeRotationScaling() splits off, V Σ V^T of the
-     * linear part's singular values, the smallest negated when it mirrors.
-     */
-    fun scalingFactor(transform: Transform3): Vector3 {
-        val c = transform.columns
-        val m = arrayOf(doubleArrayOf(c[0], c[4], c[8]), doubleArrayOf(c[1], c[5], c[9]), doubleArrayOf(c[2], c[6], c[10]))
-        val determinant = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
-            m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
-            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
-        val square = Array(3) { row -> DoubleArray(3) { column -> (0 until 3).sumOf { m[it][row] * m[it][column] } } }
-        val scaling = symmetricSquareRoot(square, smallestSign = if (determinant < 0.0) -1.0 else 1.0)
-        return Vector3(abs(scaling[0][0]), abs(scaling[1][1]), abs(scaling[2][2]))
-    }
+    /** Transformation::get_scaling_factor() (Transform3.scalingFactor). */
+    fun scalingFactor(transform: Transform3): Vector3 = transform.scalingFactor()
 
     /**
      * Selection::m_cache.rotation_pivot in the assembly view, which the
@@ -219,48 +180,4 @@ object AssemblyTransforms {
         )
     }
 
-    /**
-     * The symmetric square root of a symmetric positive semidefinite matrix, by
-     * Jacobi's eigenvalue rotations; the root of its smallest eigenvalue taken
-     * times [smallestSign].
-     */
-    private fun symmetricSquareRoot(matrix: Array<DoubleArray>, smallestSign: Double = 1.0): Array<DoubleArray> {
-        val a = Array(3) { matrix[it].copyOf() }
-        val v = Array(3) { row -> DoubleArray(3) { column -> if (row == column) 1.0 else 0.0 } }
-        repeat(JACOBI_SWEEPS) {
-            val off = a[0][1] * a[0][1] + a[0][2] * a[0][2] + a[1][2] * a[1][2]
-            if (off < 1e-30) return@repeat
-            for ((p, q) in listOf(0 to 1, 0 to 2, 1 to 2)) {
-                if (abs(a[p][q]) < 1e-300) continue
-                val theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q])
-                val t = (if (theta >= 0.0) 1.0 else -1.0) / (abs(theta) + sqrt(theta * theta + 1.0))
-                val cosine = 1.0 / sqrt(t * t + 1.0)
-                val sine = t * cosine
-                for (k in 0 until 3) {
-                    val akp = a[k][p]
-                    val akq = a[k][q]
-                    a[k][p] = cosine * akp - sine * akq
-                    a[k][q] = sine * akp + cosine * akq
-                }
-                for (k in 0 until 3) {
-                    val apk = a[p][k]
-                    val aqk = a[q][k]
-                    a[p][k] = cosine * apk - sine * aqk
-                    a[q][k] = sine * apk + cosine * aqk
-                }
-                for (k in 0 until 3) {
-                    val vkp = v[k][p]
-                    val vkq = v[k][q]
-                    v[k][p] = cosine * vkp - sine * vkq
-                    v[k][q] = sine * vkp + cosine * vkq
-                }
-            }
-        }
-        val roots = DoubleArray(3) { sqrt(a[it][it].coerceAtLeast(0.0)) }
-        val smallest = roots.indices.minBy { roots[it] }
-        roots[smallest] *= smallestSign
-        return Array(3) { row -> DoubleArray(3) { column -> (0 until 3).sumOf { v[row][it] * roots[it] * v[column][it] } } }
-    }
-
-    private const val JACOBI_SWEEPS = 30
 }
