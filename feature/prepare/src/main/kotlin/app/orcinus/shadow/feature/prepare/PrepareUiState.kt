@@ -272,6 +272,9 @@ data class PrepareUiState(
     val selectedVolume: SelectedVolume? = null,
     /** The volumes drawn selected besides: the connectors of the copy while the list selected them. */
     val highlightedVolumes: Set<String> = emptySet(),
+    /** UpdatedItemsInfo: the objects the last load brought as parts of a cut object, and the loads that told of them. */
+    val cutPartsLoaded: Int = 0,
+    val cutPartsLoads: Int = 0,
     /** The scale window's coordinates for the selected volume; null while copies are selected (world coordinates). */
     val scaleCoordinates: CoordinateSystem? = null,
     /** The scale gizmo of the selected volume, once the engine measured it. */
@@ -967,6 +970,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         canMoveObjectCoordinates = selectedObject != null && selectedInstances.size == 1 && !view.wipeTowerSelected,
         moveFrame = (if (view.assemblyView) assembled else selected?.placement)?.takeIf { moveObjectCoordinates },
         selectedVolume = volume,
+        cutPartsLoaded = cutPartsLoaded,
+        cutPartsLoads = cutPartsLoads,
         highlightedVolumes = selectedConnectors?.takeIf { connectorsSelected }
             ?.let { copy -> objects.firstOrNull { it.mesh == copy.mesh } }
             ?.parts?.filter { it.cutInfo.connector }?.mapTo(HashSet()) { it.mesh.value }.orEmpty(),

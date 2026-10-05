@@ -1041,6 +1041,16 @@ class AddModelToPlateUseCase(
         if (presets != null) {
             applicationScope.launch { platePresets.apply(before, presets) }
         }
+        // load_model_objects() closes UpdatedItemsInfo, then add_object_to_list()
+        // of the last object it loaded tells of a part of a cut with connectors
+        // (ObjectList::update_info_items()).
+        if (outcome is ModelLoadOutcome.Success && outcome.objects.isNotEmpty()) {
+            val last = outcome.objects.last()
+            val cutPart = last.cutId != null && last.parts.isNotEmpty() && last.parts.any { it.cutInfo.connector }
+            repository.update { state ->
+                if (cutPart) state.copy(cutPartsLoaded = 1, cutPartsLoads = state.cutPartsLoads + 1) else state.copy(cutPartsLoaded = 0)
+            }
+        }
         // set_project_filename() of a project that opened adds it to the recent files
         // (add_to_recent_projects()), as add_file() adds its models that loaded.
         if (outcome is ModelLoadOutcome.Success && outcome.objects.isNotEmpty()) {

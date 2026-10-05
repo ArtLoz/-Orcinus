@@ -1782,6 +1782,26 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a load whose last object is a part of a cut with connectors tells of it, and the next load closes it`() {
+        val plug = LOADED.parts.single().copy(cutInfo = CutInfo(connector = true))
+        val cutPart = LOADED.copy(cutId = CutId(7, checkSum = 2), parts = listOf(plug))
+        val repository = FakeRepository(readyState())
+        val inspector = FakeInspector()
+        inspector.load = { ModelLoadOutcome.Success(listOf(cutPart), emptyList()) }
+        val file = ImportedModelFile(ModelPath("/imports/cut.3mf"), "cut.3mf")
+        val preferences = preferences(AppConfigKeys.PROJECT_LOAD_BEHAVIOUR to AppConfigKeys.LOAD_GEOMETRY_ONLY)
+
+        addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles(), preferences)(REFERENCE)
+        assertEquals(1, repository.state.value.cutPartsLoaded)
+        assertEquals(1, repository.state.value.cutPartsLoads)
+
+        inspector.load = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
+        addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles(), preferences)(REFERENCE)
+        assertEquals(0, repository.state.value.cutPartsLoaded)
+        assertEquals(1, repository.state.value.cutPartsLoads)
+    }
+
+    @Test
     fun `a solid part of a cut stays until its cut info is invalidated`() {
         val cut = CutId(7)
         val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/part.mesh"), Transform3.IDENTITY)

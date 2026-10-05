@@ -27,8 +27,10 @@ import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
 import app.orcinus.shadow.core.designsystem.component.OrcaProgressNotification
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.ui.orca.OrcaHintsFile
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.orca.orcaText
 import kotlinx.coroutines.delay
 
 /**
@@ -118,6 +120,39 @@ fun ExportFinishedNotification(name: String, onClose: () -> Unit) {
     }
 }
 
+/**
+ * NotificationManager::UpdatedItemsInfoNotification of the objects a load
+ * brought as parts of a cut object ([count], 0 for none): "%1$d object was
+ * loaded as a part of cut object.", for ten seconds after every load that
+ * told of them ([loads]), with its close button. One that told before the
+ * canvas showed is not told again.
+ */
+@Composable
+fun UpdatedItemsInfoNotification(count: Int, loads: Int) {
+    var told by remember { mutableIntStateOf(loads) }
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(loads) {
+        if (loads == told) return@LaunchedEffect
+        told = loads
+        shown = true
+        delay(UPDATED_ITEMS_INFO_MILLIS)
+        shown = false
+    }
+    if (!shown || count <= 0) return
+    OrcaNotification(action = { CloseButton { shown = false } }) {
+        OrcaNotificationText(
+            orcaText(
+                OrcaText(
+                    "%1\$d object was loaded as a part of cut object.",
+                    listOf(count.toString()),
+                    msgidPlural = "%1\$d objects were loaded as parts of cut object.",
+                    count = count.toLong(),
+                ),
+            ),
+        )
+    }
+}
+
 /** PopNotification::render_close_button(): its icon's own colours, the box and the cross. */
 @Composable
 private fun RowScope.CloseButton(onClick: () -> Unit) {
@@ -125,6 +160,9 @@ private fun RowScope.CloseButton(onClick: () -> Unit) {
 }
 
 private const val SLICE_COMPLETED_MILLIS = 3_000L
+
+/** push_updated_item_info_notification()'s 10 seconds. */
+private const val UPDATED_ITEMS_INFO_MILLIS = 10_000L
 
 /** ExportFinishedNotification's 20 seconds, for a file that is not on a removable drive. */
 private const val EXPORT_FINISHED_MILLIS = 20_000L

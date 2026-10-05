@@ -1200,6 +1200,13 @@ data class PlateState(
      */
     val selectedConnectors: PlateInstanceId? = null,
     /**
+     * NotificationManager's UpdatedItemsInfo of the last load: how many
+     * objects were loaded as parts of a cut object (0 hides it), and the loads
+     * that told of them, each of which shows it anew.
+     */
+    val cutPartsLoaded: Int = 0,
+    val cutPartsLoads: Int = 0,
+    /**
      * GLGizmoMeshBoolean's state while it is open (on_save()), which every
      * snapshot taken meanwhile keeps; null while it is closed.
      */

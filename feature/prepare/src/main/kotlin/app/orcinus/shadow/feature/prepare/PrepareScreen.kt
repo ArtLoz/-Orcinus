@@ -173,6 +173,7 @@ import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
 import app.orcinus.shadow.core.ui.plate.SlicingNotification
+import app.orcinus.shadow.core.ui.plate.UpdatedItemsInfoNotification
 import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
@@ -1578,6 +1579,7 @@ private fun Notifications(
         }
     }
     val slicing = state.slicing
+    UpdatedItemsInfoNotification(state.cutPartsLoaded, state.cutPartsLoads)
     SliceCompletedNotification(state.slicesCompleted, sliceRunning = slicing != null) { DailyTipsPanel(showHints, onShowHints) }
     if (slicing != null) {
         val fraction = slicing.progress?.fraction ?: 0f

@@ -92,8 +92,9 @@ fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswer: (Boolean) -> Unit) 
 /**
  * A question with RichMessageDialog's check box under it when it has one
  * ([SettingsDialog.checkbox]): the answer comes with the box's state. A
- * question with a third button ([SettingsDialog.cancel]) has it beside No,
- * which answers nothing ([onCancel]).
+ * question with a third button ([SettingsDialog.cancel]), which answers
+ * nothing ([onCancel]), stacks its buttons in the desktop's order, Yes, No,
+ * then that one, as the long labels of such a question do not fit in a row.
  */
 @Composable
 fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswerChecked: (yes: Boolean, checked: Boolean) -> Unit, onCancel: () -> Unit = {}) {
@@ -102,12 +103,23 @@ fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswerChecked: (yes: Boolea
         dialog = dialog,
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-        confirm = { OrcaButton(dialog.yes?.let { orcaText(it) } ?: orcaString("Yes"), onClick = { onAnswerChecked(true, checked) }) },
-        dismiss = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                dialog.cancel?.let { cancel -> OrcaButton(orcaText(cancel), onClick = onCancel, style = OrcaButtonStyle.Regular) }
-                OrcaButton(dialog.no?.let { orcaText(it) } ?: orcaString("No"), onClick = { onAnswerChecked(false, checked) }, style = OrcaButtonStyle.Regular)
+        confirm = {
+            val cancel = dialog.cancel
+            val yes = dialog.yes?.let { orcaText(it) } ?: orcaString("Yes")
+            if (cancel == null) {
+                OrcaButton(yes, onClick = { onAnswerChecked(true, checked) })
+            } else {
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OrcaButton(yes, onClick = { onAnswerChecked(true, checked) })
+                    OrcaButton(dialog.no?.let { orcaText(it) } ?: orcaString("No"), onClick = { onAnswerChecked(false, checked) }, style = OrcaButtonStyle.Regular)
+                    OrcaButton(orcaText(cancel), onClick = onCancel, style = OrcaButtonStyle.Regular)
+                }
             }
+        },
+        dismiss = if (dialog.cancel != null) {
+            null
+        } else {
+            { OrcaButton(dialog.no?.let { orcaText(it) } ?: orcaString("No"), onClick = { onAnswerChecked(false, checked) }, style = OrcaButtonStyle.Regular) }
         },
         below = dialog.checkbox?.let { label -> { DialogCheckBox(label, checked) { checked = it } } },
     )
