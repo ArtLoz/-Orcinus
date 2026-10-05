@@ -214,6 +214,10 @@ class PresetSettingsTabs(
                 if (request is SettingsRequest.Change && request.id.substringBefore('#') in PROCESS_TAB_KEYS) {
                     perform(PresetKind.PRINT, SettingsRequest.Describe, emptyMap())
                 }
+                // GUI_App::update_mode(): the mode is the app's, so every tab shows its settings anew.
+                if (request is SettingsRequest.SetMode) {
+                    for (other in openTabs() - kind) perform(other, SettingsRequest.Describe, emptyMap())
+                }
                 // Tab::on_value_change(): set_num_filaments() gave the plate as
                 // many filaments as the printer has extruders, and
                 // Sidebar::on_filament_count_change() rebuilds their combo boxes.

@@ -46,6 +46,7 @@ import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsClipboard
+import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SvgPreview
@@ -242,6 +243,8 @@ data class PrepareUiState(
     val plateSettings: PlateSettingsChoice = PlateSettingsChoice(),
     /** PlateSettingsDialog opens with the filament sequences alone (PlateState.layerSequencePrompt). */
     val layerSequencePrompt: Boolean = false,
+    /** GLGizmoCut3D::on_is_selectable(): the toolbar has Cut unless the app is in simple mode. */
+    val cutSelectable: Boolean = true,
     val bedTypes: List<BedTypeChoice> = emptyList(),
     /** The current plate prints in spiral vase mode, its own or the process preset's. */
     val spiralVaseMode: Boolean = false,
@@ -919,6 +922,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         customizedPlates = partPlates().indices.filterTo(mutableSetOf()) { partPlates()[it].settings.plateSettingsChoice() != PlateSettingsChoice() },
         plateSettings = plateSettings.plateSettingsChoice(),
         layerSequencePrompt = layerSequencePrompt,
+        // wxGetApp().get_mode(), which the tabs describe their settings in.
+        cutSelectable = settingsTabs[PresetKind.PRINT]?.settings?.mode != SettingsMode.SIMPLE,
         bedTypes = presets?.bedTypes.orEmpty(),
         spiralVaseMode = spiralVaseMode(),
         printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",

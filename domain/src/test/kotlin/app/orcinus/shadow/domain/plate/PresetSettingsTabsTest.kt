@@ -420,6 +420,20 @@ class PresetSettingsTabsTest {
     }
 
     @Test
+    fun `a change of the mode in one tab describes the other open tabs anew`() {
+        val repository = FakeRepository(READY)
+        val editor = FakeEditor()
+        val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
+        tabs.request(PresetKind.PRINT, SettingsRequest.Describe)
+        tabs.request(PresetKind.FILAMENT, SettingsRequest.Describe)
+        editor.requests.clear()
+
+        tabs.request(PresetKind.FILAMENT, SettingsRequest.SetMode(SettingsMode.SIMPLE))
+
+        assertEquals(listOf(PresetKind.FILAMENT, PresetKind.PRINT), editor.requests.map { it.kind })
+    }
+
+    @Test
     fun `only the tabs the app has opened are described again`() {
         val repository = FakeRepository(READY)
         val editor = FakeEditor()

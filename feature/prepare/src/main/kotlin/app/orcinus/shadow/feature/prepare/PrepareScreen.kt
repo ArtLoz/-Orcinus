@@ -1757,14 +1757,16 @@ private fun CanvasToolbar(
         gizmo(DesignR.drawable.orca_toolbar_scale, R.string.gizmo_scale, PlateGizmo.SCALE)
         gizmo(DesignR.drawable.orca_toolbar_flatten, R.string.gizmo_lay_on_face, PlateGizmo.LAY_ON_FACE)
         // GLGizmoCut3D: on_is_activable() is a single full instance selected,
-        // but for the dowel a cut made an object of.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_cut,
-            contentDescription = stringResource(R.string.gizmo_cut),
-            onClick = onToggleCut,
-            enabled = state.canCut,
-            selected = state.cut != null,
-        )
+        // but for the dowel a cut made an object of; simple mode has no Cut.
+        if (state.cutSelectable) {
+            OrcaCanvasTool(
+                icon = DesignR.drawable.orca_toolbar_cut,
+                contentDescription = stringResource(R.string.gizmo_cut),
+                onClick = onToggleCut,
+                enabled = state.canCut,
+                selected = state.cut != null,
+            )
+        }
         // GLGizmoMeshBoolean: two volumes of the selected copy joined, subtracted or intersected.
         OrcaCanvasTool(
             icon = DesignR.drawable.orca_toolbar_meshboolean,
