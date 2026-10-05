@@ -36,8 +36,11 @@ class PlaceObjectVolumeUseCase(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
-    /** The volume [volume] of the object of [copy] takes [matrix] in the object's coordinates. */
-    operator fun invoke(copy: PlateInstanceId, volume: Int, matrix: Transform3, manipulation: VolumeManipulation) {
+    /**
+     * The volume [volume] of the object of [copy] takes [matrix] in the
+     * object's coordinates; in the assembly view ([inAssembly]) no copy drops.
+     */
+    operator fun invoke(copy: PlateInstanceId, volume: Int, matrix: Transform3, manipulation: VolumeManipulation, inAssembly: Boolean = false) {
         var request: Pair<List<PlateObject>, SlicingProfileSelection>? = null
         repository.update { state ->
             request = null
@@ -54,7 +57,7 @@ class PlaceObjectVolumeUseCase(
             val target = plate[index]
             val prefix = sceneFiles.newImportPrefix()
             val outcome = try {
-                inspector.placeVolume(plate.map { it.placed() }, index, volume, matrix, manipulation, profiles, prefix)
+                inspector.placeVolume(plate.map { it.placed() }, index, volume, matrix, manipulation, profiles, prefix, inAssembly)
             } catch (cancellation: CancellationException) {
                 sceneFiles.deleteImport(prefix)
                 repository.update { it.copy(editing = false) }
@@ -90,12 +93,14 @@ class PlaceObjectVolumeUseCase(
     /**
      * The volume [volume] of the object of [copy] changed by [change] in the
      * world, about the world's origin, as a gizmo moved, turned or scaled it
-     * where the copy stands: in the object, P⁻¹ · change · P · M.
+     * where the copy stands: in the object, P⁻¹ · change · P · M. In the
+     * assembly view the copy stands at its assemble transformation ([assemble],
+     * the instance transformation of the assembly view's volumes).
      */
-    fun changedInWorld(copy: PlateInstanceId, volume: Int, change: Transform3, manipulation: VolumeManipulation) {
+    fun changedInWorld(copy: PlateInstanceId, volume: Int, change: Transform3, manipulation: VolumeManipulation, assemble: Transform3? = null) {
         val target = repository.state.value.objects.withMesh(copy.mesh) ?: return
-        val placement = target.instances.getOrNull(copy.instance)?.inspection?.placement ?: return
+        val placement = assemble ?: target.instances.getOrNull(copy.instance)?.inspection?.placement ?: return
         val before = target.volumeAt(volume)?.placement ?: return
-        invoke(copy, volume, placement.inverse() * change * placement * before, manipulation)
+        invoke(copy, volume, placement.inverse() * change * placement * before, manipulation, inAssembly = assemble != null)
     }
 }

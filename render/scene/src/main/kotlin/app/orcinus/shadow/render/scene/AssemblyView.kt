@@ -36,6 +36,8 @@ data class AssemblyView(
     val sectionPosition: Double = 0.0,
     val sectionResets: Int = 0,
     val section: ScenePath? = null,
+    /** "Selection Mode: Part": a tap picks a volume, not its copy. */
+    val partSelection: Boolean = false,
 )
 
 /**

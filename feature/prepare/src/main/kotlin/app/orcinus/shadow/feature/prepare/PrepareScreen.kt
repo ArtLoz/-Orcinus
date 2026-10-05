@@ -572,6 +572,8 @@ internal fun PrepareRoute(
             setSectionPosition = viewModel::setSectionPosition,
             resetSectionDirection = viewModel::resetSectionDirection,
             sectionPlane = viewModel::setSectionPlane,
+            setPartSelection = viewModel::setAssemblyPartSelection,
+            selectVolume = viewModel::selectAssemblyVolume,
         ),
         meshBooleanActions = MeshBooleanActions(
             toggle = viewModel::toggleMeshBoolean,
@@ -890,13 +892,14 @@ internal fun PrepareScreen(
                     )
                 },
                 onMeshBooleanPick = meshBooleanActions.pick,
-                assembly = state.assemblyView?.let { AssemblyView(it.explosionRatio, it.hidden, it.sectionPosition, it.sectionResets, it.section) },
+                assembly = state.assemblyView?.let { AssemblyView(it.explosionRatio, it.hidden, it.sectionPosition, it.sectionResets, it.section, it.partSelection) },
+                onSelectVolume = assemblyViewActions.selectVolume,
                 onAssemblySelection = { assemblySelection = it },
                 onPlaceInAssembly = assemblyViewActions.place,
                 onAssemblySection = assemblyViewActions.sectionPlane,
                 selectedVolume = state.selectedVolume?.mesh?.value,
                 highlightedVolumes = state.highlightedVolumes,
-                selectedVolumeSphere = state.selectedVolume?.description?.sphere,
+                selectedVolumeSphere = state.volumeSphere,
                 selectedVolumeScale = state.volumeScale,
                 onPlaceVolume = onPlaceVolume,
             )

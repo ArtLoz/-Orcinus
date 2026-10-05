@@ -1586,6 +1586,7 @@ internal object NativeBindings {
         filamentProfiles: Array<String>,
         processProfile: String,
         outputPrefix: String,
+        inAssembly: Boolean,
     ): NativeImportedModels
 
     /** mesh_boolean(): [operation] is MeshBooleanOperation's ordinal. */

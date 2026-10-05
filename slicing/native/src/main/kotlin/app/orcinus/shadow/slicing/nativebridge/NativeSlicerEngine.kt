@@ -1216,6 +1216,7 @@ class NativeSlicerEngine(context: Context) :
         manipulation: VolumeManipulation,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        inAssembly: Boolean,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -1233,6 +1234,7 @@ class NativeSlicerEngine(context: Context) :
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
             processProfile = profiles.process.value,
             outputPrefix = prefix.value,
+            inAssembly = inAssembly,
         ).toOutcome()
     }
 

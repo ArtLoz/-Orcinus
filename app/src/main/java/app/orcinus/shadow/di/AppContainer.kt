@@ -618,6 +618,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     fun prepareViewModel(): PrepareViewModel {
         return PrepareViewModel(
             observePlate = observePlate,
+            selectObjectPart = selectObjectPart,
             addModelToPlate = addModelToPlate,
             addPrimitive = addPrimitive,
             addCalibrationCubeToPlate = addCalibrationCube,

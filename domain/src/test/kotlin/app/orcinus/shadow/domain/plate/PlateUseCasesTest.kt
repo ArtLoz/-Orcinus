@@ -3660,6 +3660,24 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `in the assembly view a part's move is measured against the copy's assemble transformation, and nothing drops`() {
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), moved(INSPECTION.placement, 5.0))
+        val cube = CUBE.withParts(listOf(part))
+        val repository = FakeRepository(readyState(cube).copy(selectedInstances = setOf(PlateInstanceId(cube.mesh)), selectedPart = ObjectPartId(cube.mesh, 1)))
+        val inspector = FakeInspector()
+        val place = PlaceObjectVolumeUseCase(inspector, FakeSceneFiles(), repository, scope)
+        // In the assembly the copy stands turned a quarter about Z: the object's X points along the world's Y.
+        val assemble = Transform3(listOf(0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 30.0, 40.0, 50.0, 1.0))
+
+        place.changedInWorld(PlateInstanceId(cube.mesh), 1, translationTransform(Vector3(0.0, 10.0, 0.0)), VolumeManipulation.MOVE, assemble)
+
+        val call = inspector.placeCalls.single()
+        assertTrue(call.inAssembly)
+        assertEquals(part.placement.columns[12] + 10.0, call.matrix.columns[12], 1e-9)
+        assertEquals(part.placement.columns[13], call.matrix.columns[13], 1e-9)
+    }
+
+    @Test
     fun `a part moved in the world takes the move in the object's coordinates, and the engine's object keeps it selected`() {
         // The copy turned a quarter about Z: the object's X points along the world's Y.
         val turned = Transform3(listOf(0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 100.0, 120.0, 10.0, 1.0))
@@ -4355,7 +4373,13 @@ class PlateUseCasesTest {
 
         val booleanCalls = mutableListOf<BooleanCall>()
 
-        data class PlaceCall(val index: Int, val volume: Int, val matrix: Transform3, val manipulation: VolumeManipulation)
+        data class PlaceCall(
+            val index: Int,
+            val volume: Int,
+            val matrix: Transform3,
+            val manipulation: VolumeManipulation,
+            val inAssembly: Boolean = false,
+        )
 
         val placeCalls = mutableListOf<PlaceCall>()
 
@@ -4370,8 +4394,9 @@ class PlateUseCasesTest {
             manipulation: VolumeManipulation,
             profiles: SlicingProfileSelection,
             prefix: ScenePath,
+            inAssembly: Boolean,
         ): ModelLoadOutcome {
-            placeCalls += PlaceCall(index, volume, matrix, manipulation)
+            placeCalls += PlaceCall(index, volume, matrix, manipulation, inAssembly)
             return placedVolume
         }
 

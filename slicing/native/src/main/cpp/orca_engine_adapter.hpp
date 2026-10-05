@@ -2883,7 +2883,9 @@ ImportedModels load_volume(
 // as a gizmo or a window left it; then every copy of the object with auto
 // drop on drops onto the plate when it floats above it (a move), or rests on
 // it unless it was sunk before (a rotation or a scale). The object is written
-// as import_model() writes objects; selected_volume is the volume.
+// as import_model() writes objects; selected_volume is the volume. In the
+// assembly view (in_assembly) nothing rises or drops: do_move() and
+// do_rotate() of CanvasAssembleView leave the copies where they stand.
 ImportedModels place_volume(
     const std::vector<PlateObject>& plate,
     std::size_t object_index,
@@ -2891,7 +2893,8 @@ ImportedModels place_volume(
     const std::vector<double>& matrix,
     Manipulation manipulation,
     const ProfileSelection& profiles,
-    const std::string& output_prefix
+    const std::string& output_prefix,
+    bool in_assembly = false
 );
 
 // GLGizmoMeshBoolean's operations, as MeshBooleanOperation lists them.

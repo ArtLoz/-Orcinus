@@ -705,8 +705,9 @@ class RemoteSlicerEngine(
         manipulation: VolumeManipulation,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        inAssembly: Boolean,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
-        placeVolume(plate.toParcels(), index, volume, matrix.columns.toDoubleArray(), manipulation.name, profiles.toParcel(), prefix.value)
+        placeVolume(plate.toParcels(), index, volume, matrix.columns.toDoubleArray(), manipulation.name, profiles.toParcel(), prefix.value, inAssembly)
             .toModelLoadOutcome()
     }
 

@@ -242,7 +242,7 @@ interface ISlicerService {
         String prefix,
         in @nullable double[] stepMesh
     );
-    /** place_volume(): manipulation is VolumeManipulation's name. */
+    /** place_volume(): manipulation is VolumeManipulation's name; nothing drops in the assembly view. */
     ModelLoadParcel placeVolume(
         in PlacedModelParcel[] plate,
         int index,
@@ -250,7 +250,8 @@ interface ISlicerService {
         in double[] matrix,
         String manipulation,
         in ProfilesParcel profiles,
-        String prefix
+        String prefix,
+        boolean inAssembly
     );
     /** mesh_boolean(): operation is MeshBooleanOperation's name. */
     ModelLoadParcel meshBoolean(

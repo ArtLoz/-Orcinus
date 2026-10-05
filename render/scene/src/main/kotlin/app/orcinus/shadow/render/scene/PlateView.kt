@@ -157,6 +157,8 @@ fun PlateView(
     wireframes: Set<ScenePath> = emptySet(),
     editable: Boolean,
     onSelectObject: (Int?) -> Unit,
+    /** The assembly view's "Part" selection: a tap on the volume drawn as a mesh (its key) of the copy at an index. */
+    onSelectVolume: (index: Int, key: String) -> Unit = { _, _ -> },
     onPlaceObject: (index: Int, placement: Transform3, manipulation: Manipulation) -> Unit,
     onOpenObjectMenu: (index: Int, position: Offset) -> Unit,
     onPlaceObjects: (placements: List<Pair<Int, Transform3>>) -> Unit = {},
@@ -557,6 +559,7 @@ fun PlateView(
         val haptics = LocalHapticFeedback.current
         SideEffect {
             controller.onSelectObject = onSelectObject
+            controller.onSelectVolume = onSelectVolume
             controller.onSelectPlate = onSelectPlate
             controller.onPlaceObject = onPlaceObject
             controller.onPlaceObjects = onPlaceObjects
@@ -1038,6 +1041,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var assemblySelection: Vector3? = null
 
     var onSelectObject: (Int?) -> Unit = {}
+    var onSelectVolume: (Int, String) -> Unit = { _, _ -> }
     var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
     var onPaint: (Line3, starts: Boolean) -> Unit = { _, _ -> }
     var onPlaceObject: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
@@ -1653,7 +1657,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * scale gizmos and a finger change alone. Lay on face, and the assembly
      * view, still work on the copy.
      */
-    private fun volumeMode(): String? = selectedVolume?.takeIf { assembly == null && gizmo != PlateGizmo.LAY_ON_FACE }
+    private fun volumeMode(): String? = selectedVolume?.takeIf { gizmo != PlateGizmo.LAY_ON_FACE }
 
     /** What the gizmos stand around: the selected volume, or the selected copy. */
     private fun selectedTarget(): SceneObject? =
@@ -1666,7 +1670,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The volumes drawn selected while one is selected alone: it, with the paint on it; null while copies are. */
     private fun selectedVolumes(): Set<String>? {
         if (selectedVolume == null && highlightedVolumes.isNotEmpty() && assembly == null) return highlightedVolumes
-        val key = selectedVolume?.takeIf { assembly == null } ?: return null
+        val key = selectedVolume ?: return null
         return plateObjects.filter { it.index == selectedIndex && (it.key == key || it.paintedOn == key) }.mapTo(HashSet()) { it.key }
     }
 
@@ -1786,6 +1790,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             .mapNotNull { sceneObject -> sceneObject.raycast(ray)?.let { sceneObject to it } }
             .minByOrNull { (_, hit) -> (hit - ray.a).norm() }
             ?: return false
+        if (assembly?.partSelection == true && volume.index != WIPE_TOWER_INDEX) {
+            // Selection::Volume, locked: the volume itself is picked, and the
+            // assembly view moves nothing a finger drags.
+            onSelectVolume(volume.index, volume.paintedOn ?: volume.key)
+            drag = null
+            return true
+        }
         val volumeKey = volumeMode()
         if (volumeKey != null && volume.index == selectedIndex && volume.key == volumeKey) {
             // Selection::add() of the selected volume keeps the selection, and the
@@ -2496,9 +2507,18 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         return floatArrayOf(-normal.x.toFloat(), -normal.y.toFloat(), -normal.z.toFloat(), offset.toFloat())
     }
 
-    /** Selection::get_bounding_box(): every volume of the selected copies. */
-    private fun selectionBox(): Box3? =
-        objects.filter { it.index in selectedIndexes || it.index == selectedIndex }.map(SceneObject::bounds).reduceOrNull(Box3::merge)
+    /**
+     * Selection::get_bounding_box(): every volume of the selected copies, or
+     * in the assembly view the selected volume alone (its frame and
+     * "Assembly Info").
+     */
+    private fun selectionBox(): Box3? {
+        val volumes = selectedVolumes()?.takeIf { assembly != null }
+        return objects
+            .filter { (it.index in selectedIndexes || it.index == selectedIndex) && (volumes == null || it.key in volumes) }
+            .map(SceneObject::bounds)
+            .reduceOrNull(Box3::merge)
+    }
 
     /** GLCanvas3D::zoom_to_bed(): the current plate's build volume at z = 0 (DefaultCameraZoomToBedMarginFactor). */
     private fun zoomToBed() {

@@ -1663,12 +1663,13 @@ class SetExtruderUseCase(private val repository: PlateRepository) {
  * with it, as ObjectList::part_selection_changed() selects both.
  */
 class SelectObjectPartUseCase(private val repository: PlateRepository) {
-    operator fun invoke(id: ObjectPartId?) = repository.update { state ->
+    /** The part [id], with the copy [instance] it is picked on (the object list's, the first). */
+    operator fun invoke(id: ObjectPartId?, instance: Int = 0) = repository.update { state ->
         val target = id?.takeIf { state.objects.withMesh(it.mesh)?.volumeAt(it.index) != null }
         if (target == null) {
             if (state.selectedPart == null) state else state.copy(selectedPart = null)
         } else {
-            state.copy(selectedInstances = setOf(PlateInstanceId(target.mesh)), selectedPart = target, selectedRange = null)
+            state.copy(selectedInstances = setOf(PlateInstanceId(target.mesh, instance)), selectedPart = target, selectedRange = null)
         }
     }
 }

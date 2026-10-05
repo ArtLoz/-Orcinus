@@ -146,6 +146,7 @@ import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
 import app.orcinus.shadow.domain.plate.RequestEmbossUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
+import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateUseCase
 import app.orcinus.shadow.domain.plate.SelectionMenuUseCase
@@ -246,6 +247,7 @@ class PrepareViewModel(
     private val deletePlateObject: DeletePlateObjectUseCase,
     private val describeFlatteningPlanes: DescribeFlatteningPlanesUseCase,
     private val selectPlateObject: SelectPlateObjectUseCase,
+    private val selectObjectPart: SelectObjectPartUseCase,
     private val moveTower: MoveWipeTowerUseCase,
     private val paintObject: PaintObjectUseCase,
     private val sliceAction: SliceActionUseCase,
@@ -3220,9 +3222,15 @@ class PrepareViewModel(
         if (degrees == 0.0) return
         state.value.selectedVolume?.let { volume ->
             // Selection::rotate() of a volume in world coordinates: about the world axis through its sphere's centre.
-            val pivot = volume.description?.sphere?.center ?: return
+            val pivot = state.value.volumeSphere?.center ?: return
             val copy = selectedId() ?: return
-            placeObjectVolume.changedInWorld(copy, volume.id.index, ObjectTransforms.rotated(Transform3.IDENTITY, axis, degrees, pivot), VolumeManipulation.ROTATE)
+            placeObjectVolume.changedInWorld(
+                copy,
+                volume.id.index,
+                ObjectTransforms.rotated(Transform3.IDENTITY, axis, degrees, pivot),
+                VolumeManipulation.ROTATE,
+                volumeFrame(copy),
+            )
             return
         }
         val target = selected() ?: return
@@ -3248,7 +3256,8 @@ class PrepareViewModel(
     fun resetRotation() {
         state.value.selectedVolume?.let { volume ->
             val start = view.value.volumeRotationStart ?: return
-            placeObjectVolume(selectedId() ?: return, volume.id.index, ObjectTransforms.withLinearPartOf(volume.matrix, start), VolumeManipulation.ROTATE)
+            val copy = selectedId() ?: return
+            placeObjectVolume(copy, volume.id.index, ObjectTransforms.withLinearPartOf(volume.matrix, start), VolumeManipulation.ROTATE, volumeFrame(copy) != null)
             return
         }
         val target = selected() ?: return
@@ -3264,7 +3273,8 @@ class PrepareViewModel(
     /** GizmoObjectManipulation::reset_rotation_value(false): no rotation (Transformation::reset_rotation()). */
     fun resetRotationToZero() {
         state.value.selectedVolume?.let { volume ->
-            placeObjectVolume(selectedId() ?: return, volume.id.index, AssemblyTransforms.withoutRotation(volume.matrix), VolumeManipulation.ROTATE)
+            val copy = selectedId() ?: return
+            placeObjectVolume(copy, volume.id.index, AssemblyTransforms.withoutRotation(volume.matrix), VolumeManipulation.ROTATE, volumeFrame(copy) != null)
             return
         }
         val target = selected() ?: return
@@ -3450,9 +3460,9 @@ class PrepareViewModel(
         if (abs(current - clamped) < POSITION_EPSILON) return
         val displacement = translationTransform(Vector3(if (axis == 0) clamped - current else 0.0, if (axis == 1) clamped - current else 0.0, if (axis == 2) clamped - current else 0.0))
         if (state.moveObjectCoordinates) {
-            placeObjectVolume(copy, volume.id.index, displacement * volume.matrix, VolumeManipulation.MOVE)
+            placeObjectVolume(copy, volume.id.index, displacement * volume.matrix, VolumeManipulation.MOVE, volumeFrame(copy) != null)
         } else {
-            placeObjectVolume.changedInWorld(copy, volume.id.index, displacement, VolumeManipulation.MOVE)
+            placeObjectVolume.changedInWorld(copy, volume.id.index, displacement, VolumeManipulation.MOVE, volumeFrame(copy))
         }
     }
 
@@ -3460,7 +3470,7 @@ class PrepareViewModel(
     fun placeVolume(index: Int, change: Transform3, manipulation: VolumeManipulation) {
         val volume = state.value.selectedVolume ?: return
         val copy = copyAt(index)?.takeIf { it.mesh == volume.id.mesh } ?: return
-        placeObjectVolume.changedInWorld(copy, volume.id.index, change, manipulation)
+        placeObjectVolume.changedInWorld(copy, volume.id.index, change, manipulation, volumeFrame(copy))
     }
 
     /**
@@ -3482,6 +3492,35 @@ class PrepareViewModel(
         val placement = Transform3(columns)
         if (assembly) placeInAssembly(copy.id, placement, Manipulation.Move) else placeObject(index, placement, Manipulation.Move)
     }
+
+    /**
+     * The assembly view's "Selection Mode" (set_volume_selection_mode() with
+     * lock_volume_selection_mode() for "Part").
+     */
+    fun setAssemblyPartSelection(part: Boolean) {
+        view.update { it.copy(assemblyPartSelection = part) }
+    }
+
+    /**
+     * A tap in "Part" mode (Selection::add() of a volume): the volume drawn as
+     * [key] of the copy at [index] alone, which the object list selects
+     * (update_selections()); an object of one volume, which the list shows
+     * without parts, is selected whole.
+     */
+    fun selectAssemblyVolume(index: Int, key: String) {
+        val copy = state.value.sceneCopies.getOrNull(index) ?: return
+        val plateObject = copy.plateObject
+        if (plateObject.parts.isEmpty()) return selectObject(index)
+        val volume = when (key) {
+            plateObject.mesh.value, copy.instance.inspection.mesh.value -> 0
+            else -> plateObject.parts.indexOfFirst { it.mesh.value == key }.takeIf { it >= 0 }?.plus(1)
+        } ?: return
+        view.update { if (it.wipeTowerSelected) it.copy(wipeTowerSelected = false) else it }
+        selectObjectPart(ObjectPartId(copy.id.mesh, volume), copy.id.instance)
+    }
+
+    /** The assemble transformation a volume's change in the world is measured against while the assembly view shows. */
+    private fun volumeFrame(copy: PlateInstanceId): Transform3? = if (view.value.assemblyView) assembleOf(copy) else null
 
     /** A gizmo of the assembly view placed the copy at [index] there. */
     fun placeObjectInAssembly(index: Int, assemble: Transform3, manipulation: Manipulation) {

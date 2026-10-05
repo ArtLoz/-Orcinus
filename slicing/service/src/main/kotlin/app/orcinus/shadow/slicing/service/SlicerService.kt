@@ -603,6 +603,7 @@ abstract class SlicerService<E> : Service()
             manipulation: String,
             profiles: ProfilesParcel,
             prefix: String,
+            inAssembly: Boolean,
         ): ModelLoadParcel = runBlocking {
             engine.placeVolume(
                 plate.toPlacedModels(),
@@ -612,6 +613,7 @@ abstract class SlicerService<E> : Service()
                 VolumeManipulation.valueOf(manipulation),
                 profiles.toProfiles(),
                 ScenePath(prefix),
+                inAssembly,
             )
         }.toParcel()
 

@@ -5642,6 +5642,20 @@ TEST_CASE("A volume moved, turned or scaled drops its object as GLCanvas3D does"
         CHECK(moved.objects.front().matrix[14] == Catch::Approx(cube.matrix[14] + 10.0));
         CHECK(moved.objects.front().instances.front().instance_matrix[14] == Catch::Approx(cube_z - 10.0));
     }
+    SECTION("in the assembly view the object stays where the move left it")
+    {
+        // do_move() of CanvasAssembleView: no copy drops, and nothing rises.
+        const orca::ImportedModels up = orca::place_volume({plate_object_of(cube)}, 0, 0, raised(cube.matrix, 10.0), orca::Manipulation::move,
+                                                           k2_plus_profiles(), import_prefix("place-assembly-up"), true);
+        INFO(up.message);
+        REQUIRE(up.status == orca::SceneStatus::success);
+        CHECK(up.objects.front().matrix[14] == Catch::Approx(cube.matrix[14] + 10.0));
+        CHECK(up.objects.front().instances.front().instance_matrix[14] == Catch::Approx(cube_z));
+        const orca::ImportedModels under = orca::place_volume({plate_object_of(cube)}, 0, 0, raised(cube.matrix, -100.0), orca::Manipulation::move,
+                                                              k2_plus_profiles(), import_prefix("place-assembly-under"), true);
+        REQUIRE(under.status == orca::SceneStatus::success);
+        CHECK(under.objects.front().matrix[14] == Catch::Approx(cube.matrix[14] - 100.0));
+    }
     SECTION("a move that takes the whole object below the plate keeps its top above it")
     {
         // Selection::ensure_not_below_bed(): the top 0.05 mm above the plate, sunk otherwise.

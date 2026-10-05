@@ -314,7 +314,7 @@ interface PlateInspector {
      * volume at [volume] of the object at [index] takes [matrix] in the
      * object's coordinates, and the object's copies drop onto the plate as
      * [manipulation] lets them; the engine writes the object anew, named
-     * after [prefix].
+     * after [prefix]. In the assembly view ([inAssembly]) nothing drops.
      */
     suspend fun placeVolume(
         plate: List<PlacedModel>,
@@ -324,6 +324,7 @@ interface PlateInspector {
         manipulation: VolumeManipulation,
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
+        inAssembly: Boolean = false,
     ): ModelLoadOutcome = ModelLoadOutcome.Failure("Placing a volume is not supported")
 
     /**

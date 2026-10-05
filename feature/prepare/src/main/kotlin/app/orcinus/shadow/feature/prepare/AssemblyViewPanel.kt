@@ -36,6 +36,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasTool
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasToolbar
+import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
 import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
 import app.orcinus.shadow.core.designsystem.component.OrcaGizmoPanel
@@ -71,9 +72,13 @@ internal class AssemblyViewActions(
     val setSectionPosition: (Double) -> Unit,
     val resetSectionDirection: () -> Unit,
     val sectionPlane: (normal: Vector3, offset: Double) -> Unit,
+    /** "Selection Mode": "Part" (true) or "Object". */
+    val setPartSelection: (Boolean) -> Unit,
+    /** A tap in "Part" mode on the volume drawn as a mesh of the copy at an index of the scene. */
+    val selectVolume: (index: Int, key: String) -> Unit,
 ) {
     companion object {
-        val NONE = AssemblyViewActions({}, {}, {}, {}, {}, { _, _, _ -> }, {}, {}, { _, _ -> })
+        val NONE = AssemblyViewActions({}, {}, {}, {}, {}, { _, _, _ -> }, {}, {}, { _, _ -> }, {}, { _, _ -> })
     }
 }
 
@@ -258,6 +263,24 @@ internal fun AssemblyViewPanel(
                 text = String.format(Locale.ROOT, "%.2f", mode.explosionRatio),
                 onChange = { actions.setExplosionRatio(it.toDouble()) },
             )
+            // "Selection Mode": Object or Part.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = orcaString("Selection Mode") + ":",
+                    color = colors.onCanvasPanel,
+                    style = OrcaTheme.typography.body12,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                val objectLabel = orcaString("Object")
+                val partLabel = orcaString("Part")
+                OrcaComboBox(
+                    items = listOf(false, true),
+                    selected = mode.partSelection,
+                    label = { part -> if (part) partLabel else objectLabel },
+                    onSelect = actions.setPartSelection,
+                    modifier = Modifier.width(SELECTION_MODE_WIDTH),
+                )
+            }
         }
         if (selection != null) {
             Text(
@@ -271,6 +294,9 @@ internal fun AssemblyViewPanel(
         }
     }
 }
+
+/** The combo's width, as wide as "Object" two and a half times with its arrow (item_width). */
+private val SELECTION_MODE_WIDTH = 140.dp
 
 @Composable
 private fun AssemblyInfoRow(caption: String, value: String) {

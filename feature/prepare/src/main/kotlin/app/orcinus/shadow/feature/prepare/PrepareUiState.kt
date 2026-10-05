@@ -3,6 +3,7 @@ package app.orcinus.shadow.feature.prepare
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.BedTypeChoice
+import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BrimEarsSetup
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.BuildVolumeFit
@@ -57,6 +58,7 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeDescription
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.inverse
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.mesh
@@ -69,6 +71,7 @@ import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.plateSettingsChoice
 import app.orcinus.shadow.core.model.scalingFactor
 import app.orcinus.shadow.core.model.times
+import app.orcinus.shadow.core.model.transformVector
 import app.orcinus.shadow.core.model.translation
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.volumeMeshErrors
@@ -280,6 +283,12 @@ data class PrepareUiState(
     /** The scale gizmo of the selected volume, once the engine measured it. */
     val volumeScale: VolumeScaleFrame? = null,
     /** The "Section view" of the painting tool on the painted copy, or of the brim ears tool on its copy. */
+    /**
+     * Selection::get_bounding_sphere() of the selected volume, which its
+     * rotation turns it about: the engine's, or in the assembly view where the
+     * volume stands there with the explosion (GLVolume::world_matrix()).
+     */
+    val volumeSphere: BoundingSphere? = null,
     val paintSection: PaintSectionView? = null,
     /**
      * GLGizmoMmuSegmentation::update_used_filaments(): the filaments, 0-based,
@@ -437,6 +446,8 @@ data class AssemblyViewMode(
     val sectionPosition: Double = 0.0,
     val sectionResets: Int = 0,
     val section: ScenePath? = null,
+    /** "Selection Mode": "Part" (true) or "Object". */
+    val partSelection: Boolean = false,
 )
 
 internal data class PrepareViewState(
@@ -516,6 +527,13 @@ internal data class PrepareViewState(
     val sectionPosition: Double = 0.0,
     val sectionResets: Int = 0,
     val assemblySection: ScenePath? = null,
+    /**
+     * The assembly view's "Selection Mode": "Part" locks its selection to
+     * volumes (Selection::lock_volume_selection_mode()), so a tap picks the
+     * volume itself; it keeps while the app runs, as the assembly canvas's
+     * selection keeps it.
+     */
+    val assemblyPartSelection: Boolean = false,
 ) {
     /**
      * GLGizmosManager::get_current_type() != Undefined: a gizmo is open — the
@@ -832,12 +850,12 @@ internal fun PlateState.objectInfo(view: PrepareViewState, volume: SelectedVolum
 }
 
 /**
- * Selection::Volume: the volume of the one selected copy the object list
- * selected alone; the assembly view moves copies only.
+ * Selection::Volume: the volume of the one selected copy the object list, or
+ * the assembly view's "Part" selection, selected alone.
  */
 internal fun PlateState.selectedVolume(view: PrepareViewState): SelectedVolume? {
     val part = selectedPart ?: return null
-    if (view.assemblyView || view.wipeTowerSelected || selectedInstances.singleOrNull()?.mesh != part.mesh) return null
+    if (view.wipeTowerSelected || selectedInstances.singleOrNull()?.mesh != part.mesh) return null
     val objectIndex = objects.indexOfFirst { it.mesh == part.mesh }
     val volume = objects.getOrNull(objectIndex)?.volumeAt(part.index) ?: return null
     val index = VolumeIndex(objectIndex, part.index)
@@ -916,7 +934,14 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         },
         canMeshBoolean = canEditPlate && !view.assemblyView && selectedPart == null &&
             selectedInstances.singleOrNull()?.let { copy -> objects.firstOrNull { it.mesh == copy.mesh }?.parts?.isNotEmpty() } == true,
-        assemblyView = AssemblyViewMode(view.explosionRatio, view.assemblyHidden, view.sectionPosition, view.sectionResets, view.assemblySection)
+        assemblyView = AssemblyViewMode(
+            view.explosionRatio,
+            view.assemblyHidden,
+            view.sectionPosition,
+            view.sectionResets,
+            view.assemblySection,
+            view.assemblyPartSelection,
+        )
             .takeIf { view.assemblyView },
         canOpenAssemblyView = hasAssembleView(),
         measuredCopies = selectedInstances,
@@ -1040,6 +1065,23 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             val painted = target.paintedMeshes.filter { it.kind == PaintKind.COLOR }.map { it.state - 1 }
             (bases + painted).filter { it in 0 until count }.toSortedSet().toList()
         }.orEmpty(),
+        volumeSphere = volume?.description?.sphere?.let { sphere ->
+            val copy = selectedObject?.let(copies::get)
+            if (!view.assemblyView || copy == null) return@let sphere
+            val assemble = copy.instance.assemble ?: Transform3.IDENTITY
+            val matrix = volume.matrix
+            // AssemblyPlacement: the volume's explosion along its assemble offset and its own offset.
+            val toAssembly = copy.instance.offsetToAssembly ?: Vector3(0.0, 0.0, 0.0)
+            val own = matrix.translation
+            val explosion = (assemble * matrix).transformVector(Vector3(toAssembly.x + own.x, toAssembly.y + own.y, toAssembly.z + own.z))
+            val fromPlate = assemble * copy.instance.inspection.placement.inverse()
+            val moved = fromPlate.transformVector(sphere.center).let { v ->
+                val t = fromPlate.translation
+                Vector3(v.x + t.x, v.y + t.y, v.z + t.z)
+            }
+            val ratio = view.explosionRatio - 1.0
+            BoundingSphere(Vector3(moved.x + explosion.x * ratio, moved.y + explosion.y * ratio, moved.z + explosion.z * ratio), sphere.radius)
+        },
         paintSection = view.painting?.let { mode ->
             val copy = selectedObject?.let(copies::get) ?: return@let null
             // ObjectClipper::set_position_by_ratio(): about the copy's offset, or in the

@@ -3953,7 +3953,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeVolume(
     jstring filament_profile,
     jobjectArray filament_profiles,
     jstring process_profile,
-    jstring output_prefix
+    jstring output_prefix,
+    jboolean in_assembly
 )
 {
     return to_java(
@@ -3965,7 +3966,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeVolume(
             to_doubles(env, matrix),
             static_cast<orcinus::orca::Manipulation>(manipulation),
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
-            to_utf8(env, output_prefix)
+            to_utf8(env, output_prefix),
+            in_assembly == JNI_TRUE
         )
     );
 }

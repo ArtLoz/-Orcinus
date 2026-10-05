@@ -6006,7 +6006,8 @@ ImportedModels place_volume(
     const std::vector<double>& matrix,
     Manipulation manipulation,
     const ProfileSelection& profiles,
-    const std::string& output_prefix
+    const std::string& output_prefix,
+    bool in_assembly
 )
 {
     using namespace Slic3r;
@@ -6053,7 +6054,7 @@ ImportedModels place_volume(
         // moved volume rises by what the copy needs whose model parts all went
         // below the plate. Orca takes the selected copy; the engine is not told
         // which one is, and takes the copy that needs most.
-        if (manipulation == Manipulation::move) {
+        if (manipulation == Manipulation::move && !in_assembly) {
             double z_shift = 0.0;
             for (std::size_t instance = 0; instance < mo->instances.size(); ++instance) {
                 z_shift = std::max(z_shift, SINKING_MIN_Z_THRESHOLD - instance_top_z(*mo, instance));
@@ -6066,8 +6067,8 @@ ImportedModels place_volume(
             }
         }
 
-        // Fixes sinking/flying instances (snaps object to buildplate)
-        for (std::size_t instance = 0; instance < mo->instances.size(); ++instance) {
+        // Fixes sinking/flying instances (snaps object to buildplate), but in the assembly view.
+        for (std::size_t instance = 0; instance < mo->instances.size() && !in_assembly; ++instance) {
             ModelInstance* mi = mo->instances[instance];
             if (!mi->auto_drop) {
                 continue;
