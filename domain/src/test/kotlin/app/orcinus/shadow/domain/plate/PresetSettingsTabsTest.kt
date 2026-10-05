@@ -255,6 +255,28 @@ class PresetSettingsTabsTest {
     }
 
     @Test
+    fun `the bed is built anew after a change of its shape and after a reset of the printer`() {
+        val repository = FakeRepository(READY)
+        val applied = mutableListOf<PresetsOutcome>()
+        val tabs = PresetSettingsTabs(FakeEditor(), FakePresetManager(), NO_FLUSH_UPDATES, repository, scope) {
+            PresetsApplier { _, outcome -> applied += outcome }
+        }
+        runSuspend { tabs.refresh() }
+
+        // Plater::on_config_change(): bed_shape_changed.
+        tabs.request(PresetKind.PRINTER, SettingsRequest.Change("bed_exclude_area", "0x0,10x0,10x10"))
+        assertEquals(1, applied.size)
+
+        // The saved preset may hold another bed.
+        tabs.request(PresetKind.PRINTER, SettingsRequest.Reset(emptyList()))
+        assertEquals(2, applied.size)
+
+        // A reset of the process leaves the bed.
+        tabs.request(PresetKind.PRINT, SettingsRequest.Reset(emptyList()))
+        assertEquals(2, applied.size)
+    }
+
+    @Test
     fun `requests carry the page the tab shows, and the page follows the one the engine toggled`() {
         val repository = FakeRepository(READY)
         val editor = FakeEditor { call -> PresetSettingsOutcome.Success(STANDARD.copy(activePage = call.page), emptyList()) }

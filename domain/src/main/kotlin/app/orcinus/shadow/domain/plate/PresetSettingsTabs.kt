@@ -225,6 +225,14 @@ class PresetSettingsTabs(
                     val before = repository.state.value.profiles
                     platePresets().apply(before, presetManager.presets())
                 }
+                // Plater::on_config_change(): the bed is built anew when a printer
+                // setting of its shape changes, and when a reset takes the printer
+                // back to its saved preset, which may hold another bed.
+                if (kind == PresetKind.PRINTER &&
+                    (request is SettingsRequest.Reset || (request is SettingsRequest.Change && request.id.substringBefore('#') in BED_SHAPE_KEYS))
+                ) {
+                    platePresets().apply(null, presetManager.presets())
+                }
                 // TabPrintPlate::on_value_change(): "Customize" of a filament sequence,
                 // which the plate takes in the filaments' order, posts
                 // EVT_OPEN_PLATESETTINGSDIALOG with "only_layer_sequence".
@@ -341,6 +349,16 @@ class PresetSettingsTabs(
 
         /** The printer setting the plate's filament slots follow. */
         const val EXTRUDERS_COUNT_KEY = "extruders_count"
+
+        /** Plater::on_config_change()'s keys of bed_shape_changed. */
+        val BED_SHAPE_KEYS = setOf(
+            "printable_area",
+            "bed_exclude_area",
+            "bed_custom_texture",
+            "bed_custom_model",
+            "extruder_clearance_height_to_lid",
+            "extruder_clearance_height_to_rod",
+        )
 
         /** The plate's choices of a filament sequence, and their LayerSeq::flsCustomize. */
         val LAYER_SEQUENCE_CHOICES = setOf("first_layer_sequence_choice", "other_layers_sequence_choice")
