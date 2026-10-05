@@ -886,6 +886,18 @@ PresetState set_filament_color(const std::int64_t index, const std::string& colo
             colors->values.resize(bundle.filament_presets.size(), color);
         }
         colors->values[std::size_t(index)] = color;
+        // PlaterPresetComboBox::sync_colour_config() of the colour picker's one
+        // colour: the slot's colours are that colour alone, and not a gradient.
+        auto* multi_colour = bundle.project_config.option<Slic3r::ConfigOptionStrings>("filament_multi_colour", true);
+        auto* colour_type = bundle.project_config.option<Slic3r::ConfigOptionStrings>("filament_colour_type", true);
+        if (std::size_t(index) >= multi_colour->values.size()) {
+            multi_colour->values.resize(std::size_t(index) + 1);
+        }
+        if (std::size_t(index) >= colour_type->values.size()) {
+            colour_type->values.resize(std::size_t(index) + 1);
+        }
+        multi_colour->values[std::size_t(index)] = color;
+        colour_type->values[std::size_t(index)] = "1";
         bundle.export_selections(*engine().config);
         save_config(engine());
         return preset_state(bundle);
