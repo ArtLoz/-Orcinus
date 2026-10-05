@@ -10,6 +10,7 @@ import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.ListClipboard
+import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.model.selectedCopies
@@ -21,6 +22,7 @@ import app.orcinus.shadow.core.ui.plate.selectionMenuState
 import app.orcinus.shadow.core.ui.plate.selectsSeveralObjects
 import app.orcinus.shadow.core.ui.settings.BedShapeFileActions
 import app.orcinus.shadow.core.ui.settings.CreatePresetSuccessfulDialog
+import app.orcinus.shadow.core.ui.settings.PresetBundleDialog
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.BedShapeFilesUseCase
 import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
@@ -239,6 +241,7 @@ import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlateFilamentsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.PresetBundlesUseCase
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.PrintHostCertificateUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
@@ -273,6 +276,7 @@ import app.orcinus.shadow.domain.plate.canDeletePlate
 import app.orcinus.shadow.domain.plate.canMoveObject
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import java.util.Locale
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -386,6 +390,7 @@ class SidebarViewModel(
     private val setFlush: SetFlushVolumesUseCase,
     private val importConfig: ImportConfigUseCase,
     private val exportConfig: ExportConfigUseCase,
+    private val presetBundles: PresetBundlesUseCase,
     private val setSettingsScope: SetSettingsScopeUseCase,
     private val setPlateObjectPrintable: SetPlateObjectPrintableUseCase,
     private val setPlateObjectAutoDrop: SetPlateObjectAutoDropUseCase,
@@ -719,6 +724,12 @@ class SidebarViewModel(
     fun dismissConfigTransfer() {
         configTransfer = null
     }
+
+    /** PresetBundleDialog: the bundles it lists. */
+    suspend fun listPresetBundles(): PresetBundlesOutcome = presetBundles.list()
+
+    /** Its "Delete bundle", which runs on if the dialog closes meanwhile. */
+    suspend fun deletePresetBundle(id: String): PresetBundlesOutcome = viewModelScope.async { presetBundles.delete(id) }.await()
 
     /** The settings row of the object list: the item and its settings are shown. */
     fun openSettingsOf(id: PlateInstanceId?) {
@@ -1740,6 +1751,15 @@ fun PlateSidebar(
         }
         exportChoice = null
     }
+    // The top menu's Preset Bundle (GUI_App::open_presetbundledialog()).
+    var presetBundlesOpen by rememberSaveable { mutableStateOf(false) }
+    if (presetBundlesOpen) {
+        PresetBundleDialog(
+            load = viewModel::listPresetBundles,
+            delete = viewModel::deletePresetBundle,
+            onDismiss = { presetBundlesOpen = false },
+        )
+    }
     if (exporting) {
         ExportConfigsDialog(
             loadOptions = viewModel::configExportOptions,
@@ -1879,6 +1899,7 @@ fun PlateSidebar(
         searchCatalog = viewModel::searchCatalog,
         onOpenAbout = onOpenAbout,
         onOpenPreferences = onOpenPreferences,
+        onOpenPresetBundles = { presetBundlesOpen = true },
         autoArrange = canvas.autoArrange,
         onImportConfig = { configPicker.launch(arrayOf("*/*")) },
         onExportConfig = { exporting = true },
@@ -2016,6 +2037,8 @@ internal fun PlateSidebarContent(
     searchCatalog: suspend () -> SearchCatalogOutcome = { SearchCatalogOutcome.Failure("") },
     onOpenAbout: () -> Unit,
     onOpenPreferences: () -> Unit = {},
+    /** The top menu's Preset Bundle. */
+    onOpenPresetBundles: () -> Unit = {},
     /** The Preferences' "Auto arrange plate after cloning", which the clone dialog starts with. */
     autoArrange: Boolean = true,
     onImportConfig: () -> Unit,
@@ -2312,6 +2335,8 @@ internal fun PlateSidebarContent(
         SidebarAction(DesignR.drawable.orca_save, stringResource(R.string.config_export), onExportConfig)
         // The top menu's Preferences (MainFrame's ConfigMenuPreferences).
         SidebarAction(DesignR.drawable.orca_cog, orcaString("Preferences"), onOpenPreferences)
+        // Its Preset Bundle, after Preferences (MainFrame's top menu).
+        SidebarAction(DesignR.drawable.orca_menu_edit_preset, orcaString("Preset Bundle"), onOpenPresetBundles)
         SidebarAction(DesignR.drawable.orca_help, stringResource(R.string.about), onOpenAbout)
         }
     }

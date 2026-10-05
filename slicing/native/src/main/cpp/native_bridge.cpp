@@ -2682,6 +2682,60 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_configExportOptions(
 
 namespace {
 
+// NativePresetBundles
+jobject to_java(JNIEnv* env, const orcinus::orca::PresetBundles& result)
+{
+    const jobjectArray bundles = to_java_objects(
+        env,
+        "app/orcinus/shadow/slicing/nativebridge/NativePresetBundle",
+        result.bundles,
+        [](JNIEnv* env, const orcinus::orca::PresetBundleEntry& entry) -> jobject {
+            const jclass bundle_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePresetBundle");
+            const jmethodID constructor = env->GetMethodID(
+                bundle_class,
+                "<init>",
+                "(Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZZ)V"
+            );
+            return env->NewObject(
+                bundle_class,
+                constructor,
+                to_java(env, entry.id),
+                to_java(env, entry.name),
+                static_cast<jlong>(entry.type),
+                to_java(env, entry.version),
+                to_java(env, entry.printers),
+                to_java(env, entry.filaments),
+                to_java(env, entry.processes),
+                static_cast<jboolean>(entry.update_available),
+                static_cast<jboolean>(entry.unauthorized)
+            );
+        }
+    );
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativePresetBundles");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(JLjava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetBundle;)V"
+    );
+    return env->NewObject(result_class, constructor, static_cast<jlong>(result.status), to_java(env, result.message), bundles);
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_presetBundles(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::preset_bundles());
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_deletePresetBundle(JNIEnv* env, jobject /* this */, jstring id)
+{
+    return to_java(env, orcinus::orca::delete_preset_bundle(to_utf8(env, id)));
+}
+
+namespace {
+
 // The presets one side of the dialog selects: the printer, the process and the
 // filament, in the order NativeBindings passes them.
 orcinus::orca::ComparedPresets to_compared(JNIEnv* env, jobjectArray names)

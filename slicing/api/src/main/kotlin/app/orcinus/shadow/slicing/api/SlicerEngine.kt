@@ -61,6 +61,7 @@ import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateValidation
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
@@ -991,6 +992,15 @@ interface PresetSettingsEditor {
      * bundles and archives the desktop app writes.
      */
     suspend fun exportConfigs(kind: ConfigExportKind, names: List<String>, directory: String): ConfigTransferOutcome
+
+    /** PresetBundleDialog::ListBundles(): the preset bundles the user has. */
+    suspend fun presetBundles(): PresetBundlesOutcome
+
+    /**
+     * Its "Delete bundle" (DeleteBundleById()): the bundle and the presets it
+     * brought go; the bundles left come back.
+     */
+    suspend fun deletePresetBundle(id: String): PresetBundlesOutcome
 
     /** DiffPresetDialog: what the presets [left] and [right] of [kind] differ in. */
     suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean): PresetComparisonOutcome

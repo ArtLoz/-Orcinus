@@ -43,6 +43,9 @@ import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjColorQuestion
 import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PlateCircle
+import app.orcinus.shadow.core.model.PresetBundleInfo
+import app.orcinus.shadow.core.model.PresetBundleType
+import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PrintedObject
 import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.SlicedPlates
@@ -2349,6 +2352,33 @@ class NativeSlicerEngine(context: Context) :
     override suspend fun exportConfigs(kind: ConfigExportKind, names: List<String>, directory: String): ConfigTransferOutcome =
         whenReady(ConfigTransferOutcome::Failure) {
             NativeBindings.exportConfigs(kind.ordinal.toLong(), names.toTypedArray(), directory).toOutcome()
+        }
+
+    override suspend fun presetBundles(): PresetBundlesOutcome =
+        whenReady(PresetBundlesOutcome::Failure) { NativeBindings.presetBundles().toOutcome("OrcaSlicer could not list the preset bundles") }
+
+    override suspend fun deletePresetBundle(id: String): PresetBundlesOutcome =
+        whenReady(PresetBundlesOutcome::Failure) { NativeBindings.deletePresetBundle(id).toOutcome("Failed to remove bundle.") }
+
+    private fun NativePresetBundles.toOutcome(failure: String): PresetBundlesOutcome =
+        if (status != NativeSceneStatus.SUCCESS) {
+            PresetBundlesOutcome.Failure(message.ifBlank { failure })
+        } else {
+            PresetBundlesOutcome.Success(
+                bundles.map { bundle ->
+                    PresetBundleInfo(
+                        id = bundle.id,
+                        name = bundle.name,
+                        type = PresetBundleType.entries.getOrElse(bundle.type.toInt()) { PresetBundleType.DEFAULT },
+                        version = bundle.version,
+                        printers = bundle.printers.toList(),
+                        filaments = bundle.filaments.toList(),
+                        processes = bundle.processes.toList(),
+                        updateAvailable = bundle.updateAvailable,
+                        unauthorized = bundle.unauthorized,
+                    )
+                },
+            )
         }
 
     override suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean): PresetComparisonOutcome =

@@ -1173,6 +1173,37 @@ sealed interface ConfigTransferOutcome {
     data class Failure(val message: String) : ConfigTransferOutcome
 }
 
+/** BundleType of PresetBundle.hpp: how a preset bundle came, as PresetBundleDialog names it. */
+enum class PresetBundleType(val label: String) {
+    DEFAULT("Default"),
+    LOCAL("Local"),
+    SUBSCRIBED("Subscribed"),
+}
+
+/**
+ * A row of PresetBundleDialog's top list (BundleMetadata): the bundle's [name],
+ * [type] and [version], whether OrcaCloud has an update of it or refuses it,
+ * and the names of its presets, which its bottom list shows.
+ */
+data class PresetBundleInfo(
+    val id: String,
+    val name: String,
+    val type: PresetBundleType,
+    val version: String,
+    val printers: List<String>,
+    val filaments: List<String>,
+    val processes: List<String>,
+    val updateAvailable: Boolean = false,
+    val unauthorized: Boolean = false,
+)
+
+/** The preset bundles the user has (PresetBundleDialog::ListBundles()). */
+sealed interface PresetBundlesOutcome {
+    data class Success(val bundles: List<PresetBundleInfo>) : PresetBundlesOutcome
+
+    data class Failure(val message: String) : PresetBundlesOutcome
+}
+
 /** What the user answers about a preset the import would replace, as the dialog's buttons read. */
 enum class ConfigOverwriteAnswer {
     NO,

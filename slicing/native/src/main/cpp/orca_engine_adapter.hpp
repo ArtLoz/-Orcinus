@@ -3240,6 +3240,44 @@ ConfigExportOptions config_export_options(ConfigExportKind kind);
 // and the credentials of its physical printer (earse_preset_fields_for_safe).
 ConfigTransfer export_configs(ConfigExportKind kind, const std::vector<std::string>& names, const std::string& directory);
 
+// BundleType of PresetBundle.hpp: how a preset bundle came, as
+// PresetBundleDialog::ListBundles() names it ("Default", "Local", "Subscribed").
+enum class PresetBundleType : std::int64_t {
+    default_type = 0,
+    local = 1,
+    subscribed = 2,
+};
+
+// A row of PresetBundleDialog's top list (BundleMetadata): the bundle's name,
+// type and version, whether OrcaCloud has an update of it or refuses it, and
+// the names of its presets, which its bottom list shows.
+struct PresetBundleEntry {
+    std::string id;
+    std::string name;
+    PresetBundleType type{PresetBundleType::default_type};
+    std::string version;
+    std::vector<std::string> printers;
+    std::vector<std::string> filaments;
+    std::vector<std::string> processes;
+    bool update_available{false};
+    bool unauthorized{false};
+};
+
+struct PresetBundles {
+    SceneStatus status{SceneStatus::engine_not_ready};
+    std::string message;
+    std::vector<PresetBundleEntry> bundles;
+};
+
+// RefreshBundleMap() and ListBundles(): the preset bundles the user has.
+PresetBundles preset_bundles();
+
+// The context menu's "Delete bundle" (DeleteBundleById()): the bundle and its
+// folder go, and the presets load anew as the dialog's folder watcher loads
+// them (OnFSWatch()); the bundles left come back. "Failed to remove bundle."
+// for a bundle there is not.
+PresetBundles delete_preset_bundle(const std::string& id);
+
 // CreateFilamentPresetDialog: a preset the dialog offers to make the filament
 // from, with the printer it would be made for (its check box).
 struct FilamentPresetChoice {

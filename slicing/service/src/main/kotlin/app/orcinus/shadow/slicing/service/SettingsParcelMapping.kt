@@ -25,6 +25,9 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetBundleInfo
+import app.orcinus.shadow.core.model.PresetBundleType
+import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PresetChange
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
 import app.orcinus.shadow.core.model.PresetCreationOutcome
@@ -710,6 +713,45 @@ internal fun ConfigExportOptionsParcel.toConfigExportOptionsOutcome(): ConfigExp
     return ConfigExportOptionsOutcome.Success(
         entries = listed.mapIndexed { index, name -> ConfigExportEntry(name, carried.getOrElse(index) { 0 }.toInt()) },
         note = note,
+    )
+}
+
+/** PresetBundleDialog: the preset bundles the user has. */
+internal fun PresetBundlesOutcome.toParcel() = PresetBundlesParcel().also { parcel ->
+    when (this) {
+        is PresetBundlesOutcome.Failure -> parcel.error = message
+        is PresetBundlesOutcome.Success -> parcel.bundles = bundles.map { bundle ->
+            PresetBundleParcel().also {
+                it.id = bundle.id
+                it.name = bundle.name
+                it.type = bundle.type.name
+                it.version = bundle.version
+                it.printers = bundle.printers.toTypedArray()
+                it.filaments = bundle.filaments.toTypedArray()
+                it.processes = bundle.processes.toTypedArray()
+                it.updateAvailable = bundle.updateAvailable
+                it.unauthorized = bundle.unauthorized
+            }
+        }.toTypedArray()
+    }
+}
+
+internal fun PresetBundlesParcel.toPresetBundlesOutcome(): PresetBundlesOutcome {
+    error?.let { return PresetBundlesOutcome.Failure(it) }
+    return PresetBundlesOutcome.Success(
+        bundles.orEmpty().map { bundle ->
+            PresetBundleInfo(
+                id = bundle.id,
+                name = bundle.name,
+                type = PresetBundleType.entries.firstOrNull { it.name == bundle.type } ?: PresetBundleType.DEFAULT,
+                version = bundle.version,
+                printers = bundle.printers.orEmpty().toList(),
+                filaments = bundle.filaments.orEmpty().toList(),
+                processes = bundle.processes.orEmpty().toList(),
+                updateAvailable = bundle.updateAvailable,
+                unauthorized = bundle.unauthorized,
+            )
+        },
     )
 }
 

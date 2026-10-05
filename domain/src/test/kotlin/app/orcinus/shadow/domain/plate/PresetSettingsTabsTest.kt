@@ -19,6 +19,7 @@ import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.ObjectPartId
+import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PresetCreationOutcome
 import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.VolumeType
@@ -617,6 +618,10 @@ class PresetSettingsTabsTest {
 
         override suspend fun exportConfigs(kind: ConfigExportKind, names: List<String>, directory: String) =
             ConfigTransferOutcome.Failure("no export")
+
+        override suspend fun presetBundles() = PresetBundlesOutcome.Failure("no bundles")
+
+        override suspend fun deletePresetBundle(id: String) = PresetBundlesOutcome.Failure("no bundles")
 
         override suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean) =
             PresetComparisonOutcome.Failure("no comparison")

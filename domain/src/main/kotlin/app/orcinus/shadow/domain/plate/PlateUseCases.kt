@@ -76,6 +76,7 @@ import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetCreationOutcome
@@ -2124,6 +2125,28 @@ class ImportConfigUseCase(
         val outcome = engine.importPresets(paths, answers)
         if (outcome !is ConfigTransferOutcome.Failure) {
             // The installed presets changed, so the sidebar and the plate follow them.
+            platePresets.apply(before = null, outcome = presetManager.presets())
+        }
+        return outcome
+    }
+}
+
+/**
+ * PresetBundleDialog, which the desktop app's top menu opens as "Preset
+ * Bundle": the preset bundles the user has, and its "Delete bundle", after
+ * which the sidebar and the plate follow the presets as after an import.
+ */
+class PresetBundlesUseCase(
+    private val engine: PresetSettingsEditor,
+    private val presetManager: PresetManager,
+    private val platePresets: PlatePresets,
+) {
+    suspend fun list(): PresetBundlesOutcome = engine.presetBundles()
+
+    suspend fun delete(id: String): PresetBundlesOutcome {
+        val outcome = engine.deletePresetBundle(id)
+        if (outcome is PresetBundlesOutcome.Success) {
+            // The presets were loaded anew (OnFSWatch()), so the sidebar and the plate follow them.
             platePresets.apply(before = null, outcome = presetManager.presets())
         }
         return outcome

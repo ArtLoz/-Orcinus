@@ -84,6 +84,8 @@ val orcaIconNames = listOf(
     "im_hidden", "im_visible", "instance_add", "instance_remove", "monitor_item_cost", "monitor_item_prediction", "note",
     // The project row of the sidebar (the desktop app's File menu).
     "open_project",
+    // The sidebar's "Preset Bundle", whose item in the top menu has no icon: the menus' preset icon.
+    "menu_edit_preset",
     // MainFrame's slice button: the arrow of its drop-down.
     "sidebutton_dropdown",
     // The Calibration menu of the top bar (BBLTopbar).

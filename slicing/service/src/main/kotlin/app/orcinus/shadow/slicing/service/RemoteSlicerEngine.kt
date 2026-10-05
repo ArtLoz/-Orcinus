@@ -84,6 +84,7 @@ import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateValidation
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
 import app.orcinus.shadow.core.model.PresetComparisonOutcome
@@ -1270,6 +1271,12 @@ class RemoteSlicerEngine(
 
     override suspend fun exportConfigs(kind: ConfigExportKind, names: List<String>, directory: String): ConfigTransferOutcome =
         remote(ConfigTransferOutcome::Failure) { exportConfigs(kind.name, names.toTypedArray(), directory).toConfigTransferOutcome() }
+
+    override suspend fun presetBundles(): PresetBundlesOutcome =
+        remote(PresetBundlesOutcome::Failure) { presetBundles().toPresetBundlesOutcome() }
+
+    override suspend fun deletePresetBundle(id: String): PresetBundlesOutcome =
+        remote(PresetBundlesOutcome::Failure) { deletePresetBundle(id).toPresetBundlesOutcome() }
 
     override suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean): PresetComparisonOutcome =
         remote(PresetComparisonOutcome::Failure) { comparePresets(left.names(), right.names(), showAll).toPresetComparisonOutcome() }

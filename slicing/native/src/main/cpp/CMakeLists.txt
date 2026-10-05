@@ -21,6 +21,7 @@ add_library(orca_engine_adapter STATIC
     obj_colors.cpp
     orca_engine_adapter.cpp
     painting.cpp
+    preset_bundles.cpp
     preset_export.cpp
     presets.cpp
     project_3mf.cpp

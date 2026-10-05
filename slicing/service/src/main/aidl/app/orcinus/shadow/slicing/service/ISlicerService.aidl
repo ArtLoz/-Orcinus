@@ -27,6 +27,7 @@ import app.orcinus.shadow.slicing.service.PlateValidationParcel;
 import app.orcinus.shadow.slicing.service.PresetCreationParcel;
 import app.orcinus.shadow.slicing.service.FilamentPresetsParcel;
 import app.orcinus.shadow.slicing.service.ConfigTransferParcel;
+import app.orcinus.shadow.slicing.service.PresetBundlesParcel;
 import app.orcinus.shadow.slicing.service.EngineStatusParcel;
 import app.orcinus.shadow.slicing.service.FlatteningPlanesParcel;
 import app.orcinus.shadow.slicing.service.VolumeDescriptionParcel;
@@ -532,6 +533,10 @@ interface ISlicerService {
     ConfigExportOptionsParcel configExportOptions(String kind);
     /** Its OK: the chosen entries are written into the directory. */
     ConfigTransferParcel exportConfigs(String kind, in String[] names, String directory);
+    /** PresetBundleDialog::ListBundles(): the preset bundles the user has. */
+    PresetBundlesParcel presetBundles();
+    /** Its "Delete bundle": the bundles left. */
+    PresetBundlesParcel deletePresetBundle(String id);
     /** DiffPresetDialog: what two presets of a kind differ in. */
     PresetComparisonParcel comparePresets(in String[] left, in String[] right, boolean showAll);
     /** DiffPresetDialog's Transfer: the values of [options] move from one preset to another. */

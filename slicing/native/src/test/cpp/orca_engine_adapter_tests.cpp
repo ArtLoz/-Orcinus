@@ -3075,6 +3075,68 @@ TEST_CASE("A printer is exported with the presets it prints with", "[Adapter][Se
     fs::remove_all(directory);
 }
 
+TEST_CASE("An imported printer bundle is listed as a local preset bundle and deleted with its presets", "[Adapter][Settings]")
+{
+    require_engine();
+    const std::string printer = "Creality K2 Plus 0.4 nozzle";
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, printer).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::process, "0.20mm Standard @Creality K2 Plus 0.4 nozzle",
+                                orca::PresetChangeAction::discard)
+                .status == orca::SceneStatus::success);
+    const auto print = orca::PresetKind::print;
+    const std::string name = "Orcinus bundled process";
+    const std::string directory = (fs::path(device_dir) / "tmp" / "preset-bundles").string();
+    fs::remove_all(directory);
+    // A bundle's preset is named after its folder, "_local/<bundle id>/<name>".
+    const auto listed = [&name] {
+        const orca::PresetState state = orca::describe_presets();
+        return std::any_of(state.processes.begin(), state.processes.end(), [&name](const orca::PresetItem& item) {
+            return item.name == name ||
+                   (item.name.size() > name.size() && item.name.compare(item.name.size() - name.size() - 1, std::string::npos, "/" + name) == 0);
+        });
+    };
+
+    // A printer bundle of the user's process preset, which is then deleted.
+    REQUIRE(orca::change_setting(print, "Quality", "layer_height", "0.14", {}).dirty);
+    REQUIRE(orca::save_preset(print, name).status == orca::SceneStatus::success);
+    const orca::ConfigTransfer exported = orca::export_configs(orca::ConfigExportKind::printer_bundle, {printer}, directory);
+    INFO(exported.message);
+    REQUIRE(exported.status == orca::SceneStatus::success);
+    REQUIRE(exported.names.size() == 1);
+    REQUIRE(orca::delete_preset(print, {{"delete_preset", true}}).status == orca::SceneStatus::success);
+    REQUIRE_FALSE(listed());
+
+    // Its bundle_structure.json makes the import a local bundle, whose preset is back.
+    const orca::PresetBundles before = orca::preset_bundles();
+    REQUIRE(before.status == orca::SceneStatus::success);
+    const orca::ConfigTransfer imported = orca::import_presets({exported.names.front()});
+    INFO(imported.message);
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    CHECK(listed());
+    const orca::PresetBundles after = orca::preset_bundles();
+    REQUIRE(after.status == orca::SceneStatus::success);
+    REQUIRE(after.bundles.size() == before.bundles.size() + 1);
+    const auto added = std::find_if(after.bundles.begin(), after.bundles.end(), [&before](const orca::PresetBundleEntry& entry) {
+        return std::none_of(before.bundles.begin(), before.bundles.end(),
+                            [&entry](const orca::PresetBundleEntry& old) { return old.id == entry.id; });
+    });
+    REQUIRE(added != after.bundles.end());
+    CHECK(added->type == orca::PresetBundleType::local);
+    CHECK_FALSE(added->name.empty());
+    CHECK_FALSE(added->update_available);
+
+    // "Delete bundle": it goes, and so does the preset it brought.
+    const orca::PresetBundles deleted = orca::delete_preset_bundle(added->id);
+    INFO(deleted.message);
+    REQUIRE(deleted.status == orca::SceneStatus::success);
+    CHECK(deleted.bundles.size() == before.bundles.size());
+    CHECK(std::none_of(deleted.bundles.begin(), deleted.bundles.end(),
+                       [&added](const orca::PresetBundleEntry& entry) { return entry.id == added->id; }));
+    CHECK_FALSE(listed());
+    CHECK(orca::delete_preset_bundle(added->id).status != orca::SceneStatus::success);
+    fs::remove_all(directory);
+}
+
 TEST_CASE("Two presets are compared as the diff dialog compares them", "[Adapter][Settings]")
 {
     require_engine();

@@ -514,6 +514,27 @@ internal class NativeConfigExportOptions(
     @JvmField val note: String,
 )
 
+/** Constructed by the native bridge; see PresetBundleEntry in orca_engine_adapter.hpp. */
+internal class NativePresetBundle(
+    @JvmField val id: String,
+    @JvmField val name: String,
+    /** PresetBundleType. */
+    @JvmField val type: Long,
+    @JvmField val version: String,
+    @JvmField val printers: Array<String>,
+    @JvmField val filaments: Array<String>,
+    @JvmField val processes: Array<String>,
+    @JvmField val updateAvailable: Boolean,
+    @JvmField val unauthorized: Boolean,
+)
+
+/** Constructed by the native bridge; see PresetBundles in orca_engine_adapter.hpp. */
+internal class NativePresetBundles(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val bundles: Array<NativePresetBundle>,
+)
+
 /** Constructed by the native bridge; see ConfigTransfer in orca_engine_adapter.hpp. */
 internal class NativeConfigTransfer(
     @JvmField val status: Long,
@@ -2281,6 +2302,12 @@ internal object NativeBindings {
 
     /** Its OK: the chosen entries are written into [directory]. */
     external fun exportConfigs(kind: Long, names: Array<String>, directory: String): NativeConfigTransfer
+
+    /** PresetBundleDialog::ListBundles(): the preset bundles the user has. */
+    external fun presetBundles(): NativePresetBundles
+
+    /** Its "Delete bundle": the bundles left. */
+    external fun deletePresetBundle(id: String): NativePresetBundles
 
     /**
      * DiffPresetDialog: the presets each side selects (the printer, the process

@@ -1148,6 +1148,10 @@ abstract class SlicerService<E> : Service()
         override fun exportConfigs(kind: String, names: Array<String>, directory: String): ConfigTransferParcel =
             runBlocking { engine.exportConfigs(ConfigExportKind.valueOf(kind), names.toList(), directory) }.toParcel()
 
+        override fun presetBundles(): PresetBundlesParcel = runBlocking { engine.presetBundles() }.toParcel()
+
+        override fun deletePresetBundle(id: String): PresetBundlesParcel = runBlocking { engine.deletePresetBundle(id) }.toParcel()
+
         override fun comparePresets(left: Array<String>, right: Array<String>, showAll: Boolean): PresetComparisonParcel =
             runBlocking { engine.comparePresets(left.toCompared(), right.toCompared(), showAll) }.toParcel()
 

@@ -97,6 +97,7 @@ import app.orcinus.shadow.core.model.PaintedMesh
 import app.orcinus.shadow.core.model.PaintedSurface
 import app.orcinus.shadow.core.model.PaintingOutcome
 import app.orcinus.shadow.core.model.PartPlate
+import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PlacedInstance
 import app.orcinus.shadow.core.model.PlacedModel
@@ -4726,6 +4727,10 @@ class PlateUseCasesTest {
 
         override suspend fun exportConfigs(kind: ConfigExportKind, names: List<String>, directory: String) =
             ConfigTransferOutcome.Failure("no export")
+
+        override suspend fun presetBundles() = PresetBundlesOutcome.Failure("no bundles")
+
+        override suspend fun deletePresetBundle(id: String) = PresetBundlesOutcome.Failure("no bundles")
 
         override suspend fun comparePresets(left: ComparedPresets, right: ComparedPresets, showAll: Boolean) =
             PresetComparisonOutcome.Failure("no comparison")

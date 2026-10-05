@@ -124,6 +124,7 @@ import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlatePresets
 import app.orcinus.shadow.domain.plate.PlateThumbnailRenderer
+import app.orcinus.shadow.domain.plate.PresetBundlesUseCase
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.PrintHostCertificateUseCase
 import app.orcinus.shadow.domain.plate.PrintHostDiscovery
@@ -505,6 +506,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     val shareGcode = ShareGcodeUseCase(fileShare, plateRepository)
     private val importConfig = ImportConfigUseCase(engine, engine, configFiles, platePresets)
     private val exportConfig = ExportConfigUseCase(engine, configFiles)
+    private val presetBundles = PresetBundlesUseCase(engine, engine, platePresets)
     private val addLayerRange = AddLayerRangeUseCase(plateRepository)
     private val removeLayerRange = RemoveLayerRangeUseCase(plateRepository)
     private val selectLayerRange = SelectLayerRangeUseCase(plateRepository)
@@ -771,6 +773,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         setFlush = SetFlushVolumesUseCase(plateRepository),
         importConfig = importConfig,
         exportConfig = exportConfig,
+        presetBundles = presetBundles,
         setSettingsScope = setSettingsScope,
         setPlateObjectPrintable = setPlateObjectPrintable,
         setPlateObjectAutoDrop = setPlateObjectAutoDrop,
