@@ -550,6 +550,10 @@ struct ModelInspection {
     // Size of the object's bounding box without the instance scaling
     // (Selection::get_full_unscaled_instance_bounding_box), which scale ratios refer to.
     std::array<double, 3> unscaled_size{};
+    // Size of its volumes in its own coordinates
+    // (Selection::get_full_unscaled_instance_local_bounding_box), which the
+    // scale ratios in "Object coordinates" refer to.
+    std::array<double, 3> local_size{};
 };
 
 // How the desktop app commits a manipulation of an object.

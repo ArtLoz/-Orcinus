@@ -2688,6 +2688,7 @@ class NativeSlicerEngine(context: Context) :
         boundingSphere = BoundingSphere(sphereCenter.toVector(), sphereRadius),
         rotationDegrees = rotationDegrees.toVector(),
         unscaledDimensions = ModelDimensions(unscaledSize[0], unscaledSize[1], unscaledSize[2]),
+        localDimensions = ModelDimensions(localSize[0], localSize[1], localSize[2]),
     )
 
     /** ImportedModels in orca_engine_adapter.hpp. */

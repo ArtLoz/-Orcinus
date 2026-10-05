@@ -129,6 +129,8 @@ internal class NativeModelInspection(
     @JvmField val rotationDegrees: DoubleArray,
     @JvmField val unscaledSize: DoubleArray,
     @JvmField val boxCenter: DoubleArray,
+    /** The size of its volumes in its own coordinates. */
+    @JvmField val localSize: DoubleArray,
 )
 
 /** Constructed by the native bridge; see PlateInspection in orca_engine_adapter.hpp. */

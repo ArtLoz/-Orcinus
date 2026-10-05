@@ -67,6 +67,7 @@ import app.orcinus.shadow.core.model.placing
 import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.plateSettingsChoice
+import app.orcinus.shadow.core.model.scalingFactor
 import app.orcinus.shadow.core.model.times
 import app.orcinus.shadow.core.model.translation
 import app.orcinus.shadow.core.model.volumeAt
@@ -981,6 +982,9 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             } else {
                 Vector3(100.0, 100.0, 100.0)
             }
+        } else if (moveObjectCoordinates) {
+            // update_settings_value() of a copy in object coordinates: its scaling factor.
+            selected?.placement?.scalingFactor()?.let { Vector3(it.x * 100.0, it.y * 100.0, it.z * 100.0) }
         } else selected?.let {
             // update_settings_value() in world coordinates: size over the unscaled size.
             with(it.dimensions) {
@@ -991,7 +995,15 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
                 )
             }
         },
-        selectedSize = if (volume != null) volumeBox?.size else selected?.dimensions?.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) },
+        selectedSize = when {
+            volume != null -> volumeBox?.size
+            // The bounding box in the copy's own axes: its unscaled size times its scaling factor.
+            moveObjectCoordinates -> selected?.let { copy ->
+                val factor = copy.placement.scalingFactor()
+                with(copy.localDimensions) { Vector3(widthMillimeters * factor.x, depthMillimeters * factor.y, heightMillimeters * factor.z) }
+            }
+            else -> selected?.dimensions?.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) }
+        },
         scaleCoordinates = scaleCoordinates,
         paintedFilaments = view.painting?.takeIf { it.kind == PaintKind.COLOR }?.let { mode ->
             val target = objects.firstOrNull { it.mesh == mode.mesh } ?: return@let emptyList()

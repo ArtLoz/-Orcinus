@@ -694,6 +694,7 @@ internal fun ModelInspectionOutcome.toParcel() = InspectionParcel().also {
             }
             it.rotationDegrees = with(inspection.rotationDegrees) { doubleArrayOf(x, y, z) }
             it.unscaledSize = with(inspection.unscaledDimensions) { doubleArrayOf(widthMillimeters, depthMillimeters, heightMillimeters) }
+            it.localSize = with(inspection.localDimensions) { doubleArrayOf(widthMillimeters, depthMillimeters, heightMillimeters) }
             it.boxCenter = with(inspection.boxCenter) { doubleArrayOf(x, y, z) }
         }
     }
@@ -716,6 +717,7 @@ private fun InspectionParcel.toInspection() = ModelInspection(
     boundingSphere = BoundingSphere(checkNotNull(sphereCenter).toVector(), sphereRadius),
     rotationDegrees = checkNotNull(rotationDegrees).toVector(),
     unscaledDimensions = checkNotNull(unscaledSize).let { ModelDimensions(it[0], it[1], it[2]) },
+    localDimensions = (localSize ?: checkNotNull(unscaledSize)).let { ModelDimensions(it[0], it[1], it[2]) },
 )
 
 internal fun PlateInspectionOutcome.toParcel() = PlateInspectionParcel().also {

@@ -2311,6 +2311,17 @@ Slic3r::Vec3d unscaled_instance_size(const Slic3r::ModelObject& object, const Sl
     return box.size();
 }
 
+// Selection::get_full_unscaled_instance_local_bounding_box(): the object's
+// volumes in its own coordinates.
+Slic3r::Vec3d local_instance_size(const Slic3r::ModelObject& object)
+{
+    Slic3r::BoundingBoxf3 box;
+    for (const Slic3r::ModelVolume* volume : object.volumes) {
+        box.merge(volume->get_convex_hull().transformed_bounding_box(volume->get_matrix()));
+    }
+    return box.size();
+}
+
 // A placed object as the app shows it: its size, instance transformation, and
 // whether it fits the build volume, as the model's update_print_volume_state()
 // found (Plater::priv::update_print_volume_state), with what the gizmo windows
@@ -2335,6 +2346,8 @@ void describe_placed(const Slic3r::ModelObject& object, const std::size_t index,
     }
     const Slic3r::Vec3d unscaled = unscaled_instance_size(object, instance);
     result.unscaled_size = {unscaled.x(), unscaled.y(), unscaled.z()};
+    const Slic3r::Vec3d local = local_instance_size(object);
+    result.local_size = {local.x(), local.y(), local.z()};
     result.facet_count = static_cast<std::int64_t>(object.facets_count());
     const Slic3r::TriangleMeshStats stats = object.get_object_stl_stats();
     result.open_edges = static_cast<std::int64_t>(stats.open_edges);
@@ -3782,6 +3795,7 @@ ModelInspection add_object_part(
         const Slic3r::Vec3d center = volume->mesh().bounding_box().center();
         result.box_center = {center.x(), center.y(), center.z()};
         result.unscaled_size = {size.x(), size.y(), size.z()};
+        result.local_size = {size.x(), size.y(), size.z()};
         result.facet_count = static_cast<std::int64_t>(part_mesh.indices.size());
         result.volume_state = VolumeState::inside;
         result.status = SceneStatus::success;

@@ -35,6 +35,18 @@ class ScaleGizmoTest {
     }
 
     @Test
+    fun objectCoordinatesScaleACopyAlongItsOwnAxes() {
+        // A copy turned a quarter about Z: its own X points along the world's Y.
+        val turned = Transform3(listOf(0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 100.0, 100.0, 10.0, 1.0))
+
+        val scaled = ObjectTransforms.scaledInObject(turned, Vector3(2.0, 1.0, 1.0), Vector3(100.0, 100.0, 10.0))
+
+        // Its own X is twice as long, along the world's Y; its centre stays.
+        val expected = listOf(0.0, 2.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 100.0, 100.0, 10.0, 1.0)
+        expected.forEachIndexed { index, value -> assertEquals(value, scaled.columns[index], 1e-9) }
+    }
+
+    @Test
     fun theWindowScalesAboutTheBoxCentreRelativeToTheUnscaledSize() {
         val placement = Transform3(Affine3().translated(Vec3(175.0, 175.0, 10.0)).elements().toList())
 

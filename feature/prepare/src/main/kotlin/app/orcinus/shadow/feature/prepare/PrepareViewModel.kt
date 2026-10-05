@@ -3273,6 +3273,10 @@ class PrepareViewModel(
         }
         val current = state.value.selectedScale ?: return
         if (percent <= 0.0) return
+        if (state.value.moveObjectCoordinates) {
+            val ratio = percent / current[axis]
+            return scaleInObject(if (view.value.uniformScale) Vector3(ratio, ratio, ratio) else Vector3(1.0, 1.0, 1.0).with(axis, ratio))
+        }
         val factors = if (view.value.uniformScale) {
             Vector3(percent / 100.0, percent / 100.0, percent / 100.0)
         } else {
@@ -3290,6 +3294,11 @@ class PrepareViewModel(
         }
         val target = selected() ?: return
         if (millimeters <= 0.0) return
+        if (state.value.moveObjectCoordinates) {
+            val size = state.value.selectedSize ?: return
+            val ratio = millimeters.coerceAtMost(MAX_NUM) / size[axis]
+            return scaleInObject(if (view.value.uniformScale) Vector3(ratio, ratio, ratio) else Vector3(1.0, 1.0, 1.0).with(axis, ratio))
+        }
         val unscaled = target.unscaledDimensions.vector()
         val size = target.dimensions.vector().with(axis, millimeters.coerceAtMost(MAX_NUM))
         val factors = Vector3(size.x / unscaled.x, size.y / unscaled.y, size.z / unscaled.z)
@@ -3303,7 +3312,24 @@ class PrepareViewModel(
             scaleVolumeBy(volume, Vector3(100.0 / shown.x, 100.0 / shown.y, 100.0 / shown.z))
             return
         }
+        if (state.value.moveObjectCoordinates) {
+            val shown = state.value.selectedScale ?: return
+            return scaleInObject(Vector3(100.0 / shown.x, 100.0 / shown.y, 100.0 / shown.z))
+        }
         scaleTo(Vector3(1.0, 1.0, 1.0))
+    }
+
+    /** do_scale() of a copy in object coordinates: Selection::scale() by [factors] along its own axes. */
+    private fun scaleInObject(factors: Vector3) {
+        val target = selected() ?: return
+        val size = state.value.selectedSize ?: return
+        // limit_scaling_ratio(): no side beyond MAX_NUM.
+        val limited = Vector3(
+            factors.x.coerceAtMost(MAX_NUM / size.x),
+            factors.y.coerceAtMost(MAX_NUM / size.y),
+            factors.z.coerceAtMost(MAX_NUM / size.z),
+        )
+        placePlateObject(selectedId() ?: return, ObjectTransforms.scaledInObject(target.placement, limited, target.boxCenter), Manipulation.Scale)
     }
 
     private fun scaleTo(factors: Vector3) {

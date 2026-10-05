@@ -437,6 +437,7 @@ internal fun PrepareRoute(
             setUniform = viewModel::setUniformScale,
             reset = viewModel::resetScale,
             setCoordinates = viewModel::setScaleCoordinates,
+            setObjectCoordinates = viewModel::setMoveObjectCoordinates,
         ),
         onSlice = {
             onSliceRequested()
@@ -2645,12 +2646,16 @@ internal class ScaleActions(
     val reset: () -> Unit,
     /** The window's coordinates of a volume selected alone. */
     val setCoordinates: (CoordinateSystem) -> Unit = {},
+    /** "Object coordinates" of a copy, which the move window shares (set_coordinates_type()). */
+    val setObjectCoordinates: (Boolean) -> Unit = {},
 )
 
 /**
- * GizmoObjectManipulation::do_render_scale_input_window() in world
- * coordinates: scale ratios per axis with the button that resets them, the
- * size per axis, and whether scaling keeps the proportions.
+ * GizmoObjectManipulation::do_render_scale_input_window(): the coordinates
+ * it scales in — a volume's world, object or own ones, a single copy's world
+ * or its own (the move window's choice too) — scale ratios per axis with the
+ * button that resets them, the size per axis, and whether scaling keeps the
+ * proportions.
  */
 @Composable
 private fun ScaleGizmoPanel(
@@ -2663,6 +2668,17 @@ private fun ScaleGizmoPanel(
 ) {
     val canReset = listOf(scale.x, scale.y, scale.z).let { ratios -> sqrt(ratios.sumOf { (it / 100.0 - 1.0).pow(2) }) > 0.001 }
     OrcaGizmoPanel {
+        if (state.scaleCoordinates == null && state.canMoveObjectCoordinates) {
+            // do_render_scale_input_window() of a single copy: "World coordinates" or "Object coordinates".
+            val labels = listOf(orcaString("World coordinates"), orcaString("Object coordinates"))
+            OrcaComboBox(
+                items = listOf(false, true),
+                selected = state.moveObjectCoordinates,
+                label = { labels[if (it) 1 else 0] },
+                onSelect = actions.setObjectCoordinates,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
         state.scaleCoordinates?.let { coordinates ->
             // do_render_scale_input_window(): the coordinates a volume scales in.
             val labels = mapOf(

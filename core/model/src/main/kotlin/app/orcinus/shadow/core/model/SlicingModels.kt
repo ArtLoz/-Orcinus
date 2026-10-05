@@ -97,6 +97,12 @@ data class ModelInspection(
      * shows it.
      */
     val volume: Double = 0.0,
+    /**
+     * Size of its volumes in its own coordinates, without its scaling
+     * (Selection::get_full_unscaled_instance_local_bounding_box), which the
+     * scale ratios in "Object coordinates" refer to.
+     */
+    val localDimensions: ModelDimensions = unscaledDimensions,
 ) {
     init {
         require(facetCount > 0) { "A valid model must contain facets" }

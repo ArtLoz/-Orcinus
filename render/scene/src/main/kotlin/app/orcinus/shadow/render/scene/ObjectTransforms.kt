@@ -35,6 +35,21 @@ object ObjectTransforms {
     }
 
     /**
+     * Selection::scale_and_translate() of a copy in "Object coordinates"
+     * (TransformationType::Instance): the copy scaled by [factors] along its
+     * own axes, about [center], the centre of its bounding box (the
+     * selection's dragging centre).
+     */
+    fun scaledInObject(placement: Transform3, factors: Vector3, center: Vector3): Transform3 {
+        val start = Affine3(placement.columns.toDoubleArray())
+        val linear = start.withTranslation(Vec3.ZERO)
+        val scale = Affine3.assemble(Vec3.ZERO, Vec3.ZERO, Vec3(factors.x, factors.y, factors.z))
+        val pivot = Vec3(center.x, center.y, center.z)
+        val scaled = Affine3().translated(pivot) * linear * scale * linear.inverse() * Affine3().translated(-pivot) * start
+        return Transform3(scaled.elements().toList())
+    }
+
+    /**
      * Selection::scale_and_translate() of a volume selected alone, which is
      * independent: its transformation [matrix] in the object scaled by
      * [factors] about its origin, along its own axes, its copy's (standing at

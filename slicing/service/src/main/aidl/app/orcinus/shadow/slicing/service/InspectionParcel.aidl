@@ -21,6 +21,8 @@ parcelable InspectionParcel {
     @nullable double[] rotationDegrees;
     /** width, depth, height */
     @nullable double[] unscaledSize;
+    /** ModelInspection.localDimensions: width, depth and height. */
+    @nullable double[] localSize;
     /** x, y, z */
     @nullable double[] boxCenter;
 }

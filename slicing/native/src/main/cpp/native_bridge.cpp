@@ -795,7 +795,7 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
 jobject to_java(JNIEnv* env, const orcinus::orca::ModelInspection& inspection)
 {
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeModelInspection");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJDDDD[DJ[DD[D[D[D)V");
+    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJDDDD[DJ[DD[D[D[D[D)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -813,7 +813,8 @@ jobject to_java(JNIEnv* env, const orcinus::orca::ModelInspection& inspection)
         static_cast<jdouble>(inspection.sphere_radius),
         to_java(env, inspection.rotation_degrees.data(), inspection.rotation_degrees.size()),
         to_java(env, inspection.unscaled_size.data(), inspection.unscaled_size.size()),
-        to_java(env, inspection.box_center.data(), inspection.box_center.size())
+        to_java(env, inspection.box_center.data(), inspection.box_center.size()),
+        to_java(env, inspection.local_size.data(), inspection.local_size.size())
     );
 }
 
