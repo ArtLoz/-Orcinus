@@ -5,10 +5,8 @@ import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.storage.api.DocumentAccess
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.URLDecoder
-import java.util.zip.ZipInputStream
 import javax.xml.parsers.SAXParserFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -172,8 +170,12 @@ internal object ThreeMfThumbnail {
     private const val RELATIONSHIPS_FILE = "_rels/.rels"
     private const val THUMBNAIL_FILE = "Metadata/plate_1.png"
 
-    fun read(open: () -> InputStream?): ByteArray? {
-        val relationships = entry(open, RELATIONSHIPS_FILE) ?: return null
+    fun read(open: () -> InputStream?): ByteArray? = runCatching {
+        open()?.use { stream -> ZipDirectory.of(stream)?.let(::thumbnailOf) }
+    }.getOrNull()
+
+    private fun thumbnailOf(archive: ZipDirectory): ByteArray? {
+        val relationships = archive.entry(RELATIONSHIPS_FILE) ?: return null
         var thumbnail = ""
         var middle = ""
         val handler = object : DefaultHandler() {
@@ -189,16 +191,6 @@ internal object ThreeMfThumbnail {
         }
         runCatching { SAXParserFactory.newInstance().newSAXParser().parse(relationships.inputStream(), handler) }.getOrElse { return null }
         if (middle.isEmpty()) middle = thumbnail
-        return entry(open, middle.ifEmpty { THUMBNAIL_FILE }.removePrefix("/"))
+        return archive.entry(middle.ifEmpty { THUMBNAIL_FILE }.removePrefix("/"))
     }
-
-    /** The bytes of the archive's entry [name]; null where it has none. */
-    private fun entry(open: () -> InputStream?, name: String): ByteArray? = runCatching {
-        open()?.use { stream ->
-            ZipInputStream(stream.buffered()).use { zip ->
-                generateSequence { zip.nextEntry }.firstOrNull { it.name == name } ?: return@use null
-                ByteArrayOutputStream().also { zip.copyTo(it) }.toByteArray()
-            }
-        }
-    }.getOrNull()
 }
