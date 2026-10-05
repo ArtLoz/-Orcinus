@@ -902,7 +902,9 @@ ConfigTransfer import_presets(const std::vector<std::string>& paths, const std::
         result.names = files;
         result.overwrite_preset = asked;
         bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
-        engine().config->save();
+        // The app's binder threads call in turn, and AppConfig::save() takes
+        // the thread it was last told of for the main one.
+        save_config(engine());
         result.status = SceneStatus::success;
     } catch (const std::exception& error) {
         result.status = SceneStatus::profile_not_found;
