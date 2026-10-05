@@ -1597,6 +1597,7 @@ class PlateUseCasesTest {
                 DeletePlateObjectUseCase(repository),
                 CopyToClipboardUseCase(inspector, FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), EditPlateObjectUseCase(FakeInspector(), FakeSceneFiles(), repository, scope), scope),
                 InvalidateCutInfoUseCase(repository),
+                CutConnectorsUseCase(repository, InvalidateCutInfoUseCase(repository)),
             )(false)
         }
 
@@ -1744,6 +1745,40 @@ class PlateUseCasesTest {
         assertNull(repository.state.value.plateQuestion)
         assertNull(left.cutId)
         assertFalse(left.parts.single().cutInfo.connector)
+    }
+
+    @Test
+    fun `the cut connectors item selects them, gives them a filament, and its deletion asks before every connector of the cut goes`() {
+        val cut = CutId(7, checkSum = 2)
+        val plug = ObjectPart("", VolumeType.PART, ScenePath("/scene/plug.mesh"), Transform3.IDENTITY, cutInfo = CutInfo(connector = true))
+        val hole = ObjectPart("", VolumeType.NEGATIVE, ScenePath("/scene/hole.mesh"), Transform3.IDENTITY, cutInfo = CutInfo(connector = true))
+        val upper = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/upper.mesh")))), cutId = cut, parts = listOf(plug))
+        val lower = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/lower.mesh")))), cutId = cut, parts = listOf(hole))
+        val repository = FakeRepository(readyState(upper, lower))
+        val connectors = CutConnectorsUseCase(repository, InvalidateCutInfoUseCase(repository))
+        val copy = PlateInstanceId(upper.mesh)
+
+        connectors.select(copy)
+        assertTrue(repository.state.value.connectorsSelected)
+        // Another pick ends it.
+        SelectPlateObjectUseCase(repository)(copy)
+        assertFalse(repository.state.value.connectorsSelected)
+
+        SetExtruderUseCase(repository).connectors(upper.mesh, 1)
+        assertEquals("1", repository.state.value.objects.first().parts.single().settings.values["extruder"])
+
+        connectors.delete(upper.mesh)
+        val question = checkNotNull(repository.state.value.plateQuestion)
+        assertEquals(PlateRequest.DeleteCutConnectors(upper.mesh), question.request)
+        assertEquals(OrcaText("Delete all connectors"), question.question.no)
+        assertEquals(OrcaText("Cancel"), question.question.cancel)
+
+        // "Delete all connectors": both halves lose theirs, and keep the cut.
+        connectors.answer(false)
+        val state = repository.state.value
+        assertNull(state.plateQuestion)
+        assertEquals(listOf(emptyList<ObjectPart>(), emptyList()), state.objects.map { it.parts })
+        assertEquals(listOf(cut, cut), state.objects.map { it.cutId })
     }
 
     @Test
@@ -2333,6 +2368,7 @@ class PlateUseCasesTest {
             DeletePlateObjectUseCase(repository),
             CopyToClipboardUseCase(inspector, FakeSceneFiles(), repository, RemoveObjectPartUseCase(repository), EditPlateObjectUseCase(FakeInspector(), FakeSceneFiles(), repository, scope), scope),
             InvalidateCutInfoUseCase(repository),
+            CutConnectorsUseCase(repository, InvalidateCutInfoUseCase(repository)),
         )(true)
 
         assertNull(repository.state.value.plateQuestion)

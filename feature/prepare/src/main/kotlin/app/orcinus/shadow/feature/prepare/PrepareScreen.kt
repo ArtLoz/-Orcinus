@@ -890,6 +890,7 @@ internal fun PrepareScreen(
                 onPlaceInAssembly = assemblyViewActions.place,
                 onAssemblySection = assemblyViewActions.sectionPlane,
                 selectedVolume = state.selectedVolume?.mesh?.value,
+                highlightedVolumes = state.highlightedVolumes,
                 selectedVolumeSphere = state.selectedVolume?.description?.sphere,
                 selectedVolumeScale = state.volumeScale,
                 onPlaceVolume = onPlaceVolume,

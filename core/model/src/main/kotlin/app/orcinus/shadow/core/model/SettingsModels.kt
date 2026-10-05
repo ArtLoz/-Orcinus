@@ -423,6 +423,8 @@ data class SettingsDialog(
      */
     val checkbox: OrcaText? = null,
     val checked: Boolean = false,
+    /** A third button beside Yes and No (wxCANCEL), which answers nothing; none without one. */
+    val cancel: OrcaText? = null,
 ) {
     /** The answer id the check box's state goes by. */
     val checkboxAnswer: String get() = id + CHECKBOX_ANSWER

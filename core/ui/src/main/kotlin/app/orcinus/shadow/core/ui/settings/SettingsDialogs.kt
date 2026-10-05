@@ -91,10 +91,12 @@ fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswer: (Boolean) -> Unit) 
 
 /**
  * A question with RichMessageDialog's check box under it when it has one
- * ([SettingsDialog.checkbox]): the answer comes with the box's state.
+ * ([SettingsDialog.checkbox]): the answer comes with the box's state. A
+ * question with a third button ([SettingsDialog.cancel]) has it beside No,
+ * which answers nothing ([onCancel]).
  */
 @Composable
-fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswerChecked: (yes: Boolean, checked: Boolean) -> Unit) {
+fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswerChecked: (yes: Boolean, checked: Boolean) -> Unit, onCancel: () -> Unit = {}) {
     var checked by rememberSaveable(dialog) { mutableStateOf(dialog.checked) }
     SettingsAlert(
         dialog = dialog,
@@ -102,7 +104,10 @@ fun SettingsQuestionDialog(dialog: SettingsDialog, onAnswerChecked: (yes: Boolea
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
         confirm = { OrcaButton(dialog.yes?.let { orcaText(it) } ?: orcaString("Yes"), onClick = { onAnswerChecked(true, checked) }) },
         dismiss = {
-            OrcaButton(dialog.no?.let { orcaText(it) } ?: orcaString("No"), onClick = { onAnswerChecked(false, checked) }, style = OrcaButtonStyle.Regular)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                dialog.cancel?.let { cancel -> OrcaButton(orcaText(cancel), onClick = onCancel, style = OrcaButtonStyle.Regular) }
+                OrcaButton(dialog.no?.let { orcaText(it) } ?: orcaString("No"), onClick = { onAnswerChecked(false, checked) }, style = OrcaButtonStyle.Regular)
+            }
         },
         below = dialog.checkbox?.let { label -> { DialogCheckBox(label, checked) { checked = it } } },
     )

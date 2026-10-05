@@ -809,6 +809,13 @@ sealed interface PlateRequest {
 
     /** Deleting a volume of the object with the [mesh] file, a part of a cut (ObjectList::del_from_cut_object()). */
     data class InvalidateCut(val mesh: ScenePath) : PlateRequest
+
+    /**
+     * Deleting the connectors of the object with the [mesh] file
+     * (del_from_cut_object() of a connector): Yes invalidates the cut info,
+     * No deletes every connector of the cut.
+     */
+    data class DeleteCutConnectors(val mesh: ScenePath) : PlateRequest
 }
 
 /**
@@ -1187,6 +1194,12 @@ data class PlateState(
     /** GLGizmosManager::get_current_type() != Undefined: a tool of the 3D view is open. */
     val gizmoOpen: Boolean = false,
     /**
+     * The object list's "Cut connectors" item selected for the copy: the
+     * connectors of its object are the selection (Selection::Volume of them
+     * all), while the copy stays selected alone with no part.
+     */
+    val selectedConnectors: PlateInstanceId? = null,
+    /**
      * GLGizmoMeshBoolean's state while it is open (on_save()), which every
      * snapshot taken meanwhile keeps; null while it is closed.
      */
@@ -1355,6 +1368,10 @@ data class PlateState(
      * Plater::can_undo() and can_redo(): a state to go to, no change of the
      * plate running, and no tool open that keeps a state of its own.
      */
+    /** The "Cut connectors" item is the selection (selectedConnectors), which another selection ends. */
+    val connectorsSelected: Boolean
+        get() = selectedConnectors != null && selectedPart == null && selectedRange == null && selectedInstances == setOf(selectedConnectors)
+
     val canUndo: Boolean get() = history.undo.isNotEmpty() && idle
     val canRedo: Boolean get() = history.redo.isNotEmpty() && idle
 

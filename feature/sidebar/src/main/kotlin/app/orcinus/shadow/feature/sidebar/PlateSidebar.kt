@@ -24,6 +24,7 @@ import app.orcinus.shadow.core.ui.settings.CreatePresetSuccessfulDialog
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.BedShapeFilesUseCase
 import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
+import app.orcinus.shadow.domain.plate.CutConnectorsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.ExportPlateMeshesUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
@@ -304,6 +305,8 @@ data class SidebarUiState(
     val selectedPart: ObjectPartId? = null,
     /** The height range whose settings are shown, when one is selected. */
     val selectedRange: LayerRangeId? = null,
+    /** The copy whose object's "Cut connectors" item is the selection; null for none. */
+    val selectedConnectors: PlateInstanceId? = null,
     /** OrcaSlicer's tabs for the plate, for the selected object and for its part. */
     val plateSettings: SettingsTabState = SettingsTabState(PresetKind.PLATE),
     val objectSettings: SettingsTabState = SettingsTabState(PresetKind.OBJECT),
@@ -396,6 +399,7 @@ class SidebarViewModel(
     private val loadObjectVolumes: LoadObjectVolumesUseCase,
     private val removeObjectPart: RemoveObjectPartUseCase,
     private val invalidateCutInfo: InvalidateCutInfoUseCase,
+    private val cutConnectors: CutConnectorsUseCase,
     private val removePlateInstance: RemovePlateInstanceUseCase,
     private val clonePlateObjects: ClonePlateObjectsUseCase,
     private val separatePlateInstances: SeparatePlateInstancesUseCase,
@@ -819,6 +823,13 @@ class SidebarViewModel(
     /** "Invalidate cut info" of an object's menu. */
     fun invalidateCutInfoOf(mesh: ScenePath) = invalidateCutInfo(mesh)
 
+    /** The "Cut connectors" item: picked, deleted, given a filament. */
+    fun selectCutConnectors(copy: PlateInstanceId) = cutConnectors.select(copy)
+
+    fun deleteCutConnectors(mesh: ScenePath) = cutConnectors.delete(mesh)
+
+    fun setConnectorsExtruder(mesh: ScenePath, extruder: Int) = setExtruder.connectors(mesh, extruder)
+
     fun deleteObject(mesh: ScenePath) = deletePlateObject(mesh)
 
     fun resolvePresetChange(action: PresetChangeAction) = selectPreset.resolve(action)
@@ -1029,6 +1040,7 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     selectedInstances = selectedInstances,
     selectedPart = selectedPart,
     selectedRange = selectedRange,
+    selectedConnectors = selectedConnectors.takeIf { connectorsSelected },
     plateSettings = settingsTabs[PresetKind.PLATE] ?: SettingsTabState(PresetKind.PLATE),
     objectSettings = settingsTabs[PresetKind.OBJECT] ?: SettingsTabState(PresetKind.OBJECT),
     partSettings = settingsTabs[PresetKind.PART] ?: SettingsTabState(PresetKind.PART),
@@ -1777,6 +1789,9 @@ fun PlateSidebar(
             },
             removePart = viewModel::removePart,
             invalidateCutInfo = viewModel::invalidateCutInfoOf,
+            selectConnectors = viewModel::selectCutConnectors,
+            deleteConnectors = viewModel::deleteCutConnectors,
+            setConnectorsExtruder = viewModel::setConnectorsExtruder,
             selectPart = viewModel::chooseSettingsPart,
             selectPartSettings = viewModel::openSettingsOfPart,
             addRange = viewModel::addRange,

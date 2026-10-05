@@ -1553,12 +1553,12 @@ class SelectPlateObjectUseCase(private val repository: PlateRepository) {
             target in state.selectedInstances -> state.selectedInstances - target
             else -> state.selectedInstances + target
         }
-        if (selected == state.selectedInstances && state.selectedPart == null && state.selectedRange == null) {
+        if (selected == state.selectedInstances && state.selectedPart == null && state.selectedRange == null && state.selectedConnectors == null) {
             state
         } else {
             // The desktop list has one selection: picking an object drops the
-            // part and the height range under it.
-            state.copy(selectedInstances = selected, selectedPart = null, selectedRange = null)
+            // part, the height range and the connectors under it.
+            state.copy(selectedInstances = selected, selectedPart = null, selectedRange = null, selectedConnectors = null)
         }
     }
 }
@@ -1612,6 +1612,15 @@ class SetExtruderUseCase(private val repository: PlateRepository) {
         // modifier keeps the default it was given.
         val number = if (extruder == 0 && part.type == VolumeType.PART) target.extruderNumber else extruder
         return target.withVolumeAt(index, part.copy(settings = part.settings.withExtruder(number)))
+    }
+
+    /**
+     * The "Cut connectors" item of a part of a cut (set_extruder_for_selected_items()):
+     * every connector of the object takes the filament as it is.
+     */
+    fun connectors(mesh: ScenePath, extruder: Int) = write(mesh, extruder) { target ->
+        if (target.parts.none { it.cutInfo.connector }) return@write null
+        target.withParts(target.parts.map { if (it.cutInfo.connector) it.copy(settings = it.settings.withExtruder(extruder)) else it })
     }
 
     /** One height range of an object (an itLayer row). */

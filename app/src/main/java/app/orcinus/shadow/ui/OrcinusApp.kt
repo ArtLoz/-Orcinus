@@ -147,6 +147,9 @@ class AppShellViewModel(
     /** OrcaSlicer's message boxes while it changes the plate: a load or the object menu. */
     fun answer(yes: Boolean, checked: Boolean) = answerPlateQuestion(yes, checked)
 
+    /** The question's third button. */
+    fun cancelQuestion() = answerPlateQuestion.cancel()
+
     /** OK of the message box, with its "Don't show again" when it has one. */
     fun dismissNotice(checked: Boolean) = dismissPlateNotice(checked)
 
@@ -319,7 +322,7 @@ private fun Workspace(
     }
     when {
         notice != null -> SettingsNoticeDialog(notice, onDismissChecked = shell::dismissNotice)
-        question != null -> SettingsQuestionDialog(question, onAnswerChecked = shell::answer)
+        question != null -> SettingsQuestionDialog(question, onAnswerChecked = shell::answer, onCancel = shell::cancelQuestion)
         stepMesh != null -> StepMeshDialog(stepMesh, countTriangles = shell::stepTriangleCount, onAnswer = shell::answerStepMesh)
         objColor != null -> ObjColorDialog(
             objColor,

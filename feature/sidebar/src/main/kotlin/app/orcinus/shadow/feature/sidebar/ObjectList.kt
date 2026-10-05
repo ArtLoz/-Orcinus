@@ -166,6 +166,10 @@ internal class ObjectListActions(
     val selectRangeSettings: (LayerRangeId) -> Unit,
     /** ObjectList::edit_layer_range(): the range spans other heights. */
     val editRange: (LayerRangeId, bottom: Double, top: Double) -> Unit,
+    /** The "Cut connectors" item: picked (its connectors selected), deleted, given a filament. */
+    val selectConnectors: (PlateInstanceId) -> Unit = {},
+    val deleteConnectors: (ScenePath) -> Unit = {},
+    val setConnectorsExtruder: (ScenePath, Int) -> Unit = { _, _ -> },
     /** ObjectList::set_extruder_for_selected_items(): the item prints with that filament. */
     val setObjectExtruder: (ScenePath, Int) -> Unit,
     val setPartExtruder: (ObjectPartId, Int) -> Unit,
@@ -491,18 +495,40 @@ private fun LazyListScope.objectRows(
             )
         }
         // ObjectList::update_info_items(): a part of a cut with connectors has
-        // their item, which the desktop list selects them with.
+        // their item, which selects them; its menu deletes them
+        // (del_info_item()) or gives them a filament, as the desktop's Delete
+        // key and the selection's menu do.
         if (plateObject.isCut && plateObject.hasConnectors && plateObject.parts.isNotEmpty()) {
             item(key = "objects:${mesh.value}:cut-connectors") {
                 ObjectListRow(
                     name = orcaString("Cut connectors"),
                     icon = DesignR.drawable.orca_cut_connectors,
-                    selected = false,
+                    selected = state.selectedConnectors?.mesh == mesh,
                     hasSettings = false,
                     indent = true,
                     deeper = true,
                     enabled = enabled,
-                    onClick = { actions.select(ids.first(), picking) },
+                    onClick = { actions.selectConnectors(ids.first()) },
+                    onLongClick = { actions.selectConnectors(ids.first()) },
+                    menu = { dismiss ->
+                        OrcaMenuItem(
+                            text = orcaString("Delete"),
+                            enabled = enabled,
+                            onClick = {
+                                dismiss()
+                                actions.deleteConnectors(mesh)
+                            },
+                        )
+                        ChangeFilamentItem(
+                            menuFilaments,
+                            withDefault = false,
+                            enabled = enabled,
+                            onPick = { filament ->
+                                dismiss()
+                                actions.setConnectorsExtruder(mesh, filament)
+                            },
+                        )
+                    },
                 )
             }
         }

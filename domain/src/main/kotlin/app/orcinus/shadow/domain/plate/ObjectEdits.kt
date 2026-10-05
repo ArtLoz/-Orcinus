@@ -190,6 +190,7 @@ class AnswerPlateQuestionUseCase(
     private val deletePlateObject: DeletePlateObjectUseCase,
     private val copyToClipboard: CopyToClipboardUseCase,
     private val invalidateCutInfo: InvalidateCutInfoUseCase,
+    private val cutConnectors: CutConnectorsUseCase,
 ) {
     /** [checked] is the state of the question's check box, when it has one. */
     operator fun invoke(yes: Boolean, checked: Boolean = false) = when (repository.state.value.plateQuestion?.request) {
@@ -199,8 +200,12 @@ class AnswerPlateQuestionUseCase(
         is PlateRequest.DeleteCutObject -> deletePlateObject.answer(yes)
         is PlateRequest.EraseCutObjects -> copyToClipboard.answer(yes)
         is PlateRequest.InvalidateCut -> invalidateCutInfo.answer(yes)
+        is PlateRequest.DeleteCutConnectors -> cutConnectors.answer(yes)
         null -> Unit
     }
+
+    /** The question's third button (wxCANCEL): nothing happens. */
+    fun cancel() = repository.update { state -> if (state.plateQuestion == null) state else state.copy(plateQuestion = null) }
 
     /** Yes: min_width_top_surface of the edited process preset becomes 0, as the desktop dialog sets it. */
     private fun suggestion(yes: Boolean) {

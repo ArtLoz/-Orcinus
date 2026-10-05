@@ -59,6 +59,7 @@ import app.orcinus.shadow.domain.plate.BrowsePrintHostsUseCase
 import app.orcinus.shadow.domain.plate.CalibrateUseCase
 import app.orcinus.shadow.domain.plate.CloudLoginUseCase
 import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
+import app.orcinus.shadow.domain.plate.CutConnectorsUseCase
 import app.orcinus.shadow.domain.plate.DevicePageUseCase
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
@@ -551,6 +552,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val pasteFromClipboard = PasteFromClipboardUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val undoRedoPlate = UndoRedoPlateUseCase(plateRepository, placePlateObjects, settingsTabs, applicationScope)
     private val invalidateCutInfo = InvalidateCutInfoUseCase(plateRepository)
+    private val cutConnectors = CutConnectorsUseCase(plateRepository, invalidateCutInfo)
     val answerPlateQuestion = AnswerPlateQuestionUseCase(
         plateRepository,
         addModelToPlate,
@@ -559,6 +561,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         deletePlateObject,
         copyToClipboard,
         invalidateCutInfo,
+        cutConnectors,
     )
     private val setFlushOption = SetFlushOptionUseCase(plateRepository, settingsTabs, applicationScope)
     private val openSimplify = OpenSimplifyUseCase(plateRepository)
@@ -777,6 +780,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         loadObjectVolumes = loadObjectVolumes,
         removeObjectPart = removeObjectPart,
         invalidateCutInfo = invalidateCutInfo,
+        cutConnectors = cutConnectors,
         removePlateInstance = removePlateInstance,
         clonePlateObjects = clonePlateObjects,
         separatePlateInstances = separatePlateInstances,

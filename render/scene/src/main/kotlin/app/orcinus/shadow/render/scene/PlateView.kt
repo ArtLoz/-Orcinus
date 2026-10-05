@@ -264,6 +264,8 @@ fun PlateView(
      * and a finger move alone; null while copies are selected.
      */
     selectedVolume: String? = null,
+    /** Volumes of the selected copy drawn selected while no volume is selected alone, as its cut connectors. */
+    highlightedVolumes: Set<String> = emptySet(),
     /**
      * Selection::get_bounding_sphere() of the selected volume in the world,
      * which the rotation gizmo turns it about; null until the engine measured
@@ -609,6 +611,7 @@ fun PlateView(
             controller.setFlatteningPlanes(flatteningPlanes)
             controller.setEditable(editable)
             controller.setSelectedVolume(selectedVolume)
+            controller.setHighlightedVolumes(highlightedVolumes)
             controller.volumeSphere = selectedVolumeSphere
             controller.volumeScale = selectedVolumeScale
             controller.onPaintSection = onPaintSection
@@ -956,6 +959,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** Selection::Volume: the mesh of the selected copy's volume selected alone; null while copies are. */
     private var selectedVolume: String? = null
+    private var highlightedVolumes: Set<String> = emptySet()
 
     /** The selected volume's sphere in the world, which the rotation gizmo turns it about; null until known. */
     var volumeSphere: BoundingSphere? = null
@@ -1606,6 +1610,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    fun setHighlightedVolumes(keys: Set<String>) {
+        if (highlightedVolumes == keys) return
+        highlightedVolumes = keys
+        invalidate()
+    }
+
     /**
      * Once the plate can be edited again after a volume was left for the app
      * to place, and the plate's [objects] are still those the scene was made
@@ -1634,6 +1644,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** The volumes drawn selected while one is selected alone: it, with the paint on it; null while copies are. */
     private fun selectedVolumes(): Set<String>? {
+        if (selectedVolume == null && highlightedVolumes.isNotEmpty() && assembly == null) return highlightedVolumes
         val key = selectedVolume?.takeIf { assembly == null } ?: return null
         return plateObjects.filter { it.index == selectedIndex && (it.key == key || it.paintedOn == key) }.mapTo(HashSet()) { it.key }
     }
