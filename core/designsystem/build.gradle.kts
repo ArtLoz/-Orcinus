@@ -174,6 +174,8 @@ val orcaDarkIconNames = listOf(
     "canvas_menu", "canvas_zoom",
     // GLGizmoMeasure: ImGui::ClipboardBtnDarkIcon.
     "copy_menu",
+    // PopNotification::render_close_button(): ImGui::CloseNotifDarkButton.
+    "notification_close",
 )
 
 /**

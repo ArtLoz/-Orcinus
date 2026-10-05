@@ -1552,6 +1552,7 @@ private fun Notifications(
         }
     }
     val slicing = state.slicing
+    SliceCompletedNotification(state.slicesCompleted, sliceRunning = slicing != null) { DailyTipsPanel(showHints, onShowHints) }
     if (slicing != null) {
         val fraction = slicing.progress?.fraction ?: 0f
         SlicingNotification(
@@ -1569,7 +1570,6 @@ private fun Notifications(
             onShowHints = onShowHints,
         )
     } else {
-        SliceCompletedNotification(state.slicesCompleted) { DailyTipsPanel(showHints, onShowHints) }
         state.objectInfo?.let { ObjectInfoNotification(it, imperial, onRepairObject) }
     }
 }

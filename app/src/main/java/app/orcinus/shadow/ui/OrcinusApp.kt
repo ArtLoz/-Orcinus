@@ -413,6 +413,13 @@ private fun Workspace(
         backStack.showTab(destination)
     }
 
+    // MainFrame's Slice button: the slice starts and the Preview tab shows
+    // its progress (m_tabpanel->SetSelection(tpPreview)).
+    val sliceRequested = {
+        onSliceRequested()
+        showTab(PreviewNavKey)
+    }
+
     // ...and then Prepare, when the Preferences' "Default page" says so.
     var startPageChosen by rememberSaveable { mutableStateOf(false) }
     val defaultPage by shell.defaultPage.collectAsStateWithLifecycle(initialValue = null)
@@ -465,7 +472,7 @@ private fun Workspace(
                     mode = plate.sliceMode,
                     enabled = plate.sliceEnabled,
                     onSlice = {
-                        onSliceRequested()
+                        sliceRequested()
                         shell.slice()
                     },
                     onModeChange = shell::chooseSliceMode,
@@ -521,7 +528,7 @@ private fun Workspace(
                 prepareEntry(
                     createViewModel = container::prepareViewModel,
                     shown = prepareShown,
-                    onSliceRequested = onSliceRequested,
+                    onSliceRequested = sliceRequested,
                     onOpenSidebar = { sidebarVisible = true },
                     onOpenSetting = onOpenSetting,
                 )

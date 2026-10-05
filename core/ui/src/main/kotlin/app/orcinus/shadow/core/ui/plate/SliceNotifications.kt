@@ -1,6 +1,8 @@
 package app.orcinus.shadow.core.ui.plate
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
@@ -15,6 +17,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
@@ -30,21 +35,35 @@ import kotlinx.coroutines.delay
  * SlicingProgressNotification's completed state: the complete icon and
  * "Slice ok." in bold, for three seconds (get_duration()) after every slice
  * that went through ([completions] counts them), with its close button. A
- * slice that finished before the canvas showed is not announced again.
+ * slice that finished before the canvas showed is not announced again. It
+ * stays composed while a slice runs ([sliceRunning]), when the progress takes
+ * its place, so the slice that ends is announced. Hovering it starts its time
+ * again (EState::Hovered); on a touch screen a touch does, so the daily tips
+ * under it can be read.
  */
 @Composable
-fun SliceCompletedNotification(completions: Int, tips: (@Composable () -> Unit)? = null) {
+fun SliceCompletedNotification(completions: Int, sliceRunning: Boolean = false, tips: (@Composable () -> Unit)? = null) {
     var announced by remember { mutableIntStateOf(completions) }
     var shown by remember { mutableStateOf(false) }
+    var touches by remember { mutableIntStateOf(0) }
     LaunchedEffect(completions) {
         if (completions == announced) return@LaunchedEffect
         announced = completions
         shown = true
+    }
+    LaunchedEffect(shown, touches) {
+        if (!shown) return@LaunchedEffect
         delay(SLICE_COMPLETED_MILLIS)
         shown = false
     }
-    if (!shown) return
-    OrcaNotification(action = { CloseButton { shown = false } }) {
+    if (!shown || sliceRunning) return
+    val touched = Modifier.pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            touches++
+        }
+    }
+    OrcaNotification(modifier = touched, action = { CloseButton { shown = false } }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(DesignR.drawable.orca_notification_slicing_complete), contentDescription = null, modifier = Modifier.size(24.dp))
             Row(Modifier.padding(start = 6.dp)) { OrcaNotificationText(orcaString("Slice ok."), emphasized = true) }
@@ -99,10 +118,10 @@ fun ExportFinishedNotification(name: String, onClose: () -> Unit) {
     }
 }
 
-/** PopNotification::render_close_button() */
+/** PopNotification::render_close_button(): its icon's own colours, the box and the cross. */
 @Composable
 private fun RowScope.CloseButton(onClick: () -> Unit) {
-    OrcaIconButton(icon = DesignR.drawable.orca_notification_close, contentDescription = orcaString("Close"), onClick = onClick)
+    OrcaIconButton(icon = DesignR.drawable.orca_notification_close, contentDescription = orcaString("Close"), onClick = onClick, tint = Color.Unspecified)
 }
 
 private const val SLICE_COMPLETED_MILLIS = 3_000L

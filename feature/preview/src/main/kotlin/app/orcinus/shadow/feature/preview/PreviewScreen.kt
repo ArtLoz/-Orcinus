@@ -438,20 +438,22 @@ internal fun PreviewScreen(
                     modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
                 )
             }
-            // The notifications of the preview's canvas, under the plate bar and clear of the layer slider.
+            // The notifications of the preview's canvas, under the plate bar, beside the
+            // navigator and clear of the layer slider and of the label of its top layer.
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                    .padding(start = 64.dp, end = 64.dp, top = 56.dp),
+                    .padding(start = 96.dp, end = 72.dp, top = 112.dp),
             ) {
                 val showHints = canvas.showHints
                 val keepHints = { on: Boolean -> onSetCanvas(AppConfigKeys.SHOW_HINTS, on.toString()) }
                 // The slicing progress Orca shows on the preview's canvas once Slice moved there.
                 val progress = state.slicingProgress
                 val job = state.slicingJob
+                SliceCompletedNotification(state.slicesCompleted, sliceRunning = progress != null && job != null) { DailyTipsPanel(showHints, keepHints) }
                 if (progress != null && job != null) {
                     SlicingNotification(
                         job = job,
@@ -467,8 +469,6 @@ internal fun PreviewScreen(
                         showHints = showHints,
                         onShowHints = keepHints,
                     )
-                } else {
-                    SliceCompletedNotification(state.slicesCompleted) { DailyTipsPanel(showHints, keepHints) }
                 }
                 exported?.let { name -> ExportFinishedNotification(name, onClose = { exported = null }) }
             }

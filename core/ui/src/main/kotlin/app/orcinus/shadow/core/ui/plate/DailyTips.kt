@@ -20,10 +20,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
@@ -125,16 +128,21 @@ private fun HintText(hint: OrcaHint) {
     if (hint.documentationLink.isNotEmpty()) {
         val line = orcaString("For more information, please check out Wiki")
         val wiki = orcaString("Wiki")
-        Row(Modifier.padding(top = 4.dp)) {
-            // The line up to "Wiki", whole where the translation has no "Wiki" in it.
-            Text(line.substringBefore(wiki), color = colors.onCanvasPanel, style = OrcaTheme.typography.body13)
-            Text(
-                wiki,
-                color = colors.accent,
-                style = OrcaTheme.typography.body13.copy(textDecoration = TextDecoration.Underline),
-                modifier = Modifier.clickable(role = Role.Button) { openInBrowser(context, hint.documentationLink) },
-            )
-        }
+        val link = LinkAnnotation.Clickable(
+            tag = "wiki",
+            styles = TextLinkStyles(SpanStyle(color = colors.accent, textDecoration = TextDecoration.Underline)),
+        ) { openInBrowser(context, hint.documentationLink) }
+        Text(
+            buildAnnotatedString {
+                // The line up to "Wiki", whole where the translation has no "Wiki" in it,
+                // and "Wiki" as its link, which wraps with the line.
+                append(line.substringBefore(wiki))
+                withLink(link) { append(wiki) }
+            },
+            color = colors.onCanvasPanel,
+            style = OrcaTheme.typography.body13,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
