@@ -5547,6 +5547,25 @@ TEST_CASE("A volume moved, turned or scaled drops its object as GLCanvas3D does"
         CHECK(moved.objects.front().matrix[14] == Catch::Approx(cube.matrix[14] + 10.0));
         CHECK(moved.objects.front().instances.front().instance_matrix[14] == Catch::Approx(cube_z - 10.0));
     }
+    SECTION("a move that takes the whole object below the plate keeps its top above it")
+    {
+        // Selection::ensure_not_below_bed(): the top 0.05 mm above the plate, sunk otherwise.
+        const orca::ImportedModels moved = orca::place_volume({plate_object_of(cube)}, 0, 0, raised(cube.matrix, -100.0), orca::Manipulation::move,
+                                                              k2_plus_profiles(), import_prefix("place-under"));
+        INFO(moved.message);
+        REQUIRE(moved.status == orca::SceneStatus::success);
+        CHECK(moved.objects.front().matrix[14] == Catch::Approx(cube.matrix[14] - 100.0 + 80.05));
+        CHECK(moved.objects.front().instances.front().instance_matrix[14] == Catch::Approx(cube_z));
+
+        const std::vector<double> placed(cube.instances.front().instance_matrix.begin(), cube.instances.front().instance_matrix.end());
+        std::vector<double> under = placed;
+        under[14] -= 100.0;
+        const orca::ModelInspection copy =
+            orca::place_model(plate_object_of(cube), k2_plus_profiles(), placed, under, true, orca::Manipulation::move, {});
+        INFO(copy.message);
+        REQUIRE(copy.status == orca::SceneStatus::success);
+        CHECK(copy.instance_matrix[14] == Catch::Approx(placed[14] - 100.0 + 80.05));
+    }
 
     const orca::ImportedModels with_part = orca::load_volume({plate_object_of(cube)}, 0, device_dir + "/data/2x20x10.obj", "2x20x10.obj",
                                                              orca::VolumeType::part, k2_plus_profiles(), import_prefix("place-part"));

@@ -3167,6 +3167,32 @@ void fill_bed_with_instances(
 }
 
 // The instance's lowest point with the transformation, as instance_bounding_box().min.z().
+// Selection::ensure_not_below_bed(): the top of a copy's model parts
+// (GLVolume::transformed_convex_hull_bounding_box(), the modifiers and the
+// other volumes that are no model part aside).
+double instance_top_z(const Slic3r::ModelObject& object, const std::size_t instance)
+{
+    double top = -DBL_MAX;
+    const Slic3r::Transform3d& placement = object.instances[instance]->get_matrix();
+    for (const Slic3r::ModelVolume* volume : object.volumes) {
+        if (volume->is_model_part()) {
+            top = std::max(top, volume->get_convex_hull().transformed_bounding_box(placement * volume->get_matrix()).max.z());
+        }
+    }
+    return top;
+}
+
+// Selection::translate()'s ensure_not_below_bed() in instance mode: a copy
+// moved wholly below the plate rises until its top stands
+// SINKING_MIN_Z_THRESHOLD above it.
+void ensure_not_below_bed(Slic3r::ModelObject& object, const std::size_t instance)
+{
+    const double top = instance_top_z(object, instance);
+    if (top < Slic3r::SINKING_MIN_Z_THRESHOLD) {
+        object.translate_instance(instance, Slic3r::Vec3d(0.0, 0.0, Slic3r::SINKING_MIN_Z_THRESHOLD - top));
+    }
+}
+
 double instance_min_z(Slic3r::ModelObject& object, const std::vector<double>& placement)
 {
     Slic3r::Transform3d transformation = Slic3r::Transform3d::Identity();
@@ -3598,6 +3624,7 @@ ModelInspection place_model(
         const double min_z_before = instance_min_z(object, previous_placement);
         switch (manipulation) {
         case Manipulation::move: {
+            ensure_not_below_bed(object, 0);
             const double shift_z = object.get_instance_min_z(0);
             if (auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
                 object.translate_instance(0, Slic3r::Vec3d(0.0, 0.0, -shift_z));
@@ -3643,6 +3670,7 @@ ModelInspection place_model(
             const Slic3r::Vec2d plate_center = build_volume_of(config).bounding_volume2d().center();
             const Slic3r::Vec3d box_center = selection_box(object, 0).center();
             object.translate_instance(0, Slic3r::Vec3d(plate_center.x() - box_center.x(), plate_center.y() - box_center.y(), 0.0));
+            ensure_not_below_bed(object, 0);
             // do_move("Move Object")
             const double shift_z = object.get_instance_min_z(0);
             if (auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
@@ -6005,6 +6033,22 @@ ImportedModels place_volume(
             cur_mv->set_transformation(Geometry::Transformation(transformation));
         }
         mo->invalidate_bounding_box();
+        // Selection::translate()'s ensure_not_below_bed() in volume mode: the
+        // moved volume rises by what the copy needs whose model parts all went
+        // below the plate. Orca takes the selected copy; the engine is not told
+        // which one is, and takes the copy that needs most.
+        if (manipulation == Manipulation::move) {
+            double z_shift = 0.0;
+            for (std::size_t instance = 0; instance < mo->instances.size(); ++instance) {
+                z_shift = std::max(z_shift, SINKING_MIN_Z_THRESHOLD - instance_top_z(*mo, instance));
+            }
+            if (z_shift > 0.0) {
+                Vec3d offset = cur_mv->get_offset();
+                offset.z() += z_shift;
+                cur_mv->set_offset(offset);
+                mo->invalidate_bounding_box();
+            }
+        }
 
         // Fixes sinking/flying instances (snaps object to buildplate)
         for (std::size_t instance = 0; instance < mo->instances.size(); ++instance) {
