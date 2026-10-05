@@ -1643,6 +1643,11 @@ class SelectObjectPartUseCase(private val repository: PlateRepository) {
     }
 }
 
+/** Whether a tool of the 3D view is open, which some commands of the plate wait for. */
+class SetGizmoOpenUseCase(private val repository: PlateRepository) {
+    operator fun invoke(open: Boolean) = repository.update { state -> if (state.gizmoOpen == open) state else state.copy(gizmoOpen = open) }
+}
+
 /**
  * The switch over the settings (ParamsPanel::m_mode_region): the presets, or
  * the settings of the plate and of the selected object.

@@ -64,6 +64,7 @@ import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.MeshBooleanOperation
+import app.orcinus.shadow.core.model.MeshErrors
 import app.orcinus.shadow.core.model.MeshExportOutcome
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.ModelDimensions
@@ -176,6 +177,7 @@ import app.orcinus.shadow.core.model.extruderNumber
 import app.orcinus.shadow.core.model.flushesInto
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.meshErrors
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.translationTransform
 import app.orcinus.shadow.core.model.volumeAt
@@ -1871,6 +1873,28 @@ class PlateUseCasesTest {
         assertEquals("", fixed.file.displayName)
         assertEquals("calibration-cube-20mm", fixed.inputName)
         assertEquals("", fixed.placed().name)
+    }
+
+    @Test
+    fun `Fix model waits for the tools of the 3D view to close, and the errors a repair fixed stay with the volume`() {
+        val repository = FakeRepository(readyState(CUBE).copy(gizmoOpen = true))
+        val inspector = FakeInspector()
+        val repaired = MeshErrors(edgesFixed = 3, facetsReversed = 2)
+        inspector.editOutcome = { ModelLoadOutcome.Success(listOf(LOADED.copy(volume = LOADED.volume.copy(meshErrors = repaired))), emptyList()) }
+        val edit = EditPlateObjectUseCase(inspector, FakeSceneFiles(), repository, scope)
+
+        edit(CUBE.mesh, ObjectEdit.FIX)
+
+        assertTrue(inspector.edits.isEmpty())
+        assertEquals("close_gizmos", repository.state.value.plateNotices.single().id)
+
+        repository.update { it.copy(gizmoOpen = false) }
+        edit(CUBE.mesh, ObjectEdit.FIX)
+
+        val fixed = repository.state.value.objects.single()
+        assertEquals(5, fixed.meshErrors.repairedCount)
+        // The engine is handed them back with the volume.
+        assertEquals(repaired, fixed.placed().volume.meshErrors)
     }
 
     @Test

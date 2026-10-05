@@ -6244,6 +6244,60 @@ TEST_CASE("A project keeps its designer, license and auxiliary files through a s
     CHECK(read_file((fs::path(opened.project_info) / "Auxiliaries" / "Model Pictures" / "cover.png").string()) == "picture");
 }
 
+TEST_CASE("The errors a repair fixed stay with the volume, and a project keeps them", "[Adapter][Project]")
+{
+    require_engine();
+    // A box 20 mm, and one more facet with two corners alike, which the
+    // repair on import takes away (stl_check_facets_exact()); OrcaSlicer 2.4
+    // does not record it (TriangleMesh::from_stl() keeps the stats under #if 0).
+    const double v[8][3] = {{20, 20, 0}, {20, 0, 0}, {0, 0, 0}, {0, 20, 0}, {20, 20, 20}, {0, 20, 20}, {0, 0, 20}, {20, 0, 20}};
+    const int f[13][3] = {{0, 1, 2}, {0, 2, 3}, {4, 5, 6}, {4, 6, 7}, {0, 4, 7}, {0, 7, 1}, {1, 7, 6},
+                          {1, 6, 2}, {2, 6, 5}, {2, 5, 3}, {4, 0, 3}, {4, 3, 5}, {2, 2, 1}};
+    std::ostringstream stl;
+    stl << "solid box\n";
+    for (const auto& face : f) {
+        stl << "facet normal 0 0 0\nouter loop\n";
+        for (const int index : face) {
+            stl << "vertex " << v[index][0] << ' ' << v[index][1] << ' ' << v[index][2] << '\n';
+        }
+        stl << "endloop\nendfacet\n";
+    }
+    stl << "endsolid box\n";
+    const std::string path = device_dir + "/tmp/import/repaired-box.stl";
+    fs::create_directories(fs::path(path).parent_path());
+    std::ofstream(path) << stl.str();
+
+    const orca::ImportedModels imported = orca::import_model(path, k2_plus_profiles(), {}, import_prefix("repaired"), {});
+    INFO(imported.message);
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    REQUIRE(imported.objects.size() == 1);
+    const orca::MeshErrors read = imported.objects.front().volume_mesh_errors;
+    CHECK(read.degenerate_facets == 0);
+    CHECK(read.facets_removed == 0);
+    CHECK(read.open_edges == 0);
+
+    // What a project's mesh_stat told of the volume, handed back with it, is
+    // saved with the project again and read again.
+    orca::MeshErrors errors;
+    errors.edges_fixed = 2;
+    errors.degenerate_facets = 1;
+    errors.facets_removed = 1;
+    std::vector<orca::PlateObject> plate = plate_of(imported.objects.front().model_path);
+    plate.front().volume_mesh_errors = errors;
+    const std::string project = output_path("repaired-project.3mf");
+    const orca::ProjectSave saved = orca::save_project(project, plate, k2_plus_profiles(), {orca::ProjectPlate{}});
+    INFO(saved.message);
+    REQUIRE(saved.status == orca::SceneStatus::success);
+    const orca::ImportedModels opened =
+        orca::import_model(project, k2_plus_profiles(), {}, import_prefix("repaired-project"), {}, orca::ModelLoad::project);
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    REQUIRE(opened.objects.size() == 1);
+    CHECK(opened.objects.front().volume_mesh_errors.edges_fixed == 2);
+    CHECK(opened.objects.front().volume_mesh_errors.degenerate_facets == 1);
+    CHECK(opened.objects.front().volume_mesh_errors.facets_removed == 1);
+}
+
 TEST_CASE("Export Generic 3MF writes the project without the production extension", "[Adapter][Project]")
 {
     require_engine();

@@ -1643,7 +1643,20 @@ private fun ObjectInfoNotification(info: ObjectInfo, imperial: Boolean, onRepair
                     OrcaText("Triangles: %1%\n", listOf(info.facets.toString())),
                 ),
             )
-            // ObjectList::get_mesh_errors_info(): the open edges, and the tip while there are any.
+            // ObjectList::get_mesh_errors_info(): the errors the repair fixed, and
+            // the open edges before them with the tip while there are any.
+            val repaired = if (info.repairedErrors > 0) {
+                orcaText(
+                    OrcaText(
+                        "%1\$d error repaired",
+                        listOf(info.repairedErrors.toString()),
+                        msgidPlural = "%1\$d errors repaired",
+                        count = info.repairedErrors.toLong(),
+                    ),
+                )
+            } else {
+                ""
+            }
             val errors = if (info.openEdges > 0) {
                 orcaText(
                     OrcaText(
@@ -1652,14 +1665,18 @@ private fun ObjectInfoNotification(info: ObjectInfo, imperial: Boolean, onRepair
                         msgidPlural = "Error: %1\$d non-manifold edges.",
                         count = info.openEdges,
                     ),
-                ) + "\n" + orcaString("Tips:") + "\n" + orcaString("Use \"Fix Model\" to repair the mesh.")
+                ) + (if (repaired.isNotEmpty()) "\n" + repaired else "") +
+                    "\n" + orcaString("Tips:") + "\n" + orcaString("Use \"Fix Model\" to repair the mesh.")
             } else {
-                ""
+                repaired
             }
             OrcaNotification(level = if (info.openEdges > 0) OrcaNotificationLevel.Warning else OrcaNotificationLevel.Regular) {
                 text.trimEnd('\n').split('\n').forEachIndexed { index, line -> OrcaNotificationText(line, emphasized = index == 0) }
                 if (errors.isNotEmpty()) {
                     errors.split('\n').forEach { OrcaNotificationText(it, error = true) }
+                }
+                // bbl_show_objectsinfo_notification(): " (Repair)" while there are open edges.
+                if (info.openEdges > 0) {
                     OrcaNotificationLink(orcaString(" (Repair)").trim(), onClick = onRepair)
                 }
             }

@@ -38,6 +38,7 @@ import app.orcinus.shadow.core.model.MeasureEdit
 import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.MeshBooleanOperation
+import app.orcinus.shadow.core.model.MeshErrors
 import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjColorQuestion
 import app.orcinus.shadow.core.model.PaintPlacement
@@ -2800,6 +2801,7 @@ class NativeSlicerEngine(context: Context) :
                     cutInfo = CutInfo.of(partCutInfo, CutInfo.SIZE * part),
                     emboss = embossData(partEmboss[part], partEmbossKinds[part]),
                     origin = VolumeOrigin.of(partOrigins, VolumeOrigin.SIZE * part),
+                    meshErrors = MeshErrors.of(partMeshErrors, MeshErrors.SIZE * part),
                 )
             },
             settings = ModelSettings(settingKeys.zip(settingValues).toMap()),
@@ -2813,6 +2815,7 @@ class NativeSlicerEngine(context: Context) :
                 cutInfo = CutInfo.of(volumeCutInfo),
                 emboss = embossData(volumeEmboss, volumeEmbossKind),
                 origin = VolumeOrigin.of(volumeOrigin),
+                meshErrors = MeshErrors.of(volumeMeshErrors),
             ),
             cutId = CutId.of(cutId),
             instances = instances.mapIndexed { index, instance ->
@@ -3007,6 +3010,8 @@ private fun nativePlate(objects: List<PlacedModel>): NativePlate {
         partEmboss = Array(parts.size) { parts[it].emboss?.file?.value.orEmpty() },
         volumeOrigins = objects.flatMap { it.volume.origin.values().asList() }.toDoubleArray(),
         partOrigins = parts.flatMap { it.origin.values().asList() }.toDoubleArray(),
+        volumeMeshErrors = objects.flatMap { it.volume.meshErrors.values().asList() }.toLongArray(),
+        partMeshErrors = parts.flatMap { it.meshErrors.values().asList() }.toLongArray(),
     )
 }
 

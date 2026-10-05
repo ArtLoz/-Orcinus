@@ -152,6 +152,7 @@ import app.orcinus.shadow.domain.plate.SeparatePlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetArrangeSettingsUseCase
 import app.orcinus.shadow.domain.plate.SetExtruderUseCase
 import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
+import app.orcinus.shadow.domain.plate.SetGizmoOpenUseCase
 import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
@@ -231,6 +232,7 @@ class PrepareViewModel(
     private val addLayerRange: AddLayerRangeUseCase,
     private val selectLayerRange: SelectLayerRangeUseCase,
     private val setSettingsScope: SetSettingsScopeUseCase,
+    private val setGizmoOpen: SetGizmoOpenUseCase,
     private val editPlateObject: EditPlateObjectUseCase,
     private val invalidateCutInfo: InvalidateCutInfoUseCase,
     private val clonePlateObjects: ClonePlateObjectsUseCase,
@@ -416,6 +418,8 @@ class PrepareViewModel(
                 }
             }
         }
+        // GLGizmosManager::get_current_type(): the plate knows while a tool is open.
+        viewModelScope.launch { view.map { it.gizmoOpen }.distinctUntilChanged().collect { setGizmoOpen(it) } }
         viewModelScope.launch {
             for (asked in cutPlanes) {
                 val plane = asked.plane ?: continue
@@ -961,6 +965,7 @@ class PrepareViewModel(
     override fun onCleared() {
         // The gizmo's mesh file goes with the screen that showed it.
         view.value.simplify?.preview?.let(previewSimplify::discard)
+        setGizmoOpen(false)
     }
 
     /** A change of the configuration: the engine works the mesh out again. */

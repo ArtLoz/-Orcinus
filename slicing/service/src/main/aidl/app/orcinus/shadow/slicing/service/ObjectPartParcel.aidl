@@ -26,6 +26,8 @@ parcelable ObjectPartParcel {
     @nullable double[] cutInfo;
     /** ObjectPart.origin flattened (VolumeOrigin.values). */
     @nullable double[] origin;
+    /** ObjectPart.meshErrors flattened (MeshErrors.values). */
+    @nullable long[] meshErrors;
     /** The file of what the part was embossed from, and the EmbossKind's name; null for none. */
     @nullable String emboss;
     @nullable String embossKind;

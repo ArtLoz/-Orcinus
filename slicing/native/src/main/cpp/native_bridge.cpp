@@ -688,6 +688,20 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
     for (std::size_t index = 0; index < plate.size(); ++index) {
         plate[index].volume_origin = origin_at(volume_origins, index);
     }
+    // The mesh stats of every own mesh and every part, six each (MeshErrors).
+    const std::vector<std::int64_t> volume_mesh_errors = to_longs(env, static_cast<jlongArray>(field("volumeMeshErrors", "[J")));
+    const std::vector<std::int64_t> part_mesh_errors = to_longs(env, static_cast<jlongArray>(field("partMeshErrors", "[J")));
+    const auto mesh_errors_at = [](const std::vector<std::int64_t>& values, const std::size_t index) {
+        orcinus::orca::MeshErrors errors;
+        if (6 * (index + 1) <= values.size()) {
+            const std::int64_t* value = values.data() + 6 * index;
+            errors = {value[0], int(value[1]), int(value[2]), int(value[3]), int(value[4]), int(value[5])};
+        }
+        return errors;
+    };
+    for (std::size_t index = 0; index < plate.size(); ++index) {
+        plate[index].volume_mesh_errors = mesh_errors_at(volume_mesh_errors, index);
+    }
     // The mesh file and the name of every part, in the plate's order.
     const std::vector<std::string> sources = to_strings(env, static_cast<jobjectArray>(field("partSources", strings)));
     const std::vector<std::string> names = to_strings(env, static_cast<jobjectArray>(field("partNames", strings)));
@@ -707,6 +721,7 @@ std::vector<orcinus::orca::PlateObject> to_plate(JNIEnv* env, jobject native_pla
             }
             added.cut_info = cut_info_at(part_cut_info, part);
             added.origin = origin_at(part_origins, part);
+            added.mesh_errors = mesh_errors_at(part_mesh_errors, part);
             ++part;
         }
     }
@@ -3297,7 +3312,7 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         "[Ljava/lang/String;[Ljava/lang/String;[[Ljava/lang/String;[[Ljava/lang/String;"
         "Ljava/lang/String;ZZZ[Ljava/lang/String;[Z[Z[Z[D[[Ljava/lang/String;[[Ljava/lang/String;[Z[Z"
         "Ljava/lang/String;[Ljava/lang/String;[J[D[DLjava/lang/String;[D"
-        "Ljava/lang/String;J[Ljava/lang/String;[J[D[D[Z[D[D[D)V"
+        "Ljava/lang/String;J[Ljava/lang/String;[J[D[D[Z[D[D[D[J[J)V"
     );
     // The cut the object is a part of, and the cut info of its own mesh and of every part.
     const jlong cut_id[3]{jlong(object.cut_id.id), jlong(object.cut_id.check_sum), jlong(object.cut_id.connectors_cnt)};
@@ -3343,6 +3358,17 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
     std::vector<double> part_origins;
     for (const orcinus::orca::ImportedPart& part : object.parts) {
         origin_values(part.origin, part_origins);
+    }
+    // The mesh stats of its own mesh and of every part, six each (MeshErrors).
+    const auto mesh_error_values = [](const orcinus::orca::MeshErrors& errors, std::vector<std::int64_t>& values) {
+        values.insert(values.end(), {errors.open_edges, errors.edges_fixed, errors.degenerate_facets, errors.facets_removed, errors.facets_reversed,
+                                     errors.backwards_edges});
+    };
+    std::vector<std::int64_t> volume_mesh_errors;
+    mesh_error_values(object.volume_mesh_errors, volume_mesh_errors);
+    std::vector<std::int64_t> part_mesh_errors;
+    for (const orcinus::orca::ImportedPart& part : object.parts) {
+        mesh_error_values(part.mesh_errors, part_mesh_errors);
     }
     return env->NewObject(
         object_class,
@@ -3392,7 +3418,9 @@ static jobject to_java_imported(JNIEnv* env, const orcinus::orca::ImportedObject
         to_java_bools(env, assembled),
         to_java(env, offsets_to_assembly.data(), offsets_to_assembly.size()),
         to_java(env, volume_origin.data(), volume_origin.size()),
-        to_java(env, part_origins.data(), part_origins.size())
+        to_java(env, part_origins.data(), part_origins.size()),
+        to_java(env, volume_mesh_errors),
+        to_java(env, part_mesh_errors)
     );
 }
 

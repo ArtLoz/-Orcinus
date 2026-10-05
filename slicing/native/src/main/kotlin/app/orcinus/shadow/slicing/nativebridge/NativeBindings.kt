@@ -716,6 +716,9 @@ internal class NativePlate(
     /** Where every own mesh and every part was in its file, five each (VolumeOrigin.values). */
     @JvmField val volumeOrigins: DoubleArray,
     @JvmField val partOrigins: DoubleArray,
+    /** The mesh stats of every own mesh and every part, six each (MeshErrors.values). */
+    @JvmField val volumeMeshErrors: LongArray,
+    @JvmField val partMeshErrors: LongArray,
 )
 
 /** Constructed by the native bridge; see ImportedObject in orca_engine_adapter.hpp. */
@@ -780,6 +783,9 @@ internal class NativeImportedObject(
     /** Where its own mesh and every part was in its file (VolumeOrigin.values). */
     @JvmField val volumeOrigin: DoubleArray,
     @JvmField val partOrigins: DoubleArray,
+    /** The mesh stats of its own mesh and of every part (MeshErrors.values). */
+    @JvmField val volumeMeshErrors: LongArray,
+    @JvmField val partMeshErrors: LongArray,
 )
 
 /** Constructed by the native bridge; see SvgWarning in orca_engine_adapter.hpp. */

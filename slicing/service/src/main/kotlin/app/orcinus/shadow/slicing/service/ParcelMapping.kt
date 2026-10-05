@@ -39,6 +39,7 @@ import app.orcinus.shadow.core.model.MeasureEditOutcome
 import app.orcinus.shadow.core.model.MeasureSelection
 import app.orcinus.shadow.core.model.MeasuredVolume
 import app.orcinus.shadow.core.model.Measurement
+import app.orcinus.shadow.core.model.MeshErrors
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjColorQuestion
@@ -319,6 +320,7 @@ private fun ObjectVolume.toParcel() = ObjectVolumeParcel().also {
     it.inputFile = inputFile
     it.cutInfo = cutInfo.values()
     it.origin = origin.values()
+    it.meshErrors = meshErrors.values()
     it.emboss = emboss?.file?.value
     it.embossKind = emboss?.kind?.name
 }
@@ -337,6 +339,7 @@ private fun ObjectVolumeParcel?.toObjectVolume(): ObjectVolume = this?.let {
         cutInfo = CutInfo.of(it.cutInfo),
         emboss = embossOf(it.emboss, it.embossKind),
         origin = VolumeOrigin.of(it.origin),
+        meshErrors = MeshErrors.of(it.meshErrors),
     )
 } ?: ObjectVolume()
 
@@ -381,6 +384,7 @@ private fun ObjectPart.toParcel() = ObjectPartParcel().also {
     it.inputFile = inputFile
     it.cutInfo = cutInfo.values()
     it.origin = origin.values()
+    it.meshErrors = meshErrors.values()
     it.emboss = emboss?.file?.value
     it.embossKind = emboss?.kind?.name
 }
@@ -401,6 +405,7 @@ private fun ObjectPartParcel.toObjectPart() = ObjectPart(
     cutInfo = CutInfo.of(cutInfo),
     emboss = embossOf(emboss, embossKind),
     origin = VolumeOrigin.of(origin),
+    meshErrors = MeshErrors.of(meshErrors),
 )
 
 internal fun ProjectPlate.toParcel() = ProjectPlateParcel().also {

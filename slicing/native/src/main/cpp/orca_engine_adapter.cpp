@@ -758,6 +758,29 @@ void apply_origin(Slic3r::ModelVolume& volume, const VolumeOrigin& origin)
     volume.source.mesh_offset = Slic3r::Vec3d(origin.mesh_offset[0], origin.mesh_offset[1], origin.mesh_offset[2]);
 }
 
+// The mesh stats the object list reports of volume (TriangleMeshStats).
+MeshErrors mesh_errors_of(const Slic3r::ModelVolume& volume)
+{
+    const Slic3r::TriangleMeshStats& stats = volume.mesh().stats();
+    const Slic3r::RepairedMeshErrors& repaired = stats.repaired_errors;
+    return {std::int64_t(stats.open_edges), repaired.edges_fixed, repaired.degenerate_facets, repaired.facets_removed,
+            repaired.facets_reversed, repaired.backwards_edges};
+}
+
+// The volume's mesh, read again from the app's file, knows again what the
+// repair of its source fixed (TriangleMesh(its, repaired_errors), as a
+// project's mesh_stat is read).
+void apply_repaired_errors(Slic3r::ModelVolume& volume, const MeshErrors& errors)
+{
+    const Slic3r::RepairedMeshErrors repaired{errors.edges_fixed, errors.degenerate_facets, errors.facets_removed, errors.facets_reversed,
+                                              errors.backwards_edges};
+    if (!repaired.repaired()) {
+        return;
+    }
+    indexed_triangle_set its = volume.mesh().its;
+    volume.set_mesh(Slic3r::TriangleMesh(std::move(its), repaired));
+}
+
 // Loads one object of the plate into model: its own mesh in its frame, its
 // copies, its settings, painting and parts, its height ranges; then its copies
 // drop onto the plate. An object without a placement is placed as an object
@@ -796,6 +819,7 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         }
         apply_origin(own, object.volume_origin);
         own.cut_info = detail::cut_info_of(object.volume_cut_info);
+        apply_repaired_errors(own, object.volume_mesh_errors);
     }
     // The cut the object is a part of (as _BBS_3MF_Importer applies it).
     if (object.cut_id.id != 0) {
@@ -848,6 +872,7 @@ Slic3r::ModelObject* load_object(const PlateObject& object, const Slic3r::Dynami
         volume->source.input_file = part.input_file;
         apply_origin(*volume, part.origin);
         volume->cut_info = detail::cut_info_of(part.cut_info);
+        apply_repaired_errors(*volume, part.mesh_errors);
         if (!apply_painted_facets(*volume, part.painted)) {
             message = "The painted facets of a part could not be read";
             return nullptr;
@@ -3962,6 +3987,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
         out.volume_from_meters = own.source.is_converted_from_meters;
         out.volume_input_file = own.source.input_file;
         out.volume_origin = origin_of(own.source);
+        out.volume_mesh_errors = mesh_errors_of(own);
         out.volume_cut_info = detail::cut_info_from(own.cut_info);
         out.volume_emboss = detail::write_emboss(own, base + ".emboss");
         out.volume_emboss_kind = detail::emboss_kind_of(own);
@@ -3993,6 +4019,7 @@ bool write_objects(const std::vector<Slic3r::ModelObject*>& objects, const std::
             part.from_meters = source.source.is_converted_from_meters;
             part.input_file = source.source.input_file;
             part.origin = origin_of(source.source);
+            part.mesh_errors = mesh_errors_of(source);
             part.cut_info = detail::cut_info_from(source.cut_info);
             part.emboss = detail::write_emboss(source, base + "-part-" + std::to_string(volume) + ".emboss");
             part.emboss_kind = detail::emboss_kind_of(source);

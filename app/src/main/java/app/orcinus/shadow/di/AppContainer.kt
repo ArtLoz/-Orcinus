@@ -157,6 +157,7 @@ import app.orcinus.shadow.domain.plate.SetBedShapeUseCase
 import app.orcinus.shadow.domain.plate.SetExtruderUseCase
 import app.orcinus.shadow.domain.plate.SetFlushOptionUseCase
 import app.orcinus.shadow.domain.plate.SetFlushVolumesUseCase
+import app.orcinus.shadow.domain.plate.SetGizmoOpenUseCase
 import app.orcinus.shadow.domain.plate.SetNumberOfInstancesUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
@@ -626,6 +627,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             addLayerRange = addLayerRange,
             selectLayerRange = selectLayerRange,
             setSettingsScope = setSettingsScope,
+            setGizmoOpen = SetGizmoOpenUseCase(plateRepository),
             editPlateObject = editPlateObject,
             invalidateCutInfo = invalidateCutInfo,
             clonePlateObjects = clonePlateObjects,

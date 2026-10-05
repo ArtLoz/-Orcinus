@@ -59,6 +59,7 @@ import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.meshErrors
 import app.orcinus.shadow.core.model.parseFilamentColor
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
@@ -68,6 +69,7 @@ import app.orcinus.shadow.core.model.plateSettingsChoice
 import app.orcinus.shadow.core.model.times
 import app.orcinus.shadow.core.model.translation
 import app.orcinus.shadow.core.model.volumeAt
+import app.orcinus.shadow.core.model.volumeMeshErrors
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withPainted
 import app.orcinus.shadow.core.model.withPartAt
@@ -507,7 +509,16 @@ internal data class PrepareViewState(
     val sectionPosition: Double = 0.0,
     val sectionResets: Int = 0,
     val assemblySection: ScenePath? = null,
-)
+) {
+    /**
+     * GLGizmosManager::get_current_type() != Undefined: a gizmo is open — the
+     * manipulations, the painting tools, the cut, simplify, the text and SVG
+     * tools, measure and assembly, the brim ears and the mesh boolean.
+     */
+    val gizmoOpen: Boolean
+        get() = gizmo != null || painting != null || cut != null || simplify != null || text != null || svg != null ||
+            measure != null || brimEars != null || meshBoolean != null
+}
 
 /**
  * GLGizmoMeshBoolean while it is open on [copy]: its operation, whether a
@@ -741,8 +752,9 @@ sealed interface ObjectInfo {
 
     /**
      * One copy of [plateObject], or its volume [part] selected alone: the size
-     * in the world, the volume in cubic millimetres, the triangles and the
-     * open edges (ObjectList::get_mesh_errors_info()).
+     * in the world, the volume in cubic millimetres, the triangles, the open
+     * edges and the errors the repair of its file fixed
+     * (ObjectList::get_mesh_errors_info()).
      */
     data class Single(
         val plateObject: PlateObject,
@@ -751,6 +763,7 @@ sealed interface ObjectInfo {
         val volume: Double,
         val facets: Long,
         val openEdges: Long,
+        val repairedErrors: Int = 0,
     ) : ObjectInfo
 }
 
@@ -768,7 +781,15 @@ internal fun PlateState.objectInfo(view: PrepareViewState, volume: SelectedVolum
         val owner = objects.getOrNull(volume.index.objectIndex) ?: return null
         if (owner.volumeAt(volume.index.volume)?.type != VolumeType.PART) return null
         val described = volume.description ?: return null
-        return ObjectInfo.Single(owner, volume.index.volume, described.world.size, described.volume, described.facets, described.openEdges)
+        return ObjectInfo.Single(
+            owner,
+            volume.index.volume,
+            described.world.size,
+            described.volume,
+            described.facets,
+            described.openEdges,
+            owner.volumeMeshErrors(volume.index.volume).repairedCount,
+        )
     }
     val owners = selectedObjects()
     // Selection::get_volume_idxs(): every volume of every selected copy, and the tower.
@@ -780,7 +801,7 @@ internal fun PlateState.objectInfo(view: PrepareViewState, volume: SelectedVolum
     if (owner == null || (fullObject && owner.instances.size > 1)) return null
     val inspection = selectedCopy?.inspection ?: return null
     val size = inspection.dimensions.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) }
-    return ObjectInfo.Single(owner, null, size, inspection.volume, inspection.facetCount, inspection.openEdges)
+    return ObjectInfo.Single(owner, null, size, inspection.volume, inspection.facetCount, inspection.openEdges, owner.meshErrors.repairedCount)
 }
 
 /**

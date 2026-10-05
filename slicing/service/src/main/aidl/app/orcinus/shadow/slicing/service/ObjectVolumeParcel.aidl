@@ -14,6 +14,8 @@ parcelable ObjectVolumeParcel {
     @nullable double[] cutInfo;
     /** ObjectVolume.origin flattened (VolumeOrigin.values). */
     @nullable double[] origin;
+    /** ObjectVolume.meshErrors flattened (MeshErrors.values). */
+    @nullable long[] meshErrors;
     /** The file of what the own mesh was embossed from, and the EmbossKind's name; null for none. */
     @nullable String emboss;
     @nullable String embossKind;

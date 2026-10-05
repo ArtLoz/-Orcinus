@@ -69,6 +69,8 @@ data class ObjectPart(
     val emboss: EmbossData? = null,
     /** ModelVolume::source: where the volume was in its file. */
     val origin: VolumeOrigin = VolumeOrigin(),
+    /** What the mesh's stats say of its errors, which the object list reports. */
+    val meshErrors: MeshErrors = MeshErrors(),
 )
 
 /**
@@ -77,6 +79,61 @@ data class ObjectPart(
  * (mesh_offset), by which a volume loaded or replaced from a file keeps its
  * place (ObjectList::load_modifier(), Plater::priv::replace_volume_with_stl()).
  */
+/**
+ * TriangleMeshStats of a volume's mesh as the object list reports it
+ * (ObjectList::get_mesh_errors_info()): its open edges, which leave it not
+ * manifold, and what the repair of its file fixed as the mesh was read
+ * (RepairedMeshErrors), which a project keeps (mesh_stat). The engine counts
+ * the open edges; the repaired errors go back to it with the volume.
+ */
+data class MeshErrors(
+    val openEdges: Long = 0,
+    val edgesFixed: Int = 0,
+    val degenerateFacets: Int = 0,
+    val facetsRemoved: Int = 0,
+    val facetsReversed: Int = 0,
+    val backwardsEdges: Int = 0,
+) {
+    /** ModelVolume::get_repaired_errors_count() */
+    val repairedCount: Int get() = degenerateFacets + edgesFixed + facetsRemoved + facetsReversed + backwardsEdges
+
+    /** TriangleMeshStats::repaired() */
+    val repaired: Boolean
+        get() = degenerateFacets > 0 || edgesFixed > 0 || facetsRemoved > 0 || facetsReversed > 0 || backwardsEdges > 0
+
+    /** TriangleMeshStats::manifold() */
+    val manifold: Boolean get() = openEdges == 0L
+
+    /** ModelObject::get_object_stl_stats(): the open edges and the repaired errors of the volumes together. */
+    operator fun plus(other: MeshErrors) = MeshErrors(
+        openEdges + other.openEdges,
+        edgesFixed + other.edgesFixed,
+        degenerateFacets + other.degenerateFacets,
+        facetsRemoved + other.facetsRemoved,
+        facetsReversed + other.facetsReversed,
+        backwardsEdges + other.backwardsEdges,
+    )
+
+    /** Flattened as the engine reads it (MeshErrors of orca_engine_adapter.hpp). */
+    fun values(): LongArray = longArrayOf(
+        openEdges,
+        edgesFixed.toLong(),
+        degenerateFacets.toLong(),
+        facetsRemoved.toLong(),
+        facetsReversed.toLong(),
+        backwardsEdges.toLong(),
+    )
+
+    companion object {
+        const val SIZE = 6
+
+        fun of(values: LongArray?, at: Int = 0): MeshErrors {
+            if (values == null || values.size < at + SIZE) return MeshErrors()
+            return MeshErrors(values[at], values[at + 1].toInt(), values[at + 2].toInt(), values[at + 3].toInt(), values[at + 4].toInt(), values[at + 5].toInt())
+        }
+    }
+}
+
 data class VolumeOrigin(
     val objectIndex: Int = -1,
     val volumeIndex: Int = -1,
@@ -183,6 +240,7 @@ data class ObjectVolume(
     /** The text or the SVG the object's own mesh was embossed from (an object made of a text). */
     val emboss: EmbossData? = null,
     val origin: VolumeOrigin = VolumeOrigin(),
+    val meshErrors: MeshErrors = MeshErrors(),
 )
 
 /**
@@ -320,9 +378,17 @@ fun PlateObject.volumeAt(index: Int): ObjectPart? = when {
         cutInfo = volume.cutInfo,
         emboss = volume.emboss,
         origin = volume.origin,
+        meshErrors = volume.meshErrors,
     )
     else -> parts.getOrNull(index - 1)
 }
+
+/** ModelObject::get_object_stl_stats() of the errors: those of all its volumes. */
+val PlateObject.meshErrors: MeshErrors get() = parts.fold(volume.meshErrors) { errors, part -> errors + part.meshErrors }
+
+/** The mesh errors of the volume at [index] (ModelObject::volumes). */
+fun PlateObject.volumeMeshErrors(index: Int): MeshErrors =
+    if (index == 0) volume.meshErrors else parts.getOrNull(index - 1)?.meshErrors ?: MeshErrors()
 
 /** ModelVolume::source.input_file of the volume at [index] (ModelObject::volumes); empty for none. */
 fun PlateObject.volumeInputFile(index: Int): String = if (index == 0) volume.inputFile else parts.getOrNull(index - 1)?.inputFile.orEmpty()
@@ -1090,6 +1156,8 @@ data class PlateState(
      * current plate with the sequences alone, until it closes.
      */
     val layerSequencePrompt: Boolean = false,
+    /** GLGizmosManager::get_current_type() != Undefined: a tool of the 3D view is open. */
+    val gizmoOpen: Boolean = false,
     /** StepMeshDialog, which a load or a replacement of a STEP file waits for. */
     val stepMesh: StepMeshQuestion? = null,
     /** ObjColorDialog, which a load of an OBJ file with colours waits for. */

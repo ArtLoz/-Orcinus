@@ -1,11 +1,13 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.AppConfigKeys
+import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.ImportedModelFile
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PendingPlateQuestion
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
@@ -85,6 +87,11 @@ class EditPlateObjectUseCase(
     }
 
     private fun start(request: PlateRequest.Edit) {
+        // ObjectList::fix_through_cgal(): check_gizmos_closed_except(Undefined).
+        if (request.edit == ObjectEdit.FIX && repository.state.value.gizmoOpen) {
+            repository.update { it.copy(plateNotices = it.plateNotices + CLOSE_TOOLS_FIRST) }
+            return
+        }
         var started = false
         repository.update { state ->
             started = !state.busy && state.profiles != null && request.meshes.all { state.objects.withMesh(it) != null }
@@ -228,6 +235,17 @@ class DismissPlateNoticeUseCase(
         val MODIFIED_GCODE_WARNINGS = listOf("modified_gcodes", "customized_presets")
     }
 }
+
+/** GLGizmosManager::check_gizmos_closed_except()'s notification. */
+private val CLOSE_TOOLS_FIRST = SettingsDialog(
+    id = "close_gizmos",
+    icon = DialogIcon.INFO,
+    title = emptyList(),
+    text = listOf(OrcaText("Error: Please close all toolbar menus first")),
+    question = false,
+    yes = null,
+    no = null,
+)
 
 /** An object that came of a model file or of an edit, as the plate keeps it. */
 internal fun LoadedObject.toPlateObject(inputName: String) = PlateObject.ImportedModel(

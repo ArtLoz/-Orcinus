@@ -211,6 +211,20 @@ struct VolumeOrigin {
     std::array<double, 3> mesh_offset{0.0, 0.0, 0.0};
 };
 
+// TriangleMeshStats of a volume's mesh as the object list reports it: its open
+// edges, and what the repair of the file fixed as the mesh was read
+// (RepairedMeshErrors: TriangleMesh::from_stl(), a project's mesh_stat). The
+// repaired errors come back with the volume, as the mesh the engine reads
+// again from the app's file no longer knows them; the open edges it counts.
+struct MeshErrors {
+    std::int64_t open_edges{0};
+    int edges_fixed{0};
+    int degenerate_facets{0};
+    int facets_removed{0};
+    int facets_reversed{0};
+    int backwards_edges{0};
+};
+
 // CutObjectBase (ModelObject::cut_id): the cut an object is a part of; the
 // objects of one cut share id, which 0 leaves invalid (not a part of a cut).
 struct ObjectCutId {
@@ -262,6 +276,7 @@ struct ObjectPart {
     // (ModelVolume::text_configuration and emboss_shape), as write_objects()
     // wrote it; empty for a part of neither.
     std::string emboss;
+    MeshErrors mesh_errors;
 };
 
 // A height range of an object (one entry of ModelObject::layer_config_ranges):
@@ -316,6 +331,7 @@ struct PlateObject {
     bool volume_from_meters{false};
     std::string volume_input_file;
     VolumeOrigin volume_origin;
+    MeshErrors volume_mesh_errors;
     // The cut the object is a part of, and what the cut made of its own mesh.
     ObjectCutId cut_id;
     VolumeCutInfo volume_cut_info;
@@ -1643,6 +1659,7 @@ struct ImportedPart {
     // and which of them it is.
     std::string emboss;
     EmbossKind emboss_kind{EmbossKind::none};
+    MeshErrors mesh_errors;
 };
 
 // An object a model file brought, placed on the plate.
@@ -1669,6 +1686,7 @@ struct ImportedObject {
     bool volume_from_meters{false};
     std::string volume_input_file;
     VolumeOrigin volume_origin;
+    MeshErrors volume_mesh_errors;
     // ModelObject::layer_config_ranges
     std::vector<LayerRange> layer_ranges;
     // ModelObject::layer_height_profile

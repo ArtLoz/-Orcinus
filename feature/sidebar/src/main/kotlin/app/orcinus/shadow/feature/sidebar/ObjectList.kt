@@ -22,9 +22,13 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRangeEditor
+import app.orcinus.shadow.core.model.MeshErrors
 import app.orcinus.shadow.core.model.ObjectPart
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
+import app.orcinus.shadow.core.model.meshErrors
 import app.orcinus.shadow.core.model.reloadableVolumes
+import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.conversionsOf
@@ -409,6 +413,11 @@ private fun LazyListScope.objectRows(
                 name = plateObject.displayName(),
                 // ObjectDataViewModel::AddObject(): a part of a cut has the lock.
                 icon = if (plateObject.isCut) DesignR.drawable.orca_cut_ else null,
+                // ObjectList::update_item_error_icon() of the object's stats; a tap repairs it.
+                warning = meshWarning(plateObject.meshErrors.copy(openEdges = plateObject.instances.first().inspection.openEdges)) {
+                    actions.selectAlone(ids.first())
+                    actions.editObject(mesh, ObjectEdit.FIX, null)
+                },
                 selected = ids.any { it in state.selectedInstances },
                 hasSettings = plateObject.settings.categories(definitions).isNotEmpty(),
                 indent = true,
@@ -508,6 +517,10 @@ private fun LazyListScope.objectRows(
                 ObjectListRow(
                     name = plateObject.volumeName(at),
                     icon = volumeIcon(part),
+                    warning = meshWarning(part.meshErrors) {
+                        actions.selectPart(partId)
+                        actions.editObject(mesh, ObjectEdit.FIX, at)
+                    },
                     drag = RowDrag(DragRow.Volume(mesh, at), drag),
                     selected = partId == state.selectedPart,
                     hasSettings = part.settings.categories(partDefinitions).isNotEmpty(),
@@ -1010,6 +1023,33 @@ private fun LazyListScope.settingsRow(
 private fun ModelSettings.categories(definitions: Map<String, SettingDefinition>): List<String> =
     values.keys.mapNotNull { definitions[it]?.category?.takeIf(String::isNotEmpty) }.distinct()
 
+/**
+ * ObjectList::get_mesh_errors_info() of an item: its tooltip, and the repair a
+ * tap on its warning icon runs; null for a mesh that is manifold and was not
+ * repaired.
+ */
+private class MeshWarning(val tooltip: String, val onRepair: () -> Unit)
+
+@Composable
+private fun meshWarning(errors: MeshErrors, onRepair: () -> Unit): MeshWarning? {
+    if (errors.manifold && !errors.repaired) return null
+    val tooltip = buildString {
+        if (errors.repaired) {
+            val count = errors.repairedCount
+            append(orcaText(OrcaText("%1\$d error repaired", listOf(count.toString()), msgidPlural = "%1\$d errors repaired", count = count.toLong())))
+            append('\n')
+        }
+        if (!errors.manifold) {
+            append(orcaString("Remaining errors")).append(":\n\t")
+            val edges = errors.openEdges
+            append(orcaText(OrcaText("%1\$d non-manifold edge", listOf(edges.toString()), msgidPlural = "%1\$d non-manifold edges", count = edges)))
+            append('\n')
+        }
+        append('\n').append(orcaString("Click the icon to repair model object"))
+    }
+    return MeshWarning(tooltip, onRepair)
+}
+
 /** A row of the object list: the item's name, its settings mark, and its printable check box. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1019,6 +1059,8 @@ private fun ObjectListRow(
     selected: Boolean,
     hasSettings: Boolean,
     modifier: Modifier = Modifier,
+    /** The mesh's errors (ObjectDataViewModel's warning icon); null for none. */
+    warning: MeshWarning? = null,
     indent: Boolean = false,
     deeper: Boolean = false,
     /** Null on a row of several copies that differ; absent on a row without the check box. */
@@ -1112,6 +1154,18 @@ private fun ObjectListRow(
                 .padding(start = if (deeper) 44.dp else if (indent) 24.dp else 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (warning != null) {
+                // ObjectList::list_manipulation(): a click on the warning icon repairs the item.
+                Icon(
+                    painterResource(DesignR.drawable.orca_obj_warning),
+                    contentDescription = warning.tooltip,
+                    tint = Color.Unspecified,
+                    modifier = Modifier
+                        .clickable(enabled = enabled, role = Role.Button, onClick = warning.onRepair)
+                        .padding(end = 8.dp)
+                        .size(OrcaTheme.dimensions.iconSmall),
+                )
+            }
             if (icon != null) {
                 Icon(
                     painterResource(icon),
