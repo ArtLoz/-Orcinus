@@ -852,8 +852,15 @@ internal fun PrepareScreen(
                 onSelectObject = onSelectObject,
                 onPlaceObject = onPlaceObject,
                 onPlaceObjects = onPlaceObjects,
-                onOpenObjectMenu = { index, position -> objectMenu = ObjectMenu(index, position) },
-                onOpenPlateMenu = { position -> plateMenu = position },
+                // GLCanvas3D::on_mouse(): no menu while a tool is open.
+                onOpenObjectMenu = { index, position -> if (!state.toolOpen) objectMenu = ObjectMenu(index, position) },
+                onOpenPlateMenu = { position ->
+                    if (!state.toolOpen) {
+                        // A right click on empty space deselects all first, then the canvas's menu shows.
+                        if (state.selectedObject != null || state.selectedObjects.isNotEmpty()) onSelectObject(null)
+                        plateMenu = position
+                    }
+                },
                 contentDescription = stringResource(R.string.plate_view),
                 modifier = Modifier.fillMaxSize(),
                 plateOrigins = state.plateOrigins,
