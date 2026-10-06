@@ -41,11 +41,11 @@ internal class ElegooLink(
     suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome = when (printer.elegooKind) {
         ElegooKind.CC2 -> cc2Test(printer).fold(
             onSuccess = { PrintHostTestOutcome.Success(it) },
-            onFailure = { PrintHostTestOutcome.Failure(it.message.orEmpty()) },
+            onFailure = { testFailure(it) },
         )
         else -> ccTest(printer).fold(
             onSuccess = { PrintHostTestOutcome.Success("") },
-            onFailure = { PrintHostTestOutcome.Failure(it.message.orEmpty()) },
+            onFailure = { testFailure(it) },
         )
     }
 
@@ -59,10 +59,10 @@ internal class ElegooLink(
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
         if (printer.elegooKind == ElegooKind.CC2) {
-            cc2Test(printer).getOrElse { return PrintHostUploadOutcome.Failure(it.message.orEmpty()) }
+            cc2Test(printer).getOrElse { return uploadFailure(it) }
             return uploadCc2(printer, gcode, name, onProgress)
         }
-        ccTest(printer).getOrElse { return PrintHostUploadOutcome.Failure(it.message.orEmpty()) }
+        ccTest(printer).getOrElse { return uploadFailure(it) }
         return uploadCc(printer, gcode, name, startPrint, options ?: ElegooOptions(), onProgress)
     }
 
@@ -148,7 +148,7 @@ internal class ElegooLink(
                 offset = part.first,
                 length = part.last - part.first + 1,
                 onProgress = onProgress?.let { report -> { sent: Long, _: Long -> report(index * PIECE + sent, size) } },
-            ).getOrElse { return PrintHostUploadOutcome.Failure(it.message.orEmpty()) }
+            ).getOrElse { return uploadFailure(it) }
             ccPieceError(body)?.let { return PrintHostUploadOutcome.Failure(it) }
         }
         if (!startPrint) return PrintHostUploadOutcome.Success(name)
@@ -242,6 +242,8 @@ internal class ElegooLink(
         val md5 = md5Of(gcode).lowercase(Locale.ROOT)
         val token = token(printer)
         val url = PrintHostUploader.makeUrl(printer.host, "upload")
+        // uploadPartCC2(): timeout_connect(30), timeout_max(180) for every piece.
+        val http = http.withTimeouts(CC2_UPLOAD_CONNECT_MILLIS, CC2_UPLOAD_MAX_MILLIS)
         RandomAccessFile(gcode, "r").use { input ->
             for (part in pieces(size)) {
                 val chunk = ByteArray((part.last - part.first + 1).toInt())
@@ -259,7 +261,7 @@ internal class ElegooLink(
                         "X-Token" to token,
                     ),
                     body = chunk,
-                ).getOrElse { return PrintHostUploadOutcome.Failure(it.message ?: "CC2 upload failed") }
+                ).getOrElse { return uploadFailure(it) }
                 parseCc2Response(body, wantSerialNumber = false).getOrElse { return PrintHostUploadOutcome.Failure("HTTP 200: $body") }
                 onProgress?.invoke(part.last + 1, size)
             }
@@ -268,7 +270,7 @@ internal class ElegooLink(
     }
 
     /** A short timeout for the page's lookup, as get_print_host_webui() gives it (3 s to connect, 5 s in all). */
-    private val lookupHttp = if (http is UrlConnectionHttpClient) UrlConnectionHttpClient(LOOKUP_CONNECT_MILLIS, LOOKUP_MAX_MILLIS) else http
+    private val lookupHttp = http.withTimeouts(LOOKUP_CONNECT_MILLIS, LOOKUP_MAX_MILLIS)
 
     private fun token(printer: PhysicalPrinter) = printer.apiKey.ifEmpty { DEFAULT_TOKEN }
 
@@ -287,6 +289,8 @@ internal class ElegooLink(
         private const val PRINT_TIMEOUT_MILLIS = 30_000L
         private const val LOOKUP_CONNECT_MILLIS = 3_000
         private const val LOOKUP_MAX_MILLIS = 5_000
+        private const val CC2_UPLOAD_CONNECT_MILLIS = 30_000
+        private const val CC2_UPLOAD_MAX_MILLIS = 180_000
         private const val GET_STATUS = 0
         private const val START_PRINT = 128
         private const val CHECKING_FILE = 8

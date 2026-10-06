@@ -133,6 +133,7 @@ import app.orcinus.shadow.domain.plate.PresetBundlesUseCase
 import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.PrintHostCertificateUseCase
 import app.orcinus.shadow.domain.plate.PrintHostDiscovery
+import app.orcinus.shadow.domain.plate.PrintHostJobQueue
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
 import app.orcinus.shadow.domain.plate.ProfileUpdateSource
 import app.orcinus.shadow.domain.plate.ProfileUpdatesUseCase
@@ -550,7 +551,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             }
         },
     )
-    val sendGcode by lazy { SendGcodeUseCase(gcodeSender, plateRepository, saveProject, sceneFiles) }
+    // PrintHostJobQueue: uploads go out one after another behind the screen, with the network kept for them.
+    val printHostQueue = PrintHostJobQueue(gcodeSender, AppUploadFiles(applicationContext), applicationScope) { work ->
+        networkWork.keep(applicationContext.getString(R.string.network_notification_uploads)) { work() }
+    }
+    val sendGcode by lazy { SendGcodeUseCase(gcodeSender, plateRepository, printHostQueue, saveProject) }
     val exportGcode = ExportGcodeUseCase(AppDocumentExport(applicationContext), plateRepository)
     val shareGcode = ShareGcodeUseCase(fileShare, plateRepository)
     private val importConfig = ImportConfigUseCase(engine, engine, configFiles, platePresets)

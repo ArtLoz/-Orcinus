@@ -90,6 +90,7 @@ import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.PresetTransfer
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.PrintHostJob
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
@@ -2451,34 +2452,51 @@ interface PrintHostDiscovery {
 /**
  * PrintHost::upload: the G-code of the last slice is sent to the printer, and
  * the printer is asked to start printing it when the user wants that. The plate
- * must have been sliced, since that is the file that is sent.
+ * must have been sliced, since that is the file that is sent. The upload joins
+ * the queue (PrintHostJobQueue), which sends it behind the screen.
  */
 class SendGcodeUseCase(
     private val uploader: GcodeSender,
     private val repository: PlateRepository,
+    private val queue: PrintHostJobQueue,
     /** Plater::send_gcode(): the .gcode.3mf of a printer that takes one (use_3mf). */
     private val saveProject: SaveProjectUseCase? = null,
-    private val sceneFiles: SceneFiles? = null,
 ) {
-    suspend operator fun invoke(
-        printer: PhysicalPrinter,
-        startPrint: Boolean,
-        options: PrintOptions = PrintOptions(),
-        /** Http::on_progress: what part of the file has gone out, from 0 to 1. */
-        onProgress: (Float) -> Unit = {},
-    ): PrintHostUploadOutcome {
-        val result = repository.state.value.result
-            ?: return PrintHostUploadOutcome.Failure("There is no sliced G-code to send")
-        if (!options.use3mf || saveProject == null || sceneFiles == null) {
-            return uploader.send(printer, result.gcode, startPrint, options, onProgress)
-        }
-        val prefix = sceneFiles.newImportPrefix()
-        val file = ScenePath("${prefix.value}-upload.gcode.3mf")
-        try {
-            if (!saveProject.writeForUpload(file)) return PrintHostUploadOutcome.Failure("Abnormal print file data. Please slice again")
-            return uploader.send(printer, OutputPath(file.value), startPrint, options, onProgress)
-        } finally {
-            sceneFiles.deleteImport(prefix)
+    /** PrintHostQueueDialog: the uploads sent since the app started. */
+    val jobs: StateFlow<List<PrintHostJob>> get() = queue.jobs
+
+    /** "Cancel selected" of the queue, and the cancel button of an upload's notification. */
+    fun cancel(id: Int) = queue.cancel(id)
+
+    /** The screen has shown how the upload ended. */
+    fun acknowledge(id: Int) = queue.acknowledge(id)
+
+    /**
+     * Plater::send_gcode_legacy() after its dialog: the G-code of the slice,
+     * or the plate's .gcode.3mf, is copied for the upload at once
+     * (BackgroundSlicingProcess::prepare_upload()) and the job is queued.
+     */
+    operator fun invoke(printer: PhysicalPrinter, startPrint: Boolean, options: PrintOptions = PrintOptions()) {
+        val gcode = repository.state.value.result?.gcode
+        // The dialog's file name, or the G-code's own when it gave none.
+        val sent = options.copy(uploadPath = options.uploadPath.ifEmpty { gcode?.value?.substringAfterLast('/').orEmpty() })
+        queue.enqueue(printer, startPrint, sent) { files ->
+            if (gcode == null) return@enqueue Result.failure(IllegalStateException("There is no sliced G-code to send"))
+            if (!options.use3mf || saveProject == null) {
+                val copy = files.newUpload(".gcode")
+                return@enqueue if (files.copy(gcode, copy)) {
+                    Result.success(copy)
+                } else {
+                    Result.failure(IllegalStateException("Copying of the temporary G-code to the output G-code failed"))
+                }
+            }
+            val file = files.newUpload(".gcode.3mf")
+            if (saveProject.writeForUpload(ScenePath(file.value))) {
+                Result.success(file)
+            } else {
+                files.delete(file)
+                Result.failure(IllegalStateException("Abnormal print file data. Please slice again"))
+            }
         }
     }
 

@@ -4,6 +4,7 @@ import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -17,12 +18,20 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 
-/** An answer of the host with an HTTP status that is not a success, which a host may act on (a 401 refreshes a token). */
-class HttpStatusException(val status: Int, val body: String, message: String) : IOException(message)
+/**
+ * An answer of the host with an HTTP status that is not a success, which a host
+ * may act on (a 401 refreshes a token); its message is format_error()'s
+ * "HTTP <status>: <body>".
+ */
+class HttpStatusException(val status: Int, val body: String, message: String = "HTTP $status: $body") : IOException(message)
 
 /** The user and password a host asks for when it does not take a key (atUserPassword). */
 data class HttpAuth(val user: String, val password: String)
+
+/** What a host answered a request with: its HTTP status and its body, as Http's on_complete() gets them. */
+data class HttpAnswer(val status: Int, val body: String)
 
 /**
  * What the print host requests need of the network, which keeps the uploader
@@ -54,6 +63,16 @@ interface HttpClient {
         onProgress: ((sent: Long, total: Long) -> Unit)? = null,
         auth: HttpAuth? = null,
     ): Result<String>
+
+    /** sendFile() with the status of the answer besides its body, which Duet's DSF checks for 201. */
+    suspend fun sendFileAnswer(
+        url: String,
+        method: String,
+        headers: Map<String, String>,
+        file: File,
+        onProgress: ((sent: Long, total: Long) -> Unit)? = null,
+        auth: HttpAuth? = null,
+    ): Result<HttpAnswer> = sendFile(url, method, headers, file, onProgress, auth).map { HttpAnswer(HTTP_OK, it) }
 
     suspend fun postJson(url: String, headers: Map<String, String>, body: String, auth: HttpAuth? = null): Result<String>
 
@@ -94,16 +113,31 @@ interface HttpClient {
      * at [path] for HTTPS instead of the system's, as curl's CAINFO does.
      */
     fun withCaFile(path: String): HttpClient = this
+
+    /**
+     * Http::timeout_connect() and Http::timeout_max(): the same client with
+     * [connectMillis] to connect and [maxMillis] for a whole request (0 for
+     * no limit), as a host sets them for some of its requests.
+     */
+    fun withTimeouts(connectMillis: Int, maxMillis: Int): HttpClient = this
+
+    companion object {
+        const val HTTP_OK = 200
+    }
 }
 
 /** The platform's own HTTP, which needs no dependency of its own. */
 class UrlConnectionHttpClient(
-    private val connectTimeoutMillis: Int = 15_000,
-    private val readTimeoutMillis: Int = 120_000,
+    /** Http::timeout_connect(): curl's CURLOPT_CONNECTTIMEOUT. */
+    private val connectTimeoutMillis: Int = DEFAULT_TIMEOUT_CONNECT_MILLIS,
+    /** Http::timeout_max(): curl's CURLOPT_TIMEOUT for the whole request; 0 for none (DEFAULT_TIMEOUT_MAX). */
+    private val maxMillis: Int = 0,
     /** printhost_cafile: the certificates HTTPS trusts instead of the system's; null for the system's. */
     private val caFile: String? = null,
 ) : HttpClient {
-    override fun withCaFile(path: String): HttpClient = UrlConnectionHttpClient(connectTimeoutMillis, readTimeoutMillis, path)
+    override fun withCaFile(path: String): HttpClient = UrlConnectionHttpClient(connectTimeoutMillis, maxMillis, path)
+
+    override fun withTimeouts(connectMillis: Int, maxMillis: Int): HttpClient = UrlConnectionHttpClient(connectMillis, maxMillis, caFile)
 
     /** The certificates of [caFile], read when the first HTTPS request needs them. */
     private val caSocketFactory: Result<SSLSocketFactory>? by lazy {
@@ -127,23 +161,7 @@ class UrlConnectionHttpClient(
         file: File,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
         auth: HttpAuth?,
-    ): Result<String> = cancellable { aborter ->
-        val boundary = "orcinus-${UUID.randomUUID()}"
-        request(url, "POST", headers, "multipart/form-data; boundary=$boundary", streamed = true, auth = auth, aborter = aborter) { output ->
-            val writer = output.bufferedWriter()
-            for ((name, value) in fields) {
-                writer.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
-            }
-            writer.write(
-                "--$boundary\r\nContent-Disposition: form-data; name=\"$fileField\"; filename=\"$fileName\"\r\n" +
-                    "Content-Type: application/octet-stream\r\n\r\n",
-            )
-            writer.flush()
-            copy(file, output, onProgress)
-            writer.write("\r\n--$boundary--\r\n")
-            writer.flush()
-        }
-    }
+    ): Result<String> = postForm(url, headers, fields, fileField, fileName, file, 0, file.length(), onProgress, auth)
 
     override suspend fun postMultipartPart(
         url: String,
@@ -155,27 +173,31 @@ class UrlConnectionHttpClient(
         offset: Long,
         length: Long,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
+    ): Result<String> = postForm(url, headers, fields, fileField, fileName, file, offset, length, onProgress, auth = null)
+
+    private suspend fun postForm(
+        url: String,
+        headers: Map<String, String>,
+        fields: Map<String, String>,
+        fileField: String,
+        fileName: String,
+        file: File,
+        offset: Long,
+        length: Long,
+        onProgress: ((sent: Long, total: Long) -> Unit)?,
+        auth: HttpAuth?,
     ): Result<String> = cancellable { aborter ->
-        val boundary = "orcinus-${UUID.randomUUID()}"
-        request(url, "POST", headers, "multipart/form-data; boundary=$boundary", streamed = true, aborter = aborter) { output ->
-            val writer = output.bufferedWriter()
-            for ((name, value) in fields) {
-                writer.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
-            }
-            writer.write(
-                "--$boundary\r\nContent-Disposition: form-data; name=\"$fileField\"; filename=\"$fileName\"\r\n" +
-                    "Content-Type: application/octet-stream\r\n\r\n",
-            )
-            writer.flush()
+        val form = Form("orcinus-${UUID.randomUUID()}", fields, fileField, fileName)
+        request(url, "POST", headers, form.contentType, length = form.head.size + length + form.tail.size, auth = auth, aborter = aborter) { output ->
+            output.write(form.head)
             copy(file, output, onProgress, offset, length)
-            writer.write("\r\n--$boundary--\r\n")
-            writer.flush()
-        }
+            output.write(form.tail)
+        }.result()
     }
 
     override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
         cancellable { aborter ->
-            request(url, method, headers, contentType = null, aborter = aborter) { output -> output.write(body) }
+            request(url, method, headers, contentType = null, aborter = aborter) { output -> output.write(body) }.result()
         }
 
     override suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String> =
@@ -188,7 +210,7 @@ class UrlConnectionHttpClient(
                 }
                 writer.write("--$boundary--\r\n")
                 writer.flush()
-            }
+            }.result()
         }
 
     override suspend fun sendFile(
@@ -198,23 +220,34 @@ class UrlConnectionHttpClient(
         file: File,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
         auth: HttpAuth?,
-    ): Result<String> = cancellable { aborter ->
-        request(url, method, headers, contentType = null, streamed = true, auth = auth, aborter = aborter) { output ->
-            copy(file, output, onProgress)
-        }
+    ): Result<String> = sendFileAnswer(url, method, headers, file, onProgress, auth).map { it.body }
+
+    override suspend fun sendFileAnswer(
+        url: String,
+        method: String,
+        headers: Map<String, String>,
+        file: File,
+        onProgress: ((sent: Long, total: Long) -> Unit)?,
+        auth: HttpAuth?,
+    ): Result<HttpAnswer> = cancellable { aborter ->
+        // set_put_body(): CURLOPT_INFILESIZE, the file's size; set_post_body(): the file as the post's fields.
+        val size = file.length()
+        request(url, method, headers, contentType = null, length = size, auth = auth, aborter = aborter) { output ->
+            copy(file, output, onProgress, 0, size)
+        }.answer()
     }
 
     override suspend fun postJson(url: String, headers: Map<String, String>, body: String, auth: HttpAuth?): Result<String> =
         cancellable { aborter ->
-            request(url, "POST", headers, "application/json", auth = auth, aborter = aborter) { output -> output.write(body.toByteArray()) }
+            request(url, "POST", headers, "application/json", auth = auth, aborter = aborter) { output -> output.write(body.toByteArray()) }.result()
         }
 
     override suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth?): Result<String> = cancellable { aborter ->
-        request(url, "GET", headers, contentType = null, auth = auth, aborter = aborter, writeBody = null)
+        request(url, "GET", headers, contentType = null, auth = auth, aborter = aborter, writeBody = null).result()
     }
 
     override suspend fun download(url: String, target: File): Result<Unit> = try {
-        cancellable { aborter -> perform(url, "GET", emptyMap(), contentType = null, streamed = false, aborter = aborter, writeBody = null, sink = target).result() }
+        cancellable { aborter -> perform(url, "GET", emptyMap(), contentType = null, length = null, aborter = aborter, writeBody = null, sink = target).result() }
             .map { }
             .onFailure { target.delete() }
     } catch (cancelled: CancellationException) {
@@ -225,13 +258,22 @@ class UrlConnectionHttpClient(
     /**
      * Http::cancel(): a request whose coroutine is cancelled is aborted, its
      * connection closed under the read or write it blocks in — a login that
-     * waits on a long answer, an upload — instead of running on unseen.
+     * waits on a long answer, an upload — instead of running on unseen. One
+     * that outlasts [maxMillis] is aborted the same way and fails with curl's
+     * "Timeout was reached".
      */
-    private suspend fun cancellable(work: (Aborter) -> Result<String>): Result<String> = coroutineScope {
+    private suspend fun <T> cancellable(work: (Aborter) -> Result<T>): Result<T> = coroutineScope {
         val aborter = Aborter()
         val running = async(Dispatchers.IO) { work(aborter) }
         try {
-            running.await()
+            if (maxMillis <= 0) {
+                running.await()
+            } else {
+                withTimeoutOrNull(maxMillis.toLong()) { running.await() } ?: run {
+                    aborter.abort()
+                    Result.failure(SocketTimeoutException(TIMEOUT_REACHED))
+                }
+            }
         } catch (cancelled: CancellationException) {
             aborter.abort()
             throw cancelled
@@ -257,6 +299,25 @@ class UrlConnectionHttpClient(
     }
 
     /**
+     * curl's multipart form (Http::form_add, form_add_file): the fields and the
+     * head of the file's part, the file, then the closing boundary, whose size
+     * is known before it goes out, as curl knows it.
+     */
+    private class Form(boundary: String, fields: Map<String, String>, fileField: String, fileName: String) {
+        val contentType = "multipart/form-data; boundary=$boundary"
+
+        val head: ByteArray = buildString {
+            for ((name, value) in fields) {
+                append("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n")
+            }
+            append("--$boundary\r\nContent-Disposition: form-data; name=\"$fileField\"; filename=\"$fileName\"\r\n")
+            append("Content-Type: application/octet-stream\r\n\r\n")
+        }.toByteArray()
+
+        val tail: ByteArray = "\r\n--$boundary--\r\n".toByteArray()
+    }
+
+    /**
      * Http::on_progress: the file goes out in pieces, so the screen can say how
      * far it got, and it never sits in memory whole.
      */
@@ -264,8 +325,8 @@ class UrlConnectionHttpClient(
         file: File,
         output: OutputStream,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
-        offset: Long = 0,
-        length: Long = file.length(),
+        offset: Long,
+        length: Long,
     ) {
         val total = length
         var sent = 0L
@@ -293,22 +354,46 @@ class UrlConnectionHttpClient(
         method: String,
         headers: Map<String, String>,
         contentType: String?,
-        /** Whether the body is a file, which is sent in pieces instead of buffered. */
-        streamed: Boolean = false,
+        /** The size of a body that is a file, which goes out in pieces with that length instead of being buffered. */
+        length: Long? = null,
         auth: HttpAuth? = null,
         aborter: Aborter,
         writeBody: ((OutputStream) -> Unit)?,
-    ): Result<String> {
-        val answer = perform(url, method, headers, contentType, streamed, aborter, writeBody)
-        // Http::auth_digest: a host that asks for digest is answered with the
-        // second request that carries the computed response.
+    ): Answer {
+        if (auth != null && writeBody != null) {
+            // Http::auth_digest(): curl sends no body before it has answered the
+            // host's challenge, and asks with an empty one first.
+            val probe = perform(url, method, headers, contentType, length = null, aborter = aborter, writeBody = {})
+            // A host that asks for nothing is sent the whole request (Curl_http_auth_act()).
+            if (probe is Answer.Ok) return perform(url, method, headers, contentType, length, aborter, writeBody)
+            return answered(probe, url, method, headers, contentType, length, auth, aborter, writeBody)
+        }
+        val answer = perform(url, method, headers, contentType, length, aborter, writeBody)
+        return answered(answer, url, method, headers, contentType, length, auth, aborter, writeBody)
+    }
+
+    /**
+     * Http::auth_digest: a host that asks for digest is answered with a
+     * second request that carries the computed response.
+     */
+    private fun answered(
+        answer: Answer,
+        url: String,
+        method: String,
+        headers: Map<String, String>,
+        contentType: String?,
+        length: Long?,
+        auth: HttpAuth?,
+        aborter: Aborter,
+        writeBody: ((OutputStream) -> Unit)?,
+    ): Answer {
         val challenge = (answer as? Answer.Unauthorized)?.challenge
         if (auth != null && challenge != null && challenge.startsWith("Digest ", ignoreCase = true)) {
-            val header = digestHeader(challenge, method, URL(url).path, auth)
-                ?: return Result.failure(IOException("The host asked for an authorization the app cannot give"))
-            return perform(url, method, headers + ("Authorization" to header), contentType, streamed, aborter, writeBody).result()
+            val header = digestHeader(challenge, method, URL(url).file, auth)
+                ?: return Answer.Failed(IOException("The host asked for an authorization the app cannot give"))
+            return perform(url, method, headers + ("Authorization" to header), contentType, length, aborter, writeBody)
         }
-        return answer.result()
+        return answer
     }
 
     private fun perform(
@@ -316,7 +401,7 @@ class UrlConnectionHttpClient(
         method: String,
         headers: Map<String, String>,
         contentType: String?,
-        streamed: Boolean,
+        length: Long?,
         aborter: Aborter,
         writeBody: ((OutputStream) -> Unit)?,
         /** The file a success's body is written to instead of being read as text. */
@@ -342,26 +427,28 @@ class UrlConnectionHttpClient(
             }
             connection.requestMethod = method
             connection.connectTimeout = connectTimeoutMillis
-            connection.readTimeout = readTimeoutMillis
+            // DEFAULT_TIMEOUT_MAX: curl waits for the answer as long as it takes, unless the request has a limit.
+            connection.readTimeout = maxMillis
             contentType?.let { connection.setRequestProperty("Content-Type", it) }
             headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
             if (writeBody != null) {
                 connection.doOutput = true
                 // A G-code file is tens of megabytes: it goes out in pieces
-                // instead of being held in memory whole.
-                if (streamed) connection.setChunkedStreamingMode(UPLOAD_BUFFER)
+                // instead of being held in memory whole, with its length
+                // (CURLOPT_INFILESIZE, the form's size) rather than in
+                // chunks, which the servers of printer boards may not take.
+                if (length != null) connection.setFixedLengthStreamingMode(length)
                 connection.outputStream.use(writeBody)
             }
             val code = connection.responseCode
             when {
                 code in 200..299 && sink != null -> {
                     connection.inputStream.use { input -> sink.outputStream().use { input.copyTo(it) } }
-                    Answer.Ok("")
+                    Answer.Ok(code, "")
                 }
-                code in 200..299 -> Answer.Ok(connection.inputStream.use { it.readBytes().decodeToString() })
+                code in 200..299 -> Answer.Ok(code, connection.inputStream.use { it.readBytes().decodeToString() })
                 else -> {
-                    val body = errorBody(connection)
-                    val failure = HttpStatusException(code, body, "HTTP $code" + if (body.isBlank()) "" else ": ${body.take(MAX_ERROR_LENGTH)}")
+                    val failure = HttpStatusException(code, errorBody(connection))
                     if (code == HttpURLConnection.HTTP_UNAUTHORIZED) {
                         Answer.Unauthorized(connection.getHeaderField("WWW-Authenticate").orEmpty(), failure)
                     } else {
@@ -384,22 +471,29 @@ class UrlConnectionHttpClient(
     }
 
     private sealed interface Answer {
-        data class Ok(val body: String) : Answer
+        data class Ok(val status: Int, val body: String) : Answer
 
         data class Unauthorized(val challenge: String, val failure: HttpStatusException) : Answer
 
         data class Failed(val error: Throwable) : Answer
 
-        fun result(): Result<String> = when (this) {
-            is Ok -> Result.success(body)
+        fun answer(): Result<HttpAnswer> = when (this) {
+            is Ok -> Result.success(HttpAnswer(status, body))
             is Unauthorized -> Result.failure(failure)
             is Failed -> Result.failure(error)
         }
+
+        fun result(): Result<String> = answer().map { it.body }
     }
 
-    private companion object {
-        const val MAX_ERROR_LENGTH = 200
-        const val UPLOAD_BUFFER = 64 * 1024
+    companion object {
+        /** Http::priv::DEFAULT_TIMEOUT_CONNECT: ten seconds. */
+        const val DEFAULT_TIMEOUT_CONNECT_MILLIS = 10_000
+
+        /** curl's text for CURLE_OPERATION_TIMEDOUT, which PrintHost::format_error() words for the user. */
+        const val TIMEOUT_REACHED = "Timeout was reached"
+
+        private const val UPLOAD_BUFFER = 64 * 1024
     }
 }
 

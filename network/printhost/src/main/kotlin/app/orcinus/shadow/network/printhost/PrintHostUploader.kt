@@ -6,6 +6,7 @@ import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.ObicoHost
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostType
@@ -16,11 +17,13 @@ import app.orcinus.shadow.core.model.PrinterSlot
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import java.io.File
 import java.net.URLEncoder
+import java.time.LocalDateTime
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -43,7 +46,9 @@ import kotlinx.serialization.json.putJsonObject
  * to printer/print/start, and Creality's firmware (CrealityPrint) takes the file
  * at upload/<name> and starts it over its WebSocket, feeding every filament
  * from the slot of its material boxes the user chose; an MKS board takes the
- * file over http and prints it with G-code on its TCP console.
+ * file over http and prints it with G-code on its TCP console. Most hosts are
+ * tested before the file goes, as their upload() does, and a failed test is
+ * the upload's error.
  */
 class PrintHostUploader(
     private val http: HttpClient = UrlConnectionHttpClient(),
@@ -51,6 +56,8 @@ class PrintHostUploader(
     private val console: ConsoleClient = TcpConsole(),
     /** MKS::start_print(): the board does not take G-code right after an upload. */
     private val mksStartDelayMillis: Long = MKS_START_DELAY_MILLIS,
+    /** ESP3D::start_print(): the same pause, since the board locks its serial during the transfer. */
+    private val esp3dStartDelayMillis: Long = ESP3D_START_DELAY_MILLIS,
     /** Flashforge's serial console waits this long before it saves the file. */
     flashforgeSaveDelayMillis: Long = Flashforge.SAVE_DELAY_MILLIS,
     /** A Centauri is given this long before its status is asked and the print started. */
@@ -97,7 +104,7 @@ class PrintHostUploader(
         // upload_path.filename(): the hosts that store the file by its name alone.
         val fileName = fileNameOf(name)
         return when (type) {
-            PrintHostType.OCTOPRINT -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress, options.plateIndex)
+            PrintHostType.OCTOPRINT -> uploadToOctoPrint(printer, OCTOPRINT_VERSION, gcode, name, startPrint, onProgress, options.plateIndex)
             PrintHostType.MOONRAKER -> uploadToMoonraker(printer, gcode, fileName, startPrint, options.storage, onProgress, options.plateIndex)
             PrintHostType.CREALITY_PRINT -> uploadToCreality(printer, gcode, name, startPrint, options, onProgress)
             PrintHostType.PRUSA_LINK -> uploadToPrusaLink(printer, gcode, name, startPrint, options.storage, onProgress, connect = false)
@@ -105,14 +112,14 @@ class PrintHostUploader(
             PrintHostType.MKS -> uploadToMks(printer, gcode, name, startPrint, onProgress)
             PrintHostType.DUET -> uploadToDuet(printer, gcode, name, startPrint, onProgress)
             PrintHostType.REPETIER -> uploadToRepetier(printer, gcode, fileName, startPrint, options.group, onProgress)
-            // AstroBox took OctoPrint's API, and the same request works for it.
-            PrintHostType.ASTROBOX -> uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
-            PrintHostType.ESP3D -> uploadToEsp3d(printer, gcode, fileName, startPrint, onProgress)
+            // AstroBox::upload(): OctoPrint's request, after its own test, without a plate.
+            PrintHostType.ASTROBOX -> uploadToOctoPrint(printer, ASTROBOX_VERSION, gcode, name, startPrint, onProgress)
+            PrintHostType.ESP3D -> uploadToEsp3d(printer, gcode, name, startPrint, onProgress)
             PrintHostType.FLASHAIR -> uploadToFlashAir(printer, gcode, name, onProgress)
             PrintHostType.FLASHFORGE -> flashforge.upload(printer, gcode, fileName, startPrint, options.flashforge)
-            // ElegooLink: OctoPrint's upload for a printer other than a Centauri.
+            // ElegooLink: OctoPrint's upload_inner_with_host() for a printer other than a Centauri.
             PrintHostType.ELEGOO_LINK -> if (printer.elegooKind == ElegooKind.OTHER) {
-                uploadToOctoPrint(printer, gcode, name, startPrint, onProgress)
+                uploadToOctoPrint(printer, ELEGOO_VERSION, gcode, name, startPrint, onProgress, options.plateIndex)
             } else {
                 elegoo.upload(printer, gcode, fileName, startPrint && printer.canStartPrint, options.elegoo, onProgress)
             }
@@ -129,95 +136,39 @@ class PrintHostUploader(
      * firmware info; each answer also has to look like that host's answer.
      */
     suspend fun test(printer: PhysicalPrinter): PrintHostTestOutcome {
-        val http = httpFor(printer)
         val type = printer.hostType ?: return PrintHostTestOutcome.Failure("The printer has no host the app can send to")
         if (printer.host.isBlank()) return PrintHostTestOutcome.Failure("The printer has no address")
         return when (type) {
-            PrintHostType.OCTOPRINT -> {
-                val body = http.get(makeUrl(printer.host, "api/version"), authHeaders(printer))
-                    .getOrElse { return PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) }
-                val version = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
-                    ?: return PrintHostTestOutcome.Failure(UNREADABLE)
-                // OctoPrint::test(): no "api" field means it is not OctoPrint.
-                if (version["api"] == null) return PrintHostTestOutcome.Failure(mismatched(type.name))
-                val text = version["text"]?.jsonPrimitive?.contentOrNull
-                // OctoPrint::validate_version_text()
-                if (text != null && !text.startsWith("OctoPrint")) return PrintHostTestOutcome.Failure(mismatched(text))
-                PrintHostTestOutcome.Success(text.orEmpty())
-            }
-            PrintHostType.MOONRAKER -> {
-                val body = http.get(makeUrl(printer.host, "server/info"), authHeaders(printer))
-                    .getOrElse { return PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) }
-                val state = runCatching {
-                    Json.parseToJsonElement(body).jsonObject["result"]?.jsonObject?.get("klippy_state")?.jsonPrimitive?.contentOrNull
-                }.getOrNull()
-                    // Moonraker::test(): an answer without result.klippy_state
-                    // is some other host, not a Moonraker that is busy.
-                    ?: return PrintHostTestOutcome.Failure("The host responded but it doesn't look like Moonraker (missing result.klippy_state).")
-                PrintHostTestOutcome.Success(state)
-            }
-            PrintHostType.CREALITY_PRINT -> {
-                val body = http.get(makeUrl(printer.host, "info"), bearer(printer))
-                    .getOrElse { return PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) }
-                // CrealityPrint::test(): the model it reports, which also says
-                // whether it prints from material boxes.
-                val model = runCatching { Json.parseToJsonElement(body).jsonObject["model"]?.jsonPrimitive?.contentOrNull }.getOrNull()
-                PrintHostTestOutcome.Success(model.orEmpty())
-            }
+            PrintHostType.OCTOPRINT -> versionTest(printer, OCTOPRINT_VERSION).outcome
+            PrintHostType.MOONRAKER -> moonrakerTest(printer)
+            PrintHostType.CREALITY_PRINT -> crealityTest(printer)
             // PrusaLink::test(): PrusaLink or an OctoPrint firmware; the login
             // goes as a key or as a digest. PrusaConnect answers the same.
-            PrintHostType.PRUSA_LINK, PrintHostType.PRUSA_CONNECT ->
-                versionTest(printer, listOf("PrusaLink", "OctoPrint"), login(printer))
+            PrintHostType.PRUSA_LINK, PrintHostType.PRUSA_CONNECT -> versionTest(printer, PRUSALINK_VERSION).outcome
             // MKS::test(): the board's console answers M105.
             PrintHostType.MKS -> console.run(printer.host, MKS_CONSOLE_PORT, listOf(SerialMessage("M105"))).fold(
                 onSuccess = { PrintHostTestOutcome.Success("") },
-                onFailure = { PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) },
+                onFailure = { PrintHostTestOutcome.Failure(it.message.orEmpty()) },
             )
-            // AstroBox::test(): OctoPrint's api/version again, with its own name.
-            PrintHostType.ASTROBOX -> versionTest(printer, listOf("AstroBox"), null)
+            PrintHostType.ASTROBOX -> versionTest(printer, ASTROBOX_VERSION).outcome
+            // Duet::test(): connecting is the test, and the board is let go again.
             PrintHostType.DUET -> {
-                // Duet::test(): connecting is the test.
-                duetConnect(printer)?.let { PrintHostTestOutcome.Success(it.name) }
-                    ?: PrintHostTestOutcome.Failure(NO_ANSWER)
+                val connected = duetConnect(printer)
+                val connection = connected.connection ?: return testFailure(connected.error)
+                duetDisconnect(printer, connection)
+                PrintHostTestOutcome.Success(connection.name)
             }
-            PrintHostType.REPETIER -> {
-                val body = http.get(makeUrl(printer.host, "printer/info"), authHeaders(printer))
-                    .getOrElse { return PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) }
-                val info = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
-                    ?: return PrintHostTestOutcome.Failure(UNREADABLE)
-                // validate_repetier(): "software" is the reliable one, since a
-                // Repetier server can be rebranded and rename itself.
-                val software = info["software"]?.jsonPrimitive?.contentOrNull
-                val named = info["name"]?.jsonPrimitive?.contentOrNull
-                val ours = if (software != null) software == "Repetier-Server" else named == null || named.startsWith("Repetier")
-                if (!ours) {
-                    PrintHostTestOutcome.Failure(mismatched(software ?: named.orEmpty()))
-                } else {
-                    PrintHostTestOutcome.Success(software ?: named.orEmpty())
-                }
-            }
-            PrintHostType.ESP3D -> {
-                // ESP3D::test(): any answer to M105 means the board is there.
-                http.get(makeUrl(printer.host, "command?plain=" + urlEncoded("M105")), emptyMap())
-                    .fold(
-                        onSuccess = { PrintHostTestOutcome.Success("") },
-                        onFailure = { PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) },
-                    )
-            }
-            PrintHostType.FLASHAIR -> {
-                // FlashAir::test(): op 118 answers 1 while uploads are allowed.
-                val body = http.get(makeUrl(printer.host, "command.cgi?op=118"), emptyMap())
-                    .getOrElse { return PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) }
-                if (body.startsWith("1")) {
-                    PrintHostTestOutcome.Success("")
-                } else {
-                    PrintHostTestOutcome.Failure("Upload not enabled on FlashAir card.")
-                }
-            }
+            PrintHostType.REPETIER -> repetierTest(printer)
+            // ESP3D::test(): any answer to M105 means the board is there.
+            PrintHostType.ESP3D -> http.get(makeUrl(printer.host, "command?plain=" + urlEncoded("M105")), emptyMap()).fold(
+                onSuccess = { PrintHostTestOutcome.Success("") },
+                onFailure = { testFailure(it) },
+            )
+            PrintHostType.FLASHAIR -> flashAirTest(printer)
             PrintHostType.FLASHFORGE -> flashforge.test(printer)
             // ElegooLink::test(): OctoPrint's test, whose version text any Elegoo firmware passes, or a Centauri's own.
             PrintHostType.ELEGOO_LINK -> if (printer.elegooKind == ElegooKind.OTHER) {
-                versionTest(printer, listOf(""), null)
+                versionTest(printer, ELEGOO_VERSION).outcome
             } else {
                 elegoo.test(printer)
             }
@@ -277,7 +228,7 @@ class PrintHostUploader(
         if (printer.hostType == PrintHostType.OBICO) return obicoPrinters(printer)
         if (printer.hostType != PrintHostType.REPETIER) return HostPrintersOutcome.Success(emptyList())
         val body = http.get(makeUrl(printer.host, "printer/list"), authHeaders(printer))
-            .getOrElse { return HostPrintersOutcome.Failure(it.message ?: NO_ANSWER) }
+            .getOrElse { return HostPrintersOutcome.Failure(english(formatError(it))) }
         val answer = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
             ?: return HostPrintersOutcome.Failure("Parsing of host response failed.\nMessage body: \"$body\"")
         answer["error"]?.jsonPrimitive?.contentOrNull?.let { return HostPrintersOutcome.Failure(it) }
@@ -307,17 +258,17 @@ class PrintHostUploader(
      * storages (api/v1/storage) that are not read only and have free space,
      * and fails the upload when it lists none (or cannot be reached at all);
      * Moonraker lists its roots that can be written (server/files/roots). The
-     * other hosts have none.
+     * other hosts have none, PrusaConnect among them (PrusaConnect::get_storage()).
      */
     suspend fun storage(printer: PhysicalPrinter): HostStorageOutcome = when (printer.hostType) {
-        PrintHostType.PRUSA_LINK, PrintHostType.PRUSA_CONNECT -> prusaLinkStorage(printer)
+        PrintHostType.PRUSA_LINK -> prusaLinkStorage(printer)
         PrintHostType.MOONRAKER -> moonrakerRoots(printer)
         else -> HostStorageOutcome.Success(emptyList(), emptyList())
     }
 
     private suspend fun prusaLinkStorage(printer: PhysicalPrinter): HostStorageOutcome {
         val http = httpFor(printer)
-        val headers = authHeaders(printer) + ("Accept-Language" to Locale.getDefault().language.take(2))
+        val headers = keyHeaders(printer) + ("Accept-Language" to Locale.getDefault().language.take(2))
         val answer = http.get(makeUrl(printer.host, "api/v1/storage"), headers, auth = login(printer))
         var errorMessage = ""
         // A printer that answers with an error may not have the endpoint, which is no error;
@@ -372,20 +323,72 @@ class PrintHostUploader(
         return HostStorageOutcome.Success(roots, roots)
     }
 
+    /** OctoPrint::validate_version_text() and its overrides: [valid] judges the "text" of api/version, [name] is the host's own. */
+    private class VersionRule(val name: String, val valid: (String?) -> Boolean)
+
+    /** What versionTest() found: the test's outcome and, when it passed, the answer. */
+    private class VersionAnswer(val outcome: PrintHostTestOutcome, val answer: JsonObject? = null)
+
     /**
      * OctoPrint::test() and the hosts that took its API: api/version has to
-     * carry an "api" field and a text that names the host.
+     * carry an "api" field and a text that names the host. An answer without
+     * "api" fails without a message, as Orca's does.
      */
-    private suspend fun versionTest(printer: PhysicalPrinter, names: List<String>, auth: HttpAuth?): PrintHostTestOutcome {
-        val http = httpFor(printer)
-        val body = http.get(makeUrl(printer.host, "api/version"), authHeaders(printer), auth = auth)
-            .getOrElse { return PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) }
-        val version = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
-            ?: return PrintHostTestOutcome.Failure(UNREADABLE)
-        if (version["api"] == null) return PrintHostTestOutcome.Failure(mismatched(names.first()))
-        val text = version["text"]?.jsonPrimitive?.contentOrNull
-        if (text != null && names.none { text.startsWith(it) }) return PrintHostTestOutcome.Failure(mismatched(text))
-        return PrintHostTestOutcome.Success(text.orEmpty())
+    private suspend fun versionTest(printer: PhysicalPrinter, rule: VersionRule): VersionAnswer {
+        val body = httpFor(printer).get(makeUrl(printer.host, "api/version"), keyHeaders(printer), auth = login(printer))
+            .getOrElse { return VersionAnswer(testFailure(it)) }
+        val version = parseObject(body) ?: return VersionAnswer(testFailure(orcaError(UNREADABLE)))
+        if (version["api"] == null) return VersionAnswer(PrintHostTestOutcome.Failure(""))
+        val text = version.string("text")
+        if (!rule.valid(text)) return VersionAnswer(testFailure(orcaError(MISMATCHED, text ?: rule.name)))
+        return VersionAnswer(PrintHostTestOutcome.Success(text.orEmpty()), version)
+    }
+
+    /**
+     * Moonraker::test(): server/info has to carry result.klippy_state; the
+     * state itself does not matter.
+     */
+    private suspend fun moonrakerTest(printer: PhysicalPrinter): PrintHostTestOutcome {
+        val body = httpFor(printer).get(makeUrl(printer.host, "server/info"), authHeaders(printer)).getOrElse { return testFailure(it) }
+        val answer = try {
+            Json.parseToJsonElement(body)
+        } catch (error: SerializationException) {
+            return testFailure(orcaError("Could not parse Moonraker server response: %s", error.message.orEmpty()))
+        }
+        val state = ((answer as? JsonObject)?.get("result") as? JsonObject)?.string("klippy_state")
+            ?: return testFailure(orcaError("The host responded but it doesn't look like Moonraker (missing result.klippy_state)."))
+        return PrintHostTestOutcome.Success(state)
+    }
+
+    /**
+     * CrealityPrint::test(): info within five seconds, whose model also says
+     * whether the printer prints from material boxes.
+     */
+    private suspend fun crealityTest(printer: PhysicalPrinter): PrintHostTestOutcome {
+        val body = httpFor(printer).withTimeouts(UrlConnectionHttpClient.DEFAULT_TIMEOUT_CONNECT_MILLIS, CREALITY_TEST_MAX_MILLIS)
+            .get(makeUrl(printer.host, "info"), bearer(printer))
+            .getOrElse { return testFailure(it) }
+        return PrintHostTestOutcome.Success(parseObject(body)?.string("model").orEmpty())
+    }
+
+    /**
+     * Repetier::test(): printer/info, whose "software" is the reliable name
+     * (validate_repetier()), since a Repetier server can be rebranded.
+     */
+    private suspend fun repetierTest(printer: PhysicalPrinter): PrintHostTestOutcome {
+        val body = httpFor(printer).get(makeUrl(printer.host, "printer/info"), authHeaders(printer)).getOrElse { return testFailure(it) }
+        val info = parseObject(body) ?: return testFailure(orcaError(UNREADABLE))
+        val software = info.string("software")
+        val named = info.string("name")
+        val ours = if (software != null) software == "Repetier-Server" else named == null || named.startsWith("Repetier")
+        if (!ours) return testFailure(orcaError(MISMATCHED, software ?: named ?: "Repetier"))
+        return PrintHostTestOutcome.Success(software ?: named.orEmpty())
+    }
+
+    /** FlashAir::test(): op 118 answers 1 while uploads are allowed. */
+    private suspend fun flashAirTest(printer: PhysicalPrinter): PrintHostTestOutcome {
+        val body = http.get(makeUrl(printer.host, "command.cgi?op=118"), emptyMap()).getOrElse { return testFailure(it) }
+        return if (body.startsWith("1")) PrintHostTestOutcome.Success("") else testFailure(orcaError("Upload not enabled on FlashAir card."))
     }
 
     /**
@@ -412,10 +415,10 @@ class PrintHostUploader(
     }
 
     /**
-     * CrealityPrint::upload(): the printer is asked what it is first (test()),
-     * since a K2 prints from its material boxes and takes the file without a
-     * folder; the file is posted to upload/<name>, and the print is started
-     * over the WebSocket.
+     * CrealityPrint::upload(): the printer is tested first, which also says
+     * what it is, since a K2 prints from its material boxes and takes the file
+     * without a folder; the file is posted to upload/<name>, and the print is
+     * started over the WebSocket.
      */
     private suspend fun uploadToCreality(
         printer: PhysicalPrinter,
@@ -426,30 +429,33 @@ class PrintHostUploader(
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
         val http = httpFor(printer)
-        val headers = bearer(printer)
-        val info = http.get(makeUrl(printer.host, "info"), headers).getOrElse { return failure(it) }
-        val model = runCatching { Json.parseToJsonElement(info).jsonObject["model"]?.jsonPrimitive?.contentOrNull }.getOrNull()
-        val multiColor = model in MULTI_COLOR_MODELS
+        val tested = crealityTest(printer)
+        if (tested is PrintHostTestOutcome.Failure) return tested.asUpload()
+        val multiColor = (tested as PrintHostTestOutcome.Success).description in MULTI_COLOR_MODELS
         // safe_filename(): the printer stores no spaces.
         val stored = fileNameOf(name).replace(' ', '_')
         val upload = http.postMultipart(
             url = makeUrl(printer.host, "upload/" + urlEncoded(stored)),
-            headers = headers,
+            headers = bearer(printer),
             fields = if (multiColor) emptyMap() else mapOf("path" to parentOf(name)),
             fileField = "file",
             fileName = stored,
             file = gcode,
             onProgress = onProgress,
         )
-        upload.getOrElse { return failure(it) }
+        upload.getOrElse { return uploadFailure(it) }
         if (!startPrint) return PrintHostUploadOutcome.Success(stored)
         val started = webSocket.exchange(crealitySocket(printer.host), crealityStart(stored, multiColor, options))
-        return started.fold(onSuccess = { PrintHostUploadOutcome.Success(stored) }, onFailure = ::failure)
+        return started.fold(onSuccess = { PrintHostUploadOutcome.Success(stored) }, onFailure = { PrintHostUploadOutcome.Failure(it.message ?: NO_ANSWER) })
     }
 
-    /** OctoPrint::upload_inner_with_host(): one request carries the file and whether to print. */
+    /**
+     * OctoPrint::upload_inner_with_host(): the host is tested ([rule]), then
+     * one request carries the file and whether to print.
+     */
     private suspend fun uploadToOctoPrint(
         printer: PhysicalPrinter,
+        rule: VersionRule,
         gcode: File,
         name: String,
         startPrint: Boolean,
@@ -457,8 +463,9 @@ class PrintHostUploader(
         /** The 1-based plate of a .gcode.3mf, 0 for G-code. */
         plateIndex: Int = 0,
     ): PrintHostUploadOutcome {
-        val http = httpFor(printer)
-        val response = http.postMultipart(
+        val tested = versionTest(printer, rule).outcome
+        if (tested is PrintHostTestOutcome.Failure) return tested.asUpload()
+        val response = httpFor(printer).postMultipart(
             url = makeUrl(printer.host, "api/files/local"),
             headers = authHeaders(printer),
             // The folder of the upload path, and the file's name; a .gcode.3mf names its plate.
@@ -472,12 +479,13 @@ class PrintHostUploader(
             file = gcode,
             onProgress = onProgress,
         )
-        return response.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+        return response.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::uploadFailure)
     }
 
     /**
-     * Moonraker::upload(): the file goes to the gcodes root, and the host
-     * answers with the path it stored it under, which starts the print.
+     * Moonraker::upload(): the host is tested, the file goes to the gcodes
+     * root, and the host answers with the path it stored it under, which
+     * starts the print.
      */
     private suspend fun uploadToMoonraker(
         printer: PhysicalPrinter,
@@ -490,6 +498,8 @@ class PrintHostUploader(
         /** The 1-based plate of a .gcode.3mf, 0 for G-code. */
         plateIndex: Int = 0,
     ): PrintHostUploadOutcome {
+        val tested = moonrakerTest(printer)
+        if (tested is PrintHostTestOutcome.Failure) return tested.asUpload()
         val http = httpFor(printer)
         val upload = http.postMultipart(
             url = makeUrl(printer.host, "server/files/upload"),
@@ -503,24 +513,25 @@ class PrintHostUploader(
             file = gcode,
             onProgress = onProgress,
         )
-        val body = upload.getOrElse { return failure(it) }
+        val body = upload.getOrElse { return uploadFailure(it) }
         // The server confirms the storage-relative path in result.item.path;
         // an answer without it keeps the name the file was sent under.
-        val stored = body.jsonValue("path") ?: name
+        val stored = ((parseObject(body)?.get("result") as? JsonObject)?.get("item") as? JsonObject)?.string("path") ?: name
         if (!startPrint) return PrintHostUploadOutcome.Success(stored)
 
         val started = http.postJson(
             url = makeUrl(printer.host, "printer/print/start"),
             headers = authHeaders(printer),
-            body = """{"filename":"${stored.jsonEscaped()}"}""",
+            body = buildJsonObject { put("filename", stored) }.toString(),
         )
-        return started.fold(onSuccess = { PrintHostUploadOutcome.Success(stored) }, onFailure = ::failure)
+        return started.fold(onSuccess = { PrintHostUploadOutcome.Success(stored) }, onFailure = ::uploadFailure)
     }
 
     /**
-     * PrusaLink::upload_inner_with_host(): PrusaLink 0.7 and newer take the
-     * file with PUT into api/v1/files, older ones and OctoPrint firmwares with
-     * the POST of api/files; the host says which in capabilities.upload-by-put.
+     * PrusaLink::upload_inner_with_host(): the host is tested first
+     * (test_with_method_check()); PrusaLink 0.7 and newer take the file with
+     * PUT into api/v1/files, older ones and OctoPrint firmwares with the POST
+     * of api/files; the host says which in capabilities.upload-by-put.
      * PrusaConnect ([connect]) posts to_print instead of print, in the
      * language of the app (PrusaConnect::set_http_post_header_args()).
      */
@@ -535,18 +546,17 @@ class PrintHostUploader(
         connect: Boolean,
     ): PrintHostUploadOutcome {
         val http = httpFor(printer)
-        val version = http.get(makeUrl(printer.host, "api/version"), authHeaders(printer), auth = login(printer))
-            .getOrElse { return failure(it) }
-        val usePut = runCatching {
-            Json.parseToJsonElement(version).jsonObject["capabilities"]?.jsonObject?.get("upload-by-put")?.jsonPrimitive?.content == "true"
-        }.getOrDefault(false)
+        val tested = versionTest(printer, PRUSALINK_VERSION)
+        val outcome = tested.outcome
+        if (outcome is PrintHostTestOutcome.Failure) return outcome.asUpload()
+        val usePut = ((tested.answer?.get("capabilities") as? JsonObject)?.get("upload-by-put") as? JsonPrimitive)?.booleanOrNull ?: false
         // upload_inner_with_host(): the storage the file goes into.
         val files = (if (usePut) "api/v1/files" else "api/files") + storage.ifEmpty { "/local" }
         if (!usePut) {
             // post_inner() with set_http_post_header_args() of PrusaLink or of PrusaConnect.
             val response = http.postMultipart(
                 url = makeUrl(printer.host, files),
-                headers = authHeaders(printer) + if (connect) mapOf("Accept-Language" to Locale.getDefault().language.take(2)) else emptyMap(),
+                headers = keyHeaders(printer) + if (connect) mapOf("Accept-Language" to Locale.getDefault().language.take(2)) else emptyMap(),
                 fields = buildMap {
                     if (connect) {
                         if (startPrint) put("to_print", "True")
@@ -561,12 +571,12 @@ class PrintHostUploader(
                 onProgress = onProgress,
                 auth = login(printer),
             )
-            return response.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+            return response.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::uploadFailure)
         }
         // put_inner(): the name is escaped into the url, and the headers say
         // what to do with the file.
         val headers = buildMap {
-            putAll(authHeaders(printer))
+            putAll(keyHeaders(printer))
             put("Content-Type", "text/x.gcode")
             put("Overwrite", "?1")
             // PrusaLink takes any string as true, so the header is set only to print.
@@ -581,7 +591,7 @@ class PrintHostUploader(
             onProgress = onProgress,
             auth = login(printer),
         )
-        return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+        return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::uploadFailure)
     }
 
     /**
@@ -593,7 +603,7 @@ class PrintHostUploader(
         if (printer.apiKey.isEmpty()) return PrintHostTestOutcome.Failure("")
         return http.get(ObicoHost.url(printer.host, "api/v1/version/"), obicoAuth(printer)).fold(
             onSuccess = { PrintHostTestOutcome.Success("") },
-            onFailure = { PrintHostTestOutcome.Failure(it.message ?: NO_ANSWER) },
+            onFailure = { testFailure(it) },
         )
     }
 
@@ -632,7 +642,7 @@ class PrintHostUploader(
     ): PrintHostUploadOutcome {
         val http = httpFor(printer)
         val tested = obicoTest(printer)
-        if (tested is PrintHostTestOutcome.Failure) return PrintHostUploadOutcome.Failure(tested.message)
+        if (tested is PrintHostTestOutcome.Failure) return tested.asUpload()
         val answer = http.postMultipart(
             url = ObicoHost.url(printer.host, "api/v1/g_code_files/"),
             headers = obicoAuth(printer),
@@ -642,7 +652,7 @@ class PrintHostUploader(
             file = gcode,
             onProgress = onProgress,
         )
-        return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+        return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::uploadFailure)
     }
 
     /** Obico::set_auth(): the token as a bearer. */
@@ -662,21 +672,22 @@ class PrintHostUploader(
     ): PrintHostUploadOutcome {
         // get_upload_url(): the address is taken as it is, behind http://.
         val body = http.sendFile("http://${printer.host}/upload?X-Filename=" + urlEncoded(name), "POST", emptyMap(), gcode, onProgress)
-            .getOrElse { return failure(it) }
+            .getOrElse { return uploadFailure(it) }
         // get_err_code_from_body()
-        val error = runCatching { Json.parseToJsonElement(body).jsonObject["err"]?.jsonPrimitive?.intOrNull ?: 0 }
-            .getOrElse { return PrintHostUploadOutcome.Failure(UNREADABLE) }
-        if (error != 0) return PrintHostUploadOutcome.Failure("Unknown error occurred")
+        val error = errorCode(body).getOrElse { return uploadFailure(orcaError(UNREADABLE)) }
+        if (error != 0) return uploadFailure(orcaError(UNKNOWN_ERROR))
         if (!startPrint) return PrintHostUploadOutcome.Success(name)
         delay(mksStartDelayMillis)
         val started = console.run(printer.host, MKS_CONSOLE_PORT, listOf(SerialMessage("M23 $name"), SerialMessage("M24")))
-        return started.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+        // console.error_message(), as it is.
+        return started.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = { PrintHostUploadOutcome.Failure(it.message.orEmpty()) })
     }
 
     /**
      * Duet::upload(): the board is connected to first (rr_connect with the
      * password, or a DuetSoftwareFramework host that answers machine/status),
-     * the file goes into 0:/gcodes, and M32 starts the print.
+     * the file goes into 0:/gcodes, M32 starts the print, and the board is
+     * let go again.
      */
     private suspend fun uploadToDuet(
         printer: PhysicalPrinter,
@@ -685,52 +696,67 @@ class PrintHostUploader(
         startPrint: Boolean,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
-        val connection = duetConnect(printer) ?: return PrintHostUploadOutcome.Failure("Could not connect to Duet")
-        val dsf = connection == DuetConnection.DSF
-        val stored = urlEncoded(name)
-        val answer = if (dsf) {
-            http.sendFile(makeUrl(printer.host, "machine/file/gcodes/" + stored), "PUT", emptyMap(), gcode, onProgress)
-        } else {
-            http.sendFile(makeUrl(printer.host, "rr_upload?name=0:/gcodes/" + stored + "&time=" + timestamp()), "POST", emptyMap(), gcode, onProgress)
+        val connected = duetConnect(printer)
+        val connection = connected.connection ?: return uploadFailure(connected.error)
+        try {
+            val dsf = connection == DuetConnection.DSF
+            // get_upload_url(): the whole upload path, escaped.
+            val answer = if (dsf) {
+                http.sendFileAnswer(makeUrl(printer.host, "machine/file/gcodes/" + urlEncoded(name)), "PUT", emptyMap(), gcode, onProgress)
+            } else {
+                http.sendFileAnswer(makeUrl(printer.host, "rr_upload?name=0:/gcodes/" + urlEncoded(name) + "&time=" + timestamp()), "POST", emptyMap(), gcode, onProgress)
+            }.getOrElse { return uploadFailure(it) }
+            // A DSF host answers 201 Created; the rr board err 0 (get_err_code_from_body()).
+            val error = if (dsf) (if (answer.status == HTTP_CREATED) 0 else 1) else errorCode(answer.body).getOrElse { return PrintHostUploadOutcome.Failure(it.message.orEmpty()) }
+            if (error != 0) return uploadFailure(orcaError(UNKNOWN_ERROR))
+            if (!startPrint) return PrintHostUploadOutcome.Success(name)
+            // start_print(): M32 with the file of the gcodes folder.
+            val started = if (dsf) {
+                http.sendBytes(makeUrl(printer.host, "machine/code"), "POST", emptyMap(), "M32 \"0:/gcodes/$name\"".toByteArray())
+            } else {
+                http.get(makeUrl(printer.host, "rr_gcode?gcode=M32%20\"0:/gcodes/" + urlEncoded(name) + "\""), emptyMap())
+            }
+            return started.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::uploadFailure)
+        } finally {
+            duetDisconnect(printer, connection)
         }
-        val body = answer.getOrElse { return failure(it) }
-        // get_err_code_from_body(): the board answers with err 0 when it took the file.
-        if (!dsf && (body.jsonValue("err") ?: "0") != "0") {
-            return PrintHostUploadOutcome.Failure("Unknown error occurred")
-        }
-        if (!startPrint) {
-            duetDisconnect(printer, dsf)
-            return PrintHostUploadOutcome.Success(name)
-        }
-        val started = if (dsf) {
-            http.postJson(makeUrl(printer.host, "machine/code"), emptyMap(), DUET_START.format(name))
-        } else {
-            http.get(makeUrl(printer.host, "rr_gcode?gcode=" + urlEncoded(DUET_START.format(name))), emptyMap())
-        }
-        duetDisconnect(printer, dsf)
-        return started.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
     }
 
-    /** Duet::connect(): rr_connect, or the DSF host when the board does not answer it. */
-    private suspend fun duetConnect(printer: PhysicalPrinter): DuetConnection? {
+    /** What Duet::connect() made of the board: the connection, or why there is none. */
+    private class DuetConnected(val connection: DuetConnection?, val error: List<OrcaText> = emptyList())
+
+    /**
+     * Duet::connect(): rr_connect with the password, whose err says what went
+     * wrong, or the DSF host when the board does not answer it.
+     */
+    private suspend fun duetConnect(printer: PhysicalPrinter): DuetConnected {
         // Duet::Duet(): the password is the key field's (printhost_apikey).
-        val password = printer.apiKey.ifBlank { DUET_DEFAULT_PASSWORD }
+        val password = printer.apiKey.ifEmpty { DUET_DEFAULT_PASSWORD }
         val answer = http.get(makeUrl(printer.host, "rr_connect?password=" + urlEncoded(password) + "&time=" + timestamp()), emptyMap())
-        answer.getOrNull()?.let { body ->
-            return if ((body.jsonValue("err") ?: "0") == "0") DuetConnection.RR else null
+        val body = answer.getOrElse {
+            return http.get(makeUrl(printer.host, "machine/status"), emptyMap()).fold(
+                onSuccess = { DuetConnected(DuetConnection.DSF) },
+                onFailure = { DuetConnected(null, formatError(it)) },
+            )
         }
-        return if (http.get(makeUrl(printer.host, "machine/status"), emptyMap()).isSuccess) DuetConnection.DSF else null
+        val code = errorCode(body).getOrElse { return DuetConnected(null, listOf(OrcaText(it.message.orEmpty()))) }
+        return when (code) {
+            0 -> DuetConnected(DuetConnection.RR)
+            1 -> DuetConnected(null, orcaError("Wrong password"))
+            2 -> DuetConnected(null, orcaError("Could not get resources to create a new connection"))
+            else -> DuetConnected(null, orcaError(UNKNOWN_ERROR))
+        }
     }
 
-    /** Duet::disconnect(): the rr board keeps one session at a time. */
-    private suspend fun duetDisconnect(printer: PhysicalPrinter, dsf: Boolean) {
-        if (dsf) return
+    /** Duet::disconnect(): the rr board keeps one session at a time; a DSF host has none. */
+    private suspend fun duetDisconnect(printer: PhysicalPrinter, connection: DuetConnection) {
+        if (connection != DuetConnection.RR) return
         http.get(makeUrl(printer.host, "rr_disconnect"), emptyMap())
     }
 
     /**
-     * Repetier::upload(): the file is posted to the job of the printer when it
-     * is to be printed, and to its models otherwise.
+     * Repetier::upload(): the server is tested, then the file is posted to the
+     * job of the printer when it is to be printed, and to its models otherwise.
      */
     private suspend fun uploadToRepetier(
         printer: PhysicalPrinter,
@@ -741,7 +767,8 @@ class PrintHostUploader(
         group: String,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
-        val http = httpFor(printer)
+        val tested = repetierTest(printer)
+        if (tested is PrintHostTestOutcome.Failure) return tested.asUpload()
         val port = printer.port
         val path = if (startPrint) "printer/job/" + port else "printer/model/" + port
         val fields = buildMap {
@@ -753,7 +780,7 @@ class PrintHostUploader(
             }
             put("a", "upload")
         }
-        val answer = http.postMultipart(
+        val answer = httpFor(printer).postMultipart(
             url = makeUrl(printer.host, path),
             headers = authHeaders(printer),
             fields = fields,
@@ -762,10 +789,15 @@ class PrintHostUploader(
             file = gcode,
             onProgress = onProgress,
         )
-        return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+        return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::uploadFailure)
     }
 
-    /** ESP3D::upload(): the file goes to the board's serial upload, then M23/M24 print it. */
+    /**
+     * ESP3D::upload(): the file goes to the board's serial upload under its
+     * 8.3 name, then, after a pause, M23 and M24 print it. The board is not
+     * tested first. The progress stays a byte short of the whole file until
+     * the board answers, so the upload does not look done before M24.
+     */
     private suspend fun uploadToEsp3d(
         printer: PhysicalPrinter,
         gcode: File,
@@ -773,7 +805,6 @@ class PrintHostUploader(
         startPrint: Boolean,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
-        // get_short_name(): the board's file system takes short names.
         val short = shortName(name)
         val answer = http.postMultipart(
             url = makeUrl(printer.host, "upload_serial"),
@@ -782,19 +813,23 @@ class PrintHostUploader(
             fileField = "file",
             fileName = short,
             file = gcode,
-            onProgress = onProgress,
+            onProgress = onProgress?.let { report -> { sent: Long, total: Long -> report((sent - 1).coerceAtLeast(0), total) } },
         )
-        answer.getOrElse { return failure(it) }
+        answer.getOrElse { return uploadFailure(it) }
         if (!startPrint) return PrintHostUploadOutcome.Success(short)
-        http.get(makeUrl(printer.host, "command?plain=" + urlEncoded("M23 " + short)), emptyMap())
-            .getOrElse { return failure(it) }
+        delay(esp3dStartDelayMillis)
+        // start_print(): the error of M23 or M24 as curl gives it, empty for an HTTP status.
+        http.get(makeUrl(printer.host, "command?plain=" + urlEncoded("M23 $short")), emptyMap())
+            .getOrElse { return PrintHostUploadOutcome.Failure(curlError(it)) }
         val start = http.get(makeUrl(printer.host, "command?plain=" + urlEncoded("M24")), emptyMap())
-        return start.fold(onSuccess = { PrintHostUploadOutcome.Success(short) }, onFailure = ::failure)
+        return start.fold(onSuccess = { PrintHostUploadOutcome.Success(short) }, onFailure = { PrintHostUploadOutcome.Failure(curlError(it)) })
     }
 
     /**
-     * FlashAir::upload(): the card is told to take a file and where to put it,
-     * and then the file is posted. The card only stores; it never prints.
+     * FlashAir::upload(): the card is tested, told the file's time and to
+     * protect itself from writes of its own, and where the file goes; then
+     * the file is posted. Every answer has to say SUCCESS. The card only
+     * stores; it never prints.
      */
     private suspend fun uploadToFlashAir(
         printer: PhysicalPrinter,
@@ -802,10 +837,14 @@ class PrintHostUploader(
         name: String,
         onProgress: ((sent: Long, total: Long) -> Unit)?,
     ): PrintHostUploadOutcome {
-        http.get(makeUrl(printer.host, "upload.cgi?WRITEPROTECT=ON&FTIME=" + timestamp()), emptyMap())
-            .getOrElse { return failure(it) }
-        // The folder of the upload path, the card's root without one.
-        http.get(makeUrl(printer.host, "upload.cgi?UPDIR=" + parentOf(name).ifEmpty { "/" }), emptyMap()).getOrElse { return failure(it) }
+        val tested = flashAirTest(printer)
+        if (tested is PrintHostTestOutcome.Failure) return tested.asUpload()
+        // The folder of the upload path with a leading slash, which uploads to the root need.
+        val folder = parentOf(name).let { if (it.startsWith("/")) it else "/$it" }
+        for (step in listOf("upload.cgi?WRITEPROTECT=ON&FTIME=" + fatTime(), "upload.cgi?UPDIR=$folder")) {
+            val body = http.get(makeUrl(printer.host, step), emptyMap()).getOrElse { return uploadFailure(it) }
+            if (!body.contains(FLASHAIR_SUCCESS, ignoreCase = true)) return uploadFailure(orcaError(UNKNOWN_ERROR))
+        }
         val answer = http.postMultipart(
             url = makeUrl(printer.host, "upload.cgi"),
             headers = emptyMap(),
@@ -815,15 +854,20 @@ class PrintHostUploader(
             file = gcode,
             onProgress = onProgress,
         )
-        return answer.fold(onSuccess = { PrintHostUploadOutcome.Success(name) }, onFailure = ::failure)
+        val body = answer.getOrElse { return uploadFailure(it) }
+        return if (body.contains(FLASHAIR_SUCCESS, ignoreCase = true)) PrintHostUploadOutcome.Success(name) else uploadFailure(orcaError(UNKNOWN_ERROR))
     }
 
     /** Duet::connect(): which of the two hosts answered. */
     private enum class DuetConnection { RR, DSF }
 
-    /** PrusaLink::set_auth(): atUserPassword answers the host's digest challenge. */
+    /** PrusaLink::set_auth(): atUserPassword answers the host's digest challenge instead of giving the key. */
     private fun login(printer: PhysicalPrinter): HttpAuth? =
-        if (printer.usesUserPassword && printer.user.isNotBlank()) HttpAuth(printer.user, printer.password) else null
+        if (printer.hostType in PRUSA_HOSTS && printer.usesUserPassword) HttpAuth(printer.user, printer.password) else null
+
+    /** set_auth() of the hosts that give the key: PrusaLink only with atKeyPassword. */
+    private fun keyHeaders(printer: PhysicalPrinter): Map<String, String> =
+        if (printer.hostType in PRUSA_HOSTS && printer.usesUserPassword) emptyMap() else authHeaders(printer)
 
     /** CrealityPrint::set_auth(): the key as a bearer token. */
     private fun bearer(printer: PhysicalPrinter): Map<String, String> =
@@ -833,15 +877,30 @@ class PrintHostUploader(
     private fun authHeaders(printer: PhysicalPrinter): Map<String, String> =
         if (printer.apiKey.isBlank()) emptyMap() else mapOf("X-Api-Key" to printer.apiKey)
 
-    private fun failure(error: Throwable): PrintHostUploadOutcome =
-        PrintHostUploadOutcome.Failure(error.message ?: "The printer did not answer")
-
-    /** Http::format_error() of a host that did not answer at all. */
-    private fun mismatched(what: String): String = "Mismatched type of print host: $what"
-
     internal companion object {
-        private const val NO_ANSWER = "The printer did not answer"
         private const val UNREADABLE = "Could not parse server response."
+        private const val MISMATCHED = "Mismatched type of print host: %s"
+        private const val UNKNOWN_ERROR = "Unknown error occurred"
+
+        private val OCTOPRINT_VERSION = VersionRule("OctoPrint") { it == null || it.startsWith("OctoPrint") }
+        private val ASTROBOX_VERSION = VersionRule("AstroBox") { it == null || it.startsWith("AstroBox") }
+
+        /** PrusaLink::validate_version_text(): a version text is required. */
+        private val PRUSALINK_VERSION = VersionRule("OctoPrint") { it != null && (it.startsWith("PrusaLink") || it.startsWith("OctoPrint")) }
+
+        /** ElegooLink::validate_version_text(): any text. */
+        private val ELEGOO_VERSION = VersionRule("ElegooLink") { true }
+
+        private val PRUSA_HOSTS = setOf(PrintHostType.PRUSA_LINK, PrintHostType.PRUSA_CONNECT)
+
+        /** CrealityPrint::test()'s timeout_max(5). */
+        const val CREALITY_TEST_MAX_MILLIS = 5_000
+
+        /** DuetSoftwareFramework answers a stored file with 201 Created. */
+        private const val HTTP_CREATED = 201
+
+        /** What every answer of a FlashAir card says when it did what it was asked. */
+        private const val FLASHAIR_SUCCESS = "SUCCESS"
 
         /** MKS::MKS(): the port of the board's G-code console. */
         const val MKS_CONSOLE_PORT = 8080
@@ -849,25 +908,52 @@ class PrintHostUploader(
         /** MKS::start_print()'s pause after an upload. */
         const val MKS_START_DELAY_MILLIS = 1_500L
 
+        /** ESP3D::start_print()'s pause before M23. */
+        const val ESP3D_START_DELAY_MILLIS = 1_500L
+
         /** Duet::get_connect_url(): the board's own default. */
         const val DUET_DEFAULT_PASSWORD = "reprap"
 
-        /** Duet::start_print(): M32 prints the file of the gcodes folder. */
-        const val DUET_START = "M32 \"0:/gcodes/%s\""
+        /** Duet::timestamp_str(): the board wants the local time of the request. */
+        fun timestamp(): String = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss").format(LocalDateTime.now())
 
-        /** Duet::timestamp_str(): the board wants the time of the request. */
-        fun timestamp(): String =
-            java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("'time='yyyy-MM-dd'T'HH:mm:ss"))
-                .removePrefix("time=")
-
-        /** ESP3D::get_short_name(): the board's file system keeps 8.3 names. */
-        fun shortName(name: String): String {
-            val dot = name.lastIndexOf('.')
-            val stem = (if (dot > 0) name.substring(0, dot) else name).filter { it.isLetterOrDigit() }
-            val extension = if (dot > 0) name.substring(dot + 1).take(3) else ""
-            val short = stem.take(8).uppercase(Locale.ROOT)
-            return if (extension.isEmpty()) short else short + "." + extension.uppercase(Locale.ROOT)
+        /**
+         * FlashAir::timestamp_str(): the local time as a FAT date and time,
+         * "%#x" — the years since 1980, month, day, hours, minutes and seconds
+         * halved.
+         */
+        fun fatTime(now: LocalDateTime = LocalDateTime.now()): String {
+            val time = ((now.year - 1980).toLong() shl 25) or
+                (now.monthValue.toLong() shl 21) or
+                (now.dayOfMonth.toLong() shl 16) or
+                (now.hour.toLong() shl 11) or
+                (now.minute.toLong() shl 5) or
+                (now.second.toLong() shr 1)
+            return if (time == 0L) "0" else "0x" + java.lang.Long.toHexString(time)
         }
+
+        /**
+         * ESP3D::get_short_name(): the board's file system keeps 8.3 names, so
+         * the stem of the upload path is cut to 8 characters and its last
+         * extension to 3.
+         */
+        fun shortName(path: String): String {
+            val name = fileNameOf(path)
+            val dot = name.lastIndexOf('.')
+            val plain = dot < 0 || name == "." || name == ".."
+            val stem = (if (plain) name else name.substring(0, dot)).take(8)
+            val extension = (if (plain) "" else name.substring(dot + 1)).take(3)
+            return if (extension.isEmpty()) stem else "$stem.$extension"
+        }
+
+        /** get_err_code_from_body(): the err of the board's JSON answer, 0 without one. */
+        fun errorCode(body: String): Result<Int> = runCatching {
+            val answer = Json.parseToJsonElement(body)
+            ((answer as? JsonObject)?.get("err") as? JsonPrimitive)?.let { it.intOrNull ?: it.content.toInt() } ?: 0
+        }
+
+        /** The error string curl gives on_error(): empty for an answer with an HTTP status. */
+        private fun curlError(error: Throwable): String = if (error is HttpStatusException) "" else error.message.orEmpty()
 
         /** Moonraker's storage root for G-code, as the desktop app uploads into. */
         const val MOONRAKER_ROOT = "gcodes"
@@ -977,6 +1063,16 @@ class PrintHostUploader(
 
         private fun JsonObject.int(key: String): Int? = this[key]?.jsonPrimitive?.intOrNull
 
+        /** ptree::get_optional<std::string>(): a value that is not an object or an array, as text. */
+        private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeUnless { it is kotlinx.serialization.json.JsonNull }?.content
+
+        /** pt::read_json() of an answer that has to be an object; null when it is not. */
+        private fun parseObject(body: String): JsonObject? = try {
+            Json.parseToJsonElement(body) as? JsonObject
+        } catch (_: SerializationException) {
+            null
+        }
+
         /** Http::url_encode(): the name as one segment of the path. */
         fun urlEncoded(name: String): String = URLEncoder.encode(name, Charsets.UTF_8).replace("+", "%20")
 
@@ -1014,32 +1110,5 @@ class PrintHostUploader(
             val base = if (host.startsWith("http://") || host.startsWith("https://")) host else "http://$host"
             return if (base.endsWith("/")) base + path else "$base/$path"
         }
-
-        /** The value of a JSON string field anywhere in the answer, without a parser. */
-        fun String.jsonValue(field: String): String? {
-            val marker = "\"$field\""
-            val at = indexOf(marker).takeIf { it >= 0 } ?: return null
-            val colon = indexOf(':', at + marker.length).takeIf { it >= 0 } ?: return null
-            val open = indexOf('"', colon + 1).takeIf { it >= 0 } ?: return null
-            val builder = StringBuilder()
-            var index = open + 1
-            while (index < length) {
-                val character = this[index]
-                when {
-                    character == '\\' && index + 1 < length -> {
-                        builder.append(this[index + 1])
-                        index += 2
-                    }
-                    character == '"' -> return builder.toString()
-                    else -> {
-                        builder.append(character)
-                        index++
-                    }
-                }
-            }
-            return null
-        }
-
-        fun String.jsonEscaped(): String = replace("\\", "\\\\").replace("\"", "\\\"")
     }
 }

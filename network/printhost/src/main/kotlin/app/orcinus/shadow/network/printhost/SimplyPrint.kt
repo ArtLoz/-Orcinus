@@ -236,7 +236,7 @@ internal class SimplyPrint(
     }
 
     /** The token requests' own timeout of five seconds. */
-    private val tokenHttp = if (http is UrlConnectionHttpClient) UrlConnectionHttpClient(TOKEN_TIMEOUT_MILLIS, TOKEN_TIMEOUT_MILLIS) else http
+    private val tokenHttp = http.withTimeouts(TOKEN_TIMEOUT_MILLIS, TOKEN_TIMEOUT_MILLIS)
 
     internal companion object {
         const val URL_BASE_HOME = "https://simplyprint.io"

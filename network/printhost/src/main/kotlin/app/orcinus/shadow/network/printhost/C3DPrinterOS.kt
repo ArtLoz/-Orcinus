@@ -80,7 +80,7 @@ internal class C3DPrinterOS(
         var attempt = 0
         while (true) {
             attempt++
-            val answer = sendForm(printer, "apiglobal/login_with_token", "token=$token", httpErrors = true)
+            val answer = sendForm(printer, "apiglobal/login_with_token", "token=$token", httpErrors = true, maxMillis = LOGIN_TOKEN_MAX_MILLIS)
             val hasSession = (answer["message"] as? JsonObject)?.containsKey("session") == true
             if (answer.bool("result") != true || hasSession || attempt >= MAX_RETRIES) return answer
             delay(retryDelayMillis)
@@ -173,9 +173,17 @@ internal class C3DPrinterOS(
      * send_form(): the body as a form post; an answer that is not JSON, or an
      * error, becomes {"result": false, "message": ...}.
      */
-    private suspend fun sendForm(printer: PhysicalPrinter, endpoint: String, body: String, httpErrors: Boolean = false): JsonObject {
+    private suspend fun sendForm(
+        printer: PhysicalPrinter,
+        endpoint: String,
+        body: String,
+        httpErrors: Boolean = false,
+        /** Http::timeout_max() of the request; 0 for none. */
+        maxMillis: Int = 0,
+    ): JsonObject {
         // 3DPrinterOS::set_auth(): the printer's HTTPS CA file.
-        val http = if (printer.caFile.isNotEmpty()) this.http.withCaFile(printer.caFile) else this.http
+        val http = (if (printer.caFile.isNotEmpty()) this.http.withCaFile(printer.caFile) else this.http)
+            .let { if (maxMillis > 0) it.withTimeouts(UrlConnectionHttpClient.DEFAULT_TIMEOUT_CONNECT_MILLIS, maxMillis) else it }
         val answer = http.sendBytes(
             url(printer.host, endpoint),
             "POST",
@@ -231,6 +239,9 @@ internal class C3DPrinterOS(
     internal companion object {
         const val MAX_RETRIES = 10
         const val RETRY_DELAY_MILLIS = 500L
+
+        /** TokenAuthDialog's login_with_token: timeout_max(60). */
+        private const val LOGIN_TOKEN_MAX_MILLIS = 60_000
         private const val UNREADABLE = "Could not parse server response."
 
         /** make_url(): https:// in front of an address without a scheme. */

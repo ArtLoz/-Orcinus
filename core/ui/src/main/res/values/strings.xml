@@ -58,8 +58,6 @@
     <string name="printer_host_empty">The printer preset has no address. Set it with the “Connection” button next to the printer in the sidebar.</string>
     <string name="printer_host_send">Send to printer</string>
     <string name="printer_host_start">Start printing right away</string>
-    <string name="printer_host_sent">Sent: %1$s</string>
-    <string name="printer_host_sending">Sending to the printer: %1$d %%</string>
     <!-- A host type of OrcaSlicer's list whose protocol the app has not ported yet. -->
     <!-- Export G-code of the desktop app's File menu. -->
     <string name="gcode_save">Save G-code</string>

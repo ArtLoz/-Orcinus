@@ -1096,7 +1096,8 @@ sealed interface PrintHostTestOutcome {
     /** The host answered; [description] is what it said it is, when it said so. */
     data class Success(val description: String) : PrintHostTestOutcome
 
-    data class Failure(val message: String) : PrintHostTestOutcome
+    /** [message] in English; [text] the same as OrcaSlicer's texts, for the catalogue, when it is one. */
+    data class Failure(val message: String, val text: List<OrcaText> = emptyList()) : PrintHostTestOutcome
 }
 
 /**
@@ -1153,7 +1154,8 @@ sealed interface PrintHostUploadOutcome {
      */
     data class Success(val path: String, val openUrl: String? = null) : PrintHostUploadOutcome
 
-    data class Failure(val message: String) : PrintHostUploadOutcome
+    /** [message] in English; [text] the same as OrcaSlicer's texts, for the catalogue, when it is one. */
+    data class Failure(val message: String, val text: List<OrcaText> = emptyList()) : PrintHostUploadOutcome
 }
 
 /**

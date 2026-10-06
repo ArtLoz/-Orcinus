@@ -3,6 +3,7 @@ package app.orcinus.shadow.network.printhost
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
@@ -25,7 +26,7 @@ import kotlinx.serialization.json.jsonPrimitive
 class PrintHostUploaderTest {
     @Test
     fun `OctoPrint takes the file and whether to print in one request`() {
-        val http = FakeHttpClient(answer = Result.success("{}"))
+        val http = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "0.1", "text": "OctoPrint 1.9.3"}""")
         val printer = printer("octoprint", "http://192.168.1.50", "abcdef")
 
         val outcome = runSuspend { PrintHostUploader(http).upload(printer, gcode(), "plate.gcode", startPrint = true) }
@@ -68,7 +69,7 @@ class PrintHostUploaderTest {
 
     @Test
     fun `Moonraker uploads into the gcodes root and starts the print with the path the host stored`() {
-        val http = FakeHttpClient(answer = Result.success("""{"result": {"item": {"path": "orcinus/plate.gcode"}}}"""))
+        val http = FakeHttpClient(answer = Result.success("""{"result": {"item": {"path": "orcinus/plate.gcode"}}}"""), info = """{"result": {"klippy_state": "ready"}}""")
         val printer = printer("moonraker", "192.168.1.60", "key")
 
         val outcome = runSuspend { PrintHostUploader(http).upload(printer, gcode(), "plate.gcode", startPrint = true) }
@@ -85,7 +86,7 @@ class PrintHostUploaderTest {
 
     @Test
     fun `Moonraker only uploads when the print is not to start`() {
-        val http = FakeHttpClient(answer = Result.success("""{"result": {"item": {"path": "plate.gcode"}}}"""))
+        val http = FakeHttpClient(answer = Result.success("""{"result": {"item": {"path": "plate.gcode"}}}"""), info = """{"result": {"klippy_state": "ready"}}""")
 
         val outcome = runSuspend {
             PrintHostUploader(http).upload(printer("moonraker", "http://host/", "k"), gcode(), "plate.gcode", startPrint = false)
@@ -99,13 +100,14 @@ class PrintHostUploaderTest {
 
     @Test
     fun `a host that refuses the upload is reported`() {
-        val http = FakeHttpClient(answer = Result.failure(IOException("HTTP 403: Forbidden")))
+        val http = FakeHttpClient(answer = Result.failure(HttpStatusException(403, "Forbidden")), info = """{"api": "0.1", "text": "OctoPrint 1.9.3"}""")
 
         val outcome = runSuspend {
             PrintHostUploader(http).upload(printer("octoprint", "http://host", "k"), gcode(), "plate.gcode", startPrint = true)
         }
 
-        assertEquals(PrintHostUploadOutcome.Failure("HTTP 403: Forbidden"), outcome)
+        // PrintHost::format_error(): the status and the body, untranslated.
+        assertEquals(PrintHostUploadOutcome.Failure("HTTP 403: Forbidden", listOf(OrcaText("HTTP 403: Forbidden"))), outcome)
     }
 
     @Test
@@ -212,6 +214,122 @@ class PrintHostUploaderTest {
         assertTrue(socket.exchanges.single().messages.single().contains("boxsInfo"))
     }
 
+    @Test
+    fun `a host is tested before the file goes, and a failed test is the upload's error`() {
+        // OctoPrint::upload_inner_with_host(): test() first; another host there is a mismatch.
+        val klipper = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "0.1", "text": "Klipper"}""")
+        val mismatched = runSuspend { PrintHostUploader(klipper).upload(printer("octoprint", "host", ""), gcode(), "plate.gcode", startPrint = true) }
+        assertEquals(
+            PrintHostUploadOutcome.Failure("Mismatched type of print host: Klipper", listOf(OrcaText("Mismatched type of print host: %s", listOf("Klipper")))),
+            mismatched,
+        )
+        assertTrue(klipper.multipart.isEmpty())
+
+        // Moonraker::upload(): server/info without result.klippy_state.
+        val notMoonraker = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "0.1"}""")
+        val moonraker = runSuspend { PrintHostUploader(notMoonraker).upload(printer("moonraker", "host", ""), gcode(), "plate.gcode", startPrint = false) }
+        assertTrue(moonraker is PrintHostUploadOutcome.Failure && moonraker.message.contains("klippy_state"))
+        assertTrue(notMoonraker.multipart.isEmpty())
+
+        // Repetier::upload(): the server's software names another host.
+        val other = FakeHttpClient(answer = Result.success("{}"), info = """{"name": "MyPrinter", "software": "Something"}""")
+        val repetier = runSuspend { PrintHostUploader(other).upload(printer("repetier", "host", ""), gcode(), "plate.gcode", startPrint = false) }
+        assertEquals("Mismatched type of print host: Something", (repetier as PrintHostUploadOutcome.Failure).message)
+
+        // PrusaLink::validate_version_text(): a host without a version text is not PrusaLink.
+        val bare = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "2.0"}""")
+        val prusa = runSuspend { PrintHostUploader(bare).upload(printer("prusalink", "host", "key"), gcode(), "plate.gcode", startPrint = false) }
+        assertEquals("Mismatched type of print host: OctoPrint", (prusa as PrintHostUploadOutcome.Failure).message)
+    }
+
+    @Test
+    fun `a request that got no answer says why as format_error words it`() {
+        assertEquals(listOf(OrcaText(TIMED_OUT)), formatError(java.net.SocketTimeoutException("Read timed out")))
+        assertEquals(listOf(OrcaText(UNRESOLVED)), formatError(java.net.UnknownHostException("octopi.local")))
+        assertEquals(listOf(OrcaText(INTERRUPTED)), formatError(java.net.SocketException("Connection reset")))
+        assertEquals(listOf(OrcaText("HTTP 404: Not Found")), formatError(HttpStatusException(404, "Not Found")))
+        assertEquals("Mismatched type of print host: Klipper", english(listOf(OrcaText("Mismatched type of print host: %s", listOf("Klipper")))))
+        assertEquals("/usb : read only", english(listOf(OrcaText("%1% : read only", listOf("/usb")))))
+    }
+
+    @Test
+    fun `an Elegoo printer that is not a Centauri takes OctoPrint's upload with the plate of a gcode 3mf`() {
+        val http = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "0.1", "text": "Elegoo Link 1.0"}""")
+        val printer = printer("elegoolink", "192.168.1.30", "", mapOf("printer_model" to "Elegoo Neptune 4"))
+
+        val outcome = runSuspend {
+            PrintHostUploader(http).upload(printer, gcode(), "plate.gcode.3mf", startPrint = true, options = PrintOptions(use3mf = true, plateIndex = 2))
+        }
+
+        assertEquals(PrintHostUploadOutcome.Success("plate.gcode.3mf"), outcome)
+        assertEquals("http://192.168.1.30/api/version", http.gets.single())
+        assertEquals("2", http.multipart.single().fields["plateindex"])
+    }
+
+    @Test
+    fun `Duet says what rr_connect's error means, wants 201 from DSF and prints with M32`() {
+        val refused = FakeHttpClient(answer = Result.success("{}"), info = """{"err": 1}""")
+        val wrong = runSuspend { PrintHostUploader(refused).upload(printer("duet", "duet", "nope"), gcode(), "plate.gcode", startPrint = true) }
+        assertEquals(listOf(OrcaText("Wrong password")), (wrong as PrintHostUploadOutcome.Failure).text)
+        assertTrue(refused.files.isEmpty())
+        val busy = FakeHttpClient(answer = Result.success("{}"), info = """{"err": 2}""")
+        assertEquals(
+            "Could not get resources to create a new connection",
+            (runSuspend { PrintHostUploader(busy).test(printer("duet", "duet", "")) } as PrintHostTestOutcome.Failure).message,
+        )
+
+        // A board that does not answer rr_connect is a DSF host, which answers a stored file with 201.
+        val dsf = object : HttpClient by FakeHttpClient(Result.success("{}")) {
+            val inner = FakeHttpClient(answer = Result.success("{}"), fileStatus = 200)
+
+            override suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth?): Result<String> =
+                if (url.contains("rr_connect")) Result.failure(HttpStatusException(404, "")) else inner.get(url, headers, auth)
+
+            override suspend fun sendFileAnswer(
+                url: String,
+                method: String,
+                headers: Map<String, String>,
+                file: File,
+                onProgress: ((sent: Long, total: Long) -> Unit)?,
+                auth: HttpAuth?,
+            ): Result<HttpAnswer> = inner.sendFileAnswer(url, method, headers, file, onProgress, auth)
+        }
+        val notCreated = runSuspend { PrintHostUploader(dsf).upload(printer("duet", "dsf.local", ""), gcode(), "plate one.gcode", startPrint = true) }
+        assertEquals("Unknown error occurred", (notCreated as PrintHostUploadOutcome.Failure).message)
+        assertEquals("http://dsf.local/machine/file/gcodes/plate%20one.gcode", dsf.inner.files.single().url)
+        assertEquals("PUT", dsf.inner.files.single().method)
+
+        // rr_gcode with M32 and the file of the gcodes folder, escaped.
+        val rr = FakeHttpClient(answer = Result.success("""{"err": 0}"""), info = """{"err": 0}""")
+        runSuspend { PrintHostUploader(rr).upload(printer("duet", "192.168.1.80", ""), gcode(), "plate one.gcode", startPrint = true) }
+        assertTrue(rr.gets.any { it == "http://192.168.1.80/rr_gcode?gcode=M32%20\"0:/gcodes/plate%20one.gcode\"" })
+    }
+
+    @Test
+    fun `PrusaLink with a login answers the digest instead of giving the key, and PrusaConnect has no storages`() {
+        val http = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "2.0", "text": "PrusaLink 0.7.0", "capabilities": {"upload-by-put": true}}""")
+        val login = printer(
+            "prusalink",
+            "host",
+            "key",
+            mapOf("printhost_authorization_type" to "user", "printhost_user" to "maker", "printhost_password" to "secret"),
+        )
+
+        runSuspend { PrintHostUploader(http).upload(login, gcode(), "plate.gcode", startPrint = false) }
+
+        val sent = http.files.single()
+        assertEquals(null, sent.headers["X-Api-Key"])
+        assertEquals(HttpAuth("maker", "secret"), sent.auth)
+        assertEquals(HttpAuth("maker", "secret"), http.getAuth.single())
+
+        val connect = FakeHttpClient(answer = Result.success("{}"))
+        assertEquals(
+            HostStorageOutcome.Success(emptyList(), emptyList()),
+            runSuspend { PrintHostUploader(connect).storage(printer("prusaconnect", "https://connect.prusa3d.com", "key")) },
+        )
+        assertTrue(connect.gets.isEmpty())
+    }
+
     private fun parse(message: String) = kotlinx.serialization.json.Json.parseToJsonElement(message).jsonObject
 
     private fun printer(hostType: String, host: String, key: String, extra: Map<String, String> = emptyMap()) = PhysicalPrinter(
@@ -304,7 +422,7 @@ class PrintHostUploaderTest {
 
     @Test
     fun `the upload path's folder goes where each host takes it, with the storage and the group the dialog chose`() {
-        val octo = FakeHttpClient(answer = Result.success("{}"))
+        val octo = FakeHttpClient(answer = Result.success("{}"), info = """{"api": "0.1", "text": "OctoPrint 1.9.3"}""")
         runSuspend { PrintHostUploader(octo).upload(printer("octoprint", "host", "key"), gcode(), "parts/plate.gcode", startPrint = false) }
         assertEquals("parts", octo.multipart.single().fields["path"])
         assertEquals("plate.gcode", octo.multipart.single().fileName)
@@ -317,7 +435,7 @@ class PrintHostUploaderTest {
         assertEquals("http://host/api/v1/files/usb/my%20parts/plate%20one.gcode", link.files.single().url)
 
         // Moonraker: the root chosen, the file by its name alone.
-        val moon = FakeHttpClient(answer = Result.success("{}"))
+        val moon = FakeHttpClient(answer = Result.success("{}"), info = """{"result": {"klippy_state": "ready"}}""")
         runSuspend { PrintHostUploader(moon).upload(printer("moonraker", "host", "key"), gcode(), "parts/plate.gcode", false, PrintOptions(storage = "timelapse")) }
         assertEquals("timelapse", moon.multipart.single().fields["root"])
         assertEquals("plate.gcode", moon.multipart.single().fileName)
@@ -485,27 +603,41 @@ class PrintHostUploaderTest {
         val http = FakeHttpClient(answer = Result.success("ok"))
 
         val outcome = runSuspend {
-            PrintHostUploader(http).upload(printer("esp3d", "192.168.1.95", ""), gcode(), "plate one.gcode", startPrint = true)
+            PrintHostUploader(http, esp3dStartDelayMillis = 0).upload(printer("esp3d", "192.168.1.95", ""), gcode(), "plate one.gcode", startPrint = true)
         }
 
-        assertEquals(PrintHostUploadOutcome.Success("PLATEONE.GCO"), outcome)
+        // get_short_name(): the stem cut to 8 characters, the extension to 3, as they are.
+        assertEquals(PrintHostUploadOutcome.Success("plate on.gco"), outcome)
         assertEquals("http://192.168.1.95/upload_serial", http.multipart.single().url)
-        assertTrue(http.gets.any { it.contains("M23") })
-        assertTrue(http.gets.any { it.endsWith("M24") })
+        assertEquals("plate on.gco", http.multipart.single().fileName)
+        // ESP3D::upload() does not test the board first.
+        assertEquals(listOf("http://192.168.1.95/command?plain=M23%20plate%20on.gco", "http://192.168.1.95/command?plain=M24"), http.gets)
+        assertEquals("a.b.gcod.3mf", PrintHostUploader.shortName("parts/a.b.gcode.3mf"))
+        assertEquals("noextens", PrintHostUploader.shortName("noextension"))
     }
 
     @Test
-    fun `FlashAir prepares the card before the file and never prints`() {
-        val http = FakeHttpClient(answer = Result.success("ok"), info = "1")
+    fun `FlashAir tests and prepares the card before the file and never prints`() {
+        val http = FakeHttpClient(answer = Result.success("SUCCESS"), routes = mapOf("command.cgi?op=118" to "1", "upload.cgi" to "SUCCESS"))
 
         val outcome = runSuspend {
             PrintHostUploader(http).upload(printer("flashair", "192.168.1.99", ""), gcode(), "plate.gcode", startPrint = true)
         }
 
         assertEquals(PrintHostUploadOutcome.Success("plate.gcode"), outcome)
-        assertTrue(http.gets.first().contains("upload.cgi?WRITEPROTECT=ON&FTIME="))
-        assertEquals("http://192.168.1.99/upload.cgi?UPDIR=/", http.gets[1])
+        assertEquals("http://192.168.1.99/command.cgi?op=118", http.gets[0])
+        assertTrue(http.gets[1].contains("upload.cgi?WRITEPROTECT=ON&FTIME=0x"))
+        assertEquals("http://192.168.1.99/upload.cgi?UPDIR=/", http.gets[2])
         assertEquals("http://192.168.1.99/upload.cgi", http.multipart.single().url)
+
+        // A folder gets its leading slash; an answer without SUCCESS stops the upload.
+        val refused = FakeHttpClient(answer = Result.success("SUCCESS"), routes = mapOf("command.cgi?op=118" to "1", "UPDIR" to "ERROR", "upload.cgi" to "SUCCESS"))
+        val failed = runSuspend { PrintHostUploader(refused).upload(printer("flashair", "card", ""), gcode(), "parts/plate.gcode", startPrint = false) }
+        assertEquals(listOf(OrcaText("Unknown error occurred")), (failed as PrintHostUploadOutcome.Failure).text)
+        assertEquals("http://card/upload.cgi?UPDIR=/parts", refused.gets[2])
+        assertTrue(refused.multipart.isEmpty())
+        // FlashAir::timestamp_str(): the FAT date and time as "%#x".
+        assertEquals("0x58a63905", PrintHostUploader.fatTime(java.time.LocalDateTime.of(2024, 5, 6, 7, 8, 10)))
     }
 
     @Test
@@ -556,16 +688,26 @@ class PrintHostUploaderTest {
     private fun md5Of(text: String): String =
         java.security.MessageDigest.getInstance("MD5").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    private class FakeHttpClient(private val answer: Result<String>, private val info: String = "{}") : HttpClient {
+    private class FakeHttpClient(
+        private val answer: Result<String>,
+        private val info: String = "{}",
+        /** GETs whose URL holds a key are answered with its value instead of [info]. */
+        private val routes: Map<String, String> = emptyMap(),
+        /** The status a file sent as the whole body is answered with. */
+        private val fileStatus: Int = 200,
+    ) : HttpClient {
         val multipart = mutableListOf<Multipart>()
         val json = mutableListOf<Json>()
         val gets = mutableListOf<String>()
 
         val files = mutableListOf<Sent>()
+        val getAuth = mutableListOf<HttpAuth?>()
+        val bytes = mutableListOf<Pair<String, String>>()
 
         override suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth?): Result<String> {
             gets += url
-            return Result.success(info)
+            getAuth += auth
+            return Result.success(routes.entries.firstOrNull { url.contains(it.key) }?.value ?: info)
         }
 
         data class Multipart(val url: String, val headers: Map<String, String>, val fields: Map<String, String>, val fileName: String)
@@ -573,7 +715,7 @@ class PrintHostUploaderTest {
         data class Json(val url: String, val body: String)
 
         /** A file sent as the whole body (Duet, PrusaLink). */
-        data class Sent(val url: String, val method: String, val headers: Map<String, String>)
+        data class Sent(val url: String, val method: String, val headers: Map<String, String>, val auth: HttpAuth? = null)
 
         override suspend fun postMultipart(
             url: String,
@@ -598,10 +740,19 @@ class PrintHostUploaderTest {
             onProgress: ((sent: Long, total: Long) -> Unit)?,
             auth: HttpAuth?,
         ): Result<String> {
-            files += Sent(url, method, headers)
+            files += Sent(url, method, headers, auth)
             onProgress?.invoke(file.length(), file.length())
             return answer
         }
+
+        override suspend fun sendFileAnswer(
+            url: String,
+            method: String,
+            headers: Map<String, String>,
+            file: File,
+            onProgress: ((sent: Long, total: Long) -> Unit)?,
+            auth: HttpAuth?,
+        ): Result<HttpAnswer> = sendFile(url, method, headers, file, onProgress, auth).map { HttpAnswer(fileStatus, it) }
 
         override suspend fun postJson(url: String, headers: Map<String, String>, body: String, auth: HttpAuth?): Result<String> {
             json += Json(url, body)
@@ -620,8 +771,10 @@ class PrintHostUploaderTest {
             onProgress: ((sent: Long, total: Long) -> Unit)?,
         ): Result<String> = answer
 
-        override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> =
-            answer
+        override suspend fun sendBytes(url: String, method: String, headers: Map<String, String>, body: ByteArray): Result<String> {
+            bytes += url to body.decodeToString()
+            return answer
+        }
 
         override suspend fun postFields(url: String, headers: Map<String, String>, fields: Map<String, String>): Result<String> =
             Result.success("{}")

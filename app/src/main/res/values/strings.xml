@@ -4,4 +4,5 @@
     <string name="network_notification_channel">Printers and cloud connections</string>
     <string name="network_notification_login">Signing in to %1$s: waiting for the browser</string>
     <string name="network_notification_send">Sending to %1$s</string>
+    <string name="network_notification_uploads">Uploading to printers</string>
 </resources>

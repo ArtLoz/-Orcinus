@@ -18,7 +18,7 @@ import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.Point2
-import app.orcinus.shadow.core.model.PrintHostUploadOutcome
+import app.orcinus.shadow.core.model.PrintHostJob
 import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
@@ -172,13 +172,15 @@ class PreviewViewModel(
     /** Plater::send_gcode_legacy(): the host of the printer preset the G-code goes to. */
     suspend fun printerHost(): PrinterConnectionOutcome = printerConnection()
 
-    /** PrintHost::upload: the G-code of the last slice goes to the printer. */
-    suspend fun send(
-        printer: PhysicalPrinter,
-        startPrint: Boolean,
-        options: PrintOptions,
-        onProgress: (Float) -> Unit,
-    ): PrintHostUploadOutcome = sendGcode(printer, startPrint, options, onProgress)
+    /** PrintHost::upload: the G-code of the last slice joins the upload queue for the printer. */
+    fun send(printer: PhysicalPrinter, startPrint: Boolean, options: PrintOptions) = sendGcode(printer, startPrint, options)
+
+    /** PrintHostQueueDialog: the uploads sent since the app started. */
+    val uploadJobs: StateFlow<List<PrintHostJob>> get() = sendGcode.jobs
+
+    fun cancelUpload(id: Int) = sendGcode.cancel(id)
+
+    fun acknowledgeUpload(id: Int) = sendGcode.acknowledge(id)
 
     /** CrealityPrintHostSendDialog: the slots of the printer's material boxes. */
     suspend fun printerSlots(printer: PhysicalPrinter): PrinterSlotsOutcome = sendGcode.printerSlots(printer)

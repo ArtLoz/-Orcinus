@@ -351,7 +351,9 @@ private fun ConnectionForm(
                     is PrintHostTestOutcome.Failure -> {
                         val note = testedType.testFailedNote?.let { orcaString(it) }
                         val gap = if (testedType == PrintHostType.FLASHAIR) "\n" else "\n\n"
-                        "${orcaString(testedPrinter.testFailedMessage ?: testedType.testFailedMessage)}: ${outcome.message}" +
+                        // The host's message as format_error() words it, in the app's language when it is Orca's.
+                        val message = if (outcome.text.isEmpty()) outcome.message else orcaText(outcome.text)
+                        "${orcaString(testedPrinter.testFailedMessage ?: testedType.testFailedMessage)}: $message" +
                             note?.let { gap + it }.orEmpty()
                     }
                 },

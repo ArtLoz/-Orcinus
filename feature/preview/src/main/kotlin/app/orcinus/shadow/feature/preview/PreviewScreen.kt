@@ -20,10 +20,8 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -43,7 +41,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
@@ -77,7 +74,7 @@ import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.PlateSliceResult
-import app.orcinus.shadow.core.model.PrintHostUploadOutcome
+import app.orcinus.shadow.core.model.PrintHostJob
 import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
@@ -110,6 +107,9 @@ import app.orcinus.shadow.core.ui.plate.SliceNoticeNotification
 import app.orcinus.shadow.core.ui.plate.SlicingNotification
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.printTime
+import app.orcinus.shadow.core.ui.settings.PrintHostJobsReport
+import app.orcinus.shadow.core.ui.settings.PrintHostQueueButton
+import app.orcinus.shadow.core.ui.settings.PrintHostQueueSheet
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
 import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import app.orcinus.shadow.core.ui.settings.openInBrowser
@@ -127,6 +127,8 @@ import app.orcinus.shadow.render.scene.PlateViewOptions
 import app.orcinus.shadow.render.scene.rememberPlateViewCamera
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -165,6 +167,9 @@ internal fun PreviewRoute(
         printers = PrinterActions(
             load = viewModel::printerHost,
             send = viewModel::send,
+            jobs = viewModel.uploadJobs,
+            cancelUpload = viewModel::cancelUpload,
+            acknowledgeUpload = viewModel::acknowledgeUpload,
             slots = viewModel::printerSlots,
             filaments = viewModel::sentFilaments,
             flashforgeSlots = viewModel::flashforgeSlots,
@@ -197,7 +202,12 @@ internal fun PreviewRoute(
 /** What the send sheet needs of the app: the printer preset's host, and what to do with it. */
 internal class PrinterActions(
     val load: suspend () -> PrinterConnectionOutcome,
-    val send: suspend (PhysicalPrinter, Boolean, PrintOptions, (Float) -> Unit) -> PrintHostUploadOutcome,
+    /** The upload joins the queue (PrintHostJobQueue), which sends it behind the screen. */
+    val send: (PhysicalPrinter, Boolean, PrintOptions) -> Unit,
+    /** PrintHostQueueDialog's jobs, its cancel, and how the screen notes that it showed a job's end. */
+    val jobs: StateFlow<List<PrintHostJob>> = MutableStateFlow(emptyList()),
+    val cancelUpload: (Int) -> Unit = {},
+    val acknowledgeUpload: (Int) -> Unit = {},
     /** The slots of a printer's material boxes, and the plate's filaments they are matched to. */
     val slots: suspend (PhysicalPrinter) -> PrinterSlotsOutcome = { PrinterSlotsOutcome.Success(emptyList()) },
     val filaments: () -> List<SentFilament> = { emptyList() },
@@ -222,7 +232,7 @@ internal class PrinterActions(
     companion object {
         val NONE = PrinterActions(
             load = { PrinterConnectionOutcome.Failure("") },
-            send = { _, _, _, _ -> PrintHostUploadOutcome.Failure("") },
+            send = { _, _, _ -> },
         )
     }
 }
@@ -301,9 +311,9 @@ internal fun PreviewScreen(
     // not name the file shows its error, and nothing is saved or sent.
     var nameError by remember { mutableStateOf<String?>(null) }
     val send = { gcodeNameError()?.let { nameError = it } ?: openSending() }
-    var sent by remember { mutableStateOf<PrintHostUploadOutcome?>(null) }
-    // Http::on_progress while the file travels; null when nothing is going out.
-    var progress by remember { mutableStateOf<Float?>(null) }
+    // PrintHostQueueDialog: the uploads, which go on behind the screen, and the sheet that lists them.
+    val uploadJobs by printers.jobs.collectAsStateWithLifecycle()
+    var queueShown by rememberSaveable { mutableStateOf(false) }
     var saved by remember { mutableStateOf<Boolean?>(null) }
     val scope = rememberCoroutineScope()
     // Export G-code: the file goes into a document of the user's own.
@@ -395,6 +405,9 @@ internal fun PreviewScreen(
                                 .weight(1f)
                                 .padding(start = 8.dp),
                         )
+                        if (uploadJobs.isNotEmpty()) {
+                            PrintHostQueueButton(uploadJobs, onClick = { queueShown = true }, modifier = Modifier.padding(start = 4.dp))
+                        }
                         // Android's share sheet, the phone's way of handing the file to another app.
                         OrcaIconButton(
                             icon = DesignR.drawable.app_share,
@@ -636,14 +649,17 @@ internal fun PreviewScreen(
                 ) {
                     SlicedInfo(result = result)
                     // PrintHost::upload: the G-code goes to a printer of the user.
-                    OrcaButton(
-                        text = stringResource(UiR.string.printer_host_send),
-                        onClick = send,
-                        enabled = printReady,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OrcaButton(
+                            text = stringResource(UiR.string.printer_host_send),
+                            onClick = send,
+                            enabled = printReady,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (uploadJobs.isNotEmpty()) {
+                            PrintHostQueueButton(uploadJobs, onClick = { queueShown = true }, modifier = Modifier.padding(start = 4.dp))
+                        }
+                    }
                 }
             }
         }
@@ -671,20 +687,8 @@ internal fun PreviewScreen(
             onSend = { printer, startPrint, options ->
                 sending = false
                 beginExport()
-                progress = 0f
-                // The screen's own scope: the sheet is gone while the file travels.
-                scope.launch {
-                    // send_gcode_legacy(): a .gcode.3mf names the plate it carries, 1-based.
-                    val sentOptions = if (options.use3mf) options.copy(plateIndex = state.currentPlate + 1) else options
-                    val outcome = printers.send(printer, startPrint, sentOptions) { part -> progress = part }
-                    sent = outcome
-                    progress = null
-                    // PrintHostJobQueue::priv::perform_job(): the Device tab once the upload went through.
-                    if (outcome is PrintHostUploadOutcome.Success && sentOptions.switchToDeviceTab) printers.openDevice()
-                    // A host that opens a page after the upload (SimplyPrint's import, 3DPrinterOS's quick print):
-                    // the desktop opens it in the browser.
-                    (outcome as? PrintHostUploadOutcome.Success)?.openUrl?.let { openInBrowser(context, it) }
-                }
+                // send_gcode_legacy(): a .gcode.3mf names the plate it carries, 1-based.
+                printers.send(printer, startPrint, if (options.use3mf) options.copy(plateIndex = state.currentPlate + 1) else options)
             },
             onDismiss = { sending = false },
             loadSlots = printers.slots,
@@ -702,76 +706,26 @@ internal fun PreviewScreen(
             notice = if (localNetworkDenied) stringResource(UiR.string.printer_host_local_network) else null,
         )
     }
-    progress?.let { part ->
-        SendProgressDialog(part)
+    if (queueShown && uploadJobs.isNotEmpty()) {
+        PrintHostQueueSheet(uploadJobs, onCancel = printers.cancelUpload, onDismiss = { queueShown = false })
     }
-    sent?.let { outcome ->
-        SendResultDialog(outcome, onDismiss = { sent = null })
-    }
+    PrintHostJobsReport(
+        jobs = uploadJobs,
+        onAcknowledge = printers.acknowledgeUpload,
+        onCompleted = { job ->
+            // PrintHostJobQueue::priv::perform_job(): the Device tab once the upload went through.
+            if (job.switchToDeviceTab) printers.openDevice()
+            // A host that opens a page after the upload (SimplyPrint's import, 3DPrinterOS's quick print):
+            // the desktop opens it in the browser.
+            job.openUrl?.let { openInBrowser(context, it) }
+        },
+    )
     saved?.let { written ->
         ExportResultDialog(orcaString("Export G-code"), written, stringResource(UiR.string.gcode_saved), onDismiss = { saved = null })
     }
     nameError?.let { message ->
         NameErrorDialog(message, onDismiss = { nameError = null })
     }
-}
-
-/** What the upload did, as the desktop app reports it. */
-/** Http::on_progress while the G-code travels to the printer; it cannot be dismissed. */
-@Composable
-private fun SendProgressDialog(part: Float) {
-    val colors = OrcaTheme.colors
-    AlertDialog(
-        onDismissRequest = {},
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-        confirmButton = {},
-        title = { Text(orcaString("Send G-code"), style = OrcaTheme.typography.head16) },
-        text = {
-            Column {
-                Text(
-                    text = stringResource(UiR.string.printer_host_sending, (part * 100).roundToInt()),
-                    color = colors.text,
-                    style = OrcaTheme.typography.body14,
-                )
-                LinearProgressIndicator(
-                    progress = { part },
-                    color = colors.accent,
-                    trackColor = colors.separator,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                )
-            }
-        },
-        containerColor = colors.window,
-        titleContentColor = colors.text,
-        textContentColor = colors.text,
-        shape = OrcaTheme.shapes.window,
-    )
-}
-
-@Composable
-private fun SendResultDialog(outcome: PrintHostUploadOutcome, onDismiss: () -> Unit) {
-    val colors = OrcaTheme.colors
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { OrcaButton(orcaString("OK"), onClick = onDismiss) },
-        title = { Text(orcaString("Send G-code"), style = OrcaTheme.typography.head16) },
-        text = {
-            when (outcome) {
-                is PrintHostUploadOutcome.Failure -> Text(outcome.message, color = colors.error, style = OrcaTheme.typography.body14)
-                is PrintHostUploadOutcome.Success -> Text(
-                    text = stringResource(UiR.string.printer_host_sent, outcome.path),
-                    color = colors.text,
-                    style = OrcaTheme.typography.body14,
-                )
-            }
-        },
-        containerColor = colors.window,
-        titleContentColor = colors.text,
-        textContentColor = colors.text,
-        shape = OrcaTheme.shapes.window,
-    )
 }
 
 @Composable

@@ -58,8 +58,6 @@
     <string name="printer_host_empty">У профиля принтера не указан адрес. Задайте его кнопкой «Подключение» у принтера на боковой панели.</string>
     <string name="printer_host_send">Отправить на принтер</string>
     <string name="printer_host_start">Начать печать сразу</string>
-    <string name="printer_host_sent">Отправлено: %1$s</string>
-    <string name="printer_host_sending">Отправка на принтер: %1$d %%</string>
     <!-- A host type of OrcaSlicer's list whose protocol the app has not ported yet. -->
     <!-- Export G-code of the desktop app's File menu. -->
     <string name="gcode_save">Сохранить G-code</string>
