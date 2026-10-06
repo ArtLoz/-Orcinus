@@ -176,7 +176,8 @@ class PaintObjectUseCase(
             } ?: false
             if (unpainted && !remapped) return@update closed
             val painted = target.withPainted(outcome.surface.facets, shown ?: target.paintedMeshes).withParts(parts)
-            (if (before != null) closed.recorded(before) else closed)
+            // reduce_noisy_snapshots(): the session stays one GizmoAction snapshot, from before its first stroke.
+            (if (before != null) closed.recorded(before, gizmoAction = true) else closed)
                 .copy(objects = state.objects.map { if (it.mesh == mesh) painted else it }, result = null)
         }
         return outcome

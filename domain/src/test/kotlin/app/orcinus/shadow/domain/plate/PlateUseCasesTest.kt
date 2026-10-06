@@ -2186,6 +2186,35 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `the assembly view's Undo goes back over a tool's action alone, which Redo keeps one`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val history = UndoRedoPlateUseCase(repository, placePlateObjects(FakeInspector(), repository), settingsTabs(repository), scope)
+        val place = PlaceInAssemblyUseCase(repository)
+        val id = PlateInstanceId(CUBE.mesh)
+        fun shifted(x: Double) = Transform3(Transform3.IDENTITY.columns.toMutableList().also { it[12] = x })
+        fun assemble() = repository.state.value.objects.single().instances.single().assemble
+
+        // A gizmo's drag ("Tool-Move", an Action), then the move window's value ("Set Position", a GizmoAction).
+        place(id, shifted(5.0), Manipulation.Move)
+        place(id, shifted(10.0), Manipulation.Move, gizmoAction = true)
+
+        history.undo(assemblyView = true)
+        assertEquals(shifted(5.0), assemble())
+        // Plater::priv::undo() stops at the Action.
+        history.undo(assemblyView = true)
+        assertEquals(shifted(5.0), assemble())
+        assertTrue(repository.state.value.canUndo)
+
+        history.redo()
+        assertEquals(shifted(10.0), assemble())
+        history.undo(assemblyView = true)
+        assertEquals(shifted(5.0), assemble())
+        // The 3D view undoes any action.
+        history.undo()
+        assertEquals(null, assemble())
+    }
+
+    @Test
     fun `judging the fit for another printer is no step of Undo, arranging is`() {
         val repository = FakeRepository(readyState(CUBE))
         val inspector = FakeInspector()

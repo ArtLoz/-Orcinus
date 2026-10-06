@@ -139,7 +139,8 @@ class MeasureUseCase(
             val made = written.objects.mapIndexed { index, loaded -> loaded.toPlateObjectOf(sources[index]) }
             val meshes = sources.map { it.mesh }.zip(made.map { it.mesh }).toMap()
             val objects = sources.indices.fold(current.objects) { objects, index -> objects.replaced(sources[index].mesh, made[index]) }
-            val changed = current.recorded().copy(
+            // take_snapshot("MoveInMeasure", ...) and the tool's others: GizmoAction.
+            val changed = current.recorded(gizmoAction = true).copy(
                 objects = objects,
                 selectedInstances = current.selectedInstances.mapTo(LinkedHashSet()) { id -> meshes[id.mesh]?.let { PlateInstanceId(it, id.instance) } ?: id },
                 selectedPart = current.selectedPart?.let { part -> meshes[part.mesh]?.let { ObjectPartId(it, part.index) } ?: part },

@@ -176,6 +176,10 @@ internal class OrcaCamera {
         viewMatrix = Affine3.fromPositionOrientation(viewRotation.rotate(-rotationTarget) + translation, viewRotation)
     }
 
+    /** Camera::rotate_on_sphere(): about the camera's own target. */
+    fun rotateOnSphere(deltaAzimuthRad: Double, deltaZenitRad: Double, applyLimits: Boolean) =
+        rotateOnSphereWithTarget(deltaAzimuthRad, deltaZenitRad, applyLimits, target)
+
     /** Camera::rotate_local_around_target(): the free camera's virtual track ball. */
     fun rotateLocalAroundTarget(rotationRad: Vec3) {
         val angle = rotationRad.norm()

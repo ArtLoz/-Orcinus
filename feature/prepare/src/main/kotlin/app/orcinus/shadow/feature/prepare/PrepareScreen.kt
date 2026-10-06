@@ -44,6 +44,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -53,6 +54,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -216,6 +218,8 @@ import app.orcinus.shadow.render.scene.PlateLabel
 import app.orcinus.shadow.render.scene.PlateNavigator
 import app.orcinus.shadow.render.scene.PlateView
 import app.orcinus.shadow.render.scene.PlateViewOptions
+import app.orcinus.shadow.render.scene.SidebarField
+import app.orcinus.shadow.render.scene.SidebarHint
 import app.orcinus.shadow.render.scene.TextDragView
 import app.orcinus.shadow.render.scene.rememberPlateViewCamera
 import java.util.Locale
@@ -836,6 +840,11 @@ internal fun PrepareScreen(
         var renamingVolume by remember { mutableStateOf<Pair<ObjectPartId, String>?>(null) }
         // Plater::select_plate_by_hover_id(), action 5: the plate is selected, then its settings open.
         var customizingPlate by remember { mutableStateOf<Int?>(null) }
+        // GLCanvas3D::handle_sidebar_focus_event(): the field of the move, rotate or scale window being edited, by its row and axis.
+        var sidebarField by remember { mutableStateOf<Pair<SidebarField, Int>?>(null) }
+        val onFieldFocus: (SidebarField, Int, Boolean) -> Unit = { field, axis, focused ->
+            if (focused) sidebarField = field to axis else if (sidebarField == field to axis) sidebarField = null
+        }
         val untitled = orcaString("Untitled")
         // Previews have no OpenGL; they show the canvas colour.
         if (!LocalInspectionMode.current) {
@@ -944,6 +953,8 @@ internal fun PrepareScreen(
                     state.painting == null && state.cut == null && state.simplify == null && state.measure == null && state.gizmo != PlateGizmo.LAY_ON_FACE
                 },
                 layerRangeHint = state.layerRangeHint,
+                sidebarHint = sidebarField?.let { (field, axis) -> sidebarHintOf(state, field, axis) },
+                printsByObject = state.printSequence.isNotEmpty(),
                 antialiasingSamples = canvas.antialiasingSamples,
                 layerEditing = state.layerEditing?.view(),
                 // SurfaceDrag: the text the tool is open on follows a finger over its object.
@@ -1273,7 +1284,7 @@ internal fun PrepareScreen(
                         state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
                         state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
                         state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
-                            ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo)
+                            ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo, onFieldFocus)
                         state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(
                             position = position,
                             imperial = canvas.imperialUnits,
@@ -1285,8 +1296,9 @@ internal fun PrepareScreen(
                             onSetPosition = onSetPosition,
                             onTranslate = onTranslateInObject,
                             onDone = onCloseGizmo,
+                            onFieldFocus = onFieldFocus,
                         )
-                        state.gizmo == PlateGizmo.ROTATE && rotation != null -> RotateGizmoPanel(state, rotation, rotationActions, onCloseGizmo)
+                        state.gizmo == PlateGizmo.ROTATE && rotation != null -> RotateGizmoPanel(state, rotation, rotationActions, onCloseGizmo, onFieldFocus)
                     }
                 }
             }
@@ -2822,6 +2834,7 @@ private fun MoveGizmoPanel(
     onSetPosition: (axis: Int, value: Double) -> Unit,
     onTranslate: (axis: Int, value: Double) -> Unit,
     onDone: () -> Unit,
+    onFieldFocus: (SidebarField, Int, Boolean) -> Unit = { _, _, _ -> },
 ) {
     OrcaGizmoPanel {
         // do_render_move_window(): "World coordinates" and, for a single copy, "Object coordinates".
@@ -2852,6 +2865,7 @@ private fun MoveGizmoPanel(
                 unit = lengthUnit(imperial),
                 labelWidth = labelWidth,
                 onValue = { axis, value -> onTranslate(axis, value * inputKoef(imperial)) },
+                onFocus = { axis, focused -> onFieldFocus(SidebarField.POSITION, axis, focused) },
             )
         } else {
             GizmoValueRow(
@@ -2860,6 +2874,7 @@ private fun MoveGizmoPanel(
                 unit = lengthUnit(imperial),
                 labelWidth = labelWidth,
                 onValue = { axis, value -> onSetPosition(axis, value * inputKoef(imperial)) },
+                onFocus = { axis, focused -> onFieldFocus(SidebarField.POSITION, axis, focused) },
             )
         }
         GizmoPanelFooter(onDone)
@@ -2965,6 +2980,7 @@ private fun RotateGizmoPanel(
     rotation: Vector3,
     actions: RotationActions,
     onDone: () -> Unit,
+    onFieldFocus: (SidebarField, Int, Boolean) -> Unit = { _, _, _ -> },
 ) {
     val colors = OrcaTheme.colors
     OrcaGizmoPanel {
@@ -2984,6 +3000,7 @@ private fun RotateGizmoPanel(
             labelWidth = RotationLabelWidth,
             onValue = actions.rotateBy,
             reset = GizmoReset(DesignR.drawable.orca_toolbar_reset, stringResource(R.string.gizmo_reset_rotation), state.canResetRotation, actions.reset),
+            onFocus = { axis, focused -> onFieldFocus(SidebarField.ROTATION, axis, focused) },
         )
         GizmoValueRow(
             label = stringResource(R.string.gizmo_rotate_absolute),
@@ -2997,6 +3014,7 @@ private fun RotateGizmoPanel(
                 state.canResetRotationToZero,
                 actions.resetToZero,
             ),
+            onFocus = { axis, focused -> onFieldFocus(SidebarField.ABSOLUTE_ROTATION, axis, focused) },
         )
         GizmoPanelFooter(onDone)
     }
@@ -3029,6 +3047,7 @@ private fun ScaleGizmoPanel(
     imperial: Boolean,
     actions: ScaleActions,
     onDone: () -> Unit,
+    onFieldFocus: (SidebarField, Int, Boolean) -> Unit = { _, _, _ -> },
 ) {
     val canReset = listOf(scale.x, scale.y, scale.z).let { ratios -> sqrt(ratios.sumOf { (it / 100.0 - 1.0).pow(2) }) > 0.001 }
     OrcaGizmoPanel {
@@ -3069,6 +3088,7 @@ private fun ScaleGizmoPanel(
             labelWidth = PositionLabelWidth,
             onValue = actions.setScale,
             reset = GizmoReset(DesignR.drawable.orca_toolbar_reset, stringResource(R.string.gizmo_reset_scale), canReset, actions.reset),
+            onFocus = { axis, focused -> onFieldFocus(SidebarField.SCALE, axis, focused) },
         )
         GizmoValueRow(
             label = stringResource(R.string.gizmo_size),
@@ -3077,6 +3097,7 @@ private fun ScaleGizmoPanel(
             labelWidth = PositionLabelWidth,
             onValue = { axis, value -> actions.setSize(axis, value * inputKoef(imperial)) },
             reset = GizmoReset(DesignR.drawable.orca_toolbar_reset, "", visible = false, onClick = {}),
+            onFocus = { axis, focused -> onFieldFocus(SidebarField.SIZE, axis, focused) },
         )
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -3128,6 +3149,7 @@ private fun GizmoValueRow(
     labelWidth: Dp,
     onValue: (axis: Int, value: Double) -> Unit,
     reset: GizmoReset? = null,
+    onFocus: (axis: Int, focused: Boolean) -> Unit = { _, _ -> },
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
         Text(
@@ -3140,6 +3162,7 @@ private fun GizmoValueRow(
             PositionField(
                 value = values[axis],
                 onValue = { onValue(axis, it) },
+                onFocusChange = { onFocus(axis, it) },
                 modifier = Modifier
                     .padding(start = 6.dp)
                     .width(PositionFieldWidth),
@@ -3187,16 +3210,22 @@ private fun ColumnScope.GizmoPanelFooter(onDone: () -> Unit) {
 /**
  * ImGui::BBLInputDouble with "%.2f": the value with two decimals, applied when
  * the input is done or loses focus. Text that is not a number is dropped.
+ * [onFocusChange] hears it being edited and no longer (ImGui's active item),
+ * as it leaves too.
  */
 @Composable
 internal fun PositionField(
     value: Double,
     onValue: (Double) -> Unit,
     modifier: Modifier = Modifier,
+    onFocusChange: (Boolean) -> Unit = {},
 ) {
     val shown = String.format(Locale.ROOT, "%.2f", value)
     var text by remember(shown) { mutableStateOf(shown) }
     val focusManager = LocalFocusManager.current
+    var focused by remember { mutableStateOf(false) }
+    val focusChange by rememberUpdatedState(onFocusChange)
+    DisposableEffect(Unit) { onDispose { if (focused) focusChange(false) } }
     fun apply() {
         text.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() && text != shown }?.let(onValue)
         text = shown
@@ -3206,7 +3235,13 @@ internal fun PositionField(
         onValueChange = { text = it },
         // The small font of OrcaSlicer's gizmo windows keeps -9999.99 visible.
         textStyle = OrcaTheme.typography.body12,
-        modifier = modifier.onFocusChanged { if (!it.isFocused && text != shown) apply() },
+        modifier = modifier.onFocusChanged {
+            if (!it.isFocused && text != shown) apply()
+            if (it.isFocused != focused) {
+                focused = it.isFocused
+                focusChange(it.isFocused)
+            }
+        },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = {
             apply()
@@ -3312,6 +3347,26 @@ private fun PrepareWidePreview() = OrcinusTheme {
         OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
+}
+
+/**
+ * GLCanvas3D::m_sidebar_field of the window of [field]'s gizmo while it shows,
+ * with the reference system of the window's coordinates: the move window's
+ * object coordinates, the scale window's of a volume (part coordinates its
+ * own) or of a copy, none for the rotation window's world coordinates.
+ */
+private fun sidebarHintOf(state: PrepareUiState, field: SidebarField, axis: Int): SidebarHint? = when (field) {
+    SidebarField.POSITION -> SidebarHint(field, axis, state.moveFrame).takeIf { state.gizmo == PlateGizmo.MOVE }
+    SidebarField.ROTATION, SidebarField.ABSOLUTE_ROTATION -> SidebarHint(field, axis).takeIf { state.gizmo == PlateGizmo.ROTATE }
+    SidebarField.SCALE, SidebarField.SIZE -> {
+        val reference = if (state.selectedVolume != null) {
+            state.volumeScale?.reference?.takeIf { state.scaleCoordinates != CoordinateSystem.WORLD }
+        } else {
+            state.moveFrame
+        }
+        SidebarHint(field, axis, reference, local = state.scaleCoordinates == CoordinateSystem.LOCAL, uniformScale = state.uniformScale)
+            .takeIf { state.gizmo == PlateGizmo.SCALE }
+    }
 }
 
 /**

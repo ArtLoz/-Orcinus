@@ -111,6 +111,12 @@ internal class SceneFrame(
     val section: FloatArray? = null,
     /** Volumes a tool frames as the selection is framed (Selection::render_bounding_box() with its colour). */
     val framedVolumes: List<FramedVolume> = emptyList(),
+    /** GLVolumeCollection::m_show_sinking_contours: the outlines where sinking model parts cross the plate. */
+    val sinkingContours: Boolean = false,
+    /** GLVolume::force_sinking_contours of the selected volumes: their outlines drawn over everything. */
+    val forceSinkingContours: Boolean = false,
+    /** Selection::render_sidebar_hints() of the field of the move, rotate or scale window being edited. */
+    val sidebarHints: List<GizmoMesh> = emptyList(),
 )
 
 /** Whether [sceneObject] is drawn selected: its copy is, and it is the selected volume when one is selected alone. */
@@ -242,6 +248,16 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var layerTextureOf: LayerEditingView? = null
     /** LayersEditing::m_profile.background: the bar's quad, with where it stands. */
     private var layerBar: Pair<FloatArray, GlVertexArray>? = null
+    /** GLVolume::m_sinking_contours of the volumes by copy and mesh. */
+    private val sinkingContours = HashMap<Pair<Int, String>, SinkingContour>()
+
+    /**
+     * A volume's sinking contour as it was made from [mesh] ([band] null when
+     * it was not sinking), for the linear part and height ([linear]) and the
+     * offset ([origin]) the volume then had: moved over the plate alone, it is
+     * shifted rather than made again (SinkingContours::update()).
+     */
+    private class SinkingContour(val mesh: MeshData, val linear: List<Double>, val origin: Vec3, val band: GlVertexArray?)
 
     fun setBed(bed: SceneBed?) = synchronized(lock) {
         pendingBed = bed
@@ -307,6 +323,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         layerTextureId = 0
         layerTextureOf = null
         layerBar = null
+        sinkingContours.clear()
         val samples = IntArray(2)
         GLES30.glGetIntegerv(GLES30.GL_SAMPLES, samples, 0)
         GLES30.glGetIntegerv(GLES30.GL_MAX_SAMPLES, samples, 1)
@@ -571,7 +588,27 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         frame.clearance?.let { renderClearance(programs.flat, it, frame) }
         // _render_selection_sidebar_hints(): before the gizmos, which may clear the depth.
         frame.layerRangeHint?.let { renderLayerRangeHint(programs.flat, it, frame) }
+        if (frame.sidebarHints.isNotEmpty()) renderSidebarHints(programs.gouraudLight, frame)
         frame.gizmo?.let { renderGizmo(programs, it, frame) }
+    }
+
+    /** Selection::render_sidebar_hints(): gouraud_light over the cleared depth. */
+    private fun renderSidebarHints(light: GlProgram, frame: SceneFrame) {
+        GLES30.glClear(GLES30.GL_DEPTH_BUFFER_BIT)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        light.use()
+        light.setMatrix4("projection_matrix", frame.projection)
+        for (placed in frame.sidebarHints) {
+            val array = gizmoMeshes[placed.key]?.takeIf { it.first === placed.mesh }?.second ?: meshArray(placed.mesh).also { made ->
+                gizmoMeshes.put(placed.key, placed.mesh to made)?.second?.release()
+            }
+            light.setFloat("emission_factor", placed.emission ?: 0f)
+            light.setVec4("uniform_color", placed.color.red, placed.color.green, placed.color.blue, placed.color.alpha)
+            light.setMatrix4("view_model_matrix", (frame.view * placed.world).toFloatArray())
+            light.setMatrix3("view_normal_matrix", normalMatrix(frame.view, placed.world))
+            array.draw()
+        }
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
     }
 
     private fun uploadChanges() {
@@ -614,6 +651,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
                     gpuObjects[sceneObject.key] = sceneObject.mesh to meshArray(sceneObject.mesh)
                 }
             }
+            val volumes = newObjects.mapTo(HashSet()) { it.index to it.key }
+            sinkingContours.keys.filter { it !in volumes }.forEach { sinkingContours.remove(it)?.band?.release() }
             val wired = newObjects.filter(SceneObject::wireframe).associateBy(SceneObject::key)
             gpuWireframes.keys.filter { it !in wired }.forEach { gpuWireframes.remove(it)?.release() }
             wired.forEach { (key, sceneObject) ->
@@ -944,6 +983,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glEnable(GLES30.GL_CULL_FACE)
         GLES30.glCullFace(GLES30.GL_BACK)
+        // GLVolumeCollection::render(): the sinking contours of the volumes not moved, in the scene's depth;
+        // those of the moved ones over everything once the volumes are drawn.
+        val layerEditing = frame.layerEditing
+        val shown = if (layerEditing == null) objects else objects.filterNot(layerEditing::draws)
+        val (forcedContours, contours) = shown.filter { frame.sinkingContours && drawsSinkingContour(it) }
+            .partition { frame.forceSinkingContours && frame.selects(it) }
+        programs?.let { renderSinkingContours(it.flat, frame, contours, over = false) }
         program.use()
         // opengl_phong_ssao, which the phong shader leaves to the SSAO pass.
         if (frame.phong) program.setBoolean("enable_ssao", frame.ssao)
@@ -972,8 +1018,6 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         printVolume = currentPrintVolume()
         // GLCanvas3D::_render_objects() with the variable layer height on:
         // the model parts of its object are drawn by render_volumes().
-        val layerEditing = frame.layerEditing
-        val shown = if (layerEditing == null) objects else objects.filterNot(layerEditing::draws)
         // GLVolumeCollection::render(): the opaque volumes first, then the
         // transparent ones blended over them, with the depth buffer kept.
         for (sceneObject in shown.filterNot(SceneObject::transparent).filterNot(SceneObject::overlay)) {
@@ -1011,8 +1055,47 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glDepthMask(true)
             GLES30.glDisable(GLES30.GL_BLEND)
         }
+        programs?.let { renderSinkingContours(it.flat, frame, forcedContours, over = true) }
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+    }
+
+    /** A model part that may be sinking (SinkingContours::update() of a volume of the model). */
+    private fun drawsSinkingContour(volume: SceneObject): Boolean =
+        !volume.modifier && !volume.overlay && !volume.hidden && volume.index != WIPE_TOWER_INDEX && maySink(volume.bounds)
+
+    /** GLVolume::render_sinking_contours() of [volumes] with the flat shader in white, [over] everything with GL_ALWAYS. */
+    private fun renderSinkingContours(flat: GlProgram, frame: SceneFrame, volumes: List<SceneObject>, over: Boolean) {
+        val bands = volumes.mapNotNull(::sinkingContour)
+        if (bands.isEmpty()) return
+        flat.use()
+        flat.setMatrix4("projection_matrix", frame.projection)
+        flat.setVec4("uniform_color", 1f, 1f, 1f, 1f)
+        if (over) GLES30.glDepthFunc(GLES30.GL_ALWAYS)
+        for ((band, shift) in bands) {
+            flat.setMatrix4("view_model_matrix", frame.view.translated(shift).toFloatArray())
+            band.draw()
+        }
+        if (over) GLES30.glDepthFunc(GLES30.GL_LESS)
+    }
+
+    /** SinkingContours::update(): the volume's band and how far it moved since, made again once it turned, scaled or rose. */
+    private fun sinkingContour(volume: SceneObject): Pair<GlVertexArray, Vec3>? {
+        val key = volume.index to volume.key
+        val elements = volume.world.elements()
+        val linear = elements.slice(0..11) + elements[14]
+        val origin = volume.world.translation()
+        val kept = sinkingContours[key]?.takeIf { it.mesh === volume.mesh && it.linear == linear }
+        val contour = kept ?: SinkingContour(
+            volume.mesh,
+            linear,
+            origin,
+            sinkingContourBand(volume.mesh.vertices, volume.mesh.cornerCount, volume.world).takeIf { it.isNotEmpty() }?.let { band ->
+                GlVertexArray(GlVertexArray.floatBuffer(band), listOf(GlProgram.POSITION to 3), GLES30.GL_TRIANGLES)
+            },
+        ).also { made -> sinkingContours.put(key, made)?.band?.release() }
+        val band = contour.band ?: return null
+        return band to (origin - contour.origin)
     }
 
     /**

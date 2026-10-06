@@ -40,8 +40,16 @@ class PlaceObjectVolumeUseCase(
     /**
      * The volume [volume] of the object of [copy] takes [matrix] in the
      * object's coordinates; in the assembly view ([inAssembly]) no copy drops.
+     * [gizmoAction]: the window's values, whose snapshot is a GizmoAction.
      */
-    operator fun invoke(copy: PlateInstanceId, volume: Int, matrix: Transform3, manipulation: VolumeManipulation, inAssembly: Boolean = false) {
+    operator fun invoke(
+        copy: PlateInstanceId,
+        volume: Int,
+        matrix: Transform3,
+        manipulation: VolumeManipulation,
+        inAssembly: Boolean = false,
+        gizmoAction: Boolean = false,
+    ) {
         var request: Pair<List<PlateObject>, SlicingProfileSelection>? = null
         repository.update { state ->
             request = null
@@ -76,7 +84,7 @@ class PlaceObjectVolumeUseCase(
                     placed == null || state.objects.withMesh(copy.mesh) == null -> done
                     else -> {
                         applied = true
-                        done.recorded().copy(
+                        done.recorded(gizmoAction = gizmoAction).copy(
                             objects = done.objects.replaced(copy.mesh, placed),
                             selectedInstances = done.selectedInstances.mapTo(LinkedHashSet()) { id ->
                                 if (id.mesh == copy.mesh) PlateInstanceId(placed.mesh, id.instance) else id
@@ -163,10 +171,17 @@ class PlaceObjectVolumeUseCase(
      * assembly view the copy stands at its assemble transformation ([assemble],
      * the instance transformation of the assembly view's volumes).
      */
-    fun changedInWorld(copy: PlateInstanceId, volume: Int, change: Transform3, manipulation: VolumeManipulation, assemble: Transform3? = null) {
+    fun changedInWorld(
+        copy: PlateInstanceId,
+        volume: Int,
+        change: Transform3,
+        manipulation: VolumeManipulation,
+        assemble: Transform3? = null,
+        gizmoAction: Boolean = false,
+    ) {
         val target = repository.state.value.objects.withMesh(copy.mesh) ?: return
         val placement = assemble ?: target.instances.getOrNull(copy.instance)?.inspection?.placement ?: return
         val before = target.volumeAt(volume)?.placement ?: return
-        invoke(copy, volume, placement.inverse() * change * placement * before, manipulation, inAssembly = assemble != null)
+        invoke(copy, volume, placement.inverse() * change * placement * before, manipulation, inAssembly = assemble != null, gizmoAction = gizmoAction)
     }
 }

@@ -84,6 +84,7 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -109,8 +110,9 @@ data class VolumeScaleFrame(val reference: Transform3, val box: VolumeBox)
  * moves it over the plate; touching empty space clears the selection. Holding
  * an object, as a right click does, asks for its context menu. The active
  * [gizmo] shows on the selected object, and dragging its grabbers manipulates
- * the object. One finger elsewhere orbits, two fingers pan and pinch to zoom,
- * and a double tap on empty space returns to the plate view.
+ * the object. One finger elsewhere orbits, two fingers pan and pinch to zoom
+ * and, twisted, turn the view about the vertical, and a double tap on empty
+ * space returns to the plate view.
  *
  * [plate] is the engine's description of the plate, null until it arrives;
  * [objects] are the plate's objects, painted with the filament colour, and
@@ -218,6 +220,10 @@ fun PlateView(
     clearance: PlateClearance? = null,
     /** The height range the object list edits (Selection::render_sidebar_layers_hints()); null for none. */
     layerRangeHint: LayerRangeHint? = null,
+    /** The field of the move, rotate or scale window being edited, shown as arrows at the selection; null for none. */
+    sidebarHint: SidebarHint? = null,
+    /** The plate prints by object (print_sequence), so a gizmo's drag shows no sinking contours. */
+    printsByObject: Boolean = false,
     /** The preview's shells (GCodeViewer::load_shells()); null for none. */
     shells: PlateShells? = null,
     /** GCodeViewer's tool marker, the plate's hotend model standing at this point; null while it hides. */
@@ -328,6 +334,8 @@ fun PlateView(
         LaunchedEffect(overhangNormalZ, inAssembly) { controller.setOverhangs(overhangNormalZ.takeUnless { inAssembly }) }
         LaunchedEffect(clearance, inAssembly) { controller.setClearance(clearance.takeUnless { inAssembly }) }
         LaunchedEffect(layerRangeHint, inAssembly) { controller.setLayerRangeHint(layerRangeHint.takeUnless { inAssembly }) }
+        LaunchedEffect(sidebarHint) { controller.setSidebarHint(sidebarHint) }
+        SideEffect { controller.printsByObject = printsByObject }
         LaunchedEffect(shownLabels.keys) { controller.setLabelled(shownLabels.keys) }
         val labelPlacements by controller.labelPlacements.collectAsState()
         val measureDimensions by controller.measureDimensions.collectAsState()
@@ -845,7 +853,8 @@ private val GESTURE_EDGE = 20.dp
  * does. What the finger holds moves once it travels past the touch slop, so a
  * tap never nudges an object; held in place for a long press, an object opens
  * its context menu instead, as the right button does. A second finger ends the
- * move and pans and zooms instead.
+ * move and pans and zooms instead; two fingers twisted past [TWIST_SLOP] turn
+ * the view as a rotate gesture does (on_gesture()), so a pinch does not turn it.
  */
 private suspend fun PointerInputScope.detectPlateGestures(
     controller: PlateViewController,
@@ -869,6 +878,8 @@ private suspend fun PointerInputScope.detectPlateGestures(
         var longPressed = false
         var rectangle = false
         var travelled = 0f
+        var twisted = 0.0
+        var twisting = false
         while (true) {
             // A finger held still on an object, or on empty space, asks for a menu.
             val holding = (controller.holdsObject || !pressedObject) && !dragging && !multiTouch && !longPressed
@@ -935,6 +946,13 @@ private suspend fun PointerInputScope.detectPlateGestures(
                 val spanAfter = (after[0] - after[1]).getDistance()
                 controller.pan(centroidAfter.x - centroidBefore.x, centroidAfter.y - centroidBefore.y)
                 if (spanBefore > 0f && spanAfter > 0f) controller.zoom(spanAfter / spanBefore, centroidAfter.x, centroidAfter.y)
+                val turn = twistAngle(before[1] - before[0], after[1] - after[0])
+                if (twisting) {
+                    controller.twist(turn)
+                } else {
+                    twisted += turn
+                    twisting = abs(twisted) > TWIST_SLOP
+                }
                 dragging = true
             }
             event.changes.forEach(PointerInputChange::consume)
@@ -967,6 +985,19 @@ private suspend fun PointerInputScope.detectPlateGestures(
 }
 
 private fun Offset.getDistance() = hypot(x, y)
+
+/** The angle, clockwise on the screen and within ±π, that turns [from] to [to]. */
+private fun twistAngle(from: Offset, to: Offset): Double {
+    val angle = atan2(to.y.toDouble(), to.x.toDouble()) - atan2(from.y.toDouble(), from.x.toDouble())
+    return when {
+        angle > PI -> angle - 2.0 * PI
+        angle < -PI -> angle + 2.0 * PI
+        else -> angle
+    }
+}
+
+/** How far two fingers twist, in radians, before they turn the view: a pinch twists them a little. */
+private const val TWIST_SLOP = 15.0 * PI / 180.0
 
 /** How far from a grabber, in touch slops, a finger still takes it: a fingertip is wider than a mouse pointer. */
 private const val GRABBER_TOUCH_SLOPS = 3f
@@ -2418,29 +2449,42 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     var freeCamera = false
     var zoomToFingers = false
 
-    /** GLCanvas3D::on_mouse() rotation: desktop pixels map to device-independent pixels. */
+    /**
+     * GLCanvas3D::on_mouse() rotation: desktop pixels map to device-independent
+     * pixels. Every turn ends with Camera::auto_type(Perspective).
+     */
     fun rotate(dx: Float, dy: Float) {
         val factor = Math.PI * TRACKBALL_SIZE / 180.0 / density * orbitSpeed
         val rotX = dx * factor
         val rotY = dy * factor
         when {
-            // The assembly view turns about the selection, or every volume, past the limits, whatever the camera.
-            assembly != null -> camera.rotateOnSphereWithTarget(rotX, rotY, false, (selectionBox() ?: objectsBox())?.center() ?: Vec3.ZERO)
-            // The painting gizmos turn about the painted object, past the limits, whatever the camera.
-            painting -> {
-                val box = objects.firstOrNull { it.index == selectedIndex }?.bounds ?: objectsBox()
-                camera.rotateOnSphereWithTarget(rotX, rotY, false, box?.center() ?: Vec3.ZERO)
-            }
+            // The assembly view and the painting gizmos turn about the selection, or every volume, past the limits, whatever the camera.
+            assembly != null || painting -> camera.rotateOnSphereWithTarget(rotX, rotY, false, (selectedVolumesBox() ?: objectsBox())?.center() ?: Vec3.ZERO)
             // Virtual track ball (similar to the 3DConnexion mouse).
             freeCamera -> camera.rotateLocalAroundTarget(Vec3(rotY, rotX, 0.0))
             else -> {
                 // The constrained camera keeps its right vector parallel to the plate.
                 camera.recoverFromFreeCamera()
-                // Rotate around the objects on the plate or the toolpaths, or the plate when it is empty.
-                val rotationTarget = (objectsBox() ?: layerBox)?.center() ?: currentPlateBox()?.center() ?: camera.target
-                camera.rotateOnSphereWithTarget(rotX, rotY, true, rotationTarget)
+                // The preview, which shows no objects, turns about the current plate; the 3D view about the selection,
+                // else the volumes over the current plate, else that plate when it is empty.
+                val rotationTarget = (selectedVolumesBox() ?: currentPlateVolumesBox() ?: currentPlateBox())?.center() ?: Vec3.ZERO
+                if (!rotationTarget.isZero()) camera.rotateOnSphereWithTarget(rotX, rotY, true, rotationTarget) else camera.rotateOnSphere(rotX, rotY, true)
             }
         }
+        autoType(true)
+        invalidate()
+    }
+
+    /**
+     * GLCanvas3D::on_gesture() for wxEVT_GESTURE_ROTATE: two fingers twisting by
+     * [radians], clockwise on the screen, turn the view as far about the
+     * vertical through the current plate's centre, and Auto Perspective turns
+     * it back to perspective.
+     */
+    fun twist(radians: Double) {
+        val plate = currentPlateBox()
+        if (plate != null) camera.rotateOnSphereWithTarget(-radians, 0.0, true, plate.center()) else camera.rotateOnSphere(-radians, 0.0, true)
+        autoType(true)
         invalidate()
     }
 
@@ -2483,6 +2527,44 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** GLCanvas3D::m_sequential_print_clearance, visible while it is set. */
     private var clearance: SceneClearance? = null
+
+    /** print_sequence is ByObject: a gizmo's drag updates the clearance rather than showing the sinking contours. */
+    var printsByObject = false
+
+    /** GLCanvas3D::m_sidebar_field of the move, rotate and scale windows; null while no field of theirs is edited. */
+    private var sidebarHint: SidebarHint? = null
+
+    fun setSidebarHint(value: SidebarHint?) {
+        if (sidebarHint == value) return
+        sidebarHint = value
+        invalidate()
+    }
+
+    /**
+     * Selection::render_sidebar_hints(): about the centre of the selection's
+     * box, or outside world coordinates of a single copy or volume, turned to
+     * the reference system and about the centre of the box along its axes
+     * (get_bounding_box_in_current_reference_system()), which a volume's own
+     * system leaves at the world box's centre.
+     */
+    private fun sidebarHintFrame(): List<GizmoMesh> {
+        val hint = sidebarHint ?: return emptyList()
+        val volumes = selectedVolumes()
+        val selected = objects.filter { (it.index in selectedIndexes || it.index == selectedIndex) && !it.overlay && (volumes == null || it.key in volumes) }
+        if (selected.isEmpty()) return emptyList()
+        var center = selected.map(SceneObject::bounds).reduce(Box3::merge).center()
+        var orient = Affine3()
+        val reference = hint.reference
+        if (reference != null && groupIndexes() == null) {
+            orient = Affine3(AssemblyTransforms.rotation(reference).columns.toDoubleArray())
+            if (!hint.local) {
+                val toReference = orient.inverse()
+                center = orient.transformPoint(selected.map { it.mesh.bounds.transformed(toReference * it.world) }.reduce(Box3::merge).center())
+            }
+        }
+        // requires_uniform_scale(): but for a single copy or volume, as the gizmo's own "Uniform scale".
+        return sidebarHintMeshes(hint, center, orient, hint.uniformScale || groupIndexes() != null)
+    }
 
     /** GLCanvas3D::m_sidebar_field of a height range. */
     private var layerRangeHint: LayerRangeHint? = null
@@ -2712,6 +2794,23 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         return objects
             .filter { (it.index in selectedIndexes || it.index == selectedIndex) && (volumes == null || it.key in volumes) }
             .map(SceneObject::bounds)
+            .reduceOrNull(Box3::merge)
+    }
+
+    /** Selection::get_bounding_box(): the volumes selected alone (Selection::Volume), else every volume of the selected copies. */
+    private fun selectedVolumesBox(): Box3? {
+        val volumes = selectedVolumes()
+        return objects
+            .filter { (it.index in selectedIndexes || it.index == selectedIndex) && (volumes == null || it.key in volumes) }
+            .map(SceneObject::bounds)
+            .reduceOrNull(Box3::merge)
+    }
+
+    /** GLCanvas3D::volumes_bounding_box(true): the volumes whose boxes overlap the current plate's in XY. */
+    private fun currentPlateVolumesBox(): Box3? {
+        val plate = currentPlateBox() ?: return objectsBox()
+        return objects.map(SceneObject::bounds)
+            .filter { it.max.x >= plate.min.x && it.min.x <= plate.max.x && it.max.y >= plate.min.y && it.min.y <= plate.max.y }
             .reduceOrNull(Box3::merge)
     }
 
@@ -3206,6 +3305,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 }.orEmpty(),
                 assembly = assembly != null,
                 section = sectionCut?.takeIf { assemblyClippingPlane() != null } ?: paintSectionCut?.takeIf { paintingClippingPlane() != null },
+                // set_show_sinking_contours(): not in the assembly view, nor while a tool hides the other copies (is_hiding_instances()).
+                sinkingContours = assembly == null && !painting && cut == null && brimEars == null && meshBoolean == null,
+                // GLCanvas3D::on_mouse(): the selection's contours over everything while a finger moves it (m_moving), or drags a
+                // grabber of the move, rotate or scale gizmo on a plate printed by layer.
+                forceSinkingContours = drag?.takeIf { it.moved }?.let { held ->
+                    held is ObjectDrag || (!printsByObject && (held is MoveGrabberDrag || held is RotateGrabberDrag || held is ScaleGrabberDrag))
+                } == true,
+                sidebarHints = sidebarHintFrame(),
             ),
         )
         surface.requestRender()

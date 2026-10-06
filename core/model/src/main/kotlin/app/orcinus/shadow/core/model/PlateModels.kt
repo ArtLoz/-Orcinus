@@ -562,6 +562,13 @@ data class PlateSnapshot(
     val meshBoolean: MeshBooleanPicks? = null,
     /** PlateState.selectedPartGroup then. */
     val selectedPartGroup: Set<ObjectPartId> = emptySet(),
+    /**
+     * UndoRedo::SnapshotType::GizmoAction: a tool's action leads from this
+     * state to its neighbour on the stack (the move and rotate windows' values,
+     * the measuring tool, a painting session, a text's edit), the only kind the
+     * assembly view's Undo goes back over.
+     */
+    val gizmoAction: Boolean = false,
 )
 
 /**

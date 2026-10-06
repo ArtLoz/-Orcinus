@@ -63,11 +63,12 @@ class AssemblySectionUseCase(
 }
 
 class PlaceInAssemblyUseCase(private val repository: PlateRepository) {
-    operator fun invoke(id: PlateInstanceId, assemble: Transform3, manipulation: Manipulation) = repository.update { state ->
+    /** [gizmoAction]: the window's values ("Set Position", "Set Orientation"), not a gizmo's drag. */
+    operator fun invoke(id: PlateInstanceId, assemble: Transform3, manipulation: Manipulation, gizmoAction: Boolean = false) = repository.update { state ->
         val target = state.objects.withMesh(id.mesh)
         val copy = target?.instances?.getOrNull(id.instance)
         if (target == null || copy == null || state.busy) return@update state
-        val recorded = state.recorded()
+        val recorded = state.recorded(gizmoAction = gizmoAction)
         val before = (copy.assemble ?: Transform3.IDENTITY).columns
         val moved = (12..14).sumOf { (before[it] - assemble.columns[it]).let { offset -> offset * offset } } > MOVE_THRESHOLD * MOVE_THRESHOLD
         if (manipulation == Manipulation.Move && !moved) return@update recorded

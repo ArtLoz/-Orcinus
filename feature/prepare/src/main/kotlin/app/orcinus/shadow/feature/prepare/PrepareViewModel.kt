@@ -3188,7 +3188,7 @@ class PrepareViewModel(
             if (mode.canUndo) restoreCut(mode.snapshot - 1)
             return
         }
-        if (view.value.painting == null) return undoRedoPlate.undo()
+        if (view.value.painting == null) return undoRedoPlate.undo(assemblyView = view.value.assemblyView)
         viewModelScope.launch { paintObject.undo().also(::showStrokes) }
     }
 
@@ -3337,7 +3337,7 @@ class PrepareViewModel(
         state.value.group?.let { group ->
             // Selection::rotate() of a group in world coordinates: about its sphere's centre.
             val pivot = group.sphere?.center ?: return
-            placeGroup(groupPlacements(group).map { (id, placement) -> id to ObjectTransforms.rotated(placement, axis, degrees, pivot) }, Manipulation.Rotate)
+            placeGroup(groupPlacements(group).map { (id, placement) -> id to ObjectTransforms.rotated(placement, axis, degrees, pivot) }, Manipulation.Rotate, gizmoAction = true)
             return
         }
         state.value.selectedVolume?.let { volume ->
@@ -3350,6 +3350,7 @@ class PrepareViewModel(
                 ObjectTransforms.rotated(Transform3.IDENTITY, axis, degrees, pivot),
                 VolumeManipulation.ROTATE,
                 volumeFrame(copy),
+                gizmoAction = true,
             )
             return
         }
@@ -3360,10 +3361,15 @@ class PrepareViewModel(
             val assemble = assembleOf(copy.id) ?: return
             val own = (copy.plateObject as? PlateObject.ImportedModel)?.frame ?: Transform3.IDENTITY
             val pivot = AssemblyTransforms.pivot(copy.instance, own, target.boundingSphere.center, view.value.explosionRatio)
-            placeInAssembly(copy.id, ObjectTransforms.rotated(assemble, axis, degrees, pivot), Manipulation.Rotate)
+            placeInAssembly(copy.id, ObjectTransforms.rotated(assemble, axis, degrees, pivot), Manipulation.Rotate, gizmoAction = true)
             return
         }
-        placePlateObject(selectedId() ?: return, ObjectTransforms.rotated(target.placement, axis, degrees, target.boundingSphere.center), Manipulation.Rotate)
+        placePlateObject(
+            selectedId() ?: return,
+            ObjectTransforms.rotated(target.placement, axis, degrees, target.boundingSphere.center),
+            Manipulation.Rotate,
+            gizmoAction = true,
+        )
     }
 
     /** GizmoObjectManipulation::change_absolute_rotation_value(): turns by the difference to the rotation shown. */
@@ -3561,6 +3567,7 @@ class PrepareViewModel(
             placeGroup(
                 groupPlacements(group).map { (id, placement) -> id to Transform3(placement.columns.toMutableList().also { it[12 + axis] += clamped }) },
                 Manipulation.Move,
+                gizmoAction = true,
             )
             return
         }
@@ -3575,7 +3582,8 @@ class PrepareViewModel(
         val clamped = value.coerceIn(-MAX_NUM, MAX_NUM)
         if (abs(current[12 + axis] - clamped) < POSITION_EPSILON) return
         val placement = Transform3(current.toMutableList().also { it[12 + axis] = clamped })
-        if (assembly) placeInAssembly(copy.id, placement, Manipulation.Move) else placeObject(index, placement, Manipulation.Move)
+        // take_snapshot("Set Position", UndoRedo::SnapshotType::GizmoAction).
+        if (assembly) placeInAssembly(copy.id, placement, Manipulation.Move, gizmoAction = true) else placeObject(index, placement, Manipulation.Move, gizmoAction = true)
     }
 
     /**
@@ -3604,9 +3612,9 @@ class PrepareViewModel(
         if (abs(current - clamped) < POSITION_EPSILON) return
         val displacement = translationTransform(Vector3(if (axis == 0) clamped - current else 0.0, if (axis == 1) clamped - current else 0.0, if (axis == 2) clamped - current else 0.0))
         if (state.moveObjectCoordinates) {
-            placeObjectVolume(copy, volume.id.index, displacement * volume.matrix, VolumeManipulation.MOVE, volumeFrame(copy) != null)
+            placeObjectVolume(copy, volume.id.index, displacement * volume.matrix, VolumeManipulation.MOVE, volumeFrame(copy) != null, gizmoAction = true)
         } else {
-            placeObjectVolume.changedInWorld(copy, volume.id.index, displacement, VolumeManipulation.MOVE, volumeFrame(copy))
+            placeObjectVolume.changedInWorld(copy, volume.id.index, displacement, VolumeManipulation.MOVE, volumeFrame(copy), gizmoAction = true)
         }
     }
 
@@ -3634,7 +3642,7 @@ class PrepareViewModel(
         val columns = frame.columns.toMutableList()
         for (row in 0 until 3) columns[12 + row] += rotation[axis * 4 + row] * clamped
         val placement = Transform3(columns)
-        if (assembly) placeInAssembly(copy.id, placement, Manipulation.Move) else placeObject(index, placement, Manipulation.Move)
+        if (assembly) placeInAssembly(copy.id, placement, Manipulation.Move, gizmoAction = true) else placeObject(index, placement, Manipulation.Move, gizmoAction = true)
     }
 
     /**
@@ -3675,8 +3683,8 @@ class PrepareViewModel(
     private fun assembleOf(id: PlateInstanceId): Transform3? =
         plate.value.objects.firstOrNull { it.mesh == id.mesh }?.instances?.getOrNull(id.instance)?.let { it.assemble ?: Transform3.IDENTITY }
 
-    fun placeObject(index: Int, placement: Transform3, manipulation: Manipulation) {
-        state.value.sceneCopies.getOrNull(index)?.let { placePlateObject(it.id, placement, manipulation) }
+    fun placeObject(index: Int, placement: Transform3, manipulation: Manipulation, gizmoAction: Boolean = false) {
+        state.value.sceneCopies.getOrNull(index)?.let { placePlateObject(it.id, placement, manipulation, gizmoAction = gizmoAction) }
     }
 
     /** GLCanvas3D::do_move() of a selection the finger dragged: every copy placed, as one step of Undo ("Move Object"). */
@@ -3686,8 +3694,8 @@ class PrepareViewModel(
     }
 
     /** do_move(), do_rotate() and do_scale() of a selection of copies: all of them, as one step of Undo. */
-    private fun placeGroup(placements: List<Pair<PlateInstanceId, Transform3>>, manipulation: Manipulation) {
-        placements.forEachIndexed { step, (id, placement) -> placePlateObject(id, placement, manipulation, record = step == 0) }
+    private fun placeGroup(placements: List<Pair<PlateInstanceId, Transform3>>, manipulation: Manipulation, gizmoAction: Boolean = false) {
+        placements.forEachIndexed { step, (id, placement) -> placePlateObject(id, placement, manipulation, record = step == 0, gizmoAction = gizmoAction) }
     }
 
     /** The copies of the group and where they stand. */

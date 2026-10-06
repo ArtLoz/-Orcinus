@@ -1587,9 +1587,16 @@ class PlacePlateObjectUseCase(
     /**
      * [record] takes a snapshot before the change, as the canvas does before it
      * commits a manipulation; an action that places copies it has already
-     * recorded leaves it out.
+     * recorded leaves it out. [gizmoAction] is the snapshot's type: the move
+     * and rotate windows' values take a GizmoAction snapshot.
      */
-    operator fun invoke(id: PlateInstanceId, placement: Transform3, manipulation: Manipulation = Manipulation.Move, record: Boolean = true) {
+    operator fun invoke(
+        id: PlateInstanceId,
+        placement: Transform3,
+        manipulation: Manipulation = Manipulation.Move,
+        record: Boolean = true,
+        gizmoAction: Boolean = false,
+    ) {
         var request: Triple<PlateObject, Transform3, SlicingProfileSelection>? = null
         repository.update { state ->
             request = null
@@ -1603,7 +1610,7 @@ class PlacePlateObjectUseCase(
             val moved = target.with(id.instance, copy.inspection.copy(placement = placement), placing = true)
             request = Triple(moved, copy.inspection.placement, profiles)
             // G-code no longer applies once the copy stands elsewhere.
-            (if (record) state.recorded() else state)
+            (if (record) state.recorded(gizmoAction = gizmoAction) else state)
                 .copy(objects = state.objects.replaced(moved), result = state.result.takeIf { placement == copy.inspection.placement })
         }
         val (target, previous, profiles) = request ?: return

@@ -439,7 +439,8 @@ class EmbossUseCase(
             val appended = success?.appended == true
             if (!appended && source != null && state.objects.withMesh(source.mesh) == null) return@update state
             placed = true
-            state.recorded().copy(
+            // A new text is an Action ("Add Emboss text object"); an edit of one a GizmoAction ("Emboss attribute change").
+            state.recorded(gizmoAction = edited != null).copy(
                 objects = if (appended) state.objects + made else state.objects.replaced(source!!.mesh, made),
                 selectedInstances = setOf(PlateInstanceId(made.mesh)),
                 // An object made of the text is selected whole.

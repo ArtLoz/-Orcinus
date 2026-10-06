@@ -35,10 +35,11 @@ internal fun PlateState.snapshot() = PlateSnapshot(
  * Plater::TakeSnapshot before an action changes the plate: [before], the plate
  * as it is unless an open tool kept an earlier state, joins the undo stack, and
  * the states Undo left are gone (UndoRedo::Stack::take_snapshot drops the
- * snapshots after the active one).
+ * snapshots after the active one). [gizmoAction] is the snapshot's type
+ * (UndoRedo::SnapshotType::GizmoAction, else Action).
  */
-internal fun PlateState.recorded(before: PlateSnapshot = snapshot()) =
-    copy(history = history.copy(undo = history.undo + before, redo = emptyList()))
+internal fun PlateState.recorded(before: PlateSnapshot = snapshot(), gizmoAction: Boolean = false) =
+    copy(history = history.copy(undo = history.undo + before.copy(gizmoAction = gizmoAction), redo = emptyList()))
 
 /**
  * Plater::undo() and redo(): the plate goes back to the state before the last
@@ -46,7 +47,9 @@ internal fun PlateState.recorded(before: PlateSnapshot = snapshot()) =
  * Snapshots of a mere selection change are not kept, since OrcaSlicer skips
  * them anyway (undo-redo until a modifying snapshot). The objects are then
  * judged against the build volume of the printer selected now, and the
- * settings tabs describe what the plate holds again.
+ * settings tabs describe what the plate holds again. Each state keeps the
+ * type of the action between it and the state it was left for, so Redo gives
+ * Undo the snapshot back as it was taken.
  */
 class UndoRedoPlateUseCase(
     private val repository: PlateRepository,
@@ -54,12 +57,21 @@ class UndoRedoPlateUseCase(
     private val settingsTabs: PresetSettingsTabs,
     private val applicationScope: CoroutineScope,
 ) {
-    fun undo() = move(undo = true) { history, current ->
-        history.undo.lastOrNull()?.let { target -> target to history.copy(undo = history.undo.dropLast(1), redo = listOf(current) + history.redo) }
+    /**
+     * Plater::priv::undo(): from the assembly view ([assemblyView]) only an
+     * action of a tool (UndoRedo::SnapshotType::GizmoAction) is undone; any
+     * other leaves the plate as it is.
+     */
+    fun undo(assemblyView: Boolean = false) = move(undo = true) { history, current ->
+        history.undo.lastOrNull()?.takeIf { !assemblyView || it.gizmoAction }?.let { target ->
+            target to history.copy(undo = history.undo.dropLast(1), redo = listOf(current.copy(gizmoAction = target.gizmoAction)) + history.redo)
+        }
     }
 
     fun redo() = move(undo = false) { history, current ->
-        history.redo.firstOrNull()?.let { target -> target to history.copy(undo = history.undo + current, redo = history.redo.drop(1)) }
+        history.redo.firstOrNull()?.let { target ->
+            target to history.copy(undo = history.undo + current.copy(gizmoAction = target.gizmoAction), redo = history.redo.drop(1))
+        }
     }
 
     private fun move(undo: Boolean, step: (PlateHistory, PlateSnapshot) -> Pair<PlateSnapshot, PlateHistory>?) {
