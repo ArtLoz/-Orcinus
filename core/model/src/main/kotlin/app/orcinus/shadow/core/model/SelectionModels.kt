@@ -6,10 +6,30 @@ fun PlateState.selectedObjectMeshes(): List<ScenePath> {
     return objects.map { it.mesh }.filter { it in meshes }
 }
 
-/** Every copy of the selected objects, as Selection::add_object() selects an object whole. */
+/**
+ * The copies the selection holds, object by object in the plate's order: the
+ * copies picked one by one, or every copy of an object picked whole
+ * (Selection::add_object()), which the selection holds as all its copies or as
+ * its first copy alone, the copy its row in the list stands for.
+ */
 fun PlateState.selectedCopies(): List<PlateInstanceId> = selectedObjectMeshes().flatMap { mesh ->
-    objects.firstOrNull { it.mesh == mesh }?.instances?.indices?.map { PlateInstanceId(mesh, it) }.orEmpty()
+    val count = objects.firstOrNull { it.mesh == mesh }?.instances?.size ?: 0
+    val picked = selectedInstances.filter { it.mesh == mesh && it.instance < count }.map { it.instance }.sorted()
+    (if (selectsWhole(mesh)) (0 until count).toList() else picked).map { PlateInstanceId(mesh, it) }
 }
+
+/** The object with the [mesh] file is picked whole: every copy of it, or its first copy alone. */
+fun PlateState.selectsWhole(mesh: ScenePath): Boolean {
+    val count = objects.firstOrNull { it.mesh == mesh }?.instances?.size ?: return false
+    val picked = selectedInstances.filter { it.mesh == mesh && it.instance < count }.mapTo(HashSet()) { it.instance }
+    return picked.size == count || picked == setOf(0)
+}
+
+/**
+ * Selection::is_mixed() of several objects: some of them have only some of
+ * their copies picked, which the multi-selection menu moves and deletes copy by copy.
+ */
+fun PlateState.selectsMixed(): Boolean = selectedObjectMeshes().let { meshes -> meshes.size > 1 && meshes.any { !selectsWhole(it) } }
 
 /** The box around some copies (Selection::get_bounding_box()), in millimetres. */
 data class SelectionBox(val minX: Double, val maxX: Double, val minY: Double, val maxY: Double, val minZ: Double) {
@@ -31,7 +51,7 @@ data class SelectionBox(val minX: Double, val maxX: Double, val minY: Double, va
     }
 }
 
-/** The box around every copy of the selected objects; null for an empty selection. */
+/** The box around the selected copies (Selection::get_bounding_box()); null for an empty selection. */
 fun PlateState.selectionBox(): SelectionBox? = SelectionBox.of(
     selectedCopies().mapNotNull { id -> objects.firstOrNull { it.mesh == id.mesh }?.instances?.getOrNull(id.instance) },
 )

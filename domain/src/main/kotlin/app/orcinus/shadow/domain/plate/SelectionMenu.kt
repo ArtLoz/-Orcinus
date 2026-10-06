@@ -10,17 +10,20 @@ import app.orcinus.shadow.core.model.plateCenter
 import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.model.selectedObjectMeshes
 import app.orcinus.shadow.core.model.selectionBox
+import app.orcinus.shadow.core.model.selectsWhole
 import app.orcinus.shadow.core.model.withInstances
 
 /**
- * MenuFactory::multi_selection_menu() over the objects the selection holds
- * whole (Selection::is_multiple_full_object()): what its items do to all of
- * them at once, each item as one step of Undo.
+ * MenuFactory::multi_selection_menu() over several objects, held whole
+ * (Selection::is_multiple_full_object()) or some of them by some copies
+ * (Selection::is_mixed()): what its items do to all of them at once, each item
+ * as one step of Undo.
  */
 class SelectionMenuUseCase(
     private val repository: PlateRepository,
     private val placePlateObject: PlacePlateObjectUseCase,
     private val deletePlateObject: DeletePlateObjectUseCase,
+    private val removePlateInstance: RemovePlateInstanceUseCase,
 ) {
     /**
      * Selection::center(): the selection moves on the plate, keeping its
@@ -47,13 +50,18 @@ class SelectionMenuUseCase(
      * Plater::remove_selected() ("Delete Selected Objects"): the selected
      * objects leave the plate as one step of Undo, the last first; a part of a
      * cut asks first, as Plater::priv::delete_object_from_model() does for
-     * each one, and Cancel stops there.
+     * each one, and Cancel stops there. Of a mixed selection (Selection::erase()),
+     * an object goes when all its copies are picked, or it has one, and
+     * otherwise only its picked copies go; the copies go before the objects.
      */
     fun delete() {
         val state = repository.state.value
         val meshes = state.selectedObjectMeshes()
         if (state.busy || meshes.isEmpty()) return
-        deletePlateObject.all(state.objects.map { it.mesh }.filter { it in meshes })
+        val whole = meshes.filter { state.selectsWhole(it) }
+        val copies = state.selectedCopies().filter { it.mesh !in whole }
+        if (copies.isNotEmpty()) removePlateInstance.all(copies)
+        if (whole.isNotEmpty()) deletePlateObject.all(whole, recorded = copies.isNotEmpty())
     }
 
     /** Selection::set_printable(): every copy of every selected object. */

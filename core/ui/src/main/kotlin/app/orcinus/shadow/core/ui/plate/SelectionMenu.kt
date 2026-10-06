@@ -17,11 +17,12 @@ import app.orcinus.shadow.core.model.plateCenter
 import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.model.selectedObjectMeshes
 import app.orcinus.shadow.core.model.selectionBox
+import app.orcinus.shadow.core.model.selectsMixed
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
 
-/** What MenuFactory::multi_selection_menu() offers for several objects selected whole. */
+/** What MenuFactory::multi_selection_menu() offers for several objects, whole or by some copies. */
 data class SelectionMenuState(
     val enabled: Boolean,
     /** ObjectList::can_merge_to_multipart_object(): no part of a cut is selected, or "Assemble" is not offered. */
@@ -31,11 +32,13 @@ data class SelectionMenuState(
     /** append_menu_item_drop(): the selection's box does not stand on the plate. */
     val canDrop: Boolean,
     val canPaste: Boolean,
-    /** append_menu_item_set_printable(): every selected object prints. */
+    /** append_menu_item_set_printable(): every picked copy prints, an object's row standing for its first copy. */
     val printable: Boolean,
     /** Selection::get_auto_drop(): every copy of the selection drops automatically. */
     val autoDrop: Boolean,
     val canPasteSettings: Boolean,
+    /** append_menu_item_per_object_process(): "Edit Process Settings" takes no mixed selection (Selection::is_mixed()). */
+    val canEditProcess: Boolean,
     /** append_menu_items_convert_unit(): the conversions every selected volume allows. */
     val conversions: List<ObjectEdit>,
     /** Plater::priv::can_replace_all_with_stl(): no part of a cut is selected. */
@@ -43,7 +46,7 @@ data class SelectionMenuState(
     val filaments: List<MenuFilament>,
 )
 
-/** The selection holds several objects whole, which the multi-selection menu is for. */
+/** The selection holds several objects, whole or by some copies, which the multi-selection menu is for. */
 fun PlateState.selectsSeveralObjects(): Boolean = selectedObjectMeshes().size > 1
 
 fun selectionMenuState(
@@ -55,9 +58,9 @@ fun selectionMenuState(
 ): SelectionMenuState {
     val box = state.selectionBox()
     val center = state.plateCenter()
-    val copies = state.selectedCopies().mapNotNull { id -> state.objects.firstOrNull { it.mesh == id.mesh }?.instances?.getOrNull(id.instance) }
     val meshes = state.selectedObjectMeshes().toSet()
     val objects = state.objects.filter { it.mesh in meshes }
+    val picked = state.selectedInstances.mapNotNull { id -> state.objects.firstOrNull { it.mesh == id.mesh }?.instances?.getOrNull(id.instance) }
     val cut = objects.any { it.isCut }
     return SelectionMenuState(
         enabled = enabled,
@@ -66,10 +69,12 @@ fun selectionMenuState(
         // SINKING_Z_THRESHOLD
         canDrop = enabled && box != null && kotlin.math.abs(box.minZ) > SINKING_Z_THRESHOLD,
         canPaste = enabled && clipboard != null,
-        printable = copies.all { it.printable },
-        autoDrop = copies.all { it.autoDrop },
+        printable = picked.all { it.printable },
+        // Selection::get_auto_drop(): every copy of every selected object.
+        autoDrop = objects.all { plateObject -> plateObject.instances.all { it.autoDrop } },
         // ObjectList::can_paste_settings_into_list(): settings of objects for the objects.
         canPasteSettings = enabled && settingsClipboard?.kind == SettingsItemKind.OBJECT,
+        canEditProcess = enabled && !state.selectsMixed(),
         conversions = conversionsOf(objects.flatMap { plateObject ->
             (0..plateObject.parts.size).mapNotNull { plateObject.volumeAt(it) }.ifEmpty { listOf(plateObject.ownVolume()) }
         }),
@@ -143,7 +148,7 @@ fun SelectionMenuItems(
     )
     OrcaMenuSeparator()
     // append_menu_item_per_object_process(): Copy takes a single item, so it waits here.
-    OrcaMenuItem(text = orcaString("Edit Process Settings"), enabled = state.enabled, onClick = run(actions.editProcessSettings))
+    OrcaMenuItem(text = orcaString("Edit Process Settings"), enabled = state.canEditProcess, onClick = run(actions.editProcessSettings))
     OrcaMenuItem(text = orcaString("Copy Process Settings"), enabled = false, onClick = {})
     OrcaMenuItem(text = orcaString("Paste Process Settings"), enabled = state.canPasteSettings, onClick = run(actions.pasteProcessSettings))
     OrcaMenuSeparator()

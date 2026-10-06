@@ -183,6 +183,7 @@ import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.meshErrors
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.scalingFactor
+import app.orcinus.shadow.core.model.selectsMixed
 import app.orcinus.shadow.core.model.translation
 import app.orcinus.shadow.core.model.translationTransform
 import app.orcinus.shadow.core.model.volumeAt
@@ -2143,7 +2144,8 @@ class PlateUseCasesTest {
         val selected = setOf(PlateInstanceId(CUBE.mesh, 0), PlateInstanceId(other.mesh, 0))
         val repository = FakeRepository(readyState(CUBE, other).copy(plate = PLATE, selectedInstances = selected))
         val inspector = FakeInspector(placed = null)
-        val menu = SelectionMenuUseCase(repository, PlacePlateObjectUseCase(PlaceModelUseCase(inspector), repository, scope), DeletePlateObjectUseCase(repository))
+        val delete = DeletePlateObjectUseCase(repository)
+        val menu = SelectionMenuUseCase(repository, PlacePlateObjectUseCase(PlaceModelUseCase(inspector), repository, scope), delete, RemovePlateInstanceUseCase(repository, delete))
 
         // Selection::center(): the box spans -10..50 by -10..10, its centre (20, 0) goes over the plate's (175, 175).
         menu.center()
@@ -2156,6 +2158,23 @@ class PlateUseCasesTest {
         menu.delete()
         assertTrue(repository.state.value.objects.isEmpty())
         assertEquals(3, repository.state.value.history.undo.size)
+    }
+
+    @Test
+    fun `a mixed selection deletes the picked copies and the objects picked whole, as one step of Undo`() {
+        val twice = CUBE.withInstances(listOf(CUBE.instances.single(), CUBE.instances.single()))
+        val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val repository = FakeRepository(readyState(twice, other).copy(plate = PLATE, selectedInstances = setOf(PlateInstanceId(CUBE.mesh, 1), PlateInstanceId(other.mesh, 0))))
+        val delete = DeletePlateObjectUseCase(repository)
+        val menu = SelectionMenuUseCase(repository, PlacePlateObjectUseCase(PlaceModelUseCase(FakeInspector()), repository, scope), delete, RemovePlateInstanceUseCase(repository, delete))
+        assertTrue(repository.state.value.selectsMixed())
+
+        menu.delete()
+
+        val state = repository.state.value
+        assertEquals(listOf(CUBE.mesh), state.objects.map { it.mesh })
+        assertEquals(1, state.objects.single().instances.size)
+        assertEquals(1, state.history.undo.size)
     }
 
     @Test

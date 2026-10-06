@@ -2870,6 +2870,26 @@ class RemovePlateInstanceUseCase(
     private val repository: PlateRepository,
     private val deletePlateObject: DeletePlateObjectUseCase,
 ) {
+    /**
+     * delete_from_model_and_list() of copies of several objects, none of them
+     * all the copies of its object, as one step of Undo.
+     */
+    fun all(copies: List<PlateInstanceId>) = repository.update { state ->
+        if (state.busy) return@update state
+        val gone = copies.groupBy({ it.mesh }, { it.instance })
+        val objects = state.objects.map { plateObject ->
+            val removed = gone[plateObject.mesh]?.toSet() ?: return@map plateObject
+            if (removed.size >= plateObject.instances.size) return@map plateObject
+            plateObject.withInstances(plateObject.instances.filterIndexed { index, _ -> index !in removed })
+        }
+        if (objects == state.objects) return@update state
+        state.recorded().copy(
+            objects = objects,
+            selectedInstances = state.selectedInstances.filterNot { it.mesh in gone }.toSet(),
+            result = null,
+        )
+    }
+
     operator fun invoke(id: PlateInstanceId) {
         var deleteObject = false
         repository.update { state ->
@@ -2908,7 +2928,7 @@ class DeletePlateObjectUseCase(private val repository: PlateRepository) {
      * does for each. Delete takes the cut off its other parts, which then go
      * without asking; Cancel stops there, and the objects gone before stay gone.
      */
-    fun all(meshes: List<ScenePath>) = delete(meshes.reversed(), confirmed = false, recorded = false)
+    fun all(meshes: List<ScenePath>, recorded: Boolean = false) = delete(meshes.reversed(), confirmed = false, recorded = recorded)
 
     /** The warning about a part of a cut answered: Delete goes on, Cancel keeps the object and stops. */
     fun answer(yes: Boolean) {

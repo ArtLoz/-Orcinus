@@ -714,7 +714,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             copyProcessSettings = copyProcessSettings,
             pasteProcessSettings = pasteProcessSettings,
             exportObjectMesh = exportObjectMesh,
-            selectionMenu = SelectionMenuUseCase(plateRepository, placePlateObject, deletePlateObject),
+            selectionMenu = SelectionMenuUseCase(plateRepository, placePlateObject, deletePlateObject, removePlateInstance),
             exportPlateMeshes = ExportPlateMeshesUseCase(
                 engine,
                 sceneFiles,
@@ -873,7 +873,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             AppDocumentFolders(applicationContext),
             plateRepository,
         ),
-        selectionMenu = SelectionMenuUseCase(plateRepository, placePlateObject, deletePlateObject),
+        selectionMenu = SelectionMenuUseCase(plateRepository, placePlateObject, deletePlateObject, removePlateInstance),
         projectLifecycle = projectLifecycle,
         calibrateUseCase = CalibrateUseCase(projectLifecycle, engine, engine, platePresets, sceneFiles, plateRepository, applicationScope),
         describeCalibrationPrinterUseCase = DescribeCalibrationPrinterUseCase(engine, plateRepository),
