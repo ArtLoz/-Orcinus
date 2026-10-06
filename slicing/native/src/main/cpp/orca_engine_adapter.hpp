@@ -1324,6 +1324,9 @@ struct PresetState {
     // GUI_App::global_print_sequence() is by object, which picks the arrange
     // settings of sequential printing (GLCanvas3D::get_arrange_settings()).
     bool sequential_print{false};
+    // The printer's min_layer_height of each extruder, which get_min_layer_height()
+    // of the object list reads for its height ranges.
+    std::vector<double> min_layer_heights;
 };
 
 // The preset combo boxes for the selection the app configuration remembers.

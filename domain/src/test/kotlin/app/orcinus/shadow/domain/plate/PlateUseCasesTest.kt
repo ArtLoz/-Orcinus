@@ -2813,7 +2813,7 @@ class PlateUseCasesTest {
     }
 
     @Test
-    fun `a range spans other heights, keeps its settings, and does not reach into its neighbours`() {
+    fun `a range spans other heights as the two fields take them and keeps its settings`() {
         val settings = ModelSettings(mapOf("layer_height" to "0.1"))
         val cube = CUBE.copy(layerRanges = listOf(LayerRange(0.0, 2.0, settings), LayerRange(4.0, 6.0)))
         val repository = FakeRepository(readyState(cube).copy(selectedRange = LayerRangeId(cube.mesh, 0)))
@@ -2825,10 +2825,13 @@ class PlateUseCasesTest {
         assertEquals(1.0 to 3.0, moved.bottom to moved.top)
         assertEquals(settings, moved.settings)
 
-        // ObjectList keeps the ranges apart: a span that overlaps the next one is refused.
-        edit(LayerRangeId(cube.mesh, 0), 1.0, 5.0)
-
+        // A top below the bottom is refused.
+        edit(LayerRangeId(cube.mesh, 0), 1.0, 0.5)
         assertEquals(1.0 to 3.0, repository.state.value.objects.single().layerRanges.first().let { it.bottom to it.top })
+
+        // A bottom past the top lifts the top 0.5 mm above it; the ranges may overlap.
+        edit(LayerRangeId(cube.mesh, 0), 4.5, 3.0)
+        assertEquals(listOf(4.0 to 6.0, 4.5 to 5.0), repository.state.value.objects.single().layerRanges.map { it.bottom to it.top })
     }
 
     @Test

@@ -73,6 +73,8 @@ data class Presets(
     val i3Structure: Boolean = false,
     /** The process preset prints by object (GUI_App::global_print_sequence()), which picks the arrange settings. */
     val sequentialPrint: Boolean = false,
+    /** The printer's min_layer_height of each extruder, which get_min_layer_height() of the object list reads. */
+    val minLayerHeights: List<Double> = emptyList(),
 )
 
 /** A plate type: curr_bed_type's [value] and OrcaSlicer's [label] for it. */

@@ -215,6 +215,7 @@ internal class NativePresetState(
     @JvmField val multiMaterialButtons: Boolean,
     @JvmField val i3Structure: Boolean,
     @JvmField val sequentialPrint: Boolean,
+    @JvmField val minLayerHeights: DoubleArray,
     @JvmField val printers: Array<NativePresetItem>,
     @JvmField val filaments: Array<NativePresetItem>,
     @JvmField val processes: Array<NativePresetItem>,

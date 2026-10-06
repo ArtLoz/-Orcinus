@@ -2791,6 +2791,7 @@ class NativeSlicerEngine(context: Context) :
         multiMaterialButtons = multiMaterialButtons,
         i3Structure = i3Structure,
         sequentialPrint = sequentialPrint,
+        minLayerHeights = minLayerHeights.toList(),
     )
 
     private fun NativePresetItem.toItem() = PresetListItem(

@@ -161,6 +161,7 @@ import app.orcinus.shadow.storage.api.PlateCache
 import app.orcinus.shadow.storage.api.ProjectBackup
 import app.orcinus.shadow.storage.api.SceneFiles
 import java.util.UUID
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
@@ -2546,11 +2547,13 @@ class BedShapeFilesUseCase(
  * ObjectList::layers_editing() and add_layer_range_after_current(): a height
  * range of the object, which prints with a layer height of its own. The first
  * range the desktop app adds is 0 to 2 mm; every later one starts where the
- * range it follows ends and is 2 mm high, unless it would run into the next
- * range — then it fills the gap up to it, and a range that touches the next one
- * splits it in half, as the desktop app does. The range starts with the
- * settings of get_default_layer_config(): the layer height of the object or of
- * the process, and the object's filament. G-code sliced before no longer applies.
+ * range it follows ends and is 2 mm high, unless a range comes after it (the
+ * next by its heights): a range that touches it splits in two, and a gap up to
+ * it is filled, each only with room for the printer's least layer heights
+ * (get_min_layer_height()); a next range that overlaps it leaves nothing to
+ * add. The range starts with the settings of get_default_layer_config(): the
+ * layer height of the object or of the process, and the object's filament.
+ * G-code sliced before no longer applies.
  */
 class AddLayerRangeUseCase(private val repository: PlateRepository, private val editor: PresetSettingsEditor) {
     /** [after] is the range the new one follows; null adds the first one. */
@@ -2564,18 +2567,27 @@ class AddLayerRangeUseCase(private val repository: PlateRepository, private val 
             if (target == null || state.busy) return@update state
             val ranges = target.layerRanges
             val current = after?.let { ranges.getOrNull(it.index) }
-            val next = current?.let { range -> ranges.firstOrNull { it.bottom >= range.top && it !== range } }
+            val next = after?.let { ranges.getOrNull(it.index + 1) }
+            val newMin = state.minLayerHeight(0)
             val range = when {
                 // ObjectList::layers_editing(): the first range of an object.
                 current == null -> if (ranges.isEmpty()) LayerRange(0.0, FIRST_RANGE_HEIGHT, defaults) else null
                 // Adding a range after the last one is always possible.
                 next == null -> LayerRange(current.top, current.top + FIRST_RANGE_HEIGHT, defaults)
-                // Splitting the next range in two, which needs room for both.
-                next.bottom == current.top ->
-                    (next.bottom + (next.top - next.bottom) / 2).takeIf { next.top - next.bottom >= MIN_RANGE_HEIGHT * 2 }
-                        ?.let { middle -> LayerRange(current.top, middle, defaults) }
+                current.top > next.bottom -> null
+                // Splitting the next range in two, which needs room for a layer of each.
+                next.bottom == current.top -> {
+                    val delta = next.top - next.bottom
+                    val oldMin = state.minLayerHeight(next.settings.values["extruder"]?.toIntOrNull() ?: 0)
+                    if (delta < oldMin + newMin - EPSILON) {
+                        null
+                    } else {
+                        val middle = if (newMin > 0.5 * delta) next.top - newMin else next.bottom + maxOf(oldMin, 0.5 * delta)
+                        LayerRange(current.top, middle, defaults)
+                    }
+                }
                 // Filling the gap between this range and the next one.
-                else -> LayerRange(current.top, next.bottom, defaults).takeIf { next.bottom - current.top >= MIN_RANGE_HEIGHT }
+                else -> LayerRange(current.top, next.bottom, defaults).takeIf { next.bottom - current.top >= newMin - EPSILON }
             } ?: return@update state
             val kept = if (current != null && next != null && next.bottom == current.top) {
                 // The next range keeps its settings and starts where the new one ends.
@@ -2590,16 +2602,17 @@ class AddLayerRangeUseCase(private val repository: PlateRepository, private val 
         return added
     }
 
+    /** get_min_layer_height(): the printer's min_layer_height of the 1-based extruder, the first for 0. */
+    private fun PlateState.minLayerHeight(extruder: Int): Double {
+        val heights = presets?.minLayerHeights.orEmpty()
+        return heights.getOrNull(maxOf(0, extruder - 1)) ?: heights.firstOrNull() ?: 0.0
+    }
+
     private companion object {
         /** The 2 mm of ObjectList::layers_editing() and add_layer_range_after_current(). */
         const val FIRST_RANGE_HEIGHT = 2.0
 
-        /**
-         * get_min_layer_height() of GUI_ObjectList.cpp reads it from the
-         * printer; the smallest layer height OrcaSlicer's profiles allow is
-         * 0.05 mm, which is the least room a range needs.
-         */
-        const val MIN_RANGE_HEIGHT = 0.05
+        const val EPSILON = 1e-4
     }
 }
 
@@ -2618,19 +2631,25 @@ class RemoveLayerRangeUseCase(private val repository: PlateRepository) {
 
 /**
  * ObjectList::edit_layer_range(): the range keeps its settings and spans other
- * heights. A range must stay above the bed and below its top, and the desktop
- * app keeps the ranges apart, so a new span that reaches into its neighbours is
- * refused.
+ * heights, as the two fields of ObjectLayers take them, the bottom first: a
+ * bottom at or above the top lifts the top half a millimetre above it, and a
+ * top below the bottom is refused. Ranges may overlap; a range of the very same
+ * heights gives way to the edited one, as the desktop app's map of ranges keeps
+ * one per span. The fields refuse a negative height ("Invalid numeric.").
  */
 class EditLayerRangeUseCase(private val repository: PlateRepository) {
     operator fun invoke(id: LayerRangeId, bottom: Double, top: Double) = repository.update { state ->
         val target = state.objects.withMesh(id.mesh)
         val range = target?.layerRanges?.getOrNull(id.index)
-        if (target == null || range == null || state.busy) return@update state
-        if (bottom < 0.0 || top - bottom < MIN_RANGE_HEIGHT) return@update state
-        val others = target.layerRanges.filterIndexed { at, _ -> at != id.index }
-        if (others.any { bottom < it.top && it.bottom < top }) return@update state
-        val moved = range.copy(bottom = bottom, top = top)
+        if (target == null || range == null || state.busy || bottom < 0.0 || top < 0.0) return@update state
+        var span = range.bottom to range.top
+        // The "Min Z" field.
+        if (abs(bottom - span.first) >= EPSILON) span = bottom to if (bottom < span.second) span.second else bottom + TOP_ABOVE_BOTTOM
+        // The "Max Z" field, of the range the bottom left.
+        if (abs(top - span.second) >= EPSILON && span.first <= top) span = span.first to top
+        if (span == range.bottom to range.top) return@update state
+        val moved = range.copy(bottom = span.first, top = span.second)
+        val others = target.layerRanges.filterIndexed { at, other -> at != id.index && !(other.bottom == moved.bottom && other.top == moved.top) }
         val updated = target.withLayerRanges(others + moved)
         state.recorded().copy(
             selectedRange = LayerRangeId(id.mesh, updated.layerRanges.indexOfFirst { it === moved }),
@@ -2640,7 +2659,10 @@ class EditLayerRangeUseCase(private val repository: PlateRepository) {
     }
 
     private companion object {
-        const val MIN_RANGE_HEIGHT = 0.05
+        const val EPSILON = 1e-4
+
+        /** ObjectLayers' "Min Z" field: max_z = min_z + 0.5 when the bottom passes the top. */
+        const val TOP_ABOVE_BOTTOM = 0.5
     }
 }
 

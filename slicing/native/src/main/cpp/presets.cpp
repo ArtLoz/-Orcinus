@@ -476,6 +476,9 @@ PresetState preset_state(Slic3r::PresetBundle& bundle)
     state.i3_structure = structure != nullptr && structure->value == Slic3r::PrinterStructure::psI3;
     const auto* sequence = bundle.prints.get_edited_preset().config.option<Slic3r::ConfigOptionEnum<Slic3r::PrintSequence>>("print_sequence");
     state.sequential_print = sequence != nullptr && sequence->value == Slic3r::PrintSequence::ByObject;
+    if (const auto* min_layer_height = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionFloats>("min_layer_height")) {
+        state.min_layer_heights = min_layer_height->values;
+    }
     return state;
 }
 

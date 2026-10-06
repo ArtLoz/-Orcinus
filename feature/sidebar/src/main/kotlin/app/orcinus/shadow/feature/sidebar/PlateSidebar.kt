@@ -1139,10 +1139,16 @@ private fun LayerRangeSheet(range: LayerRange, onFocus: (LayerRangeEditor) -> Un
     val colors = OrcaTheme.colors
     var bottom by rememberSaveable(range) { mutableStateOf(formatHeight(range.bottom)) }
     var top by rememberSaveable(range) { mutableStateOf(formatHeight(range.top)) }
+    var invalid by rememberSaveable(range) { mutableStateOf(false) }
     val apply = {
-        val from = bottom.replace(',', '.').toDoubleOrNull()
-        val to = top.replace(',', '.').toDoubleOrNull()
-        if (from != null && to != null) onApply(from, to) else onDismiss()
+        // LayerRangeEditor::get_value(): a field left as it was keeps its height;
+        // one that is no height of zero or more says so and takes its height back.
+        val from = if (bottom == formatHeight(range.bottom)) range.bottom else layerRangeValue(bottom)
+        val to = if (top == formatHeight(range.top)) range.top else layerRangeValue(top)
+        if (from == null) bottom = formatHeight(range.bottom)
+        if (to == null) top = formatHeight(range.top)
+        invalid = from == null || to == null
+        if (from != null && to != null) onApply(from, to)
     }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1182,6 +1188,8 @@ private fun LayerRangeSheet(range: LayerRange, onFocus: (LayerRangeEditor) -> Un
                     )
                 }
             }
+            // show_error() of LayerRangeEditor::get_value(), which a phone shows under the fields.
+            if (invalid) Text(text = orcaString("Invalid numeric."), color = colors.error, style = OrcaTheme.typography.body14)
             OrcaButton(
                 text = stringResource(R.string.object_range_apply),
                 onClick = apply,
@@ -1195,6 +1203,13 @@ private fun LayerRangeSheet(range: LayerRange, onFocus: (LayerRangeEditor) -> Un
 
 /** The heights of a range as the desktop app writes them: two decimals. */
 private fun formatHeight(value: Double): String = String.format(Locale.US, "%.2f", value)
+
+/** LayerRangeEditor::get_value(): either decimal separator, "." for 0; null for no height of zero or more. */
+private fun layerRangeValue(text: String): Double? {
+    val value = text.replace(',', '.')
+    if (value == ".") return 0.0
+    return value.toDoubleOrNull()?.takeIf { it >= 0.0 }
+}
 
 /** The engine could not describe the flushing volumes; its message is shown as it is. */
 @Composable

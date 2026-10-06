@@ -31,6 +31,8 @@ parcelable PresetsParcel {
     boolean multiMaterialButtons;
     boolean i3Structure;
     boolean sequentialPrint;
+    /** Presets.minLayerHeights */
+    double[] minLayerHeights;
     /** Nothing was selected: the preset of changedKind has these unsaved changes. */
     boolean asksUnsavedChanges;
     @nullable String changedKind;

@@ -1050,6 +1050,7 @@ private fun PresetsParcel.fill(presets: Presets) {
     multiMaterialButtons = presets.multiMaterialButtons
     i3Structure = presets.i3Structure
     sequentialPrint = presets.sequentialPrint
+    minLayerHeights = presets.minLayerHeights.toDoubleArray()
 }
 
 internal fun PresetChange.toParcel() = PresetChangeParcel().also {
@@ -1122,6 +1123,7 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         multiMaterialButtons = multiMaterialButtons,
         i3Structure = i3Structure,
         sequentialPrint = sequentialPrint,
+        minLayerHeights = minLayerHeights?.toList().orEmpty(),
     )
     if (!asksUnsavedChanges) {
         return PresetsOutcome.Success(presets)

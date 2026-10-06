@@ -462,7 +462,8 @@ fun PlateObject.withPartAt(index: Int, part: ObjectPart): PlateObject =
 
 /** The height ranges of an object replaced, kept in the order they print in. */
 fun PlateObject.withLayerRanges(ranges: List<LayerRange>): PlateObject {
-    val sorted = ranges.sortedBy(LayerRange::bottom)
+    // ModelObject::layer_config_ranges, a map by (bottom, top).
+    val sorted = ranges.sortedWith(compareBy(LayerRange::bottom, LayerRange::top))
     return when (this) {
         is PlateObject.ImportedModel -> copy(layerRanges = sorted)
         is PlateObject.CalibrationCube -> copy(layerRanges = sorted)
