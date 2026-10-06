@@ -504,6 +504,7 @@ interface ISlicerService {
         in ModelSettingsParcel target,
         in @nullable ModelSettingsParcel parent
     );
+    ModelSettingsOutcomeParcel defaultLayerConfig(in ModelSettingsParcel objectSettings);
     PresetSettingsParcel setSettingOverride(String kind, String page, String id, boolean enabled, in String[] answerIds, in boolean[] answers);
     PresetSettingsParcel setCompatiblePresets(String kind, String page, String key, in String[] presets, in String[] answerIds, in boolean[] answers);
     PresetNamesParcel compatiblePresetChoices(String kind, String key);

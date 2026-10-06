@@ -3687,6 +3687,38 @@ TEST_CASE("The settings of a height range sit on the ones of its object and alwa
         CHECK(overridden(changed.model_settings.front(), "layer_height") == "0.1");
         CHECK(setting(changed, "layer_height").modified);
     }
+
+    SECTION("a reset of the range keeps a layer height, the one of its object")
+    {
+        // TabPrintModel::reset_model_config() erases every setting of the range;
+        // TabPrintLayer::update_custom_dirty() gives the layer height back, which
+        // the slicer reads of every range (generate_object_layers()).
+        orca::ModelSettingsRequest request;
+        request.settings = {model_settings({{"layer_height", "0.1"}, {"wall_loops", "5"}})};
+        request.parent = model_settings({{"layer_height", "0.28"}});
+
+        const orca::PresetSettings reset = orca::reset_settings(layer, frequent, {}, {}, request);
+        INFO(reset.message);
+        REQUIRE(reset.status == orca::SceneStatus::success);
+        REQUIRE_FALSE(reset.model_settings.empty());
+        CHECK(overridden(reset.model_settings.front(), "layer_height") == "0.28");
+        CHECK(overridden(reset.model_settings.front(), "wall_loops") == "<unset>");
+    }
+
+    SECTION("a new range starts with the layer height of its object, or of the process, and the object's filament")
+    {
+        // ObjectList::get_default_layer_config()
+        const orca::PastedSettings own = orca::default_layer_config(model_settings({{"layer_height", "0.12"}, {"extruder", "2"}}));
+        INFO(own.message);
+        REQUIRE(own.status == orca::SceneStatus::success);
+        CHECK(overridden(own.settings, "layer_height") == "0.12");
+        CHECK(overridden(own.settings, "extruder") == "0");
+
+        const orca::PastedSettings process = orca::default_layer_config({});
+        REQUIRE(process.status == orca::SceneStatus::success);
+        CHECK(overridden(process.settings, "layer_height") == "0.2");
+        CHECK(process.settings.keys.size() == 2);
+    }
 }
 
 TEST_CASE("The filament tab offers the extruder variants of a printer that has several", "[Adapter][Settings]")

@@ -628,9 +628,11 @@ class SidebarViewModel(
 
     /** The height ranges of an object, which the object list edits. */
     fun addRange(mesh: ScenePath, after: LayerRangeId?) {
-        val added = addLayerRange(mesh, after) ?: return
-        selectLayerRange(added)
-        setSettingsScope(SettingsScope.OBJECT)
+        viewModelScope.launch {
+            val added = addLayerRange(mesh, after) ?: return@launch
+            selectLayerRange(added)
+            setSettingsScope(SettingsScope.OBJECT)
+        }
     }
 
     fun removeRange(id: LayerRangeId) = removeLayerRange(id)

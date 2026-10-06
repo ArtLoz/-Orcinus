@@ -1040,6 +1040,17 @@ abstract class SlicerService<E> : Service()
             }
         }
 
+        override fun defaultLayerConfig(objectSettings: ModelSettingsParcel): ModelSettingsOutcomeParcel = runBlocking {
+            engine.defaultLayerConfig(objectSettings.toModelSettings())
+        }.let { outcome ->
+            ModelSettingsOutcomeParcel().also {
+                when (outcome) {
+                    is ModelSettingsOutcome.Failure -> it.error = outcome.message
+                    is ModelSettingsOutcome.Success -> it.settings = outcome.settings.toParcel()
+                }
+            }
+        }
+
         override fun resetSettings(
             kind: String,
             page: String,

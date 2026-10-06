@@ -1510,6 +1510,13 @@ internal object NativeBindings {
     ): Array<String>
 
     /**
+     * default_layer_config(): the settings a new height range of the object
+     * with [objectKeys] starts with; answers the status, the message, then
+     * every key with its value.
+     */
+    external fun defaultLayerConfig(objectKeys: Array<String>, objectValues: Array<String>): Array<String>
+
+    /**
      * simplify_volume(): answers the status, the message, the triangles of the
      * decimated mesh and those of the volume.
      */

@@ -2695,21 +2695,22 @@ class PlateUseCasesTest {
     @Test
     fun `the height ranges of an object are added where the desktop app adds them`() {
         val repository = FakeRepository(readyState(CUBE))
-        val add = AddLayerRangeUseCase(repository)
+        val add = AddLayerRangeUseCase(repository, RangeDefaultsEditor)
 
-        // ObjectList::layers_editing(): the first range is 0 to 2 mm.
-        val first = add(CUBE.mesh)
+        // ObjectList::layers_editing(): the first range is 0 to 2 mm, with get_default_layer_config().
+        val first = runSuspend { add(CUBE.mesh) }
 
         assertEquals(LayerRangeId(CUBE.mesh, 0), first)
         assertEquals(listOf(0.0 to 2.0), repository.state.value.objects.single().layerRanges.map { it.bottom to it.top })
+        assertEquals(RangeDefaultsEditor.DEFAULTS, repository.state.value.objects.single().layerRanges.single().settings)
 
         // add_layer_range_after_current(): after the last one, 2 mm high.
-        add(CUBE.mesh, first)
+        runSuspend { add(CUBE.mesh, first) }
 
         assertEquals(listOf(0.0 to 2.0, 2.0 to 4.0), repository.state.value.objects.single().layerRanges.map { it.bottom to it.top })
 
         // A range that touches the next one splits it in half.
-        add(CUBE.mesh, LayerRangeId(CUBE.mesh, 0))
+        runSuspend { add(CUBE.mesh, LayerRangeId(CUBE.mesh, 0)) }
 
         assertEquals(
             listOf(0.0 to 2.0, 2.0 to 3.0, 3.0 to 4.0),
@@ -2722,7 +2723,7 @@ class PlateUseCasesTest {
         val cube = CUBE.copy(layerRanges = listOf(LayerRange(0.0, 2.0), LayerRange(5.0, 7.0)))
         val repository = FakeRepository(readyState(cube))
 
-        AddLayerRangeUseCase(repository)(cube.mesh, LayerRangeId(cube.mesh, 0))
+        runSuspend { AddLayerRangeUseCase(repository, RangeDefaultsEditor)(cube.mesh, LayerRangeId(cube.mesh, 0)) }
 
         assertEquals(
             listOf(0.0 to 2.0, 2.0 to 5.0, 5.0 to 7.0),
@@ -3970,6 +3971,14 @@ class PlateUseCasesTest {
         override suspend fun displayName(document: ExternalDocumentReference): String? = name
     }
 
+    /** The engine's settings editor, which starts a height range with [DEFAULTS]. */
+    private object RangeDefaultsEditor : PresetSettingsEditor by NoSettingsEditor {
+        /** get_default_layer_config() of an object printing with layers of 0.2 mm. */
+        val DEFAULTS = ModelSettings(mapOf("layer_height" to "0.2", "extruder" to "0"))
+
+        override suspend fun defaultLayerConfig(objectSettings: ModelSettings): ModelSettingsOutcome = ModelSettingsOutcome.Success(DEFAULTS)
+    }
+
     /** The engine's settings editor, which answers a paste with [result]. */
     private class PastingEditor(private val result: ModelSettings) : PresetSettingsEditor by NoSettingsEditor {
         val pasted = mutableListOf<Triple<ModelSettings, ModelSettings, ModelSettings?>>()
@@ -4749,6 +4758,8 @@ class PlateUseCasesTest {
 
         override suspend fun pasteModelSettings(clipboard: ModelSettings, target: ModelSettings, parent: ModelSettings?): ModelSettingsOutcome =
             ModelSettingsOutcome.Failure("not used")
+
+        override suspend fun defaultLayerConfig(objectSettings: ModelSettings): ModelSettingsOutcome = ModelSettingsOutcome.Failure("not used")
 
         override suspend fun setSettingOverride(kind: PresetKind, page: String, id: String, enabled: Boolean, answers: Map<String, Boolean>) =
             PresetSettingsOutcome.Failure("not used")

@@ -507,7 +507,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val importConfig = ImportConfigUseCase(engine, engine, configFiles, platePresets)
     private val exportConfig = ExportConfigUseCase(engine, configFiles)
     private val presetBundles = PresetBundlesUseCase(engine, engine, platePresets)
-    private val addLayerRange = AddLayerRangeUseCase(plateRepository)
+    private val addLayerRange = AddLayerRangeUseCase(plateRepository, engine)
     private val removeLayerRange = RemoveLayerRangeUseCase(plateRepository)
     private val selectLayerRange = SelectLayerRangeUseCase(plateRepository)
     private val editLayerRange = EditLayerRangeUseCase(plateRepository)

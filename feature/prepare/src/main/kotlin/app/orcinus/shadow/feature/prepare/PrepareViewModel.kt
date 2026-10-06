@@ -3048,9 +3048,11 @@ class PrepareViewModel(
     /** ObjectList::layers_editing(): the new range is selected with its settings. */
     fun addHeightRangeTo(index: Int) {
         val id = copyAt(index) ?: return
-        val added = addLayerRange(id.mesh, null) ?: return
-        selectLayerRange(added)
-        setSettingsScope(SettingsScope.OBJECT)
+        viewModelScope.launch {
+            val added = addLayerRange(id.mesh, null) ?: return@launch
+            selectLayerRange(added)
+            setSettingsScope(SettingsScope.OBJECT)
+        }
     }
 
     /** The object menu's commands that change the meshes of the object of the copy at [index]. */

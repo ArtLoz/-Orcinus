@@ -3872,6 +3872,24 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_pasteModelSettings(
     return to_java(env, answer);
 }
 
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_defaultLayerConfig(
+    JNIEnv* env,
+    jobject /* this */,
+    jobjectArray object_keys,
+    jobjectArray object_values
+)
+{
+    const orcinus::orca::PastedSettings config = orcinus::orca::default_layer_config(to_model_settings(env, object_keys, object_values));
+    // status, message, then every key with its value.
+    std::vector<std::string> answer{std::to_string(static_cast<int>(config.status)), config.message};
+    for (std::size_t i = 0; i < config.settings.keys.size() && i < config.settings.values.size(); ++i) {
+        answer.push_back(config.settings.keys[i]);
+        answer.push_back(config.settings.values[i]);
+    }
+    return to_java(env, answer);
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_replaceVolume(
     JNIEnv* env,

@@ -619,6 +619,8 @@ class PresetSettingsTabsTest {
         override suspend fun pasteModelSettings(clipboard: ModelSettings, target: ModelSettings, parent: ModelSettings?) =
             ModelSettingsOutcome.Failure("not used")
 
+        override suspend fun defaultLayerConfig(objectSettings: ModelSettings) = ModelSettingsOutcome.Failure("not used")
+
         override suspend fun setSettingOverride(kind: PresetKind, page: String, id: String, enabled: Boolean, answers: Map<String, Boolean>) =
             run(kind, page, SettingsRequest.SetOverride(id, enabled), answers)
 

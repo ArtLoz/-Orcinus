@@ -2153,6 +2153,15 @@ class NativeSlicerEngine(context: Context) :
         }
     }
 
+    override suspend fun defaultLayerConfig(objectSettings: ModelSettings): ModelSettingsOutcome = whenReady(ModelSettingsOutcome::Failure) {
+        val answer = NativeBindings.defaultLayerConfig(objectSettings.keys(), objectSettings.values())
+        if (answer[0].toLong() != NativeSceneStatus.SUCCESS) {
+            ModelSettingsOutcome.Failure(answer[1].ifBlank { "OrcaSlicer could not describe a height range" })
+        } else {
+            ModelSettingsOutcome.Success(ModelSettings(answer.drop(2).chunked(2).associate { (key, value) -> key to value }))
+        }
+    }
+
     override suspend fun setSettingOverride(
         kind: PresetKind,
         page: String,

@@ -532,6 +532,40 @@ PastedSettings paste_model_settings(const ModelSettings& clipboard, const ModelS
     }
 }
 
+PastedSettings default_layer_config(const ModelSettings& object)
+{
+    PastedSettings result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        follow_config(engine());
+        const Slic3r::DynamicPrintConfig object_config = model_config(object);
+        const Slic3r::DynamicPrintConfig& print = engine().bundle->prints.get_edited_preset().config;
+
+        Slic3r::DynamicPrintConfig config;
+        coordf_t layer_height = object_config.has("layer_height") ?
+                                object_config.opt_float("layer_height") :
+                                print.opt_float("layer_height");
+        config.set_key_value("layer_height",new Slic3r::ConfigOptionFloat(layer_height));
+        // BBS
+        config.set_key_value("extruder",    new Slic3r::ConfigOptionInt(0));
+
+        for (const std::string& key : config.keys()) {
+            result.settings.keys.push_back(key);
+            result.settings.values.push_back(config.opt_serialize(key));
+        }
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::profile_not_found;
+        result.message = error.what();
+        return result;
+    }
+}
+
 PresetSettings change_setting(const PresetKind kind, const std::string& page, const std::string& id, const std::string& text,
                               const DialogAnswers& answers, const ModelSettingsRequest& model)
 {

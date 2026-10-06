@@ -949,6 +949,13 @@ interface PresetSettingsEditor {
     suspend fun pasteModelSettings(clipboard: ModelSettings, target: ModelSettings, parent: ModelSettings?): ModelSettingsOutcome
 
     /**
+     * ObjectList::get_default_layer_config(): the settings a new height range
+     * of the object with [objectSettings] starts with: the layer height of the
+     * object, or of the edited process preset, and the object's filament.
+     */
+    suspend fun defaultLayerConfig(objectSettings: ModelSettings): ModelSettingsOutcome
+
+    /**
      * The check box of a filament override: switched on, the setting takes the
      * value of the preset it overrides; switched off, the filament leaves it to it.
      */

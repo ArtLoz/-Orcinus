@@ -3099,6 +3099,11 @@ struct PastedSettings {
 
 PastedSettings paste_model_settings(const ModelSettings& clipboard, const ModelSettings& target, bool part, const ModelSettings& object);
 
+// ObjectList::get_default_layer_config(): the settings a new height range of
+// the object with the settings object starts with: the layer height of the
+// object, or of the edited process preset, and the object's filament.
+PastedSettings default_layer_config(const ModelSettings& object);
+
 // The undo buttons: the settings, or every modified setting when ids is
 // empty, back to the saved preset (OptionsGroup::back_to_initial_value,
 // Tab::on_roll_back_value). On the settings of an object the overrides are

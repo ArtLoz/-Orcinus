@@ -586,14 +586,19 @@ void TabPrintLayer::set_model_config(std::vector<DynamicPrintConfig> model_confi
 void TabPrintLayer::update_custom_dirty(std::vector<std::string>& dirty_options, std::vector<std::string>& nonsys_options)
 {
     TabPrintModel::update_custom_dirty(dirty_options, nonsys_options);
-    // A range whose layer height is the one of the object changes nothing, so
-    // the desktop app does not mark it.
+    // A range always prints with a layer height of its own: one that lost it to
+    // a reset takes the object's back. A range whose layer height is the one of
+    // the object changes nothing, so the desktop app does not mark it.
     const ConfigOption* option = parent_config().option(layer_height_key);
     const auto erase = [](std::vector<std::string>& keys) {
         keys.erase(std::remove(keys.begin(), keys.end(), layer_height_key), keys.end());
     };
-    for (const DynamicPrintConfig& config : m_object_configs) {
-        if (!config.has(layer_height_key) || (option != nullptr && config.opt_float(layer_height_key) == option->getFloat())) {
+    for (DynamicPrintConfig& config : m_object_configs) {
+        if (!config.has(layer_height_key)) {
+            config.set_key_value(layer_height_key, option->clone());
+            erase(dirty_options);
+            erase(nonsys_options);
+        } else if (config.opt_float(layer_height_key) == option->getFloat()) {
             erase(dirty_options);
             erase(nonsys_options);
         }

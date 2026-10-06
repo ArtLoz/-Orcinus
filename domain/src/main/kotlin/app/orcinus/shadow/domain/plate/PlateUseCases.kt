@@ -49,6 +49,7 @@ import app.orcinus.shadow.core.model.ModelLoad
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.ModelSettings
+import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectEdit
@@ -2278,13 +2279,15 @@ class BedShapeFilesUseCase(
  * range the desktop app adds is 0 to 2 mm; every later one starts where the
  * range it follows ends and is 2 mm high, unless it would run into the next
  * range — then it fills the gap up to it, and a range that touches the next one
- * splits it in half, as the desktop app does. The range carries no settings
- * yet: the tab gives it the layer height of the object
- * (TabPrintLayer::notify_changed). G-code sliced before no longer applies.
+ * splits it in half, as the desktop app does. The range starts with the
+ * settings of get_default_layer_config(): the layer height of the object or of
+ * the process, and the object's filament. G-code sliced before no longer applies.
  */
-class AddLayerRangeUseCase(private val repository: PlateRepository) {
+class AddLayerRangeUseCase(private val repository: PlateRepository, private val editor: PresetSettingsEditor) {
     /** [after] is the range the new one follows; null adds the first one. */
-    operator fun invoke(mesh: ScenePath, after: LayerRangeId? = null): LayerRangeId? {
+    suspend operator fun invoke(mesh: ScenePath, after: LayerRangeId? = null): LayerRangeId? {
+        val owner = repository.state.value.objects.withMesh(mesh) ?: return null
+        val defaults = (editor.defaultLayerConfig(owner.settings) as? ModelSettingsOutcome.Success)?.settings ?: return null
         var added: LayerRangeId? = null
         repository.update { state ->
             added = null
@@ -2295,15 +2298,15 @@ class AddLayerRangeUseCase(private val repository: PlateRepository) {
             val next = current?.let { range -> ranges.firstOrNull { it.bottom >= range.top && it !== range } }
             val range = when {
                 // ObjectList::layers_editing(): the first range of an object.
-                current == null -> if (ranges.isEmpty()) LayerRange(0.0, FIRST_RANGE_HEIGHT) else null
+                current == null -> if (ranges.isEmpty()) LayerRange(0.0, FIRST_RANGE_HEIGHT, defaults) else null
                 // Adding a range after the last one is always possible.
-                next == null -> LayerRange(current.top, current.top + FIRST_RANGE_HEIGHT)
+                next == null -> LayerRange(current.top, current.top + FIRST_RANGE_HEIGHT, defaults)
                 // Splitting the next range in two, which needs room for both.
                 next.bottom == current.top ->
                     (next.bottom + (next.top - next.bottom) / 2).takeIf { next.top - next.bottom >= MIN_RANGE_HEIGHT * 2 }
-                        ?.let { middle -> LayerRange(current.top, middle) }
+                        ?.let { middle -> LayerRange(current.top, middle, defaults) }
                 // Filling the gap between this range and the next one.
-                else -> LayerRange(current.top, next.bottom).takeIf { next.bottom - current.top >= MIN_RANGE_HEIGHT }
+                else -> LayerRange(current.top, next.bottom, defaults).takeIf { next.bottom - current.top >= MIN_RANGE_HEIGHT }
             } ?: return@update state
             val kept = if (current != null && next != null && next.bottom == current.top) {
                 // The next range keeps its settings and starts where the new one ends.

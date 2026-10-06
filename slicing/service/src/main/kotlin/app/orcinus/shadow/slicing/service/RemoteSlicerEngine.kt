@@ -1158,6 +1158,11 @@ class RemoteSlicerEngine(
         parcel.error?.let(ModelSettingsOutcome::Failure) ?: ModelSettingsOutcome.Success(parcel.settings.toModelSettings())
     }
 
+    override suspend fun defaultLayerConfig(objectSettings: ModelSettings): ModelSettingsOutcome = remote(ModelSettingsOutcome::Failure) {
+        val parcel = defaultLayerConfig(objectSettings.toParcel())
+        parcel.error?.let(ModelSettingsOutcome::Failure) ?: ModelSettingsOutcome.Success(parcel.settings.toModelSettings())
+    }
+
     override suspend fun resetSettings(
         kind: PresetKind,
         page: String,
