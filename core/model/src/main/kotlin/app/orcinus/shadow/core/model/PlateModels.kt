@@ -731,6 +731,8 @@ data class PlateSliceResult(
     val printReady: Boolean = true,
     val postProcessSkipped: Boolean = false,
     val primeTowerOutside: Boolean = false,
+    /** SliceOutcome.Success.addLineNumber. */
+    val addLineNumber: Boolean = false,
 )
 
 enum class PlateProblemKind {
@@ -1398,6 +1400,11 @@ data class PlateState(
      * opened project leaves it.
      */
     val paPattern: CalibrationParams? = null,
+    /**
+     * IMSlider::SetTicksValues()'s last_spiral_vase_status: whether the last
+     * print the slider took was a spiral vase; a change clears its codes.
+     */
+    val sliderSpiralVase: Boolean = false,
     /** The states of the plate Undo and Redo return to (Plater's UndoRedo::Stack). */
     val history: PlateHistory = PlateHistory(),
     /**

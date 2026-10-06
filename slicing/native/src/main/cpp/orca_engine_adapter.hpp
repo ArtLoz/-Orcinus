@@ -117,6 +117,26 @@ struct SliceNotice {
     bool step_warning{false};
 };
 
+// CustomGCode::Type of CustomGCode.hpp: what a code on a layer does.
+enum class LayerGcodeType : std::int64_t {
+    color_change = 0,
+    pause_print = 1,
+    tool_change = 2,
+    template_gcode = 3,
+    custom = 4,
+};
+
+// CustomGCode::Item: a code the print runs where the layer at print_z starts,
+// as the layer slider of the preview puts it there. extruder is the filament
+// a tool change switches to, color its colour, extra the G-code of a custom one.
+struct LayerGcode {
+    double print_z{0.0};
+    LayerGcodeType type{LayerGcodeType::custom};
+    int extruder{1};
+    std::string color;
+    std::string extra;
+};
+
 struct SliceResult {
     SliceStatus status{SliceStatus::slicing_failed};
     std::string message;
@@ -161,6 +181,19 @@ struct SliceResult {
     // GLVolumeCollection::check_wipe_tower_outside_state() of the tower the
     // slice built: it reaches beyond the plate (EWarning::PrimeTowerOutside).
     bool prime_tower_outside{false};
+    // IMSlider::SetModeAndOnlyExtruder(): the print is a spiral vase, a change
+    // of which clears the slider's codes (IMSlider::SetTicksValues()).
+    bool spiral_vase{false};
+    // The print_z of the last layer, past which Preview::check_layers_slider_values()
+    // drops the slider's codes.
+    double top_z{0.0};
+    // gcode_add_line_number: BackgroundSlicingProcess::export_gcode() numbers
+    // the lines of the exported file (gcode_add_line_number()).
+    bool add_line_number{false};
+    // Plater::_calib_pa_pattern_gen_gcode(): the plate's codes once the PA
+    // pattern's took them (pattern_gcodes_set), which the project keeps.
+    bool pattern_gcodes_set{false};
+    std::vector<LayerGcode> plate_gcodes;
 };
 
 // What Print::output_filename() names the G-code after: the project's name once
@@ -172,26 +205,6 @@ struct OutputNaming {
     std::string filename_base;
     std::string plate_name;
     std::string model_name;
-};
-
-// CustomGCode::Type of CustomGCode.hpp: what a code on a layer does.
-enum class LayerGcodeType : std::int64_t {
-    color_change = 0,
-    pause_print = 1,
-    tool_change = 2,
-    template_gcode = 3,
-    custom = 4,
-};
-
-// CustomGCode::Item: a code the print runs where the layer at print_z starts,
-// as the layer slider of the preview puts it there. extruder is the filament
-// a tool change switches to, color its colour, extra the G-code of a custom one.
-struct LayerGcode {
-    double print_z{0.0};
-    LayerGcodeType type{LayerGcodeType::custom};
-    int extruder{1};
-    std::string color;
-    std::string extra;
 };
 
 // A thumbnail of the plate the app rendered for the G-code, as the desktop app

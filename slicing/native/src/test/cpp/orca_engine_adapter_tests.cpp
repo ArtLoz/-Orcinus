@@ -7713,6 +7713,14 @@ TEST_CASE("The PA pattern stands a handle for every speed, whose patterns the sl
     CHECK(lines(patterns[0]) > 17 * 2);
     CHECK(lines(patterns[1]) == lines(patterns[0]));
     CHECK(gcode.find("SET_PRESSURE_ADVANCE ADVANCE=0.08") != std::string::npos);
+    // The plate keeps the pattern's codes (Model::plates_custom_gcodes), a custom one on each layer.
+    CHECK(result.pattern_gcodes_set);
+    REQUIRE(!result.plate_gcodes.empty());
+    CHECK(std::all_of(result.plate_gcodes.begin(), result.plate_gcodes.end(),
+                      [](const orca::LayerGcode& code) { return code.type == orca::LayerGcodeType::custom; }));
+    CHECK(result.plate_gcodes.front().extra.find(start) != std::string::npos);
+    CHECK(result.top_z == Catch::Approx(result.plate_gcodes.back().print_z).margin(1e-6));
+    CHECK_FALSE(result.spiral_vase);
 
     REQUIRE(orca::discard_preset_changes().status == orca::SceneStatus::success);
 }

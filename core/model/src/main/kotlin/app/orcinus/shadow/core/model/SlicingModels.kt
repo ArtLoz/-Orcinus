@@ -692,6 +692,10 @@ data class LayerGcodeRules(
     val sequential: Boolean = false,
     val canChangeFilament: Boolean = true,
     val hasTemplate: Boolean = false,
+    /** The print is a spiral vase, a change of which clears the codes (IMSlider::SetTicksValues()). */
+    val spiralVase: Boolean = false,
+    /** The print_z of the last layer, past which the codes go (Preview::check_layers_slider_values()). */
+    val topZ: Double = Double.MAX_VALUE,
 )
 
 /** The size of a G-code thumbnail in pixels, as the printer's "thumbnails" setting lists it. */
@@ -865,6 +869,13 @@ sealed interface SliceOutcome {
         val postProcessSkipped: Boolean = false,
         /** check_wipe_tower_outside_state(): the tower the slice built reaches beyond the plate. */
         val primeTowerOutside: Boolean = false,
+        /** gcode_add_line_number: the exported G-code numbers its lines (BackgroundSlicingProcess::export_gcode()). */
+        val addLineNumber: Boolean = false,
+        /**
+         * Plater::_calib_pa_pattern_gen_gcode(): the plate's codes once the PA
+         * pattern's took them, which the plate keeps; null without a pattern.
+         */
+        val patternGcodes: List<LayerGcode>? = null,
     ) : SliceOutcome
 
     data class Failure(

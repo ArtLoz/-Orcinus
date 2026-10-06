@@ -1332,6 +1332,23 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     }
     const jintArray filament_array = env->NewIntArray(static_cast<jsize>(filaments.size()));
     env->SetIntArrayRegion(filament_array, 0, static_cast<jsize>(filaments.size()), filaments.data());
+    // The plate's codes once the PA pattern's took them, as parallel arrays.
+    std::vector<double> code_heights;
+    std::vector<jlong> code_types;
+    std::vector<jint> code_extruders;
+    std::vector<std::string> code_colors;
+    std::vector<std::string> code_extras;
+    for (const orcinus::orca::LayerGcode& code : result.plate_gcodes) {
+        code_heights.push_back(code.print_z);
+        code_types.push_back(static_cast<jlong>(code.type));
+        code_extruders.push_back(code.extruder);
+        code_colors.push_back(code.color);
+        code_extras.push_back(code.extra);
+    }
+    const jlongArray code_type_array = env->NewLongArray(static_cast<jsize>(code_types.size()));
+    env->SetLongArrayRegion(code_type_array, 0, static_cast<jsize>(code_types.size()), code_types.data());
+    const jintArray code_extruder_array = env->NewIntArray(static_cast<jsize>(code_extruders.size()));
+    env->SetIntArrayRegion(code_extruder_array, 0, static_cast<jsize>(code_extruders.size()), code_extruders.data());
     const jobjectArray notices = to_java_objects(
         env, "app/orcinus/shadow/slicing/nativebridge/NativeSliceNotice", result.notices,
         [](JNIEnv* notice_env, const orcinus::orca::SliceNotice& notice) {
@@ -1345,7 +1362,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
     const jmethodID constructor = env->GetMethodID(
         result_class, "<init>",
-        "(JLjava/lang/String;JJJZZZZZD[I[DZLjava/lang/String;Ljava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeSliceNotice;ZZZ)V");
+        "(JLjava/lang/String;JJJZZZZZD[I[DZLjava/lang/String;Ljava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeSliceNotice;ZZZ"
+        "ZDZZ[D[J[I[Ljava/lang/String;[Ljava/lang/String;)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1368,7 +1386,16 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         notices,
         result.print_ready ? JNI_TRUE : JNI_FALSE,
         result.post_process_skipped ? JNI_TRUE : JNI_FALSE,
-        result.prime_tower_outside ? JNI_TRUE : JNI_FALSE
+        result.prime_tower_outside ? JNI_TRUE : JNI_FALSE,
+        result.spiral_vase ? JNI_TRUE : JNI_FALSE,
+        static_cast<jdouble>(result.top_z),
+        result.add_line_number ? JNI_TRUE : JNI_FALSE,
+        result.pattern_gcodes_set ? JNI_TRUE : JNI_FALSE,
+        to_java(env, code_heights.data(), code_heights.size()),
+        code_type_array,
+        code_extruder_array,
+        to_java(env, code_colors),
+        to_java(env, code_extras)
     );
 }
 

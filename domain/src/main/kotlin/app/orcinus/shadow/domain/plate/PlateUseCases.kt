@@ -2286,7 +2286,9 @@ class ExportGcodeUseCase(
     /** The G-code into [document]; the export's notification names the file it wrote. */
     suspend operator fun invoke(document: ExternalDocumentReference): Boolean {
         val result = repository.state.value.result ?: return false
-        if (!documents.copyTo(result.gcode.value, document)) return false
+        // gcode_add_line_number() of BackgroundSlicingProcess::export_gcode().
+        val copied = if (result.addLineNumber) documents.copyNumberedTo(result.gcode.value, document) else documents.copyTo(result.gcode.value, document)
+        if (!copied) return false
         val name = documents.displayName(document) ?: suggestedName().orEmpty()
         repository.update { it.copy(exportFinished = name) }
         return true
@@ -3252,7 +3254,12 @@ class SlicePlateUseCase(
             } catch (error: Exception) {
                 SliceOutcome.Failure(jobId, SliceFailureCode.SLICING_FAILED, error.message.orEmpty(), recoverable = true)
             }
-            repository.update { it.withOutcome(objects, layerGcodes, outcome) }
+            // Plater::_calib_pa_pattern_gen_gcode(): the plate keeps the codes the PA pattern gave it.
+            val sliced = (outcome as? SliceOutcome.Success)?.patternGcodes ?: layerGcodes
+            repository.update { state ->
+                val kept = if (sliced !== layerGcodes && state.slicing?.jobId == outcome.jobId) state.copy(layerGcodes = sliced) else state
+                kept.withOutcome(objects, sliced, outcome)
+            }
             // Only the toolpaths of the plates' results stay; a failed or replaced job leaves none.
             sceneFiles.deleteToolpathsExcept(repository.state.value.partPlates().mapNotNull { it.result?.toolpaths })
             outcome
@@ -3290,9 +3297,11 @@ class SlicePlateUseCase(
                     printReady = outcome.printReady,
                     postProcessSkipped = outcome.postProcessSkipped,
                     primeTowerOutside = outcome.primeTowerOutside,
+                    addLineNumber = outcome.addLineNumber,
                 ),
                 // IMSlider::SetTicksValues(): the codes this print does not allow go.
-                layerGcodes = layerGcodes.allowedBy(outcome.layerGcodeRules),
+                layerGcodes = layerGcodes.allowedBy(outcome.layerGcodeRules, sliderSpiralVase),
+                sliderSpiralVase = outcome.layerGcodeRules.spiralVase,
             )
 
             is SliceOutcome.Failure -> copy(

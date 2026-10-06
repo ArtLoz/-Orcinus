@@ -38,6 +38,16 @@ internal class NativeSliceResult(
     @JvmField val printReady: Boolean,
     @JvmField val postProcessSkipped: Boolean,
     @JvmField val primeTowerOutside: Boolean,
+    @JvmField val spiralVase: Boolean,
+    @JvmField val topZ: Double,
+    @JvmField val addLineNumber: Boolean,
+    /** The plate's codes once the PA pattern's took them, when [patternGcodesSet]: height, LayerGcodeType, filament, colour and G-code of each. */
+    @JvmField val patternGcodesSet: Boolean,
+    @JvmField val patternGcodeHeights: DoubleArray,
+    @JvmField val patternGcodeTypes: LongArray,
+    @JvmField val patternGcodeExtruders: IntArray,
+    @JvmField val patternGcodeColors: Array<String>,
+    @JvmField val patternGcodeExtras: Array<String>,
 ) {
     companion object {
         const val SUCCESS = 0L

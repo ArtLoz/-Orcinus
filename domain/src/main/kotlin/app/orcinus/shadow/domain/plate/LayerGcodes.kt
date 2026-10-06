@@ -65,10 +65,16 @@ fun LayerGcode.onLayer(printZ: Double): Boolean = abs(this.printZ - printZ) < LA
  * IMSlider::SetTicksValues() for a new slice: a print by object keeps no
  * codes, and one that cannot change filament keeps no filament change.
  */
-internal fun List<LayerGcode>.allowedBy(rules: LayerGcodeRules): List<LayerGcode> = when {
-    rules.sequential -> emptyList()
-    !rules.canChangeFilament -> filterNot { it.type == LayerGcodeType.TOOL_CHANGE }
-    else -> this
+internal fun List<LayerGcode>.allowedBy(rules: LayerGcodeRules, lastSpiralVase: Boolean): List<LayerGcode> {
+    // Preview::check_layers_slider_values(): the codes past the last layer.
+    val onLayers = filterNot { it.printZ - LAYER_EPSILON > rules.topZ }
+    return when {
+        // last_spiral_vase_status: a print that turned into a spiral vase or out of one keeps none.
+        rules.spiralVase != lastSpiralVase -> emptyList()
+        rules.sequential -> emptyList()
+        !rules.canChangeFilament -> onLayers.filterNot { it.type == LayerGcodeType.TOOL_CHANGE }
+        else -> onLayers
+    }
 }
 
 private const val LAYER_EPSILON = 1e-4

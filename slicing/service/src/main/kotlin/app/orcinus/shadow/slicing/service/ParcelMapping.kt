@@ -622,6 +622,17 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.printReady = printReady
             it.postProcessSkipped = postProcessSkipped
             it.primeTowerOutside = primeTowerOutside
+            it.spiralVase = layerGcodeRules.spiralVase
+            it.topZ = layerGcodeRules.topZ
+            it.addLineNumber = addLineNumber
+            patternGcodes?.let { codes ->
+                it.patternGcodesSet = true
+                it.patternGcodeHeights = codes.map(LayerGcode::printZ).toDoubleArray()
+                it.patternGcodeTypes = codes.map { code -> code.type.name }.toTypedArray()
+                it.patternGcodeExtruders = codes.map(LayerGcode::extruder).toIntArray()
+                it.patternGcodeColors = codes.map(LayerGcode::color).toTypedArray()
+                it.patternGcodeExtras = codes.map(LayerGcode::extra).toTypedArray()
+            }
         }
 
         is SliceOutcome.Failure -> {
@@ -651,7 +662,7 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             toolpaths = toolpathsPath?.let(::ScenePath),
             wipeTower = wipeTowerPath?.let(::ScenePath),
             sliceInfo = sliceInfoPath?.let(::ScenePath),
-            layerGcodeRules = LayerGcodeRules(sequential, canChangeFilament, hasTemplate),
+            layerGcodeRules = LayerGcodeRules(sequential, canChangeFilament, hasTemplate, spiralVase, topZ),
             outputName = outputName.orEmpty(),
             outputNameError = outputNameError.orEmpty(),
             notices = notices.orEmpty().map { parcel ->
@@ -660,6 +671,12 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             printReady = printReady,
             postProcessSkipped = postProcessSkipped,
             primeTowerOutside = primeTowerOutside,
+            addLineNumber = addLineNumber,
+            patternGcodes = if (patternGcodesSet) {
+                layerGcodesOf(patternGcodeHeights ?: DoubleArray(0), patternGcodeTypes, patternGcodeExtruders, patternGcodeColors, patternGcodeExtras)
+            } else {
+                null
+            },
         )
 
         SliceOutcomeParcel.FAILURE -> SliceOutcome.Failure(

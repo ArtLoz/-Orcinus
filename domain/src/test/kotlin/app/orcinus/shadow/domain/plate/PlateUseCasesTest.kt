@@ -4189,6 +4189,34 @@ class PlateUseCasesTest {
         assertTrue(sequential.state.value.layerGcodes.isEmpty())
     }
 
+    @Test
+    fun `a slice keeps the PA pattern's codes and drops the ones past the top or across a vase change`() = runBlocking {
+        val pause = LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT)
+        val high = LayerGcode(30.0, LayerGcodeType.PAUSE_PRINT)
+        val repository = FakeRepository(readyState(CUBE).copy(layerGcodes = listOf(pause, high)))
+        var rules = LayerGcodeRules(topZ = 20.0)
+        var pattern: List<LayerGcode>? = null
+        val engine = FakeEngine(outcome = {
+            SliceOutcome.Success(it.jobId, OutputPath("/gcode/out.gcode"), STATISTICS, layerGcodeRules = rules, patternGcodes = pattern)
+        })
+
+        // Preview::check_layers_slider_values()
+        slicePlate(engine, repository)()
+        assertEquals(listOf(pause), repository.state.value.layerGcodes)
+
+        // IMSlider::SetTicksValues(): a print that became a spiral vase keeps no codes.
+        rules = LayerGcodeRules(topZ = 20.0, spiralVase = true)
+        slicePlate(engine, repository)()
+        assertTrue(repository.state.value.layerGcodes.isEmpty())
+
+        // Plater::_calib_pa_pattern_gen_gcode(): the pattern's codes stay with the plate, and the result matches them.
+        val codes = listOf(LayerGcode(0.2, LayerGcodeType.CUSTOM, extra = "G1 X1"), LayerGcode(0.4, LayerGcodeType.CUSTOM, extra = "G1 X2"))
+        pattern = codes
+        slicePlate(engine, repository)()
+        assertEquals(codes, repository.state.value.layerGcodes)
+        assertEquals(codes, repository.state.value.result?.layerGcodes)
+    }
+
     /** The document picked for an export, which records what was copied into it. */
     private class FakeDocuments(private val succeeds: Boolean = true, private val name: String? = null) : DocumentExport {
         val copied = mutableListOf<Pair<String, ExternalDocumentReference>>()
@@ -4197,6 +4225,8 @@ class PlateUseCasesTest {
             copied += path to document
             return succeeds
         }
+
+        override suspend fun copyNumberedTo(path: String, document: ExternalDocumentReference): Boolean = copyTo(path, document)
 
         override suspend fun displayName(document: ExternalDocumentReference): String? = name
     }

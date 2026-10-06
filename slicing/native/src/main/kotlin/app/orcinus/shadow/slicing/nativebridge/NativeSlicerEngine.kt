@@ -3057,6 +3057,8 @@ class NativeSlicerEngine(context: Context) :
                     sequential = result.sequential,
                     canChangeFilament = result.canChangeFilament,
                     hasTemplate = result.hasTemplate,
+                    spiralVase = result.spiralVase,
+                    topZ = result.topZ,
                 ),
                 outputName = result.outputName,
                 outputNameError = result.outputNameError,
@@ -3072,6 +3074,16 @@ class NativeSlicerEngine(context: Context) :
                 printReady = result.printReady,
                 postProcessSkipped = result.postProcessSkipped,
                 primeTowerOutside = result.primeTowerOutside,
+                addLineNumber = result.addLineNumber,
+                patternGcodes = result.patternGcodeHeights.indices.map { index ->
+                    LayerGcode(
+                        printZ = result.patternGcodeHeights[index],
+                        type = LayerGcodeType.entries[result.patternGcodeTypes[index].toInt()],
+                        extruder = result.patternGcodeExtruders[index],
+                        color = result.patternGcodeColors[index],
+                        extra = result.patternGcodeExtras[index],
+                    )
+                }.takeIf { result.patternGcodesSet },
             )
 
             NativeSliceResult.CANCELLED -> SliceOutcome.Cancelled(request.jobId)

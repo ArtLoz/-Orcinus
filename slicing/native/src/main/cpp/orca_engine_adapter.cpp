@@ -979,6 +979,21 @@ std::int64_t printed_layer_count(const Slic3r::Print& print)
     return static_cast<std::int64_t>(heights.size());
 }
 
+// The print_z of the print's last layer (the last of GCodeViewer's layer zs).
+double top_layer_z(const Slic3r::Print& print)
+{
+    double top = 0.;
+    for (const Slic3r::PrintObject* object : print.objects()) {
+        if (!object->layers().empty()) {
+            top = std::max(top, object->layers().back()->print_z);
+        }
+        if (!object->support_layers().empty()) {
+            top = std::max(top, object->support_layers().back()->print_z);
+        }
+    }
+    return top;
+}
+
 void remove_file(const std::string& path)
 {
     boost::system::error_code ignored;
@@ -2241,6 +2256,17 @@ SliceResult slice(
         result.print_ready = gcode_result.filament_printable_reuslt.conflict_filament.empty() && gcode_result.gcode_check_result.error_code == 0;
         result.post_process_skipped = has_post_process_scripts(config);
         result.prime_tower_outside = prime_tower_outside(print, config);
+        result.spiral_vase = print.config().spiral_mode;
+        result.top_z = top_layer_z(print);
+        result.add_line_number = print.config().gcode_add_line_number;
+        if (pa_pattern.mode == CalibrationMode::pa_pattern) {
+            result.pattern_gcodes_set = true;
+            if (const auto codes = model.plates_custom_gcodes.find(engine().plate_index); codes != model.plates_custom_gcodes.end()) {
+                for (const Slic3r::CustomGCode::Item& item : codes->second.gcodes) {
+                    result.plate_gcodes.push_back({item.print_z, static_cast<LayerGcodeType>(item.type), item.extruder, item.color, item.extra});
+                }
+            }
+        }
         result.toolpaths_written = !toolpaths_path.empty() && write_toolpaths(gcode_result, print, config, toolpaths_path);
         result.slice_info_written = !slice_info_path.empty() && detail::write_slice_info(print, gcode_result, slice_info_path);
         // GLCanvas3D::reload_scene(): once the wipe tower is built, the plate

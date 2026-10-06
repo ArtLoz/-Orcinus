@@ -40,4 +40,15 @@ parcelable SliceOutcomeParcel {
     boolean printReady;
     boolean postProcessSkipped;
     boolean primeTowerOutside;
+    /** LayerGcodeRules.spiralVase and topZ, and SliceOutcome.Success.addLineNumber. */
+    boolean spiralVase;
+    double topZ;
+    boolean addLineNumber;
+    /** SliceOutcome.Success.patternGcodes, when patternGcodesSet. */
+    boolean patternGcodesSet;
+    @nullable double[] patternGcodeHeights;
+    @nullable String[] patternGcodeTypes;
+    @nullable int[] patternGcodeExtruders;
+    @nullable String[] patternGcodeColors;
+    @nullable String[] patternGcodeExtras;
 }
