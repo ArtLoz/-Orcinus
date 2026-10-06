@@ -269,6 +269,12 @@ internal fun PresetSettingsScreen(
         }
     }
     val presets = state.presets
+    // TabPresetComboBox: the tab names the preset it edits, which for a
+    // filament is the one of the slot it was opened on, not always the first.
+    val edited = state.tab.settings?.preset
+    val tabItems = presets?.items(state.kind)?.let { items ->
+        if (state.kind == PresetKind.FILAMENT && edited != null) items.map { it.copy(selected = it.name == edited) } else items
+    }
     val enabled = state.enabled && presets != null
     val tab = rememberSettingsTab(state.tab, actions, enabled)
     val rows = rememberLazyListState()
@@ -313,7 +319,7 @@ internal fun PresetSettingsScreen(
             OrcaSidebarSection {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OrcaComboField(
-                        text = presets?.items(state.kind)?.selectedLabel().orEmpty(),
+                        text = tabItems?.selectedLabel().orEmpty(),
                         enabled = enabled,
                         onClick = { choosingPreset = true },
                         modifier = Modifier.weight(1f),
@@ -358,7 +364,7 @@ internal fun PresetSettingsScreen(
     if (choosingPreset && presets != null) {
         PresetListSheet(
             title = orcaString(state.kind.tabTitle),
-            items = presets.items(state.kind),
+            items = tabItems.orEmpty(),
             onDismiss = { choosingPreset = false },
             onChoose = { item ->
                 choosingPreset = false

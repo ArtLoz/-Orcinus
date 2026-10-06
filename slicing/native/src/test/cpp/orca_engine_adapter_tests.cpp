@@ -407,6 +407,16 @@ TEST_CASE("With several filaments a slot takes its preset alone, and the filamen
     // another preset the tab selects then goes to that slot.
     REQUIRE(orca::select_preset(orca::PresetChoice::edit_filament, "0").status == orca::SceneStatus::success);
     CHECK(orca::describe_settings(orca::PresetKind::filament, {}, {}).preset == "CR-PETG @K2 Plus-all");
+    // Slicing, validating or the flushing volumes leave the slot the tab edits
+    // alone: the second slot's preset is not the first's.
+    REQUIRE(orca::select_preset(orca::PresetChoice::edit_filament, "1").status == orca::SceneStatus::success);
+    REQUIRE(orca::change_setting(orca::PresetKind::filament, "Filament", "filament_type", "PETG", {}).dirty);
+    REQUIRE(orca::describe_flush_volumes(plate_of({}), orca::describe_presets().selection, {}).status == orca::SceneStatus::success);
+    const orca::PresetSettings still = orca::describe_settings(orca::PresetKind::filament, {}, {});
+    CHECK(still.preset == "Generic PLA @K2 Plus-all");
+    CHECK(still.dirty);
+    REQUIRE_FALSE(orca::reset_settings(orca::PresetKind::filament, "Filament", {}, {}).dirty);
+    REQUIRE(orca::select_preset(orca::PresetChoice::edit_filament, "0").status == orca::SceneStatus::success);
     REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
     CHECK(orca::describe_presets().selection.filaments == std::vector<std::string>{"Generic PLA @K2 Plus-all", "Generic PLA @K2 Plus-all"});
 
@@ -946,6 +956,10 @@ TEST_CASE("The fields read what Orca's controls read: a filament's type, an extr
         CHECK(setting(changed, "filament_type").value == "PETG");
         CHECK(changed.dirty);
         CHECK_FALSE(orca::reset_settings(orca::PresetKind::filament, "Filament", {}, {}).dirty);
+        // The type it already has leaves the preset as it is.
+        const orca::PresetSettings same = orca::change_setting(orca::PresetKind::filament, "Filament", "filament_type", "PLA", {});
+        INFO(setting(same, "filament_type").value);
+        CHECK_FALSE(same.dirty);
     }
     SECTION("a colour is written as encode_color() writes it")
     {

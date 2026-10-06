@@ -180,10 +180,14 @@ std::vector<std::string> filaments_of(const ProfileSelection& profiles)
 
 bool is_selected(const Slic3r::PresetBundle& bundle, const ProfileSelection& profiles)
 {
+    const std::vector<std::string> filaments = filaments_of(profiles);
+    // PresetBundle::full_fff_config(): one filament prints with the preset the
+    // filament tab edits; several each with their own, the one the tab edits
+    // with its changes, whichever slot the tab was opened on.
     return bundle.printers.get_selected_preset_name() == profiles.printer
         && bundle.prints.get_selected_preset_name() == profiles.process
-        && bundle.filaments.get_selected_preset_name() == profiles.filament
-        && bundle.filament_presets == filaments_of(profiles);
+        && (filaments.size() > 1 || bundle.filaments.get_selected_preset_name() == profiles.filament)
+        && bundle.filament_presets == filaments;
 }
 
 // The configuration of the selected presets. Other presets are selected the way

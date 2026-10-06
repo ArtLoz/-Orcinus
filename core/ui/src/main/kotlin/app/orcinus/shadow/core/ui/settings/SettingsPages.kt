@@ -468,7 +468,12 @@ private fun CommitTextField(
                 }
             },
         )
-        ChoiceMenu(choices, value, expanded, { expanded = false }, onCommit)
+        // A value picked from the list is the field's text too, so the focus
+        // leaving the field does not send back what it showed before.
+        ChoiceMenu(choices, value, expanded, { expanded = false }) { picked ->
+            text = picked
+            onCommit(picked)
+        }
     }
 }
 
