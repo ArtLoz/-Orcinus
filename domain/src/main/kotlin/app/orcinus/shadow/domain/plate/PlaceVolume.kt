@@ -6,6 +6,7 @@ import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeManipulation
@@ -87,6 +88,71 @@ class PlaceObjectVolumeUseCase(
                 }
             }
             if (!applied) sceneFiles.deleteImport(prefix)
+        }
+    }
+
+    /**
+     * do_move() of several volumes of one object selected together
+     * (Selection::Volume): [changes] give each volume its matrix in the
+     * object's coordinates, which the engine takes in turn; the plate takes
+     * the object they leave as one step of Undo, the volumes still selected.
+     */
+    fun placeAll(copy: PlateInstanceId, changes: List<Pair<Int, Transform3>>, manipulation: VolumeManipulation) {
+        var request: Pair<List<PlateObject>, SlicingProfileSelection>? = null
+        repository.update { state ->
+            request = null
+            val profiles = state.profiles
+            val target = state.objects.withMesh(copy.mesh)
+            if (state.busy || profiles == null || target == null || target.placing || changes.isEmpty()) return@update state
+            request = state.objects to profiles
+            state.copy(editing = true, problem = null)
+        }
+        val (plate, profiles) = request ?: return
+        applicationScope.launch {
+            var objects = plate
+            var current = plate.first { it.mesh == copy.mesh }
+            val notices = mutableListOf<SettingsDialog>()
+            for ((volume, matrix) in changes) {
+                if (current.volumeAt(volume)?.placement == matrix) continue
+                val index = objects.indexOfFirst { it.mesh == current.mesh }
+                val prefix = sceneFiles.newImportPrefix()
+                val outcome = try {
+                    inspector.placeVolume(objects.map { it.placed() }, index, volume, matrix, manipulation, profiles, prefix, false)
+                } catch (cancellation: CancellationException) {
+                    sceneFiles.deleteImport(prefix)
+                    repository.update { it.copy(editing = false) }
+                    throw cancellation
+                } catch (error: Exception) {
+                    ModelLoadOutcome.Failure(error.message.orEmpty())
+                }
+                notices += outcome.notices
+                val placed = (outcome as? ModelLoadOutcome.Success)?.objects?.singleOrNull()?.toPlateObjectOf(current)
+                if (placed == null) {
+                    sceneFiles.deleteImport(prefix)
+                    repository.update { state ->
+                        val done = state.copy(editing = false, plateNotices = state.plateNotices + notices)
+                        if (outcome is ModelLoadOutcome.Failure) done.copy(problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, outcome.message)) else done
+                    }
+                    return@launch
+                }
+                objects = objects.replaced(current.mesh, placed)
+                current = placed
+            }
+            val placed = current
+            repository.update { state ->
+                val done = state.copy(editing = false, plateNotices = state.plateNotices + notices)
+                if (placed.mesh == copy.mesh || state.objects.withMesh(copy.mesh) == null) return@update done
+                fun ObjectPartId.moved() = if (mesh == copy.mesh) ObjectPartId(placed.mesh, index) else this
+                done.recorded().copy(
+                    objects = done.objects.replaced(copy.mesh, placed),
+                    selectedInstances = done.selectedInstances.mapTo(LinkedHashSet()) { id ->
+                        if (id.mesh == copy.mesh) PlateInstanceId(placed.mesh, id.instance) else id
+                    },
+                    selectedPart = done.selectedPart?.moved(),
+                    selectedPartGroup = done.selectedPartGroup.mapTo(LinkedHashSet()) { it.moved() },
+                    result = null,
+                )
+            }
         }
     }
 

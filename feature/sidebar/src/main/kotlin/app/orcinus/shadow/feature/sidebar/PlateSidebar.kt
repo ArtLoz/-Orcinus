@@ -602,6 +602,15 @@ class SidebarViewModel(
 
     /** The multi-selection menu's items over the selected volumes of one object. */
     fun volumesActions(openSettings: () -> Unit) = VolumesMenuActions(
+        // The list picks the volumes over the object's first copy.
+        center = {
+            val parts = plateState.value.selectedParts()
+            parts.firstOrNull()?.let { volumeMenu.centerAll(PlateInstanceId(it.mesh, 0), parts.map(ObjectPartId::index)) }
+        },
+        drop = {
+            val parts = plateState.value.selectedParts()
+            parts.firstOrNull()?.let { volumeMenu.dropAll(PlateInstanceId(it.mesh, 0), parts.map(ObjectPartId::index)) }
+        },
         delete = {
             val parts = plateState.value.selectedParts()
             if (removeObjectPart.all(parts)) editPlateObject.deleteOwnVolume(parts.first().mesh)

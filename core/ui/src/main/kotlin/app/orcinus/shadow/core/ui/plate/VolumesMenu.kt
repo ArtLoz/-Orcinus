@@ -53,6 +53,9 @@ fun volumesMenuState(
 
 /** What the items of the menu do to the selected volumes. */
 class VolumesMenuActions(
+    /** Selection::center() and drop() of the volumes' box, over the copy the list picks them on. */
+    val center: () -> Unit = {},
+    val drop: () -> Unit = {},
     /** Selection::erase() of the volumes (Plater::remove_selected()). */
     val delete: () -> Unit,
     /** ObjectList::switch_to_object_process(): the settings of the volumes are shown. */
@@ -75,6 +78,9 @@ fun VolumesMenuItems(state: VolumesMenuState, actions: VolumesMenuActions, dismi
         action()
     }
     val enabled = state.enabled
+    // append_menu_item_center() and append_menu_item_drop(), which the 3D view's selection enables.
+    OrcaMenuItem(text = orcaString("Center"), enabled = enabled, onClick = run(actions.center))
+    OrcaMenuItem(text = orcaString("Drop"), enabled = enabled, onClick = run(actions.drop))
     OrcaMenuItem(text = stringResource(R.string.object_menu_delete), enabled = enabled, onClick = run(actions.delete))
     // can_split(): ObjectList::is_splittable() takes a single item, so both are off.
     OrcaSubmenu(text = orcaString("Split"), enabled = false) {
