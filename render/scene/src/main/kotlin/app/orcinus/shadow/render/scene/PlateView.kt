@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
 import android.os.SystemClock
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -30,6 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
@@ -72,6 +75,7 @@ import app.orcinus.shadow.core.model.rotationPart
 import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Line3
+import app.orcinus.shadow.render.scene.math.Matrix4
 import app.orcinus.shadow.render.scene.math.Vec3
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -159,6 +163,17 @@ fun PlateView(
     onSelectObject: (Int?) -> Unit,
     /** The assembly view's "Part" selection: a tap on the volume drawn as a mesh (its key) of the copy at an index. */
     onSelectVolume: (index: Int, key: String) -> Unit = { _, _ -> },
+    /**
+     * The page's selection mode, which stands in for the keys a phone has not:
+     * a tap on a copy adds it to the selection or takes it out (a Ctrl click),
+     * and a finger drawn over empty space draws a rectangle that adds what it
+     * covers (Ctrl and Shift held).
+     */
+    selectionMode: Boolean = false,
+    /** A Ctrl click on the copy at an index: it joins the selection, or leaves it. */
+    onToggleObject: (Int) -> Unit = {},
+    /** GLCanvas3D::_update_selection_from_hover() of the rectangle: the copies at the indexes join the selection. */
+    onAddObjects: (Set<Int>) -> Unit = {},
     onPlaceObject: (index: Int, placement: Transform3, manipulation: Manipulation) -> Unit,
     onOpenObjectMenu: (index: Int, position: Offset) -> Unit,
     onPlaceObjects: (placements: List<Pair<Int, Transform3>>, manipulation: Manipulation) -> Unit = { _, _ -> },
@@ -567,6 +582,9 @@ fun PlateView(
         SideEffect {
             controller.onSelectObject = onSelectObject
             controller.onSelectVolume = onSelectVolume
+            controller.selectionMode = selectionMode
+            controller.onToggleObject = onToggleObject
+            controller.onAddObjects = onAddObjects
             controller.onSelectPlate = onSelectPlate
             controller.onPlaceObject = onPlaceObject
             controller.onPlaceObjects = onPlaceObjects
@@ -660,6 +678,7 @@ fun PlateView(
                     .semantics { this.contentDescription = contentDescription }
                     .pointerInput(surface) { detectPlateGestures(controller, navigatorInput, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
             )
+            SelectionRectangle(controller, colors.accent)
             if (navigatorSlot != null && navigatorSquare != null) NavigatorCube(controller, navigatorInput, navigatorSquare, navigatorSlot.faceLabels)
             if (shownLabels.isNotEmpty()) ObjectLabels(labelPlacements, shownLabels, Modifier.fillMaxSize())
             measureDimensions?.let { dimensions ->
@@ -688,6 +707,26 @@ fun PlateView(
         }
     }
 }
+
+/** GLSelectionRectangle::render(): the rectangle in dashes of the ORCA colour while a finger draws it. */
+@Composable
+private fun SelectionRectangle(controller: PlateViewController, color: Color) {
+    val rect by controller.rectangle.collectAsState()
+    val shown = rect ?: return
+    val dash = with(LocalDensity.current) { SELECTION_DASH.toPx() }
+    val width = with(LocalDensity.current) { SELECTION_LINE.toPx() }
+    Canvas(Modifier.fillMaxSize()) {
+        drawRect(
+            color = color,
+            topLeft = shown.topLeft,
+            size = shown.size,
+            style = Stroke(width = width, pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash * 0.75f))),
+        )
+    }
+}
+
+private val SELECTION_DASH = 6.dp
+private val SELECTION_LINE = 1.5.dp
 
 private val DEFAULT_FILAMENT_COLOR = ColorRgba(0xF2 / 255f, 0x75 / 255f, 0x4E / 255f)
 
@@ -828,6 +867,7 @@ private suspend fun PointerInputScope.detectPlateGestures(
         var multiTouch = false
         var menuOpened = false
         var longPressed = false
+        var rectangle = false
         var travelled = 0f
         while (true) {
             // A finger held still on an object, or on empty space, asks for a menu.
@@ -856,6 +896,10 @@ private suspend fun PointerInputScope.detectPlateGestures(
             if (pressed.size >= 2 && !multiTouch) {
                 multiTouch = true
                 controller.endMove(cancelled = true)
+                if (rectangle) {
+                    rectangle = false
+                    controller.cancelRectangle()
+                }
             }
             if (menuOpened) {
                 event.changes.forEach(PointerInputChange::consume)
@@ -870,6 +914,13 @@ private suspend fun PointerInputScope.detectPlateGestures(
                 if (dragging || travelled > touchSlop) {
                     when {
                         controller.moving -> controller.moveTo(position.x, position.y)
+                        // GLSelectionRectangle::start_dragging() of a Shift press over empty space.
+                        !dragging && !pressedObject && controller.drawsRectangle -> {
+                            rectangle = true
+                            controller.startRectangle(down.position.x, down.position.y)
+                            controller.dragRectangle(position.x, position.y)
+                        }
+                        rectangle -> controller.dragRectangle(position.x, position.y)
                         dragging -> controller.rotate(delta.x, delta.y)
                     }
                     dragging = true
@@ -891,14 +942,16 @@ private suspend fun PointerInputScope.detectPlateGestures(
             if (pressed.isEmpty()) break
         }
         controller.endMove()
+        if (rectangle) controller.finishRectangle()
 
         if (!dragging && !multiTouch && !pressedObject && !menuOpened) {
             // The connectors' window: a touch on the section places a connector, elsewhere unselects them.
             if (controller.isCutting) controller.tapCut(down.position.x, down.position.y)
             // A painting tool and the cut gizmo keep their object while the finger turns the camera around it,
             // and the variable layer height its selection (GLCanvas3D::on_mouse() for a left up).
+            // With Shift held, as the selection mode holds it, a click there keeps the selection.
             if (!controller.isPainting && !controller.isCutting && !controller.isEditingLayers && !controller.isMeasuring && !controller.isBrimEars) {
-                controller.clearSelection()
+                if (!controller.selectionMode) controller.clearSelection()
                 // A tap on another plate selects it.
                 controller.selectPlateAt(down.position.x, down.position.y)
             }
@@ -985,6 +1038,23 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** Selection::Volume: the mesh of the selected copy's volume selected alone; null while copies are. */
     private var selectedVolume: String? = null
+
+    /** See [PlateView]'s selectionMode. */
+    var selectionMode = false
+    var onToggleObject: (Int) -> Unit = {}
+    var onAddObjects: (Set<Int>) -> Unit = {}
+
+    /** GLSelectionRectangle while a finger draws it, in the view's pixels; null otherwise. */
+    private val rectangleState = MutableStateFlow<Rect?>(null)
+    val rectangle: StateFlow<Rect?> = rectangleState.asStateFlow()
+    private var rectangleStart = Offset.Zero
+
+    /**
+     * GLCanvas3D::on_mouse(): the rectangle starts with Shift over empty space,
+     * but not while a painting tool, the cut or the assembly view holds the canvas.
+     */
+    val drawsRectangle: Boolean
+        get() = selectionMode && assembly == null && !painting && cut == null && measure == null && brimEars == null && !isEditingLayers
     private var highlightedVolumes: Set<String> = emptySet()
 
     /** The selected volume's sphere in the world, which the rotation gizmo turns it about; null until known. */
@@ -1834,6 +1904,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // assembly view moves nothing a finger drags.
             onSelectVolume(volume.index, volume.paintedOn ?: volume.key)
             drag = null
+            return true
+        }
+        if (selectionMode && assembly == null && volume.index != WIPE_TOWER_INDEX) {
+            // GLCanvas3D::on_mouse() for a Ctrl click: a selected copy leaves the
+            // selection and nothing moves; another joins it, and the finger
+            // moves the whole selection.
+            val target = objects.firstOrNull { it.index == volume.index } ?: volume
+            if (target.index in selectedIndexes) {
+                onToggleObject(target.index)
+                drag = null
+                return true
+            }
+            val others = selectedIndexes.mapNotNull { index -> objects.firstOrNull { it.index == index }?.let { index to it.world } }
+            onToggleObject(target.index)
+            drag = if (editable) ObjectDrag(target.index, target.world, hit, others = others) else null
             return true
         }
         if (volume.modifier && assembly == null && volume.index != WIPE_TOWER_INDEX && selectedIndexes.size <= 1) {
@@ -2905,6 +2990,57 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         selectedIndex = index
         invalidate()
         onSelectObject(index)
+    }
+
+    fun startRectangle(x: Float, y: Float) {
+        rectangleStart = Offset(x, y)
+        rectangleState.value = Rect(rectangleStart, rectangleStart)
+    }
+
+    fun dragRectangle(x: Float, y: Float) {
+        val start = rectangleStart
+        rectangleState.value = Rect(minOf(start.x, x), minOf(start.y, y), maxOf(start.x, x), maxOf(start.y, y))
+    }
+
+    fun cancelRectangle() {
+        rectangleState.value = null
+    }
+
+    /**
+     * GLCanvas3D::_update_selection_from_hover() for the rectangle let go with
+     * Ctrl held: the copies it covers join the selection, a copy by any of its
+     * volumes but the modifiers (Selection::add() of the instance). The desktop
+     * app reads what the rectangle covers from a picking pass, which sees only
+     * what is in front; here a copy counts with a corner of its mesh inside the
+     * rectangle, or under the rectangle's corners or centre in front of the rest.
+     */
+    fun finishRectangle() {
+        val rect = rectangleState.value ?: return
+        rectangleState.value = null
+        val clip = Matrix4.multiply(camera.projectionMatrix, camera.viewMatrix.elements())
+        val candidates = plateObjects.filter { !it.modifier && !it.overlay }
+        val covered = HashSet<Int>()
+        for (sceneObject in candidates) {
+            if (sceneObject.index in covered) continue
+            val inside = sceneObject.hasCornerInside(
+                clip,
+                camera.viewportWidth,
+                camera.viewportHeight,
+                rect.left.toDouble(),
+                rect.top.toDouble(),
+                rect.right.toDouble(),
+                rect.bottom.toDouble(),
+            )
+            if (inside) covered += sceneObject.index
+        }
+        listOf(rect.topLeft, rect.topRight, rect.bottomLeft, rect.bottomRight, rect.center).forEach { point ->
+            val ray = camera.mouseRay(point.x.toDouble(), point.y.toDouble()) ?: return@forEach
+            candidates
+                .mapNotNull { sceneObject -> sceneObject.raycast(ray)?.let { sceneObject to (it - ray.a).norm() } }
+                .minByOrNull { it.second }
+                ?.let { covered += it.first.index }
+        }
+        if (covered.isNotEmpty()) onAddObjects(covered)
     }
 
     /**

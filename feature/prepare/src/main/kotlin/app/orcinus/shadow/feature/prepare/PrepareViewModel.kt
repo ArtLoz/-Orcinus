@@ -859,6 +859,21 @@ class PrepareViewModel(
         select(copy?.id, copy?.instance?.inspection)
     }
 
+    /** A Ctrl click of the selection mode on the copy at [index]: it joins the selection, or leaves it. */
+    fun toggleSelected(index: Int) {
+        val copy = state.value.sceneCopies.getOrNull(index) ?: return
+        view.update { if (it.wipeTowerSelected) it.copy(wipeTowerSelected = false) else it }
+        selectPlateObject(copy.id, add = true)
+    }
+
+    /** The selection mode's rectangle let go: the copies at [indexes] join the selection. */
+    fun addToSelection(indexes: Set<Int>) {
+        val copies = indexes.mapNotNullTo(LinkedHashSet()) { state.value.sceneCopies.getOrNull(it)?.id }
+        if (copies.isEmpty()) return
+        view.update { if (it.wipeTowerSelected) it.copy(wipeTowerSelected = false) else it }
+        selectPlateObject.add(copies)
+    }
+
     /** GLCanvas3D::WipeTowerInfo::apply_wipe_tower(): the tower was dragged across the plate. */
     fun moveWipeTower(x: Double, y: Double) = moveTower(x, y)
 

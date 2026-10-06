@@ -19,6 +19,7 @@
     <string name="toolbar_split_parts">Разделить на части</string>
     <string name="toolbar_variable_layer_height">Переменная высота слоёв</string>
     <string name="toolbar_assembly_view">Сборочный вид</string>
+    <string name="toolbar_selection_mode">Выбор нескольких</string>
     <string name="arrange_options">Параметры расстановки</string>
     <string name="arrange_spacing">Отступ</string>
     <string name="arrange_spacing_auto">0 - автоматический отступ.</string>

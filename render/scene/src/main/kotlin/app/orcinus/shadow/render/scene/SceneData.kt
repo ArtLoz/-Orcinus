@@ -19,6 +19,7 @@ import app.orcinus.shadow.render.scene.gl.GlVertexArray
 import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Line3
+import app.orcinus.shadow.render.scene.math.Matrix4
 import app.orcinus.shadow.render.scene.math.Vec3
 import java.io.File
 import java.nio.ByteBuffer
@@ -192,6 +193,29 @@ internal class SceneObject(
      * The nearest point where [ray] enters the mesh, in world coordinates,
      * as the scene raycaster finds the volume under the mouse.
      */
+    /**
+     * Whether a corner of the mesh, through [clip] (the camera's projection
+     * times its view), falls inside [left]..[right] by [top]..[bottom] of a
+     * viewport [width] by [height] pixels, counted from the top left.
+     */
+    fun hasCornerInside(clip: DoubleArray, width: Int, height: Int, left: Double, top: Double, right: Double, bottom: Double): Boolean {
+        val m = Matrix4.multiply(clip, world.elements())
+        val vertices = mesh.vertices
+        val stride = MeshFiles.FLOATS_PER_CORNER
+        for (corner in 0 until mesh.cornerCount) {
+            val offset = corner * stride
+            val x = vertices.get(offset).toDouble()
+            val y = vertices.get(offset + 1).toDouble()
+            val z = vertices.get(offset + 2).toDouble()
+            val w = m[3] * x + m[7] * y + m[11] * z + m[15]
+            if (w <= 0.0) continue
+            val screenX = ((m[0] * x + m[4] * y + m[8] * z + m[12]) / w + 1.0) * 0.5 * width
+            val screenY = height - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / w + 1.0) * 0.5 * height
+            if (screenX in left..right && screenY in top..bottom) return true
+        }
+        return false
+    }
+
     fun raycast(ray: Line3): Vec3? {
         val toObject = world.inverse()
         val origin = toObject.transformPoint(ray.a)

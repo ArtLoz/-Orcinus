@@ -310,6 +310,8 @@ internal fun PrepareRoute(
         onAddModel = { modelPicker.launch(arrayOf("*/*")) },
         onAddCalibrationCube = viewModel::addCalibrationCube,
         onSelectObject = viewModel::selectObject,
+        onToggleSelected = viewModel::toggleSelected,
+        onAddToSelection = viewModel::addToSelection,
         onMoveWipeTower = viewModel::moveWipeTower,
         plateActions = PlateActions(
             select = viewModel::selectPlate,
@@ -789,6 +791,9 @@ internal fun PrepareScreen(
     onPlaceVolume: (index: Int, change: Transform3, manipulation: VolumeManipulation) -> Unit = { _, _, _ -> },
     /** The 3D view found the smallest sphere around a group of copies, for the rotation window. */
     onGroupSphere: (BoundingSphere?) -> Unit = {},
+    /** The selection mode's Ctrl click on a copy, and the copies its rectangle covers. */
+    onToggleSelected: (Int) -> Unit = {},
+    onAddToSelection: (Set<Int>) -> Unit = {},
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         val viewCamera = rememberPlateViewCamera()
@@ -820,6 +825,8 @@ internal fun PrepareScreen(
         // The desktop measuring tool's Esc: the phone's Back drops the last selection, and with none closes the tool.
         BackHandler(enabled = state.measure != null) { measureActions.escape() }
         var renamingPlate by remember { mutableStateOf<Int?>(null) }
+        // The keys a phone has not: taps add to the selection, and a finger over empty space draws a rectangle.
+        var selectionMode by rememberSaveable { mutableStateOf(false) }
         // The part menu's Rename: the volume, with the name it has.
         var renamingVolume by remember { mutableStateOf<Pair<ObjectPartId, String>?>(null) }
         // Plater::select_plate_by_hover_id(), action 5: the plate is selected, then its settings open.
@@ -887,6 +894,9 @@ internal fun PrepareScreen(
                 wireframes = state.wireframes,
                 editable = state.canEditPlate,
                 onSelectObject = onSelectObject,
+                selectionMode = selectionMode && state.assemblyView == null,
+                onToggleObject = onToggleSelected,
+                onAddObjects = onAddToSelection,
                 onPlaceObject = onPlaceObject,
                 onPlaceObjects = onPlaceObjects,
                 // GLCanvas3D::on_mouse(): no menu while a tool is open.
@@ -1208,6 +1218,8 @@ internal fun PrepareScreen(
                         onToggleMeshBoolean = meshBooleanActions.toggle,
                         onToggleAssembly = assemblyActions.toggle,
                         onOpenAssemblyView = assemblyViewActions.open,
+                        selectionMode = selectionMode,
+                        onToggleSelectionMode = { selectionMode = !selectionMode },
                     )
                 }
                 // _render_paint_toolbar(): the assembly view's filament buttons.
@@ -2030,6 +2042,8 @@ private fun CanvasToolbar(
     onToggleMeshBoolean: () -> Unit = {},
     onToggleAssembly: () -> Unit = {},
     onOpenAssemblyView: () -> Unit = {},
+    selectionMode: Boolean = false,
+    onToggleSelectionMode: () -> Unit = {},
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -2041,6 +2055,15 @@ private fun CanvasToolbar(
     )
 
     OrcaCanvasToolbar {
+        // A phone's Ctrl and Shift for the canvas's selection: a tap adds a copy or takes it out,
+        // and a finger over empty space draws the selection rectangle (GLSelectionRectangle).
+        OrcaCanvasTool(
+            icon = R.drawable.selection_mode,
+            contentDescription = stringResource(R.string.toolbar_selection_mode),
+            onClick = onToggleSelectionMode,
+            selected = selectionMode,
+        )
+        OrcaCanvasToolbarSeparator()
         OrcaCanvasTool(DesignR.drawable.orca_toolbar_open, stringResource(R.string.add_model), onAddModel, enabled = state.canEditPlate)
         OrcaCanvasTool(DesignR.drawable.orca_tab_3d_active, stringResource(R.string.add_calibration_cube), onAddCalibrationCube, enabled = state.canEditPlate)
         OrcaCanvasTool(DesignR.drawable.orca_toolbar_add_plate, stringResource(R.string.toolbar_add_plate), onAddPlate, enabled = state.canAddPlate)

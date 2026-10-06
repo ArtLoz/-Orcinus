@@ -19,6 +19,7 @@
     <string name="toolbar_split_parts">Split to parts</string>
     <string name="toolbar_variable_layer_height">Variable layer height</string>
     <string name="toolbar_assembly_view">Assembly View</string>
+    <string name="toolbar_selection_mode">Select several</string>
     <string name="arrange_options">Arrange options</string>
     <string name="arrange_spacing">Spacing</string>
     <string name="arrange_spacing_auto">0 means auto spacing.</string>

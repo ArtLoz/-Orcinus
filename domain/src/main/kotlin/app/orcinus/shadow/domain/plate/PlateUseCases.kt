@@ -1820,6 +1820,20 @@ class SelectPlateObjectUseCase(private val repository: PlateRepository) {
     }
 
     /**
+     * GLCanvas3D::_update_selection_from_hover() of a rectangle let go with
+     * Ctrl held: the copies [ids] join the selection, which keeps what it held.
+     */
+    fun add(ids: Set<PlateInstanceId>) = repository.update { state ->
+        val added = ids.filter { id -> state.objects.withMesh(id.mesh)?.instances?.size ?: 0 > id.instance }
+        val selected = state.selectedInstances + added
+        if (selected == state.selectedInstances && state.selectedPart == null) {
+            state
+        } else {
+            state.copy(selectedInstances = selected, selectedPart = null, selectedRange = null, selectedConnectors = null)
+        }
+    }
+
+    /**
      * ObjectList::fix_cut_selection() while the scale gizmo is open: the first
      * copy of a part of a cut in the selection takes the same copy of every
      * part of that cut (CutObjectBase::has_same_id()) in place of the rest.
