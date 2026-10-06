@@ -4,9 +4,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,6 +34,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
+import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.ui.orca.OrcaHint
 import app.orcinus.shadow.core.ui.orca.OrcaHints
@@ -113,17 +118,48 @@ fun DailyTipsPanel(expanded: Boolean, onExpand: (Boolean) -> Unit, modifier: Mod
     }
 }
 
+/**
+ * DailyTipsWindow of Help's "Show Tip of the Day": "Daily Tips" over the
+ * hint the panel is on (retrieve_data_from_hint_database(Curr)), its number
+ * of all and the arrows; a sheet in place of the window over the canvas.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DailyTipsWindow(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val colors = OrcaTheme.colors
+    val hints by produceState(OrcaHintsFile.loaded.orEmpty(), context) { value = OrcaHintsFile.load(context.applicationContext) }
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        ) {
+            Text(orcaString("Daily Tips"), color = colors.text, style = OrcaTheme.typography.head16, modifier = Modifier.padding(bottom = 12.dp))
+            hints.getOrNull(DailyTips.current(hints.size))?.let { HintText(it, colors.text) }
+            if (hints.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
+                    Spacer(Modifier.weight(1f))
+                    Text("${DailyTips.current(hints.size) + 1}/${hints.size}", color = colors.text, style = OrcaTheme.typography.body13)
+                    Arrow(DesignR.drawable.orca_notification_arrow_left) { DailyTips.previous(hints.size) }
+                    Arrow(DesignR.drawable.orca_notification_arrow_right) { DailyTips.next(hints.size) }
+                }
+            }
+        }
+    }
+}
+
 /** DailyTipsDataRenderer::render_text() */
 @Composable
-private fun HintText(hint: OrcaHint) {
+private fun HintText(hint: OrcaHint, textColor: Color = OrcaTheme.colors.onCanvasPanel) {
     val context = LocalContext.current
     val colors = OrcaTheme.colors
     val text = OrcaHints.mainText(orcaString(hint.text))
     val title = text.substringBefore('\n')
     val body = text.substringAfter('\n', "")
-    Text(marked(title, colors.accent, whole = true), color = colors.onCanvasPanel, style = OrcaTheme.typography.body13.copy(fontWeight = FontWeight.Bold))
+    Text(marked(title, colors.accent, whole = true), color = textColor, style = OrcaTheme.typography.body13.copy(fontWeight = FontWeight.Bold))
     if (body.isNotEmpty()) {
-        Text(marked(body, colors.accent), color = colors.onCanvasPanel, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 2.dp))
+        Text(marked(body, colors.accent), color = textColor, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 2.dp))
     }
     if (hint.documentationLink.isNotEmpty()) {
         val line = orcaString("For more information, please check out Wiki")
@@ -139,7 +175,7 @@ private fun HintText(hint: OrcaHint) {
                 append(line.substringBefore(wiki))
                 withLink(link) { append(wiki) }
             },
-            color = colors.onCanvasPanel,
+            color = textColor,
             style = OrcaTheme.typography.body13,
             modifier = Modifier.padding(top = 4.dp),
         )

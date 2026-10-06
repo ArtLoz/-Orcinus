@@ -19,6 +19,7 @@ import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.ui.ExportResultDialog
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
+import app.orcinus.shadow.core.ui.plate.DailyTipsWindow
 import app.orcinus.shadow.core.ui.plate.NameErrorDialog
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.VolumesMenuActions
@@ -2243,6 +2244,7 @@ internal fun PlateSidebarContent(
 ) {
     // DiffPresetDialog, which the compare button of the process panel opens.
     var comparing by rememberSaveable { mutableStateOf(false) }
+    var showingTips by rememberSaveable { mutableStateOf(false) }
     // Search::SearchDialog, which the search button of the panel opens.
     var searching by rememberSaveable { mutableStateOf(false) }
     // PhysicalPrinterDialog, which the Connection button of the printer opens
@@ -2573,11 +2575,17 @@ internal fun PlateSidebarContent(
         SidebarAction(DesignR.drawable.orca_cog, orcaString("Preferences"), onOpenPreferences)
         // Its Preset Bundle, after Preferences (MainFrame's top menu).
         SidebarAction(DesignR.drawable.orca_menu_edit_preset, orcaString("Preset Bundle"), onOpenPresetBundles)
+        // Help's "Show Tip of the Day" (DailyTipsWindow::open()).
+        SidebarAction(DesignR.drawable.orca_help, orcaString("Show Tip of the Day")) { showingTips = true }
         SidebarAction(DesignR.drawable.orca_help, stringResource(R.string.about), onOpenAbout)
         }
     }
 
     SettingsTabDialogs(tab)
+
+    if (showingTips) {
+        DailyTipsWindow(onDismiss = { showingTips = false })
+    }
 
     if (comparing) {
         DiffPresetDialog(comparison, onDismiss = { comparing = false })
