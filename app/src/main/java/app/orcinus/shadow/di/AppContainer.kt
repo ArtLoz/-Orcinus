@@ -76,6 +76,7 @@ import app.orcinus.shadow.domain.plate.DescribeCalibrationPrinterUseCase
 import app.orcinus.shadow.domain.plate.DescribeFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
+import app.orcinus.shadow.domain.plate.DuplicatePlateUseCase
 import app.orcinus.shadow.domain.plate.EditBrimEarsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
@@ -567,8 +568,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val setPlateObjectAutoDrop = SetPlateObjectAutoDropUseCase(plateRepository, placePlateObject)
     private val setPlateObjectPrintable = SetPlateObjectPrintableUseCase(plateRepository)
     private val deletePlateObject = DeletePlateObjectUseCase(plateRepository)
+    private val plateObjects = PlateObjectsUseCase(plateRepository, deletePlateObject)
     private val addPlateInstance = AddPlateInstanceUseCase(plateRepository, placePlateObject, selectPlateObject)
-    private val addObjectPart = AddObjectPartUseCase(engine, sceneFiles, plateRepository, applicationScope)
+    private val addObjectPart = AddObjectPartUseCase(engine, sceneFiles, plateRepository, applicationScope) {
+        appPreferences[AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS].isNotEmpty()
+    }
     private val loadObjectVolumes = LoadObjectVolumesUseCase(
         ImportModelUseCase(modelFiles),
         engine,
@@ -680,6 +684,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             editPlateObject = editPlateObject,
             invalidateCutInfo = invalidateCutInfo,
             clonePlateObjects = clonePlateObjects,
+            plateObjects = plateObjects,
+            duplicatePlateUseCase = DuplicatePlateUseCase(engine, sceneFiles, plateRepository, applicationScope),
             separatePlateInstances = separatePlateInstances,
             fillBedWithInstances = fillBedWithInstances,
             setArrangeSettings = arrangeSettings,
@@ -871,7 +877,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         describeCalibrationPrinterUseCase = DescribeCalibrationPrinterUseCase(engine, plateRepository),
         addModelToPlate = addModelToPlate,
         selectPlate = selectPlate,
-        plateObjects = PlateObjectsUseCase(plateRepository, deletePlateObject),
+        plateObjects = plateObjects,
         plateJobs = plateJobs,
         deletePlate = deletePlate,
         lockPlate = lockPlate,

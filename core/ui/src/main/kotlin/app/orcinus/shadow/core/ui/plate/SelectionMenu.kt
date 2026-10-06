@@ -106,12 +106,19 @@ class SelectionMenuActions(
  * Edit menu's Cut, Copy and Paste as the object menu offers them.
  */
 @Composable
-fun SelectionMenuItems(state: SelectionMenuState, actions: SelectionMenuActions, dismiss: () -> Unit) {
+fun SelectionMenuItems(
+    state: SelectionMenuState,
+    actions: SelectionMenuActions,
+    dismiss: () -> Unit,
+    /** The Edit menu's "Clone selected", which a phone offers with Cut, Copy and Paste; null where the menu opens no clone dialog. */
+    onClone: (() -> Unit)? = null,
+) {
     fun run(action: () -> Unit): () -> Unit = {
         dismiss()
         action()
     }
     ClipboardItems(enabled = state.enabled, canPaste = state.canPaste, cut = run(actions.cut), copy = run(actions.copy), paste = run(actions.paste))
+    onClone?.let { OrcaMenuItem(text = orcaString("Clone selected"), enabled = state.enabled, onClick = run(it)) }
     OrcaMenuSeparator()
     // append_menu_item_merge_to_multipart_object() only while it can merge.
     if (state.canAssemble) OrcaMenuItem(text = orcaString("Assemble"), enabled = state.enabled, onClick = run { actions.edit(ObjectEdit.ASSEMBLE) })

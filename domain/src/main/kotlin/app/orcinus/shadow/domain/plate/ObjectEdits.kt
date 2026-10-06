@@ -234,6 +234,10 @@ class DismissPlateNoticeUseCase(
         if (checked && notice.checkbox != null && MODIFIED_GCODE_WARNINGS.any(notice.id::startsWith)) {
             applicationScope.launch { preferences.set(AppConfigKeys.NO_WARN_WHEN_MODIFIED_GCODES, "true") }
         }
+        // TipsDialog's OK with "Don't show again": set_bool(app_key, true).
+        if (checked && notice.id == AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS) {
+            applicationScope.launch { preferences.set(AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS, "true") }
+        }
     }
 
     private companion object {

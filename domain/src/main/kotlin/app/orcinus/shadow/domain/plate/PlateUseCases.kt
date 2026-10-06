@@ -373,7 +373,7 @@ internal fun PlateState.withPrinterPlates(previous: PlateDescription?): PlateSta
 }
 
 /** The copy moved by [dx], [dy] across the plate: its placement, box and sphere with it. */
-private fun ModelInspection.movedBy(dx: Double, dy: Double): ModelInspection = copy(
+internal fun ModelInspection.movedBy(dx: Double, dy: Double): ModelInspection = copy(
     placement = Transform3(placement.columns.mapIndexed { index, value -> value + when (index) { 12 -> dx; 13 -> dy; else -> 0.0 } }),
     boxCenter = Vector3(boxCenter.x + dx, boxCenter.y + dy, boxCenter.z),
     boundingSphere = boundingSphere.copy(center = Vector3(boundingSphere.center.x + dx, boundingSphere.center.y + dy, boundingSphere.center.z)),
@@ -1945,6 +1945,8 @@ class AddObjectPartUseCase(
     private val sceneFiles: SceneFiles,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    /** do_not_show_modifer_tips: the "Add Modifier" tip was turned off. */
+    private val modifierTipsOff: () -> Boolean = { true },
 ) {
     operator fun invoke(mesh: ScenePath, shape: String, type: VolumeType, name: String = "") {
         var request: Pair<PlateObject, SlicingProfileSelection>? = null
@@ -1971,21 +1973,31 @@ class AddObjectPartUseCase(
                 val current = state.objects.withMesh(mesh)
                 when {
                     current == null -> state
-                    outcome is ModelInspectionOutcome.Success -> state.recorded().copy(
-                        objects = state.objects.replaced(
-                            current.withPart(
-                                ObjectPart(
-                                    shape = shape,
-                                    type = type,
-                                    mesh = partMesh,
-                                    placement = outcome.inspection.placement,
-                                    settings = newVolumeSettings(current, type),
-                                    name = name,
-                                ),
-                            ),
-                        ),
-                        result = null,
-                    )
+                    outcome is ModelInspectionOutcome.Success -> {
+                        val part = ObjectPart(
+                            shape = shape,
+                            type = type,
+                            mesh = partMesh,
+                            placement = outcome.inspection.placement,
+                            settings = newVolumeSettings(current, type),
+                            name = name,
+                        )
+                        // reorder_volumes_and_get_selection(): ModelObject::sort_volumes(true)
+                        // orders the volumes by type (parts, negative volumes,
+                        // modifiers, blockers, enforcers), keeping the order of
+                        // each type, and the list selects the new volume.
+                        val sorted = (current.parts + part).sortedBy { it.type.ordinal }
+                        val instance = state.selectedInstances.firstOrNull { it.mesh == mesh }?.instance ?: 0
+                        state.recorded().copy(
+                            objects = state.objects.replaced(current.withParts(sorted)),
+                            selectedInstances = setOf(PlateInstanceId(mesh, instance)),
+                            selectedPart = ObjectPartId(mesh, sorted.indexOf(part) + 1),
+                            selectedRange = null,
+                            result = null,
+                            // TipsDialog "Add Modifier", until "Don't show again" turns it off.
+                            plateNotices = if (modifierTipsOff()) state.plateNotices else state.plateNotices + ADD_MODIFIER_TIP,
+                        )
+                    }
                     else -> state.copy(
                         problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, (outcome as ModelInspectionOutcome.Failure).message),
                     )
@@ -1997,6 +2009,18 @@ class AddObjectPartUseCase(
         }
     }
 }
+
+/** ObjectList::load_generic_subobject()'s TipsDialog. */
+internal val ADD_MODIFIER_TIP = SettingsDialog(
+    id = AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS,
+    icon = DialogIcon.INFO,
+    title = listOf(OrcaText("Add Modifier")),
+    text = listOf(OrcaText("Switch to per-object setting mode to edit modifier settings.")),
+    question = false,
+    yes = OrcaText("OK"),
+    no = null,
+    checkbox = OrcaText("Don't show again"),
+)
 
 /**
  * load_generic_subobject() and load_modifier(): a new part prints with the

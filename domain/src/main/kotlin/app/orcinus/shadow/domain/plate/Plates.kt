@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateProblem
@@ -13,6 +14,7 @@ import app.orcinus.shadow.core.model.withSettings
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PlateInstance
+import app.orcinus.shadow.storage.api.SceneFiles
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import app.orcinus.shadow.core.model.ModelInspection
@@ -79,6 +81,59 @@ class AddPlateUseCase(private val repository: PlateRepository) {
         state.recorded()
             .copy(objects = state.objectsMoved(moves, unprintable = null))
             .withPlates(state.platesLeft() + PartPlate(), count)
+    }
+}
+
+/**
+ * The Edit menu's "Duplicate Current Plate" (PartPlateList::duplicate_plate()):
+ * a plate joins after the last one, as "Add plate" adds it, and every object
+ * with a copy on the current plate is copied with all its copies, moved by the
+ * distance between the two plates. The current plate stays current. Each
+ * object goes once, where the desktop app copies it once for each of its
+ * copies on the plate.
+ */
+class DuplicatePlateUseCase(
+    private val inspector: PlateInspector,
+    private val sceneFiles: SceneFiles,
+    private val repository: PlateRepository,
+    private val applicationScope: CoroutineScope,
+) {
+    operator fun invoke() {
+        var request: CopyRequest? = null
+        repository.update { state ->
+            request = null
+            val profiles = state.profiles
+            if (!state.canAddPlate || profiles == null || state.objects.any(PlateObject::placing)) return@update state
+            val sources = state.objects.filter { plateObject -> plateObject.instances.any { state.plateOf(it) == state.currentPlate } }
+            request = CopyRequest(state.objects, sources, profiles)
+            state.copy(editing = true, problem = null)
+        }
+        val copy = request ?: return
+        applicationScope.launch {
+            copyObjects(inspector, sceneFiles, repository, copy, 1, CopyPlacement.KEEP) { state, added -> state.withDuplicatedPlate(added) }
+            // A plate without objects is duplicated as an empty plate.
+            if (copy.sources.isEmpty()) repository.update { it.withDuplicatedPlate(emptyList()) }
+        }
+    }
+
+    private fun PlateState.withDuplicatedPlate(added: List<PlateObject>): PlateState {
+        val grid = plateGrid ?: return this
+        val count = plates.size
+        if (count >= PlateGrid.MAX_PLATES) return this
+        // create_plate(): the plates move to the rows of one more plate, with their objects.
+        val moves = if (PlateGrid.columns(count + 1) != PlateGrid.columns(count)) {
+            List(count) { index -> grid.originOf(index, count + 1) - grid.originOf(index, count) }
+        } else {
+            emptyList()
+        }
+        // The copies stand where their objects stood: they go to the new plate.
+        val offset = grid.originOf(count, count + 1) - grid.originOf(currentPlate, count)
+        val moved = added.map { plateObject ->
+            plateObject.withInstances(plateObject.instances.map { it.copy(inspection = it.inspection.movedBy(offset.x, offset.y)) })
+        }
+        return recorded()
+            .copy(objects = objectsMoved(moves, unprintable = null) + moved, editing = false)
+            .withPlates(platesLeft() + PartPlate(), currentPlate)
     }
 }
 
@@ -478,6 +533,26 @@ class PlateObjectsUseCase(private val repository: PlateRepository, private val d
             )
         }
         if (deleted.isNotEmpty()) deletePlateObject.all(deleted.map(PlateObject::mesh))
+    }
+
+    /**
+     * The Edit menu's "Delete all" (Plater::priv::delete_all_objects_from_model()):
+     * every object of every plate goes as one step of Undo ("Delete All
+     * Objects"), with the codes on the layers of every plate and the PA
+     * pattern; the plates stay. It asks nothing.
+     */
+    fun deleteAll() = repository.update { state ->
+        if (state.busy || state.objects.isEmpty()) return@update state
+        state.recorded().copy(
+            objects = emptyList(),
+            selectedInstances = emptySet(),
+            selectedPart = null,
+            selectedRange = null,
+            plates = state.plates.map { it.copy(layerGcodes = emptyList(), result = null) },
+            layerGcodes = emptyList(),
+            paPattern = null,
+            result = null,
+        )
     }
 
     private fun select(objects: (PlateState) -> List<PlateObject>) = repository.update { state ->

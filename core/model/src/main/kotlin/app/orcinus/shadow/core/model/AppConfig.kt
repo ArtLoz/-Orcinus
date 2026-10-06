@@ -139,6 +139,9 @@ object AppConfigKeys {
     const val BACKUP_SWITCH = "backup_switch"
     const val BACKUP_INTERVAL = "backup_interval"
 
+    /** The "Add Modifier" tip turned off ("Don't show again"); empty while it shows. */
+    const val DO_NOT_SHOW_MODIFIER_TIPS = "do_not_show_modifer_tips"
+
     /** "Stealth mode": no online request at all (AppConfig's default "false"). */
     const val STEALTH_MODE = "stealth_mode"
 
@@ -205,6 +208,7 @@ object AppConfigKeys {
         BACKUP_INTERVAL,
         STEALTH_MODE,
         SYNC_SYSTEM_PRESET,
+        DO_NOT_SHOW_MODIFIER_TIPS,
         DEFAULT_PAGE,
         MAX_RECENT_COUNT,
         RECENT_MODELS,

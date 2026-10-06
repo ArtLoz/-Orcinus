@@ -110,6 +110,7 @@ import app.orcinus.shadow.domain.plate.CutObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.DeletePlateUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
+import app.orcinus.shadow.domain.plate.DuplicatePlateUseCase
 import app.orcinus.shadow.domain.plate.EditBrimEarsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
 import app.orcinus.shadow.domain.plate.EditPlateObjectUseCase
@@ -139,6 +140,7 @@ import app.orcinus.shadow.domain.plate.PlaceObjectVolumeUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
+import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
 import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
@@ -241,6 +243,8 @@ class PrepareViewModel(
     private val editPlateObject: EditPlateObjectUseCase,
     private val invalidateCutInfo: InvalidateCutInfoUseCase,
     private val clonePlateObjects: ClonePlateObjectsUseCase,
+    private val plateObjects: PlateObjectsUseCase,
+    private val duplicatePlateUseCase: DuplicatePlateUseCase,
     private val separatePlateInstances: SeparatePlateInstancesUseCase,
     private val fillBedWithInstances: FillBedWithInstancesUseCase,
     private val setArrangeSettings: SetArrangeSettingsUseCase,
@@ -3081,7 +3085,11 @@ class PrepareViewModel(
     fun invalidateCutInfoAt(index: Int) = copyAt(index)?.let { invalidateCutInfo(it.mesh) }
 
     /** "Fill bed with instances" over a copy, which the new copies are modelled on. */
-    fun fillBedWith(index: Int) = copyAt(index)?.let { fillBedWithInstances(it.mesh, it.instance) }
+    fun fillBedWith(index: Int) = copyAt(index)?.let { copy ->
+        // FillBedJob::prepare(): Plater::get_selected_object_idx() is none for several objects.
+        if (plate.value.selectedInstances.map { it.mesh }.distinct().size > 1) return@let
+        fillBedWithInstances(copy.mesh, copy.instance)
+    }
 
     /** "Set as an individual object" over a copy: the canvas selects that copy alone. */
     fun setAsIndividualObject(index: Int) = copyAt(index)?.let { separatePlateInstances(it.mesh, setOf(it.instance)) }
@@ -3167,7 +3175,17 @@ class PrepareViewModel(
     }
 
     /** The clone dialog's OK over a copy, which the canvas selects alone. */
-    fun clone(index: Int, count: Int, arrange: Boolean) = copyAt(index)?.let { clonePlateObjects(setOf(it), count, arrange) }
+    /** The clone dialog over a copy: of the selection it is part of (Selection::clone()), or of the copy alone. */
+    fun clone(index: Int, count: Int, arrange: Boolean) = copyAt(index)?.let { copy ->
+        val selected = plate.value.selectedInstances
+        clonePlateObjects(if (copy in selected && selected.size > 1) selected else setOf(copy), count, arrange)
+    }
+
+    /** The Edit menu's "Delete all". */
+    fun deleteAllObjects() = plateObjects.deleteAll()
+
+    /** The Edit menu's "Duplicate Current Plate". */
+    fun duplicatePlate() = duplicatePlateUseCase()
 
     /** The object menu's Printable: the copy the menu was opened over. */
     fun setPrintableAt(index: Int, printable: Boolean) = copyAt(index)?.let { setPlateObjectPrintable(it, printable) }

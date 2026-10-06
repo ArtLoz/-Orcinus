@@ -427,6 +427,8 @@ internal fun PrepareRoute(
             addPrimitive = viewModel::addPrimitiveShape,
             addHandyModel = viewModel::addHandyModel,
             showLabels = { viewModel.setCanvasOption(AppConfigKeys.SHOW_LABELS, it.toString()) },
+            deleteAll = viewModel::deleteAllObjects,
+            duplicatePlate = viewModel::duplicatePlate,
         ),
         onToggleGizmo = viewModel::toggleGizmo,
         onCloseGizmo = viewModel::closeGizmo,
@@ -1430,6 +1432,9 @@ internal class PlateMenuActions(
     val addHandyModel: (HandyModel) -> Unit,
     /** Plater::show_view3D_labels(), which keeps show_labels. */
     val showLabels: (Boolean) -> Unit,
+    /** The Edit menu's "Delete all" and "Duplicate Current Plate", which a phone offers over the plate. */
+    val deleteAll: () -> Unit = {},
+    val duplicatePlate: () -> Unit = {},
 ) {
     companion object {
         val NONE = PlateMenuActions({ _, _ -> }, {}, {})
@@ -1465,6 +1470,23 @@ private fun PlateContextMenu(
             onClick = {
                 onDismiss()
                 onPaste()
+            },
+        )
+        // MainFrame::can_delete_all(): objects on the plates.
+        OrcaMenuItem(
+            text = orcaString("Delete all"),
+            enabled = state.canEditPlate && state.sceneCopies.isNotEmpty(),
+            onClick = {
+                onDismiss()
+                actions.deleteAll()
+            },
+        )
+        OrcaMenuItem(
+            text = orcaString("Duplicate Current Plate"),
+            enabled = state.canAddPlate,
+            onClick = {
+                onDismiss()
+                actions.duplicatePlate()
             },
         )
         OrcaMenuSeparator()
@@ -1527,6 +1549,7 @@ private fun ObjectContextMenu(
                 ),
                 actions = selection,
                 dismiss = onDismiss,
+                onClone = onAskClone,
             )
             return@OrcaContextMenu
         }
