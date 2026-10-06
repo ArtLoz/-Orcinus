@@ -1318,8 +1318,14 @@ data class PlateState(
      * is closed or the settings change to print by layer (BBLSeqPrintInfo).
      */
     val seqPrintInfo: Boolean = false,
-    /** The arrange options (GLCanvas3D::ArrangeSettings), which every arrangement of the plate takes. */
+    /**
+     * The arrange options (GLCanvas3D::ArrangeSettings), which every
+     * arrangement of the plate takes while the process prints by layer; and
+     * by object ([arrangeSettingsSeqPrint], m_arrange_settings_fff_seq_print).
+     * currentArrangeSettings is the one in use.
+     */
     val arrangeSettings: ArrangeSettings = ArrangeSettings(),
+    val arrangeSettingsSeqPrint: ArrangeSettings = ArrangeSettings(),
     /** What Copy and Cut took (Selection::Clipboard); null while nothing was copied. */
     val clipboard: PlateClipboard? = null,
     /** The height ranges Copy took in the object list (ObjectList's clipboard); null while it holds none. */
@@ -1497,3 +1503,11 @@ data class PlateState(
             (project.presets != null && (profiles != project.presets || presets?.filamentColors.orEmpty() != project.filamentColors)) ||
             settingsTabs.values.any { it.settings?.savedDirty == true }
 }
+
+/** GLCanvas3D::get_arrange_settings(): the arrange options for the process preset's print sequence. */
+val PlateState.currentArrangeSettings: ArrangeSettings
+    get() = if (presets?.sequentialPrint == true) arrangeSettingsSeqPrint else arrangeSettings
+
+/** The plate with [settings] as the arrange options in use. */
+fun PlateState.withArrangeSettings(settings: ArrangeSettings): PlateState =
+    if (presets?.sequentialPrint == true) copy(arrangeSettingsSeqPrint = settings) else copy(arrangeSettings = settings)

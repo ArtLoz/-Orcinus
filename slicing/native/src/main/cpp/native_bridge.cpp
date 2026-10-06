@@ -201,7 +201,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
         "<init>",
         "(JLjava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;"
         "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
-        "Ljava/lang/String;ZZZ"
+        "Ljava/lang/String;ZZZZZ"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
@@ -227,6 +227,8 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
         state.bed_type_selectable ? JNI_TRUE : JNI_FALSE,
         state.plate_bed_type_selectable ? JNI_TRUE : JNI_FALSE,
         state.multi_material_buttons ? JNI_TRUE : JNI_FALSE,
+        state.i3_structure ? JNI_TRUE : JNI_FALSE,
+        state.sequential_print ? JNI_TRUE : JNI_FALSE,
         to_java_objects(env, item_class, state.printers, item),
         to_java_objects(env, item_class, state.filaments, item),
         to_java_objects(env, item_class, state.processes, item),

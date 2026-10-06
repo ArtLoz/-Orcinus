@@ -69,6 +69,10 @@ data class Presets(
      * volumes; another printer's filaments stay as many as its extruders.
      */
     val multiMaterialButtons: Boolean = false,
+    /** printer_structure is i3: the arrangement aligns to the Y axis (Sidebar::update_presets()). */
+    val i3Structure: Boolean = false,
+    /** The process preset prints by object (GUI_App::global_print_sequence()), which picks the arrange settings. */
+    val sequentialPrint: Boolean = false,
 )
 
 /** A plate type: curr_bed_type's [value] and OrcaSlicer's [label] for it. */

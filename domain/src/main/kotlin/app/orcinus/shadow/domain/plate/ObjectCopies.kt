@@ -1,5 +1,6 @@
 package app.orcinus.shadow.domain.plate
 
+import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.ModelLoadOutcome
@@ -11,26 +12,109 @@ import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
+import app.orcinus.shadow.core.model.currentArrangeSettings
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.plateOf
+import app.orcinus.shadow.core.model.withArrangeSettings
 import app.orcinus.shadow.core.model.withCutId
 import app.orcinus.shadow.core.model.withInstances
 import app.orcinus.shadow.domain.placed
+import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.storage.api.SceneFiles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** The arrange options window (_render_arrange_menu): the settings every arrangement of the plate takes. */
-class SetArrangeSettingsUseCase(private val repository: PlateRepository) {
-    operator fun invoke(settings: ArrangeSettings) = repository.update { state ->
-        state.copy(arrangeSettings = settings.copy(distance = settings.distance.coerceIn(0.0, MAX_ARRANGE_DISTANCE)))
+/**
+ * The arrange options window (_render_arrange_menu): the settings every
+ * arrangement of the plate takes, those of the process preset's print
+ * sequence (GLCanvas3D::get_arrange_settings()), which the app configuration
+ * keeps in its [arrange] section under the desktop app's keys.
+ */
+class SetArrangeSettingsUseCase(
+    private val repository: PlateRepository,
+    private val store: AppConfigStore? = null,
+    private val applicationScope: CoroutineScope? = null,
+) {
+    operator fun invoke(settings: ArrangeSettings) {
+        var kept: Pair<ArrangeSettings, Boolean>? = null
+        repository.update { state ->
+            val clamped = settings.copy(distance = settings.distance.coerceIn(0.0, MAX_ARRANGE_DISTANCE))
+            kept = clamped to (state.presets?.sequentialPrint == true)
+            state.withArrangeSettings(clamped)
+        }
+        kept?.let { (saved, sequential) -> save(saved, sequential) }
+    }
+
+    /** Its Reset: the default options, aligned to the Y axis on an i3 printer. */
+    fun reset() {
+        val i3 = repository.state.value.presets?.i3Structure == true
+        invoke(ArrangeSettings(alignToYAxis = i3))
+    }
+
+    /** GLCanvas3D::load_arrange_settings(): the options the app configuration kept. */
+    suspend fun load() {
+        val store = store ?: return
+        val outcome = store.appConfigValues(LOAD_KEYS, SECTION) as? AppConfigOutcome.Success ?: return
+        val values = outcome.values
+        fun distance(key: String) = values[key]?.toDoubleOrNull()
+        fun flag(key: String) = values[key]?.takeIf { it.isNotEmpty() }?.let { it == "1" || it == "true" }
+        repository.update { state ->
+            state.copy(
+                arrangeSettings = state.arrangeSettings.let {
+                    it.copy(
+                        distance = distance("min_object_distance_fff") ?: it.distance,
+                        enableRotation = flag("enable_rotation_fff") ?: it.enableRotation,
+                        allowMultiMaterialsOnSamePlate = flag("allow_multi_materials_on_same_plate") ?: it.allowMultiMaterialsOnSamePlate,
+                    )
+                },
+                arrangeSettingsSeqPrint = state.arrangeSettingsSeqPrint.let {
+                    it.copy(
+                        distance = distance("min_object_distance_seq_print_fff") ?: it.distance,
+                        enableRotation = flag("enable_rotation_seq_print") ?: it.enableRotation,
+                    )
+                },
+            )
+        }
+    }
+
+    /**
+     * The window writes each option it changes, under its key with the
+     * print sequence's postfix (the distance and rotation of by-object
+     * printing go under keys load_arrange_settings() does not read, as in
+     * the desktop app).
+     */
+    private fun save(settings: ArrangeSettings, sequential: Boolean) {
+        val store = store ?: return
+        val scope = applicationScope ?: return
+        val postfix = if (sequential) "_fff_seq_print" else "_fff"
+        scope.launch {
+            store.setAppConfigValue("min_object_distance$postfix", formatDistance(settings.distance), SECTION)
+            store.setAppConfigValue("enable_rotation$postfix", if (settings.enableRotation) "1" else "0", SECTION)
+            store.setAppConfigValue("allow_multi_materials_on_same_plate", if (settings.allowMultiMaterialsOnSamePlate) "1" else "0", SECTION)
+            store.setAppConfigValue("align_to_y_axis", if (settings.alignToYAxis) "1" else "0", SECTION)
+        }
     }
 
     private companion object {
         /** The arrange options' spacing slider ends at 100 mm. */
         const val MAX_ARRANGE_DISTANCE = 100.0
+
+        const val SECTION = "arrange"
+
+        val LOAD_KEYS = listOf(
+            "min_object_distance_fff",
+            "min_object_distance_seq_print_fff",
+            "enable_rotation_fff",
+            "enable_rotation_seq_print",
+            "allow_multi_materials_on_same_plate",
+        )
+
+        /** float_to_string_decimal_point(): the shortest decimal that reads back. */
+        fun formatDistance(value: Double): String = value.toFloat().toString().removeSuffix(".0")
     }
 }
 
@@ -75,7 +159,7 @@ class ClonePlateObjectsUseCase(
                 )
             }
             if (added.isNotEmpty() && arrange) {
-                placePlateObjects(PlateManipulation.ArrangePlate(repository.state.value.arrangeSettings))
+                placePlateObjects(PlateManipulation.ArrangePlate(repository.state.value.currentArrangeSettings))
             }
         }
     }
@@ -143,13 +227,27 @@ class SeparatePlateInstancesUseCase(
 class FillBedWithInstancesUseCase(
     private val repository: PlateRepository,
     private val placePlateObjects: PlacePlateObjectsUseCase,
+    private val applicationScope: CoroutineScope? = null,
 ) {
     operator fun invoke(mesh: ScenePath, instance: Int? = null) {
         val state = repository.state.value
         val target = state.objects.withMesh(mesh) ?: return
         // Plater::can_increase_instances()
         if (!target.instances.all { it.printable }) return
-        placePlateObjects(PlateManipulation.FillBed(mesh, instance, state.arrangeSettings))
+        // FillBedJob::prepare(): select_plate_by_obj() of the copy (the first
+        // for the whole object) makes its plate the current one first.
+        val plate = target.instances.getOrNull(instance ?: 0)?.let(state::plateOf)
+        val scope = applicationScope
+        if (plate == null || plate == state.currentPlate || scope == null || !state.canChangePlates) {
+            placePlateObjects(PlateManipulation.FillBed(mesh, instance, state.currentArrangeSettings))
+            return
+        }
+        repository.update { it.withPlates(it.platesLeft(), plate) }
+        scope.launch {
+            // The engine knows the plate before the job starts on it.
+            val ready = repository.state.first { !it.busy }
+            if (ready.currentPlate == plate) placePlateObjects(PlateManipulation.FillBed(mesh, instance, ready.currentArrangeSettings))
+        }
     }
 }
 

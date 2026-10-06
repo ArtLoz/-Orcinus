@@ -84,6 +84,7 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeDescriptionOutcome
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.currentArrangeSettings
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.selectedCopies
@@ -3010,10 +3011,10 @@ class PrepareViewModel(
     fun changeArrangeSettings(settings: ArrangeSettings) = setArrangeSettings(settings)
 
     /** _render_arrange_menu()'s Reset: OrcaSlicer's default arrange settings. */
-    fun resetArrangeSettings() = setArrangeSettings(ArrangeSettings())
+    fun resetArrangeSettings() = setArrangeSettings.reset()
 
     /** _render_arrange_menu()'s Arrange: ArrangeJob for every object on the plate. */
-    fun arrange() = placePlateObjects(PlateManipulation.Arrange(state.value.arrangeSettings))
+    fun arrange() = placePlateObjects(PlateManipulation.Arrange(plate.value.currentArrangeSettings))
 
     /**
      * The toolbar's OrientJob (prepare_selected()): every copy of the objects

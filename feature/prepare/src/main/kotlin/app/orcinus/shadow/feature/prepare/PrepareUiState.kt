@@ -63,6 +63,7 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeDescription
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.WipeTower
+import app.orcinus.shadow.core.model.currentArrangeSettings
 import app.orcinus.shadow.core.model.inverse
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.lockedPlates
@@ -1106,7 +1107,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         clearance = validation?.takeIf { it.error != null && (it.clearance.isNotEmpty() || it.heightLimitFill.isNotEmpty()) }
             ?.let { PlateClearance(it.clearance, it.clearanceFill, it.heightLimitFill) },
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
-        arrangeSettings = arrangeSettings,
+        arrangeSettings = currentArrangeSettings,
         clipboard = clipboard,
         // While the painting tool is open, Undo and Redo work on its strokes (the gizmo's stack),
         // and while the cut gizmo is, on its plane.

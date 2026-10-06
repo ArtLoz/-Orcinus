@@ -2789,6 +2789,8 @@ class NativeSlicerEngine(context: Context) :
         bedTypeSelectable = bedTypeSelectable,
         plateBedTypeSelectable = plateBedTypeSelectable,
         multiMaterialButtons = multiMaterialButtons,
+        i3Structure = i3Structure,
+        sequentialPrint = sequentialPrint,
     )
 
     private fun NativePresetItem.toItem() = PresetListItem(

@@ -2951,8 +2951,9 @@ Slic3r::arrangement::ArrangeParams init_arrange_params(Slic3r::Model& model, con
     params.allow_multi_materials_on_same_plate = settings.allow_multi_materials_on_same_plate;
     params.avoid_extrusion_cali_region = true;
     params.is_seq_print = sequential;
-    // GLCanvas3D::get_arrange_settings(): 0 means auto spacing; by-object printing keeps its minimum.
-    params.min_obj_distance = scaled(sequential ? std::max(settings.distance, min_object_distance(config)) : settings.distance);
+    // GLCanvas3D::get_arrange_settings(): 0 means auto spacing, which
+    // update_selected_items_inflation() works out for by-object printing.
+    params.min_obj_distance = scaled(settings.distance);
     // _render_arrange_menu(): no alignment to the Y axis while rotation is allowed.
     params.align_to_y_axis = settings.align_to_y_axis && !settings.enable_rotation;
     if (params.is_seq_print) {
@@ -3216,6 +3217,19 @@ int arrange_plates(
         return plates;
     }
     arrangement::ArrangeParams params = init_arrange_params(model, config, settings);
+    if (only_on_plate) {
+        // init_arrange_params() from a menu: the current plate's own print
+        // sequence (PartPlate::get_real_print_seq()), whose spacing is auto
+        // when it is not the process preset's.
+        const bool global_sequential = params.is_seq_print;
+        params.is_seq_print =
+            plate_config_of(config, plate_settings, current).opt_enum<PrintSequence>("print_sequence") == PrintSequence::ByObject;
+        if (params.is_seq_print != global_sequential) {
+            params.min_obj_distance = 0;
+        }
+        params.bed_shrink_x = params.is_seq_print ? BED_SHRINK_SEQ_PRINT : arrangement::ArrangeParams{}.bed_shrink_x;
+        params.bed_shrink_y = params.is_seq_print ? BED_SHRINK_SEQ_PRINT : arrangement::ArrangeParams{}.bed_shrink_y;
+    }
     const PlateLayout layout = plate_layout_of(config);
     int columns = plate_columns(plates);
     // The copy moved from its plate to the first one, where the arrangement happens.

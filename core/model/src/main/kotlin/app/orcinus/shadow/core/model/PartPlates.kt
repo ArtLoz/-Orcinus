@@ -74,6 +74,9 @@ class PlateGrid(printableArea: List<Point2>) {
     /** The origin of the plate at [index] of [count] plates. */
     fun originOf(index: Int, count: Int): Point2 = origin(index, columns(count))
 
+    /** PartPlate::get_center_origin() of the plate at [index] of [count] plates: the centre of its printable area. */
+    fun centerOf(index: Int, count: Int): Point2 = originOf(index, count).let { Point2(it.x + (minX + maxX) / 2, it.y + (minY + maxY) / 2) }
+
     /** compute_origin_for_unprintable(): where the objects of no plate go with [count] plates. */
     fun unprintableOrigin(count: Int): Point2 {
         val columns = columns(count)

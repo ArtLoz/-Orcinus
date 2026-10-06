@@ -63,7 +63,9 @@ import app.orcinus.shadow.core.model.PendingPlateQuestion
 import app.orcinus.shadow.core.model.PendingPresetChange
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PlacedModel
+import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
+import app.orcinus.shadow.core.model.PlateGrid
 import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateInstance
@@ -108,17 +110,21 @@ import app.orcinus.shadow.core.model.SliceOutputNaming
 import app.orcinus.shadow.core.model.SliceRequest
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
+import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.currentArrangeSettings
 import app.orcinus.shadow.core.model.extruderNumber
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.plateGrid
 import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.model.plateOrigin
 import app.orcinus.shadow.core.model.scalingFactor
 import app.orcinus.shadow.core.model.volumeAt
+import app.orcinus.shadow.core.model.withArrangeSettings
 import app.orcinus.shadow.core.model.withInstance
 import app.orcinus.shadow.core.model.withInstances
 import app.orcinus.shadow.core.model.withLayerRangeAt
@@ -271,6 +277,8 @@ class PlatePresets(
 ) : PresetsApplier {
     /** Applies [outcome] of a change that started from the selection [before]. */
     override suspend fun apply(before: SlicingProfileSelection?, outcome: PresetsOutcome) {
+        // The plates as they stood for the printer before (Plater::priv::on_select_preset()'s old_plate_pos).
+        val previousPlate = repository.state.value.plate
         val presets = when (outcome) {
             is PresetsOutcome.Failure -> {
                 repository.update { it.copy(changingPresets = false, problem = PlateProblem(PlateProblemKind.PRESETS_FAILED, outcome.message)) }
@@ -296,6 +304,8 @@ class PlatePresets(
                 // Sidebar::reset_bed_type_combox_choices() for another printer:
                 // PartPlateList::check_all_plate_local_bed_type().
                 .let { if (before != null && before.printer != presets.selection.printer) it.withSupportedBedTypes(presets.bedTypes) else it }
+                // Sidebar::update_presets() of the printer: the arrangement aligns to the Y axis on an i3 printer.
+                .let { if (before == null || before.printer != presets.selection.printer) it.withArrangeSettings(it.currentArrangeSettings.copy(alignToYAxis = presets.i3Structure)) else it }
         }
         val profiles = repository.state.value.profiles ?: return
         val plateChanged = before?.printer != profiles.printer || before.filament != profiles.filament
@@ -310,6 +320,7 @@ class PlatePresets(
             }
         }
         if (before != null && before.printer != profiles.printer) {
+            repository.update { it.withPrinterPlates(previousPlate) }
             placePlateObjects(PlateManipulation.UpdatePrintVolume)
             onPrinterChange()
         }
@@ -317,6 +328,59 @@ class PlatePresets(
         if (before != profiles || bedTypeChanged || colorsChanged) onConfigChange()
     }
 }
+
+/**
+ * Plater::priv::on_select_preset() of another printer, on the plates laid out
+ * for it: update_objects_position_when_select_preset() puts every plate's wipe
+ * tower where a new one stands (set_default_wipe_tower_pos_for_plate(), which
+ * the tower's description writes), and when the current plate's centre moved
+ * ("Model reset by plate center"), the objects whose first copy stood on each
+ * plate before move together, keeping their height, until the centre of
+ * their box stands over that plate's centre (Selection::center_plate()).
+ */
+internal fun PlateState.withPrinterPlates(previous: PlateDescription?): PlateState {
+    val towersReset = copy(
+        plateSettings = ModelSettings(plateSettings.values - WIPE_TOWER_KEYS),
+        plates = plates.map { it.copy(settings = ModelSettings(it.settings.values - WIPE_TOWER_KEYS)) },
+    )
+    val oldGrid = previous?.let { PlateGrid(it.geometry.printableArea) } ?: return towersReset
+    val newGrid = plateGrid ?: return towersReset
+    val count = plates.size
+    if (oldGrid.centerOf(currentPlate, count) == newGrid.centerOf(currentPlate, count)) return towersReset
+    val oldHeight = previous.geometry.printableHeight
+    var moved = towersReset.objects
+    for (plate in 0 until count) {
+        val origin = oldGrid.originOf(plate, count)
+        // contain_instance(object, 0) on the plates before.
+        val group = towersReset.objects.filter { plateObject ->
+            plateObject.instances.firstOrNull()?.let { oldGrid.intersects(it.inspection, origin, oldHeight) } == true
+        }.map { it.mesh }.toSet()
+        val copies = moved.filter { it.mesh in group }.flatMap { it.instances }
+        if (copies.isEmpty()) continue
+        val minX = copies.minOf { it.inspection.boxCenter.x - it.inspection.dimensions.widthMillimeters / 2 }
+        val maxX = copies.maxOf { it.inspection.boxCenter.x + it.inspection.dimensions.widthMillimeters / 2 }
+        val minY = copies.minOf { it.inspection.boxCenter.y - it.inspection.dimensions.depthMillimeters / 2 }
+        val maxY = copies.maxOf { it.inspection.boxCenter.y + it.inspection.dimensions.depthMillimeters / 2 }
+        val center = newGrid.centerOf(plate, count)
+        val dx = center.x - (minX + maxX) / 2
+        val dy = center.y - (minY + maxY) / 2
+        moved = moved.map { plateObject ->
+            if (plateObject.mesh !in group) plateObject else plateObject.withInstances(plateObject.instances.map { it.copy(inspection = it.inspection.movedBy(dx, dy)) })
+        }
+    }
+    // Selection::center_plate()'s do_move() takes "Move Object".
+    return if (moved == towersReset.objects) towersReset else towersReset.recorded().copy(objects = moved, result = null)
+}
+
+/** The copy moved by [dx], [dy] across the plate: its placement, box and sphere with it. */
+private fun ModelInspection.movedBy(dx: Double, dy: Double): ModelInspection = copy(
+    placement = Transform3(placement.columns.mapIndexed { index, value -> value + when (index) { 12 -> dx; 13 -> dy; else -> 0.0 } }),
+    boxCenter = Vector3(boxCenter.x + dx, boxCenter.y + dy, boxCenter.z),
+    boundingSphere = boundingSphere.copy(center = Vector3(boundingSphere.center.x + dx, boundingSphere.center.y + dy, boundingSphere.center.z)),
+)
+
+/** wipe_tower_x and wipe_tower_y of a plate. */
+private val WIPE_TOWER_KEYS = setOf("wipe_tower_x", "wipe_tower_y")
 
 /** The plate type of a plate's own settings (PartPlate::get_bed_type), none for the project's. */
 private const val PLATE_BED_TYPE = "curr_bed_type"
@@ -1213,7 +1277,7 @@ class AddModelToPlateUseCase(
         } else if (done) {
             val state = repository.state.value
             split?.let { editPlateObject(it, ObjectEdit.SPLIT_TO_OBJECTS) }
-            if (batch.arrange && state.objects.isNotEmpty()) placePlateObjects(PlateManipulation.ArrangePlate(state.arrangeSettings))
+            if (batch.arrange && state.objects.isNotEmpty()) placePlateObjects(PlateManipulation.ArrangePlate(state.currentArrangeSettings))
             if (batch.suggestTopSurface) suggestTopSurface()
         }
     }

@@ -347,8 +347,11 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     }
 
     val observePlate = ObservePlateUseCase(plateRepository)
+    // GLCanvas3D's arrange options, which the app configuration keeps.
+    private val arrangeSettings = SetArrangeSettingsUseCase(plateRepository, engine, applicationScope)
     val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, platePresets, sceneFiles, plateCache, plateRepository, appPreferences) {
         profileUpdates.syncAtStartup()
+        applicationScope.launch { arrangeSettings.load() }
     }
     // The desktop app renders the G-code thumbnails with its 3D view's
     // renderer; the app's renderer draws them offscreen before it slices.
@@ -581,7 +584,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val renamePlateItem = RenamePlateItemUseCase(plateRepository)
     private val clonePlateObjects = ClonePlateObjectsUseCase(engine, sceneFiles, plateRepository, placePlateObjects, applicationScope)
     private val separatePlateInstances = SeparatePlateInstancesUseCase(engine, sceneFiles, plateRepository, applicationScope)
-    private val fillBedWithInstances = FillBedWithInstancesUseCase(plateRepository, placePlateObjects)
+    private val fillBedWithInstances = FillBedWithInstancesUseCase(plateRepository, placePlateObjects, applicationScope)
     private val copyToClipboard = CopyToClipboardUseCase(
         engine,
         sceneFiles,
@@ -679,7 +682,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             clonePlateObjects = clonePlateObjects,
             separatePlateInstances = separatePlateInstances,
             fillBedWithInstances = fillBedWithInstances,
-            setArrangeSettings = SetArrangeSettingsUseCase(plateRepository),
+            setArrangeSettings = arrangeSettings,
             copyToClipboard = copyToClipboard,
             pasteFromClipboard = pasteFromClipboard,
             undoRedoPlate = undoRedoPlate,

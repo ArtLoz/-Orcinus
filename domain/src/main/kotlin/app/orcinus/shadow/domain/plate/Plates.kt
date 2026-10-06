@@ -4,6 +4,7 @@ import app.orcinus.shadow.core.model.EnginePlate
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
+import app.orcinus.shadow.core.model.currentArrangeSettings
 import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.plateSettingsChoice
@@ -181,7 +182,7 @@ class PlateJobsUseCase(
     }
 
     fun arrange(index: Int) = onPlate(index, PlateProblemKind.PLATE_LOCKED_ARRANGE) { state ->
-        placePlateObjects(PlateManipulation.ArrangePlate(state.arrangeSettings))
+        placePlateObjects(PlateManipulation.ArrangePlate(state.currentArrangeSettings))
     }
 
     /**

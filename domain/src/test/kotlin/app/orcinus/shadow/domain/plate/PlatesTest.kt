@@ -293,4 +293,26 @@ class PlatesTest {
         // A tower wider than the plate stays where it was put.
         assertEquals(-10.0 to 5.0, WipeTower(width = 400.0, depth = 20.0).movedInside(-10.0, 5.0, area, 2.5))
     }
+
+    @Test
+    fun `another printer with a smaller plate brings each plate's objects to its new centre and its tower to the default`() {
+        // Two cubes on the first plate of a 350 mm bed, one on the second; the plates carry tower positions.
+        val before = state(listOf(cubeAt(100.0, 100.0), cubeAt(140.0, 100.0, "b"), cubeAt(420.0 + 175.0, 175.0, "c")), plates = 2, current = 0)
+            .copy(plateSettings = ModelSettings(mapOf("wipe_tower_x" to "15.000", "wipe_tower_y" to "250.000")))
+        val smaller = listOf(Point2(0.0, 0.0), Point2(220.0, 0.0), Point2(220.0, 220.0), Point2(0.0, 220.0))
+        val after = before.copy(plate = before.plate!!.copy(geometry = before.plate!!.geometry.copy(printableArea = smaller)))
+
+        val moved = after.withPrinterPlates(before.plate)
+
+        // The first pair spans 90..150 x 90..110: its centre goes to (110, 110).
+        assertEquals(listOf(90.0, 130.0), moved.objects.take(2).map { it.instances.single().inspection.boxCenter.x })
+        assertEquals(110.0, moved.objects[0].instances.single().inspection.boxCenter.y)
+        // The second plate stands 264 mm to the right now: its cube goes to its centre.
+        assertEquals(264.0 + 110.0, moved.objects[2].instances.single().inspection.boxCenter.x)
+        assertEquals(264.0 + 110.0, moved.objects[2].instances.single().inspection.placement.columns[12])
+        assertTrue(moved.plateSettings.values.isEmpty())
+        assertEquals(1, moved.history.undo.size)
+        // The same plate size moves nothing.
+        assertEquals(before.objects, before.withPrinterPlates(before.plate).objects)
+    }
 }

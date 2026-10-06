@@ -472,6 +472,10 @@ PresetState preset_state(Slic3r::PresetBundle& bundle)
     state.bed_type_selectable = bundle.is_bbl_vendor() || bundle.printers.get_edited_preset().config.opt_bool("support_multi_bed_types");
     state.plate_bed_type_selectable = bundle.is_bbl_vendor();
     state.multi_material_buttons = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
+    const auto* structure = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionEnum<Slic3r::PrinterStructure>>("printer_structure");
+    state.i3_structure = structure != nullptr && structure->value == Slic3r::PrinterStructure::psI3;
+    const auto* sequence = bundle.prints.get_edited_preset().config.option<Slic3r::ConfigOptionEnum<Slic3r::PrintSequence>>("print_sequence");
+    state.sequential_print = sequence != nullptr && sequence->value == Slic3r::PrintSequence::ByObject;
     return state;
 }
 

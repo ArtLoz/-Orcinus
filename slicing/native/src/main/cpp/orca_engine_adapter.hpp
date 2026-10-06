@@ -1318,6 +1318,12 @@ struct PresetState {
     // materials, or a Bambu Lab printer, which adds filaments, and with
     // several takes them away, merges them and edits their flushing volumes.
     bool multi_material_buttons{false};
+    // Sidebar::update_presets(): the printer is an i3 (printer_structure),
+    // whose arrangement aligns to the Y axis.
+    bool i3_structure{false};
+    // GUI_App::global_print_sequence() is by object, which picks the arrange
+    // settings of sequential printing (GLCanvas3D::get_arrange_settings()).
+    bool sequential_print{false};
 };
 
 // The preset combo boxes for the selection the app configuration remembers.
