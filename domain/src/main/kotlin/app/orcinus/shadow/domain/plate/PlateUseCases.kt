@@ -2602,6 +2602,17 @@ class AddLayerRangeUseCase(private val repository: PlateRepository, private val 
         return added
     }
 
+    /**
+     * ObjectList::layers_editing() ("Height range Modifier"): an object without
+     * ranges takes its first, 0 to 2 mm; one with ranges keeps them. The desktop
+     * app then selects the "Layers" row, whose panel edits every range; a phone
+     * edits each range from its own row, so the first range stands in for it.
+     */
+    suspend fun layersEditing(mesh: ScenePath): LayerRangeId? {
+        val ranges = repository.state.value.objects.withMesh(mesh)?.layerRanges ?: return null
+        return if (ranges.isEmpty()) invoke(mesh) else LayerRangeId(mesh, 0)
+    }
+
     /** get_min_layer_height(): the printer's min_layer_height of the 1-based extruder, the first for 0. */
     private fun PlateState.minLayerHeight(extruder: Int): Double {
         val heights = presets?.minLayerHeights.orEmpty()

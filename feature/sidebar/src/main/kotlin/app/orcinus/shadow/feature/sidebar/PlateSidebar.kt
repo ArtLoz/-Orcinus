@@ -641,10 +641,14 @@ class SidebarViewModel(
         setSettingsScope(SettingsScope.OBJECT)
     }
 
-    /** The height ranges of an object, which the object list edits. */
+    /**
+     * The height ranges of an object, which the object list edits: a range
+     * after the one [after], or with none ObjectList::layers_editing() of the
+     * "Height range Modifier" item and the "Layers" row.
+     */
     fun addRange(mesh: ScenePath, after: LayerRangeId?) {
         viewModelScope.launch {
-            val added = addLayerRange(mesh, after) ?: return@launch
+            val added = (if (after == null) addLayerRange.layersEditing(mesh) else addLayerRange(mesh, after)) ?: return@launch
             selectLayerRange(added)
             setSettingsScope(SettingsScope.OBJECT)
         }

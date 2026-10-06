@@ -88,7 +88,6 @@
     <string name="object_menu_add_modifier">Add modifier</string>
     <string name="object_menu_add_support_blocker">Add support blocker</string>
     <string name="object_menu_add_support_enforcer">Add support enforcer</string>
-    <string name="object_menu_height_range">Height range</string>
     <!-- create_mesh() of GUI_ObjectList.cpp: the shapes a part can have. -->
     <string name="object_shape_title">Part shape</string>
     <string name="object_shape_cube">Cube</string>

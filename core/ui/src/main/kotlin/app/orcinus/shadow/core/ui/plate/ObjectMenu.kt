@@ -376,7 +376,7 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
     VolumeType.entries.forEach { type ->
         OrcaMenuItem(text = stringResource(addPartName(type)), enabled = state.enabled, onClick = run { actions.addPart(type) })
     }
-    OrcaMenuItem(text = stringResource(R.string.object_menu_height_range), enabled = state.enabled, onClick = run(actions.addHeightRange))
+    OrcaMenuItem(text = orcaString("Height range Modifier"), enabled = state.enabled, onClick = run(actions.addHeightRange))
     OrcaMenuSeparator()
     // append_menu_item_printable(): the object list's check box.
     OrcaMenuCheckItem(

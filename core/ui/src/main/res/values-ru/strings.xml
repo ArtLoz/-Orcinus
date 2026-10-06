@@ -88,7 +88,6 @@
     <string name="object_menu_add_modifier">Добавить модификатор</string>
     <string name="object_menu_add_support_blocker">Добавить блокатор поддержек</string>
     <string name="object_menu_add_support_enforcer">Добавить усилитель поддержек</string>
-    <string name="object_menu_height_range">Диапазон высот</string>
     <!-- create_mesh() of GUI_ObjectList.cpp: the shapes a part can have. -->
     <string name="object_shape_title">Форма детали</string>
     <string name="object_shape_cube">Куб</string>

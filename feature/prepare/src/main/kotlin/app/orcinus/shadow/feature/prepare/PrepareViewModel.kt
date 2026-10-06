@@ -3054,11 +3054,11 @@ class PrepareViewModel(
     fun loadVolumes(mesh: ScenePath, type: VolumeType, documents: List<String>) =
         loadObjectVolumes(mesh, type, documents.map(::ExternalDocumentReference))
 
-    /** ObjectList::layers_editing(): the new range is selected with its settings. */
+    /** ObjectList::layers_editing() and params_panel()->switch_to_object(): the object's ranges are shown with their settings. */
     fun addHeightRangeTo(index: Int) {
         val id = copyAt(index) ?: return
         viewModelScope.launch {
-            val added = addLayerRange(id.mesh, null) ?: return@launch
+            val added = addLayerRange.layersEditing(id.mesh) ?: return@launch
             selectLayerRange(added)
             setSettingsScope(SettingsScope.OBJECT)
         }
