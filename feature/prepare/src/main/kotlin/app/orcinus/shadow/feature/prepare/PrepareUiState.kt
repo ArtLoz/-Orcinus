@@ -952,6 +952,8 @@ internal fun PlateState.objectInfo(view: PrepareViewState, volume: SelectedVolum
  */
 internal fun PlateState.selectedVolume(view: PrepareViewState): SelectedVolume? {
     val part = selectedPart ?: return null
+    // Several volumes of the object (Selection::MultipleVolume) are drawn selected, and no tool takes one of them alone.
+    if (selectsSeveralParts) return null
     if (view.wipeTowerSelected || selectedInstances.singleOrNull()?.mesh != part.mesh) return null
     val objectIndex = objects.indexOfFirst { it.mesh == part.mesh }
     val volume = objects.getOrNull(objectIndex)?.volumeAt(part.index) ?: return null
@@ -1146,7 +1148,10 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         cutPartsLoads = cutPartsLoads,
         highlightedVolumes = selectedConnectors?.takeIf { connectorsSelected }
             ?.let { copy -> objects.firstOrNull { it.mesh == copy.mesh } }
-            ?.parts?.filter { it.cutInfo.connector }?.mapTo(HashSet()) { it.mesh.value }.orEmpty(),
+            ?.parts?.filter { it.cutInfo.connector }?.mapTo(HashSet()) { it.mesh.value }
+            ?: selectedParts().takeIf { it.size > 1 }?.let { parts ->
+                parts.mapNotNullTo(HashSet()) { part -> selectedPartOwner?.volumeAt(part.index)?.mesh?.value }
+            }.orEmpty(),
         objectInfo = objectInfo(view, volume),
         selectedRotation = if (group != null) Vector3(0.0, 0.0, 0.0) else volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
         canResetRotation = when {

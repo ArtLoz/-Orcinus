@@ -71,6 +71,7 @@ class ObjectOrderUseCase(
             objects = state.objects.replaced(target.withParts(parts).withPainted(target.painted, meshes)),
             selectedInstances = setOf(PlateInstanceId(mesh)),
             selectedPart = ObjectPartId(mesh, to),
+            selectedPartGroup = emptySet(),
             selectedRange = null,
             result = null,
         )

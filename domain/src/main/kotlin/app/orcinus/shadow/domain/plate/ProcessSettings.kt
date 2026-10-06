@@ -68,18 +68,22 @@ class PasteProcessSettingsUseCase(
     }
 
     /**
-     * paste_settings_into_list() over the objects the selection holds: each
-     * takes the copied settings, as one step of Undo.
+     * paste_settings_into_list() over the objects the selection holds, or
+     * the volumes of one object it holds: each takes the copied settings, as
+     * one step of Undo.
      */
     fun selected() {
         val state = repository.state.value
-        val clipboard = state.settingsClipboard?.takeIf { it.kind == SettingsItemKind.OBJECT } ?: return
-        val items = state.selectedObjectMeshes().map(SettingsItem::Object)
+        val parts = state.selectedParts().takeIf { it.size > 1 }
+        val items = parts?.map(SettingsItem::Volume) ?: state.selectedObjectMeshes().map(SettingsItem::Object)
+        val clipboard = state.settingsClipboard?.takeIf { it.kind == (if (parts != null) SettingsItemKind.VOLUME else SettingsItemKind.OBJECT) } ?: return
         if (state.busy || items.isEmpty()) return
         val targets = items.mapNotNull { item -> state.objects.withMesh(item.mesh)?.settingsOf(item)?.let { item to it } }
         applicationScope.launch {
             val pasted = targets.mapNotNull { (item, target) ->
-                (editor.pasteModelSettings(clipboard.settings, target, null) as? ModelSettingsOutcome.Success)?.let { Triple(item, target, it.settings) }
+                // A volume's settings sit on its object's.
+                val parent = state.objects.withMesh(item.mesh)?.settings?.takeUnless { item is SettingsItem.Object }
+                (editor.pasteModelSettings(clipboard.settings, target, parent) as? ModelSettingsOutcome.Success)?.let { Triple(item, target, it.settings) }
             }
             var changed = false
             repository.update { current ->

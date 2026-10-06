@@ -31,6 +31,9 @@ import app.orcinus.shadow.core.model.meshErrors
 import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
+import app.orcinus.shadow.core.ui.plate.VolumesMenuActions
+import app.orcinus.shadow.core.ui.plate.VolumesMenuItems
+import app.orcinus.shadow.core.ui.plate.volumesMenuState
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.hasConnectors
 import app.orcinus.shadow.core.model.HandyModel
@@ -110,6 +113,8 @@ import app.orcinus.shadow.domain.plate.canMoveVolume
 internal class ObjectListActions(
     /** The multi-selection menu's items, which the row of a selected object offers while several are selected. */
     val selection: SelectionMenuActions? = null,
+    /** The multi-selection menu's items, which the row of a selected volume offers while several of its object are selected. */
+    val volumes: VolumesMenuActions? = null,
     /**
      * The row was picked: the plate, or a copy of one of its objects
      * (GLCanvas3D's Selection). While several are being picked the copy joins
@@ -157,6 +162,8 @@ internal class ObjectListActions(
     val removePart: (ObjectPartId) -> Unit,
     /** ObjectList::part_selection_changed(): the parameter panel edits the part. */
     val selectPart: (ObjectPartId?) -> Unit,
+    /** A Ctrl-click on a volume's row: it joins the selected volumes of its object or leaves them. */
+    val togglePart: (ObjectPartId) -> Unit = {},
     val selectPartSettings: (ObjectPartId) -> Unit,
     /** ObjectList::layers_editing() and add_layer_range_after_current(). */
     val addRange: (ScenePath, after: LayerRangeId?) -> Unit,
@@ -551,7 +558,7 @@ private fun LazyListScope.objectRows(
                         actions.editObject(mesh, ObjectEdit.FIX, at)
                     },
                     drag = RowDrag(DragRow.Volume(mesh, at), drag),
-                    selected = partId == state.selectedPart,
+                    selected = partId in state.selectedParts,
                     hasSettings = part.settings.categories(partDefinitions).isNotEmpty(),
                     indent = true,
                     deeper = true,
@@ -563,8 +570,24 @@ private fun LazyListScope.objectRows(
                                 actions.setPartExtruder(partId, it)
                             }
                         },
-                    onClick = { actions.selectPart(partId) },
+                    onClick = { if (picking) actions.togglePart(partId) else actions.selectPart(partId) },
                     menu = { dismiss ->
+                        // ObjectList::show_context_menu() of a row among several selected volumes: multi_selection_menu().
+                        val volumesActions = actions.volumes
+                        if (state.selectedParts.size > 1 && partId in state.selectedParts && volumesActions != null) {
+                            VolumesMenuItems(
+                                volumesMenuState(
+                                    plateObject,
+                                    state.selectedParts.map { it.index },
+                                    enabled,
+                                    filaments = menuFilaments,
+                                    settingsClipboard = state.settingsClipboard,
+                                ),
+                                volumesActions,
+                                dismiss,
+                            )
+                            return@ObjectListRow
+                        }
                         val volumeName = plateObject.volumeName(at)
                         val partMenu = partMenuState(
                             plateObject,

@@ -1898,12 +1898,13 @@ class SetExtruderUseCase(private val repository: PlateRepository) {
      */
     fun selected(extruder: Int) = repository.update { state ->
         val filaments = state.profiles?.allFilaments?.size ?: 0
-        val part = state.selectedPart
-        val meshes = if (part != null) listOf(part.mesh) else state.selectedInstances.map { it.mesh }.distinct()
+        val parts = state.selectedParts()
+        val meshes = if (parts.isNotEmpty()) listOf(parts.first().mesh) else state.selectedInstances.map { it.mesh }.distinct()
         if (state.busy || extruder > filaments || extruder < 0 || meshes.isEmpty()) return@update state
         val edited = meshes.mapNotNull { mesh ->
             val target = state.objects.withMesh(mesh) ?: return@mapNotNull null
-            if (part != null) volumeWith(target, part.index, extruder) else objectWith(target, extruder)
+            // Of several volumes, those that take no filament are left alone.
+            if (parts.isNotEmpty()) parts.fold(target) { done, part -> volumeWith(done, part.index, extruder) ?: done } else objectWith(target, extruder)
         }
         val recorded = state.recorded()
         if (edited.isEmpty()) recorded else recorded.copy(objects = edited.fold(state.objects) { objects, updated -> objects.replaced(updated) }, result = null)
@@ -1970,9 +1971,32 @@ class SelectObjectPartUseCase(private val repository: PlateRepository) {
     operator fun invoke(id: ObjectPartId?, instance: Int = 0) = repository.update { state ->
         val target = id?.takeIf { state.objects.withMesh(it.mesh)?.volumeAt(it.index) != null }
         if (target == null) {
-            if (state.selectedPart == null) state else state.copy(selectedPart = null)
+            if (state.selectedPart == null) state else state.copy(selectedPart = null, selectedPartGroup = emptySet())
         } else {
-            state.copy(selectedInstances = setOf(PlateInstanceId(target.mesh, instance)), selectedPart = target, selectedRange = null)
+            state.copy(selectedInstances = setOf(PlateInstanceId(target.mesh, instance)), selectedPart = target, selectedPartGroup = emptySet(), selectedRange = null)
+        }
+    }
+
+    /**
+     * A Ctrl-click on the row of the volume [id]: it joins the volumes of its
+     * object the list holds selected, or leaves them. A volume of another
+     * object, or with no volume selected, is selected alone, as
+     * ObjectList::fix_multiselection_conflicts() keeps the volumes of one
+     * object only.
+     */
+    fun toggle(id: ObjectPartId) = repository.update { state ->
+        if (state.objects.withMesh(id.mesh)?.volumeAt(id.index) == null) return@update state
+        val selected = state.selectedParts()
+        val current = state.selectedPart
+        if (current == null || current.mesh != id.mesh) {
+            val instance = state.selectedInstances.firstOrNull { it.mesh == id.mesh }?.instance ?: 0
+            return@update state.copy(selectedInstances = setOf(PlateInstanceId(id.mesh, instance)), selectedPart = id, selectedPartGroup = emptySet(), selectedRange = null)
+        }
+        val group = if (id in selected) selected - id else selected + id
+        when {
+            group.isEmpty() -> state.copy(selectedPart = null, selectedPartGroup = emptySet())
+            group.size == 1 -> state.copy(selectedPart = group.single(), selectedPartGroup = emptySet())
+            else -> state.copy(selectedPart = current.takeIf { it in group } ?: group.first(), selectedPartGroup = group.toSet(), selectedRange = null)
         }
     }
 }
@@ -2057,6 +2081,7 @@ class AddObjectPartUseCase(
                             objects = state.objects.replaced(current.withParts(sorted)),
                             selectedInstances = setOf(PlateInstanceId(mesh, instance)),
                             selectedPart = ObjectPartId(mesh, sorted.indexOf(part) + 1),
+                            selectedPartGroup = emptySet(),
                             selectedRange = null,
                             result = null,
                             // TipsDialog "Add Modifier", until "Don't show again" turns it off.
@@ -2104,6 +2129,43 @@ private const val EXTRUDER_SETTING = "extruder"
  * that mesh become the object's (ObjectList::del_subobject_from_object).
  */
 class RemoveObjectPartUseCase(private val repository: PlateRepository) {
+    /**
+     * Selection::erase() of several volumes of one object
+     * (ObjectList::delete_from_model_and_list()): from the last on, each part
+     * leaves the object as del_subobject_from_object() lets it, as one step of
+     * Undo (Plater::remove_selected()); a solid part or a negative volume of a
+     * part of a cut stops the rest with its question. Returns whether the
+     * object's own mesh is still to go, which the engine takes out
+     * (EditPlateObjectUseCase.deleteOwnVolume()).
+     */
+    fun all(ids: List<ObjectPartId>): Boolean {
+        var ownVolume = false
+        repository.update { state ->
+            ownVolume = false
+            val mesh = ids.firstOrNull()?.mesh ?: return@update state
+            val target = state.objects.withMesh(mesh)
+            if (target == null || state.busy || ids.any { it.mesh != mesh }) return@update state
+            var updated: PlateObject = target
+            var question: PendingPlateQuestion? = null
+            for (index in ids.map { it.index }.filter { it > 0 }.distinct().sortedDescending()) {
+                val part = updated.parts.getOrNull(index - 1) ?: continue
+                question = updated.cutVolumeQuestion(part.type)
+                if (question != null) break
+                updated = updated.withoutPart(index)
+            }
+            ownVolume = question == null && ids.any { it.index == 0 }
+            val asked = if (question != null) state.copy(plateQuestion = question) else state
+            if (updated == target) return@update asked
+            asked.recorded().copy(
+                selectedPart = null,
+                selectedPartGroup = emptySet(),
+                objects = state.objects.replaced(updated),
+                result = null,
+            )
+        }
+        return ownVolume
+    }
+
     operator fun invoke(id: ObjectPartId) {
         repository.update { state ->
             val target = state.objects.withMesh(id.mesh)
@@ -2112,21 +2174,31 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
             if (target == null || part == null || state.busy) return@update state
             // A solid part or a negative volume of a part of a cut stays; the user is asked to invalidate the cut first.
             target.cutVolumeQuestion(part.type)?.let { return@update state.copy(plateQuestion = it) }
-            val kept = target.parts.filterIndexed { at, _ -> at != id.index - 1 }
-            val updated = if (kept.isEmpty()) {
-                target.withParts(kept)
-                    .withSettings(ModelSettings(target.settings.values + target.volume.settings.values))
-                    .withVolume(target.volume.copy(settings = ModelSettings()))
-            } else {
-                target.withParts(kept)
-            }
+            val updated = target.withoutPart(id.index)
             state.recorded().copy(
                 // The volumes after it move up, and none is listed once the object is its own mesh alone.
-                selectedPart = state.selectedPart?.takeUnless { it.mesh == id.mesh && (it.index >= id.index || kept.isEmpty()) },
+                selectedPart = state.selectedPart?.takeUnless { it.mesh == id.mesh && (it.index >= id.index || updated.parts.isEmpty()) },
+                selectedPartGroup = emptySet(),
                 objects = state.objects.replaced(updated),
                 result = null,
             )
         }
+    }
+}
+
+/**
+ * The part at [index] (ObjectPartId.index) gone from the object; once the
+ * object is its own mesh alone, the settings of that mesh become the object's
+ * (ObjectList::del_subobject_from_object).
+ */
+private fun PlateObject.withoutPart(index: Int): PlateObject {
+    val kept = parts.filterIndexed { at, _ -> at != index - 1 }
+    return if (kept.isEmpty()) {
+        withParts(kept)
+            .withSettings(ModelSettings(settings.values + volume.settings.values))
+            .withVolume(volume.copy(settings = ModelSettings()))
+    } else {
+        withParts(kept)
     }
 }
 

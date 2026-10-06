@@ -20,6 +20,7 @@ import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.ui.ExportResultDialog
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
+import app.orcinus.shadow.core.ui.plate.VolumesMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuState
 import app.orcinus.shadow.core.ui.plate.selectionMenuState
 import app.orcinus.shadow.core.ui.plate.selectsSeveralObjects
@@ -313,6 +314,8 @@ data class SidebarUiState(
     val selectedInstances: Set<PlateInstanceId> = emptySet(),
     /** The part of an object whose settings are shown, when one is selected. */
     val selectedPart: ObjectPartId? = null,
+    /** PlateState.selectedParts(): the selected volumes of one object, [selectedPart] alone or several. */
+    val selectedParts: List<ObjectPartId> = emptyList(),
     /** The height range whose settings are shown, when one is selected. */
     val selectedRange: LayerRangeId? = null,
     /** The copy whose object's "Cut connectors" item is the selection; null for none. */
@@ -580,6 +583,21 @@ class SidebarViewModel(
         export = export,
     )
 
+    /** The multi-selection menu's items over the selected volumes of one object. */
+    fun volumesActions(openSettings: () -> Unit) = VolumesMenuActions(
+        delete = {
+            val parts = plateState.value.selectedParts()
+            if (removeObjectPart.all(parts)) editPlateObject.deleteOwnVolume(parts.first().mesh)
+        },
+        editProcessSettings = {
+            setSettingsScope(SettingsScope.OBJECT)
+            openSettings()
+        },
+        pasteProcessSettings = { pasteSettings.selected() },
+        changeType = { changeVolumeType.all(plateState.value.selectedParts(), it) },
+        setFilament = { setExtruder.selected(it) },
+    )
+
     /** The name "Export all objects as one STL" (or DRC) offers. */
     fun allMeshesName(format: MeshFormat, untitled: String): String =
         exportPlateMeshes?.suggestedName(format, untitled) ?: "$untitled.${format.extension}"
@@ -635,6 +653,9 @@ class SidebarViewModel(
 
     /** The row of a part, whose own settings the parameter panel then edits. */
     fun chooseSettingsPart(id: ObjectPartId?) = selectObjectPart(id)
+
+    /** A row of a part tapped while several items are being picked. */
+    fun togglePart(id: ObjectPartId) = selectObjectPart.toggle(id)
 
     fun openSettingsOfPart(id: ObjectPartId) {
         selectObjectPart(id)
@@ -1082,6 +1103,7 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     objects = objects,
     selectedInstances = selectedInstances,
     selectedPart = selectedPart,
+    selectedParts = selectedParts(),
     selectedRange = selectedRange,
     selectedConnectors = selectedConnectors.takeIf { connectorsSelected },
     plateSettings = settingsTabs[PresetKind.PLATE] ?: SettingsTabState(PresetKind.PLATE),
@@ -1887,6 +1909,7 @@ fun PlateSidebar(
         onChooseScope = viewModel::chooseSettingsScope,
         objectList = ObjectListActions(
             selection = viewModel.selectionActions(openSettings = {}, replaceAll = { selectionFolderPicker.launch(null) }, export = exportSelection),
+            volumes = viewModel.volumesActions(openSettings = {}),
             select = viewModel::chooseSettingsTarget,
             selectAlone = { viewModel.chooseSettingsTarget(it, add = false) },
             selectSettings = viewModel::openSettingsOf,
@@ -1918,6 +1941,7 @@ fun PlateSidebar(
             deleteConnectors = viewModel::deleteCutConnectors,
             setConnectorsExtruder = viewModel::setConnectorsExtruder,
             selectPart = viewModel::chooseSettingsPart,
+            togglePart = viewModel::togglePart,
             selectPartSettings = viewModel::openSettingsOfPart,
             addRange = viewModel::addRange,
             removeRange = viewModel::removeRange,
@@ -2204,7 +2228,7 @@ internal fun PlateSidebarContent(
     val tab = if (global) processTab else modelTab
     // The settings of the plate and of an object are described for what the
     // plate has selected, and again when the user picks other objects.
-    LaunchedEffect(global, state.modelKind, state.selectedInstances, state.selectedPart, state.selectedRange, enabled) {
+    LaunchedEffect(global, state.modelKind, state.selectedInstances, state.selectedParts, state.selectedRange, enabled) {
         if (!global && enabled) settings.request(state.modelKind, SettingsRequest.Describe)
     }
     // The filament column of the object list is painted with the colours of the

@@ -30,6 +30,7 @@ import app.orcinus.shadow.core.model.SettingsTabOutcome
 import app.orcinus.shadow.core.model.SettingsTabState
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.withSettings
+import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import kotlinx.coroutines.CoroutineScope
@@ -302,14 +303,12 @@ class PresetSettingsTabs(
         PresetKind.PLATE -> ModelSettingsRequest(settings = listOf(plateSettings), plate = plateSettings)
         PresetKind.OBJECT -> ModelSettingsRequest(settings = selectedObjects().map(PlateObject::settings), plate = plateSettings)
         // A part's settings sit on the ones of the object it belongs to
-        // (TabPrintPart::m_parent_tab is the model tab).
-        PresetKind.PART -> selectedObjectPart?.let { part ->
-            ModelSettingsRequest(
-                settings = listOf(part.settings),
-                plate = plateSettings,
-                parent = selectedPartOwner?.settings ?: ModelSettings(),
-            )
-        } ?: ModelSettingsRequest()
+        // (TabPrintPart::m_parent_tab is the model tab); several volumes of
+        // it are edited at once, as the tab takes several model configs.
+        PresetKind.PART -> selectedPartOwner?.let { owner ->
+            val parts = selectedParts().mapNotNull { owner.volumeAt(it.index) }
+            ModelSettingsRequest(settings = parts.map { it.settings }, plate = plateSettings, parent = owner.settings)
+        }?.takeIf { it.settings.isNotEmpty() } ?: ModelSettingsRequest()
         // A height range sits on the settings of its object in the same way.
         PresetKind.LAYER -> selectedLayerRange?.let { range ->
             ModelSettingsRequest(
@@ -342,14 +341,16 @@ class PresetSettingsTabs(
             )
         }
         kind == PresetKind.PART -> {
-            val id = selectedPart
-            val part = selectedObjectPart
-            val answered = settings.firstOrNull()
-            if (id == null || part == null || answered == null) this
+            // The answers come in the order the request carried the volumes.
+            val owner = selectedPartOwner
+            val answered = selectedParts().zip(settings)
+            if (owner == null || answered.isEmpty()) this
             else copy(
-                objects = objects.map { plateObject ->
-                    if (plateObject.mesh == id.mesh) plateObject.withVolumeAt(id.index, part.copy(settings = answered)) else plateObject
-                },
+                objects = objects.replaced(
+                    answered.fold(owner) { plateObject, (id, values) ->
+                        plateObject.volumeAt(id.index)?.let { plateObject.withVolumeAt(id.index, it.copy(settings = values)) } ?: plateObject
+                    },
+                ),
             )
         }
         else -> this

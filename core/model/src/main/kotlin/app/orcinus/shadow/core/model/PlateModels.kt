@@ -560,6 +560,8 @@ data class PlateSnapshot(
     val layerEditing: Boolean = false,
     /** The mesh boolean tool as it was open then (GLGizmosManager::save()); null while it was closed. */
     val meshBoolean: MeshBooleanPicks? = null,
+    /** PlateState.selectedPartGroup then. */
+    val selectedPartGroup: Set<ObjectPartId> = emptySet(),
 )
 
 /**
@@ -1285,6 +1287,13 @@ data class PlateState(
      * then edits; null while the selection is the object itself.
      */
     val selectedPart: ObjectPartId? = null,
+    /**
+     * The volumes of the object of [selectedPart] the list holds selected
+     * with it (ObjectList's Ctrl-click on volume rows, Selection::MultipleVolume
+     * or MultipleModifier), [selectedPart] among them; they count only while
+     * [selectedPart] is one of them ([selectedParts]).
+     */
+    val selectedPartGroup: Set<ObjectPartId> = emptySet(),
     /** The height range the list has selected, whose own settings the tab edits. */
     val selectedRange: LayerRangeId? = null,
     /**
@@ -1414,6 +1423,21 @@ data class PlateState(
     val selectedPartOwner: PlateObject? get() = selectedPart?.let { id -> objects.firstOrNull { it.mesh == id.mesh } }
 
     val selectedObjectPart: ObjectPart? get() = selectedPart?.let { id -> selectedPartOwner?.volumeAt(id.index) }
+
+    /**
+     * The selected volumes of one object, by their place in it: those of
+     * [selectedPartGroup] while [selectedPart] is one of them, or
+     * [selectedPart] alone.
+     */
+    fun selectedParts(): List<ObjectPartId> {
+        val part = selectedPart ?: return emptyList()
+        if (part !in selectedPartGroup) return listOf(part)
+        val owner = selectedPartOwner ?: return listOf(part)
+        return selectedPartGroup.filter { it.mesh == part.mesh && owner.volumeAt(it.index) != null }.sortedBy(ObjectPartId::index)
+    }
+
+    /** Selection::is_multiple_volume() or is_multiple_modifier(): several volumes of one object are selected. */
+    val selectsSeveralParts: Boolean get() = selectedParts().size > 1
 
     /** The object the selected height range belongs to, and the range itself. */
     val selectedRangeOwner: PlateObject? get() = selectedRange?.let { id -> objects.firstOrNull { it.mesh == id.mesh } }

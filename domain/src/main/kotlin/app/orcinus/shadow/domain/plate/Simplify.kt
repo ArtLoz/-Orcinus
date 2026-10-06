@@ -58,6 +58,7 @@ class OpenSimplifyUseCase(private val repository: PlateRepository) {
             simplifyTarget = id,
             selectedInstances = setOf(PlateInstanceId(id.mesh, instance.takeIf { it in target.instances.indices } ?: 0)),
             selectedPart = id,
+            selectedPartGroup = emptySet(),
             selectedRange = null,
             simplifySuggestions = state.simplifySuggestions - id.mesh,
         )

@@ -28,6 +28,7 @@ internal fun PlateState.snapshot() = PlateSnapshot(
     currentPlate = currentPlate,
     layerEditing = layerEditing,
     meshBoolean = meshBooleanTool,
+    selectedPartGroup = selectedPartGroup,
 )
 
 /**
@@ -98,6 +99,7 @@ class UndoRedoPlateUseCase(
             objects = target.objects,
             selectedInstances = target.selectedInstances.filterTo(LinkedHashSet()) { it in copies },
             selectedPart = target.selectedPart,
+            selectedPartGroup = target.selectedPartGroup,
             selectedRange = target.selectedRange,
             history = history,
             // Plater::priv::undo_redo_to(): the variable layer height is on after

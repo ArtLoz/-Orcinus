@@ -3967,6 +3967,57 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `a Ctrl-click adds a volume of the selected one's object, and several go as one step of Undo`() {
+        val second = PART.copy(mesh = ScenePath("/scene/objects/second.mesh"))
+        val cube = CUBE.copy(parts = listOf(PART, second))
+        val repository = FakeRepository(twoFilaments(cube))
+        val select = SelectObjectPartUseCase(repository)
+
+        select(ObjectPartId(cube.mesh, 1))
+        select.toggle(ObjectPartId(cube.mesh, 2))
+
+        assertEquals(listOf(ObjectPartId(cube.mesh, 1), ObjectPartId(cube.mesh, 2)), repository.state.value.selectedParts())
+
+        // A plain tap selects one volume alone again.
+        select(ObjectPartId(cube.mesh, 2))
+        assertEquals(listOf(ObjectPartId(cube.mesh, 2)), repository.state.value.selectedParts())
+
+        select.toggle(ObjectPartId(cube.mesh, 1))
+        val ownVolume = RemoveObjectPartUseCase(repository).all(repository.state.value.selectedParts())
+
+        assertFalse(ownVolume)
+        val state = repository.state.value
+        assertTrue(state.objects.single().parts.isEmpty())
+        assertEquals(1, state.history.undo.size)
+        assertTrue(state.selectedParts().isEmpty())
+    }
+
+    @Test
+    fun `several volumes keep a solid part of their object, and change type together otherwise`() {
+        val modifier = PART.copy(mesh = ScenePath("/scene/objects/modifier.mesh"), type = VolumeType.MODIFIER)
+        val cube = CUBE.copy(parts = listOf(PART, modifier))
+        val repository = FakeRepository(readyState(cube))
+        val inspector = FakeInspector()
+        val change = ChangeVolumeTypeUseCase(inspector, FakeSceneFiles(), repository, scope)
+
+        // Volumes 0 and 1 are every solid part of the object.
+        change.all(listOf(ObjectPartId(cube.mesh, 0), ObjectPartId(cube.mesh, 1)), VolumeType.NEGATIVE)
+
+        assertTrue(inspector.typeChanges.isEmpty())
+        assertEquals("last_solid_part", repository.state.value.plateNotices.single().id)
+
+        change.all(listOf(ObjectPartId(cube.mesh, 1), ObjectPartId(cube.mesh, 2)), VolumeType.NEGATIVE)
+
+        // The part goes before the modifier, which then sorts in after it.
+        assertEquals(listOf(Triple(0, 1, VolumeType.NEGATIVE), Triple(0, 2, VolumeType.NEGATIVE)), inspector.typeChanges)
+        val state = repository.state.value
+        assertEquals(1, state.history.undo.size)
+        assertFalse(state.editing)
+        // Both are selected where the sorting put them (the fake engine writes its own object).
+        assertEquals(2, state.selectedPartGroup.size)
+    }
+
+    @Test
     fun `a volume changes type as one step of Undo, and the list selects it where the sorting put it`() {
         val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), INSPECTION.placement)
         val parted = CUBE.withParts(listOf(part))
