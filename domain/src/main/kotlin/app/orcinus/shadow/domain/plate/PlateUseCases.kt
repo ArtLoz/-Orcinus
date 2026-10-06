@@ -860,6 +860,13 @@ class AddModelToPlateUseCase(
             // add_file(): with "Add STL/STEP files to recent files list" the models join the recent files once they load.
             val recentModels = if (addFile && preferences[AppConfigKeys.RECENT_MODELS] == "true") models.map { it.first } else emptyList()
             when {
+                // load_files()'s pattern_bundle: with an AMF file among several, every
+                // file loads one by one, asking nothing of one object of parts.
+                projects.isEmpty() && models.size > 1 && models.any { (_, model) -> BUNDLE_FILES.matches(model.path.value) } -> {
+                    val (document, model) = picked.first()
+                    val loads = models.map { (reference, file) -> ImportFiles(listOf(file.path), recentModels = listOf(reference).filter { it in recentModels }) }
+                    load(loads.first(), ImportBatch(rest = loads.drop(1), document = document, displayName = model.displayName, namesProject = addFile), emptyMap(), emptyList())
+                }
                 // LoadFilesType::SingleOther, and MultipleOther: the files load together,
                 // asking whether they make one object; a plate without a name takes the first one's.
                 projects.isEmpty() -> {
@@ -891,7 +898,12 @@ class AddModelToPlateUseCase(
      */
     fun loadUnzipped(projects: List<ModelPath>, models: List<ModelPath>) {
         if ((projects.isEmpty() && models.isEmpty()) || !start()) return
-        val modelFiles = listOfNotNull(models.takeIf { it.isNotEmpty() }?.let { ImportFiles(it) })
+        // pattern_bundle: with an AMF file among them, the models load one by one.
+        val modelFiles = if (models.size > 1 && models.any { BUNDLE_FILES.matches(it.value) }) {
+            models.map(::ImportFiles)
+        } else {
+            listOfNotNull(models.takeIf { it.isNotEmpty() }?.let { ImportFiles(it) })
+        }
         applicationScope.launch {
             val single = projects.singleOrNull()
             if (single != null) {
@@ -1104,11 +1116,17 @@ class AddModelToPlateUseCase(
         }
         if (outcome !is ModelLoadOutcome.Success) sceneFiles.deleteImport(prefix)
         if (outcome is ModelLoadOutcome.StepMesh) {
-            // StepMeshDialog for the STEP file that asked; its Cancel ends the whole load, as load_files() returns.
+            // StepMeshDialog for the STEP file that asked. Its Cancel fails that file
+            // alone, with no error (is_user_cancel): the other files of the load
+            // load, and the loads after it.
             val options = stepMeshPrompt.ask(files.files.getOrElse(outcome.file) { files.first }, outcome.options)
             if (options == null) {
-                repository.update { it.copy(importing = false) }
-                return
+                val others = files.files.filterIndexed { index, _ -> index != outcome.file }
+                return when {
+                    others.isNotEmpty() -> load(files.copy(files = others), batch, answers, shown)
+                    batch.rest.isNotEmpty() -> load(batch.rest.first(), batch.next(batch.loaded), emptyMap(), emptyList())
+                    else -> repository.update { it.copy(importing = false) }
+                }
             }
             return load(files, batch.copy(stepMeshes = batch.stepMeshes + (outcome.file to options)), answers, shown)
         }
@@ -1368,6 +1386,9 @@ class AddModelToPlateUseCase(
     }
 
     companion object {
+        /** pattern_bundle of Plater::priv: files that load one by one. */
+        private val BUNDLE_FILES = Regex(".*[.](amf|amf[.]xml|zip[.]amf|3mf)", RegexOption.IGNORE_CASE)
+
         const val ONLY_ONE_WALL_TOP = "only_one_wall_top"
         const val MIN_WIDTH_TOP_SURFACE = "min_width_top_surface"
 

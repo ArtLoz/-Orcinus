@@ -4486,12 +4486,13 @@ Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& 
         const detail::StepMeshParameters mesh = detail::step_mesh_parameters(path, step_mesh, replacing);
         Slic3r::Model model = Slic3r::Model::read_from_step(path, Slic3r::LoadStrategy::LoadModel, nullptr, [&utf8](int is_utf8) { utf8 = is_utf8 != 0; },
                                                             nullptr, mesh.linear_deflection, mesh.angle_deflection, mesh.split_compound);
-        if (!utf8) {
-            // The desktop app warns, and Step::load() then fails the file.
+        // The desktop app warns, unless "Remember my choice." was ticked
+        // (step_not_utf8_no_warn), and Step::load() then fails the file.
+        if (!utf8 && !engine().config->get_bool("step_not_utf8_no_warn")) {
             dialogs.inform("step_not_utf8",
                            {detail::ui_text("Name of components inside STEP file is not UTF8 format!"), detail::ui_text("\n\n"),
                             detail::ui_text("The name may show garbage characters!")},
-                           {detail::ui_text("Attention!")}, DialogIcon::info);
+                           {detail::ui_text("Attention!")}, DialogIcon::info, detail::ui_text("Remember my choice."));
         }
         return model;
     }
@@ -4850,6 +4851,8 @@ ImportedModels import_models(
         // A project's objects stand where it placed them, with the settings it
         // gave them; the questions about a model file are not asked.
         bool is_project_file = false;
+        // tolal_model_count of load_files(): the objects every file brought.
+        std::size_t total_model_count = 0;
         for (; reading < source_paths.size(); ++reading) {
             const std::string& source_path = source_paths[reading];
             // The questions about every file but the first are told apart by its place.
@@ -4883,11 +4886,12 @@ ImportedModels import_models(
                         object->rotate(Slic3r::Geometry::deg2rad(config.opt_float("preferred_orientation")), Slic3r::Axis::Z);
                     }
                 }
+            } catch (const Slic3r::ConfigurationError& error) {
+                // A file that cannot be read shows its error, and the others load.
+                dialogs.error("load_failed", {detail::ui_text("Failed loading file \"%1%\". An invalid configuration was found.", {file_name}),
+                                              detail::ui_text("\n\n"), detail::ui_text("%1%", {error.what()})});
+                continue;
             } catch (const std::exception& error) {
-                // A file of several that cannot be read shows its error, and the others load.
-                if (one_by_one) {
-                    throw;
-                }
                 dialogs.error("load_failed", {detail::ui_text("%1%", {error.what()})});
                 continue;
             }
@@ -4897,13 +4901,9 @@ ImportedModels import_models(
                 dialogs.inform("zero_volume", {detail::ui_text("Objects with zero volume removed")},
                                {detail::ui_text("The volume of the object is zero")}, DialogIcon::info);
             }
+            total_model_count += model.objects.size();
             if (model.objects.empty() && !project) {
-                if (!one_by_one) {
-                    continue;
-                }
-                result.message = "The supplied file couldn't be read because it's empty";
-                result.notices = dialogs.take_notices();
-                return result;
+                continue;
             }
             // A model that looks like metres or inches is scaled to millimetres
             // when the user agrees; an AMF file in inches is scaled whatever its size.
@@ -4957,6 +4957,11 @@ ImportedModels import_models(
             }
         }
         dialogs.set_scope({});
+        // load_files() loaded no object of any file. A project of no objects
+        // loads its settings, which the G-code viewer of stage J5 takes up.
+        if (total_model_count == 0 && !is_project_file) {
+            dialogs.inform("no_geometry", {detail::ui_text("The file does not contain any geometry data.")}, {detail::ui_text("Warning")});
+        }
 
         // load_files() of several files the user picked at once: asked whether
         // their objects make one object of several parts, and whether they drop

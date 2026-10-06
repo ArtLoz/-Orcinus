@@ -142,6 +142,9 @@ object AppConfigKeys {
     /** The "Add Modifier" tip turned off ("Don't show again"); empty while it shows. */
     const val DO_NOT_SHOW_MODIFIER_TIPS = "do_not_show_modifer_tips"
 
+    /** The warning about a STEP file whose names are not UTF-8, with "Remember my choice." ticked. */
+    const val STEP_NOT_UTF8_NO_WARN = "step_not_utf8_no_warn"
+
     /** "Stealth mode": no online request at all (AppConfig's default "false"). */
     const val STEALTH_MODE = "stealth_mode"
 

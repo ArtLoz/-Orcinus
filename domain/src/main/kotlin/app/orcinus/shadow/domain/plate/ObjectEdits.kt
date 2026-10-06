@@ -234,6 +234,10 @@ class DismissPlateNoticeUseCase(
         if (checked && notice.checkbox != null && MODIFIED_GCODE_WARNINGS.any(notice.id::startsWith)) {
             applicationScope.launch { preferences.set(AppConfigKeys.NO_WARN_WHEN_MODIFIED_GCODES, "true") }
         }
+        // The MessageDialog of a STEP file's names with "Remember my choice." ticked.
+        if (checked && notice.checkbox != null && notice.id.startsWith(STEP_NOT_UTF8)) {
+            applicationScope.launch { preferences.set(AppConfigKeys.STEP_NOT_UTF8_NO_WARN, "true") }
+        }
         // TipsDialog's OK with "Don't show again": set_bool(app_key, true).
         if (checked && notice.id == AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS) {
             applicationScope.launch { preferences.set(AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS, "true") }
@@ -242,6 +246,7 @@ class DismissPlateNoticeUseCase(
 
     private companion object {
         val MODIFIED_GCODE_WARNINGS = listOf("modified_gcodes", "customized_presets")
+        const val STEP_NOT_UTF8 = "step_not_utf8"
     }
 }
 

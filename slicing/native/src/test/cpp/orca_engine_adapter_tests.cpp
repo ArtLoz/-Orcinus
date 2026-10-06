@@ -4285,12 +4285,15 @@ TEST_CASE("A model file of another type than STL is imported as the desktop app 
         CHECK(imported.objects.front().instances.front().size_x > 0.0);
     }
 
-    SECTION("a file that does not exist")
+    SECTION("a file that does not exist: its error, then that the load brought no geometry")
     {
         const orca::ImportedModels imported =
             orca::import_model(device_dir + "/data/missing.obj", k2_plus_profiles(), {}, import_prefix("missing"), {});
-        CHECK(imported.status != orca::SceneStatus::success);
+        CHECK(imported.status == orca::SceneStatus::success);
         CHECK(imported.objects.empty());
+        REQUIRE(imported.notices.size() == 2);
+        CHECK(imported.notices[0].id == "load_failed");
+        CHECK(imported.notices[1].id == "no_geometry");
     }
 }
 
