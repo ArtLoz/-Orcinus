@@ -60,10 +60,12 @@ import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
+import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.HostStorageOutcome
 import app.orcinus.shadow.core.model.ModelDimensions
 import app.orcinus.shadow.core.model.ModelInspection
+import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
@@ -71,6 +73,8 @@ import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.SettingsDialog
+import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
@@ -94,12 +98,15 @@ import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.PlateStrip
+import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
+import app.orcinus.shadow.core.ui.plate.SliceNoticeNotification
 import app.orcinus.shadow.core.ui.plate.SlicingNotification
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
+import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import app.orcinus.shadow.core.ui.settings.openInBrowser
 import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
@@ -122,6 +129,7 @@ internal fun PreviewRoute(
     viewModel: PreviewViewModel,
     onSliceRequested: () -> Unit,
     onOpenDevice: () -> Unit = {},
+    onOpenPrepare: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val canvas by viewModel.canvas.collectAsStateWithLifecycle()
@@ -131,6 +139,10 @@ internal fun PreviewRoute(
         canvas = canvas,
         onSetCanvas = viewModel::setCanvasOption,
         onSelectPlate = viewModel::selectPlate,
+        onJumpTo = { mesh, instance ->
+            viewModel.jumpTo(mesh, instance)
+            onOpenPrepare()
+        },
         onSlice = {
             onSliceRequested()
             viewModel.slice()
@@ -233,6 +245,8 @@ internal fun PreviewScreen(
     onShareGcode: suspend () -> ExternalDocumentReference? = { null },
     layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
     onSelectPlate: (Int) -> Unit = {},
+    /** "Jump to" of a slicing notification: the copy of the object on the 3D editor. */
+    onJumpTo: (ScenePath, Int) -> Unit = { _, _ -> },
     onSliceModeChange: (SliceMode) -> Unit = {},
     onShowAllPlates: () -> Unit = {},
     canvas: CanvasPreferences = CanvasPreferences(),
@@ -251,6 +265,13 @@ internal fun PreviewScreen(
         localNetworkDenied = denied
         sending = true
     }
+    // Plater::priv::warnings_dialog(): once an export or an upload begins, the
+    // warnings of the slice's steps, the first line of each.
+    var warningsShown by remember { mutableStateOf(false) }
+    val stepWarnings = result?.notices.orEmpty().filter { it.stepWarning }
+    val beginExport = { if (stepWarnings.isNotEmpty()) warningsShown = true }
+    // PartPlate::is_slice_result_ready_for_print(): exporting, sending and printing wait for it.
+    val printReady = result?.printReady == true
     // Plater::export_gcode() and Plater::send_gcode(): a template that could
     // not name the file shows its error, and nothing is saved or sent.
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -267,6 +288,7 @@ internal fun PreviewScreen(
         uri?.let {
             scope.launch {
                 val document = ExternalDocumentReference(it.toString())
+                beginExport()
                 // Plater::export_gcode(): a notification says where the file went; a failure keeps its message box.
                 if (onExportGcode(document)) exported = exportedName(document) else saved = false
             }
@@ -336,11 +358,13 @@ internal fun PreviewScreen(
                         OrcaButton(
                             text = stringResource(UiR.string.gcode_save),
                             onClick = { gcodeNameError()?.let { nameError = it } ?: gcodePicker.launch(gcodeName()) },
+                            enabled = printReady,
                             modifier = Modifier.weight(1f),
                         )
                         OrcaButton(
                             text = stringResource(UiR.string.printer_host_send),
                             onClick = send,
+                            enabled = printReady,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(start = 8.dp),
@@ -350,6 +374,7 @@ internal fun PreviewScreen(
                             icon = DesignR.drawable.app_share,
                             contentDescription = stringResource(UiR.string.share),
                             onClick = { scope.launch { onShareGcode()?.let { context.shareDocument(it, GCODE_MIME_TYPE) } } },
+                            enabled = printReady,
                             modifier = Modifier.padding(start = 4.dp),
                         )
                     }
@@ -483,6 +508,18 @@ internal fun PreviewScreen(
                     )
                 }
                 exported?.let { name -> ExportFinishedNotification(name, onClose = { exported = null }) }
+                // The slicing notifications stay on the preview (NotificationManager::set_in_preview()).
+                state.result?.let { sliced ->
+                    sliced.notices.forEach { notice ->
+                        val target: PlateObject? = sliced.objects.getOrNull(notice.objectIndex)
+                        SliceNoticeNotification(
+                            notice,
+                            target?.displayName(),
+                            onJumpTo = { if (target != null) onJumpTo(target.mesh, notice.instanceIndex.coerceAtLeast(0)) },
+                        )
+                    }
+                    if (sliced.postProcessSkipped) PostProcessSkippedNotification()
+                }
             }
             // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), once there are several.
             if (state.plateOrigins.size > 1) {
@@ -561,6 +598,7 @@ internal fun PreviewScreen(
                     OrcaButton(
                         text = stringResource(UiR.string.printer_host_send),
                         onClick = send,
+                        enabled = printReady,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -570,11 +608,28 @@ internal fun PreviewScreen(
         }
     }
 
+    if (warningsShown) {
+        SettingsNoticeDialog(
+            SettingsDialog(
+                id = "warnings_dialog",
+                icon = DialogIcon.INFO,
+                title = listOf(OrcaText("warnings")),
+                text = listOf(OrcaText("There are warnings after slicing models:"), OrcaText("\n")) +
+                    stepWarnings.map { warning -> OrcaText("\n" + warning.text.firstOrNull()?.msgid.orEmpty().substringBefore('\n')) },
+                question = false,
+                yes = null,
+                no = null,
+            ),
+            onDismiss = { warningsShown = false },
+        )
+    }
+
     if (sending) {
         SendToPrinterSheet(
             load = printers.load,
             onSend = { printer, startPrint, options ->
                 sending = false
+                beginExport()
                 progress = 0f
                 // The screen's own scope: the sheet is gone while the file travels.
                 scope.launch {

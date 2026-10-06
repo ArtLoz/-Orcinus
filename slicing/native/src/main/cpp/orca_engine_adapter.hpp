@@ -77,6 +77,41 @@ struct FilamentUsage {
     std::array<double, 2> wipe_tower{0.0, 0.0};
 };
 
+// A text of the desktop app. msgid, with its gettext context when it has one,
+// is translated as _() translates it (with msgid_plural, as _L_PLURAL() does
+// for count), then its placeholders (%s, %d, %.3f, %1%) are filled with args,
+// translated first when translate_args is set. Texts the desktop app shows
+// untranslated are not in the catalogue.
+struct UiText {
+    std::string context;
+    std::string msgid;
+    std::string msgid_plural;
+    std::int64_t count{0};
+    std::vector<std::string> args;
+    bool translate_args{false};
+};
+
+// The level of a notification of a sliced plate: NotificationManager's
+// SlicingWarning, SlicingSeriousWarning and SlicingError.
+enum class SliceNoticeLevel : std::int64_t {
+    warning = 0,
+    serious_warning = 1,
+    error = 2,
+};
+
+// A notification of a sliced plate, as Plater::priv::on_slicing_update() and
+// GLCanvas3D::_update_slice_error_status() push them: its text, and the object
+// of the plate (and its copy) its "Jump to" selects, -1 for none.
+struct SliceNotice {
+    SliceNoticeLevel level{SliceNoticeLevel::warning};
+    std::vector<UiText> text;
+    std::int32_t object_index{-1};
+    std::int32_t instance_index{-1};
+    // A warning of a step of the print (Plater::priv::add_warning()), which
+    // warnings_dialog() lists once an export or an upload begins.
+    bool step_warning{false};
+};
+
 struct SliceResult {
     SliceStatus status{SliceStatus::slicing_failed};
     std::string message;
@@ -107,6 +142,17 @@ struct SliceResult {
     // output_name_error, when the template could not be processed.
     std::string output_name;
     std::string output_name_error;
+    // The warnings of the print's steps and of its objects' steps, then the
+    // G-code's own: paths beyond the plate or the printable height, conflicts
+    // of paths, filaments the plate's surface does not take.
+    std::vector<SliceNotice> notices;
+    // PartPlate::is_slice_result_ready_for_print(): the G-code may be printed,
+    // sent and exported (no filament the plate's surface does not take, and
+    // nothing beyond what an extruder reaches).
+    bool print_ready{true};
+    // The process names post-processing scripts (post_process), which the
+    // desktop app runs on the exported G-code and the app cannot run.
+    bool post_process_skipped{false};
 };
 
 // What Print::output_filename() names the G-code after: the project's name once
@@ -1082,20 +1128,6 @@ PaintingState end_painting();
 // of each model part, written as the tools write them, with their states and
 // volumes; none for an object painted with no colour.
 PaintingState painted_colors(const PlateObject& object, const ProfileSelection& profiles, const std::string& mesh_prefix);
-
-// A text of the desktop app. msgid, with its gettext context when it has one,
-// is translated as _() translates it (with msgid_plural, as _L_PLURAL() does
-// for count), then its placeholders (%s, %d, %.3f, %1%) are filled with args,
-// translated first when translate_args is set. Texts the desktop app shows
-// untranslated are not in the catalogue.
-struct UiText {
-    std::string context;
-    std::string msgid;
-    std::string msgid_plural;
-    std::int64_t count{0};
-    std::vector<std::string> args;
-    bool translate_args{false};
-};
 
 // What the desktop app's settings tabs edit (Preset::Type): the presets, and
 // the settings an object or the plate overrides them with.

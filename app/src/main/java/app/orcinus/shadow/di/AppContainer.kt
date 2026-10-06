@@ -727,6 +727,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         setPreference = setPreference,
         recentSendChoices = RecentSendChoicesUseCase(engine),
         cancelPlateSlicing = cancelPlateSlicing,
+        selectPlateObject = selectPlateObject,
     )
 
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)

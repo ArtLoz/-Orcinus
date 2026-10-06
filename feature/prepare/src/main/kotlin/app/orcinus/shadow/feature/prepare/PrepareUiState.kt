@@ -52,6 +52,7 @@ import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.model.SliceNotice
 import app.orcinus.shadow.core.model.SvgPreview
 import app.orcinus.shadow.core.model.TextStyle
 import app.orcinus.shadow.core.model.Transform3
@@ -142,6 +143,26 @@ private fun notice(message: PlateValidationMessage, objects: List<PlateObject>):
     )
 }
 
+/** A notification of the sliced plate with the object, still on the plate, its "Jump to" selects. */
+data class SliceNoticeView(val notice: SliceNotice, val jump: ValidationNotice?)
+
+/** The object of the plate [notice] names among the [sliced] ones, as it stands now among [objects]. */
+private fun sliceNotice(notice: SliceNotice, sliced: List<PlateObject>, objects: List<PlateObject>): SliceNoticeView {
+    val mesh = sliced.getOrNull(notice.objectIndex)?.mesh
+    val target = mesh?.let { objects.firstOrNull { plateObject -> plateObject.mesh == it } }
+    return SliceNoticeView(
+        notice = notice,
+        jump = target?.let {
+            ValidationNotice(
+                text = "",
+                target = PlateInstanceId(it.mesh, notice.instanceIndex.coerceAtLeast(0)),
+                targetObject = it,
+                copy = notice.instanceIndex >= 0,
+            )
+        },
+    )
+}
+
 data class PrepareUiState(
     /** The printer's plate for the 3D view; null until the engine described it. */
     val plate: PlateDescription?,
@@ -227,6 +248,10 @@ data class PrepareUiState(
     /** The plate's validation (Plater::priv::update_background_process()): its error and its warning. */
     val validationError: ValidationNotice? = null,
     val validationWarning: ValidationNotice? = null,
+    /** The notifications of the current plate's G-code, with the objects their "Jump to" selects. */
+    val sliceNotices: List<SliceNoticeView> = emptyList(),
+    /** The process names post-processing scripts, which the G-code was sliced without. */
+    val postProcessSkipped: Boolean = false,
     /** The sequential printing's clearances while the validation fails. */
     val clearance: PlateClearance? = null,
     val arrangeOptionsOpen: Boolean,
@@ -1035,6 +1060,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         printSequence = validation?.sequence.orEmpty(),
         validationError = validation?.error?.let { notice(it, objects) },
         validationWarning = validation?.warning?.let { notice(it, objects) },
+        sliceNotices = result?.let { sliced -> sliced.notices.map { sliceNotice(it, sliced.objects, objects) } }.orEmpty(),
+        postProcessSkipped = result?.postProcessSkipped == true,
         clearance = validation?.takeIf { it.error != null && (it.clearance.isNotEmpty() || it.heightLimitFill.isNotEmpty()) }
             ?.let { PlateClearance(it.clearance, it.clearanceFill, it.heightLimitFill) },
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,

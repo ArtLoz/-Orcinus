@@ -2816,6 +2816,9 @@ class SlicePlateUseCase(
                     layerGcodeRules = outcome.layerGcodeRules,
                     outputName = outcome.outputName,
                     outputNameError = outcome.outputNameError,
+                    notices = outcome.notices,
+                    printReady = outcome.printReady,
+                    postProcessSkipped = outcome.postProcessSkipped,
                 ),
                 // IMSlider::SetTicksValues(): the codes this print does not allow go.
                 layerGcodes = layerGcodes.allowedBy(outcome.layerGcodeRules),

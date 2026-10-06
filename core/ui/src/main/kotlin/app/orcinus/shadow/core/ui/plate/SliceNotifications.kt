@@ -21,13 +21,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
+import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
+import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLink
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
 import app.orcinus.shadow.core.designsystem.component.OrcaProgressNotification
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.SliceNotice
+import app.orcinus.shadow.core.model.SliceNoticeLevel
+import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.OrcaHintsFile
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
@@ -166,3 +172,37 @@ private const val UPDATED_ITEMS_INFO_MILLIS = 10_000L
 
 /** ExportFinishedNotification's 20 seconds, for a file that is not on a removable drive. */
 private const val EXPORT_FINISHED_MILLIS = 20_000L
+
+/**
+ * NotificationManager::push_slicing_warning_notification(),
+ * push_slicing_serious_warning_notification() and
+ * push_slicing_error_notification() of the sliced plate: "Warning:",
+ * "Serious warning:" or "Error:" above the text, and "Jump to [object]" when
+ * the notice names an object that is still on the plate ([objectName]).
+ */
+@Composable
+fun SliceNoticeNotification(notice: SliceNotice, objectName: String?, onJumpTo: () -> Unit) {
+    val (level, title) = when (notice.level) {
+        SliceNoticeLevel.WARNING -> OrcaNotificationLevel.Warning to orcaString("Warning:")
+        SliceNoticeLevel.SERIOUS_WARNING -> OrcaNotificationLevel.SeriousWarning to orcaString("Serious warning:")
+        SliceNoticeLevel.ERROR -> OrcaNotificationLevel.Error to orcaString("Error:")
+    }
+    OrcaNotification(level = level) {
+        OrcaNotificationText(title, emphasized = true)
+        OrcaNotificationText(orcaText(notice.text).trimEnd())
+        objectName?.let { OrcaNotificationLink(orcaString("Jump to") + " [$it]", onClick = onJumpTo) }
+    }
+}
+
+/**
+ * The process names post-processing scripts (post_process), which the
+ * desktop app runs on the G-code it exports and sends
+ * (run_post_process_scripts()); the app cannot run them, and says so.
+ */
+@Composable
+fun PostProcessSkippedNotification() {
+    OrcaNotification(level = OrcaNotificationLevel.Warning) {
+        OrcaNotificationText(orcaString("Warning:"), emphasized = true)
+        OrcaNotificationText(stringResource(R.string.post_process_skipped))
+    }
+}

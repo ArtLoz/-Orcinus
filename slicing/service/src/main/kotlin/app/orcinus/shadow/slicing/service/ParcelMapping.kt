@@ -45,6 +45,8 @@ import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjColorQuestion
 import app.orcinus.shadow.core.model.PlateCircle
 import app.orcinus.shadow.core.model.PrintedObject
+import app.orcinus.shadow.core.model.SliceNotice
+import app.orcinus.shadow.core.model.SliceNoticeLevel
 import app.orcinus.shadow.core.model.SliceOutputNaming
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgPreview
@@ -604,6 +606,17 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.hasTemplate = layerGcodeRules.hasTemplate
             it.outputName = outputName
             it.outputNameError = outputNameError
+            it.notices = notices.map { notice ->
+                SliceNoticeParcel().also { parcel ->
+                    parcel.level = notice.level.name
+                    parcel.text = notice.text.toParcels()
+                    parcel.objectIndex = notice.objectIndex
+                    parcel.instanceIndex = notice.instanceIndex
+                    parcel.stepWarning = notice.stepWarning
+                }
+            }.toTypedArray()
+            it.printReady = printReady
+            it.postProcessSkipped = postProcessSkipped
         }
 
         is SliceOutcome.Failure -> {
@@ -636,6 +649,11 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             layerGcodeRules = LayerGcodeRules(sequential, canChangeFilament, hasTemplate),
             outputName = outputName.orEmpty(),
             outputNameError = outputNameError.orEmpty(),
+            notices = notices.orEmpty().map { parcel ->
+                SliceNotice(SliceNoticeLevel.valueOf(parcel.level), parcel.text.toTexts(), parcel.objectIndex, parcel.instanceIndex, parcel.stepWarning)
+            },
+            printReady = printReady,
+            postProcessSkipped = postProcessSkipped,
         )
 
         SliceOutcomeParcel.FAILURE -> SliceOutcome.Failure(

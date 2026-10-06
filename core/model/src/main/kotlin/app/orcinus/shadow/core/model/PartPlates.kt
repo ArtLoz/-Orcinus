@@ -173,8 +173,10 @@ fun PlateState.allSliceResultsReady(): Boolean {
     var ready = false
     for (index in plates.indices) {
         val onPlate = copies.filter { plateOf(it) == index }
-        if (onPlate.any { it.printable } && plates[index].result == null) return false
-        if (plates[index].result != null) ready = true
+        // is_slice_result_ready_for_print(): a G-code the plate may print.
+        val printable = plates[index].result?.printReady == true
+        if (onPlate.any { it.printable } && !printable) return false
+        if (printable) ready = true
     }
     return ready
 }

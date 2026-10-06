@@ -1297,8 +1297,20 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     }
     const jintArray filament_array = env->NewIntArray(static_cast<jsize>(filaments.size()));
     env->SetIntArrayRegion(filament_array, 0, static_cast<jsize>(filaments.size()), filaments.data());
+    const jobjectArray notices = to_java_objects(
+        env, "app/orcinus/shadow/slicing/nativebridge/NativeSliceNotice", result.notices,
+        [](JNIEnv* notice_env, const orcinus::orca::SliceNotice& notice) {
+            const jclass notice_class = notice_env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceNotice");
+            const jmethodID notice_constructor =
+                notice_env->GetMethodID(notice_class, "<init>", "(J[Lapp/orcinus/shadow/slicing/nativebridge/NativeUiText;IIZ)V");
+            return notice_env->NewObject(notice_class, notice_constructor, static_cast<jlong>(notice.level), to_java(notice_env, notice.text),
+                                         static_cast<jint>(notice.object_index), static_cast<jint>(notice.instance_index),
+                                         notice.step_warning ? JNI_TRUE : JNI_FALSE);
+        });
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
-    const jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JLjava/lang/String;JJJZZZZZD[I[DZLjava/lang/String;Ljava/lang/String;)V");
+    const jmethodID constructor = env->GetMethodID(
+        result_class, "<init>",
+        "(JLjava/lang/String;JJJZZZZZD[I[DZLjava/lang/String;Ljava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeSliceNotice;ZZ)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1317,7 +1329,10 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         to_java(env, amounts.data(), amounts.size()),
         result.slice_info_written ? JNI_TRUE : JNI_FALSE,
         to_java(env, result.output_name),
-        to_java(env, result.output_name_error)
+        to_java(env, result.output_name_error),
+        notices,
+        result.print_ready ? JNI_TRUE : JNI_FALSE,
+        result.post_process_skipped ? JNI_TRUE : JNI_FALSE
     );
 }
 

@@ -807,6 +807,24 @@ enum class SliceFailureCode {
     ENGINE_CRASHED,
 }
 
+/** NotificationManager's SlicingWarning, SlicingSeriousWarning and SlicingError. */
+enum class SliceNoticeLevel { WARNING, SERIOUS_WARNING, ERROR }
+
+/**
+ * A notification of a sliced plate, as Plater::priv::on_slicing_update() and
+ * GLCanvas3D::_update_slice_error_status() push them: its [text], and the
+ * object of the sliced plate ([objectIndex] among the objects it was sliced
+ * from) and its copy that "Jump to" selects, -1 for none.
+ */
+data class SliceNotice(
+    val level: SliceNoticeLevel,
+    val text: List<OrcaText>,
+    val objectIndex: Int = -1,
+    val instanceIndex: Int = -1,
+    /** A warning of a step of the print, which warnings_dialog() lists once an export or an upload begins. */
+    val stepWarning: Boolean = false,
+)
+
 sealed interface SliceOutcome {
     val jobId: SliceJobId
 
@@ -828,6 +846,12 @@ sealed interface SliceOutcome {
          */
         val outputName: String = "",
         val outputNameError: String = "",
+        /** The notifications of the sliced plate: its print's warnings, then its G-code's. */
+        val notices: List<SliceNotice> = emptyList(),
+        /** PartPlate::is_slice_result_ready_for_print(): the G-code may be printed, sent and exported. */
+        val printReady: Boolean = true,
+        /** The process names post-processing scripts, which the app cannot run. */
+        val postProcessSkipped: Boolean = false,
     ) : SliceOutcome
 
     data class Failure(

@@ -1071,7 +1071,8 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     projectName = project.name,
     projectDirty = projectDirty,
     canSaveProject = profiles != null && !busy,
-    canExportSliced = profiles != null && !busy && objects.isNotEmpty() && result != null,
+    // PartPlate::is_slice_result_ready_for_export()
+    canExportSliced = profiles != null && !busy && objects.isNotEmpty() && result?.printReady == true,
     canExportAllSliced = profiles != null && !busy && objects.isNotEmpty() && allSliceResultsReady(),
     canExportModel = profiles != null && !busy && objects.isNotEmpty(),
     plates = objects.groupBy(::listPlateOf).let { groups ->

@@ -172,10 +172,12 @@ import app.orcinus.shadow.core.ui.plate.PlateMenuItems
 import app.orcinus.shadow.core.ui.plate.PlateNameDialog
 import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
 import app.orcinus.shadow.core.ui.plate.PlateStrip
+import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
+import app.orcinus.shadow.core.ui.plate.SliceNoticeNotification
 import app.orcinus.shadow.core.ui.plate.SlicingNotification
 import app.orcinus.shadow.core.ui.plate.UpdatedItemsInfoNotification
 import app.orcinus.shadow.core.ui.plate.exportFileName
@@ -1587,6 +1589,12 @@ private fun Notifications(
             OrcaNotificationText(stringResource(R.string.object_clashed))
         }
     }
+    // Plater::priv::on_slicing_update() and GLCanvas3D::_update_slice_error_status()
+    // of the current plate's G-code.
+    state.sliceNotices.forEach { view ->
+        SliceNoticeNotification(view.notice, view.jump?.targetObject?.displayName(), onJumpTo = { view.jump?.let(onJumpTo) })
+    }
+    if (state.postProcessSkipped) PostProcessSkippedNotification()
     state.problem?.let { problem ->
         OrcaNotification(
             level = if (problem.kind.warning) OrcaNotificationLevel.Warning else OrcaNotificationLevel.Regular,

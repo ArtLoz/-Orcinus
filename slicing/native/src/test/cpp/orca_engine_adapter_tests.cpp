@@ -5985,6 +5985,50 @@ TEST_CASE("Paste Process Settings gives an item the settings copied from another
     }
 }
 
+TEST_CASE("A sliced plate tells what its G-code does wrong, as the desktop's notifications do", "[Adapter]")
+{
+    require_engine();
+    SECTION("a cube in the middle of the plate tells nothing and may be printed")
+    {
+        const orca::SliceResult result = orca::slice("notices", plate_of({}), output_path("notices.gcode"), {}, k2_plus_profiles(), {}, {});
+        INFO(result.message);
+        REQUIRE(result.status == orca::SliceStatus::success);
+        CHECK(result.notices.empty());
+        CHECK(result.print_ready);
+        CHECK_FALSE(result.post_process_skipped);
+    }
+    SECTION("a skirt beyond the plate is an error of the G-code, which is not printed")
+    {
+        const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("notices.mesh"), {});
+        REQUIRE(cube.status == orca::SceneStatus::success);
+        std::vector<double> placement(cube.instance_matrix.begin(), cube.instance_matrix.end());
+        placement[12] = 12.0;
+        std::vector<orca::PlateObject> objects = plate_of({}, placement);
+        // The brim would be clipped to the bed (make_brim()); the skirt is not.
+        const orca::ModelSettings skirt = settings_of({{"skirt_loops", "1"}, {"skirt_distance", "30"}, {"brim_type", "no_brim"}});
+
+        const orca::SliceResult result = orca::slice("notices-skirt", objects, output_path("notices-skirt.gcode"), {}, k2_plus_profiles(), skirt, {});
+        INFO(result.message);
+        REQUIRE(result.status == orca::SliceStatus::success);
+        std::string listed;
+        for (const orca::SliceNotice& notice : result.notices) {
+            listed += (notice.text.empty() ? std::string() : notice.text.front().msgid) + " | ";
+        }
+        INFO("notices: " + listed);
+        // GLCanvas3D::_set_warning_notification(EWarning::ToolpathOutside)
+        const auto outside = std::find_if(result.notices.begin(), result.notices.end(), [](const orca::SliceNotice& notice) {
+            return !notice.text.empty() && notice.text.front().msgid == "A G-code path goes beyond the plate boundaries.";
+        });
+        REQUIRE(outside != result.notices.end());
+        CHECK(outside->level == orca::SliceNoticeLevel::error);
+        CHECK_FALSE(outside->step_warning);
+        // GCodeProcessor::check_multi_extruder_gcode_valid() marks the paths
+        // beyond the plate (gcode_check_result's 1 << 2), and
+        // is_slice_result_ready_for_print() refuses them.
+        CHECK_FALSE(result.print_ready);
+    }
+}
+
 TEST_CASE("The menu's arrangement leaves the objects off the plate, and the bed fills with instances", "[Adapter][Copy]")
 {
     require_engine();

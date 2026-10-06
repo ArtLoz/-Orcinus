@@ -536,7 +536,12 @@ private fun Workspace(
                     onOpenSidebar = { sidebarVisible = true },
                     onOpenSetting = onOpenSetting,
                 )
-                previewEntry(createViewModel = container::previewViewModel, onSliceRequested = onSliceRequested, onOpenDevice = { showTab(DeviceNavKey) })
+                previewEntry(
+                    createViewModel = container::previewViewModel,
+                    onSliceRequested = onSliceRequested,
+                    onOpenDevice = { showTab(DeviceNavKey) },
+                    onOpenPrepare = { showTab(PrepareNavKey) },
+                )
                 deviceEntry(createViewModel = container::deviceViewModel)
                 projectEntry(createViewModel = container::projectViewModel)
             },

@@ -48,6 +48,8 @@ import app.orcinus.shadow.core.model.PresetBundleType
 import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PrintedObject
 import app.orcinus.shadow.core.model.SelectedCopy
+import app.orcinus.shadow.core.model.SliceNotice
+import app.orcinus.shadow.core.model.SliceNoticeLevel
 import app.orcinus.shadow.core.model.SlicedPlates
 import app.orcinus.shadow.core.model.StoredTextStyles
 import app.orcinus.shadow.core.model.SvgFileEdit
@@ -2944,6 +2946,17 @@ class NativeSlicerEngine(context: Context) :
                 ),
                 outputName = result.outputName,
                 outputNameError = result.outputNameError,
+                notices = result.notices.map { notice ->
+                    SliceNotice(
+                        level = SliceNoticeLevel.entries.getOrElse(notice.level.toInt()) { SliceNoticeLevel.WARNING },
+                        text = notice.text.map { it.toText() },
+                        objectIndex = notice.objectIndex,
+                        instanceIndex = notice.instanceIndex,
+                        stepWarning = notice.stepWarning,
+                    )
+                },
+                printReady = result.printReady,
+                postProcessSkipped = result.postProcessSkipped,
             )
 
             NativeSliceResult.CANCELLED -> SliceOutcome.Cancelled(request.jobId)

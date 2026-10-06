@@ -168,6 +168,9 @@ enum class OrcaNotificationLevel {
     /** WarningNotificationLevel: the canvas panel with the bar in OrcaSlicer's warning colour. */
     Warning,
 
+    /** SeriousWarningNotificationLevel: white text on OrcaSlicer's warning colour. */
+    SeriousWarning,
+
     /** ErrorNotificationLevel: white text on OrcaSlicer's error colour. */
     Error,
 }
@@ -179,6 +182,7 @@ private val NotificationErrorColor = Color(0xFFE14747)
 private val NotificationWarningColor = Color(0xFFF59B16)
 private val NotificationLinkColor = Color(0f, 0.588f, 0.533f)
 private val NotificationErrorLinkColor = Color(135, 43, 43)
+private val NotificationSeriousWarningLinkColor = Color(0f, 0f, 0f, 0.4f)
 
 /**
  * OrcaSlicer's canvas notification, as the object information and slicing
@@ -192,14 +196,19 @@ fun OrcaNotification(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = OrcaTheme.colors
-    val error = level == OrcaNotificationLevel.Error
     Row(
         modifier = modifier
             .widthIn(max = 360.dp)
             .height(IntrinsicSize.Min)
             .shadow(2.dp, OrcaTheme.shapes.canvasPanel)
             .clip(OrcaTheme.shapes.canvasPanel)
-            .background(if (error) NotificationErrorColor else colors.canvasPanel),
+            .background(
+                when (level) {
+                    OrcaNotificationLevel.Error -> NotificationErrorColor
+                    OrcaNotificationLevel.SeriousWarning -> NotificationWarningColor
+                    else -> colors.canvasPanel
+                },
+            ),
     ) {
         Box(
             Modifier
@@ -208,7 +217,7 @@ fun OrcaNotification(
                 .background(
                     when (level) {
                         OrcaNotificationLevel.Error -> NotificationErrorColor
-                        OrcaNotificationLevel.Warning -> NotificationWarningColor
+                        OrcaNotificationLevel.Warning, OrcaNotificationLevel.SeriousWarning -> NotificationWarningColor
                         OrcaNotificationLevel.Regular -> colors.accent
                     },
                 ),
@@ -234,7 +243,12 @@ fun OrcaNotification(
 /** PopNotification::render_hypertext(): the notification's underlined link, such as "Jump to". */
 @Composable
 fun OrcaNotificationLink(text: String, onClick: () -> Unit) {
-    val color = if (LocalNotificationLevel.current == OrcaNotificationLevel.Error) NotificationErrorLinkColor else NotificationLinkColor
+    val color = when (LocalNotificationLevel.current) {
+        OrcaNotificationLevel.Error -> NotificationErrorLinkColor
+        // render_hypertext(): the serious warning's link is a translucent black.
+        OrcaNotificationLevel.SeriousWarning -> NotificationSeriousWarningLinkColor
+        else -> NotificationLinkColor
+    }
     Text(
         text = text,
         color = color,
@@ -254,7 +268,8 @@ fun OrcaNotificationText(text: String, emphasized: Boolean = false, error: Boole
     Text(
         text = text,
         color = when {
-            LocalNotificationLevel.current == OrcaNotificationLevel.Error -> Color.White
+            LocalNotificationLevel.current == OrcaNotificationLevel.Error ||
+                LocalNotificationLevel.current == OrcaNotificationLevel.SeriousWarning -> Color.White
             error -> NotificationErrorColor
             emphasized -> OrcaTheme.colors.onCanvasPanel
             else -> OrcaTheme.colors.textSoft

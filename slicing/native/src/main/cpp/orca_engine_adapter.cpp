@@ -20,6 +20,7 @@
 #include <CGAL/Min_sphere_of_points_d_traits_3.h>
 #include <CGAL/Min_sphere_of_spheres_d.h>
 #include <CGAL/Simple_cartesian.h>
+#include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/format.hpp>
 #include <boost/filesystem.hpp>
@@ -1705,6 +1706,167 @@ EngineInitialization initialize(const EngineDirectories& directories)
     return *initialization;
 }
 
+
+namespace {
+
+// The index of the plate's object, and of its copy, an object or copy of the
+// print's model stands for (the print keeps the ids of the model it was applied with).
+std::pair<std::int32_t, std::int32_t> plate_copy_of(const Slic3r::Model& model, const Slic3r::ObjectID object, const Slic3r::ObjectID instance)
+{
+    for (std::size_t index = 0; index < model.objects.size(); ++index) {
+        const Slic3r::ModelObject& candidate = *model.objects[index];
+        if (candidate.id() != object) {
+            continue;
+        }
+        for (std::size_t copy = 0; copy < candidate.instances.size(); ++copy) {
+            if (candidate.instances[copy]->id() == instance) {
+                return {std::int32_t(index), std::int32_t(copy)};
+            }
+        }
+        return {std::int32_t(index), -1};
+    }
+    return {-1, -1};
+}
+
+// Plater::priv::on_slicing_update(): the current warnings of a step, which
+// the notification center shows with a "Jump to" the object; the empty
+// layers' are serious (SlicingReplaceInitEmptyLayers, SlicingEmptyGcodeLayers).
+void add_step_warnings(const Slic3r::PrintStateBase::StateWithWarnings& state, const std::int32_t object_index, std::vector<SliceNotice>& notices)
+{
+    for (const Slic3r::PrintStateBase::Warning& warning : state.warnings) {
+        if (!warning.current) {
+            continue;
+        }
+        SliceNotice& notice = notices.emplace_back();
+        notice.level = warning.message_id == Slic3r::PrintStateBase::SlicingReplaceInitEmptyLayers ||
+                               warning.message_id == Slic3r::PrintStateBase::SlicingEmptyGcodeLayers ?
+                           SliceNoticeLevel::serious_warning :
+                           SliceNoticeLevel::warning;
+        // The message is the print's own, translated as the engine translates.
+        UiText text;
+        text.msgid = warning.message;
+        notice.text.push_back(std::move(text));
+        notice.object_index = object_index;
+        notice.step_warning = true;
+    }
+}
+
+UiText ui_text(const std::string& msgid, std::vector<std::string> args = {})
+{
+    UiText text;
+    text.msgid = msgid;
+    text.args = std::move(args);
+    return text;
+}
+
+// The warnings the plate's print holds, then GLCanvas3D::_update_slice_error_status()
+// of its G-code (GCodeViewer::load_as_gcode()'s judgement of the paths).
+void add_slice_notices(const Slic3r::Print& print, const Slic3r::Model& model, const Slic3r::GCodeProcessorResult& result,
+                       const Slic3r::BuildVolume& build_volume, std::vector<SliceNotice>& notices)
+{
+    for (int step = 0; step < int(Slic3r::psCount); ++step) {
+        add_step_warnings(print.step_state_with_warnings(Slic3r::PrintStep(step)), -1, notices);
+    }
+    for (const Slic3r::PrintObject* print_object : print.objects()) {
+        const std::int32_t object_index = plate_copy_of(model, print_object->model_object()->id(), {}).first;
+        for (int step = 0; step < int(Slic3r::posCount); ++step) {
+            add_step_warnings(print_object->step_state_with_warnings(Slic3r::PrintObjectStep(step)), object_index, notices);
+        }
+    }
+
+    // GCodeViewer::load_as_gcode(): the box of the extrusions, whether every
+    // path is on the plate (BuildVolume::all_paths_inside()), and the heights of
+    // the layers the paths make.
+    const auto extrusion = [](const Slic3r::GCodeProcessorResult::MoveVertex& move) {
+        return move.type == Slic3r::EMoveType::Extrude && move.extrusion_role != Slic3r::erCustom && move.extrusion_role != Slic3r::erNone &&
+               move.width != 0.f && move.height != 0.f;
+    };
+    Slic3r::BoundingBoxf3 paths_bbox;
+    std::vector<float> layer_zs;
+    for (const Slic3r::GCodeProcessorResult::MoveVertex& move : result.moves) {
+        if (!extrusion(move)) {
+            continue;
+        }
+        paths_bbox.merge(move.position.cast<double>());
+        layer_zs.push_back(move.position.z());
+    }
+    if (layer_zs.empty()) {
+        return;
+    }
+    std::sort(layer_zs.begin(), layer_zs.end());
+    layer_zs.erase(std::unique(layer_zs.begin(), layer_zs.end(), [](const float a, const float b) { return std::abs(a - b) < 1e-4f; }), layer_zs.end());
+    const bool contained_in_bed = build_volume.all_paths_inside(result, paths_bbox);
+    const double top = layer_zs.back();
+    const double max_print_height = result.printable_height;
+
+    // _set_warning_notification(): EWarning::ToolHeightOutside and ToolpathOutside.
+    if (top - max_print_height >= 1e-6) {
+        SliceNotice& notice = notices.emplace_back();
+        notice.level = SliceNoticeLevel::error;
+        notice.text.push_back(ui_text("A G-code path goes beyond the max print height."));
+    }
+    if (!contained_in_bed && max_print_height - top >= 1e-6) {
+        SliceNotice& notice = notices.emplace_back();
+        notice.level = SliceNoticeLevel::error;
+        notice.text.push_back(ui_text("A G-code path goes beyond the plate boundaries."));
+    }
+    // EWarning::GCodeConflict: the layer at the height of the conflict, which
+    // the viewer finds in its layers (Layers::get_layer_id_at()), and the copy
+    // of the second object, whose object "Jump to" selects.
+    if (contained_in_bed && result.conflict_result.has_value()) {
+        const Slic3r::ConflictResult& conflict = *result.conflict_result;
+        const std::size_t layer = std::size_t(std::lower_bound(layer_zs.begin(), layer_zs.end(), float(conflict._height) - 1e-4f) - layer_zs.begin());
+        char height[32];
+        std::snprintf(height, sizeof(height), "%.2f", conflict._height);
+        SliceNotice& notice = notices.emplace_back();
+        notice.level = SliceNoticeLevel::serious_warning;
+        notice.text.push_back(ui_text(
+            "Conflicts of G-code paths have been found at layer %d, Z = %.2lfmm. Please separate the conflicted objects farther (%s <-> %s).",
+            {std::to_string(layer), height, conflict._objName1, conflict._objName2}));
+        if (const auto* instance = reinterpret_cast<const Slic3r::PrintInstance*>(conflict._obj2); instance != nullptr) {
+            if (instance->model_instance != nullptr && instance->model_instance->get_object() != nullptr) {
+                const auto copy = plate_copy_of(model, instance->model_instance->get_object()->id(), instance->model_instance->id());
+                notice.object_index = copy.first;
+                notice.instance_index = copy.second;
+            } else if (instance->print_object != nullptr) {
+                notice.object_index = plate_copy_of(model, instance->print_object->model_object()->id(), {}).first;
+            }
+        }
+    }
+    // EWarning::FilamentUnPrintableOnFirstLayer: the filaments, from 1, each followed by a space.
+    if (!result.filament_printable_reuslt.conflict_filament.empty()) {
+        std::string filaments;
+        for (const int filament : result.filament_printable_reuslt.conflict_filament) {
+            filaments += std::to_string(filament + 1) + " ";
+        }
+        SliceNotice& notice = notices.emplace_back();
+        notice.level = SliceNoticeLevel::error;
+        notice.text.push_back(ui_text("Filaments %s cannot be printed directly on the surface of this plate.", {filaments}));
+    }
+}
+
+// run_post_process_scripts(): the process names a script on a line of post_process.
+bool has_post_process_scripts(const Slic3r::DynamicPrintConfig& config)
+{
+    const auto* post_process = config.option<Slic3r::ConfigOptionStrings>("post_process");
+    if (post_process == nullptr) {
+        return false;
+    }
+    for (const std::string& scripts : post_process->values) {
+        std::vector<std::string> lines;
+        boost::split(lines, scripts, boost::is_any_of("\r\n"));
+        for (std::string script : lines) {
+            boost::trim(script);
+            if (!script.empty()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
 SliceResult slice(
     const std::string& job_id,
     const std::vector<PlateObject>& objects,
@@ -1864,6 +2026,9 @@ SliceResult slice(
             result.output_name_error = error.what();
         }
         result.filaments = filament_usage(gcode_result, filaments, config.option<Slic3r::ConfigOptionStrings>("filament_colour")->values.size());
+        add_slice_notices(print, model, gcode_result, build_volume_of(config), result.notices);
+        result.print_ready = gcode_result.filament_printable_reuslt.conflict_filament.empty() && gcode_result.gcode_check_result.error_code == 0;
+        result.post_process_skipped = has_post_process_scripts(config);
         result.toolpaths_written = !toolpaths_path.empty() && write_toolpaths(gcode_result, print, config, toolpaths_path);
         result.slice_info_written = !slice_info_path.empty() && detail::write_slice_info(print, gcode_result, slice_info_path);
         // GLCanvas3D::reload_scene(): once the wipe tower is built, the plate

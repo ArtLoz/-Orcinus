@@ -1,5 +1,7 @@
 package app.orcinus.shadow.slicing.service;
 
+import app.orcinus.shadow.slicing.service.SliceNoticeParcel;
+
 /** SliceOutcome flattened; kind selects which fields are meaningful. */
 parcelable SliceOutcomeParcel {
     const String SUCCESS = "SUCCESS";
@@ -33,4 +35,8 @@ parcelable SliceOutcomeParcel {
     /** The name of a success's G-code, or the template's error. */
     @nullable String outputName;
     @nullable String outputNameError;
+    /** The notices of a success, whether it may be printed, and whether post-processing scripts were skipped. */
+    @nullable SliceNoticeParcel[] notices;
+    boolean printReady;
+    boolean postProcessSkipped;
 }

@@ -26,6 +26,9 @@ internal class NativeSliceResult(
     /** Print::output_filename(), and the template's error when there is none. */
     @JvmField val outputName: String,
     @JvmField val outputNameError: String,
+    @JvmField val notices: Array<NativeSliceNotice>,
+    @JvmField val printReady: Boolean,
+    @JvmField val postProcessSkipped: Boolean,
 ) {
     companion object {
         const val SUCCESS = 0L
@@ -172,6 +175,15 @@ internal class NativePresetItem(
     @JvmField val subgroup: String,
     @JvmField val subgroupMsgid: Boolean,
     @JvmField val selected: Boolean,
+)
+
+/** Constructed by the native bridge; see SliceNotice in orca_engine_adapter.hpp. */
+internal class NativeSliceNotice(
+    @JvmField val level: Long,
+    @JvmField val text: Array<NativeUiText>,
+    @JvmField val objectIndex: Int,
+    @JvmField val instanceIndex: Int,
+    @JvmField val stepWarning: Boolean,
 )
 
 /** Constructed by the native bridge; see PresetState in orca_engine_adapter.hpp. */

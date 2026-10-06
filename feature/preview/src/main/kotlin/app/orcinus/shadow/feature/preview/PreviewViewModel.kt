@@ -13,6 +13,7 @@ import app.orcinus.shadow.core.model.ElegooOptions
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PlateDescription
+import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
@@ -22,6 +23,7 @@ import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
+import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.plateOrigins
@@ -32,6 +34,7 @@ import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
+import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
 import app.orcinus.shadow.domain.plate.SendGcodeUseCase
 import app.orcinus.shadow.domain.plate.SetSliceModeUseCase
@@ -103,6 +106,8 @@ class PreviewViewModel(
     private val recentSendChoices: RecentSendChoicesUseCase? = null,
     /** SlicingProgressNotification's Cancel on the preview's canvas. */
     private val cancelPlateSlicing: CancelPlateSlicingUseCase? = null,
+    /** A slicing notification's "Jump to" selects the object it names. */
+    private val selectPlateObject: SelectPlateObjectUseCase? = null,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -113,6 +118,14 @@ class PreviewViewModel(
 
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     fun setCanvasOption(key: String, value: String) = setPreference(key, value)
+
+    /**
+     * NotificationManager's "Jump to": the object list selects the object the
+     * slicing notification names; the 3D editor opens on it.
+     */
+    fun jumpTo(mesh: ScenePath, instance: Int) {
+        selectPlateObject?.invoke(PlateInstanceId(mesh, instance))
+    }
     val state: StateFlow<PreviewUiState> = observePlate()
         .map(PlateState::toPreviewUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toPreviewUiState())

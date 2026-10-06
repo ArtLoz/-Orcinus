@@ -105,4 +105,6 @@
     <string name="object_part_support_enforcer">Усилитель поддержек (%1$s)</string>
     <!-- The state of a plate's number in the strip of plates, whose icon shows the lock. -->
     <string name="plate_locked">Стол заблокирован</string>
+    <!-- The process names post-processing scripts (post_process), which the desktop app runs and the app cannot. -->
+    <string name="post_process_skipped">Скрипты постобработки из настроек процесса не выполнены: на Android их нельзя запустить.</string>
 </resources>

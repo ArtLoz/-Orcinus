@@ -20,8 +20,15 @@ fun EntryProviderScope<NavKey>.previewEntry(
     onSliceRequested: () -> Unit,
     /** MainFrame::request_select_tab(tpMonitor), once an upload went through with "Switch to Device tab after upload.". */
     onOpenDevice: () -> Unit = {},
+    /** select_tab(MainFrame::tp3DEditor) of a slicing notification's "Jump to". */
+    onOpenPrepare: () -> Unit = {},
 ) {
     entry<PreviewNavKey> {
-        PreviewRoute(viewModel = viewModel { createViewModel() }, onSliceRequested = onSliceRequested, onOpenDevice = onOpenDevice)
+        PreviewRoute(
+            viewModel = viewModel { createViewModel() },
+            onSliceRequested = onSliceRequested,
+            onOpenDevice = onOpenDevice,
+            onOpenPrepare = onOpenPrepare,
+        )
     }
 }

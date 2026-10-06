@@ -716,6 +716,10 @@ data class PlateSliceResult(
     /** SliceOutcome.Success.outputName and outputNameError. */
     val outputName: String = "",
     val outputNameError: String = "",
+    /** SliceOutcome.Success.notices, printReady and postProcessSkipped. */
+    val notices: List<SliceNotice> = emptyList(),
+    val printReady: Boolean = true,
+    val postProcessSkipped: Boolean = false,
 )
 
 enum class PlateProblemKind {
