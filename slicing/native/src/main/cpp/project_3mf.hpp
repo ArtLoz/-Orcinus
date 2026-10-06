@@ -22,6 +22,9 @@ struct Archive3mf {
     Archive3mf& operator=(const Archive3mf&) = delete;
     ~Archive3mf();
 
+    // Plater::load_project(): the file opens as a project, whether or not it
+    // brings settings of its own.
+    bool as_project{false};
     // is_project_file of load_files(): the file opened as a project and holds
     // settings, which the presets take.
     bool load_config{false};

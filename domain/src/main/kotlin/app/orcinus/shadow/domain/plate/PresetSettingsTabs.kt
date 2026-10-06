@@ -218,6 +218,9 @@ class PresetSettingsTabs(
             is PresetSettingsOutcome.Success -> {
                 apply(kind, outcome)
                 if (request is SettingsRequest.SaveConnection) repository.update { it.copy(connectionSaves = it.connectionSaves + 1) }
+                // Tab::update_dirty() and on_presets_changed() of a preset's tab end
+                // with update_project_dirty_from_presets() once its values change.
+                if (kind in PRESET_KINDS && request.editsPreset()) repository.update { it.withOtherChanges() }
                 // Tab::on_value_change(): the long retractions change how much a
                 // filament change flushes.
                 if (request is SettingsRequest.Change && request.id.substringBefore('#') in LONG_RETRACTION_KEYS) {
@@ -293,6 +296,13 @@ class PresetSettingsTabs(
         if (valuesChanged || (previous != null && previous.preset != outcome.settings.preset)) onConfigChange()
     }
 
+    /** A request that changes the values or the presets of a tab, rather than what it shows. */
+    private fun SettingsRequest.editsPreset(): Boolean = when (this) {
+        is SettingsRequest.Change, is SettingsRequest.Reset, is SettingsRequest.SetOverride, is SettingsRequest.SetCompatible,
+        is SettingsRequest.SetRammingParameters, is SettingsRequest.EditCustomGcode, is SettingsRequest.Save, SettingsRequest.Delete -> true
+        else -> false
+    }
+
     /** The same preset with other values slices differently. */
     private fun changesSlicing(before: PresetSettings?, after: PresetSettings): Boolean =
         before != null && before.preset == after.preset &&
@@ -359,6 +369,9 @@ class PresetSettingsTabs(
     private fun PlateState.tab(kind: PresetKind): SettingsTabState = settingsTabs[kind] ?: SettingsTabState(kind)
 
     private companion object {
+        /** The tabs of the printer, filament and process presets, whose changes the project keeps (put_other_changes()). */
+        val PRESET_KINDS = setOf(PresetKind.PRINTER, PresetKind.FILAMENT, PresetKind.PRINT)
+
         /** The printer's and a filament's long retractions when the filament is cut. */
         val LONG_RETRACTION_KEYS = setOf("long_retractions_when_cut", "filament_long_retractions_when_cut")
 

@@ -1414,11 +1414,12 @@ private fun ProjectTitle(
     // Plater::priv::update_title_dirty_status()
     val title = (if (dirty) "*" else "") + (name ?: orcaString("Untitled"))
     OrcaSidebarTitle(title, DesignR.drawable.orca_open_project) {
+        // MainFrame::can_save(): a project with changes to save.
         OrcaIconButton(
             icon = DesignR.drawable.orca_save,
             contentDescription = orcaString("Save Project"),
             onClick = actions.save,
-            enabled = canSave,
+            enabled = canSave && dirty,
         )
         Box {
             OrcaIconButton(

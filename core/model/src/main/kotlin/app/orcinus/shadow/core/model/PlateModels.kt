@@ -880,6 +880,12 @@ data class ImportBatch(
      */
     val restore: Boolean = false,
     /**
+     * Plater::add_file() of model files (SingleOther, MultipleOther): an
+     * untitled project takes the name of the first file. A 3MF file loaded as
+     * geometry and files handed over (load_files() of file names) name nothing.
+     */
+    val namesProject: Boolean = false,
+    /**
      * Plater::load_project() of a file the user opened: the project before
      * let it go, and the file takes the plate's place as a project or, as
      * determine_load_type() chose, as geometry only.
@@ -904,14 +910,19 @@ data class PlateProject(
      */
     val presets: SlicingProfileSelection? = null,
     val filamentColors: List<String> = emptyList(),
+    /** The project's plate type then (curr_bed_type of the project config). */
+    val bedType: String = "",
     /** What the project opened from a file holds besides its objects (LoadedProject.info), which Save writes again. */
     val info: ScenePath? = null,
     /**
-     * put_other_changes(): the project's information changed since it was
-     * opened, saved or started (a file added, a cover chosen), which a save
-     * clears (clear_other_changes()).
+     * put_other_changes(): since the project was opened, saved or started,
+     * presets were selected or edited, filaments, their colours, the
+     * flushing volumes or the plate type changed, or the project's information
+     * (a file added, a cover chosen), which a save clears (clear_other_changes()).
      */
     val otherChanges: Boolean = false,
+    /** The same since the last backup of the project (m_other_changes_backup), which the backup clears. */
+    val otherChangesBackup: Boolean = false,
 )
 
 /**
@@ -1526,13 +1537,15 @@ data class PlateState(
 
     /**
      * ProjectDirtyStateManager::is_dirty(), the star of the desktop title: the
-     * plate changed, other presets or filament colours are selected, or a
-     * preset changed since the project was saved or started
-     * (GUI_App::has_unsaved_preset_changes()).
+     * plate changed; the project config did (the filament colours, the plate
+     * type); other presets are selected, which a project counts only once it
+     * has a file (update_from_presets()); or a preset changed since the
+     * project was saved or started (GUI_App::has_unsaved_preset_changes()).
      */
     val projectDirty: Boolean
-        get() = projectContent() != project.baseline || project.otherChanges ||
-            (project.presets != null && (profiles != project.presets || presets?.filamentColors.orEmpty() != project.filamentColors)) ||
+        get() = projectContent() != project.baseline ||
+            (project.presets != null && (presets?.filamentColors.orEmpty() != project.filamentColors || presets?.bedType.orEmpty() != project.bedType)) ||
+            (project.presets != null && project.document != null && profiles != project.presets) ||
             settingsTabs.values.any { it.settings?.savedDirty == true }
 }
 

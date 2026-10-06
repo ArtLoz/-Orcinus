@@ -407,6 +407,7 @@ Slic3r::Model read_3mf(
     // geometry only" the model alone.
     bool load_model = true;
     bool load_config = project;
+    archive.as_project = project;
     LoadStrategy strategy = LoadStrategy::LoadModel;
     if (load_config) {
         strategy = strategy | LoadStrategy::LoadConfig | LoadStrategy::LoadAuxiliary | LoadStrategy::CheckVersion;
@@ -588,7 +589,22 @@ const Slic3r::DynamicPrintConfig& placing_config(const Archive3mf& archive, cons
 void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialogs& dialogs, ImportedModels& result)
 {
     Slic3r::PresetBundle& bundle = *engine().bundle;
+    // Plater::priv::reset() of Plater::load_project(): the presets the project
+    // before brought go, also when the file brings no settings of its own (a
+    // 3MF file of PrusaSlicer, of a CAD program or of an old OrcaSlicer).
+    if (archive.as_project) {
+        bundle.reset_project_embedded_presets();
+    }
     if (!archive.load_config) {
+        if (archive.as_project) {
+            // load_current_presets(): the tabs show the presets left selected.
+            for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {
+                reload_tab(kind);
+            }
+            bundle.export_selections(*engine().config);
+            save_config(engine());
+            result.presets_changed = true;
+        }
         if (archive.filament_count == 0) {
             return;
         }
@@ -606,9 +622,6 @@ void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialog
         result.presets_changed = true;
         return;
     }
-
-    // Plater::priv::reset(): the presets the project before brought go.
-    bundle.reset_project_embedded_presets();
 
     // BBS:: project embedded presets
     if (!archive.project_presets.empty()) {

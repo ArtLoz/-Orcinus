@@ -186,7 +186,8 @@ class DescribeFlushVolumesUseCase(
 class SetFlushVolumesUseCase(private val repository: PlateRepository) {
     operator fun invoke(matrix: List<Double>, multipliers: List<Double>) = repository.update { state ->
         if (state.busy) return@update state
-        state.copy(plateSettings = state.plateSettings.withFlushVolumes(matrix, multipliers), result = null)
+        // WipingDialog's OK: update_project_dirty_from_presets().
+        state.copy(plateSettings = state.plateSettings.withFlushVolumes(matrix, multipliers), result = null).withOtherChanges()
     }
 }
 
@@ -217,10 +218,11 @@ class UpdateFlushVolumesUseCase(
         repository.update { current ->
             // The plate moved on to other presets meanwhile; their own change updates it.
             if (current.profiles != profiles) return@update current
+            // auto_calc_flushing_volumes() ends with update_project_dirty_from_presets().
             current.copy(
                 plateSettings = current.plateSettings.withFlushVolumes(outcome.volumes.matrix, outcome.volumes.multipliers),
                 result = null,
-            )
+            ).withOtherChanges()
         }
     }
 }

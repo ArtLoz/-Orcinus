@@ -1258,6 +1258,28 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `other presets star a project only once it has a file, and a change of them asks for a save`() {
+        val ready = readyState(CUBE)
+        val untitled = ready.copy(project = ready.projectBaseline())
+        val presets = checkNotNull(untitled.presets)
+        val other = untitled.copy(presets = presets.copy(selection = presets.selection.copy(process = ProfileId("other process"))))
+
+        // ProjectDirtyStateManager::update_from_presets() compares the presets only of a project with a file.
+        assertFalse(other.projectDirty)
+        assertTrue(other.copy(project = other.project.copy(document = ExternalDocumentReference("content://box"))).projectDirty)
+        // The colours are the project config's, which counts for any project.
+        assertTrue(untitled.copy(presets = presets.copy(filamentColors = listOf("#123456"))).projectDirty)
+
+        // put_other_changes(): the plate with objects is no longer up to date, nor is its backup.
+        assertTrue(untitled.projectUpToDate)
+        val changed = other.withOtherChanges()
+        assertFalse(changed.projectUpToDate)
+        assertTrue(changed.project.otherChangesBackup)
+        // Saving takes both back (up_to_date(true, false) and up_to_date(true, true)).
+        assertTrue(changed.copy(project = changed.projectBaseline()).projectUpToDate)
+    }
+
+    @Test
     fun `a saved project goes by its document's name, and Save writes that document again`() {
         val repository = FakeRepository(readyState(CUBE).copy(layerGcodes = listOf(LayerGcode(2.0, LayerGcodeType.PAUSE_PRINT))))
         val inspector = FakeInspector()
@@ -1438,7 +1460,7 @@ class PlateUseCasesTest {
         val asked = repository.state.value
         assertTrue(asked.importing)
         assertEquals(QUESTION, asked.plateQuestion?.question)
-        assertEquals(PlateRequest.Import(ImportFiles(file.path), ImportBatch(document = REFERENCE, displayName = "stacked.amf")), asked.plateQuestion?.request)
+        assertEquals(PlateRequest.Import(ImportFiles(file.path), ImportBatch(document = REFERENCE, displayName = "stacked.amf", namesProject = true)), asked.plateQuestion?.request)
         assertEquals(listOf(NOTICE), asked.plateNotices)
         assertEquals(listOf(CUBE), asked.objects)
         // Nothing the load wrote before it asked stays.

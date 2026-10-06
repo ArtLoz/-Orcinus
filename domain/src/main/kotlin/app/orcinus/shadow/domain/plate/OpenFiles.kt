@@ -69,7 +69,7 @@ class OpenFilesUseCase(
                         zips.forEach { (zip, zipName) -> previewArchive(zip, zipName) }
                         if (files.isNotEmpty()) {
                             awaitIdle()
-                            addModelToPlate(files.map { it.first }, addsRecent = false)
+                            addModelToPlate(files.map { it.first }, addFile = false)
                             awaitIdle()
                         }
                     }

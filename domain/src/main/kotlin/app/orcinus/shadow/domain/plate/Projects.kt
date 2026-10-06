@@ -351,6 +351,7 @@ class ProjectLifecycleUseCase(
                     baseline = ProjectContent(plates = listOf(PartPlate(settings = kept))),
                     presets = selected?.takeUnless { it.setupRequired }?.selection,
                     filamentColors = selected?.filamentColors.orEmpty(),
+                    bedType = selected?.bedType.orEmpty(),
                 ),
             )
         }
@@ -589,5 +590,14 @@ internal fun PlateState.projectBaseline(): PlateProject = project.copy(
     baseline = projectContent(),
     presets = profiles,
     filamentColors = presets?.filamentColors.orEmpty(),
+    bedType = presets?.bedType.orEmpty(),
+    // up_to_date(true, false) and up_to_date(true, true)
     otherChanges = false,
+    otherChangesBackup = false,
 )
+
+/**
+ * Plater::priv::update_project_dirty_from_presets()'s Slic3r::put_other_changes():
+ * the project, and its backup, are no longer up to date.
+ */
+internal fun PlateState.withOtherChanges(): PlateState = copy(project = project.copy(otherChanges = true, otherChangesBackup = true))

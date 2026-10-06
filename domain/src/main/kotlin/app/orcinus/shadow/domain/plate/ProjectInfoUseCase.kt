@@ -78,5 +78,5 @@ class ProjectInfoUseCase(
         return directory
     }
 
-    private fun markChanged() = repository.update { state -> state.copy(project = state.project.copy(otherChanges = true)) }
+    private fun markChanged() = repository.update { it.withOtherChanges() }
 }

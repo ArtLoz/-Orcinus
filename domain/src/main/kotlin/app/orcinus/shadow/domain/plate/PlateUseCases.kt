@@ -472,6 +472,8 @@ class PlateFilamentsUseCase(
             val outcome = action()
             platePresets.apply(before = selection, outcome = outcome)
             if (outcome !is PresetsOutcome.Success) return@launch
+            // on_select_preset() of a filament and the colour's update_project_dirty_from_presets().
+            repository.update { it.withOtherChanges() }
             val count = repository.state.value.profiles?.allFilaments?.size ?: return@launch
             plate(selection.allFilaments.size, count)
             val changed = index ?: (count - 1)
@@ -513,7 +515,11 @@ class SelectPresetUseCase(
             state.copy(changingPresets = true, problem = null, presetChange = null)
         }
         val selection = before ?: return
-        applicationScope.launch { platePresets.apply(selection, presetManager.selectBedType(value)) }
+        applicationScope.launch {
+            val outcome = presetManager.selectBedType(value)
+            platePresets.apply(selection, outcome)
+            if (outcome is PresetsOutcome.Success) repository.update { it.withOtherChanges() }
+        }
     }
 
     /**
@@ -562,8 +568,8 @@ class SelectPresetUseCase(
                 platePresets.apply(start, outcome)
                 if (outcome !is PresetsOutcome.Success) return@launch
                 updateFlushVolumes(start)
-                // The preset now holds other values, which slice differently.
-                repository.update { it.copy(result = null) }
+                // The preset now holds other values, which slice differently; Tab::on_presets_changed().
+                repository.update { it.copy(result = null).withOtherChanges() }
             }
         }
     }
@@ -628,7 +634,11 @@ class SelectPresetUseCase(
             }
             else -> {
                 platePresets.apply(before, outcome)
-                if (outcome is PresetsOutcome.Success) updateFlushVolumes(before)
+                if (outcome is PresetsOutcome.Success) {
+                    // Tab::select_preset()'s on_presets_changed(): update_project_dirty_from_presets().
+                    repository.update { it.withOtherChanges() }
+                    updateFlushVolumes(before)
+                }
             }
         }
     }
@@ -832,10 +842,10 @@ class AddModelToPlateUseCase(
 
     /**
      * Plater::add_file() of the documents the user picked at once; without
-     * [addsRecent], Plater::load_files() of files handed over, which joins
-     * no model to the recent files.
+     * [addFile], Plater::load_files() of files handed over, which joins no
+     * model to the recent files and names no project.
      */
-    operator fun invoke(references: List<ExternalDocumentReference>, addsRecent: Boolean = true) {
+    operator fun invoke(references: List<ExternalDocumentReference>, addFile: Boolean = true) {
         if (references.isEmpty() || !start()) return
         applicationScope.launch {
             val picked = mutableListOf<Pair<ExternalDocumentReference, ImportedModelFile>>()
@@ -848,14 +858,14 @@ class AddModelToPlateUseCase(
             val projects = picked.filter { (_, model) -> model.path.value.endsWith(".3mf", ignoreCase = true) }
             val models = picked.filterNot { it in projects }
             // add_file(): with "Add STL/STEP files to recent files list" the models join the recent files once they load.
-            val recentModels = if (addsRecent && preferences[AppConfigKeys.RECENT_MODELS] == "true") models.map { it.first } else emptyList()
+            val recentModels = if (addFile && preferences[AppConfigKeys.RECENT_MODELS] == "true") models.map { it.first } else emptyList()
             when {
                 // LoadFilesType::SingleOther, and MultipleOther: the files load together,
                 // asking whether they make one object; a plate without a name takes the first one's.
                 projects.isEmpty() -> {
                     val (document, model) = picked.first()
                     val files = ImportFiles(models.map { it.second.path }, askMulti = models.size > 1, recentModels = recentModels)
-                    load(files, ImportBatch(document = document, displayName = model.displayName), emptyMap(), emptyList())
+                    load(files, ImportBatch(document = document, displayName = model.displayName, namesProject = addFile), emptyMap(), emptyList())
                 }
                 // Single3MF, Multiple3MF and Multiple3MFOther: the first 3MF file opens
                 // as open_3mf_file() opens it, then the other 3MF files and the other
@@ -1167,7 +1177,8 @@ class AddModelToPlateUseCase(
                         informed.copy(
                             importing = batch.rest.isNotEmpty(),
                             objects = added,
-                            selectedInstances = loaded,
+                            // load_files() selects what it added only without load_config.
+                            selectedInstances = emptySet(),
                             selectedPart = null,
                             selectedRange = null,
                             simplifyTarget = null,
@@ -1208,7 +1219,8 @@ class AddModelToPlateUseCase(
                         informed.copy(
                             importing = batch.rest.isNotEmpty(),
                             objects = added,
-                            selectedInstances = loaded,
+                            // Plater::load_project() loads with load_config: nothing is selected.
+                            selectedInstances = emptySet(),
                             selectedPart = null,
                             selectedRange = null,
                             simplifyTarget = null,
@@ -1228,7 +1240,7 @@ class AddModelToPlateUseCase(
                     } else {
                         // Plater::add_file(): an untitled plate takes the name of the
                         // first model file it loads, a 3MF file's geometry aside.
-                        val name = batch.displayName?.takeIf { batch.load == ModelLoad.GEOMETRY && !batch.chosen && added.isNotEmpty() }
+                        val name = batch.displayName?.takeIf { batch.namesProject && added.isNotEmpty() }
                         val named = if (name != null && state.project.name == null) {
                             informed.copy(project = state.project.copy(name = projectNameOf(name)))
                         } else {

@@ -112,12 +112,16 @@ class ProjectBackupUseCase(
             }
     }
 
-    /** MainFrame's backup callback: up_to_date(false, true), then export_3mf() of the backup. */
+    /**
+     * MainFrame's backup callback: up_to_date(false, true), nothing changed
+     * since the project was opened or saved, or since its last backup, then
+     * export_3mf() of the backup.
+     */
     private suspend fun backUp() {
         val state = repository.state.value
-        if (state.busy || state.projectUpToDate) return
+        if (state.busy || state.objects.isEmpty()) return
         val content = state.projectContent()
-        if (content == backedUp) return
+        if (content == (backedUp ?: state.project.baseline) && !state.project.otherChangesBackup) return
         val profiles = state.profiles ?: return
         val file = files.pendingFile()
         val plates = state.partPlates().map { plate ->
@@ -140,6 +144,10 @@ class ProjectBackupUseCase(
         if (outcome !is ProjectSaveOutcome.Success) return
         // origin.txt: the document the project was opened from or saved to.
         val origin = BackupOrigin(state.project.document, state.project.name?.takeIf { state.project.document != null })
-        if (files.commit(origin)) backedUp = content
+        if (files.commit(origin)) {
+            backedUp = content
+            // up_to_date(true, true)
+            repository.update { it.copy(project = it.project.copy(otherChangesBackup = false)) }
+        }
     }
 }
