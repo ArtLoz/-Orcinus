@@ -98,6 +98,7 @@ import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
+import app.orcinus.shadow.core.ui.plate.NameErrorDialog
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateAvailableNotification
@@ -713,33 +714,6 @@ internal fun PreviewScreen(
     nameError?.let { message ->
         NameErrorDialog(message, onDismiss = { nameError = null })
     }
-}
-
-/**
- * show_error() with a monospaced font, as Plater shows a PlaceholderParserError:
- * "Failed processing of the filename_format template." and the parser's message.
- */
-@Composable
-private fun NameErrorDialog(message: String, onDismiss: () -> Unit) {
-    val colors = OrcaTheme.colors
-    val first = message.substringBefore('\n')
-    val rest = message.substringAfter('\n', "")
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { OrcaButton(orcaString("OK"), onClick = onDismiss) },
-        title = { Text(orcaString("Error"), style = OrcaTheme.typography.head16) },
-        text = {
-            Text(
-                text = orcaString(first) + if (rest.isEmpty()) "" else "\n" + rest,
-                color = colors.text,
-                style = OrcaTheme.typography.body13.copy(fontFamily = FontFamily.Monospace),
-            )
-        },
-        containerColor = colors.window,
-        titleContentColor = colors.text,
-        textContentColor = colors.text,
-        shape = OrcaTheme.shapes.window,
-    )
 }
 
 /** What the upload did, as the desktop app reports it. */

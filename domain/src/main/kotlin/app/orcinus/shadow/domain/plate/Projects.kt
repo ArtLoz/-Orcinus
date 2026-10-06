@@ -185,7 +185,18 @@ class SaveProjectUseCase(
      * The name a sliced plate's file is offered under: the G-code's, as
      * output_filepath_for_project() names it, with ".gcode.3mf".
      */
-    fun slicedName(): String? = repository.state.value.result?.gcode?.value?.let { java.io.File(it).name.removeSuffix(".gcode") + ".gcode.3mf" }
+    /**
+     * export_gcode_3mf()'s default name: the G-code's name filename_format made
+     * (output_filepath_for_project()) with ".gcode.3mf" for its extension.
+     */
+    fun slicedName(): String? {
+        val result = repository.state.value.result ?: return null
+        val name = result.outputName.ifEmpty { java.io.File(result.gcode.value).name }
+        return (if ('.' in name) name.substringBeforeLast('.') else name) + ".gcode.3mf"
+    }
+
+    /** The PlaceholderParserError that stops "Export plate sliced file"; null when the template named the G-code. */
+    fun slicedNameError(): String? = repository.state.value.result?.outputNameError?.ifEmpty { null }
 
     /**
      * Plater::export_3mf() of [state] into [file], with the G-code of the

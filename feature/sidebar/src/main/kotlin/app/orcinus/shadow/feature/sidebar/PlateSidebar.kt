@@ -19,6 +19,7 @@ import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.ui.ExportResultDialog
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
+import app.orcinus.shadow.core.ui.plate.NameErrorDialog
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.VolumesMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuState
@@ -32,6 +33,7 @@ import app.orcinus.shadow.domain.plate.BedShapeFilesUseCase
 import app.orcinus.shadow.domain.plate.CopyLayerRangesUseCase
 import app.orcinus.shadow.domain.plate.CutConnectorsUseCase
 import app.orcinus.shadow.domain.plate.EditLayerHeightsUseCase
+import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
 import app.orcinus.shadow.domain.plate.ExportPlateMeshesUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
 import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
@@ -437,6 +439,7 @@ class SidebarViewModel(
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
     private val reloadFromDiskUseCase: ReloadFromDiskUseCase,
     private val saveProject: SaveProjectUseCase,
+    private val exportGcode: ExportGcodeUseCase,
     private val exportToolpaths: ExportToolpathsUseCase,
     private val exportPlateMeshes: ExportPlateMeshesUseCase? = null,
     private val selectionMenu: SelectionMenuUseCase? = null,
@@ -546,6 +549,17 @@ class SidebarViewModel(
 
     /** The name "Export plate sliced file" offers. */
     fun slicedName(): String? = saveProject.slicedName()
+
+    fun slicedNameError(): String? = saveProject.slicedNameError()
+
+    /** The File menu's "Export G-code": the name filename_format made, why it could not, and the export. */
+    fun gcodeName(): String = exportGcode.suggestedName() ?: "plate.gcode"
+
+    fun gcodeNameError(): String? = exportGcode.nameError()
+
+    fun exportGcode(document: ExternalDocumentReference) {
+        viewModelScope.launch { exportGcode.invoke(document) }
+    }
 
     /** Plater::export_core_3mf() into [document]. */
     fun exportGeneric(document: ExternalDocumentReference) {
@@ -1368,6 +1382,8 @@ internal class ProjectActions(
     val share: () -> Unit = {},
     /** "Export plate sliced file" (all = false) and "Export all plate sliced file" of the Export menu. */
     val exportSliced: (all: Boolean) -> Unit = {},
+    /** The File menu's "Export G-code" of the current plate. */
+    val exportGcode: () -> Unit = {},
     /** "Export all objects as one STL" (multi = false) or "as STLs", and their DRC kin. */
     val exportMeshes: (format: MeshFormat, multi: Boolean) -> Unit = { _, _ -> },
     /** "Export Generic 3MF". */
@@ -1519,6 +1535,15 @@ private fun ProjectTitle(
                         actions.exportSliced(true)
                     },
                     enabled = canExportAllSliced,
+                )
+                // MainFrame::can_export_gcode(): the plate's G-code is ready for print.
+                OrcaMenuItem(
+                    text = orcaString("Export G-code") + "…",
+                    onClick = {
+                        fileMenu = false
+                        actions.exportGcode()
+                    },
+                    enabled = canExportSliced,
                 )
                 OrcaMenuItem(
                     text = orcaString("Export toolpaths as OBJ") + "…",
@@ -1699,6 +1724,9 @@ private const val MESH_MIME_TYPE = "application/octet-stream"
 /** The media type of a 3MF project. */
 private const val PROJECT_MIME_TYPE = "model/3mf"
 
+/** The G-code the File menu exports. */
+private const val GCODE_MIME_TYPE = "text/x-gcode"
+
 /** The OBJ file of "Export toolpaths as OBJ" and its materials. */
 private const val OBJ_MIME_TYPE = "model/obj"
 private const val MATERIALS_MIME_TYPE = "model/mtl"
@@ -1790,9 +1818,20 @@ fun PlateSidebar(
     val slicedPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME_TYPE)) { uri ->
         if (uri != null) viewModel.exportSliced(ExternalDocumentReference(uri.toString()), exportingAll)
     }
+    // Plater::export_gcode() and export_gcode_3mf(): a template that could not name the file shows its error.
+    var nameError by remember { mutableStateOf<String?>(null) }
+    nameError?.let { message -> NameErrorDialog(message, onDismiss = { nameError = null }) }
+    val gcodePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(GCODE_MIME_TYPE)) { uri ->
+        if (uri != null) viewModel.exportGcode(ExternalDocumentReference(uri.toString()))
+    }
+    val exportGcode = {
+        viewModel.gcodeNameError()?.let { nameError = it } ?: gcodePicker.launch(viewModel.gcodeName())
+    }
     val exportSliced: (Boolean) -> Unit = { all ->
-        exportingAll = all
-        slicedPicker.launch(viewModel.slicedName() ?: ((state.projectName ?: untitled) + ".gcode.3mf"))
+        viewModel.slicedNameError()?.let { nameError = it } ?: run {
+            exportingAll = all
+            slicedPicker.launch(viewModel.slicedName() ?: ((state.projectName ?: untitled) + ".gcode.3mf"))
+        }
     }
     // Plater::export_stl()'s file dialog for every object merged, or its folder dialog for a file each.
     var meshesFormat by rememberSaveable { mutableStateOf(MeshFormat.STL) }
@@ -2042,6 +2081,7 @@ fun PlateSidebar(
             new = viewModel::newProject,
             share = shareProject,
             exportSliced = exportSliced,
+            exportGcode = exportGcode,
             exportMeshes = exportMeshes,
             exportGeneric = exportGeneric,
             exportToolpaths = toolpathsWriter?.let { { toolpathsPicker.launch(viewModel.toolpathsName(untitled)) } },

@@ -877,6 +877,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         replaceAllVolumesUseCase = replaceAllVolumes,
         reloadFromDiskUseCase = reloadFromDisk,
         saveProject = saveProject,
+        exportGcode = exportGcode,
         exportToolpaths = ExportToolpathsUseCase(AppDocumentExport(applicationContext), sceneFiles, plateRepository),
         exportPlateMeshes = ExportPlateMeshesUseCase(
             engine,
