@@ -79,6 +79,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
@@ -1107,6 +1108,9 @@ internal fun PrepareScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    // A tool's window stands over the notifications, which its
+                    // buttons would otherwise lie under on a phone.
+                    .zIndex(1f)
                     .padding(top = 12.dp, start = CanvasMargin, end = CanvasMargin)
                     .onGloballyPositioned { topControlsBottom = it.boundsInParent().bottom },
                 horizontalAlignment = Alignment.CenterHorizontally,

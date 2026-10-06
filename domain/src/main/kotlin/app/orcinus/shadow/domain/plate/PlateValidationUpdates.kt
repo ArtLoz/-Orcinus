@@ -90,8 +90,13 @@ class PlateValidationUpdates(
     }
 }
 
-/** The object as the engine validates it: the calibration cube without a name of its own goes by the one the app shows. */
+/**
+ * The object as the engine validates it: the calibration cube without a name
+ * of its own, and an object written anew from it (a part of its cut), go by
+ * the one the app shows (displayName()).
+ */
 private fun PlateObject.placedAs(language: EngineLanguage?): PlacedModel {
     val placed = placed()
-    return if (this is PlateObject.CalibrationCube && name == null && language != null) placed.copy(name = language.calibrationCubeName) else placed
+    val unnamedCube = this is PlateObject.CalibrationCube && name == null || this is PlateObject.ImportedModel && placed.name.isEmpty()
+    return if (unnamedCube && language != null) placed.copy(name = language.calibrationCubeName) else placed
 }
