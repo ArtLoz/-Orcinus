@@ -2092,8 +2092,12 @@ class NativeSlicerEngine(context: Context) :
         }
     }
 
-    override suspend fun applySetup(models: List<String>, filaments: List<String>): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
-        NativeBindings.applySetup(models.toTypedArray(), filaments.toTypedArray()).toOutcome()
+    override suspend fun setupChangesInstallation(models: List<String>, filaments: List<String>): Boolean = whenReady({ false }) {
+        NativeBindings.setupChangesInstallation(models.toTypedArray(), filaments.toTypedArray())
+    }
+
+    override suspend fun applySetup(models: List<String>, filaments: List<String>, keepChanges: Boolean): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.applySetup(models.toTypedArray(), filaments.toTypedArray(), keepChanges).toOutcome()
     }
 
     override suspend fun applyDefaultSetup(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {

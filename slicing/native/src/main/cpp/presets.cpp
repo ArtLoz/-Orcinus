@@ -1243,7 +1243,52 @@ SetupFilaments describe_setup_filaments(const std::vector<std::string>& models)
     return result;
 }
 
-PresetState apply_setup(const std::vector<std::string>& models, const std::vector<std::string>& filaments)
+namespace {
+
+// GuideFrame::SaveProfile(): the vendors, models and nozzles of the printer
+// models the wizard installs, and the filaments it enables.
+bool setup_selection(const std::vector<std::string>& models, const std::vector<std::string>& filaments, VendorMap& vendors,
+                     std::map<std::string, std::string>& enabled_filaments, std::string& unknown)
+{
+    const setup::Catalog& data = setup_catalog();
+    for (const std::string& model_id : models) {
+        const setup::Model* model = find_setup_model(data, model_id);
+        if (model == nullptr) {
+            unknown = model_id;
+            return false;
+        }
+        vendors[model->vendor][model->model].insert(model->nozzle_diameters.begin(), model->nozzle_diameters.end());
+    }
+    for (const std::string& filament : filaments) {
+        enabled_filaments[filament] = "true";
+    }
+    return true;
+}
+
+}  // namespace
+
+bool setup_changes_installation(const std::vector<std::string>& models, const std::vector<std::string>& filaments)
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return false;
+    }
+    follow_config(engine());
+    VendorMap vendors;
+    std::map<std::string, std::string> enabled_filaments;
+    std::string unknown;
+    if (!setup_selection(models, filaments, vendors, enabled_filaments, unknown)) {
+        return false;
+    }
+    // check_unsaved_preset_changes = (enabled_vendors != old_enabled_vendors) || (enabled_filaments != old_enabled_filaments)
+    const VendorMap old_vendors = engine().config->vendors();
+    const std::map<std::string, std::string> old_filaments = engine().config->has_section(Slic3r::AppConfig::SECTION_FILAMENTS) ?
+                                                                 engine().config->get_section(Slic3r::AppConfig::SECTION_FILAMENTS) :
+                                                                 std::map<std::string, std::string>();
+    return vendors != old_vendors || enabled_filaments != old_filaments;
+}
+
+PresetState apply_setup(const std::vector<std::string>& models, const std::vector<std::string>& filaments, const bool keep_changes)
 {
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
     if (engine().bundle == nullptr) {
@@ -1257,20 +1302,25 @@ PresetState apply_setup(const std::vector<std::string>& models, const std::vecto
         follow_config(engine());
 
         // GuideFrame::SaveProfile()
-        const setup::Catalog& data = setup_catalog();
         VendorMap vendors;
-        for (const std::string& model_id : models) {
-            const setup::Model* model = find_setup_model(data, model_id);
-            if (model == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Unknown printer model: " + model_id);
-            }
-            vendors[model->vendor][model->model].insert(model->nozzle_diameters.begin(), model->nozzle_diameters.end());
-        }
         std::map<std::string, std::string> enabled_filaments;
-        for (const std::string& filament : filaments) {
-            enabled_filaments[filament] = "true";
+        std::string unknown;
+        if (!setup_selection(models, filaments, vendors, enabled_filaments, unknown)) {
+            return preset_failure(SceneStatus::profile_not_found, "Unknown printer model: " + unknown);
         }
         engine().config->set("firstguide", "finish", "1");
+
+        // GUI_App::check_and_keep_current_preset_changes() of the wizard with
+        // "Keep": every tab caches its changes (Tab::cache_config_diff()).
+        std::vector<PresetKind> kept;
+        if (keep_changes) {
+            for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {
+                if (preset_collection(bundle, kind).current_is_dirty()) {
+                    detail::cache_preset_changes(kind);
+                    kept.push_back(kind);
+                }
+            }
+        }
 
         // GuideFrame::apply_config(): Orca's "custom" printers are considered first, then 3rd party.
         const VendorMap old_vendors = engine().config->vendors();
@@ -1289,6 +1339,11 @@ PresetState apply_setup(const std::vector<std::string>& models, const std::vecto
         }
         if (!bundle.apply_vendor_config(vendors, enabled_filaments, engine().config.get(), true, preferred_model, preferred_variant)) {
             return preset_failure(SceneStatus::write_failed, "Unable to install the vendor bundles");
+        }
+        // GUI_App::apply_keeped_preset_modifications(): the presets the wizard
+        // left selected take the changes (Tab::apply_config_from_cache()).
+        for (const PresetKind kind : kept) {
+            detail::reload_tab(kind);
         }
         save_config(engine());
         engine().config_existed = true;

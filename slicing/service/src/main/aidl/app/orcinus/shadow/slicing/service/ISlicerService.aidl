@@ -468,7 +468,8 @@ interface ISlicerService {
      */
     SetupPrintersParcel setupPrinters();
     SetupFilamentsParcel setupFilaments(in String[] models);
-    PresetsParcel applySetup(in String[] models, in String[] filaments);
+    PresetsParcel applySetup(in String[] models, in String[] filaments, boolean keepChanges);
+    boolean setupChangesInstallation(in String[] models, in String[] filaments);
     PresetsParcel applyDefaultSetup();
 
     /**

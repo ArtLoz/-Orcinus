@@ -2073,9 +2073,17 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_describeSetupFilamen
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_applySetup(JNIEnv* env, jobject /* this */, jobjectArray models, jobjectArray filaments)
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_applySetup(
+    JNIEnv* env, jobject /* this */, jobjectArray models, jobjectArray filaments, jboolean keep_changes)
 {
-    return to_java(env, orcinus::orca::apply_setup(to_strings(env, models), to_strings(env, filaments)));
+    return to_java(env, orcinus::orca::apply_setup(to_strings(env, models), to_strings(env, filaments), keep_changes == JNI_TRUE));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_setupChangesInstallation(
+    JNIEnv* env, jobject /* this */, jobjectArray models, jobjectArray filaments)
+{
+    return orcinus::orca::setup_changes_installation(to_strings(env, models), to_strings(env, filaments)) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jobject JNICALL

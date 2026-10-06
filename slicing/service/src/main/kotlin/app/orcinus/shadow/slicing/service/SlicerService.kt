@@ -1013,8 +1013,11 @@ abstract class SlicerService<E> : Service()
         override fun setupFilaments(models: Array<String>): SetupFilamentsParcel =
             runBlocking { engine.setupFilaments(models.toList()) }.toParcel()
 
-        override fun applySetup(models: Array<String>, filaments: Array<String>): PresetsParcel =
-            runBlocking { engine.applySetup(models.toList(), filaments.toList()) }.toParcel()
+        override fun applySetup(models: Array<String>, filaments: Array<String>, keepChanges: Boolean): PresetsParcel =
+            runBlocking { engine.applySetup(models.toList(), filaments.toList(), keepChanges) }.toParcel()
+
+        override fun setupChangesInstallation(models: Array<String>, filaments: Array<String>): Boolean =
+            runBlocking { engine.setupChangesInstallation(models.toList(), filaments.toList()) }
 
         override fun applyDefaultSetup(): PresetsParcel = runBlocking { engine.applyDefaultSetup() }.toParcel()
 

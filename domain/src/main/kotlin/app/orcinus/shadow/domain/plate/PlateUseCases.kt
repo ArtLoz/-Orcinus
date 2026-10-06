@@ -678,10 +678,24 @@ class ApplySetupUseCase(
     private val platePresets: PlatePresets,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    /**
+     * check_and_keep_current_preset_changes() of the wizard: true to keep the
+     * presets' unsaved changes, false when they were saved, discarded or none,
+     * null for Cancel.
+     */
+    private val keepPresetChanges: suspend () -> Boolean? = { false },
 ) {
-    /** Installs the printer models with the ids [models] and the [filaments]. */
-    suspend operator fun invoke(models: List<String>, filaments: List<String>): PresetsOutcome? =
-        change { presetManager.applySetup(models, filaments) }
+    /**
+     * Installs the printer models with the ids [models] and the [filaments];
+     * null while the plate is busy or when the user cancels the question about
+     * the presets' unsaved changes.
+     */
+    suspend operator fun invoke(models: List<String>, filaments: List<String>): PresetsOutcome? {
+        // GuideFrame::apply_config(): the wizard that changes the installed
+        // printers or filaments asks about the presets' unsaved changes first.
+        val keep = if (presetManager.setupChangesInstallation(models, filaments)) keepPresetChanges() ?: return null else false
+        return change { presetManager.applySetup(models, filaments, keep) }
+    }
 
     /** OrcaSlicer's default printer and filament, when no printer is installed. */
     suspend fun defaults(): PresetsOutcome? = change { presetManager.applyDefaultSetup() }

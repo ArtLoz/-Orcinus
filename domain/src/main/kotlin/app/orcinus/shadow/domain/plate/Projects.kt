@@ -441,6 +441,44 @@ class ProjectLifecycleUseCase(
     }
 
     /**
+     * GUI_App::check_and_keep_current_preset_changes() of GuideFrame::apply_config():
+     * the Setup Wizard that changes the installed printers or filaments asks
+     * what happens to the presets' unsaved changes. True keeps them for the
+     * presets the wizard leaves selected; false when they were saved,
+     * discarded or there were none; null for Cancel, which applies nothing.
+     */
+    suspend fun keepPresetChangesForSetup(): Boolean? {
+        val dirty = dirtyPresets() ?: return false
+        val prompt = ProjectPrompt.PresetChanges(
+            OrcaText("Configuration package changed"),
+            listOf(OrcaText("The configuration package is changed in previous Config Guide")),
+            dirty,
+            transfer = true,
+            save = true,
+        )
+        when (rememberedPresetAction(KEEP or SAVE)) {
+            ACTION_TRANSFER -> return true
+            ACTION_DISCARD, ACTION_SAVE -> {
+                resetModifications()
+                return false
+            }
+        }
+        return when (val answer = askPresetChanges(prompt)) {
+            null -> null
+            PresetChangesAnswer.Transfer -> true
+            PresetChangesAnswer.Discard -> {
+                resetModifications()
+                false
+            }
+            is PresetChangesAnswer.Save -> {
+                savePresets(dirty, answer)
+                resetModifications()
+                false
+            }
+        }
+    }
+
+    /**
      * GUI_App::check_and_save_current_preset_changes() before a project
      * loads: the changes are saved as presets, or left to the project's own.
      */

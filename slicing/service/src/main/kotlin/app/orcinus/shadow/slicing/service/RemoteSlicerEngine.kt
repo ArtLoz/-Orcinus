@@ -1127,8 +1127,11 @@ class RemoteSlicerEngine(
     override suspend fun setupFilaments(models: List<String>): SetupFilamentsOutcome =
         remote(SetupFilamentsOutcome::Failure) { setupFilaments(models.toTypedArray()).toSetupFilamentsOutcome() }
 
-    override suspend fun applySetup(models: List<String>, filaments: List<String>): PresetsOutcome =
-        remote(PresetsOutcome::Failure) { applySetup(models.toTypedArray(), filaments.toTypedArray()).toPresetsOutcome() }
+    override suspend fun setupChangesInstallation(models: List<String>, filaments: List<String>): Boolean =
+        remote({ false }) { setupChangesInstallation(models.toTypedArray(), filaments.toTypedArray()) }
+
+    override suspend fun applySetup(models: List<String>, filaments: List<String>, keepChanges: Boolean): PresetsOutcome =
+        remote(PresetsOutcome::Failure) { applySetup(models.toTypedArray(), filaments.toTypedArray(), keepChanges).toPresetsOutcome() }
 
     override suspend fun applyDefaultSetup(): PresetsOutcome = remote(PresetsOutcome::Failure) { applyDefaultSetup().toPresetsOutcome() }
 

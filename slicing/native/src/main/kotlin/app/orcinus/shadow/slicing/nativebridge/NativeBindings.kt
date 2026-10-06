@@ -2222,7 +2222,9 @@ internal object NativeBindings {
     /** For the printer model ids [models]. */
     external fun describeSetupFilaments(models: Array<String>): NativeSetupFilaments
 
-    external fun applySetup(models: Array<String>, filaments: Array<String>): NativePresetState
+    external fun applySetup(models: Array<String>, filaments: Array<String>, keepChanges: Boolean): NativePresetState
+
+    external fun setupChangesInstallation(models: Array<String>, filaments: Array<String>): Boolean
 
     external fun applyDefaultSetup(): NativePresetState
 

@@ -922,7 +922,15 @@ interface PresetManager {
      * [models], each with all its nozzle diameters, and the [filaments] in place
      * of the installed ones, and selects the printer it added first.
      */
-    suspend fun applySetup(models: List<String>, filaments: List<String>): PresetsOutcome
+    suspend fun applySetup(models: List<String>, filaments: List<String>, keepChanges: Boolean = false): PresetsOutcome
+
+    /**
+     * GuideFrame::apply_config()'s check_unsaved_preset_changes: the wizard
+     * installs other printers or filaments than the app has, after which the
+     * presets' unsaved changes are asked about; [applySetup] with keepChanges
+     * moves them into the presets it leaves selected.
+     */
+    suspend fun setupChangesInstallation(models: List<String>, filaments: List<String>): Boolean = false
 
     /** The Setup Wizard closed while no printer is installed: OrcaSlicer's default printer and filament. */
     suspend fun applyDefaultSetup(): PresetsOutcome

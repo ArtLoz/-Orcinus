@@ -1464,7 +1464,14 @@ SetupFilaments describe_setup_filaments(const std::vector<std::string>& models);
 // installs the printer models (model ids), each with all its nozzle diameters,
 // and the filaments in place of the installed ones, selects the first printer
 // the wizard added (PresetBundle::apply_vendor_config), and saves the configuration.
-PresetState apply_setup(const std::vector<std::string>& models, const std::vector<std::string>& filaments);
+PresetState apply_setup(const std::vector<std::string>& models, const std::vector<std::string>& filaments, bool keep_changes = false);
+
+// GuideFrame::apply_config()'s check_unsaved_preset_changes: the wizard
+// installs other printers or filaments than the app configuration has, after
+// which the presets' unsaved changes are asked about. With keep_changes,
+// apply_setup() moves them into the presets the wizard leaves selected
+// (cache_config_diff() and apply_keeped_preset_modifications()).
+bool setup_changes_installation(const std::vector<std::string>& models, const std::vector<std::string>& filaments);
 
 // GuideFrame::run() when the wizard closes while only default printers are
 // installed: OrcaSlicer's default printer and filament. Saves the configuration,

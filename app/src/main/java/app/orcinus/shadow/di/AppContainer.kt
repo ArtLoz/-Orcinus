@@ -290,7 +290,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val platePresets: PlatePresets =
         PlatePresets(engine, sceneFiles, plateCache, plateRepository, placePlateObjects, settingsTabs) { autoSlice.onConfigChange() }
     private val selectPreset = SelectPresetUseCase(engine, platePresets, flushVolumes, settingsTabs, plateRepository, applicationScope)
-    private val applySetup = ApplySetupUseCase(engine, platePresets, plateRepository, applicationScope)
+    private val applySetup = ApplySetupUseCase(engine, platePresets, plateRepository, applicationScope) {
+        projectLifecycle.keepPresetChangesForSetup()
+    }
 
     /** The language the engine was last told, for the messages the app asks it for again in it. */
     private val engineLanguage = MutableStateFlow<EngineLanguage?>(null)

@@ -4938,7 +4938,7 @@ class PlateUseCasesTest {
 
         override suspend fun setupFilaments(models: List<String>) = SetupFilamentsOutcome.Failure("not used")
 
-        override suspend fun applySetup(models: List<String>, filaments: List<String>): PresetsOutcome {
+        override suspend fun applySetup(models: List<String>, filaments: List<String>, keepChanges: Boolean): PresetsOutcome {
             appliedSetup = models to filaments
             return setup
         }

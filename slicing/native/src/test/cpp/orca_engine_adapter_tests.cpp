@@ -1156,6 +1156,20 @@ TEST_CASE("Selecting another preset asks what happens to the unsaved changes", "
         REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
     }
 
+    SECTION("the Setup Wizard that installs another printer keeps the changes when asked to")
+    {
+        // GuideFrame::apply_config(): check_unsaved_preset_changes, then
+        // apply_keeped_preset_modifications() for "Keep".
+        CHECK(orca::setup_changes_installation({"Creality K2 Plus", "Bambu Lab A1"}, {"Generic PLA @K2 Plus-all"}));
+        REQUIRE(orca::apply_setup({"Creality K2 Plus", "Bambu Lab A1"}, {"Generic PLA @K2 Plus-all"}, true).status == orca::SceneStatus::success);
+        const orca::PresetSettings kept = orca::describe_settings(print, quality, {});
+        CHECK(kept.dirty);
+        CHECK(value_of(kept, "layer_height") == "0.16");
+        REQUIRE(orca::select_preset(orca::PresetChoice::process, standard, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+        REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+        REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    }
+
     // The tests that follow slice with the unchanged preset.
     REQUIRE(orca::select_preset(orca::PresetChoice::process, standard, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
     CHECK_FALSE(orca::describe_settings(print, quality, {}).dirty);

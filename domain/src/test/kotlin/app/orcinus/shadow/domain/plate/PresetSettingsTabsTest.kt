@@ -732,7 +732,7 @@ class PresetSettingsTabsTest {
 
         override suspend fun setupFilaments(models: List<String>) = SetupFilamentsOutcome.Failure("not used")
 
-        override suspend fun applySetup(models: List<String>, filaments: List<String>) = PresetsOutcome.Failure("not used")
+        override suspend fun applySetup(models: List<String>, filaments: List<String>, keepChanges: Boolean) = PresetsOutcome.Failure("not used")
 
         override suspend fun applyDefaultSetup() = PresetsOutcome.Failure("not used")
     }
