@@ -2,6 +2,7 @@ package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.storage.api.DocumentExport
@@ -24,16 +25,11 @@ class ExportToolpathsUseCase(
     class Materials internal constructor(internal val prefix: ScenePath, internal val path: String, val name: String)
 
     /**
-     * Plater::priv::get_export_file(FT_OBJ): the project's name, or else the
-     * name of the first object with a printable copy
-     * (Model::propose_export_file_name_and_path()), or of the first object,
-     * with ".obj"; [untitled] for none.
+     * Plater::priv::get_export_file(FT_OBJ): exportFileBase() with ".obj";
+     * [untitled] for none.
      */
     fun suggestedName(untitled: String): String {
-        val state = repository.state.value
-        val objects = state.objects
-        val named = objects.firstOrNull { plateObject -> plateObject.instances.any { it.printable } } ?: objects.firstOrNull()
-        val base = state.project.name ?: named?.exportName()?.substringBeforeLast('.')?.ifEmpty { null } ?: untitled
+        val base = repository.state.value.exportFileBase() ?: untitled
         return "$base.obj"
     }
 
@@ -68,3 +64,17 @@ class ExportToolpathsUseCase(
 
 /** ModelObject::get_export_filename(): the object's name, which the engine gives the calibration cube when it has none. */
 internal fun PlateObject.exportName(): String = placed().name.ifEmpty { CALIBRATION_CUBE }
+
+/**
+ * Plater::priv::get_export_file_path() of a file named after the plate: the
+ * project's name, or else the selected object's
+ * (ModelObject::get_export_filename()), the first object's with a printable
+ * copy (Model::propose_export_file_name_and_path()), or the first object's,
+ * without its extension; null for none, which the desktop app calls "Untitled".
+ */
+internal fun PlateState.exportFileBase(): String? {
+    project.name?.let { return it }
+    val selected = selectedInstances.map { it.mesh }.distinct().singleOrNull()?.let { objects.withMesh(it) }
+    val named = selected ?: objects.firstOrNull { plateObject -> plateObject.instances.any { it.printable } } ?: objects.firstOrNull()
+    return named?.exportName()?.let { name -> if ('.' in name) name.substringBeforeLast('.') else name }?.ifEmpty { null }
+}

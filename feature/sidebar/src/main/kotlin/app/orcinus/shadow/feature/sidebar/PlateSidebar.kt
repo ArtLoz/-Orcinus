@@ -552,6 +552,9 @@ class SidebarViewModel(
 
     fun slicedNameError(): String? = saveProject.slicedNameError()
 
+    /** The name "Save Project as" and "Export Generic 3MF" offer (get_export_file(FT_3MF)). */
+    fun projectFileName(untitled: String): String = saveProject.projectFileName(untitled)
+
     /** The File menu's "Export G-code": the name filename_format made, why it could not, and the export. */
     fun gcodeName(): String = exportGcode.suggestedName() ?: "plate.gcode"
 
@@ -1807,7 +1810,7 @@ fun PlateSidebar(
         if (uri != null) viewModel.saveProject(ExternalDocumentReference(uri.toString()))
     }
     val untitled = orcaString("Untitled")
-    val saveProjectAs = { projectPicker.launch((state.projectName ?: untitled) + ".3mf") }
+    val saveProjectAs = { projectPicker.launch(viewModel.projectFileName(untitled)) }
     val context = LocalContext.current
     val shareScope = rememberCoroutineScope()
     val shareProject: () -> Unit = {
@@ -1857,7 +1860,7 @@ fun PlateSidebar(
     val genericPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME_TYPE)) { uri ->
         if (uri != null) viewModel.exportGeneric(ExternalDocumentReference(uri.toString()))
     }
-    val exportGeneric = { genericPicker.launch((state.projectName ?: untitled) + ".3mf") }
+    val exportGeneric = { genericPicker.launch(viewModel.projectFileName(untitled)) }
     // "Export toolpaths as OBJ": the preview's toolpaths go into the OBJ file
     // the user picks, and their materials into a second document beside it,
     // as a phone's picker grants the one document picked.

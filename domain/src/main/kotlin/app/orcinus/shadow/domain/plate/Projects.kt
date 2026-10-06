@@ -195,6 +195,9 @@ class SaveProjectUseCase(
         return (if ('.' in name) name.substringBeforeLast('.') else name) + ".gcode.3mf"
     }
 
+    /** get_export_file(FT_3MF): the name "Save Project as" and the 3MF exports offer; [untitled] for none. */
+    fun projectFileName(untitled: String): String = (repository.state.value.exportFileBase() ?: untitled) + ".3mf"
+
     /** The PlaceholderParserError that stops "Export plate sliced file"; null when the template named the G-code. */
     fun slicedNameError(): String? = repository.state.value.result?.outputNameError?.ifEmpty { null }
 

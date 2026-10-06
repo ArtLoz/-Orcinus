@@ -93,18 +93,13 @@ class ExportPlateMeshesUseCase(
 ) {
     /**
      * Plater::priv::get_export_file_path(): an STL file is named after the
-     * project; a Draco file too, once the project has a name, or else after
-     * the first object with a printable copy, or the first object
-     * (Model::propose_export_file_name_and_path()); [untitled] for none.
+     * project; a Draco file as exportFileBase() names it; [untitled] for none.
      */
     fun suggestedName(format: MeshFormat, untitled: String): String {
         val state = repository.state.value
         val base = when (format) {
             MeshFormat.STL -> state.project.name ?: untitled
-            MeshFormat.DRC -> state.project.name ?: state.objects.let { objects ->
-                (objects.firstOrNull { plateObject -> plateObject.instances.any { it.printable } } ?: objects.firstOrNull())
-                    ?.exportName()?.substringBeforeLast('.')?.ifEmpty { null }
-            } ?: untitled
+            MeshFormat.DRC -> state.exportFileBase() ?: untitled
         }
         return "$base.${format.extension}"
     }
