@@ -332,6 +332,81 @@ std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::Pr
     return items;
 }
 
+// Plater::get_curr_printer_model(): the system model of the selected printer,
+// or of the preset it inherits from.
+const Slic3r::VendorProfile::PrinterModel* current_printer_model(Slic3r::PresetBundle& bundle)
+{
+    const Slic3r::VendorProfile::PrinterModel* model = Slic3r::PresetUtils::system_printer_model(bundle.printers.get_selected_preset());
+    if (model == nullptr) {
+        if (const Slic3r::Preset* parent = bundle.printers.get_selected_preset_parent(); parent != nullptr) {
+            model = Slic3r::PresetUtils::system_printer_model(*parent);
+        }
+    }
+    return model;
+}
+
+// Sidebar::reset_bed_type_combox_choices(): the plate types of curr_bed_type
+// the printer model supports, every one for a printer without a system model.
+std::vector<Slic3r::BedType> printer_bed_types(Slic3r::PresetBundle& bundle)
+{
+    std::vector<Slic3r::BedType> types;
+    const Slic3r::VendorProfile::PrinterModel* pm = current_printer_model(bundle);
+    const Slic3r::ConfigOptionDef* bed_type_def = Slic3r::print_config_def.get("curr_bed_type");
+    int index = 0;
+    for (const std::string& item : bed_type_def->enum_labels) {
+        index++;
+        if (pm != nullptr && std::find(pm->not_support_bed_types.begin(), pm->not_support_bed_types.end(), item) != pm->not_support_bed_types.end()) {
+            continue;
+        }
+        types.emplace_back(Slic3r::BedType(index));  // BedType //btPC =1
+    }
+    return types;
+}
+
+// Plater::priv::on_select_bed_type(): the project prints on new_bed_type, which
+// the app configuration remembers, also for the selected printer.
+bool set_bed_type(Slic3r::PresetBundle& bundle, const Slic3r::BedType new_bed_type)
+{
+    Slic3r::DynamicPrintConfig& proj_config = bundle.project_config;
+    const Slic3r::BedType old_bed_type = proj_config.opt_enum<Slic3r::BedType>("curr_bed_type");
+    if (old_bed_type == new_bed_type) {
+        return false;
+    }
+    proj_config.set_key_value("curr_bed_type", new Slic3r::ConfigOptionEnum<Slic3r::BedType>(new_bed_type));
+    engine().config->set("curr_bed_type", std::to_string(int(new_bed_type)));
+    engine().config->set_printer_setting(bundle.printers.get_selected_preset_name(), "curr_bed_type", std::to_string(int(new_bed_type)));
+    return true;
+}
+
+// Sidebar::update_all_preset_comboboxes() for another printer: a Bambu Lab
+// printer, or one that supports several plate types, takes the plate type the
+// app configuration remembers for it, or its default one; any other printer
+// takes its default. set_bed_type_accord_combox() selects the first type of
+// the combo box when the printer lacks that one.
+void update_bed_type(Slic3r::PresetBundle& bundle)
+{
+    Slic3r::Preset& printer = bundle.printers.get_edited_preset();
+    const Slic3r::DynamicPrintConfig& cfg = printer.config;
+    Slic3r::BedType bed_type = printer.get_default_bed_type(&bundle);
+    if (bundle.is_bbl_vendor() || cfg.opt_bool("support_multi_bed_types")) {
+        const std::string str_bed_type = engine().config->get_printer_setting(bundle.printers.get_selected_preset_name(), "curr_bed_type");
+        if (!str_bed_type.empty()) {
+            int bed_type_value = atoi(str_bed_type.c_str());
+            if (bed_type_value <= 0 || bed_type_value >= Slic3r::btCount) {
+                bed_type_value = printer.get_default_bed_type(&bundle);
+            }
+            bed_type = Slic3r::BedType(bed_type_value);
+        }
+    }
+    const std::vector<Slic3r::BedType> types = printer_bed_types(bundle);
+    if (!types.empty() && std::find(types.begin(), types.end(), bed_type) == types.end()) {
+        bed_type = types.front();
+    }
+    if (set_bed_type(bundle, bed_type)) {
+        save_config(engine());
+    }
+}
+
 PresetState preset_state(Slic3r::PresetBundle& bundle)
 {
     PresetState state;
@@ -375,28 +450,27 @@ PresetState preset_state(Slic3r::PresetBundle& bundle)
     state.nozzle_diameters = std::move(diameters);
     state.nozzle_diameter = nozzle;
 
-    // PlateSettingsDialog: the bed types of curr_bed_type the printer model
-    // (Plater::get_curr_printer_model) supports, for a Bambu Lab printer.
-    if (bundle.is_bbl_vendor()) {
-        const Slic3r::Preset& printer = bundle.printers.get_selected_preset();
-        const Slic3r::VendorProfile::PrinterModel* model = Slic3r::PresetUtils::system_printer_model(printer);
-        if (model == nullptr) {
-            if (const Slic3r::Preset* parent = bundle.printers.get_selected_preset_parent(); parent != nullptr) {
-                model = Slic3r::PresetUtils::system_printer_model(*parent);
-            }
-        }
-        if (model != nullptr) {
-            const Slic3r::ConfigOptionDef* bed_type_def = Slic3r::print_config_def.get("curr_bed_type");
-            for (std::size_t index = 0; index < bed_type_def->enum_labels.size() && index < bed_type_def->enum_values.size(); ++index) {
-                const std::string& label = bed_type_def->enum_labels[index];
-                const auto& unsupported = model->not_support_bed_types;
-                if (std::find(unsupported.begin(), unsupported.end(), label) == unsupported.end()) {
-                    state.bed_type_values.push_back(bed_type_def->enum_values[index]);
-                    state.bed_type_labels.push_back(label);
-                }
-            }
-        }
+    // Sidebar::update_all_preset_comboboxes(): the project takes the plate type
+    // of a printer the sidebar shows anew; a loaded project keeps its own.
+    if (engine().bed_type_printer != state.selection.printer) {
+        engine().bed_type_printer = state.selection.printer;
+        update_bed_type(bundle);
     }
+    // The plate types of the sidebar's combo box and PlateSettingsDialog, which
+    // the sidebar shows for a Bambu Lab printer or one that supports several
+    // (panel_printer_bed), and the dialog lets a Bambu Lab printer choose.
+    const Slic3r::ConfigOptionDef* bed_type_def = Slic3r::print_config_def.get("curr_bed_type");
+    const auto value_of = [bed_type_def](const Slic3r::BedType type) {
+        const std::size_t index = std::size_t(type) - 1;
+        return index < bed_type_def->enum_values.size() ? bed_type_def->enum_values[index] : std::string();
+    };
+    for (const Slic3r::BedType type : printer_bed_types(bundle)) {
+        state.bed_type_values.push_back(value_of(type));
+        state.bed_type_labels.push_back(bed_type_def->enum_labels[std::size_t(type) - 1]);
+    }
+    state.bed_type = value_of(bundle.project_config.opt_enum<Slic3r::BedType>("curr_bed_type"));
+    state.bed_type_selectable = bundle.is_bbl_vendor() || bundle.printers.get_edited_preset().config.opt_bool("support_multi_bed_types");
+    state.plate_bed_type_selectable = bundle.is_bbl_vendor();
     return state;
 }
 
@@ -635,6 +709,29 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
         detail::reload_tab_after_selection(kind);
         bundle.export_selections(*engine().config);
         save_config(engine());
+        return preset_state(bundle);
+    } catch (const std::exception& error) {
+        return preset_failure(SceneStatus::profile_not_found, error.what());
+    }
+}
+
+PresetState select_bed_type(const std::string& value)
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return preset_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+    }
+    try {
+        Slic3r::PresetBundle& bundle = *engine().bundle;
+        follow_config(engine());
+        const Slic3r::t_config_enum_values* keys_map = Slic3r::print_config_def.get("curr_bed_type")->enum_keys_map;
+        const auto found = keys_map->find(value);
+        if (found == keys_map->end()) {
+            return preset_failure(SceneStatus::profile_not_found, "Unknown plate type: " + value);
+        }
+        if (set_bed_type(bundle, Slic3r::BedType(found->second))) {
+            save_config(engine());
+        }
         return preset_state(bundle);
     } catch (const std::exception& error) {
         return preset_failure(SceneStatus::profile_not_found, error.what());

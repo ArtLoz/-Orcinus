@@ -37,6 +37,8 @@ CONFIG_VALUE_DIFFERENCES = {
     'extruder_ams_count': 'the app configuration remembers it per printer (export_selections), which turns no AMS '
                           'into one empty entry, as in the desktop app after a restart; the command line reads no '
                           'app configuration',
+    'curr_bed_type': "the desktop app's sidebar gives the project the printer's plate type "
+                     '(Sidebar::update_all_preset_comboboxes), the command line keeps the default Cool Plate',
 }
 DESKTOP_ONLY_KEYS = {'compatible_printers_condition', 'different_settings_to_system', 'inherits_group'}
 ANDROID_ONLY_KEYS = {

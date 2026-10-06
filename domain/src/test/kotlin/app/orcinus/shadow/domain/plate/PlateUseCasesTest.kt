@@ -3,6 +3,7 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.ArrangeSettings
+import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.CutId
 import app.orcinus.shadow.core.model.CutInfo
 import app.orcinus.shadow.core.model.Axis
@@ -2587,6 +2588,38 @@ class PlateUseCasesTest {
         assertEquals(PlateManipulation.UpdatePrintVolume, inspector.plateManipulation)
         assertEquals(BuildVolumeFit.OUTSIDE, state.objects.single().inspection.fit)
         assertFalse(state.objects.single().placing)
+    }
+
+    @Test
+    fun `another plate type drops the G-code of the plates on the project's, and a printer without a plate's own type drops it`() {
+        val result = PlateSliceResult(SliceJobId("old"), listOf(CUBE), OutputPath("/gcode/old.gcode"), STATISTICS)
+        val types = listOf(BedTypeChoice("Cool Plate", "Smooth Cool Plate"), BedTypeChoice("Textured PEI Plate", "Textured PEI Plate"))
+        val pei = PRESETS.copy(bedTypes = types, bedType = "Textured PEI Plate", bedTypeSelectable = true)
+        val ownType = PartPlate(settings = ModelSettings(mapOf("curr_bed_type" to "Cool Plate")), result = result)
+        val repository = FakeRepository(
+            readyState(CUBE).copy(plate = PLATE, presets = pei, result = result, plates = listOf(PartPlate(), ownType), enginePlate = EnginePlate(0, 2)),
+        )
+        val presets = object : PresetManager by FakePresetManager() {
+            override suspend fun selectBedType(value: String) = PresetsOutcome.Success(pei.copy(bedType = value))
+        }
+
+        // Plater::priv::on_select_bed_type(): the current plate prints on the
+        // project's plate type, the second one on its own.
+        SelectPresetUseCase(presets, platePresets(FakeInspector(), repository), NO_FLUSH_UPDATES, settingsTabs(repository), repository, scope)
+            .selectBedType("Cool Plate")
+
+        assertEquals("Cool Plate", repository.state.value.presets?.bedType)
+        assertNull(repository.state.value.result)
+        assertEquals(result, repository.state.value.plates[1].result)
+
+        // PartPlateList::check_all_plate_local_bed_type(): a printer that lacks the second plate's own type.
+        val other = OTHER_PRINTER.copy(bedTypes = types.drop(1), bedType = "Textured PEI Plate")
+        val printers = FakePresetManager(selected = { PresetsOutcome.Success(other) })
+        SelectPresetUseCase(printers, platePresets(FakeInspector(), repository), NO_FLUSH_UPDATES, settingsTabs(repository), repository, scope)(
+            PresetChoice.Printer(ProfileId("other printer")),
+        )
+
+        assertNull(repository.state.value.plates[1].settings.values["curr_bed_type"])
     }
 
     @Test

@@ -5,6 +5,7 @@ import app.orcinus.shadow.core.model.BedFileOutcome
 import app.orcinus.shadow.core.model.BedPreview
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuiltInModel
@@ -251,9 +252,17 @@ class PlatePresets(
             is PresetsOutcome.UnsavedChanges -> outcome.presets
             is PresetsOutcome.Success -> outcome.presets
         }
+        var bedTypeChanged = false
         repository.update { state ->
             val updated = state.copy(presets = presets, changingPresets = false)
+            // Plater::priv::on_select_bed_type(): the G-code of the plates that
+            // print on the project's plate type no longer applies to another one.
+            bedTypeChanged = state.presets.let { it != null && it.bedType != presets.bedType }
             updated.copy(result = state.result.takeIf { updated.profiles == before })
+                .let { if (bedTypeChanged) it.withoutResultsOnProjectBedType() else it }
+                // Sidebar::reset_bed_type_combox_choices() for another printer:
+                // PartPlateList::check_all_plate_local_bed_type().
+                .let { if (before != null && before.printer != presets.selection.printer) it.withSupportedBedTypes(presets.bedTypes) else it }
         }
         val profiles = repository.state.value.profiles ?: return
         val plateChanged = before?.printer != profiles.printer || before.filament != profiles.filament
@@ -271,8 +280,32 @@ class PlatePresets(
             placePlateObjects(PlateManipulation.UpdatePrintVolume)
         }
         settingsTabs.refresh()
-        if (before != profiles) onConfigChange()
+        if (before != profiles || bedTypeChanged) onConfigChange()
     }
+}
+
+/** The plate type of a plate's own settings (PartPlate::get_bed_type), none for the project's. */
+private const val PLATE_BED_TYPE = "curr_bed_type"
+
+/** update_slice_result_valid_state(false) of every plate on the project's plate type (btDefault). */
+private fun PlateState.withoutResultsOnProjectBedType(): PlateState = copy(
+    result = result.takeIf { PLATE_BED_TYPE in plateSettings.values },
+    plates = plates.mapIndexed { index, plate ->
+        if (index == currentPlate || PLATE_BED_TYPE in plate.settings.values) plate else plate.copy(result = null, basis = null)
+    },
+)
+
+/**
+ * PartPlateList::check_all_plate_local_bed_type(): a plate whose own plate
+ * type the printer lacks prints on the project's (set_bed_type(btDefault)).
+ */
+private fun PlateState.withSupportedBedTypes(types: List<BedTypeChoice>): PlateState {
+    if (types.isEmpty()) return this
+    fun ModelSettings.supported(): ModelSettings {
+        val own = values[PLATE_BED_TYPE] ?: return this
+        return if (types.any { it.value == own }) this else ModelSettings(values - PLATE_BED_TYPE)
+    }
+    return copy(plateSettings = plateSettings.supported(), plates = plates.map { it.copy(settings = it.settings.supported()) })
 }
 
 /**
@@ -344,6 +377,22 @@ class SelectPresetUseCase(
         }
         val selection = before ?: return
         applicationScope.launch { select(choice, action, selection) }
+    }
+
+    /**
+     * Plater::priv::on_select_bed_type(): the sidebar's plate type, which the
+     * project prints on and OrcaSlicer remembers for the printer.
+     */
+    fun selectBedType(value: String) {
+        var before: SlicingProfileSelection? = null
+        repository.update { state ->
+            before = null
+            if (state.busy || state.objects.any(PlateObject::placing) || state.presets?.bedType == value) return@update state
+            before = state.profiles ?: return@update state
+            state.copy(changingPresets = true, problem = null, presetChange = null)
+        }
+        val selection = before ?: return
+        applicationScope.launch { platePresets.apply(selection, presetManager.selectBedType(value)) }
     }
 
     /**

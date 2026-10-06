@@ -1007,6 +1007,7 @@ internal fun PrepareScreen(
                 name = state.plateNames.getOrNull(index).orEmpty(),
                 choice = state.plateSettings,
                 bedTypes = state.bedTypes,
+                bedTypeSelectable = state.plateBedTypeSelectable,
                 filamentColors = state.filamentColors.map { Color(it.red, it.green, it.blue, it.alpha) },
                 spiralOn = state.spiralVaseMode,
                 i3 = state.printerI3,

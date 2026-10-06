@@ -254,6 +254,8 @@ data class PrepareUiState(
     /** GLGizmoCut3D::on_is_selectable(): the toolbar has Cut unless the app is in simple mode. */
     val cutSelectable: Boolean = true,
     val bedTypes: List<BedTypeChoice> = emptyList(),
+    /** PlateSettingsDialog chooses a plate's own type: a Bambu Lab printer. */
+    val plateBedTypeSelectable: Boolean = false,
     /** The current plate prints in spiral vase mode, its own or the process preset's. */
     val spiralVaseMode: Boolean = false,
     /** The printer's structure is I3 (printer_structure). */
@@ -1054,6 +1056,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         // wxGetApp().get_mode(), which the tabs describe their settings in.
         cutSelectable = settingsTabs[PresetKind.PRINT]?.settings?.mode != SettingsMode.SIMPLE,
         bedTypes = presets?.bedTypes.orEmpty(),
+        plateBedTypeSelectable = presets?.plateBedTypeSelectable == true,
         spiralVaseMode = spiralVaseMode(),
         printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",
         group = group,

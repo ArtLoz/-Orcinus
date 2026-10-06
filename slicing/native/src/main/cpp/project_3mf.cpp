@@ -630,6 +630,9 @@ void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialog
         // update app config for bed type
         if (bundle.is_bbl_vendor()) engine().config->set("curr_bed_type", std::to_string(bed_type_opt->getInt()));
     }
+    // update_all_preset_comboboxes() leaves the plate type alone while a
+    // project loads: the project prints on its own.
+    engine().bed_type_printer = bundle.printers.get_selected_preset_name();
 
     // GUI_App::load_current_presets(): every tab shows the selected presets.
     for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {

@@ -816,6 +816,12 @@ interface PresetManager {
     /** Every tab's preset loses its unsaved changes (Tab's discard_current_changes). */
     suspend fun discardPresetChanges(): PresetsOutcome = presets()
 
+    /**
+     * Plater::priv::on_select_bed_type(): the project prints on the plate type
+     * [value], one of curr_bed_type's, which OrcaSlicer remembers for the printer.
+     */
+    suspend fun selectBedType(value: String): PresetsOutcome = presets()
+
     /** A new project: the presets the project before brought go (reset_project_embedded_presets). */
     suspend fun resetProjectPresets(): PresetsOutcome = presets()
 

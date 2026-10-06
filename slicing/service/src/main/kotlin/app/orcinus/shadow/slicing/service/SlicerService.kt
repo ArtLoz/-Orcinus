@@ -981,6 +981,8 @@ abstract class SlicerService<E> : Service()
 
         override fun discardPresetChanges(): PresetsParcel = runBlocking { engine.discardPresetChanges() }.toParcel()
 
+        override fun selectBedType(value: String): PresetsParcel = runBlocking { engine.selectBedType(value) }.toParcel()
+
         override fun resetProjectPresets(): PresetsParcel = runBlocking { engine.resetProjectPresets() }.toParcel()
 
         override fun updateSavedPresets() = runBlocking { engine.updateSavedPresets() }

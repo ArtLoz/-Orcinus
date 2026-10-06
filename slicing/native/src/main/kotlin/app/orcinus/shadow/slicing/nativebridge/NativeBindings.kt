@@ -188,6 +188,9 @@ internal class NativePresetState(
     @JvmField val filamentDisplayTypes: Array<String>,
     @JvmField val bedTypeValues: Array<String>,
     @JvmField val bedTypeLabels: Array<String>,
+    @JvmField val bedType: String,
+    @JvmField val bedTypeSelectable: Boolean,
+    @JvmField val plateBedTypeSelectable: Boolean,
     @JvmField val printers: Array<NativePresetItem>,
     @JvmField val filaments: Array<NativePresetItem>,
     @JvmField val processes: Array<NativePresetItem>,
@@ -2158,6 +2161,9 @@ internal object NativeBindings {
     external fun dirtyPresets(): NativeDirtyPresets
 
     external fun discardPresetChanges(): NativePresetState
+
+    /** select_bed_type(): the project's plate type, one of curr_bed_type's values. */
+    external fun selectBedType(value: String): NativePresetState
 
     external fun resetProjectPresets(): NativePresetState
 

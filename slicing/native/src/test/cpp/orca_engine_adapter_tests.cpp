@@ -1381,6 +1381,50 @@ TEST_CASE("A Bambu Lab printer slices the cube with two filaments, each at its o
     REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
 }
 
+TEST_CASE("The project prints on the plate type its printer takes, which the sidebar chooses", "[Adapter][Presets]")
+{
+    require_engine();
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    const auto has = [](const std::vector<std::string>& values, const std::string& value) {
+        return std::find(values.begin(), values.end(), value) != values.end();
+    };
+
+    // support_multi_bed_types: the sidebar chooses the plate type; the plate
+    // settings dialog chooses a plate's own for a Bambu Lab printer alone.
+    const orca::PresetState k2 = orca::describe_presets();
+    INFO(k2.message);
+    REQUIRE(k2.status == orca::SceneStatus::success);
+    CHECK(k2.bed_type_selectable);
+    CHECK_FALSE(k2.plate_bed_type_selectable);
+    CHECK(has(k2.bed_type_values, "Textured PEI Plate"));
+    CHECK(has(k2.bed_type_values, k2.bed_type));
+
+    // Plater::priv::on_select_bed_type()
+    const orca::PresetState cool = orca::select_bed_type("Cool Plate");
+    INFO(cool.message);
+    REQUIRE(cool.status == orca::SceneStatus::success);
+    CHECK(cool.bed_type == "Cool Plate");
+    CHECK(orca::select_bed_type("No Such Plate").status != orca::SceneStatus::success);
+
+    // Another printer takes its own plate type; the K2 Plus takes back the
+    // one remembered for it (app_config's printer setting).
+    REQUIRE(orca::apply_setup({"Creality K2 Plus", "Bambu Lab A1"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+    const orca::PresetState a1 = orca::select_preset(orca::PresetChoice::printer, "Bambu Lab A1 0.4 nozzle");
+    INFO(a1.message);
+    REQUIRE(a1.status == orca::SceneStatus::success);
+    CHECK(a1.bed_type_selectable);
+    CHECK(a1.plate_bed_type_selectable);
+    CHECK(has(a1.bed_type_values, a1.bed_type));
+    const orca::PresetState back = orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle");
+    REQUIRE(back.status == orca::SceneStatus::success);
+    CHECK(back.bed_type == "Cool Plate");
+
+    // Back to the K2 Plus' own plate type and printer for the other tests.
+    REQUIRE(orca::select_bed_type("Textured PEI Plate").status == orca::SceneStatus::success);
+    REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+}
+
 TEST_CASE("An imported STL is sliced through the same pipeline", "[Adapter]")
 {
     require_engine();
@@ -2882,8 +2926,17 @@ TEST_CASE("A printer of the user's own is created from a vendor's preset", "[Ada
         }
     }
     REQUIRE(orca::select_preset(orca::PresetChoice::printer, printer_name).status == orca::SceneStatus::success);
-    REQUIRE(orca::delete_preset(orca::PresetKind::printer, {{"delete_preset", true}}).status == orca::SceneStatus::success);
-    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    // A printer of the user's own that inherits nothing asks about its presets too
+    // (DeleteConfirmDialog); unanswered, it stayed and showed its nozzle to the
+    // next test of the K2 Plus.
+    const orca::PresetSettings deleted =
+        orca::delete_preset(orca::PresetKind::printer, {{"delete_preset", true}, {"delete_printer_presets", true}});
+    INFO(deleted.message + " | question " + deleted.question.id);
+    REQUIRE(deleted.status == orca::SceneStatus::success);
+    CHECK_FALSE(deleted.has_question);
+    const orca::PresetState k2 = orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle");
+    REQUIRE(k2.status == orca::SceneStatus::success);
+    CHECK(std::find(k2.nozzle_diameters.begin(), k2.nozzle_diameters.end(), "0.45") == k2.nozzle_diameters.end());
 }
 
 TEST_CASE("A printer of the user's own takes its filament and process presets with it when it is deleted", "[Adapter][Settings]")

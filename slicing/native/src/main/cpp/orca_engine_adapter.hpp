@@ -1202,14 +1202,26 @@ struct PresetState {
     bool save_can_overwrite{false};
     // The plate types the selected printer model supports, curr_bed_type's
     // values with their labels, as the sidebar's plate type combo box and
-    // PlateSettingsDialog list them; none for a printer of another vendor
-    // than Bambu Lab, whose dialog does not choose one.
+    // PlateSettingsDialog list them (every type for a printer without a
+    // system model).
     std::vector<std::string> bed_type_values;
     std::vector<std::string> bed_type_labels;
+    // The plate type of the project (project_config's curr_bed_type value),
+    // whether the sidebar chooses it (a Bambu Lab printer, or one that
+    // supports several plate types), and whether PlateSettingsDialog chooses
+    // a plate's own (a Bambu Lab printer).
+    std::string bed_type;
+    bool bed_type_selectable{false};
+    bool plate_bed_type_selectable{false};
 };
 
 // The preset combo boxes for the selection the app configuration remembers.
 PresetState describe_presets();
+
+// Plater::priv::on_select_bed_type(): the project prints on the plate type of
+// value, one of curr_bed_type's, which the app configuration remembers for the
+// selected printer.
+PresetState select_bed_type(const std::string& value);
 
 
 // What a preset choice selects.

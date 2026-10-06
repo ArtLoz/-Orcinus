@@ -441,6 +441,7 @@ interface ISlicerService {
     /** dirty_presets(), discard_preset_changes() and reset_project_presets(). */
     DirtyPresetsParcel dirtyPresets();
     PresetsParcel discardPresetChanges();
+    PresetsParcel selectBedType(String value);
     PresetsParcel resetProjectPresets();
     /** update_saved_presets() */
     void updateSavedPresets();

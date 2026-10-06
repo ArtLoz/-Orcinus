@@ -1089,6 +1089,8 @@ class RemoteSlicerEngine(
 
     override suspend fun discardPresetChanges(): PresetsOutcome = remote(PresetsOutcome::Failure) { discardPresetChanges().toPresetsOutcome() }
 
+    override suspend fun selectBedType(value: String): PresetsOutcome = remote(PresetsOutcome::Failure) { selectBedType(value).toPresetsOutcome() }
+
     override suspend fun resetProjectPresets(): PresetsOutcome = remote(PresetsOutcome::Failure) { resetProjectPresets().toPresetsOutcome() }
 
     override suspend fun updateSavedPresets() = remote({ }) { updateSavedPresets() }

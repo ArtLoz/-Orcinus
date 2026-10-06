@@ -6,6 +6,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.model.BedFileOutcome
+import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.CanvasPreferences
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRangeEditor
@@ -595,6 +596,8 @@ class SidebarViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toSidebarUiState())
 
     fun choose(choice: PresetChoice) = selectPreset(choice)
+
+    fun chooseBedType(value: String) = selectPreset.selectBedType(value)
 
     fun chooseSettingsScope(scope: SettingsScope) = setSettingsScope(scope)
 
@@ -1782,6 +1785,7 @@ fun PlateSidebar(
     PlateSidebarContent(
         state,
         onChoose = viewModel::choose,
+        onChooseBedType = viewModel::chooseBedType,
         onChooseScope = viewModel::chooseSettingsScope,
         objectList = ObjectListActions(
             selection = viewModel.selectionActions(openSettings = {}, replaceAll = { selectionFolderPicker.launch(null) }, export = exportSelection),
@@ -2032,6 +2036,8 @@ internal fun PlateSidebarContent(
     state: SidebarUiState,
     onChoose: (PresetChoice) -> Unit,
     onChooseScope: (SettingsScope) -> Unit,
+    /** The sidebar's plate type (Plater::priv::on_select_bed_type). */
+    onChooseBedType: (String) -> Unit = {},
     objectList: ObjectListActions,
     onOpenWizard: (PresetWizardPage) -> Unit,
     onOpenSettings: (PresetKind) -> Unit,
@@ -2156,6 +2162,27 @@ internal fun PlateSidebarContent(
                         onSelect = { onChoose(PresetChoice.NozzleDiameter(it)) },
                         enabled = enabled && presets.nozzleDiameters.size > 1,
                         modifier = Modifier.width(96.dp),
+                    )
+                }
+            }
+            // Sidebar's plate type (combo_printer_bed), which a Bambu Lab printer and
+            // one that supports several plate types show (panel_printer_bed).
+            if (presets != null && presets.bedTypeSelectable && presets.bedTypes.isNotEmpty()) {
+                val bedLabels = presets.bedTypes.associate { it.value to orcaString(it.label) }
+                Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        orcaString("Bed type"),
+                        color = OrcaTheme.colors.textLabel,
+                        style = OrcaTheme.typography.body14,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OrcaComboBox(
+                        items = presets.bedTypes.map(BedTypeChoice::value),
+                        selected = presets.bedType,
+                        label = { bedLabels[it] ?: it },
+                        onSelect = onChooseBedType,
+                        enabled = enabled,
+                        modifier = Modifier.weight(1.6f),
                     )
                 }
             }

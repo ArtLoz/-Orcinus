@@ -201,6 +201,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
         "<init>",
         "(JLjava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;"
         "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
+        "Ljava/lang/String;ZZ"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
@@ -222,6 +223,9 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
         to_java(env, state.filament_display_types),
         to_java(env, state.bed_type_values),
         to_java(env, state.bed_type_labels),
+        to_java(env, state.bed_type),
+        state.bed_type_selectable ? JNI_TRUE : JNI_FALSE,
+        state.plate_bed_type_selectable ? JNI_TRUE : JNI_FALSE,
         to_java_objects(env, item_class, state.printers, item),
         to_java_objects(env, item_class, state.filaments, item),
         to_java_objects(env, item_class, state.processes, item),
@@ -2278,6 +2282,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_dirtyPresets(JNIEnv*
             [](JNIEnv* preset_env, const orcinus::orca::DirtyPreset& preset) { return to_java(preset_env, preset); }
         )
     );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_selectBedType(JNIEnv* env, jobject /* this */, jstring value)
+{
+    return to_java(env, orcinus::orca::select_bed_type(to_utf8(env, value)));
 }
 
 extern "C" JNIEXPORT jobject JNICALL

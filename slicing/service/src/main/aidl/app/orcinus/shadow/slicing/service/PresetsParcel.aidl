@@ -23,6 +23,10 @@ parcelable PresetsParcel {
     /** Presets.bedTypes: the values and their labels. */
     @nullable String[] bedTypeValues;
     @nullable String[] bedTypeLabels;
+    /** Presets.bedType, bedTypeSelectable and plateBedTypeSelectable. */
+    @nullable String bedType;
+    boolean bedTypeSelectable;
+    boolean plateBedTypeSelectable;
     /** Nothing was selected: the preset of changedKind has these unsaved changes. */
     boolean asksUnsavedChanges;
     @nullable String changedKind;

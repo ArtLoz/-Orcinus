@@ -1006,6 +1006,9 @@ private fun PresetsParcel.fill(presets: Presets) {
     nozzleDiameter = presets.nozzleDiameter
     bedTypeValues = presets.bedTypes.map(BedTypeChoice::value).toTypedArray()
     bedTypeLabels = presets.bedTypes.map(BedTypeChoice::label).toTypedArray()
+    bedType = presets.bedType
+    bedTypeSelectable = presets.bedTypeSelectable
+    plateBedTypeSelectable = presets.plateBedTypeSelectable
 }
 
 internal fun PresetChange.toParcel() = PresetChangeParcel().also {
@@ -1072,6 +1075,9 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         nozzleDiameters = nozzleDiameters.orEmpty().toList(),
         nozzleDiameter = nozzleDiameter.orEmpty(),
         bedTypes = bedTypeValues.orEmpty().zip(bedTypeLabels.orEmpty(), ::BedTypeChoice),
+        bedType = bedType.orEmpty(),
+        bedTypeSelectable = bedTypeSelectable,
+        plateBedTypeSelectable = plateBedTypeSelectable,
     )
     if (!asksUnsavedChanges) {
         return PresetsOutcome.Success(presets)

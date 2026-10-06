@@ -1995,6 +1995,10 @@ class NativeSlicerEngine(context: Context) :
         NativeBindings.discardPresetChanges().toOutcome()
     }
 
+    override suspend fun selectBedType(value: String): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.selectBedType(value).toOutcome()
+    }
+
     override suspend fun updateSavedPresets() = whenReady({ }) { NativeBindings.updateSavedPresets() }
 
     override suspend fun resetProjectPresets(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
@@ -2689,6 +2693,9 @@ class NativeSlicerEngine(context: Context) :
         nozzleDiameters = nozzleDiameters.toList(),
         nozzleDiameter = nozzleDiameter,
         bedTypes = bedTypeValues.zip(bedTypeLabels, ::BedTypeChoice),
+        bedType = bedType,
+        bedTypeSelectable = bedTypeSelectable,
+        plateBedTypeSelectable = plateBedTypeSelectable,
     )
 
     private fun NativePresetItem.toItem() = PresetListItem(

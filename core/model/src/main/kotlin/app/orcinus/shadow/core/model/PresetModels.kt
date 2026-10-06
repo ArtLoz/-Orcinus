@@ -53,10 +53,15 @@ data class Presets(
     val nozzleDiameter: String,
     /**
      * The plate types the selected printer model supports (curr_bed_type), as
-     * PlateSettingsDialog lists them; none for a printer of another vendor
-     * than Bambu Lab, whose dialog does not choose one.
+     * the sidebar's plate type combo box and PlateSettingsDialog list them.
      */
     val bedTypes: List<BedTypeChoice> = emptyList(),
+    /** The plate type the project prints on (project_config's curr_bed_type), one of [bedTypes]' values. */
+    val bedType: String = "",
+    /** The sidebar chooses the plate type: a Bambu Lab printer, or one that supports several (support_multi_bed_types). */
+    val bedTypeSelectable: Boolean = false,
+    /** PlateSettingsDialog chooses a plate's own type: a Bambu Lab printer. */
+    val plateBedTypeSelectable: Boolean = false,
 )
 
 /** A plate type: curr_bed_type's [value] and OrcaSlicer's [label] for it. */

@@ -39,6 +39,11 @@ struct EngineContext {
     // among them (compute_origin): the requests judge objects by it and slice it.
     int plate_index = 0;
     int plate_count = 1;
+    // The printer the project took its plate type from (curr_bed_type of the
+    // project configuration), as the sidebar's plate type combo box shows it:
+    // another printer makes it take that printer's (update_all_preset_comboboxes),
+    // a loaded project brings its own.
+    std::string bed_type_printer;
 };
 
 EngineContext& engine();

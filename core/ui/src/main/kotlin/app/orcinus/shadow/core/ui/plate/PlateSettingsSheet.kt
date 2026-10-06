@@ -76,6 +76,8 @@ fun PlateSettingsSheet(
     name: String,
     choice: PlateSettingsChoice,
     bedTypes: List<BedTypeChoice>,
+    /** PlateSettingsDialog chooses a plate's own type for a Bambu Lab printer alone. */
+    bedTypeSelectable: Boolean,
     filamentColors: List<Color>,
     spiralOn: Boolean,
     /** printer_structure is I3: the question adds that such printers make no timelapse. */
@@ -130,7 +132,7 @@ fun PlateSettingsSheet(
                         options = listOf(orcaString("Same as Global Plate Type")) + bedTypes.map { orcaString(it.label) },
                         selected = bedTypes.indexOfFirst { it.value == bedType } + 1,
                         // PlateSettingsDialog disables it for a printer of another vendor than Bambu Lab.
-                        enabled = bedTypes.isNotEmpty(),
+                        enabled = bedTypeSelectable && bedTypes.isNotEmpty(),
                         onSelect = { bedType = bedTypes.getOrNull(it - 1)?.value },
                     )
                 }
