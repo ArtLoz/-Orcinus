@@ -1990,6 +1990,7 @@ fun PlateSidebar(
             removeRange = viewModel::removeRange,
             selectRange = viewModel::chooseSettingsRange,
             selectRangeSettings = viewModel::openSettingsOfRange,
+            resetSettings = { kind -> viewModel.requestSettings(kind, SettingsRequest.Reset(emptyList())) },
             editRange = viewModel::editRange,
             setObjectExtruder = viewModel::setObjectExtruder,
             setPartExtruder = viewModel::setPartExtruder,

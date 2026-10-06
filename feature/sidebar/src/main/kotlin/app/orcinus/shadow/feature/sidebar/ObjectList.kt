@@ -26,6 +26,7 @@ import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.MeshErrors
 import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.meshErrors
 import app.orcinus.shadow.core.ui.orca.orcaText
@@ -170,6 +171,12 @@ internal class ObjectListActions(
     val removeRange: (LayerRangeId) -> Unit,
     val selectRange: (LayerRangeId?) -> Unit,
     val selectRangeSettings: (LayerRangeId) -> Unit,
+    /**
+     * The settings icon of a row (ObjectList's colEditing): the item's own
+     * settings are reset (TabPrintModel / TabPrintLayer / TabPrintPlate::reset_model_config())
+     * on the tab of [PresetKind] the row's item is opened in first.
+     */
+    val resetSettings: (PresetKind) -> Unit = {},
     /** ObjectList::edit_layer_range(): the range spans other heights. */
     val editRange: (LayerRangeId, bottom: Double, top: Double) -> Unit,
     /** The "Cut connectors" item: picked (its connectors selected), deleted, given a filament. */
@@ -328,6 +335,10 @@ internal fun LazyListScope.objectListItems(
                 icon = DesignR.drawable.orca_plate_settings,
                 selected = index == state.currentPlate && state.selectedInstances.isEmpty(),
                 hasSettings = plate.overrides.categories(plateDefinitions).isNotEmpty(),
+                onResetSettings = {
+                    actions.selectPlateSettings(plate.index)
+                    actions.resetSettings(PresetKind.PLATE)
+                },
                 enabled = enabled,
                 onClick = { actions.selectPlate(index) },
                 // The menu acts on the current plate, which the plate becomes first.
@@ -434,6 +445,10 @@ private fun LazyListScope.objectRows(
                 },
                 selected = ids.any { it in state.selectedInstances },
                 hasSettings = plateObject.settings.categories(definitions).isNotEmpty(),
+                onResetSettings = {
+                    actions.selectSettings(ids.first())
+                    actions.resetSettings(PresetKind.OBJECT)
+                },
                 indent = true,
                 // The eye of an object switches every copy of it, and shows
                 // the middle state while they differ.
@@ -560,6 +575,10 @@ private fun LazyListScope.objectRows(
                     drag = RowDrag(DragRow.Volume(mesh, at), drag),
                     selected = partId in state.selectedParts,
                     hasSettings = part.settings.categories(partDefinitions).isNotEmpty(),
+                    onResetSettings = {
+                        actions.selectPartSettings(partId)
+                        actions.resetSettings(PresetKind.PART)
+                    },
                     indent = true,
                     deeper = true,
                     enabled = enabled,
@@ -668,6 +687,10 @@ private fun LazyListScope.objectRows(
                         icon = DesignR.drawable.orca_height_range_layer,
                         selected = rangeId == state.selectedRange,
                         hasSettings = range.settings.categories(rangeDefinitions).isNotEmpty(),
+                        onResetSettings = {
+                            actions.selectRangeSettings(rangeId)
+                            actions.resetSettings(PresetKind.LAYER)
+                        },
                         indent = true,
                         deeper = true,
                         enabled = enabled,
@@ -994,6 +1017,8 @@ private fun ObjectListRow(
     icon: Int?,
     selected: Boolean,
     hasSettings: Boolean,
+    /** colEditing's click: the item's settings reset; null leaves the icon a mark. */
+    onResetSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     /** The mesh's errors (ObjectDataViewModel's warning icon); null for none. */
     warning: MeshWarning? = null,
@@ -1137,13 +1162,22 @@ private fun ObjectListRow(
                 FilamentColumn(extruder, enabled)
             }
             if (hasSettings) {
-                // ObjectDataViewModelNode::set_action_icon(): the item has settings of its own.
+                // ObjectDataViewModelNode::set_action_icon(): the item has settings of its own,
+                // which a tap on the icon resets; a touch target of its own keeps the
+                // filament column beside it from taking the tap.
                 Icon(
                     painterResource(DesignR.drawable.orca_cog),
                     contentDescription = orcaString("Click the icon to reset all settings of the object"),
                     tint = colors.textSide,
                     modifier = Modifier
-                        .padding(end = 4.dp)
+                        .then(
+                            if (onResetSettings != null) {
+                                Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onResetSettings)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(horizontal = 6.dp, vertical = 8.dp)
                         .size(OrcaTheme.dimensions.iconSmall),
                 )
             }
