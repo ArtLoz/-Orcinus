@@ -1736,6 +1736,29 @@ class SetPlateObjectAutoDropUseCase(
         val updated = changed ?: return
         if (autoDrop) placePlateObject(id, updated.inspection.placement, Manipulation.EnsureOnBed, record = false)
     }
+
+    /**
+     * ObjectList::toggle_auto_drop() of the object's row: every copy takes it,
+     * and turned on, the object rests on the plate (ModelObject::ensure_on_bed(),
+     * which the app does copy by copy).
+     */
+    fun wholeObject(mesh: ScenePath, autoDrop: Boolean) {
+        var changed: PlateObject? = null
+        repository.update { state ->
+            changed = null
+            val target = state.objects.withMesh(mesh)
+            if (target == null || state.busy || target.instances.all { it.autoDrop == autoDrop }) return@update state
+            val updated = target.withInstances(target.instances.map { it.copy(autoDrop = autoDrop) })
+            changed = updated
+            state.recorded().copy(objects = state.objects.replaced(updated))
+        }
+        val updated = changed ?: return
+        if (autoDrop) {
+            updated.instances.forEachIndexed { index, copy ->
+                placePlateObject(PlateInstanceId(mesh, index), copy.inspection.placement, Manipulation.EnsureOnBed, record = false)
+            }
+        }
+    }
 }
 
 /**
@@ -2790,7 +2813,9 @@ class SetNumberOfInstancesUseCase(
         if (number !in 0..MAX_COPIES) return
         val difference = number - target.instances.size
         when {
-            number == 0 -> deletePlateObject(mesh)
+            // set_number_of_copies() of 0: decrease_instances() of every copy,
+            // which keeps an object of one copy, or a part of a cut.
+            number == 0 -> removeLastPlateInstances(mesh, target.instances.size)
             difference > 0 -> addPlateInstance(mesh, difference)
             difference < 0 -> removeLastPlateInstances(mesh, -difference)
         }
@@ -2808,8 +2833,10 @@ class SetNumberOfInstancesUseCase(
  * with a character a file name cannot hold (Plater::has_illegal_filename_characters).
  */
 class RenamePlateItemUseCase(private val repository: PlateRepository) {
-    /** The object itself. */
-    operator fun invoke(mesh: ScenePath, name: String) = rename(mesh, name) { it.withName(name) }
+    /** The object itself; update_name_in_model() names its only volume too. */
+    operator fun invoke(mesh: ScenePath, name: String) = rename(mesh, name) { target ->
+        target.withName(name).let { if (it.parts.isEmpty()) it.withVolume(it.volume.copy(name = name)) else it }
+    }
 
     /** One volume of an object (an itVolume row). */
     operator fun invoke(id: ObjectPartId, name: String) = rename(id.mesh, name) { target ->

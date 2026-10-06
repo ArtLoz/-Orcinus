@@ -806,6 +806,9 @@ class SidebarViewModel(
 
     fun setObjectAutoDrop(id: PlateInstanceId, autoDrop: Boolean) = setPlateObjectAutoDrop(id, autoDrop)
 
+    /** The Auto Drop of an object's row: every copy. */
+    fun setWholeObjectAutoDrop(mesh: ScenePath, autoDrop: Boolean) = setPlateObjectAutoDrop.wholeObject(mesh, autoDrop)
+
     /** Plater::increase_instances(), decrease_instances() and set_number_of_copies(). */
     fun addInstance(mesh: ScenePath) = addPlateInstance(mesh)
 
@@ -1870,6 +1873,7 @@ fun PlateSidebar(
             selectSettings = viewModel::openSettingsOf,
             setPrintable = viewModel::setObjectPrintable,
             setAutoDrop = viewModel::setObjectAutoDrop,
+            setWholeObjectAutoDrop = viewModel::setWholeObjectAutoDrop,
             addInstance = viewModel::addInstance,
             removeInstance = viewModel::removeInstance,
             setNumberOfInstances = viewModel::setInstances,

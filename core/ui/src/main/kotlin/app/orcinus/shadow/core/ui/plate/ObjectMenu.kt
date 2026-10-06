@@ -188,7 +188,8 @@ fun objectMenuState(
         canCenter = enabled && plate != null && (inspection.boxCenter.x != centerX || inspection.boxCenter.y != centerY),
         // SINKING_Z_THRESHOLD
         canDrop = enabled && abs(minZ) > SINKING_Z_THRESHOLD,
-        autoDrop = instance.autoDrop,
+        // Selection::get_auto_drop(): off while any copy of the object has it off.
+        autoDrop = if (wholeObject) plateObject.instances.all { it.autoDrop } else instance.autoDrop,
         canSplitToObjects = enabled && (plateObject.parts.isNotEmpty() || plateObject.volume.splittable),
         canSplitToParts = enabled && plateObject.parts.isEmpty() && plateObject.volume.splittable,
         canSmooth = enabled && instance.inspection.openEdges == 0L,

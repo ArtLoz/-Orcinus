@@ -3069,7 +3069,13 @@ class PlateUseCasesTest {
 
         assertEquals(copies.take(1), repository.state.value.objects.single().instances)
 
-        // None takes the object off the plate.
+        // None keeps an object of one copy (decrease_instances() needs more than one).
+        setNumber(cube.mesh, 0)
+
+        assertEquals(copies.take(1), repository.state.value.objects.single().instances)
+
+        // Of several copies, none takes the object off the plate.
+        setNumber(cube.mesh, 3)
         setNumber(cube.mesh, 0)
 
         assertTrue(repository.state.value.objects.isEmpty())

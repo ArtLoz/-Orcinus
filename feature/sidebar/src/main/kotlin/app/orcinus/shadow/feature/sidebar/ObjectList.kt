@@ -129,6 +129,8 @@ internal class ObjectListActions(
     val setPrintable: (PlateInstanceId, Boolean) -> Unit,
     /** ObjectList::toggle_auto_drop(). */
     val setAutoDrop: (PlateInstanceId, Boolean) -> Unit,
+    /** ObjectList::toggle_auto_drop() of an object's row: every copy. */
+    val setWholeObjectAutoDrop: (ScenePath, Boolean) -> Unit = { _, _ -> },
     /** Plater::increase_instances(), decrease_instances() and set_number_of_copies(). */
     val addInstance: (ScenePath) -> Unit,
     val removeInstance: (ScenePath) -> Unit,
@@ -649,7 +651,8 @@ private fun LazyListScope.objectRows(
                             dismiss()
                             actions.mirrorVolume(partId, axis)
                         }
-                        if (embossed == null) OrcaSubmenu(text = orcaString("Split"), enabled = enabled && part.splittable) {
+                        // can_split(true): ObjectList::is_splittable(true) refuses a volume, which turns the submenu off.
+                        if (embossed == null) OrcaSubmenu(text = orcaString("Split"), enabled = false) {
                             // ObjectList::is_splittable(true) refuses a volume.
                             OrcaMenuItem(text = orcaString("To objects"), enabled = false, onClick = {})
                             OrcaMenuItem(
@@ -1008,7 +1011,7 @@ private fun ObjectListActions.menuOf(
     delete = delete,
     addPart = { onChooseShape(id.mesh, it) },
     addHeightRange = { addRange(id.mesh, null) },
-    setAutoDrop = { setAutoDrop(id, it) },
+    setAutoDrop = { setWholeObjectAutoDrop(id.mesh, it) },
     edit = { editObject(id.mesh, it, null) },
     simplify = { simplifyObject(id.mesh) },
     setPrintable = { setObjectPrintable(id.mesh, it) },

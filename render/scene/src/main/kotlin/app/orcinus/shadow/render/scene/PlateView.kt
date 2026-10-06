@@ -1836,6 +1836,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             drag = null
             return true
         }
+        if (volume.modifier && assembly == null && volume.index != WIPE_TOWER_INDEX && selectedIndexes.size <= 1) {
+            // Selection::add() of a modifier as the only selection: the modifier alone (Selection::Volume).
+            onSelectVolume(volume.index, volume.key)
+            drag = if (editable) ObjectDrag(volume.index, volume.world, hit, volume.key) else null
+            return true
+        }
         val volumeKey = volumeMode()
         if (volumeKey != null && volume.index == selectedIndex && volume.key == volumeKey) {
             // Selection::add() of the selected volume keeps the selection, and the
