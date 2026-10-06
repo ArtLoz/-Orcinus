@@ -2170,6 +2170,34 @@ TEST_CASE("The overhangs are tinted from one degree past the support threshold a
     CHECK(std::isnan(orca::overhang_normal_z(unknown)));
 }
 
+TEST_CASE("The plate warns of PLA and PETG printed together, as the desktop's 3D editor does", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("mixture.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    orca::PlateObject second;
+    second.instances.push_back(orca::ObjectPlacement{matrix_of(cube), true, true});
+    second.instances.front().matrix[12] += 100.0;
+    plate.push_back(second);
+    orca::ProfileSelection profiles = k2_plus_profiles();
+    profiles.filaments = {profiles.filament, "Generic PETG @K2 Plus-all"};
+
+    // One filament for both: nothing to warn of.
+    const orca::PlateValidation one = orca::validate_plate(plate, profiles, {});
+    REQUIRE(one.read);
+    CHECK(std::find(one.notice_kinds.begin(), one.notice_kinds.end(), std::int32_t(orca::PlateNoticeKind::mix_pla_petg)) == one.notice_kinds.end());
+
+    // PartPlate::check_mixture_of_pla_and_petg(): the second object prints PETG.
+    plate[1].settings.keys = {"extruder"};
+    plate[1].settings.values = {"2"};
+    const orca::PlateValidation mixed = orca::validate_plate(plate, profiles, {});
+    REQUIRE(mixed.read);
+    const auto found = std::find(mixed.notice_kinds.begin(), mixed.notice_kinds.end(), std::int32_t(orca::PlateNoticeKind::mix_pla_petg));
+    REQUIRE(found != mixed.notice_kinds.end());
+    CHECK(mixed.notice_texts[std::size_t(found - mixed.notice_kinds.begin())].find("PETG") != std::string::npos);
+}
+
 TEST_CASE("The plate is validated after a change as the desktop app's background process does", "[Adapter][Scene]")
 {
     require_engine();

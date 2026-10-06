@@ -131,7 +131,13 @@ class SaveProjectUseCase(
         val file = ScenePath("${prefix.value}-sliced.gcode.3mf")
         try {
             val exported = write(state, file, prefix, if (all) SlicedPlates.ALL else SlicedPlates.CURRENT) && documents.copyTo(file.value, document)
-            if (!exported) repository.update { it.copy(plateNotices = it.plateNotices + SAVE_FAILED) }
+            if (!exported) {
+                repository.update { it.copy(plateNotices = it.plateNotices + SAVE_FAILED) }
+            } else {
+                // push_exporting_finished_notification() of the file written.
+                val name = documents.displayName(document) ?: slicedName().orEmpty()
+                repository.update { it.copy(exportFinished = name) }
+            }
             return exported
         } finally {
             sceneFiles.deleteImport(prefix)

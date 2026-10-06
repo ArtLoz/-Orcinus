@@ -22,4 +22,7 @@ parcelable PlateValidationParcel {
     /** The objects the print holds, by their index on the plate, and the height each stands at. */
     @nullable int[] printObjects;
     @nullable double[] printZMin;
+    /** The warnings of the plate's filaments: their PlateNoticeKind names and texts. */
+    @nullable String[] noticeKinds;
+    @nullable String[] noticeTexts;
 }

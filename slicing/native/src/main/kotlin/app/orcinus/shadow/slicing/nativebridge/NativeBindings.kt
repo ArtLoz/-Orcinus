@@ -29,6 +29,7 @@ internal class NativeSliceResult(
     @JvmField val notices: Array<NativeSliceNotice>,
     @JvmField val printReady: Boolean,
     @JvmField val postProcessSkipped: Boolean,
+    @JvmField val primeTowerOutside: Boolean,
 ) {
     companion object {
         const val SUCCESS = 0L
@@ -616,6 +617,9 @@ internal class NativePlateValidation(
     @JvmField val sequence: IntArray,
     @JvmField val printObjects: IntArray,
     @JvmField val printZMin: DoubleArray,
+    /** PlateNoticeKind of every warning of the plate's filaments, and its text. */
+    @JvmField val noticeKinds: IntArray,
+    @JvmField val noticeTexts: Array<String>,
 )
 
 internal class NativeThumbnailSizes(

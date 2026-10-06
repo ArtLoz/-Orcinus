@@ -45,7 +45,13 @@ class PlateValidationUpdates(
         val mixedTemperatures: String?,
         /** The language the engine writes its messages in. */
         val catalog: String?,
-    )
+    ) {
+        /** What Plater::on_config_change() follows: the presets, their values and the plate's own settings. */
+        val config get() = Triple(profiles, plateSettings, presetValues)
+    }
+
+    /** The input of the last validation. */
+    private var validated: Input? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun start() {
@@ -65,10 +71,20 @@ class PlateValidationUpdates(
                 .mapLatest { input ->
                     val profiles = input.profiles
                     // background_process.empty(): nothing to validate.
-                    if (profiles == null || input.objects.isEmpty()) null else inspector.validatePlate(input.objects, profiles, input.plateSettings)
+                    input to if (profiles == null || input.objects.isEmpty()) null else inspector.validatePlate(input.objects, profiles, input.plateSettings)
                 }
-                .collect { validation ->
-                    repository.update { state -> if (state.validation == validation) state else state.copy(validation = validation) }
+                .collect { (input, validation) ->
+                    // Plater::config_change_notification() of print_sequence after a change
+                    // of the settings (on_config_change() and PlateSettingsDialog), not of
+                    // another plate: printing by object shows its advice again, though it
+                    // was closed, and printing by layer closes it. The app judges the
+                    // plate's print sequence, which its own settings may choose.
+                    val configChanged = input.config != validated?.config && input.plate == validated?.plate
+                    validated = input
+                    repository.update { state ->
+                        val seqPrintInfo = if (configChanged && validation != null) validation.sequence.isNotEmpty() else state.seqPrintInfo
+                        if (state.validation == validation && state.seqPrintInfo == seqPrintInfo) state else state.copy(validation = validation, seqPrintInfo = seqPrintInfo)
+                    }
                 }
         }
     }

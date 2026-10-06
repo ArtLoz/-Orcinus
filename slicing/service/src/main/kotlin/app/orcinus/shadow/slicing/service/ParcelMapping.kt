@@ -44,6 +44,8 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjColorQuestion
 import app.orcinus.shadow.core.model.PlateCircle
+import app.orcinus.shadow.core.model.PlateNotice
+import app.orcinus.shadow.core.model.PlateNoticeKind
 import app.orcinus.shadow.core.model.PrintedObject
 import app.orcinus.shadow.core.model.SliceNotice
 import app.orcinus.shadow.core.model.SliceNoticeLevel
@@ -617,6 +619,7 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             }.toTypedArray()
             it.printReady = printReady
             it.postProcessSkipped = postProcessSkipped
+            it.primeTowerOutside = primeTowerOutside
         }
 
         is SliceOutcome.Failure -> {
@@ -654,6 +657,7 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             },
             printReady = printReady,
             postProcessSkipped = postProcessSkipped,
+            primeTowerOutside = primeTowerOutside,
         )
 
         SliceOutcomeParcel.FAILURE -> SliceOutcome.Failure(
@@ -1417,6 +1421,8 @@ internal fun PlateValidation.toParcel() = PlateValidationParcel().also { parcel 
     parcel.sequence = sequence.toIntArray()
     parcel.printObjects = printObjects.map(PrintedObject::objectIndex).toIntArray()
     parcel.printZMin = printObjects.map(PrintedObject::printZMin).toDoubleArray()
+    parcel.noticeKinds = notices.map { it.kind.name }.toTypedArray()
+    parcel.noticeTexts = notices.map(PlateNotice::text).toTypedArray()
 }
 
 internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
@@ -1437,6 +1443,7 @@ internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
         heightLimitFill = (heightFill ?: DoubleArray(0)).let { fill -> List(fill.size / 3) { Vector3(fill[it * 3], fill[it * 3 + 1], fill[it * 3 + 2]) } },
         sequence = (sequence ?: IntArray(0)).toList(),
         printObjects = (printObjects ?: IntArray(0)).mapIndexed { at, index -> PrintedObject(index, printZMin?.getOrNull(at) ?: 0.0) },
+        notices = noticeKinds.orEmpty().zip(noticeTexts.orEmpty()) { kind, text -> PlateNotice(PlateNoticeKind.valueOf(kind), text) },
     )
 }
 

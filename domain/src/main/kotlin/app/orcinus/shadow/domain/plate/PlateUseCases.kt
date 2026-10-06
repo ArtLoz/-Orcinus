@@ -1102,6 +1102,18 @@ class AddModelToPlateUseCase(
                 if (cutPart) state.copy(cutPartsLoaded = 1, cutPartsLoads = state.cutPartsLoads + 1) else state.copy(cutPartsLoaded = 0)
             }
         }
+        // load_files(): GLGizmoSimplify::add_simplify_suggestion_notification() of the
+        // objects it loaded; those of objects that are gone no longer show
+        // (remove_simplify_suggestion_of_released_objects()).
+        if (outcome is ModelLoadOutcome.Success) {
+            val big = outcome.objects.filter(LoadedObject::suggestsSimplify).map { it.instances.first().inspection.mesh }
+            if (big.isNotEmpty()) {
+                repository.update { state ->
+                    val living = state.simplifySuggestions.filter { mesh -> state.objects.withMesh(mesh) != null }
+                    state.copy(simplifySuggestions = (living + big).distinct())
+                }
+            }
+        }
         // set_project_filename() of a project that opened adds it to the recent files
         // (add_to_recent_projects()), as add_file() adds its models that loaded.
         if (outcome is ModelLoadOutcome.Success && outcome.objects.isNotEmpty()) {
@@ -1891,13 +1903,14 @@ class ExportGcodeUseCase(
      */
     fun nameError(): String? = repository.state.value.result?.outputNameError?.ifEmpty { null }
 
+    /** The G-code into [document]; the export's notification names the file it wrote. */
     suspend operator fun invoke(document: ExternalDocumentReference): Boolean {
         val result = repository.state.value.result ?: return false
-        return documents.copyTo(result.gcode.value, document)
+        if (!documents.copyTo(result.gcode.value, document)) return false
+        val name = documents.displayName(document) ?: suggestedName().orEmpty()
+        repository.update { it.copy(exportFinished = name) }
+        return true
     }
-
-    /** The name [document] goes by; null when the system does not tell. */
-    suspend fun displayName(document: ExternalDocumentReference): String? = documents.displayName(document)
 }
 
 /**
@@ -2819,6 +2832,7 @@ class SlicePlateUseCase(
                     notices = outcome.notices,
                     printReady = outcome.printReady,
                     postProcessSkipped = outcome.postProcessSkipped,
+                    primeTowerOutside = outcome.primeTowerOutside,
                 ),
                 // IMSlider::SetTicksValues(): the codes this print does not allow go.
                 layerGcodes = layerGcodes.allowedBy(outcome.layerGcodeRules),
@@ -2855,6 +2869,21 @@ class CancelPlateSlicingUseCase(
 class DismissPlateProblemUseCase(private val repository: PlateRepository) {
     operator fun invoke() {
         repository.update { it.copy(problem = null) }
+    }
+
+    /** The close button of the advice to arrange a plate printed by object (BBLSeqPrintInfo). */
+    fun seqPrintInfo() {
+        repository.update { if (it.seqPrintInfo) it.copy(seqPrintInfo = false) else it }
+    }
+
+    /** The export's notification closes, by its button or after its time. */
+    fun exportFinished() {
+        repository.update { if (it.exportFinished != null) it.copy(exportFinished = null) else it }
+    }
+
+    /** The close button of the advice to simplify the object of [mesh]. */
+    fun simplifySuggestion(mesh: ScenePath) {
+        repository.update { if (mesh in it.simplifySuggestions) it.copy(simplifySuggestions = it.simplifySuggestions - mesh) else it }
     }
 }
 

@@ -99,6 +99,7 @@ import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
+import app.orcinus.shadow.core.ui.plate.SimplifySuggestionNotification
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
 import app.orcinus.shadow.core.ui.plate.SliceNoticeNotification
@@ -143,6 +144,11 @@ internal fun PreviewRoute(
             viewModel.jumpTo(mesh, instance)
             onOpenPrepare()
         },
+        onSimplifySuggested = { mesh ->
+            viewModel.simplifySuggested(mesh)
+            onOpenPrepare()
+        },
+        onCloseSimplifySuggestion = viewModel::dismissSimplifySuggestion,
         onSlice = {
             onSliceRequested()
             viewModel.slice()
@@ -169,7 +175,7 @@ internal fun PreviewRoute(
         gcodeNameError = viewModel::gcodeNameError,
         onCancelSlicing = viewModel::cancelSlicing,
         onExportGcode = viewModel::exportGcode,
-        exportedName = viewModel::exportedName,
+        onCloseExportFinished = viewModel::dismissExportFinished,
         onShareGcode = viewModel::shareGcode,
         layerGcodeActions = LayerGcodeActions(
             addPause = viewModel::addPause,
@@ -239,8 +245,11 @@ internal fun PreviewScreen(
     /** SlicingProgressNotification's Cancel. */
     onCancelSlicing: () -> Unit = {},
     onExportGcode: suspend (ExternalDocumentReference) -> Boolean = { false },
-    /** The name the exported document goes by, for its notification. */
-    exportedName: suspend (ExternalDocumentReference) -> String = { "" },
+    /** The export's notification closes. */
+    onCloseExportFinished: () -> Unit = {},
+    /** "Simplify model", and the close button, of the advice to simplify an object. */
+    onSimplifySuggested: (ScenePath) -> Unit = {},
+    onCloseSimplifySuggestion: (ScenePath) -> Unit = {},
     /** The G-code as Android's share sheet takes it; null when there is none. */
     onShareGcode: suspend () -> ExternalDocumentReference? = { null },
     layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
@@ -280,8 +289,6 @@ internal fun PreviewScreen(
     // Http::on_progress while the file travels; null when nothing is going out.
     var progress by remember { mutableStateOf<Float?>(null) }
     var saved by remember { mutableStateOf<Boolean?>(null) }
-    // ExportFinishedNotification: the name of the file the last export wrote.
-    var exported by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     // Export G-code: the file goes into a document of the user's own.
     val gcodePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(GCODE_MIME_TYPE)) { uri ->
@@ -290,7 +297,7 @@ internal fun PreviewScreen(
                 val document = ExternalDocumentReference(it.toString())
                 beginExport()
                 // Plater::export_gcode(): a notification says where the file went; a failure keeps its message box.
-                if (onExportGcode(document)) exported = exportedName(document) else saved = false
+                if (!onExportGcode(document)) saved = false
             }
         }
     }
@@ -507,7 +514,14 @@ internal fun PreviewScreen(
                         onShowHints = keepHints,
                     )
                 }
-                exported?.let { name -> ExportFinishedNotification(name, onClose = { exported = null }) }
+                state.exportFinished?.let { name -> ExportFinishedNotification(name, onClose = onCloseExportFinished) }
+                state.simplifySuggestions.forEach { target ->
+                    SimplifySuggestionNotification(
+                        target.displayName(),
+                        onSimplify = { onSimplifySuggested(target.mesh) },
+                        onClose = { onCloseSimplifySuggestion(target.mesh) },
+                    )
+                }
                 // The slicing notifications stay on the preview (NotificationManager::set_in_preview()).
                 state.result?.let { sliced ->
                     sliced.notices.forEach { notice ->

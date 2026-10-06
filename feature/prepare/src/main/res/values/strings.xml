@@ -59,7 +59,6 @@
     <string name="unit_percent">%</string>
     <string name="gizmo_done">Done</string>
     <string name="unit_mm">mm</string>
-    <string name="object_clashed">An object is laid over the boundary of plate or exceeds the height limit.\nPlease solve the problem by moving it totally on or off the plate, and confirming that the height is within the build volume.</string>
 
     <string name="slicing_progress">Slicing: %1$d%%</string>
     <string name="slicing_cancelling">Canceling…</string>

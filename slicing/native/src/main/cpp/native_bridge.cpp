@@ -1310,7 +1310,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
     const jmethodID constructor = env->GetMethodID(
         result_class, "<init>",
-        "(JLjava/lang/String;JJJZZZZZD[I[DZLjava/lang/String;Ljava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeSliceNotice;ZZ)V");
+        "(JLjava/lang/String;JJJZZZZZD[I[DZLjava/lang/String;Ljava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeSliceNotice;ZZZ)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1332,7 +1332,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         to_java(env, result.output_name_error),
         notices,
         result.print_ready ? JNI_TRUE : JNI_FALSE,
-        result.post_process_skipped ? JNI_TRUE : JNI_FALSE
+        result.post_process_skipped ? JNI_TRUE : JNI_FALSE,
+        result.prime_tower_outside ? JNI_TRUE : JNI_FALSE
     );
 }
 
@@ -2954,7 +2955,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_validatePlate(
     const jmethodID constructor = env->GetMethodID(
         result_class,
         "<init>",
-        "(ZLjava/lang/String;IILjava/lang/String;Ljava/lang/String;IILjava/lang/String;[I[D[D[D[I[I[D)V"
+        "(ZLjava/lang/String;IILjava/lang/String;Ljava/lang/String;IILjava/lang/String;[I[D[D[D[I[I[D[I[Ljava/lang/String;)V"
     );
     return env->NewObject(
         result_class,
@@ -2974,7 +2975,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_validatePlate(
         to_java(env, result.height_fill.data(), result.height_fill.size()),
         ints(result.sequence),
         ints(result.print_objects),
-        to_java(env, result.print_z_min.data(), result.print_z_min.size())
+        to_java(env, result.print_z_min.data(), result.print_z_min.size()),
+        ints(result.notice_kinds),
+        to_java(env, result.notice_texts)
     );
 }
 

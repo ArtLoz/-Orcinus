@@ -1845,6 +1845,198 @@ void add_slice_notices(const Slic3r::Print& print, const Slic3r::Model& model, c
     }
 }
 
+// GLVolumeCollection::check_wipe_tower_outside_state() of the tower the slice
+// built, as GLCanvas3D::reload_scene() loads it (load_real_wipe_tower_preview()):
+// its box, turned by the tower's angle and moved to its place on the plate,
+// against the printable area.
+bool prime_tower_outside(const Slic3r::Print& print, const Slic3r::DynamicPrintConfig& config)
+{
+    if (!print.has_wipe_tower() || !print.wipe_tower_data().wipe_tower_mesh_data) {
+        return false;
+    }
+    Slic3r::TriangleMesh tower = print.wipe_tower_data().wipe_tower_mesh_data->real_wipe_tower_mesh;
+    tower.merge(print.wipe_tower_data().wipe_tower_mesh_data->real_brim_mesh);
+    if (tower.its.indices.empty()) {
+        return false;
+    }
+    const int plate = print.get_plate_index();
+    const double x = config.opt<Slic3r::ConfigOptionFloats>("wipe_tower_x")->get_at(plate);
+    const double y = config.opt<Slic3r::ConfigOptionFloats>("wipe_tower_y")->get_at(plate);
+    const double angle = config.opt_float("wipe_tower_rotation_angle");
+    const Slic3r::Transform3d placement =
+        Slic3r::Geometry::translation_transform(Slic3r::Vec3d(x, y, 0.0)) * Slic3r::Geometry::rotation_transform(Slic3r::Vec3d(0.0, 0.0, Slic3r::Geometry::deg2rad(angle)));
+    const Slic3r::BoundingBoxf3 bbox = tower.transformed_bounding_box(placement);
+    const Slic3r::Polygon wipe_tower_polygon = bbox.polygon(true);
+    const Slic3r::Polygon printable_poly = Slic3r::Polygon::new_scale(config.option<Slic3r::ConfigOptionPoints>("printable_area")->values);
+    return !Slic3r::diff(wipe_tower_polygon, printable_poly).empty();
+}
+
+// GLCanvas3D::reload_scene(): the checks of the plate's filaments, the used
+// ones of the plate (PartPlate::get_extruders(true)), from 1. The texts are
+// the desktop app's, translated as the engine translates.
+void add_plate_notices(Slic3r::PresetBundle& bundle, const Slic3r::DynamicPrintConfig& config, const std::vector<int>& used_filaments,
+                       PlateValidation& result)
+{
+    using Slic3r::I18N::translate;
+    const auto add = [&result](const PlateNoticeKind kind, const std::string& text) {
+        result.notice_kinds.push_back(std::int32_t(kind));
+        result.notice_texts.push_back(text);
+    };
+    const auto* filament_types = config.option<Slic3r::ConfigOptionStrings>("filament_type");
+
+    // PartPlate::check_mixture_of_pla_and_petg()
+    {
+        bool has_pla = false;
+        bool has_petg = false;
+        bool is_toolchanger = false;
+        auto* tool_change_time = config.option<Slic3r::ConfigOptionFloat>("machine_tool_change_time");
+        if (tool_change_time && tool_change_time->value > 0)
+            is_toolchanger = true;
+        std::map<int, bool> nozzle_has_pla;
+        std::map<int, bool> nozzle_has_petg;
+        for (auto filament_idx : used_filaments) {
+            int filament_id = filament_idx - 1;
+            if (filament_id < (int)filament_types->values.size()) {
+                const std::string& filament_type = filament_types->values[filament_id];
+                if (filament_type == "PLA") {
+                    has_pla = true;
+                    nozzle_has_pla[filament_id] = true;
+                }
+                if (filament_type == "PETG") {
+                    has_petg = true;
+                    nozzle_has_petg[filament_id] = true;
+                }
+            }
+        }
+        bool mixture = has_pla && has_petg;
+        if (mixture && is_toolchanger) {
+            mixture = false;
+            for (const auto& kv : nozzle_has_pla) {
+                if (nozzle_has_petg.count(kv.first))
+                    mixture = true;
+            }
+        }
+        if (mixture)
+            add(PlateNoticeKind::mix_pla_petg,
+                translate("PLA and PETG filaments detected in the mixture. Adjust parameters according to the Wiki to ensure print quality."));
+    }
+
+    // PartPlate::check_compatible_of_nozzle_and_filament()
+    {
+        float nozzle_diameter = config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter")->values[0];
+        auto  volume_type_opt = config.option<Slic3r::ConfigOptionEnumsGeneric>("nozzle_volume_type");
+        auto get_filament_alias = [](std::string preset_name) -> std::string {
+            size_t      at_pos = preset_name.find('@');
+            std::string alias  = preset_name.substr(0, at_pos);
+            size_t      first  = alias.find_first_not_of(' ');
+            if (first == std::string::npos) return "";
+            size_t last = alias.find_last_not_of(' ');
+            return alias.substr(first, last - first + 1);
+        };
+        std::set<std::string> selected_filament_alias;
+        for (auto& filament_preset : bundle.filament_presets) { selected_filament_alias.insert(get_filament_alias(filament_preset)); }
+        auto get_incompatible_selected = [&](const Slic3r::NozzleVolumeType volume_type) -> std::set<std::string> {
+            std::vector<std::string> incompatible_filaments = Slic3r::Print::get_incompatible_filaments_by_nozzle(nozzle_diameter, volume_type);
+            std::set<std::string>    ret;
+            for (auto& filament : selected_filament_alias) {
+                if (std::find(incompatible_filaments.begin(), incompatible_filaments.end(), filament) != incompatible_filaments.end()) ret.insert(filament);
+            }
+            return ret;
+        };
+        auto get_nozzle_msg = [](const float nozzle_diameter, const Slic3r::NozzleVolumeType volume_type) -> std::string {
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(1) << nozzle_diameter;
+            std::string nozzle_msg = oss.str();
+            ((nozzle_msg += "mm ") += translate(Slic3r::get_nozzle_volume_type_string(volume_type).c_str())) += translate(" nozzle");
+            return nozzle_msg;
+        };
+        auto get_incompatible_filament_msg = [](const std::set<std::string>& incompatible_selected_filaments) -> std::string {
+            std::string filament_str;
+            size_t      idx = 0;
+            for (const auto& filament : incompatible_selected_filaments) {
+                if (idx > 0) filament_str += ',';
+                filament_str += filament;
+                ++idx;
+            }
+            return filament_str;
+        };
+        std::map<Slic3r::NozzleVolumeType, std::set<std::string>> incompatible_selected_map;
+        if (volume_type_opt != nullptr) {
+            std::set<int> nozzle_volumes(volume_type_opt->values.begin(), volume_type_opt->values.end());
+            for (auto volume_type_value : nozzle_volumes) {
+                Slic3r::NozzleVolumeType volume_type = static_cast<Slic3r::NozzleVolumeType>(volume_type_value);
+                auto incompatible_selected = get_incompatible_selected(volume_type);
+                if (!incompatible_selected.empty()) incompatible_selected_map[volume_type] = incompatible_selected;
+            }
+        }
+        if (incompatible_selected_map.size() == 1) {
+            auto elem = incompatible_selected_map.begin();
+            add(PlateNoticeKind::nozzle_incompatible,
+                (boost::format(translate("It is not recommended to print the following filament(s) with %1%: %2%\n")) %
+                 get_nozzle_msg(nozzle_diameter, elem->first) % get_incompatible_filament_msg(elem->second)).str());
+        } else if (!incompatible_selected_map.empty()) {
+            std::string warning_msg = translate("It is not recommended to use the following nozzle and filament combinations:\n");
+            for (auto& elem : incompatible_selected_map) {
+                warning_msg += (boost::format(translate("%1% with %2%\n")) % get_nozzle_msg(nozzle_diameter, elem.first) %
+                                get_incompatible_filament_msg(elem.second)).str();
+            }
+            add(PlateNoticeKind::nozzle_incompatible, warning_msg);
+        }
+    }
+
+    // PartPlate::check_mixture_filament_compatible()
+    {
+        std::vector<std::string> types;
+        for (auto filament : used_filaments) {
+            int filament_idx = filament - 1;
+            if (filament_idx >= (int)filament_types->values.size()) filament_idx = 0;
+            types.push_back(filament_types->values[filament_idx]);
+        }
+        std::unordered_set<std::string> seen;
+        types.erase(std::remove_if(types.begin(), types.end(), [&](const std::string& s) { return !seen.insert(s).second; }), types.end());
+        // add_incompatibility("PVA", "PETG")
+        const auto incompatible = [](const std::string& a, const std::string& b) {
+            return (a == "PVA" && b == "PETG") || (a == "PETG" && b == "PVA");
+        };
+        for (size_t i = 0; i < types.size(); i++) {
+            bool found = false;
+            for (size_t j = i + 1; j < types.size(); ++j) {
+                if (incompatible(types[i], types[j])) {
+                    add(PlateNoticeKind::mixture_incompatible,
+                        (boost::format(translate("Mixing %1% with %2% in printing is not recommended.\n")) % types[i] % types[j]).str());
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+    }
+
+    // GLCanvas3D::is_flushing_matrix_error(): for the printers whose sidebar
+    // edits flushing volumes (Sidebar::should_show_SEMM_buttons()).
+    if (bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor()) {
+        const std::vector<double>& config_matrix = bundle.project_config.option<Slic3r::ConfigOptionFloats>("flush_volumes_matrix")->values;
+        const std::vector<double>& config_multiplier = bundle.project_config.option<Slic3r::ConfigOptionFloats>("flush_multiplier")->values;
+        bool error = false;
+        for (auto multiplier : config_multiplier) {
+            if (multiplier == 0) error = true;
+        }
+        if (!error && !config_multiplier.empty()) {
+            int matrix_len = config_matrix.size() / config_multiplier.size();
+            int row_len = std::sqrt(matrix_len);
+            for (int i = 0; i < (int)config_matrix.size(); i++) {
+                int relative_id = i % matrix_len;
+                int row_id = relative_id / row_len;
+                int col_id = relative_id % row_len;
+                if (row_id != col_id && config_matrix[i] == 0) error = true;
+            }
+        }
+        if (error)
+            add(PlateNoticeKind::flushing_volume_zero,
+                translate("Partial flushing volume set to 0. Multi-color printing may cause color mixing in models. Please readjust flushing settings."));
+    }
+}
+
 // run_post_process_scripts(): the process names a script on a line of post_process.
 bool has_post_process_scripts(const Slic3r::DynamicPrintConfig& config)
 {
@@ -2029,6 +2221,7 @@ SliceResult slice(
         add_slice_notices(print, model, gcode_result, build_volume_of(config), result.notices);
         result.print_ready = gcode_result.filament_printable_reuslt.conflict_filament.empty() && gcode_result.gcode_check_result.error_code == 0;
         result.post_process_skipped = has_post_process_scripts(config);
+        result.prime_tower_outside = prime_tower_outside(print, config);
         result.toolpaths_written = !toolpaths_path.empty() && write_toolpaths(gcode_result, print, config, toolpaths_path);
         result.slice_info_written = !slice_info_path.empty() && detail::write_slice_info(print, gcode_result, slice_info_path);
         // GLCanvas3D::reload_scene(): once the wipe tower is built, the plate
@@ -2181,6 +2374,7 @@ PlateValidation validate_plate(
         print.is_BBL_printer() = engine().bundle->is_bbl_vendor();
         print.apply(model, config);
         result.read = true;
+        add_plate_notices(*engine().bundle, config, plate_filaments(model, config, {}), result);
         for (const Slic3r::PrintObject* print_object : print.objects()) {
             const auto found = objects.find(print_object->model_object()->id().id);
             if (found != objects.end()) {

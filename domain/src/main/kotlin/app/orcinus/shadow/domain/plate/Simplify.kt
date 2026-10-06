@@ -1,6 +1,7 @@
 package app.orcinus.shadow.domain.plate
 
 import app.orcinus.shadow.core.model.DialogIcon
+import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.ModelLoadOutcome
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.OrcaText
@@ -41,6 +42,8 @@ class OpenSimplifyUseCase(private val repository: PlateRepository) {
             selectedInstances = if (wholeObject) listOf(target).allCopies() else setOf(copy),
             selectedPart = null,
             selectedRange = null,
+            // GLGizmoSimplify::on_render_input_window(): remove_simplify_suggestion_with_id().
+            simplifySuggestions = state.simplifySuggestions - copy.mesh,
         )
     }
 
@@ -48,8 +51,20 @@ class OpenSimplifyUseCase(private val repository: PlateRepository) {
     fun ofVolume(id: ObjectPartId) = repository.update { state ->
         val target = state.objects.withMesh(id.mesh)
         if (target?.volumeAt(id.index) == null || state.simplifyTarget != null) return@update state
-        state.copy(simplifyTarget = id, selectedInstances = setOf(PlateInstanceId(id.mesh)), selectedPart = id, selectedRange = null)
+        state.copy(
+            simplifyTarget = id,
+            selectedInstances = setOf(PlateInstanceId(id.mesh)),
+            selectedPart = id,
+            selectedRange = null,
+            simplifySuggestions = state.simplifySuggestions - id.mesh,
+        )
     }
+
+    /**
+     * "Simplify model" of the advice to simplify an object: the selection
+     * becomes the object (Selection::add_object()) and the gizmo opens on it.
+     */
+    fun suggested(mesh: ScenePath) = ofObject(PlateInstanceId(mesh), wholeObject = true)
 
     /** GLGizmoSimplify::close(): Cancel, or the volume is gone. */
     fun close() = repository.update { state -> if (state.simplifyTarget == null) state else state.copy(simplifyTarget = null) }
@@ -197,3 +212,13 @@ class ApplySimplifyUseCase(
         }
     }
 }
+
+/**
+ * add_simplify_suggestion_notification()'s is_big_object(): an object of a
+ * single volume with a million triangles or more.
+ */
+internal fun LoadedObject.suggestsSimplify(): Boolean =
+    parts.isEmpty() && (instances.firstOrNull()?.inspection?.facetCount ?: 0L) >= SIMPLIFY_SUGGESTION_TRIANGLES
+
+/** add_simplify_suggestion_notification()'s triangles_to_suggest_simplify. */
+private const val SIMPLIFY_SUGGESTION_TRIANGLES = 1_000_000L

@@ -127,6 +127,39 @@ fun ExportFinishedNotification(name: String, onClose: () -> Unit) {
 }
 
 /**
+ * NotificationManager::bbl_show_seqprintinfo_notification(): the plate prints
+ * by object, so arranging it keeps the nozzle off the printed objects. It
+ * stays until its close button.
+ */
+@Composable
+fun SeqPrintInfoNotification(onClose: () -> Unit) {
+    OrcaNotification(action = { CloseButton(onClose) }) {
+        OrcaNotificationText(orcaString("Print By Object: \nSuggest to use auto-arrange to avoid collisions when printing."))
+    }
+}
+
+/**
+ * NotificationManager::push_simplify_suggestion_notification(): the object
+ * [name] is slow to process; "Simplify model" opens the Simplify gizmo on it
+ * ([onSimplify]) and closes the notification. It stays until then or its
+ * close button.
+ */
+@Composable
+fun SimplifySuggestionNotification(name: String, onSimplify: () -> Unit, onClose: () -> Unit) {
+    OrcaNotification(action = { CloseButton(onClose) }) {
+        OrcaNotificationText(
+            orcaText(
+                OrcaText(
+                    "Processing model '%1%' with more than 1M triangles could be slow. It is highly recommended to simplify the model.",
+                    listOf(name),
+                ),
+            ),
+        )
+        OrcaNotificationLink(orcaString("Simplify model"), onClick = onSimplify)
+    }
+}
+
+/**
  * NotificationManager::UpdatedItemsInfoNotification of the objects a load
  * brought as parts of a cut object ([count], 0 for none): "%1$d object was
  * loaded as a part of cut object.", for ten seconds after every load that

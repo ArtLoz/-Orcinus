@@ -153,6 +153,9 @@ struct SliceResult {
     // The process names post-processing scripts (post_process), which the
     // desktop app runs on the exported G-code and the app cannot run.
     bool post_process_skipped{false};
+    // GLVolumeCollection::check_wipe_tower_outside_state() of the tower the
+    // slice built: it reaches beyond the plate (EWarning::PrimeTowerOutside).
+    bool prime_tower_outside{false};
 };
 
 // What Print::output_filename() names the G-code after: the project's name once
@@ -877,6 +880,19 @@ struct PlateValidation {
     // plate (SlicingParameters::object_print_z_min, which a raft raises).
     std::vector<std::int32_t> print_objects;
     std::vector<double> print_z_min;
+    // GLCanvas3D::reload_scene()'s checks of the plate's filaments: the kind
+    // of each warning the 3D editor shows (PlateNoticeKind) and its text.
+    std::vector<std::int32_t> notice_kinds;
+    std::vector<std::string> notice_texts;
+};
+
+// What a warning of the plate's filaments is about: EWarning::MixUsePLAAndPETG,
+// MixtureFilamentIncompatible, NozzleFilamentIncompatible and FlushingVolumeZero.
+enum class PlateNoticeKind : std::int32_t {
+    mix_pla_petg = 0,
+    mixture_incompatible = 1,
+    nozzle_incompatible = 2,
+    flushing_volume_zero = 3,
 };
 
 PlateValidation validate_plate(

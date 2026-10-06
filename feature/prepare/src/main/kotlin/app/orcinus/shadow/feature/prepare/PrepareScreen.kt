@@ -68,6 +68,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
@@ -136,6 +137,7 @@ import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.PlateNoticeKind
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateSlicing
@@ -150,6 +152,7 @@ import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.model.warning
 import app.orcinus.shadow.core.ui.R as UiR
@@ -162,6 +165,7 @@ import app.orcinus.shadow.core.ui.plate.AddObjectItems
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.CloneDialog
 import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
+import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.MenuFilament
 import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
 import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
@@ -175,6 +179,8 @@ import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
+import app.orcinus.shadow.core.ui.plate.SeqPrintInfoNotification
+import app.orcinus.shadow.core.ui.plate.SimplifySuggestionNotification
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
 import app.orcinus.shadow.core.ui.plate.SliceNoticeNotification
@@ -456,6 +462,12 @@ internal fun PrepareRoute(
         onUndo = viewModel::undo,
         onRedo = viewModel::redo,
         onDismissProblem = viewModel::dismissProblem,
+        notificationActions = NotificationActions(
+            closeSeqPrintInfo = viewModel::dismissSeqPrintInfo,
+            closeExportFinished = viewModel::dismissExportFinished,
+            simplify = viewModel::simplifySuggested,
+            closeSimplifySuggestion = viewModel::dismissSimplifySuggestion,
+        ),
         onRepairObject = viewModel::repairSelected,
         onJumpTo = viewModel::jumpTo,
         canvas = canvas,
@@ -703,6 +715,7 @@ internal fun PrepareScreen(
     onSlice: () -> Unit,
     onCancelSlicing: () -> Unit,
     onDismissProblem: () -> Unit,
+    notificationActions: NotificationActions = NotificationActions.NONE,
     /** The info notification's " (Repair)". */
     onRepairObject: () -> Unit = {},
     /** "Jump to" of a validation notification. */
@@ -1307,6 +1320,7 @@ internal fun PrepareScreen(
                         if (state.assemblyView == null) {
                             Notifications(
                                 state, canvas.imperialUnits, onCancelSlicing, onDismissProblem, onRepairObject, onJumpTo,
+                                actions = notificationActions,
                                 showHints = canvas.showHints,
                                 onShowHints = { onSetCanvas(AppConfigKeys.SHOW_HINTS, it.toString()) },
                             )
@@ -1576,6 +1590,7 @@ private fun Notifications(
     onDismissProblem: () -> Unit,
     onRepairObject: () -> Unit,
     onJumpTo: (ValidationNotice) -> Unit,
+    actions: NotificationActions = NotificationActions.NONE,
     /** show_hints: whether the daily tips under the slicing progress are expanded, and its keeping. */
     showHints: Boolean = false,
     onShowHints: (Boolean) -> Unit = {},
@@ -1583,10 +1598,18 @@ private fun Notifications(
     // Plater::priv::process_validation_warning() and push_validate_error_notification().
     state.validationWarning?.let { ValidationNotification(it, OrcaNotificationLevel.Warning, orcaString("WARNING:"), onJumpTo) }
     state.validationError?.let { ValidationNotification(it, OrcaNotificationLevel.Error, orcaString("Error:"), onJumpTo) }
-    if (state.objectClashed) {
-        // GLCanvas3D::EWarning::ObjectClashed
+    if (state.clashedObjects.isNotEmpty()) {
+        // GLCanvas3D::EWarning::ObjectClashed, push_plater_error_notification()
+        // of construct_error_string(): the objects by name.
         OrcaNotification(level = OrcaNotificationLevel.Error) {
-            OrcaNotificationText(stringResource(R.string.object_clashed))
+            OrcaNotificationText(orcaString("Error:"), emphasized = true)
+            OrcaNotificationText(
+                (
+                    orcaString("Following objects are laid over the boundary of plate or exceeds the height limit:\n") +
+                        state.clashedObjects.map { it.displayName() }.joinToString("") { it + "\n" } +
+                        orcaString("Please solve the problem by moving it totally on or off the plate, and confirming that the height is within the build volume.\n")
+                    ).trimEnd(),
+            )
         }
     }
     // Plater::priv::on_slicing_update() and GLCanvas3D::_update_slice_error_status()
@@ -1595,6 +1618,61 @@ private fun Notifications(
         SliceNoticeNotification(view.notice, view.jump?.targetObject?.displayName(), onJumpTo = { view.jump?.let(onJumpTo) })
     }
     if (state.postProcessSkipped) PostProcessSkippedNotification()
+    // GLCanvas3D::reload_scene(): the plate's tower and filaments, as the 3D
+    // editor's warnings (push_plater_warning_notification() and the
+    // customized ones, "Warning:" above the text).
+    if (state.primeTowerOutside) PlaterWarningNotification(orcaString("The prime tower extends beyond the plate boundary."))
+    if (state.somethingNotShown) PlaterWarningNotification(orcaString("Only the object being edited is visible."))
+    // GLGizmoEmboss::create_notification_not_valid_font(): the text's font is
+    // not on the phone, and only another font can be chosen. The phone picks
+    // no similar font, so both names are the one the project gave.
+    state.text?.takeIf { it.unknownFont && !it.busy }?.let { text ->
+        val name = text.style.faceName.ifEmpty { text.style.fontPath }
+        OrcaNotification(level = OrcaNotificationLevel.Warning) {
+            OrcaNotificationText(
+                orcaText(
+                    OrcaText(
+                        "Can't load exactly same font (\"%1%\"). Application selected a similar one (\"%2%\"). You have to specify font for enable edit text.",
+                        listOf(name, name),
+                    ),
+                ),
+            )
+        }
+    }
+    if (state.seqPrintInfo) SeqPrintInfoNotification(onClose = actions.closeSeqPrintInfo)
+    state.exportFinished?.let { name -> ExportFinishedNotification(name, onClose = actions.closeExportFinished) }
+    state.simplifySuggestions.forEach { target ->
+        SimplifySuggestionNotification(
+            target.displayName(),
+            onSimplify = { actions.simplify(target.mesh) },
+            onClose = { actions.closeSimplifySuggestion(target.mesh) },
+        )
+    }
+    // GLGizmoMmuSegmentation::on_opening(): show_notification_extruders_limit_exceeded().
+    if (state.painting?.kind == PaintKind.COLOR && state.filamentColors.size > MMU_EXTRUDERS_LIMIT) {
+        OrcaNotification {
+            OrcaNotificationText(
+                orcaText(
+                    OrcaText(
+                        "Filament count exceeds the maximum number that painting tool supports. Only the first %1% filaments will be available in painting tool.",
+                        listOf(MMU_EXTRUDERS_LIMIT.toString()),
+                    ),
+                ),
+            )
+        }
+    }
+    val uriHandler = LocalUriHandler.current
+    val wikiRegion = if (LocalConfiguration.current.locales[0].language == "zh") "zh" else "en"
+    state.plateNotices.forEach { notice ->
+        PlaterWarningNotification(notice.text) {
+            // "Click Wiki for help." of BBLMixUsePLAAndPETG: the dual-nozzle PLA and PETG guide.
+            if (notice.kind == PlateNoticeKind.MIX_PLA_PETG) {
+                OrcaNotificationLink(orcaString("Click Wiki for help."), onClick = {
+                    uriHandler.openUri("https://wiki.bambulab.com/$wikiRegion/filament-acc/filament/pla-and-petg-dual-extrusion")
+                })
+            }
+        }
+    }
     state.problem?.let { problem ->
         OrcaNotification(
             level = if (problem.kind.warning) OrcaNotificationLevel.Warning else OrcaNotificationLevel.Regular,
@@ -1641,6 +1719,31 @@ private fun Notifications(
  * A message of the plate's validation: "Error:" or "WARNING:" over its text,
  * and "Jump to" with the name of the object it is about and its setting.
  */
+/** What the buttons and links of the 3D editor's notifications do (NotificationManager). */
+internal class NotificationActions(
+    /** The close button of the advice to arrange a plate printed by object. */
+    val closeSeqPrintInfo: () -> Unit = {},
+    /** The export's notification closes. */
+    val closeExportFinished: () -> Unit = {},
+    /** "Simplify model", and the close button, of the advice to simplify an object. */
+    val simplify: (ScenePath) -> Unit = {},
+    val closeSimplifySuggestion: (ScenePath) -> Unit = {},
+) {
+    companion object {
+        val NONE = NotificationActions()
+    }
+}
+
+/** NotificationManager::push_plater_warning_notification(): "Warning:" above [text], and the notification's own link. */
+@Composable
+private fun PlaterWarningNotification(text: String, link: @Composable () -> Unit = {}) {
+    OrcaNotification(level = OrcaNotificationLevel.Warning) {
+        OrcaNotificationText(orcaString("Warning:"), emphasized = true)
+        OrcaNotificationText(text.trimEnd())
+        link()
+    }
+}
+
 @Composable
 private fun ValidationNotification(notice: ValidationNotice, level: OrcaNotificationLevel, title: String, onJumpTo: (ValidationNotice) -> Unit) {
     val name = notice.targetObject?.displayName()
@@ -1927,7 +2030,8 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(vertical = 6.dp),
         ) {
-            state.filamentColors.forEachIndexed { index, color ->
+            // GLGizmoMmuSegmentation::EXTRUDERS_LIMIT: the first 16 filaments alone.
+            state.filamentColors.take(MMU_EXTRUDERS_LIMIT).forEachIndexed { index, color ->
                 val filament = index + 1
                 OrcaFilamentSlot(
                     number = filament,
@@ -2039,7 +2143,7 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
 private fun FilamentRemap(state: PrepareUiState, painting: PaintingMode, actions: PaintingActions) {
     var open by rememberSaveable { mutableStateOf(false) }
     var choosing by remember { mutableStateOf<Int?>(null) }
-    val colors = state.filamentColors.map { Color(it.red, it.green, it.blue, it.alpha) }
+    val colors = state.filamentColors.take(MMU_EXTRUDERS_LIMIT).map { Color(it.red, it.green, it.blue, it.alpha) }
     val hasMapping = painting.remap.withIndex().any { (source, target) -> source != target }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -3065,3 +3169,6 @@ private fun brimEarsViewOf(state: PrepareUiState, mode: BrimEarsMode): BrimEarsV
         section = state.paintSection,
     )
 }
+
+/** GLGizmoMmuSegmentation::EXTRUDERS_LIMIT: the filaments the colour painting tool offers. */
+private const val MMU_EXTRUDERS_LIMIT = 16

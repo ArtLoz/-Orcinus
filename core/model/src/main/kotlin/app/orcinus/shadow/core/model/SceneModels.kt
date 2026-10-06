@@ -569,6 +569,15 @@ sealed interface PlateDescriptionOutcome {
  * objects validated (-1 for none), the copy of it (-1 for the object as a
  * whole), and [option], the setting to look at (opt_key; empty for none).
  */
+/**
+ * What a warning of the plate's filaments is about: EWarning::MixUsePLAAndPETG,
+ * MixtureFilamentIncompatible, NozzleFilamentIncompatible and FlushingVolumeZero.
+ */
+enum class PlateNoticeKind { MIX_PLA_PETG, MIXTURE_INCOMPATIBLE, NOZZLE_INCOMPATIBLE, FLUSHING_VOLUME_ZERO }
+
+/** A warning of the plate's filaments with OrcaSlicer's text, translated. */
+data class PlateNotice(val kind: PlateNoticeKind, val text: String)
+
 data class PlateValidationMessage(
     val text: String,
     val objectIndex: Int = -1,
@@ -591,6 +600,8 @@ data class PlateValidationMessage(
 data class PlateValidation(
     val error: PlateValidationMessage? = null,
     val warning: PlateValidationMessage? = null,
+    /** GLCanvas3D::reload_scene()'s warnings of the plate's filaments, which the 3D editor shows. */
+    val notices: List<PlateNotice> = emptyList(),
     val clearance: List<List<Point2>> = emptyList(),
     val clearanceFill: List<Point2> = emptyList(),
     val heightLimitFill: List<Vector3> = emptyList(),

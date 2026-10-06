@@ -39,4 +39,5 @@ parcelable SliceOutcomeParcel {
     @nullable SliceNoticeParcel[] notices;
     boolean printReady;
     boolean postProcessSkipped;
+    boolean primeTowerOutside;
 }

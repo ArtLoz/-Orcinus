@@ -3632,6 +3632,15 @@ class PrepareViewModel(
 
     fun dismissProblem() = dismissPlateProblem()
 
+    fun dismissSeqPrintInfo() = dismissPlateProblem.seqPrintInfo()
+
+    fun dismissExportFinished() = dismissPlateProblem.exportFinished()
+
+    fun dismissSimplifySuggestion(mesh: ScenePath) = dismissPlateProblem.simplifySuggestion(mesh)
+
+    /** "Simplify model" of the advice to simplify an object. */
+    fun simplifySuggested(mesh: ScenePath) = openSimplify.suggested(mesh)
+
     /** is_valid_scale_ratio() of draw_size(): a ratio of effect, not too big, and positive. */
     private fun isValidScaleRatio(ratio: Double): Boolean = abs(ratio - 1.0) >= SVG_SCALE_RATIO_MIN && ratio <= SVG_SCALE_RATIO_MAX && ratio >= 1e-4
 

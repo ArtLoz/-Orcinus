@@ -26,14 +26,17 @@ import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
+import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.domain.plate.AllPlatesStats
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
+import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
 import app.orcinus.shadow.domain.plate.EditLayerGcodesUseCase
 import app.orcinus.shadow.domain.plate.ExportGcodeUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
+import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
 import app.orcinus.shadow.domain.plate.SelectSlicedPlateUseCase
 import app.orcinus.shadow.domain.plate.SendGcodeUseCase
@@ -84,6 +87,10 @@ data class PreviewUiState(
     val canSliceAll: Boolean = false,
     /** GCodeViewer::load_shells(): the objects the print holds, each with the height its raft lifts it to. */
     val shells: List<Pair<PlateObject, Double>> = emptyList(),
+    /** PlateState.exportFinished: the file the last export wrote, while its notification shows. */
+    val exportFinished: String? = null,
+    /** PlateState.simplifySuggestions: the objects advised to be simplified. */
+    val simplifySuggestions: List<PlateObject> = emptyList(),
 ) {
     /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
     val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
@@ -108,6 +115,10 @@ class PreviewViewModel(
     private val cancelPlateSlicing: CancelPlateSlicingUseCase? = null,
     /** A slicing notification's "Jump to" selects the object it names. */
     private val selectPlateObject: SelectPlateObjectUseCase? = null,
+    /** The export's notification closes. */
+    private val dismissPlateProblem: DismissPlateProblemUseCase? = null,
+    /** "Simplify model" of the advice to simplify an object. */
+    private val openSimplify: OpenSimplifyUseCase? = null,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -228,7 +239,18 @@ class PreviewViewModel(
     suspend fun exportGcode(document: ExternalDocumentReference): Boolean = exportGcode.invoke(document)
 
     /** The name the exported document goes by, which the export's notification shows. */
-    suspend fun exportedName(document: ExternalDocumentReference): String = exportGcode.displayName(document) ?: gcodeName()
+    fun dismissExportFinished() {
+        dismissPlateProblem?.exportFinished()
+    }
+
+    fun dismissSimplifySuggestion(mesh: ScenePath) {
+        dismissPlateProblem?.simplifySuggestion(mesh)
+    }
+
+    /** "Simplify model": the 3D editor opens with the Simplify gizmo on the object. */
+    fun simplifySuggested(mesh: ScenePath) {
+        openSimplify?.suggested(mesh)
+    }
 
     /** The G-code as the share sheet takes it; null when there is none. */
     suspend fun shareGcode(): ExternalDocumentReference? = shareGcode.invoke()
@@ -259,4 +281,6 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     allPlates = allPlatesStats(),
     canSliceAll = canSliceAll,
     shells = validation?.printObjects.orEmpty().mapNotNull { printed -> objects.getOrNull(printed.objectIndex)?.let { it to printed.printZMin } },
+    exportFinished = exportFinished,
+    simplifySuggestions = simplifySuggestions.mapNotNull { mesh -> objects.firstOrNull { it.mesh == mesh } },
 )

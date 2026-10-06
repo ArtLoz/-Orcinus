@@ -43,6 +43,8 @@ import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjColorQuestion
 import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PlateCircle
+import app.orcinus.shadow.core.model.PlateNotice
+import app.orcinus.shadow.core.model.PlateNoticeKind
 import app.orcinus.shadow.core.model.PresetBundleInfo
 import app.orcinus.shadow.core.model.PresetBundleType
 import app.orcinus.shadow.core.model.PresetBundlesOutcome
@@ -2481,6 +2483,9 @@ class NativeSlicerEngine(context: Context) :
             },
             sequence = result.sequence.toList(),
             printObjects = result.printObjects.indices.map { PrintedObject(result.printObjects[it], result.printZMin[it]) },
+            notices = result.noticeKinds.indices.mapNotNull { index ->
+                PlateNoticeKind.entries.getOrNull(result.noticeKinds[index])?.let { PlateNotice(it, result.noticeTexts[index]) }
+            },
         )
     }
 
@@ -2957,6 +2962,7 @@ class NativeSlicerEngine(context: Context) :
                 },
                 printReady = result.printReady,
                 postProcessSkipped = result.postProcessSkipped,
+                primeTowerOutside = result.primeTowerOutside,
             )
 
             NativeSliceResult.CANCELLED -> SliceOutcome.Cancelled(request.jobId)

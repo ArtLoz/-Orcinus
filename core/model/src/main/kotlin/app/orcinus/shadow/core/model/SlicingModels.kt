@@ -852,6 +852,8 @@ sealed interface SliceOutcome {
         val printReady: Boolean = true,
         /** The process names post-processing scripts, which the app cannot run. */
         val postProcessSkipped: Boolean = false,
+        /** check_wipe_tower_outside_state(): the tower the slice built reaches beyond the plate. */
+        val primeTowerOutside: Boolean = false,
     ) : SliceOutcome
 
     data class Failure(

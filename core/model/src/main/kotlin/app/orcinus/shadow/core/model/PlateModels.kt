@@ -720,6 +720,7 @@ data class PlateSliceResult(
     val notices: List<SliceNotice> = emptyList(),
     val printReady: Boolean = true,
     val postProcessSkipped: Boolean = false,
+    val primeTowerOutside: Boolean = false,
 )
 
 enum class PlateProblemKind {
@@ -1232,6 +1233,19 @@ data class PlateState(
     val reloadPrompt: ReloadPrompt? = null,
     /** Message boxes OrcaSlicer showed while it changed the plate, which the user dismisses in turn. */
     val plateNotices: List<SettingsDialog> = emptyList(),
+    /**
+     * NotificationManager::push_exporting_finished_notification(): the name of
+     * the file the last export of G-code or of a sliced plate wrote, until the
+     * notification closes.
+     */
+    val exportFinished: String? = null,
+    /**
+     * GLGizmoSimplify::add_simplify_suggestion_notification(): the objects
+     * loads brought whose only volume has a million triangles or more, each
+     * advised to be simplified until its notification closes or the Simplify
+     * gizmo opens on it.
+     */
+    val simplifySuggestions: List<ScenePath> = emptyList(),
     /** The objects on the plate, in the order they were added, as OrcaSlicer's object list shows them. */
     val objects: List<PlateObject> = emptyList(),
     /** The copies the user picked (GLCanvas3D's Selection); empty when none is. */
@@ -1276,6 +1290,12 @@ data class PlateState(
      * nothing to validate or the engine has not answered.
      */
     val validation: PlateValidation? = null,
+    /**
+     * Plater::config_change_notification(): the settings changed with the
+     * plate printing by object, and the advice to arrange it shows until it
+     * is closed or the settings change to print by layer (BBLSeqPrintInfo).
+     */
+    val seqPrintInfo: Boolean = false,
     /** The arrange options (GLCanvas3D::ArrangeSettings), which every arrangement of the plate takes. */
     val arrangeSettings: ArrangeSettings = ArrangeSettings(),
     /** What Copy and Cut took (Selection::Clipboard); null while nothing was copied. */

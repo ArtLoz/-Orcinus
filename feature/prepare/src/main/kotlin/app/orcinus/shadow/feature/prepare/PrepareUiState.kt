@@ -39,6 +39,7 @@ import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.PlateNotice
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateSettingsChoice
@@ -252,6 +253,16 @@ data class PrepareUiState(
     val sliceNotices: List<SliceNoticeView> = emptyList(),
     /** The process names post-processing scripts, which the G-code was sliced without. */
     val postProcessSkipped: Boolean = false,
+    /** GLCanvas3D::reload_scene()'s warnings of the plate's filaments. */
+    val plateNotices: List<PlateNotice> = emptyList(),
+    /** EWarning::PrimeTowerOutside: the tower of the current plate's slice reaches beyond the plate. */
+    val primeTowerOutside: Boolean = false,
+    /** PlateState.seqPrintInfo: the advice to arrange a plate printed by object. */
+    val seqPrintInfo: Boolean = false,
+    /** PlateState.exportFinished: the file the last export wrote, while its notification shows. */
+    val exportFinished: String? = null,
+    /** PlateState.simplifySuggestions: the objects advised to be simplified. */
+    val simplifySuggestions: List<PlateObject> = emptyList(),
     /** The sequential printing's clearances while the validation fails. */
     val clearance: PlateClearance? = null,
     val arrangeOptionsOpen: Boolean,
@@ -345,6 +356,12 @@ data class PrepareUiState(
     val uniformScale: Boolean,
     /** GLCanvas3D::EWarning::ObjectClashed: an object lies across the plate boundary or above the build height. */
     val objectClashed: Boolean,
+    /**
+     * ObjectFilamentResults::partly_outside_objects of check_outside_state():
+     * the objects with a printable copy across the plate's boundary or above
+     * its height, which construct_error_string() names.
+     */
+    val clashedObjects: List<PlateObject> = emptyList(),
     val slicing: PlateSlicing?,
     /** PlateState.slicesCompleted, which "Slice ok." follows. */
     val slicesCompleted: Int = 0,
@@ -357,6 +374,16 @@ data class PrepareUiState(
 ) {
     /** GLGizmoBase::on_is_activable() for the manipulation gizmos: an object is selected. */
     val canManipulate: Boolean get() = selectedObject != null && canEditPlate
+
+    /**
+     * EWarning::SomethingNotShown of toggle_model_objects_visibility(): a tool
+     * that shows its object alone (the InstancesHider of the painting tools,
+     * the cut, the brim ears and the mesh boolean) is open while the project
+     * has another object or copy.
+     */
+    val somethingNotShown: Boolean
+        get() = (painting != null || cut != null || brimEars != null || meshBoolean != null) &&
+            (sceneObjects.size > 1 || (sceneObjects.firstOrNull()?.instances?.size ?: 0) > 1)
 
     /**
      * GLGizmoMove3D, GLGizmoRotate3D and GLGizmoScale3D::on_is_activable():
@@ -1062,6 +1089,11 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         validationWarning = validation?.warning?.let { notice(it, objects) },
         sliceNotices = result?.let { sliced -> sliced.notices.map { sliceNotice(it, sliced.objects, objects) } }.orEmpty(),
         postProcessSkipped = result?.postProcessSkipped == true,
+        plateNotices = validation?.notices.orEmpty(),
+        primeTowerOutside = result?.primeTowerOutside == true,
+        seqPrintInfo = seqPrintInfo,
+        exportFinished = exportFinished,
+        simplifySuggestions = simplifySuggestions.mapNotNull { mesh -> objects.firstOrNull { it.mesh == mesh } },
         clearance = validation?.takeIf { it.error != null && (it.clearance.isNotEmpty() || it.heightLimitFill.isNotEmpty()) }
             ?.let { PlateClearance(it.clearance, it.clearanceFill, it.heightLimitFill) },
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
@@ -1209,6 +1241,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         },
         uniformScale = uniformScale,
         objectClashed = copies.any { it.instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE },
+        clashedObjects = copies.filter { it.instance.printable && it.instance.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE }
+            .map(SceneCopy::plateObject).distinct(),
         slicing = slicing,
         slicesCompleted = slicesCompleted,
         problem = problem,
