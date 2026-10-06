@@ -1176,6 +1176,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         key: String? = null,
         val held: Boolean = false,
         val others: List<Pair<Int, Affine3>> = emptyList(),
+        /** The selection mode's press on a selected copy: let go where it was pressed, the copy leaves the selection. */
+        val leaves: Boolean = false,
     ) : Drag(index, startWorld, key)
 
     /** GLGizmoBase::use_grabbers(): the move gizmo's grabber of [axis] at [startGrabber], the box centre at [startCenter]. */
@@ -1907,18 +1909,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return true
         }
         if (selectionMode && assembly == null && volume.index != WIPE_TOWER_INDEX) {
-            // GLCanvas3D::on_mouse() for a Ctrl click: a selected copy leaves the
-            // selection and nothing moves; another joins it, and the finger
-            // moves the whole selection.
+            // GLCanvas3D::on_mouse() for a Ctrl click: another copy joins the
+            // selection, and the finger moves the whole selection. A selected
+            // copy leaves it once the finger lets go where it pressed, so a long
+            // press still opens the selection's menu and a drag moves it.
             val target = objects.firstOrNull { it.index == volume.index } ?: volume
-            if (target.index in selectedIndexes) {
-                onToggleObject(target.index)
-                drag = null
-                return true
-            }
-            val others = selectedIndexes.mapNotNull { index -> objects.firstOrNull { it.index == index }?.let { index to it.world } }
-            onToggleObject(target.index)
-            drag = if (editable) ObjectDrag(target.index, target.world, hit, others = others) else null
+            val selected = target.index in selectedIndexes
+            val others = selectedIndexes.filter { it != target.index }.mapNotNull { index -> objects.firstOrNull { it.index == index }?.let { index to it.world } }
+            // A plate that takes no change moves nothing: the copy leaves at once.
+            if (!selected || !editable) onToggleObject(target.index)
+            drag = if (editable) ObjectDrag(target.index, target.world, hit, others = others, leaves = selected) else null
             return true
         }
         if (volume.modifier && assembly == null && volume.index != WIPE_TOWER_INDEX && selectedIndexes.size <= 1) {
@@ -2126,6 +2126,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         val drag = drag ?: return
         this.drag = null
+        if (drag is ObjectDrag && drag.leaves && !drag.moved) {
+            onToggleObject(drag.index)
+            return
+        }
         if (drag is ObjectDrag && drag.held && !drag.moved) {
             // Let go without the menu, the copy is a click on it: it is selected alone (Selection::add()).
             selectedIndex = drag.index
