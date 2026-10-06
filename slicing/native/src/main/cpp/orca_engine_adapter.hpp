@@ -2159,6 +2159,9 @@ enum class ObjectEdit : std::int64_t {
     // ObjectList::merge(true) ("Assemble"): the objects become the parts of
     // one object (edit_objects() alone).
     assemble = 11,
+    // Plater::priv::split_object(obj_idx, false) of load_files(): as
+    // split_to_objects, the new objects keeping their heights without Auto-Drop.
+    split_to_objects_keeping_z = 12,
 };
 
 // A connector of the cut (CutConnector of Model.hpp) as the gizmo places it on

@@ -5306,7 +5306,8 @@ ImportedModels edit_object(
         std::vector<Slic3r::ModelObject*> edited;
 
         switch (edit) {
-        case ObjectEdit::split_to_objects: {
+        case ObjectEdit::split_to_objects:
+        case ObjectEdit::split_to_objects_keeping_z: {
             Slic3r::ModelObjectPtrs new_objects;
             object->split(&new_objects, keep_painting);
             if (new_objects.size() <= 1) {
@@ -5317,7 +5318,8 @@ ImportedModels edit_object(
             const bool floating = std::any_of(new_objects.begin(), new_objects.end(), [](const Slic3r::ModelObject* split) {
                 return split->get_instance_min_z(0) >= Slic3r::SINKING_MIN_Z_THRESHOLD;
             });
-            bool split_auto_drop = true;
+            // split_object()'s auto_drop: false from load_files() without Auto-Drop.
+            bool split_auto_drop = edit != ObjectEdit::split_to_objects_keeping_z;
             if (object->instances[0]->auto_drop && floating &&
                 dialogs.ask("split_auto_drop", {detail::ui_text("Disable Auto-Drop to preserve Z positioning?\n")},
                             {detail::ui_text("Object with floating parts was detected")})) {

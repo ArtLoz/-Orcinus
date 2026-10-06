@@ -1034,6 +1034,13 @@ enum class ObjectEdit {
 
     /** ObjectList::merge(true) ("Assemble"): the selected objects become the parts of one. */
     ASSEMBLE,
+
+    /**
+     * Plater::priv::split_object(obj_idx, false) of load_files(): the files
+     * loaded without Auto-Drop as one object become objects that keep their
+     * heights and do not drop.
+     */
+    SPLIT_TO_OBJECTS_KEEPING_Z,
 }
 
 /**

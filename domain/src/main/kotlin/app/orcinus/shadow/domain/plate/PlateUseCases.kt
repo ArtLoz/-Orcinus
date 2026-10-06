@@ -1276,7 +1276,8 @@ class AddModelToPlateUseCase(
             applicationScope.launch { load(batch.rest.first(), following, emptyMap(), emptyList()) }
         } else if (done) {
             val state = repository.state.value
-            split?.let { editPlateObject(it, ObjectEdit.SPLIT_TO_OBJECTS) }
+            // load_files(): split_object(idx, new_model_auto_drop), which is false here.
+            split?.let { editPlateObject(it, ObjectEdit.SPLIT_TO_OBJECTS_KEEPING_Z) }
             if (batch.arrange && state.objects.isNotEmpty()) placePlateObjects(PlateManipulation.ArrangePlate(state.currentArrangeSettings))
             if (batch.suggestTopSurface) suggestTopSurface()
         }

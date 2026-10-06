@@ -1487,7 +1487,7 @@ class PlateUseCasesTest {
 
         assertEquals(mapOf("multiple_files_parts" to false, "multiple_files_parts#checked" to false), inspector.loads.last().answers)
         // The one object they loaded as is split into objects that keep their places.
-        assertEquals(ObjectEdit.SPLIT_TO_OBJECTS, inspector.edits.single().edit)
+        assertEquals(ObjectEdit.SPLIT_TO_OBJECTS_KEEPING_Z, inspector.edits.single().edit)
         // A plate without a name takes the first file's.
         assertEquals("body", repository.state.value.project.name)
     }
