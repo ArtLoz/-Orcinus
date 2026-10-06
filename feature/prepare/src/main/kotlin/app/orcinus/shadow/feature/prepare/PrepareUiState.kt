@@ -425,11 +425,12 @@ data class PrepareUiState(
     val canPasteOnPlate: Boolean
         get() = canEditPlate && (clipboard is PlateClipboard.Objects || listClipboard?.holdsRanges == true && selectedPlateObject != null)
 
-    /** Whether another copy can be made of the selected one (Plater::can_increase_instances). */
-    val canCopy: Boolean get() = selectedCopy != null && canEditPlate && selectedCopy?.plateObject?.instances.orEmpty().all { it.printable }
+    /** Whether another copy can be made of the selected one (Plater::can_increase_instances): no part of a cut. */
+    val canCopy: Boolean get() = selectedCopy != null && canEditPlate && selectedCopy?.plateObject?.instances.orEmpty().all { it.printable } &&
+        selectedCopy?.plateObject?.isCut != true
 
     /** ... and whether the selected copy can go (Plater::can_decrease_instances). */
-    val canRemoveCopy: Boolean get() = (selectedCopy?.plateObject?.instances?.size ?: 0) > 1 && canEditPlate
+    val canRemoveCopy: Boolean get() = (selectedCopy?.plateObject?.instances?.size ?: 0) > 1 && canEditPlate && selectedCopy?.plateObject?.isCut != true
 
     /**
      * Plater::can_split_to_objects() of the toolbar: ObjectList::is_splittable(true)

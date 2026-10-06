@@ -57,11 +57,12 @@ class ReloadFromDiskUseCase(
     /** "Reload from disk" of the object menu: the object's volumes, or of the part menu: the volume at [volume]. */
     operator fun invoke(mesh: ScenePath, volume: Int? = null) = reload { objects ->
         val index = objects.indexOfFirst { it.mesh == mesh }
-        val target = objects.getOrNull(index) ?: return@reload emptyList()
+        // Plater::priv::can_reload_from_disk(): nothing of a cut is reloaded.
+        val target = objects.getOrNull(index)?.takeUnless { it.isCut } ?: return@reload emptyList()
         target.reloadableVolumes().filter { volume == null || it == volume }.map { index to it }
     }
 
-    /** "Reload All" of the plate menu (reload_all_from_disk()): every object's volumes. */
+    /** "Reload All" of the plate menu (reload_all_from_disk()): every object's volumes, parts of a cut too. */
     fun all() = reload { objects -> objects.flatMapIndexed { index, target -> target.reloadableVolumes().map { index to it } } }
 
     /** "Please select a file": the document the user picked; null for Cancel. */
@@ -79,11 +80,8 @@ class ReloadFromDiskUseCase(
         repository.update { state ->
             request = null
             val profiles = state.profiles
-            // Plater::priv::can_reload_from_disk(): nothing of a cut is reloaded.
             val selected = volumesOf(state.objects).distinct().sortedWith(compareBy({ it.first }, { it.second }))
-            if (state.busy || profiles == null || selected.isEmpty() || state.objects.any(PlateObject::placing) ||
-                selected.any { (index, _) -> state.objects[index].isCut }
-            ) {
+            if (state.busy || profiles == null || selected.isEmpty() || state.objects.any(PlateObject::placing)) {
                 return@update state
             }
             request = Triple(state.objects, profiles, selected)

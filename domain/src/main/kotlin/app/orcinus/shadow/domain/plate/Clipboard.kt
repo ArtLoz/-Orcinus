@@ -15,6 +15,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.withCutId
 import app.orcinus.shadow.core.model.withInstances
 import app.orcinus.shadow.core.model.withLayerRanges
 import app.orcinus.shadow.domain.placed
@@ -41,7 +42,8 @@ class CopyToClipboardUseCase(
 ) {
     /** Copy, or Cut when [cut], of the [copies] of objects (Selection::Instance mode). */
     fun objects(copies: Set<PlateInstanceId>, cut: Boolean = false) {
-        val copy = begin { state -> state.objects.copiesOf(copies) } ?: return
+        // Selection::copy_to_clipboard() makes new objects, which are no part of a cut.
+        val copy = begin { state -> state.objects.copiesOf(copies).map { it.withCutId(null) } } ?: return
         applicationScope.launch {
             val kept = keep(copy) { added -> PlateClipboard.Objects(added) }
             if (kept && cut) erase(copies)
@@ -61,7 +63,7 @@ class CopyToClipboardUseCase(
             if (target == null || instance == null || volumes.isEmpty() || volumes.any { it !in 0..target.parts.size }) {
                 emptyList()
             } else {
-                listOf(target.withInstances(listOf(instance)))
+                listOf(target.withInstances(listOf(instance)).withCutId(null))
             }
         } ?: return
         applicationScope.launch {

@@ -868,7 +868,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         describeCalibrationPrinterUseCase = DescribeCalibrationPrinterUseCase(engine, plateRepository),
         addModelToPlate = addModelToPlate,
         selectPlate = selectPlate,
-        plateObjects = PlateObjectsUseCase(plateRepository),
+        plateObjects = PlateObjectsUseCase(plateRepository, deletePlateObject),
         plateJobs = plateJobs,
         deletePlate = deletePlate,
         lockPlate = lockPlate,

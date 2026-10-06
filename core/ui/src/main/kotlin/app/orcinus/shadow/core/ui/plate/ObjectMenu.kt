@@ -75,10 +75,14 @@ import kotlin.math.abs
  */
 data class ObjectMenuState(
     val enabled: Boolean,
-    /** Plater::can_increase_instances(): no copy of the object is left out of the print. */
+    /** Plater::can_increase_instances(): no copy of the object is left out of the print, and it is no part of a cut. */
     val canAddInstance: Boolean,
-    /** Plater::can_decrease_instances(): the object has more than one copy. */
+    /** Plater::can_decrease_instances(): the object has more than one copy, and it is no part of a cut. */
     val canRemoveInstance: Boolean,
+    /** Plater::can_set_instance_to_object(): the object has more than one copy. */
+    val canSetAsIndividual: Boolean = canRemoveInstance,
+    /** Plater::can_mirror(): no part of a cut. */
+    val canMirror: Boolean = enabled,
     /**
      * The menu is over the whole object, as the object list selects it, rather
      * than over one copy, as the canvas selects it.
@@ -113,9 +117,9 @@ data class ObjectMenuState(
     val canPasteSettings: Boolean = false,
     /** Plater::can_reload_from_disk(): a volume came from a file, and the object is no part of a cut. */
     val canReloadFromDisk: Boolean = false,
-    /** Plater::can_replace_with_stl(): the selection is one volume, the object's own mesh. */
+    /** Plater::can_replace_with_stl(): the selection is one volume, the object's own mesh, of no cut. */
     val canReplace: Boolean = false,
-    /** Plater::can_replace_all_with_stl(): the selection holds several volumes. */
+    /** Plater::can_replace_all_with_stl(): the selection holds several volumes, of no cut. */
     val canReplaceAll: Boolean = false,
     /**
      * "Export as one STL" and "Export as one DRC": the whole object, or its
@@ -175,8 +179,11 @@ fun objectMenuState(
     }
     return ObjectMenuState(
         enabled = enabled,
-        canAddInstance = enabled && plateObject.instances.all(PlateInstance::printable),
-        canRemoveInstance = enabled && plateObject.instances.size > 1,
+        // ObjectList::has_selected_cut_object() turns off what would break the cut.
+        canAddInstance = enabled && plateObject.instances.all(PlateInstance::printable) && !plateObject.isCut,
+        canRemoveInstance = enabled && plateObject.instances.size > 1 && !plateObject.isCut,
+        canSetAsIndividual = enabled && plateObject.instances.size > 1,
+        canMirror = enabled && !plateObject.isCut,
         wholeObject = wholeObject,
         canCenter = enabled && plate != null && (inspection.boxCenter.x != centerX || inspection.boxCenter.y != centerY),
         // SINKING_Z_THRESHOLD
@@ -208,8 +215,8 @@ fun objectMenuState(
         },
         canPasteSettings = enabled && settingsClipboard?.kind == SettingsItemKind.OBJECT,
         canReloadFromDisk = enabled && !plateObject.isCut && plateObject.reloadableVolumes().isNotEmpty(),
-        canReplace = enabled && plateObject.parts.isEmpty() && (!wholeObject || plateObject.instances.size == 1),
-        canReplaceAll = enabled && (plateObject.parts.isNotEmpty() || (wholeObject && plateObject.instances.size > 1)),
+        canReplace = enabled && !plateObject.isCut && plateObject.parts.isEmpty() && (!wholeObject || plateObject.instances.size == 1),
+        canReplaceAll = enabled && !plateObject.isCut && (plateObject.parts.isNotEmpty() || (wholeObject && plateObject.instances.size > 1)),
         canExport = enabled && (wholeObject || plateObject.instances.size == 1),
         cut = plateObject.isCut,
     )
@@ -334,7 +341,7 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
     )
     OrcaMenuSeparator()
     // append_menu_item_instance_to_object(): Plater::can_set_instance_to_object().
-    SetAsIndividualItem(state.wholeObject, enabled = state.canRemoveInstance, onClick = run(actions.setAsIndividual))
+    SetAsIndividualItem(state.wholeObject, enabled = state.canSetAsIndividual, onClick = run(actions.setAsIndividual))
     OrcaMenuSeparator()
     OrcaMenuItem(text = orcaString("Clone"), enabled = state.enabled, onClick = run(actions.clone))
     // append_menu_item_fix_through_cgal(): FIX_THROUGH_CGAL_ALWAYS.
@@ -361,11 +368,11 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
         )
     }
     // append_menu_items_mirror()
-    OrcaSubmenu(text = orcaString("Mirror"), enabled = state.enabled) {
+    OrcaSubmenu(text = orcaString("Mirror"), enabled = state.canMirror) {
         MIRROR_ITEMS.forEach { (axis, text, icon) ->
             OrcaMenuItem(
                 text = orcaString(text),
-                enabled = state.enabled,
+                enabled = state.canMirror,
                 onClick = run { actions.mirror(axis) },
                 leading = { MenuIcon(icon) },
             )

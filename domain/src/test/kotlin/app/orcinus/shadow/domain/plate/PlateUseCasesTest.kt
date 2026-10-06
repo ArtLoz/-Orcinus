@@ -1750,6 +1750,35 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `deleting several objects asks once per cut, last first, as one step of Undo, and Cancel stops there`() {
+        val cut = CutId(7, checkSum = 2)
+        val upper = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/upper.mesh")))), cutId = cut)
+        val lower = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/lower.mesh")))), cutId = cut)
+        val plain = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/plain.mesh")))))
+        val repository = FakeRepository(readyState(upper, lower, plain))
+        val delete = DeletePlateObjectUseCase(repository)
+
+        delete.all(listOf(upper.mesh, lower.mesh, plain.mesh))
+
+        // The plain object went first; the lower part asks.
+        assertEquals(listOf(upper, lower), repository.state.value.objects)
+        assertEquals(PlateRequest.DeleteCutObject(lower.mesh, listOf(upper.mesh), recorded = true), repository.state.value.plateQuestion?.request)
+        delete.answer(true)
+        // Its Delete took the cut off the upper part, which went without asking.
+        assertTrue(repository.state.value.objects.isEmpty())
+        assertNull(repository.state.value.plateQuestion)
+        assertEquals(1, repository.state.value.history.undo.size)
+
+        val cancelled = FakeRepository(readyState(upper, lower, plain))
+        DeletePlateObjectUseCase(cancelled).apply {
+            all(listOf(upper.mesh, lower.mesh, plain.mesh))
+            answer(false)
+        }
+        assertEquals(listOf(upper, lower), cancelled.state.value.objects)
+        assertEquals(1, cancelled.state.value.history.undo.size)
+    }
+
+    @Test
     fun `the cut connectors item selects them, gives them a filament, and its deletion asks before every connector of the cut goes`() {
         val cut = CutId(7, checkSum = 2)
         val plug = ObjectPart("", VolumeType.PART, ScenePath("/scene/plug.mesh"), Transform3.IDENTITY, cutInfo = CutInfo(connector = true))

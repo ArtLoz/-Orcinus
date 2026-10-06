@@ -807,7 +807,11 @@ sealed interface PlateRequest {
     data object TopSurfaceSuggestion : PlateRequest
 
     /** Deleting the object with the [mesh] file, a part of a cut (Plater::priv::delete_object_from_model()). */
-    data class DeleteCutObject(val mesh: ScenePath) : PlateRequest
+    /**
+     * The part of a cut with the [mesh] file is about to go, then the objects
+     * [after] it; [recorded] once the deletion took its step of Undo.
+     */
+    data class DeleteCutObject(val mesh: ScenePath, val after: List<ScenePath> = emptyList(), val recorded: Boolean = false) : PlateRequest
 
     /** Cut of the Edit menu erasing [copies], the last copies of parts of a cut among them. */
     data class EraseCutObjects(val copies: Set<PlateInstanceId>) : PlateRequest

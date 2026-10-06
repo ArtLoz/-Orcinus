@@ -45,27 +45,15 @@ class SelectionMenuUseCase(
 
     /**
      * Plater::remove_selected() ("Delete Selected Objects"): the selected
-     * objects leave the plate together. A part of a cut asks first, as
-     * Plater::priv::delete_object_from_model() does for each one.
+     * objects leave the plate as one step of Undo, the last first; a part of a
+     * cut asks first, as Plater::priv::delete_object_from_model() does for
+     * each one, and Cancel stops there.
      */
     fun delete() {
-        var cut = emptyList<ScenePath>()
-        repository.update { state ->
-            cut = emptyList()
-            val meshes = state.selectedObjectMeshes()
-            if (state.busy || meshes.isEmpty()) return@update state
-            cut = meshes.filter { mesh -> state.objects.withMesh(mesh)?.cutId != null }
-            val deleted = meshes - cut.toSet()
-            if (deleted.isEmpty()) return@update state
-            state.recorded().copy(
-                objects = state.objects.filterNot { it.mesh in deleted },
-                selectedInstances = state.selectedInstances.filterNot { it.mesh in deleted }.toSet(),
-                selectedPart = state.selectedPart?.takeUnless { it.mesh in deleted },
-                selectedRange = state.selectedRange?.takeUnless { it.mesh in deleted },
-                result = null,
-            )
-        }
-        cut.firstOrNull()?.let(deletePlateObject::invoke)
+        val state = repository.state.value
+        val meshes = state.selectedObjectMeshes()
+        if (state.busy || meshes.isEmpty()) return
+        deletePlateObject.all(state.objects.map { it.mesh }.filter { it in meshes })
     }
 
     /** Selection::set_printable(): every copy of every selected object. */

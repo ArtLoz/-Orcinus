@@ -189,10 +189,10 @@ class PlatesTest {
         // The list shows the cube over the plate's edge under "Outside".
         assertEquals(listOf(0, null, 1), repository.state.value.let { state -> state.objects.map(state::listPlateOf) })
 
-        PlateObjectsUseCase(repository).selectCurrentPlate()
+        PlateObjectsUseCase(repository, DeletePlateObjectUseCase(repository)).selectCurrentPlate()
         assertEquals(setOf(PlateInstanceId(inside.mesh, 0)), repository.state.value.selectedInstances)
 
-        PlateObjectsUseCase(repository).deleteCurrentPlate()
+        PlateObjectsUseCase(repository, DeletePlateObjectUseCase(repository)).deleteCurrentPlate()
         assertEquals(listOf(other), repository.state.value.objects)
         assertEquals(emptySet(), repository.state.value.selectedInstances)
     }

@@ -13,6 +13,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.placing
+import app.orcinus.shadow.core.model.withCutId
 import app.orcinus.shadow.core.model.withInstances
 import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateInspector
@@ -52,7 +53,8 @@ class ClonePlateObjectsUseCase(
         repository.update { state ->
             request = null
             val profiles = state.profiles
-            val sources = state.objects.copiesOf(copies)
+            // Selection::copy_to_clipboard(): the clones are no part of a cut.
+            val sources = state.objects.copiesOf(copies).map { it.withCutId(null) }
             if (state.busy || profiles == null || count <= 0 || sources.isEmpty() || state.objects.any(PlateObject::placing)) {
                 return@update state
             }

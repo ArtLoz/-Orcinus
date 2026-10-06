@@ -454,25 +454,29 @@ private val VASE_MODE_SETTINGS = mapOf(
  * current plate: "Select All" takes the objects the list shows under it
  * (Selection::add_curr_plate), "Select All Plates" every object
  * (Selection::add_all), and "Delete All" the objects whose first copy stands
- * on it, as one step of Undo (Selection::remove_curr_plate).
+ * on it, as one step of Undo (Selection::remove_curr_plate), which asks about
+ * a part of a cut as deleting the selection does.
  */
-class PlateObjectsUseCase(private val repository: PlateRepository) {
+class PlateObjectsUseCase(private val repository: PlateRepository, private val deletePlateObject: DeletePlateObjectUseCase) {
     fun selectCurrentPlate() = select { state -> state.objects.filter { state.listPlateOf(it) == state.currentPlate } }
 
     fun selectAll() = select { state -> state.objects }
 
-    fun deleteCurrentPlate() = repository.update { state ->
-        if (state.busy) return@update state
-        val deleted = state.objects.filter { plateObject -> plateObject.instances.firstOrNull()?.let(state::plateOf) == state.currentPlate }
-        if (deleted.isEmpty()) return@update state
-        val meshes = deleted.mapTo(HashSet(), PlateObject::mesh)
-        state.recorded().copy(
-            objects = state.objects.filterNot { it.mesh in meshes },
-            selectedInstances = emptySet(),
-            selectedPart = null,
-            selectedRange = null,
-            result = null,
-        )
+    fun deleteCurrentPlate() {
+        var deleted = emptyList<PlateObject>()
+        repository.update { state ->
+            deleted = emptyList()
+            if (state.busy) return@update state
+            deleted = state.objects.filter { plateObject -> plateObject.instances.firstOrNull()?.let(state::plateOf) == state.currentPlate }
+            if (deleted.isEmpty()) return@update state
+            // The selection becomes the plate's objects, which then go (Selection::erase()).
+            state.copy(
+                selectedInstances = deleted.flatMapTo(LinkedHashSet()) { plateObject -> plateObject.instances.indices.map { PlateInstanceId(plateObject.mesh, it) } },
+                selectedPart = null,
+                selectedRange = null,
+            )
+        }
+        if (deleted.isNotEmpty()) deletePlateObject.all(deleted.map(PlateObject::mesh))
     }
 
     private fun select(objects: (PlateState) -> List<PlateObject>) = repository.update { state ->

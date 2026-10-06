@@ -110,6 +110,7 @@ import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.extruderNumber
+import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.partPlates
@@ -2624,8 +2625,9 @@ class AddPlateInstanceUseCase(
             val target = state.objects.withMesh(mesh)
             val last = target?.instances?.lastOrNull()
             val plate = state.plate
+            // Plater::can_increase_instances(): every copy printed, and no part of a cut.
             if (target == null || last == null || plate == null || state.busy || count <= 0 ||
-                !target.instances.all(PlateInstance::printable)
+                !target.instances.all(PlateInstance::printable) || target.isCut
             ) {
                 return@update state
             }
@@ -2666,7 +2668,8 @@ class RemoveLastPlateInstancesUseCase(
         repository.update { state ->
             deleteObject = false
             val target = state.objects.withMesh(mesh)
-            if (target == null || state.busy || target.instances.size <= 1 || count <= 0) return@update state
+            // Plater::can_decrease_instances(): no part of a cut.
+            if (target == null || state.busy || target.instances.size <= 1 || count <= 0 || target.isCut) return@update state
             if (target.instances.size <= count) {
                 deleteObject = true
                 return@update state
@@ -2780,33 +2783,52 @@ class RemovePlateInstanceUseCase(
  * deleted while the plate is busy.
  */
 class DeletePlateObjectUseCase(private val repository: PlateRepository) {
-    operator fun invoke(mesh: ScenePath) = delete(mesh, confirmed = false)
+    operator fun invoke(mesh: ScenePath) = delete(listOf(mesh), confirmed = false, recorded = false)
 
-    /** The warning about a part of a cut answered: Delete goes on, Cancel keeps the object. */
+    /**
+     * ObjectList::delete_from_model_and_list() of the objects with the
+     * [meshes] files, in their order, as one step of Undo: they go last first,
+     * and a part of a cut asks before it goes, as delete_object_from_model()
+     * does for each. Delete takes the cut off its other parts, which then go
+     * without asking; Cancel stops there, and the objects gone before stay gone.
+     */
+    fun all(meshes: List<ScenePath>) = delete(meshes.reversed(), confirmed = false, recorded = false)
+
+    /** The warning about a part of a cut answered: Delete goes on, Cancel keeps the object and stops. */
     fun answer(yes: Boolean) {
         val request = repository.state.value.plateQuestion?.request as? PlateRequest.DeleteCutObject ?: return
         repository.update { it.copy(plateQuestion = null) }
-        if (yes) delete(request.mesh, confirmed = true)
+        if (yes) delete(listOf(request.mesh) + request.after, confirmed = true, recorded = request.recorded)
     }
 
-    private fun delete(mesh: ScenePath, confirmed: Boolean) {
-        repository.update { state ->
-            val target = state.objects.withMesh(mesh)
-            if (state.busy || target == null) return@update state
+    /** [confirmed]: the first of [meshes] was asked about; [recorded]: the step of Undo is taken. */
+    private fun delete(meshes: List<ScenePath>, confirmed: Boolean, recorded: Boolean) = repository.update { state ->
+        if (state.busy) return@update state
+        var current = state
+        var taken = recorded
+        for ((index, mesh) in meshes.withIndex()) {
+            val target = current.objects.withMesh(mesh) ?: continue
             // Plater::priv::delete_object_from_model(): a part of a cut warns
             // first, and the other parts of the cut lose it with it.
             val cutId = target.cutId
-            if (cutId != null && !confirmed) return@update state.copy(plateQuestion = deleteCutObjectQuestion(PlateRequest.DeleteCutObject(mesh)))
-            val kept = if (cutId != null) state.objects.withoutCut(cutId) else state.objects
-            state.recorded().copy(
+            if (cutId != null && !(confirmed && index == 0)) {
+                return@update current.copy(plateQuestion = deleteCutObjectQuestion(PlateRequest.DeleteCutObject(mesh, meshes.drop(index + 1), taken)))
+            }
+            if (!taken) {
+                current = current.recorded()
+                taken = true
+            }
+            val kept = if (cutId != null) current.objects.withoutCut(cutId) else current.objects
+            current = current.copy(
                 objects = kept.filterNot { it.mesh == mesh },
                 // The settings follow the selection, which the deleted object leaves.
-                selectedInstances = state.selectedInstances.filterNot { it.mesh == mesh }.toSet(),
-                selectedPart = state.selectedPart?.takeUnless { it.mesh == mesh },
-                selectedRange = state.selectedRange?.takeUnless { it.mesh == mesh },
+                selectedInstances = current.selectedInstances.filterNot { it.mesh == mesh }.toSet(),
+                selectedPart = current.selectedPart?.takeUnless { it.mesh == mesh },
+                selectedRange = current.selectedRange?.takeUnless { it.mesh == mesh },
                 result = null,
             )
         }
+        current
     }
 }
 

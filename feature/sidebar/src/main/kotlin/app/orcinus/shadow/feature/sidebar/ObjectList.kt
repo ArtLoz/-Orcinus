@@ -669,10 +669,10 @@ private fun LazyListScope.objectRows(
                                 actions.reloadFromDisk(mesh, at)
                             },
                         )
-                        // Plater::can_replace_with_stl(): the list selects the volume alone.
+                        // Plater::can_replace_with_stl(): the list selects the volume alone, of no cut.
                         if (embossed == null) OrcaMenuItem(
                             text = orcaString("Replace 3D file") + "...",
-                            enabled = enabled,
+                            enabled = enabled && !plateObject.isCut,
                             onClick = {
                                 dismiss()
                                 actions.replaceVolume(first, at)
