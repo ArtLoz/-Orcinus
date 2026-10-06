@@ -16,6 +16,7 @@
 
 #include <boost/format.hpp>
 
+#include "libslic3r/Color.hpp"
 #include "libslic3r/GCode/Thumbnails.hpp"
 #include "libslic3r/LocalesUtils.hpp"
 
@@ -486,6 +487,9 @@ bool text_value_changed(const Slic3r::ConfigOptionDef& opt, const boost::any& he
 bool choice_value_changed(const Slic3r::ConfigOptionType type, const boost::any& held, const boost::any& value)
 {
     switch (type) {
+    // A list of strings (filament_type) changes the field at once (on_change_field()).
+    case Slic3r::coStrings:
+        return true;
     case Slic3r::coFloatOrPercent:
         return (held.empty() ? std::string() : boost::any_cast<std::string>(held)) != boost::any_cast<std::string>(value);
     case Slic3r::coInt:
@@ -895,6 +899,14 @@ bool is_filament_list_option(const std::string& key)
     return false;
 }
 
+// The points a setting lists as its text ("0x0, 350x0, ..."), which a text
+// field edits, as change_opt_value() keeps them whole; any other point is one
+// per index, which PointCtrl edits.
+bool is_point_list(const std::string& opt_key)
+{
+    return opt_key == "printable_area" || opt_key == "bed_exclude_area" || opt_key == "thumbnails" || opt_key == "wrapping_exclude_area";
+}
+
 boost::any field_value(const Slic3r::ConfigOptionDef& opt, const std::string& opt_id, const Slic3r::DynamicPrintConfig& config, const int opt_index,
                        const std::string& text, SettingsDialogs& dialogs, const bool changed_only)
 {
@@ -961,14 +973,37 @@ boost::any field_value(const Slic3r::ConfigOptionDef& opt, const std::string& op
         }
         break;
     }
-    case FieldControl::colour:
-        // ColourPicker::get_value(): the colour the picker shows.
-        if (str.empty()) {
+    case FieldControl::colour: {
+        // ColourPicker::get_value(): the colour the picker shows, as encode_color() writes it.
+        Slic3r::ColorRGB colour;
+        if (str.empty() || !Slic3r::decode_color(str, colour)) {
             return {};
         }
-        value = str;
+        value = Slic3r::encode_color(colour);
         break;
+    }
     case FieldControl::point:
+        if (!is_point_list(opt.opt_key)) {
+            // PointCtrl::get_value(): the point's two numbers; a text that is no
+            // number keeps the point as it was, a number beyond the setting's
+            // range is clamped to it.
+            const std::size_t separator = str.find('x');
+            double x = 0.0;
+            double y = 0.0;
+            if (separator == std::string::npos || !to_double(boost::trim_copy(str.substr(0, separator)), x) ||
+                !to_double(boost::trim_copy(str.substr(separator + 1)), y)) {
+                dialogs.error("invalid_numeric", {ui_text("Invalid numeric.")});
+                return {};
+            }
+            if (!opt.is_value_valid(x) || !opt.is_value_valid(y)) {
+                x = std::min(std::max(x, double(opt.min)), double(opt.max));
+                y = std::min(std::max(y, double(opt.min)), double(opt.max));
+                dialogs.error("out_of_range", {ui_text("Value is out of range.")});
+            }
+            value = Slic3r::Vec2d(x, y);
+            break;
+        }
+        [[fallthrough]];
     case FieldControl::text: {
         // TextCtrl::propagate_value(): an empty text reloads the field, and
         // the field changes only when value_was_changed().

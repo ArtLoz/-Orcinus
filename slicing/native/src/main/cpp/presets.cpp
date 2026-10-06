@@ -661,6 +661,60 @@ bool may_transfer(Slic3r::PresetBundle& bundle, const PresetChoice choice, const
     return current_type == to_select_type;
 }
 
+// Tab::select_preset(): the presets the selection would change with it, whose
+// unsaved changes the user is asked about too: the process and the filament
+// of a printer they do not suit, the filament of a process it does not suit.
+std::vector<PresetKind> dirty_dependents(Slic3r::PresetBundle& bundle, const PresetChoice choice, const std::string& value)
+{
+    std::vector<PresetKind> dependents;
+    if (choice == PresetChoice::process) {
+        const Slic3r::Preset* print = bundle.prints.find_preset(value, true);
+        if (print == nullptr) {
+            return dependents;
+        }
+        const Slic3r::PresetWithVendorProfile printer_profile = bundle.printers.get_edited_preset_with_vendor_profile();
+        Slic3r::PresetCollection& dependent = bundle.filaments;
+        const bool old_preset_dirty = dependent.current_is_dirty();
+        const bool new_preset_compatible = Slic3r::is_compatible_with_print(dependent.get_edited_preset_with_vendor_profile(),
+                                                                            bundle.prints.get_preset_with_vendor_profile(*print), printer_profile);
+        if (old_preset_dirty && !new_preset_compatible) {
+            dependents.push_back(PresetKind::filament);
+        }
+        return dependents;
+    }
+    const Slic3r::Preset* new_printer_preset = nullptr;
+    switch (choice) {
+    case PresetChoice::printer:
+        new_printer_preset = bundle.printers.find_preset(value, true);
+        break;
+    case PresetChoice::printer_model:
+        new_printer_preset = bundle.get_similar_printer_preset(value, {});
+        break;
+    case PresetChoice::nozzle_diameter: {
+        const auto* nozzle_diameter = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter");
+        if (nozzle_diameter == nullptr || nozzle_diameter->values.empty() || diameter_string(float(nozzle_diameter->values.front())) != value) {
+            new_printer_preset = bundle.get_similar_printer_preset({}, value);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    if (new_printer_preset == nullptr) {
+        return dependents;
+    }
+    const Slic3r::PresetWithVendorProfile new_printer = bundle.printers.get_preset_with_vendor_profile(*new_printer_preset);
+    const std::pair<PresetKind, Slic3r::PresetCollection*> updates[] = {{PresetKind::print, &bundle.prints}, {PresetKind::filament, &bundle.filaments}};
+    for (const auto& [kind, presets] : updates) {
+        const bool old_preset_dirty = presets->current_is_dirty();
+        const bool new_preset_compatible = Slic3r::is_compatible_with_printer(presets->get_edited_preset_with_vendor_profile(), new_printer);
+        if (old_preset_dirty && !new_preset_compatible) {
+            dependents.push_back(kind);
+        }
+    }
+    return dependents;
+}
+
 }  // namespace
 
 PresetState select_preset(const PresetChoice choice, const std::string& value, const PresetChangeAction action)
@@ -689,28 +743,40 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
             }
         }
         // Tab::select_preset(): a preset with unsaved changes is not left
-        // behind before the user says what happens to them.
+        // behind before the user says what happens to them, and neither is
+        // one that depends on it and would change with it
+        // (may_discard_current_dirty_preset() of the dependent collection,
+        // whose dialog moves nothing). Every answer goes to the first question
+        // still open; the dependent presets are asked about first, so the
+        // changes the selected preset moves into the new one are taken last.
         const PresetKind kind = choice_kind(choice);
+        std::vector<PresetKind> questions = dirty_dependents(bundle, choice, target);
         if (preset_collection(bundle, kind).current_is_dirty()) {
-            if (action == PresetChangeAction::ask) {
+            questions.push_back(kind);
+        }
+        PresetChangeAction answer = action;
+        for (const PresetKind asked : questions) {
+            Slic3r::PresetCollection& asked_presets = preset_collection(bundle, asked);
+            if (answer == PresetChangeAction::ask) {
                 PresetState result = preset_state(bundle);
                 result.asks_unsaved_changes = true;
-                result.changed_kind = kind;
-                result.unsaved_changes = detail::preset_changes(kind);
-                result.can_transfer = may_transfer(bundle, choice, target);
-                result.save_name = detail::save_preset_name(preset_collection(bundle, kind).get_selected_preset(), result.save_name_copy_suffix);
-                result.save_can_overwrite = preset_collection(bundle, kind).get_edited_preset().can_overwrite();
+                result.changed_kind = asked;
+                result.unsaved_changes = detail::preset_changes(asked);
+                result.can_transfer = asked == kind && may_transfer(bundle, choice, target);
+                result.save_name = detail::save_preset_name(asked_presets.get_selected_preset(), result.save_name_copy_suffix);
+                result.save_can_overwrite = asked_presets.get_edited_preset().can_overwrite();
                 if (result.save_can_overwrite) {
-                    result.save_name = preset_collection(bundle, kind).get_edited_preset().name;
+                    result.save_name = asked_presets.get_edited_preset().name;
                     result.save_name_copy_suffix = false;
                 }
                 return result;
             }
-            if (action == PresetChangeAction::transfer) {
+            if (asked == kind && answer == PresetChangeAction::transfer) {
                 detail::cache_preset_changes(kind);
             }
             // The changes leave with the preset, even when it is selected again.
-            preset_collection(bundle, kind).discard_current_changes();
+            asked_presets.discard_current_changes();
+            answer = PresetChangeAction::ask;
         }
         switch (choice) {
         case PresetChoice::printer:

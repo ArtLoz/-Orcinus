@@ -505,7 +505,8 @@ class SelectPresetUseCase(
         val before = selection ?: return
         applicationScope.launch {
             settingsTabs.save(pending.kind, save)
-            select(pending.choice, PresetChangeAction.DISCARD, before)
+            // The saved preset has no changes left; the selection asks about the next one that has.
+            select(pending.choice, PresetChangeAction.ASK, before)
         }
     }
 

@@ -285,6 +285,27 @@ void reload_tab(const PresetKind kind)
     reload_tab_after_selection(kind);
 }
 
+void update_extruder_variants_of_tabs(const Slic3r::Preset::Type except, const int extruder_idx)
+{
+    Slic3r::PresetBundle& bundle = *engine().bundle;
+    const DialogAnswers no_answers;
+    detail::SettingsDialogs dialogs(no_answers);
+    for (const auto& [kind, type] : {std::pair{PresetKind::print, Slic3r::Preset::TYPE_PRINT}, std::pair{PresetKind::filament, Slic3r::Preset::TYPE_FILAMENT},
+                                     std::pair{PresetKind::printer, Slic3r::Preset::TYPE_PRINTER}}) {
+        if (type == except) {
+            continue;
+        }
+        const std::unique_ptr<detail::Tab> tab = make_tab(kind, bundle, *engine().config, dialogs);
+        try {
+            tab->build();
+            tab->update_extruder_variants(extruder_idx);
+            tab->reload_config();
+        } catch (const detail::QuestionPending&) {
+            // Nothing the variants change asks the user anything.
+        }
+    }
+}
+
 void reload_tab_after_selection(const PresetKind kind)
 {
     Slic3r::PresetBundle& bundle = *engine().bundle;
@@ -592,6 +613,31 @@ PresetSettings set_setting_override(const PresetKind kind, const std::string& pa
     return with_tab(kind, page, answers, {}, [&](detail::Tab& tab) { tab.set_override(id, enabled); });
 }
 
+namespace {
+
+// Tab::compatible_widget_create(): the non-default presets of the other kind.
+std::vector<std::string> compatible_choices(const Slic3r::PresetBundle& bundle, const std::string& key)
+{
+    std::vector<std::string> names;
+    const Slic3r::PrinterTechnology printer_technology = bundle.printers.get_edited_preset().printer_technology();
+    const Slic3r::PresetCollection& depending_presets = key == "compatible_printers" ? bundle.printers : bundle.prints;
+    for (size_t idx = 0; idx < depending_presets.size(); ++idx) {
+        const Slic3r::Preset& preset = depending_presets.preset(idx);
+        //BBS: add project embedded preset logic and refine is_external
+        bool add = !preset.is_default;
+        if (add && key == "compatible_printers") {
+            // Only add printers with the same technology as the active printer.
+            add &= preset.printer_technology() == printer_technology;
+        }
+        if (add) {
+            names.push_back(preset.name);
+        }
+    }
+    return names;
+}
+
+}  // namespace
+
 PresetSettings set_compatible_presets(const PresetKind kind, const std::string& page, const std::string& key,
                                       const std::vector<std::string>& presets, const DialogAnswers& answers)
 {
@@ -599,7 +645,12 @@ PresetSettings set_compatible_presets(const PresetKind kind, const std::string& 
         if (key != "compatible_printers" && key != "compatible_prints") {
             throw std::runtime_error("Unknown list of compatible presets: " + key);
         }
-        tab.load_key_value(key, presets);
+        // Tab::compatible_widget_create(): "leave list empty if all items checked".
+        std::vector<std::string> value;
+        if (presets.size() != compatible_choices(*engine().bundle, key).size()) {
+            value = presets;
+        }
+        tab.load_key_value(key, value);
     });
 }
 
@@ -1689,23 +1740,8 @@ PresetNames compatible_preset_choices(const PresetKind kind, const std::string& 
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
     }
-    Slic3r::PresetBundle& bundle = *engine().bundle;
     follow_config(engine());
-    // Tab::compatible_widget_create(): the non-default presets of the other kind.
-    const Slic3r::PrinterTechnology printer_technology = bundle.printers.get_edited_preset().printer_technology();
-    const Slic3r::PresetCollection& depending_presets = key == "compatible_printers" ? bundle.printers : bundle.prints;
-    for (size_t idx = 0; idx < depending_presets.size(); ++idx) {
-        const Slic3r::Preset& preset = depending_presets.preset(idx);
-        //BBS: add project embedded preset logic and refine is_external
-        bool add = !preset.is_default;
-        if (add && key == "compatible_printers") {
-            // Only add printers with the same technology as the active printer.
-            add &= preset.printer_technology() == printer_technology;
-        }
-        if (add) {
-            result.names.push_back(preset.name);
-        }
-    }
+    result.names = compatible_choices(*engine().bundle, key);
     result.status = SceneStatus::success;
     return result;
 }
@@ -2015,6 +2051,10 @@ PresetSettings delete_preset(const PresetKind kind, const DialogAnswers& answers
                 m_presets->delete_current_preset();
                 m_presets->select_preset_by_name(preset_name, false);
                 bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always, Slic3r::PresetSelectCompatibleType::Always);
+                // Tab::select_preset() of the next printer: "Orca: update presets for the selected printer".
+                if (kind == PresetKind::printer && engine().config->get_bool("remember_printer_config")) {
+                    bundle.update_selections(*engine().config);
+                }
 
                 if (delete_third_printer) {
                     std::string old_filament_name = bundle.filaments.get_edited_preset().name;

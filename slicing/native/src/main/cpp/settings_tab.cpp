@@ -242,15 +242,17 @@ void ConfigOptionsGroup::back_to_config_value(const DynamicPrintConfig& config, 
 }
 
 // Field::set_value() shows the text of the value, and Field::get_value() gives
-// back what the field holds: a number for a number, the enum's index for a
-// combo box. The config takes that, not the text.
+// back what the field holds, read and checked as any text it is given: a
+// number for a number, the enum's index for a combo box. The config takes
+// that, not the text.
 boost::any ConfigOptionsGroup::field_of_config_value(const std::string& opt_id, const std::string& opt_key, const int opt_index, const boost::any& value)
 {
-    const std::string* text = boost::any_cast<std::string>(&value);
-    if (text == nullptr || m_value_from_text == nullptr) {
+    const ConfigOptionDef* opt = m_config == nullptr ? nullptr : m_config->def()->get(opt_key);
+    if (m_value_from_text == nullptr || opt == nullptr) {
         return value;
     }
-    const boost::any held = m_value_from_text(opt_id, opt_key, opt_index, *text);
+    const std::string* text = boost::any_cast<std::string>(&value);
+    const boost::any held = m_value_from_text(opt_id, opt_key, opt_index, text != nullptr ? *text : field_text(*opt, value));
     return held.empty() ? value : held;
 }
 
@@ -1305,6 +1307,9 @@ void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
         const int extruder_idx = std::atoi(opt_key.substr(opt_key.find_last_of('#') + 1).c_str());
         update_extruder_variants(extruder_idx);
         reload_config();
+        // The other tabs of wxGetApp().tabs_list. Orca updates the plate tab
+        // and the object tabs too; the app's are not updated here.
+        update_extruder_variants_of_tabs(m_type, extruder_idx);
     }
 
     // Orca: allow different layer height for non-bbl printers

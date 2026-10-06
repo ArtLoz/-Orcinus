@@ -918,7 +918,55 @@ TEST_CASE("The filament tab edits the filament preset and its overrides", "[Adap
         // An empty list is every printer, as the dialog's "All" leaves it.
         const orca::PresetSettings all = orca::set_compatible_presets(filament, dependencies, "compatible_printers", {}, {});
         CHECK(setting(all, "compatible_printers").list_values.empty());
+        // Every printer ticked is written as none: "leave list empty if all items checked".
+        REQUIRE(orca::set_compatible_presets(filament, dependencies, "compatible_printers", {"Creality K2 Plus 0.4 nozzle"}, {}).dirty);
+        const orca::PresetSettings ticked = orca::set_compatible_presets(filament, dependencies, "compatible_printers", choices.names, {});
+        CHECK(setting(ticked, "compatible_printers").list_values.empty());
         CHECK_FALSE(orca::reset_settings(filament, dependencies, {}, {}).dirty);
+    }
+}
+
+TEST_CASE("The fields read what Orca's controls read: a filament's type, an extruder's offset and a colour", "[Adapter][Settings]")
+{
+    require_engine();
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
+    const auto setting = [](const orca::PresetSettings& settings, const std::string& id) -> const orca::SettingState& {
+        const auto state = std::find_if(settings.settings.begin(), settings.settings.end(), [&id](const orca::SettingState& candidate) { return candidate.id == id; });
+        INFO(id);
+        REQUIRE(state != settings.settings.end());
+        return *state;
+    };
+
+    SECTION("the type of a filament, a list of strings, changes at once (Choice::propagate_value())")
+    {
+        const orca::PresetSettings changed = orca::change_setting(orca::PresetKind::filament, "Filament", "filament_type", "PETG", {});
+        INFO(changed.message);
+        REQUIRE(changed.status == orca::SceneStatus::success);
+        CHECK(setting(changed, "filament_type").value == "PETG");
+        CHECK(changed.dirty);
+        CHECK_FALSE(orca::reset_settings(orca::PresetKind::filament, "Filament", {}, {}).dirty);
+    }
+    SECTION("a colour is written as encode_color() writes it")
+    {
+        const orca::PresetSettings changed = orca::change_setting(orca::PresetKind::filament, "Filament", "default_filament_colour", "#a1b2c3", {});
+        INFO(changed.message);
+        REQUIRE(changed.status == orca::SceneStatus::success);
+        CHECK(setting(changed, "default_filament_colour").value == "#A1B2C3");
+        CHECK_FALSE(orca::reset_settings(orca::PresetKind::filament, "Filament", {}, {}).dirty);
+    }
+    SECTION("an extruder's offset takes its two numbers (PointCtrl::get_value())")
+    {
+        const orca::PresetSettings moved = orca::change_setting(orca::PresetKind::printer, "Extruder", "extruder_offset#0", "1.5x-2", {});
+        INFO(moved.message);
+        REQUIRE(moved.status == orca::SceneStatus::success);
+        CHECK(setting(moved, "extruder_offset#0").value == "1.5x-2");
+        CHECK(moved.dirty);
+        // A text that is no number keeps the point, and says so.
+        const orca::PresetSettings wrong = orca::change_setting(orca::PresetKind::printer, "Extruder", "extruder_offset#0", "ax2", {});
+        CHECK(setting(wrong, "extruder_offset#0").value == "1.5x-2");
+        CHECK(std::any_of(wrong.notices.begin(), wrong.notices.end(), [](const orca::SettingsDialog& dialog) { return dialog.id == "invalid_numeric"; }));
+        CHECK_FALSE(orca::reset_settings(orca::PresetKind::printer, "Extruder", {}, {}).dirty);
     }
 }
 
@@ -1052,6 +1100,29 @@ TEST_CASE("Selecting another preset asks what happens to the unsaved changes", "
         const orca::PresetSettings settings = orca::describe_settings(print, quality, {});
         CHECK(settings.dirty);
         CHECK(value_of(settings, "layer_height") == "0.16");
+    }
+
+    SECTION("another printer the changed process does not suit asks about it first, without moving anything")
+    {
+        const std::string a1 = "Bambu Lab A1 0.4 nozzle";
+        REQUIRE(orca::select_preset(orca::PresetChoice::process, standard, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+        REQUIRE(orca::apply_setup({"Creality K2 Plus", "Bambu Lab A1"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+        REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+        REQUIRE(orca::select_preset(orca::PresetChoice::process, standard).status == orca::SceneStatus::success);
+        REQUIRE(orca::change_setting(print, quality, "layer_height", "0.16", {}).dirty);
+        const orca::PresetState dependent = orca::select_preset(orca::PresetChoice::printer, a1);
+        REQUIRE(dependent.status == orca::SceneStatus::success);
+        REQUIRE(dependent.asks_unsaved_changes);
+        CHECK(dependent.changed_kind == print);
+        CHECK_FALSE(dependent.can_transfer);
+        CHECK(dependent.selection.printer == "Creality K2 Plus 0.4 nozzle");
+        // "Don't save": the process leaves its changes behind, and the printer is selected.
+        const orca::PresetState selected = orca::select_preset(orca::PresetChoice::printer, a1, orca::PresetChangeAction::discard);
+        REQUIRE(selected.status == orca::SceneStatus::success);
+        CHECK_FALSE(selected.asks_unsaved_changes);
+        CHECK(selected.selection.printer == a1);
+        REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+        REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
     }
 
     // The tests that follow slice with the unchanged preset.

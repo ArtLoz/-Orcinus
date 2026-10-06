@@ -521,6 +521,12 @@ void TabPrint::toggle_options()
         const std::vector<int> enum_set_none_bbl = {wtwRectangle, wtwCone, wtwRib};
         set_choices(field, "wipe_tower_wall_type", m_config_manipulation.get_is_BBL_Printer() ? enum_set_bbl : enum_set_none_bbl);
     }
+
+    // ParamsPanel::set_active_tab(): the process tab hides the surface flow
+    // ratio, which only the settings of an object show.
+    if (m_type == Preset::TYPE_PRINT) {
+        toggle_line("print_flow_ratio", false);
+    }
 }
 
 void TabPrint::update()

@@ -333,9 +333,10 @@ private fun SettingField(
         } else {
             CommitTextField(state.value, onCommit, enabled, changing, unit = null, keyboardType = KeyboardType.Text)
         }
-        // PointCtrl edits one point; a list of them is edited as the text the
-        // desktop app shows for it ("0x0, 350x0, ...").
-        SettingFieldKind.POINT -> if (definition.type == SettingType.POINT) {
+        // PointCtrl edits one point, as of each extruder ("extruder_offset#0");
+        // a list of them is edited as the text the desktop app shows for it
+        // ("0x0, 350x0, ...").
+        SettingFieldKind.POINT -> if (definition.type == SettingType.POINT || '#' in state.id) {
             PointField(state.value, enabled, changing, onCommit)
         } else {
             CommitTextField(state.value, onCommit, enabled, changing, unit = null, keyboardType = KeyboardType.Ascii)

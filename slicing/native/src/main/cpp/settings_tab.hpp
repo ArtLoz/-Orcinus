@@ -253,6 +253,10 @@ void cache_transfer(PresetKind kind, const Slic3r::DynamicPrintConfig& from, con
 // Tab::apply_config_from_cache() and load_current_preset() of the preset the
 // tab already edits, which a transfer into it loads again.
 void reload_tab(PresetKind kind);
+// Tab::on_value_change() of nozzle_volume_type: the other preset tabs show the
+// variant of that extruder too (update_extruder_variants() and reload_config()
+// of every tab of wxGetApp().tabs_list).
+void update_extruder_variants_of_tabs(Slic3r::Preset::Type except, int extruder_idx);
 
 // Tab of Tab.hpp, without the parts that only draw.
 class Tab {
