@@ -830,8 +830,12 @@ class AddModelToPlateUseCase(
 ) {
     operator fun invoke(reference: ExternalDocumentReference) = invoke(listOf(reference))
 
-    /** Plater::add_file() of the documents the user picked at once. */
-    operator fun invoke(references: List<ExternalDocumentReference>) {
+    /**
+     * Plater::add_file() of the documents the user picked at once; without
+     * [addsRecent], Plater::load_files() of files handed over, which joins
+     * no model to the recent files.
+     */
+    operator fun invoke(references: List<ExternalDocumentReference>, addsRecent: Boolean = true) {
         if (references.isEmpty() || !start()) return
         applicationScope.launch {
             val picked = mutableListOf<Pair<ExternalDocumentReference, ImportedModelFile>>()
@@ -844,7 +848,7 @@ class AddModelToPlateUseCase(
             val projects = picked.filter { (_, model) -> model.path.value.endsWith(".3mf", ignoreCase = true) }
             val models = picked.filterNot { it in projects }
             // add_file(): with "Add STL/STEP files to recent files list" the models join the recent files once they load.
-            val recentModels = if (preferences[AppConfigKeys.RECENT_MODELS] == "true") models.map { it.first } else emptyList()
+            val recentModels = if (addsRecent && preferences[AppConfigKeys.RECENT_MODELS] == "true") models.map { it.first } else emptyList()
             when {
                 // LoadFilesType::SingleOther, and MultipleOther: the files load together,
                 // asking whether they make one object; a plate without a name takes the first one's.
@@ -863,6 +867,28 @@ class AddModelToPlateUseCase(
                         listOfNotNull(models.takeIf { it.isNotEmpty() }?.let { others -> ImportFiles(others.map { it.second.path }, recentModels = recentModels) })
                     open3mf(project.path, ImportBatch(rest = rest, document = document, displayName = project.displayName))
                 }
+            }
+        }
+    }
+
+    /**
+     * Plater::preview_zip_archive()'s loads of the files unzipped from an
+     * archive, which stay in app storage: one project among them opens as a
+     * 3MF file dropped on the window does, and the models load after it as
+     * geometry; with no project, or several, every file loads as geometry,
+     * the projects one by one and the models together. None asks whether the
+     * models make one object of several parts.
+     */
+    fun loadUnzipped(projects: List<ModelPath>, models: List<ModelPath>) {
+        if ((projects.isEmpty() && models.isEmpty()) || !start()) return
+        val modelFiles = listOfNotNull(models.takeIf { it.isNotEmpty() }?.let { ImportFiles(it) })
+        applicationScope.launch {
+            val single = projects.singleOrNull()
+            if (single != null) {
+                open3mf(single, ImportBatch(rest = modelFiles, displayName = single.value.substringAfterLast('/')))
+            } else {
+                val loads = projects.map(::ImportFiles) + modelFiles
+                load(loads.first(), ImportBatch(rest = loads.drop(1)), emptyMap(), emptyList())
             }
         }
     }

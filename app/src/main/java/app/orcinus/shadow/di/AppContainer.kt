@@ -112,6 +112,7 @@ import app.orcinus.shadow.domain.plate.ObjectMeshRetention
 import app.orcinus.shadow.domain.plate.ObjectOrderUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
+import app.orcinus.shadow.domain.plate.OpenFilesUseCase
 import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PaintObjectUseCase
 import app.orcinus.shadow.domain.plate.PaintedColorUpdates
@@ -214,6 +215,7 @@ import app.orcinus.shadow.network.printhost.ProfileUpdateClient
 import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
 import app.orcinus.shadow.storage.android.AndroidSystemFonts
+import app.orcinus.shadow.storage.android.AppArchiveFiles
 import app.orcinus.shadow.storage.android.AppBedFiles
 import app.orcinus.shadow.storage.android.AppCertificateFiles
 import app.orcinus.shadow.storage.android.AppConfigFiles
@@ -438,6 +440,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         editPlateObject = editPlateObject,
         recentProjects = recentProjects,
     )
+
+    /** Files another app hands over, and "Import Zip Archive". */
+    val openFiles = OpenFilesUseCase(AppDocumentExport(applicationContext), AppArchiveFiles(applicationContext), addModelToPlate, plateRepository, applicationScope)
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
     private val cancelPlateSlicing = CancelPlateSlicingUseCase(CancelSliceUseCase(engine), plateRepository, applicationScope)
@@ -670,6 +675,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             observePlate = observePlate,
             selectObjectPart = selectObjectPart,
             addModelToPlate = addModelToPlate,
+            openFiles = openFiles,
             addPrimitive = addPrimitive,
             addCalibrationCubeToPlate = addCalibrationCube,
             placePlateObject = placePlateObject,

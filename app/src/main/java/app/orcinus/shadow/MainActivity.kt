@@ -4,8 +4,10 @@ import android.Manifest
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -20,12 +22,14 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.core.animation.doOnEnd
+import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.splashscreen.SplashScreenViewProvider
 import androidx.lifecycle.lifecycleScope
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.EngineAvailability
+import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.R as CoreUiR
 import app.orcinus.shadow.di.AppContainer
@@ -35,6 +39,7 @@ import app.orcinus.shadow.core.ui.orca.rememberOrcaCatalog
 import app.orcinus.shadow.domain.plate.EngineLanguage
 import app.orcinus.shadow.ui.OrcinusApp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -43,6 +48,9 @@ class MainActivity : ComponentActivity() {
     // Slicing continues in the background with a progress notification; the
     // job runs either way if the user declines.
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
+    /** The files handed over that the workspace has not taken yet. */
+    private val openedDocuments = MutableStateFlow<List<ExternalDocumentReference>>(emptyList())
 
     // Before Android 13 the app's language is the activity's own configuration.
     override fun attachBaseContext(newBase: Context) {
@@ -63,6 +71,8 @@ class MainActivity : ComponentActivity() {
 
         val container = (application as OrcinusApplication).container
         keepSplashWhileEngineStarts(splash, container)
+        // A window built again keeps the files it took before.
+        if (savedInstanceState == null) takeDocuments(intent)
         // A language chosen before Android 13 takes effect as the activity is built again.
         lifecycleScope.launch { container.appLanguage.changes.collect { recreate() } }
         // The engine's own messages follow the language the activity is built in.
@@ -77,10 +87,36 @@ class MainActivity : ComponentActivity() {
                     // The preview offers the File menu its toolpaths while it shows them.
                     LocalToolpathsExport provides remember { mutableStateOf(null) },
                 ) {
-                    OrcinusApp(container = container, onSliceRequested = ::requestNotificationPermission)
+                    OrcinusApp(
+                        container = container,
+                        onSliceRequested = ::requestNotificationPermission,
+                        openedDocuments = openedDocuments,
+                        onDocumentsTaken = { openedDocuments.value = emptyList() },
+                    )
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takeDocuments(intent)
+    }
+
+    /**
+     * The files another app opens with the app (ACTION_VIEW) or shares with it
+     * (ACTION_SEND, ACTION_SEND_MULTIPLE), which the workspace loads as the
+     * desktop app loads files handed over to it (GUI_App::MacOpenFiles()).
+     */
+    private fun takeDocuments(intent: Intent?) {
+        val uris = when (intent?.action) {
+            Intent.ACTION_VIEW -> listOfNotNull(intent.data)
+            Intent.ACTION_SEND -> listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+            Intent.ACTION_SEND_MULTIPLE -> IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            else -> emptyList()
+        }
+        if (uris.isNotEmpty()) openedDocuments.value = uris.map { ExternalDocumentReference(it.toString()) }
     }
 
     /**

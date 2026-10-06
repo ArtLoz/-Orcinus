@@ -28,13 +28,70 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Orcinus">
+        <!-- One window, as the desktop app keeps one: files another app opens or shares come to it (onNewIntent). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.Orcinus.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The files Plater::load_files() takes: models, projects and ZIP archives. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="model/stl" />
+                <data android:mimeType="model/x.stl-binary" />
+                <data android:mimeType="model/x.stl-ascii" />
+                <data android:mimeType="application/sla" />
+                <data android:mimeType="application/vnd.ms-pki.stl" />
+                <data android:mimeType="model/3mf" />
+                <data android:mimeType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
+                <data android:mimeType="model/step" />
+                <data android:mimeType="application/step" />
+                <data android:mimeType="model/obj" />
+                <data android:mimeType="application/x-amf" />
+                <data android:mimeType="image/svg+xml" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="model/stl" />
+                <data android:mimeType="model/x.stl-binary" />
+                <data android:mimeType="model/x.stl-ascii" />
+                <data android:mimeType="application/sla" />
+                <data android:mimeType="application/vnd.ms-pki.stl" />
+                <data android:mimeType="model/3mf" />
+                <data android:mimeType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
+                <data android:mimeType="model/step" />
+                <data android:mimeType="application/step" />
+                <data android:mimeType="model/obj" />
+                <data android:mimeType="application/x-amf" />
+                <data android:mimeType="image/svg+xml" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="model/stl" />
+                <data android:mimeType="model/x.stl-binary" />
+                <data android:mimeType="model/x.stl-ascii" />
+                <data android:mimeType="application/sla" />
+                <data android:mimeType="application/vnd.ms-pki.stl" />
+                <data android:mimeType="model/3mf" />
+                <data android:mimeType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
+                <data android:mimeType="model/step" />
+                <data android:mimeType="application/step" />
+                <data android:mimeType="model/obj" />
+                <data android:mimeType="application/x-amf" />
+                <data android:mimeType="image/svg+xml" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
 

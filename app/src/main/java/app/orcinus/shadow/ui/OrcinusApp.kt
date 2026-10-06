@@ -45,6 +45,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTabBar
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarLayout
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
+import app.orcinus.shadow.core.model.ArchiveEntry
+import app.orcinus.shadow.core.model.ArchivePreview
 import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.core.model.ModelLoad
@@ -60,6 +62,7 @@ import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.plate.ArchivePreviewSheet
 import app.orcinus.shadow.core.ui.plate.ObjColorActions
 import app.orcinus.shadow.core.ui.plate.ObjColorDialog
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateDialog
@@ -78,6 +81,7 @@ import app.orcinus.shadow.domain.plate.AutoSliceUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
 import app.orcinus.shadow.domain.plate.ObjColorPrompt
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.OpenFilesUseCase
 import app.orcinus.shadow.domain.plate.ProfileUpdatesUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
@@ -111,7 +115,9 @@ import app.orcinus.shadow.feature.sidebar.PlateSidebar
 import app.orcinus.shadow.feature.sidebar.PresetWizardPage
 import app.orcinus.shadow.feature.sidebar.R as SidebarR
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
@@ -131,6 +137,7 @@ class AppShellViewModel(
     private val projectBackup: ProjectBackupUseCase,
     /** The Preferences' "Default page" once it is read; null before. */
     val defaultPage: Flow<String?>,
+    private val openFiles: OpenFilesUseCase,
     private val reloadFromDisk: ReloadFromDiskUseCase,
     /** ObjColorDialog's panel and answer. */
     val objColorPrompt: ObjColorPrompt,
@@ -158,6 +165,15 @@ class AppShellViewModel(
 
     /** ProjectDropDialog's choice for the 3MF file that waits; null cancels. */
     fun openProjectAs(load: ModelLoad?) = addModelToPlate.openAs(load)
+
+    /** FileArchiveDialog over an archive whose files wait to be picked; null while none does. */
+    val archivePreview: StateFlow<ArchivePreview?> = openFiles.preview
+
+    /** The files another app handed over: Plater::load_files() of them. */
+    fun openFiles(documents: List<ExternalDocumentReference>) = openFiles.open(documents)
+
+    /** FileArchiveDialog's Open with the files picked, or Cancel with null. */
+    fun answerArchive(picked: List<ArchiveEntry>?) = openFiles.answer(picked)
 
     /** The questions of New Project and Open Project (Plater::close_with_confirm and the presets' check). */
     fun answerSaveChanges(save: Boolean?, remember: Boolean) = projectLifecycle.answerSaveChanges(save, remember)
@@ -202,6 +218,9 @@ fun OrcinusApp(
     container: AppContainer,
     onSliceRequested: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The files another app handed over that wait to load. */
+    openedDocuments: StateFlow<List<ExternalDocumentReference>> = MutableStateFlow(emptyList()),
+    onDocumentsTaken: () -> Unit = {},
 ) {
     val shell = viewModel {
         AppShellViewModel(
@@ -218,6 +237,7 @@ fun OrcinusApp(
             container.autoSlice,
             container.projectBackup,
             container.defaultPage,
+            container.openFiles,
             container.reloadFromDisk,
             container.objColorPrompt,
             container.profileUpdates,
@@ -247,6 +267,8 @@ fun OrcinusApp(
                     container = container,
                     shell = shell,
                     onSliceRequested = onSliceRequested,
+                    openedDocuments = openedDocuments,
+                    onDocumentsTaken = onDocumentsTaken,
                     onOpenWizard = { page ->
                         backStack.add(SetupNavKey(if (page == PresetWizardPage.PRINTERS) SetupStart.PRINTERS else SetupStart.FILAMENTS))
                     },
@@ -303,6 +325,8 @@ private fun Workspace(
     container: AppContainer,
     shell: AppShellViewModel,
     onSliceRequested: () -> Unit,
+    openedDocuments: StateFlow<List<ExternalDocumentReference>>,
+    onDocumentsTaken: () -> Unit,
     onOpenWizard: (PresetWizardPage) -> Unit,
     onOpenSettings: (PresetKind) -> Unit,
     onOpenSetting: (SearchOption) -> Unit,
@@ -322,6 +346,7 @@ private fun Workspace(
     val stepMesh = plate.stepMesh
     val objColor = plate.objColor
     val profileUpdates = plate.profileUpdates?.takeIf { it.confirming }
+    val archivePreview = shell.archivePreview.collectAsStateWithLifecycle().value
     // "Reload from disk"'s file dialog for a file the app can no longer read.
     var reloadPicking by remember { mutableStateOf(false) }
     val reloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -350,6 +375,7 @@ private fun Workspace(
             ProjectPresetChangesDialog(projectPrompt, checkName = shell::checkPresetName, onAnswer = shell::answerPresetChanges)
         profileUpdates != null -> ProfileUpdateDialog(profileUpdates.updates, onAnswer = shell::answerProfileUpdates)
         projectDrop != null -> ProjectDropSheet(projectDrop.value.substringAfterLast('/'), onChoose = shell::openProjectAs)
+        archivePreview != null -> ArchivePreviewSheet(archivePreview, onAnswer = shell::answerArchive)
         // wxFileDialog's "Please select a file:", named after the file it looks for.
         reloadPrompt is ReloadPrompt.PickFile && !reloadPicking -> SettingsQuestionDialog(
             SettingsDialog(
@@ -451,6 +477,18 @@ private fun Workspace(
             projectResets = plate.projectResets
             showTab(PrepareNavKey)
         }
+    }
+
+    // The files another app handed over load on the Prepare tab once a printer
+    // is set up, as the desktop app loads them once it has started.
+    val documents by openedDocuments.collectAsStateWithLifecycle()
+    LaunchedEffect(documents) {
+        if (documents.isEmpty()) return@LaunchedEffect
+        shell.plate.first { it.profiles != null }
+        val taken = documents
+        onDocumentsTaken()
+        showTab(PrepareNavKey)
+        shell.openFiles(taken)
     }
 
     // Plater::priv::is_preview_shown()

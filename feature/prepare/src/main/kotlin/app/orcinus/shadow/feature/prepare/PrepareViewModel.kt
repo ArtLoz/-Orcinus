@@ -131,6 +131,7 @@ import app.orcinus.shadow.domain.plate.MeshBooleanUseCase
 import app.orcinus.shadow.domain.plate.MovePlateToFrontUseCase
 import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.OpenFilesUseCase
 import app.orcinus.shadow.domain.plate.OpenSimplifyUseCase
 import app.orcinus.shadow.domain.plate.PaintObjectUseCase
 import app.orcinus.shadow.domain.plate.PaintingSectionUseCase
@@ -228,6 +229,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class PrepareViewModel(
     observePlate: ObservePlateUseCase,
     private val addModelToPlate: AddModelToPlateUseCase,
+    private val openFiles: OpenFilesUseCase,
     private val addPrimitive: AddPrimitiveUseCase,
     private val addCalibrationCubeToPlate: AddCalibrationCubeToPlateUseCase,
     private val placePlateObject: PlacePlateObjectUseCase,
@@ -826,6 +828,9 @@ class PrepareViewModel(
 
     /** The documents the user picked at once (Plater::add_file()). */
     fun addModels(references: List<String>) = addModelToPlate(references.map(::ExternalDocumentReference))
+
+    /** "Import Zip Archive": Plater::import_zip_archive() of the archive the user picked. */
+    fun importZip(reference: String) = openFiles.importZip(ExternalDocumentReference(reference))
 
     fun addCalibrationCube() = addCalibrationCubeToPlate()
 

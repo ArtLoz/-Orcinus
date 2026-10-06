@@ -253,6 +253,10 @@ internal fun PrepareRoute(
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) viewModel.addModels(uris.map { it.toString() })
     }
+    // GUI_App::import_zip(): "Choose ZIP file", of the ZIP files alone.
+    val zipPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.importZip(uri.toString())
+    }
     // "Export as one STL/DRC" and "Replace 3D file": the object waits for the
     // document the user picks, as the desktop app waits for its file dialog.
     var exportTarget by rememberSaveable { mutableStateOf<String?>(null) }
@@ -466,6 +470,7 @@ internal fun PrepareRoute(
             showLabels = { viewModel.setCanvasOption(AppConfigKeys.SHOW_LABELS, it.toString()) },
             deleteAll = viewModel::deleteAllObjects,
             duplicatePlate = viewModel::duplicatePlate,
+            importZip = { zipPicker.launch(arrayOf(ZIP_MIME_TYPE)) },
         ),
         onToggleGizmo = viewModel::toggleGizmo,
         onCloseGizmo = viewModel::closeGizmo,
@@ -1421,6 +1426,8 @@ internal fun PrepareScreen(
 private const val MESH_MIME_TYPE = "application/octet-stream"
 
 /** FT_SVG of the desktop app's file dialogs. */
+private const val ZIP_MIME_TYPE = "application/zip"
+
 private const val SVG_MIME_TYPE = "image/svg+xml"
 
 /** The context menu asked for over the object [index], at [position] in the plate view. */
@@ -1534,6 +1541,8 @@ internal class PlateMenuActions(
     /** The Edit menu's "Delete all" and "Duplicate Current Plate", which a phone offers over the plate. */
     val deleteAll: () -> Unit = {},
     val duplicatePlate: () -> Unit = {},
+    /** The File menu's Import > "Import Zip Archive", which a phone offers with the other ways to add models. */
+    val importZip: () -> Unit = {},
 ) {
     companion object {
         val NONE = PlateMenuActions({ _, _ -> }, {}, {})
@@ -1597,6 +1606,14 @@ private fun PlateContextMenu(
             addModels = onAddModel,
             addText = onAddText,
             addSvg = onAddSvg,
+        )
+        OrcaMenuItem(
+            text = orcaString("Import Zip Archive") + "...",
+            enabled = state.canEditPlate,
+            onClick = {
+                onDismiss()
+                actions.importZip()
+            },
         )
         OrcaMenuSeparator()
         // Plater::is_view3D_shown(): the assembly view has no labels.
