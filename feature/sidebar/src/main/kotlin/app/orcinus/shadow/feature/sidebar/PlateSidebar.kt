@@ -6,6 +6,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
+import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BedFileOutcome
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.CanvasPreferences
@@ -274,6 +275,7 @@ import app.orcinus.shadow.domain.plate.SetPlateObjectAutoDropUseCase
 import app.orcinus.shadow.domain.plate.SetPlateObjectPrintableUseCase
 import app.orcinus.shadow.domain.plate.SetSettingsScopeUseCase
 import app.orcinus.shadow.domain.plate.TestPhysicalPrinterUseCase
+import app.orcinus.shadow.domain.plate.VolumeMenuUseCase
 import app.orcinus.shadow.domain.plate.canDeletePlate
 import app.orcinus.shadow.domain.plate.canMoveObject
 import app.orcinus.shadow.domain.preferences.AppPreferences
@@ -427,6 +429,7 @@ class SidebarViewModel(
     private val exportObjectMesh: ExportObjectMeshUseCase,
     private val replaceObjectVolume: ReplaceObjectVolumeUseCase,
     private val openSimplify: OpenSimplifyUseCase,
+    private val volumeMenu: VolumeMenuUseCase,
     private val changeVolumeType: ChangeVolumeTypeUseCase,
     private val replaceAllVolumesUseCase: ReplaceAllVolumesUseCase,
     private val reloadFromDiskUseCase: ReloadFromDiskUseCase,
@@ -778,6 +781,13 @@ class SidebarViewModel(
     fun simplifyObject(mesh: ScenePath) = openSimplify.ofObject(PlateInstanceId(mesh), wholeObject = true)
 
     fun simplifyVolume(id: ObjectPartId) = openSimplify.ofVolume(id)
+
+    /** The part menu's Center, Drop and Mirror of the volume, over the object's first copy as the list picks it. */
+    fun centerVolume(id: ObjectPartId) = volumeMenu.center(PlateInstanceId(id.mesh, 0), id.index)
+
+    fun dropVolume(id: ObjectPartId) = volumeMenu.drop(PlateInstanceId(id.mesh, 0), id.index)
+
+    fun mirrorVolume(id: ObjectPartId, axis: Axis) = volumeMenu.mirror(PlateInstanceId(id.mesh, 0), id.index, axis)
 
     /** "Change type" of a volume. */
     fun setVolumeType(id: ObjectPartId, type: VolumeType) = changeVolumeType(id, type)
@@ -1929,6 +1939,9 @@ fun PlateSidebar(
                 viewModel.simplifyVolume(id)
                 onShowCanvas()
             },
+            centerVolume = viewModel::centerVolume,
+            dropVolume = viewModel::dropVolume,
+            mirrorVolume = viewModel::mirrorVolume,
             // The text tool is a window of the canvas.
             editText = { id ->
                 viewModel.editTextOf(id)

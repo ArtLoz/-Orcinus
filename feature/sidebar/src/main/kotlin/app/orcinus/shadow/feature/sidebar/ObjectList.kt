@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.MeshErrors
@@ -29,6 +30,7 @@ import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.meshErrors
 import app.orcinus.shadow.core.model.reloadableVolumes
 import app.orcinus.shadow.core.ui.orca.orcaText
+import app.orcinus.shadow.core.ui.plate.MirrorSubmenu
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.conversionsOf
@@ -206,6 +208,10 @@ internal class ObjectListActions(
     /** ObjectList::simplify() of the whole object, or of one of its volumes. */
     val simplifyObject: (ScenePath) -> Unit = {},
     val simplifyVolume: (ObjectPartId) -> Unit = {},
+    /** create_bbl_part_menu()'s Center, Drop and Mirror of a volume, over the copy the list picks it on. */
+    val centerVolume: (ObjectPartId) -> Unit = {},
+    val dropVolume: (ObjectPartId) -> Unit = {},
+    val mirrorVolume: (ObjectPartId, Axis) -> Unit = { _, _ -> },
     /** ObjectList::set_volume_type(): the volume takes another type. */
     val changeVolumeType: (ObjectPartId, VolumeType) -> Unit = { _, _ -> },
     /** A plate item: the plate becomes current and nothing stays selected (ObjectList::selection_changed). */
@@ -621,6 +627,27 @@ private fun LazyListScope.objectRows(
                         if (embossed == null) SmoothMeshItem(enabled = enabled && plateObject.instances.first().inspection.openEdges == 0L) {
                             dismiss()
                             actions.editObject(mesh, ObjectEdit.SMOOTH_MESH, at)
+                        }
+                        // append_menu_item_center(), append_menu_item_drop() and append_menu_items_mirror() of the volume.
+                        OrcaMenuItem(
+                            text = orcaString("Center"),
+                            enabled = enabled,
+                            onClick = {
+                                dismiss()
+                                actions.centerVolume(partId)
+                            },
+                        )
+                        OrcaMenuItem(
+                            text = orcaString("Drop"),
+                            enabled = enabled,
+                            onClick = {
+                                dismiss()
+                                actions.dropVolume(partId)
+                            },
+                        )
+                        MirrorSubmenu(enabled = enabled && !plateObject.isCut) { axis ->
+                            dismiss()
+                            actions.mirrorVolume(partId, axis)
                         }
                         if (embossed == null) OrcaSubmenu(text = orcaString("Split"), enabled = enabled && part.splittable) {
                             // ObjectList::is_splittable(true) refuses a volume.

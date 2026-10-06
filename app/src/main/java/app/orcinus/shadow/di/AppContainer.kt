@@ -188,6 +188,7 @@ import app.orcinus.shadow.domain.plate.UndoStackMemoryLimit
 import app.orcinus.shadow.domain.plate.UpdateFlushVolumesUseCase
 import app.orcinus.shadow.domain.plate.OverhangUpdates
 import app.orcinus.shadow.domain.plate.PlateValidationUpdates
+import app.orcinus.shadow.domain.plate.VolumeMenuUseCase
 import app.orcinus.shadow.domain.plate.WipeTowerUpdates
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.RecentSendChoicesUseCase
@@ -859,6 +860,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         exportObjectMesh = exportObjectMesh,
         replaceObjectVolume = replaceObjectVolume,
         openSimplify = openSimplify,
+        volumeMenu = VolumeMenuUseCase(engine, plateRepository, PlaceObjectVolumeUseCase(engine, sceneFiles, plateRepository, applicationScope), applicationScope),
         changeVolumeType = ChangeVolumeTypeUseCase(engine, sceneFiles, plateRepository, applicationScope),
         replaceAllVolumesUseCase = replaceAllVolumes,
         reloadFromDiskUseCase = reloadFromDisk,

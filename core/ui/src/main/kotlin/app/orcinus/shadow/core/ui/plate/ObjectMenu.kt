@@ -367,17 +367,7 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
             leading = { MenuIcon(DesignR.drawable.orca_menu_split_parts) },
         )
     }
-    // append_menu_items_mirror()
-    OrcaSubmenu(text = orcaString("Mirror"), enabled = state.canMirror) {
-        MIRROR_ITEMS.forEach { (axis, text, icon) ->
-            OrcaMenuItem(
-                text = orcaString(text),
-                enabled = state.canMirror,
-                onClick = run { actions.mirror(axis) },
-                leading = { MenuIcon(icon) },
-            )
-        }
-    }
+    MirrorSubmenu(enabled = state.canMirror) { axis -> run { actions.mirror(axis) }() }
     OrcaMenuItem(text = stringResource(R.string.object_menu_delete), enabled = state.enabled, onClick = run(actions.delete))
     OrcaMenuSeparator()
     // append_menu_items_add_volume(): every kind of part the desktop app adds,
@@ -762,6 +752,21 @@ private const val SINKING_Z_THRESHOLD = 0.001
 
 /** GUI::dots */
 internal const val DOTS = "..."
+
+/** append_menu_items_mirror(): the submenu that mirrors along an axis of the world. */
+@Composable
+fun MirrorSubmenu(enabled: Boolean, onMirror: (Axis) -> Unit) {
+    OrcaSubmenu(text = orcaString("Mirror"), enabled = enabled) {
+        MIRROR_ITEMS.forEach { (axis, text, icon) ->
+            OrcaMenuItem(
+                text = orcaString(text),
+                enabled = enabled,
+                onClick = { onMirror(axis) },
+                leading = { MenuIcon(icon) },
+            )
+        }
+    }
+}
 
 /** The submenu of append_menu_items_mirror(): the axis, its text and its icon. */
 private val MIRROR_ITEMS = listOf(
