@@ -1434,9 +1434,9 @@ private fun ProjectTitle(
     var temperature by remember { mutableStateOf(false) }
     var rangeTest by remember { mutableStateOf<RangeTest?>(null) }
     var pressureAdvance by remember { mutableStateOf(false) }
-    var pressureAdvanceChoice by remember { mutableStateOf(PressureAdvanceChoice()) }
+    var pressureAdvanceChoice by CalibrationDialogs::pressureAdvance
     var flowRate by remember { mutableStateOf(false) }
-    var flowRateChoice by remember { mutableStateOf(FlowRateChoice()) }
+    var flowRateChoice by CalibrationDialogs::flowRate
     var printerTest by remember { mutableStateOf<PrinterTest?>(null) }
     var calibrationPrinter by remember { mutableStateOf<CalibrationPrinterOutcome?>(null) }
     // Plater::priv::update_title_dirty_status()

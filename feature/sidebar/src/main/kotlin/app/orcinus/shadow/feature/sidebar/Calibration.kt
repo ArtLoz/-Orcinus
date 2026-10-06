@@ -21,6 +21,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -123,10 +124,12 @@ private val FILAMENT_TYPES = listOf(
 internal fun TemperatureCalibrationSheet(onDismiss: () -> Unit, onStart: (CalibrationParams) -> Unit) {
     val colors = OrcaTheme.colors
     val uriHandler = LocalUriHandler.current
-    var type by remember { mutableIntStateOf(0) }
-    var start by remember { mutableStateOf("230") }
-    var end by remember { mutableStateOf("190") }
+    val kept = CalibrationDialogs.temperature
+    var type by remember { mutableIntStateOf(kept.type) }
+    var start by remember { mutableStateOf(kept.start) }
+    var end by remember { mutableStateOf(kept.end) }
     var message by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(Unit) { onDispose { CalibrationDialogs.temperature = TemperatureFigures(type, start, end) } }
     val degrees = orcaString("℃")
     val rangeMessage = "Supported range: 170$degrees - 500$degrees"
     val invalidMessage = orcaString("Please input valid values:\nStart temp: <= 500\nEnd temp: >= 155\nStart temp >= End temp + 5")
@@ -178,6 +181,11 @@ internal fun TemperatureCalibrationSheet(onDismiss: () -> Unit, onStart: (Calibr
             ) {
                 OrcaButton(orcaString("Wiki Guide"), onClick = { uriHandler.openUri(TEMPERATURE_GUIDE) }, style = OrcaButtonStyle.Regular)
                 OrcaButton(orcaString("OK"), onClick = {
+                    // The press takes the focus from the field first, whose
+                    // validate_text() rounds and limits it; its warning stops the press.
+                    start = validated(start)
+                    end = validated(end)
+                    if (message != null) return@OrcaButton
                     val first = start.toLongOrNull()?.takeIf { it >= 0 }
                     val last = end.toLongOrNull()?.takeIf { it >= 0 }
                     if (first == null || last == null || first > 500 || last < 155 || last > first - 5) {
@@ -245,10 +253,12 @@ internal enum class RangeTest(
 internal fun RangeCalibrationSheet(test: RangeTest, onDismiss: () -> Unit, onStart: (CalibrationParams) -> Unit) {
     val colors = OrcaTheme.colors
     val uriHandler = LocalUriHandler.current
-    var start by remember { mutableStateOf(test.start) }
-    var end by remember { mutableStateOf(test.end) }
-    var step by remember { mutableStateOf(test.step) }
+    val kept = CalibrationDialogs.ranges[test]
+    var start by remember { mutableStateOf(kept?.start ?: test.start) }
+    var end by remember { mutableStateOf(kept?.end ?: test.end) }
+    var step by remember { mutableStateOf(kept?.step ?: test.step) }
     var invalid by remember { mutableStateOf(false) }
+    DisposableEffect(test) { onDispose { CalibrationDialogs.ranges[test] = RangeFigures(start, end, step) } }
     val unit = orcaString(test.unit)
 
     ModalBottomSheet(
@@ -723,6 +733,27 @@ private const val FLOW_RATE_GUIDE = "https://www.orcaslicer.com/wiki/flow_ratio_
 /** PA_Calibration_Dlg's choices, which the dialog keeps from one showing to the next. */
 internal data class PressureAdvanceChoice(val bowden: Boolean = false, val method: Int = PA_TOWER)
 
+/** Temp_Calibration_Dlg's filament type and temperatures. */
+internal data class TemperatureFigures(val type: Int = 0, val start: String = "230", val end: String = "190")
+
+/** The start, end and step of a [RangeTest]'s dialog. */
+internal data class RangeFigures(val start: String, val end: String, val step: String)
+
+/**
+ * MainFrame makes the dialogs of the temperature, volumetric speed, PA, flow
+ * ratio, retraction and VFA tests once (m_temp_calib_dlg and the others), so
+ * what they show stays from one opening to the next while the app runs; the
+ * Input Shaping and Cornering dialogs are made again each time.
+ */
+internal object CalibrationDialogs {
+    var temperature = TemperatureFigures()
+    val ranges = mutableMapOf<RangeTest, RangeFigures>()
+    var pressureAdvance by mutableStateOf(PressureAdvanceChoice())
+    var accelerations = ""
+    var speeds = ""
+    var flowRate by mutableStateOf(FlowRateChoice())
+}
+
 /** The methods of PA_Calibration_Dlg, in its order. */
 private val PA_METHODS = listOf("PA Tower", "PA Line", "PA Pattern")
 private const val PA_TOWER = 0
@@ -763,9 +794,16 @@ internal fun PressureAdvanceSheet(
     var end by remember { mutableStateOf(endOf(choice)) }
     var step by remember { mutableStateOf(stepOf(choice)) }
     var printNumbers by remember { mutableStateOf(choice.method != PA_TOWER) }
-    var accelerations by remember { mutableStateOf("") }
-    var speeds by remember { mutableStateOf("") }
+    // on_show() sets the figures again; the lists stay as they were left.
+    var accelerations by remember { mutableStateOf(CalibrationDialogs.accelerations) }
+    var speeds by remember { mutableStateOf(CalibrationDialogs.speeds) }
     var message by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(Unit) {
+        onDispose {
+            CalibrationDialogs.accelerations = accelerations
+            CalibrationDialogs.speeds = speeds
+        }
+    }
     val invalidMessage = orcaString("Please input valid values:\nStart PA: >= 0.0\nEnd PA: > Start PA\nPA step: >= 0.001")
     val swappedMessage = orcaString("Acceleration values must be greater than speed values.\nPlease verify the inputs.")
 
@@ -826,9 +864,9 @@ internal fun PressureAdvanceSheet(
                     val first = start.toDoubleOrNull()
                     val last = end.toDoubleOrNull()
                     val by = step.toDoubleOrNull()
-                    // ParseStringValues(): the numbers of the comma-separated list.
-                    val accels = accelerations.split(',').mapNotNull { it.trim().toDoubleOrNull() }
-                    val speedList = speeds.split(',').mapNotNull { it.trim().toDoubleOrNull() }
+                    // ParseStringValues(): the numbers of the comma-separated list above zero.
+                    val accels = accelerations.split(',').mapNotNull { it.trim().toDoubleOrNull()?.takeIf { value -> value > 0 } }
+                    val speedList = speeds.split(',').mapNotNull { it.trim().toDoubleOrNull()?.takeIf { value -> value > 0 } }
                     when {
                         first == null || last == null || by == null || first < 0 || by < 10 * CALIB_EPSILON || last < first + by -> message = invalidMessage
                         accels.isNotEmpty() && speedList.isNotEmpty() && accels.min() <= speedList.max() -> message = swappedMessage
