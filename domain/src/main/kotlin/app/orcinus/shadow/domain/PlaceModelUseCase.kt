@@ -18,10 +18,12 @@ class PlaceModelUseCase(
         placement: Transform3,
         autoDrop: Boolean,
         manipulation: Manipulation,
+        /** The copy of [plateObject] the manipulation is of; its others may follow it. */
+        instance: Int = 0,
     ): ModelInspectionOutcome {
         if ((previous.columns + placement.columns).any { !it.isFinite() }) {
             return ModelInspectionOutcome.Failure("The placement is not a finite transformation")
         }
-        return inspector.place(plateObject, profiles, previous, placement, autoDrop, manipulation)
+        return inspector.place(plateObject, profiles, previous, placement, autoDrop, manipulation, instance)
     }
 }

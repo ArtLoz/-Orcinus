@@ -39,6 +39,7 @@ import app.orcinus.shadow.slicing.service.ModelSourceParcel;
 import app.orcinus.shadow.slicing.service.OrcaTextParcel;
 import app.orcinus.shadow.slicing.service.PlacedModelParcel;
 import app.orcinus.shadow.slicing.service.PlateDescriptionParcel;
+import app.orcinus.shadow.slicing.service.PlacementParcel;
 import app.orcinus.shadow.slicing.service.PlateInspectionParcel;
 import app.orcinus.shadow.slicing.service.MeshExportParcel;
 import app.orcinus.shadow.slicing.service.FlushVolumesParcel;
@@ -344,14 +345,15 @@ interface ISlicerService {
      * Placements: instance transformations, column-major 4 x 4; manipulation:
      * the Manipulation's simple name, with faceNormal for LayOnFace.
      */
-    InspectionParcel place(
+    PlacementParcel place(
         in PlacedModelParcel plateObject,
         in ProfilesParcel profiles,
         in double[] previous,
         in double[] placement,
         boolean autoDrop,
         String manipulation,
-        in @nullable double[] faceNormal
+        in @nullable double[] faceNormal,
+        int instance
     );
     /**
      * manipulation: the PlateManipulation's simple name, with the selected

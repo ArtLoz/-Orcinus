@@ -3015,8 +3015,11 @@ class PrepareViewModel(
     /** _render_arrange_menu()'s Arrange: ArrangeJob for every object on the plate. */
     fun arrange() = placePlateObjects(PlateManipulation.Arrange(state.value.arrangeSettings))
 
-    /** The toolbar's OrientJob: the selected object, or every object when none is selected. */
-    fun autoOrient() = placePlateObjects(PlateManipulation.AutoOrient(setOfNotNull(state.value.selectedPlateObject?.mesh)))
+    /**
+     * The toolbar's OrientJob (prepare_selected()): every copy of the objects
+     * the selection holds a copy of, or every object when none is selected.
+     */
+    fun autoOrient() = placePlateObjects(PlateManipulation.AutoOrient(plate.value.selectedInstances.mapTo(LinkedHashSet()) { it.mesh }))
 
     /** The toolbar's "Add instance": another copy of the selected one (Plater::increase_instances). */
     fun addInstance() {

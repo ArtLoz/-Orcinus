@@ -576,10 +576,12 @@ interface PlateInspector {
     suspend fun endCut()
 
     /**
-     * Commits [manipulation] of [plateObject], with its parts, from [previous]
-     * to the instance transformation [placement], as OrcaSlicer does; with
-     * [autoDrop] off the object is never moved onto the plate. Reports the
-     * placed object.
+     * Commits [manipulation] of the copy [instance] of [plateObject], with its
+     * parts, from [previous] to the instance transformation [placement], as
+     * OrcaSlicer does; with [autoDrop] off the copy is never moved onto the
+     * plate. Reports the placed copy, and the other copies of the object the
+     * manipulation changed with it (Selection::synchronize_unselected_instances()),
+     * which stand where [plateObject] says.
      */
     suspend fun place(
         plateObject: PlacedModel,
@@ -588,6 +590,7 @@ interface PlateInspector {
         placement: Transform3,
         autoDrop: Boolean,
         manipulation: Manipulation,
+        instance: Int,
     ): ModelInspectionOutcome
 
     /**

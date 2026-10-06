@@ -1464,7 +1464,7 @@ class PlacePlateObjectUseCase(
         val autoDrop = target.instances[id.instance].autoDrop
         applicationScope.launch {
             val outcome = try {
-                placeModel(target.placed(), profiles, previous, placement, autoDrop, manipulation)
+                placeModel(target.placed(), profiles, previous, placement, autoDrop, manipulation, id.instance)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -1477,17 +1477,28 @@ class PlacePlateObjectUseCase(
                     return@update state
                 }
                 when (outcome) {
-                    is ModelInspectionOutcome.Success -> state.copy(
-                        objects = state.objects.replaced(
-                            current.with(id.instance, outcome.inspection, placing = false).let { placed ->
-                                // Selection::scale_and_translate(): the copy's place in the assembly view takes its new scale.
-                                val assemble = copy.assemble?.takeIf { manipulation == Manipulation.Scale }
-                                    ?.withScalingFactor(outcome.inspection.placement.scalingFactor())
-                                if (assemble == null) placed else placed.withInstance(id.instance, placed.instances[id.instance].copy(assemble = assemble))
-                            },
-                        ),
-                        result = state.result.takeIf { outcome.inspection.placement == previous },
-                    )
+                    is ModelInspectionOutcome.Success -> {
+                        // Selection::synchronize_unselected_instances(): the other copies the
+                        // manipulation changed, unless they were moved since.
+                        val followed = outcome.synchronized.filter { (index, _) ->
+                            index != id.instance && current.instances.getOrNull(index)?.inspection?.placement == target.instances.getOrNull(index)?.inspection?.placement
+                        }
+                        state.copy(
+                            objects = state.objects.replaced(
+                                current.with(id.instance, outcome.inspection, placing = false).let { placed ->
+                                    // Selection::scale_and_translate(): the copy's place in the assembly view takes its new scale.
+                                    val assemble = copy.assemble?.takeIf { manipulation == Manipulation.Scale }
+                                        ?.withScalingFactor(outcome.inspection.placement.scalingFactor())
+                                    if (assemble == null) placed else placed.withInstance(id.instance, placed.instances[id.instance].copy(assemble = assemble))
+                                }.let { placed ->
+                                    followed.entries.fold(placed) { synchronized, (index, inspection) ->
+                                        synchronized.withInstance(index, synchronized.instances[index].copy(inspection = inspection))
+                                    }
+                                },
+                            ),
+                            result = state.result.takeIf { outcome.inspection.placement == previous && followed.isEmpty() },
+                        )
+                    }
                     is ModelInspectionOutcome.Failure -> state.copy(
                         objects = state.objects.replaced(current.with(id.instance, copy.inspection, placing = false)),
                         problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, outcome.message),

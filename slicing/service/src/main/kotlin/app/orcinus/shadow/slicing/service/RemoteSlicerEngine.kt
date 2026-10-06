@@ -866,6 +866,7 @@ class RemoteSlicerEngine(
         placement: Transform3,
         autoDrop: Boolean,
         manipulation: Manipulation,
+        instance: Int,
     ): ModelInspectionOutcome = withContext(Dispatchers.IO) {
         try {
             service().place(
@@ -876,7 +877,8 @@ class RemoteSlicerEngine(
                 autoDrop,
                 manipulation.parcelName(),
                 manipulation.parcelFaceNormal(),
-            ).toInspectionOutcome()
+                instance,
+            ).toPlacementOutcome()
         } catch (_: RemoteException) {
             ModelInspectionOutcome.Failure(PROCESS_DIED)
         }

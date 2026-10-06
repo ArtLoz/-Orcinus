@@ -110,7 +110,12 @@ data class ModelInspection(
 }
 
 sealed interface ModelInspectionOutcome {
-    data class Success(val inspection: ModelInspection) : ModelInspectionOutcome
+    /**
+     * The model as inspected or placed; for a placed copy, the other copies of
+     * its object that followed it ([synchronized], by their index among the
+     * object's copies; Selection::synchronize_unselected_instances()).
+     */
+    data class Success(val inspection: ModelInspection, val synchronized: Map<Int, ModelInspection> = emptyMap()) : ModelInspectionOutcome
 
     data class Failure(val message: String) : ModelInspectionOutcome
 }

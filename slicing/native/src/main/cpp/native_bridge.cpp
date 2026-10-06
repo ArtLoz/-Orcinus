@@ -1752,10 +1752,11 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_inspectModel(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeInstance(
     JNIEnv* env,
     jobject /* this */,
     jobject object,
+    jint instance,
     jstring printer_profile,
     jstring filament_profile,
     jobjectArray filament_profiles,
@@ -1772,8 +1773,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
         env->GetDoubleArrayRegion(face_normal, 0, 3, normal.data());
     }
     const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
-    const orcinus::orca::ModelInspection inspection = orcinus::orca::place_model(
+    orcinus::orca::InstancePlacement placed = orcinus::orca::place_instance(
         plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
+        static_cast<std::size_t>(std::max<jint>(instance, 0)),
         to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
         to_doubles(env, previous_placement),
         to_doubles(env, placement),
@@ -1781,7 +1783,30 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_placeModel(
         static_cast<orcinus::orca::Manipulation>(manipulation),
         normal
     );
-    return to_java(env, inspection);
+    if (placed.status != orcinus::orca::SceneStatus::success) {
+        placed.inspection.status = placed.status;
+        placed.inspection.message = placed.message;
+    }
+    const jclass inspection_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeModelInspection");
+    const jobjectArray copies = env->NewObjectArray(static_cast<jsize>(placed.synchronized.size()), inspection_class, nullptr);
+    for (std::size_t copy = 0; copy < placed.synchronized.size(); ++copy) {
+        // Each inspection creates several local references; its frame keeps them few.
+        if (env->PushLocalFrame(16) != JNI_OK) {
+            return nullptr;
+        }
+        const jobject synchronized = env->PopLocalFrame(to_java(env, placed.synchronized[copy]));
+        env->SetObjectArrayElement(copies, static_cast<jsize>(copy), synchronized);
+        env->DeleteLocalRef(synchronized);
+    }
+    const jintArray indexes = env->NewIntArray(static_cast<jsize>(placed.synchronized_indexes.size()));
+    env->SetIntArrayRegion(indexes, 0, static_cast<jsize>(placed.synchronized_indexes.size()), reinterpret_cast<const jint*>(placed.synchronized_indexes.data()));
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeInstancePlacement");
+    const jmethodID constructor = env->GetMethodID(
+        result_class,
+        "<init>",
+        "(Lapp/orcinus/shadow/slicing/nativebridge/NativeModelInspection;[I[Lapp/orcinus/shadow/slicing/nativebridge/NativeModelInspection;)V"
+    );
+    return env->NewObject(result_class, constructor, to_java(env, placed.inspection), indexes, copies);
 }
 
 extern "C" JNIEXPORT jobject JNICALL

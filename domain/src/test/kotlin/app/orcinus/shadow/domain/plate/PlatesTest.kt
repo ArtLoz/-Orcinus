@@ -3,6 +3,7 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.LayerSequence
+import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.plateSettingsChoice
 import app.orcinus.shadow.core.model.withPlateSettingsChoice
 import app.orcinus.shadow.core.model.withName
@@ -277,5 +278,19 @@ class PlatesTest {
                 ),
             ),
         )
+    }
+
+    @Test
+    fun `the wipe tower dragged over the edge is pushed back inside the plate by its margin`() {
+        val tower = WipeTower(shown = true, width = 30.0, depth = 20.0)
+        val area = listOf(Point2(0.0, 0.0), Point2(350.0, 0.0), Point2(350.0, 350.0), Point2(0.0, 350.0))
+        // Over the right and back edges: its far corner stops 2.5 mm inside.
+        assertEquals(317.5 to 327.5, tower.movedInside(340.0, 345.0, area, 2.5))
+        // Over the left and front edges.
+        assertEquals(2.5 to 2.5, tower.movedInside(-10.0, -5.0, area, 2.5))
+        // Inside, it stays.
+        assertEquals(100.0 to 100.0, tower.movedInside(100.0, 100.0, area, 2.5))
+        // A tower wider than the plate stays where it was put.
+        assertEquals(-10.0 to 5.0, WipeTower(width = 400.0, depth = 20.0).movedInside(-10.0, 5.0, area, 2.5))
     }
 }

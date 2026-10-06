@@ -391,6 +391,7 @@ class ModelImportAndInspectionUseCasesTest {
             placement: Transform3,
             autoDrop: Boolean,
             manipulation: Manipulation,
+            instance: Int,
         ): ModelInspectionOutcome {
             this.model = plateObject.model
             this.mesh = plateObject.mesh

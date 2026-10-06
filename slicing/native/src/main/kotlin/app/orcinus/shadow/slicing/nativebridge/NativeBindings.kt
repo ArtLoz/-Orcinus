@@ -149,6 +149,14 @@ internal class NativePlateInspection(
     @JvmField val objectOrder: IntArray,
 )
 
+/** Constructed by the native bridge: place_instance(). */
+internal class NativeInstancePlacement(
+    @JvmField val inspection: NativeModelInspection,
+    /** The indexes of the copies that followed the placed one, among the object's. */
+    @JvmField val synchronizedIndexes: IntArray,
+    @JvmField val synchronized: Array<NativeModelInspection>,
+)
+
 /** Constructed by the native bridge: describe_volume(), its numbers as VolumeDescription.values(). */
 internal class NativeVolumeDescription(
     @JvmField val status: Long,
@@ -2102,10 +2110,12 @@ internal object NativeBindings {
 
     /**
      * Commits [manipulation] (Manipulation in orca_engine_adapter.hpp) of the
-     * object, a plate of one, from [previousPlacement] to [placement], column-major 4 x 4.
+     * copy [instance] of the object, a plate of one, from [previousPlacement]
+     * to [placement], column-major 4 x 4 (place_instance()).
      */
-    external fun placeModel(
+    external fun placeInstance(
         plateObject: NativePlate,
+        instance: Int,
         printerProfile: String,
         filamentProfile: String,
         /** Every filament of the plate, in the order the sidebar lists them. */
@@ -2117,7 +2127,7 @@ internal object NativeBindings {
         manipulation: Long,
         /** For lay_on_face: x, y, z in object coordinates. */
         faceNormal: DoubleArray?,
-    ): NativeModelInspection
+    ): NativeInstancePlacement
 
     /**
      * Commits [manipulation] (PlateManipulation in orca_engine_adapter.hpp) of

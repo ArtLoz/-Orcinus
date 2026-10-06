@@ -6,6 +6,7 @@ import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.SlicingProfileSelection
 import app.orcinus.shadow.core.model.WipeTowerOutcome
@@ -105,16 +106,52 @@ class MoveWipeTowerUseCase(private val repository: PlateRepository) {
     operator fun invoke(x: Double, y: Double) = repository.update { state ->
         val tower = state.wipeTower
         if (state.busy || tower == null) return@update state
+        // Selection::translate(): the tower stays on the plate by a margin,
+        // WIPE_TOWER_MARGIN once the plate's tower was generated (its G-code),
+        // its brim and half a line before.
+        val margin = if (state.result != null) WIPE_TOWER_MARGIN else tower.brimWidth + HALF_TOWER_LINE
+        val (keptX, keptY) = state.plate?.geometry?.printableArea?.takeIf { it.isNotEmpty() }
+            ?.let { tower.movedInside(x, y, it, margin) } ?: (x to y)
         // GLCanvas3D::do_move() takes "Move Object" for the tower too.
         state.recorded().copy(
-            plateSettings = state.plateSettings.withTowerAt(x, y),
+            plateSettings = state.plateSettings.withTowerAt(keptX, keptY),
             // The tower is drawn where it was dropped until the engine answers.
-            wipeTower = tower.copy(x = x, y = y),
+            wipeTower = tower.copy(x = keptX, y = keptY),
             result = null,
         )
     }
-
 }
+
+/**
+ * WipeTower::move_box_inside_box() of Selection::translate(): the tower's box
+ * (its volume's own, unturned) with its corner at [x], [y] pushed back inside
+ * the bounding box of the plate's [area] by [margin]; a tower that does not
+ * fit inside it stays where it was put.
+ */
+internal fun WipeTower.movedInside(x: Double, y: Double, area: List<Point2>, margin: Double): Pair<Double, Double> {
+    val plateMinX = area.minOf { it.x }
+    val plateMaxX = area.maxOf { it.x }
+    val plateMinY = area.minOf { it.y }
+    val plateMaxY = area.maxOf { it.y }
+    if (width >= plateMaxX - plateMinX - 2 * margin || depth >= plateMaxY - plateMinY - 2 * margin) return x to y
+    val dx = when {
+        x + width > plateMaxX - margin -> plateMaxX - margin - (x + width)
+        x < plateMinX + margin -> plateMinX + margin - x
+        else -> 0.0
+    }
+    val dy = when {
+        y + depth > plateMaxY - margin -> plateMaxY - margin - (y + depth)
+        y < plateMinY + margin -> plateMinY + margin - y
+        else -> 0.0
+    }
+    return x + dx to y + dy
+}
+
+/** libslic3r.h */
+private const val WIPE_TOWER_MARGIN = 1.0
+
+/** Selection::translate()'s 0.5, the line width of the wipe tower. */
+private const val HALF_TOWER_LINE = 0.5
 
 private const val WIPE_TOWER_X = "wipe_tower_x"
 private const val WIPE_TOWER_Y = "wipe_tower_y"

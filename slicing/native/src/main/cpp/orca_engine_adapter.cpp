@@ -2856,11 +2856,12 @@ void auto_orient(
                 selected_is_locked |= chosen;
                 continue;
             }
-            // OrientJob::get_orient_mesh()
+            // OrientJob::get_orient_mesh(): the object's own support threshold, or the process preset's.
             Slic3r::orientation::OrientMesh mesh;
             mesh.name = object->name;
             mesh.mesh = object->mesh();
-            mesh.overhang_angle = config.opt_int("support_threshold_angle");
+            mesh.overhang_angle = object->config.has("support_threshold_angle") ? object->config.opt_int("support_threshold_angle")
+                                                                                : config.opt_int("support_threshold_angle");
             mesh.setter = [instance](const Slic3r::orientation::OrientMesh& oriented) {
                 instance->rotate(oriented.rotation_matrix);
                 instance->get_object()->invalidate_bounding_box();
@@ -3990,6 +3991,37 @@ VolumeDescription describe_volume(
     }
 }
 
+namespace {
+
+// Selection::SyncRotationType of the manipulation, or skip for one that does
+// not synchronize the copies at all (move_to_center(), ensure_on_bed()).
+enum class SyncRotation { skip, none, general, reset };
+
+Slic3r::Transform3d matrix_of(const std::vector<double>& placement)
+{
+    Slic3r::Transform3d matrix = Slic3r::Transform3d::Identity();
+    std::copy(placement.begin(), placement.end(), matrix.data());
+    return matrix;
+}
+
+// Selection::rotate(): a rotation that is not one about the world's Z axis
+// (it changes the height of the copy's axes) synchronizes the other copies
+// fully; one about Z leaves them their own.
+SyncRotation rotation_sync(const Slic3r::Transform3d& previous, const Slic3r::Transform3d& current)
+{
+    const Slic3r::Matrix3d old_rotation = Slic3r::Geometry::Transformation(previous).get_rotation_matrix().linear();
+    const Slic3r::Matrix3d new_rotation = Slic3r::Geometry::Transformation(current).get_rotation_matrix().linear();
+    for (int axis = 0; axis < 3; ++axis) {
+        const Slic3r::Vec3d unit = Slic3r::Vec3d::Unit(axis);
+        if (std::abs((old_rotation * unit).z() - (new_rotation * unit).z()) > EPSILON) {
+            return SyncRotation::general;
+        }
+    }
+    return SyncRotation::none;
+}
+
+}  // namespace
+
 ModelInspection place_model(
     const PlateObject& plate_object,
     const ProfileSelection& profiles,
@@ -4000,35 +4032,64 @@ ModelInspection place_model(
     const std::array<double, 3>& face_normal
 )
 {
-    ModelInspection result;
+    // The copy alone: the object's copies are not synchronized.
+    PlateObject alone = plate_object;
+    alone.instances.clear();
+    InstancePlacement placed = place_instance(alone, 0, profiles, previous_placement, placement, auto_drop, manipulation, face_normal);
+    if (placed.status != SceneStatus::success) {
+        placed.inspection.status = placed.status;
+        placed.inspection.message = placed.message;
+    }
+    return placed.inspection;
+}
+
+InstancePlacement place_instance(
+    const PlateObject& plate_object,
+    const std::size_t instance_index,
+    const ProfileSelection& profiles,
+    const std::vector<double>& previous_placement,
+    const std::vector<double>& placement,
+    bool auto_drop,
+    Manipulation manipulation,
+    const std::array<double, 3>& face_normal
+)
+{
+    InstancePlacement placed;
+    ModelInspection& result = placed.inspection;
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
     if (engine().bundle == nullptr) {
-        result.status = SceneStatus::engine_not_ready;
-        result.message = "OrcaSlicer profiles are not loaded";
-        return result;
+        placed.status = SceneStatus::engine_not_ready;
+        placed.message = "OrcaSlicer profiles are not loaded";
+        return placed;
     }
     if (placement.size() != 16 || previous_placement.size() != 16) {
-        result.message = "The placement is not a 4 x 4 matrix";
-        return result;
+        placed.message = "The placement is not a 4 x 4 matrix";
+        return placed;
     }
     try {
         Slic3r::DynamicPrintConfig config;
-        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, placed.message);
             status != SliceStatus::success) {
-            result.status = scene_status(status);
-            return result;
+            placed.status = scene_status(status);
+            return placed;
         }
 
         Slic3r::Model model;
-        Slic3r::ModelObject* loaded = load_placed(plate_object, placement, config, model, result.message);
+        Slic3r::ModelObject* loaded = load_placed(plate_object, placement, config, model, placed.message);
         if (loaded == nullptr) {
-            return result;
+            return placed;
         }
         Slic3r::ModelObject& object = *loaded;
         object.instances.front()->auto_drop = auto_drop;
         const double min_z_before = instance_min_z(object, previous_placement);
+        // The copy as the selection left it before the canvas committed it,
+        // which the other copies follow, and how they follow it.
+        Slic3r::Transform3d current = matrix_of(placement);
+        SyncRotation sync = SyncRotation::skip;
         switch (manipulation) {
         case Manipulation::move: {
+            // Selection::translate()
+            sync = SyncRotation::none;
             ensure_not_below_bed(object, 0);
             const double shift_z = object.get_instance_min_z(0);
             if (auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
@@ -4037,7 +4098,12 @@ ModelInspection place_model(
             break;
         }
         case Manipulation::rotate:
+            sync = rotation_sync(matrix_of(previous_placement), current);
+            rest_on_plate(object, min_z_before);
+            break;
         case Manipulation::scale:
+            // Selection::scale_and_translate(): even without a rotation the copies take the scale.
+            sync = SyncRotation::general;
             rest_on_plate(object, min_z_before);
             break;
         case Manipulation::reset_rotation: {
@@ -4045,6 +4111,9 @@ ModelInspection place_model(
             reset.reset_rotation();
             object.instances.front()->set_transformation(reset);
             object.invalidate_bounding_box();
+            // GizmoObjectManipulation::reset_rotation_value(): SyncRotationType::RESET.
+            current = reset.get_matrix();
+            sync = SyncRotation::reset;
             rest_on_plate(object, min_z_before);
             break;
         }
@@ -4066,6 +4135,8 @@ ModelInspection place_model(
             Slic3r::ModelInstance& instance = *object.instances.front();
             instance.set_transformation(Slic3r::Geometry::Transformation(transform * instance.get_matrix()));
             object.invalidate_bounding_box();
+            current = instance.get_matrix();
+            sync = SyncRotation::general;
             // do_mirror() snaps the copy to the plate by the rule of do_rotate().
             rest_on_plate(object, min_z_before);
             break;
@@ -4099,22 +4170,72 @@ ModelInspection place_model(
             object.instances.front()->set_transformation(Slic3r::Geometry::Transformation(
                 old_transformation.get_offset_matrix() * rotation * old_transformation.get_matrix_no_offset()));
             object.invalidate_bounding_box();
+            current = object.instances.front()->get_matrix();
+            sync = SyncRotation::general;
             // do_rotate("Gizmo-Place on Face") treats the object as not sunk, so it rests on the plate.
             rest_on_plate(object, Slic3r::SINKING_Z_THRESHOLD);
             break;
         }
         default:
-            result.message = "Unknown manipulation";
-            return result;
+            placed.message = "Unknown manipulation";
+            return placed;
         }
 
-        model.update_print_volume_state(build_volume_of(config));
+        const Slic3r::BuildVolume build_volume = build_volume_of(config);
+        model.update_print_volume_state(build_volume);
         describe_placed(object, 0, result);
         result.status = SceneStatus::success;
-        return result;
+
+        // Selection::synchronize_unselected_instances(), then the commit of
+        // every copy by the manipulation's rule.
+        const Slic3r::Transform3d old_matrix = matrix_of(previous_placement);
+        const bool mirrored = (current.linear().determinant() < 0.0) != (old_matrix.linear().determinant() < 0.0);
+        for (std::size_t index = 0; sync != SyncRotation::skip && index < plate_object.instances.size(); ++index) {
+            const ObjectPlacement& other = plate_object.instances[index];
+            if (index == instance_index || other.matrix.size() != 16) {
+                continue;
+            }
+            const Slic3r::Transform3d old_other = matrix_of(other.matrix);
+            Slic3r::Transform3d new_other = old_other;
+            if (sync == SyncRotation::reset) {
+                Slic3r::Geometry::Transformation no_rotation(new_other);
+                no_rotation.reset_rotation();
+                new_other = no_rotation.get_matrix();
+            } else if (sync != SyncRotation::none || mirrored) {
+                new_other.linear() = (old_other.linear() * old_matrix.linear().inverse()) * current.linear();
+            }
+            if (!other.auto_drop) {
+                new_other.translation().z() = current.translation().z();
+            }
+            if (new_other.isApprox(old_other)) {
+                continue;
+            }
+            Slic3r::ModelInstance& copy = *object.instances.front();
+            const double other_min_z_before =
+                manipulation == Manipulation::lay_on_face ? Slic3r::SINKING_Z_THRESHOLD : instance_min_z(object, other.matrix);
+            copy.set_transformation(Slic3r::Geometry::Transformation(new_other));
+            copy.auto_drop = other.auto_drop;
+            object.invalidate_bounding_box();
+            if (manipulation == Manipulation::move) {
+                // do_move(): a copy that drops by itself drops onto the plate.
+                const double shift_z = object.get_instance_min_z(0);
+                if (other.auto_drop && shift_z > Slic3r::SINKING_Z_THRESHOLD && shift_z != 0.0) {
+                    object.translate_instance(0, Slic3r::Vec3d(0.0, 0.0, -shift_z));
+                }
+            } else {
+                rest_on_plate(object, other_min_z_before);
+            }
+            model.update_print_volume_state(build_volume);
+            ModelInspection& synchronized = placed.synchronized.emplace_back();
+            describe_placed(object, 0, synchronized);
+            synchronized.status = SceneStatus::success;
+            placed.synchronized_indexes.push_back(static_cast<std::int32_t>(index));
+        }
+        placed.status = SceneStatus::success;
+        return placed;
     } catch (const std::exception& error) {
-        result.message = error.what();
-        return result;
+        placed.message = error.what();
+        return placed;
     }
 }
 

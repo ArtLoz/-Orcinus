@@ -1547,13 +1547,15 @@ class NativeSlicerEngine(context: Context) :
         placement: Transform3,
         autoDrop: Boolean,
         manipulation: Manipulation,
+        instance: Int,
     ): ModelInspectionOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
             return@withContext ModelInspectionOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
         }
-        NativeBindings.placeModel(
+        val placed = NativeBindings.placeInstance(
             plateObject = nativePlate(listOf(plateObject)),
+            instance = instance,
             printerProfile = profiles.printer.value,
             filamentProfile = profiles.filament.value,
             filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
@@ -1573,7 +1575,13 @@ class NativeSlicerEngine(context: Context) :
                 Manipulation.Drop -> 10L
             },
             faceNormal = (manipulation as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) },
-        ).toOutcome(plateObject.mesh)
+        )
+        when (val outcome = placed.inspection.toOutcome(plateObject.mesh)) {
+            is ModelInspectionOutcome.Failure -> outcome
+            is ModelInspectionOutcome.Success -> outcome.copy(
+                synchronized = placed.synchronizedIndexes.indices.associate { placed.synchronizedIndexes[it] to placed.synchronized[it].toInspection(plateObject.mesh) },
+            )
+        }
     }
 
     override suspend fun describeWipeTower(

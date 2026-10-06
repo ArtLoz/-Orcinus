@@ -787,7 +787,8 @@ abstract class SlicerService<E> : Service()
             autoDrop: Boolean,
             manipulation: String,
             faceNormal: DoubleArray?,
-        ): InspectionParcel = runBlocking {
+            instance: Int,
+        ): PlacementParcel = runBlocking {
             engine.place(
                 arrayOf(plateObject).toPlacedModels().first(),
                 profiles.toProfiles(),
@@ -795,8 +796,9 @@ abstract class SlicerService<E> : Service()
                 Transform3(placement.toList()),
                 autoDrop,
                 manipulationOf(manipulation, faceNormal),
+                instance,
             )
-        }.toParcel()
+        }.toPlacementParcel()
 
         override fun placeObjects(
             plate: Array<PlacedModelParcel>,

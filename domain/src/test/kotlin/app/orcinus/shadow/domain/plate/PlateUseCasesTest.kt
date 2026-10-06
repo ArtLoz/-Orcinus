@@ -4555,6 +4555,7 @@ class PlateUseCasesTest {
             placement: Transform3,
             autoDrop: Boolean,
             manipulation: Manipulation,
+            instance: Int,
         ): ModelInspectionOutcome {
             inspected += plateObject.model
             placements += placement

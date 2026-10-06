@@ -727,6 +727,22 @@ internal fun InspectionParcel.toInspectionOutcome(): ModelInspectionOutcome {
     return ModelInspectionOutcome.Success(toInspection())
 }
 
+/** A placed copy with the copies that followed it. */
+internal fun ModelInspectionOutcome.toPlacementParcel() = PlacementParcel().also {
+    it.inspection = toParcel()
+    val synchronized = (this as? ModelInspectionOutcome.Success)?.synchronized.orEmpty().toList()
+    it.synchronizedIndexes = synchronized.map { (index, _) -> index }.toIntArray()
+    it.synchronizedCopies = synchronized.map { (_, copy) -> ModelInspectionOutcome.Success(copy).toParcel() }.toTypedArray()
+}
+
+internal fun PlacementParcel.toPlacementOutcome(): ModelInspectionOutcome {
+    val placed = checkNotNull(inspection).toInspectionOutcome()
+    if (placed !is ModelInspectionOutcome.Success) return placed
+    val indexes = synchronizedIndexes ?: IntArray(0)
+    val copies = synchronizedCopies.orEmpty()
+    return placed.copy(synchronized = indexes.indices.associate { indexes[it] to copies[it].toInspection() })
+}
+
 private fun InspectionParcel.toInspection() = ModelInspection(
     facetCount = facetCount,
     openEdges = openEdges,

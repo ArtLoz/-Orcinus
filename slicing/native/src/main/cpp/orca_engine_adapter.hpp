@@ -745,6 +745,36 @@ ModelInspection place_model(
     const std::array<double, 3>& face_normal
 );
 
+// place_instance(): the manipulated copy as placed, and the other copies of
+// its object that followed it (Selection::synchronize_unselected_instances()),
+// each with its index among the object's copies.
+struct InstancePlacement {
+    SceneStatus status{SceneStatus::model_read_failed};
+    std::string message;
+    ModelInspection inspection;
+    std::vector<std::int32_t> synchronized_indexes;
+    std::vector<ModelInspection> synchronized;
+};
+
+// place_model() of the copy at index instance of object, whose other copies
+// stand where object.instances says. As the desktop canvas synchronizes the
+// copies of an object (Selection::synchronize_unselected_instances()), a
+// scale, a mirror, a tilt out of the plate's plane, laying on a face and a
+// reset of the rotation also change the other copies, which keep their own
+// rotation about Z; a copy that does not drop by itself also takes the
+// manipulated one's height. Each copy that followed is committed by the rule
+// of the manipulation (do_move() or do_rotate()).
+InstancePlacement place_instance(
+    const PlateObject& object,
+    std::size_t instance,
+    const ProfileSelection& profiles,
+    const std::vector<double>& previous_placement,
+    const std::vector<double>& placement,
+    bool auto_drop,
+    Manipulation manipulation,
+    const std::array<double, 3>& face_normal
+);
+
 // The copies of one object as placed, in the object's order.
 struct PlateObjectInspection {
     std::vector<ModelInspection> instances;

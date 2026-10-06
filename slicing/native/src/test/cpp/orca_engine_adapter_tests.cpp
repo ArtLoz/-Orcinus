@@ -35,6 +35,8 @@
 
 #include <miniz/miniz.h>
 
+#include <Eigen/Geometry>
+
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <STEPControl_Writer.hxx>
 #include <gp_Pnt.hxx>
@@ -8629,4 +8631,128 @@ TEST_CASE("A newer system bundle is cached, offered, installed and loaded as the
     REQUIRE(reloaded.status == orca::SceneStatus::success);
     CHECK(reloaded.selection.process == standard);
     CHECK(density() == "25");
+}
+
+namespace {
+
+// A column-major 4 x 4 placement: rotation by degrees about axis, then placed.
+std::vector<double> turned(const std::vector<double>& placed, const int axis, const double degrees)
+{
+    Eigen::Matrix4d matrix = Eigen::Map<const Eigen::Matrix4d>(placed.data());
+    Eigen::Matrix4d rotation = Eigen::Matrix4d::Identity();
+    rotation.block<3, 3>(0, 0) = Eigen::AngleAxisd(degrees * M_PI / 180.0, Eigen::Vector3d::Unit(axis)).toRotationMatrix();
+    const Eigen::Vector3d offset = matrix.block<3, 1>(0, 3);
+    matrix.block<3, 3>(0, 0) = rotation.block<3, 3>(0, 0) * matrix.block<3, 3>(0, 0);
+    matrix.block<3, 1>(0, 3) = offset;
+    return {matrix.data(), matrix.data() + 16};
+}
+
+std::vector<double> scaled(const std::vector<double>& placed, const double factor)
+{
+    std::vector<double> result = placed;
+    for (const int index : {0, 1, 2, 4, 5, 6, 8, 9, 10}) {
+        result[index] *= factor;
+    }
+    return result;
+}
+
+}  // namespace
+
+TEST_CASE("The other copies of an object follow the scale, tilt and reset of one, as the desktop canvas synchronizes them", "[Adapter][Scene][Copies]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("copies.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    const std::vector<double> first = matrix_of(cube);
+    // The second copy 40 mm to the right, turned a quarter about Z.
+    std::vector<double> second = turned(first, 2, 90.0);
+    second[12] += 40.0;
+    orca::PlateObject object;
+    object.instances.resize(2);
+    object.instances[0].matrix = first;
+    object.instances[1].matrix = second;
+
+    SECTION("a scale: the other copy takes it, keeps its turn and rests on the plate")
+    {
+        const orca::InstancePlacement placed =
+            orca::place_instance(object, 0, k2_plus_profiles(), first, scaled(first, 2.0), true, orca::Manipulation::scale, {});
+        INFO(placed.message);
+        REQUIRE(placed.status == orca::SceneStatus::success);
+        CHECK(placed.inspection.size_x == Catch::Approx(40.0));
+        REQUIRE(placed.synchronized_indexes == std::vector<std::int32_t>{1});
+        const orca::ModelInspection& other = placed.synchronized.front();
+        CHECK(other.size_x == Catch::Approx(40.0));
+        CHECK(other.size_z == Catch::Approx(40.0));
+        // Its X axis still points along Y: turned a quarter, twice as long.
+        CHECK(other.instance_matrix[0] == Catch::Approx(0.0).margin(1e-9));
+        CHECK(other.instance_matrix[1] == Catch::Approx(2.0));
+        CHECK(other.instance_matrix[12] == Catch::Approx(second[12]));
+        CHECK(other.box_center[2] == Catch::Approx(20.0));
+    }
+
+    SECTION("a turn about Z: the other copy keeps its own")
+    {
+        const orca::InstancePlacement placed =
+            orca::place_instance(object, 0, k2_plus_profiles(), first, turned(first, 2, 30.0), true, orca::Manipulation::rotate, {});
+        REQUIRE(placed.status == orca::SceneStatus::success);
+        CHECK(placed.synchronized.empty());
+    }
+
+    SECTION("a tilt about X: the other copy tilts too, keeping its turn about Z, and a reset takes both back")
+    {
+        const std::vector<double> tilted = turned(first, 0, 90.0);
+        const orca::InstancePlacement placed =
+            orca::place_instance(object, 0, k2_plus_profiles(), first, tilted, true, orca::Manipulation::rotate, {});
+        REQUIRE(placed.status == orca::SceneStatus::success);
+        REQUIRE(placed.synchronized_indexes == std::vector<std::int32_t>{1});
+        const orca::ModelInspection& other = placed.synchronized.front();
+        // Its own Z axis lies in the plate's plane now, its turn about Z stays.
+        CHECK(std::abs(other.instance_matrix[10]) < 1e-6);
+        CHECK(other.box_center[2] == Catch::Approx(10.0));
+        CHECK(other.instance_matrix[12] == Catch::Approx(second[12]));
+
+        // GizmoObjectManipulation's reset: every copy loses its whole rotation.
+        orca::PlateObject both_tilted = object;
+        both_tilted.instances[0].matrix = matrix_of(placed.inspection);
+        both_tilted.instances[1].matrix = matrix_of(other);
+        const orca::InstancePlacement reset = orca::place_instance(
+            both_tilted, 0, k2_plus_profiles(), matrix_of(placed.inspection), matrix_of(placed.inspection), true, orca::Manipulation::reset_rotation, {});
+        REQUIRE(reset.status == orca::SceneStatus::success);
+        CHECK(reset.inspection.instance_matrix[0] == Catch::Approx(1.0));
+        REQUIRE(reset.synchronized.size() == 1);
+        CHECK(reset.synchronized.front().instance_matrix[0] == Catch::Approx(1.0));
+        CHECK(reset.synchronized.front().instance_matrix[5] == Catch::Approx(1.0));
+    }
+
+    SECTION("a move: a copy that does not drop by itself takes the height, one that does stays")
+    {
+        std::vector<double> lifted = first;
+        lifted[14] += 30.0;
+        const orca::InstancePlacement dropping =
+            orca::place_instance(object, 0, k2_plus_profiles(), first, lifted, true, orca::Manipulation::move, {});
+        REQUIRE(dropping.status == orca::SceneStatus::success);
+        CHECK(dropping.inspection.instance_matrix[14] == Catch::Approx(first[14]));
+        CHECK(dropping.synchronized.empty());
+
+        orca::PlateObject floating = object;
+        floating.instances[1].auto_drop = false;
+        const orca::InstancePlacement placed =
+            orca::place_instance(floating, 0, k2_plus_profiles(), first, lifted, true, orca::Manipulation::move, {});
+        REQUIRE(placed.status == orca::SceneStatus::success);
+        REQUIRE(placed.synchronized.size() == 1);
+        CHECK(placed.synchronized.front().instance_matrix[14] == Catch::Approx(lifted[14]));
+        CHECK(placed.synchronized.front().instance_matrix[12] == Catch::Approx(second[12]));
+    }
+
+    SECTION("the object menu's mirror: the other copy is mirrored in its own frame")
+    {
+        const orca::InstancePlacement placed =
+            orca::place_instance(object, 0, k2_plus_profiles(), first, first, true, orca::Manipulation::mirror_x, {});
+        REQUIRE(placed.status == orca::SceneStatus::success);
+        REQUIRE(placed.synchronized.size() == 1);
+        // old * old_first^-1 * mirrored_first = turn(90) * mirror(X): a left-handed copy.
+        const std::vector<double> mirrored = matrix_of(placed.synchronized.front());
+        const Eigen::Matrix3d linear = Eigen::Map<const Eigen::Matrix4d>(mirrored.data()).block<3, 3>(0, 0);
+        CHECK(linear.determinant() == Catch::Approx(-1.0));
+    }
 }
