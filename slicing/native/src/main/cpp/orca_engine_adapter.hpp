@@ -42,6 +42,11 @@ struct EngineInitialization {
 // does at start-up. Later calls return the first result.
 EngineInitialization initialize(const EngineDirectories& directories);
 
+// GUI_App::on_init_inner()'s m_config_corrupted: OrcaSlicer.conf could not be
+// parsed at start-up and was made anew with the defaults. True once, as the
+// desktop app says so once.
+bool take_config_corrupted();
+
 struct ProfileSelection {
     std::string printer;
     // The first filament, which a plate with one filament prints with.
@@ -1396,6 +1401,18 @@ PresetState set_filament_color(std::int64_t index, const std::string& color);
 // ParamsDialog closing (Sidebar::finish_param_edit()): the filament tab edits
 // no slot any more.
 void finish_filament_edit();
+
+// Tab::validate_filament_temperature_pairs() of the edited filament preset,
+// which Orca runs before its save dialog and as the material settings close:
+// the preset's name and its "Temperature Safety Check" message in the engine's
+// language, or nothing when the preset has no unsaved changes, every pair of
+// first-layer and other-layer temperatures is within its limit, or the user
+// asked not to be warned about the preset again while the app runs.
+std::vector<std::string> filament_temperature_warning();
+
+// "Don't warn again for this preset" of the Temperature Safety Check, for the
+// app's run (s_filament_temp_pair_warning_suppressed_for_session).
+void suppress_filament_temperature_warning(const std::string& preset);
 
 // A printer model of the Setup Wizard's printer page.
 struct SetupPrinterModel {

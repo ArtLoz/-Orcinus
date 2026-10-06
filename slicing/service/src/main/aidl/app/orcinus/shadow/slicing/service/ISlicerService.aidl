@@ -460,6 +460,8 @@ interface ISlicerService {
     PresetsParcel setFilamentColor(int index, String color);
     /** finish_filament_edit(): the filament tab edits no slot any more. */
     void finishFilamentEdit();
+    /** take_config_corrupted(): OrcaSlicer.conf was made anew at start-up; true once. */
+    boolean takeConfigCorrupted();
     /**
      * The Setup Wizard's data comes in two calls, since every filament of every
      * printer model together would exceed the binder transaction limit.
@@ -601,6 +603,9 @@ interface ISlicerService {
     OrcaTextParcel[] settingTooltip(String kind, String id);
     PresetNameParcel checkPresetName(String kind, String name);
     PresetSettingsParcel savePreset(String kind, String name, boolean detach, boolean saveToProject);
+    /** filament_temperature_warning(): the preset and the message, or nothing. */
+    String[] filamentTemperatureWarning();
+    void suppressFilamentTemperatureWarning(String preset);
     PresetSettingsParcel deletePreset(String kind, in String[] answerIds, in boolean[] answers);
 
     /** PreferencesDialog: the app configuration's values of the keys. */

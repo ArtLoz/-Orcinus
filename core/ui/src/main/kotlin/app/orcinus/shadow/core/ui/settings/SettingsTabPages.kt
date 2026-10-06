@@ -22,6 +22,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.FilamentTemperatureWarning
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.ModelPath
@@ -57,6 +58,9 @@ class SettingsActions(
     /** EditGCodeDialog: the G-code of a setting of a tab with the placeholders, and what one of them is. */
     val gcodePlaceholders: suspend (PresetKind, String) -> GcodePlaceholdersOutcome,
     val gcodePlaceholder: suspend (String, Boolean) -> GcodePlaceholderInfo,
+    /** The Temperature Safety Check of the edited filament preset, null for none, and its "Don't warn again for this preset". */
+    val filamentTemperatureWarning: suspend () -> FilamentTemperatureWarning? = { null },
+    val suppressFilamentTemperatureWarning: (String) -> Unit = {},
 )
 
 /**
@@ -308,12 +312,31 @@ fun SettingsTabDialogs(ui: SettingsTabUi) {
 @Composable
 fun SettingsPresetButtons(kind: PresetKind, settings: PresetSettings, enabled: Boolean, actions: SettingsActions) {
     var saving by rememberSaveable { mutableStateOf(false) }
+    var temperatureWarning by remember { mutableStateOf<FilamentTemperatureWarning?>(null) }
+    val scope = rememberCoroutineScope()
     OrcaIconButton(
         icon = DesignR.drawable.orca_save,
         contentDescription = orcaText(OrcaText("Save current %s", listOf(kind.tabTitle), translateArgs = true)),
-        onClick = { saving = true },
+        onClick = {
+            if (kind == PresetKind.FILAMENT) {
+                // Tab::save_preset(): "Validate before opening any save-name UI for filament presets."
+                scope.launch {
+                    val warning = actions.filamentTemperatureWarning()
+                    if (warning == null) saving = true else temperatureWarning = warning
+                }
+            } else {
+                saving = true
+            }
+        },
         enabled = enabled,
     )
+    temperatureWarning?.let { warning ->
+        TemperatureSafetyDialog(warning) { proceed, dontWarn ->
+            temperatureWarning = null
+            if (dontWarn) actions.suppressFilamentTemperatureWarning(warning.preset)
+            if (proceed) saving = true
+        }
+    }
     if (settings.canDelete) {
         OrcaIconButton(
             icon = DesignR.drawable.orca_cross,

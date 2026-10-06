@@ -26,6 +26,7 @@ import app.orcinus.shadow.core.model.EmbossPlacement
 import app.orcinus.shadow.core.model.EmbossVolume
 import app.orcinus.shadow.core.model.EmbossVolumeOutcome
 import app.orcinus.shadow.core.model.ExportedMesh
+import app.orcinus.shadow.core.model.FilamentTemperatureWarning
 import app.orcinus.shadow.core.model.FontFace
 import app.orcinus.shadow.core.model.LayerEditing
 import app.orcinus.shadow.core.model.LayerEditingOutcome
@@ -2364,6 +2365,8 @@ class NativeSlicerEngine(context: Context) :
         whenReady({ }) { NativeBindings.finishFilamentEdit() }
     }
 
+    override suspend fun takeConfigCorrupted(): Boolean = whenReady({ false }) { NativeBindings.takeConfigCorrupted() }
+
     override suspend fun setFilamentColor(index: Int, color: String): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
         NativeBindings.setFilamentColor(index.toLong(), color).toOutcome()
     }
@@ -2669,6 +2672,14 @@ class NativeSlicerEngine(context: Context) :
     override suspend fun savePreset(kind: PresetKind, name: String, detach: Boolean, saveToProject: Boolean): PresetSettingsOutcome =
         whenReady(PresetSettingsOutcome::Failure) {
         NativeBindings.savePreset(kind.native, name, detach, saveToProject).toOutcome()
+    }
+
+    override suspend fun filamentTemperatureWarning(): FilamentTemperatureWarning? = whenReady({ null }) {
+        NativeBindings.filamentTemperatureWarning().takeIf { it.size == 2 }?.let { FilamentTemperatureWarning(it[0], it[1]) }
+    }
+
+    override suspend fun suppressFilamentTemperatureWarning(preset: String) {
+        whenReady({ }) { NativeBindings.suppressFilamentTemperatureWarning(preset) }
     }
 
     override suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean>): PresetSettingsOutcome =

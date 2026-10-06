@@ -1,5 +1,6 @@
 package app.orcinus.shadow.feature.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +18,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,6 +30,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.model.FilamentTemperatureWarning
 import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.SearchOption
@@ -66,6 +70,7 @@ import app.orcinus.shadow.core.ui.settings.SettingsActions
 import app.orcinus.shadow.core.ui.settings.SettingsModeSwitch
 import app.orcinus.shadow.core.ui.settings.SettingsPresetButtons
 import app.orcinus.shadow.core.ui.settings.SettingsTabDialogs
+import app.orcinus.shadow.core.ui.settings.TemperatureSafetyDialog
 import app.orcinus.shadow.core.ui.settings.rememberSettingsTab
 import app.orcinus.shadow.core.ui.settings.settingsTabItems
 import app.orcinus.shadow.core.ui.settings.tabTitle
@@ -78,6 +83,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /** What the settings page of one preset kind shows. */
 data class PresetSettingsUiState(
@@ -112,6 +118,12 @@ class PresetSettingsViewModel(
     }
 
     fun choose(choice: PresetChoice) = selectPreset(choice)
+
+    suspend fun filamentTemperatureWarning(): FilamentTemperatureWarning? = settingsTabs.filamentTemperatureWarning()
+
+    fun suppressFilamentTemperatureWarning(preset: String) {
+        viewModelScope.launch { settingsTabs.suppressFilamentTemperatureWarning(preset) }
+    }
 
     // ParamsDialog closing: Sidebar::finish_param_edit().
     override fun onCleared() {
@@ -207,6 +219,8 @@ fun PresetSettingsRoute(
             bedShapeFiles = viewModel.bedFiles,
             gcodePlaceholders = viewModel::gcodePlaceholders,
             gcodePlaceholder = viewModel::gcodePlaceholder,
+            filamentTemperatureWarning = viewModel::filamentTemperatureWarning,
+            suppressFilamentTemperatureWarning = viewModel::suppressFilamentTemperatureWarning,
         ),
         presetChange = PresetChangeActions(
             resolve = viewModel::resolvePresetChange,
@@ -232,6 +246,28 @@ internal fun PresetSettingsScreen(
 ) {
     var choosingPreset by rememberSaveable { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
+    // ParamsDialog closing: the Temperature Safety Check of a filament's
+    // changes, whose "Back" keeps the page open.
+    var leavingWarning by remember { mutableStateOf<FilamentTemperatureWarning?>(null) }
+    val scope = rememberCoroutineScope()
+    val leave: () -> Unit = {
+        if (state.kind == PresetKind.FILAMENT) {
+            scope.launch {
+                val warning = actions.filamentTemperatureWarning()
+                if (warning == null) onBack() else leavingWarning = warning
+            }
+        } else {
+            onBack()
+        }
+    }
+    BackHandler(enabled = state.kind == PresetKind.FILAMENT, onBack = leave)
+    leavingWarning?.let { warning ->
+        TemperatureSafetyDialog(warning) { proceed, dontWarn ->
+            leavingWarning = null
+            if (dontWarn) actions.suppressFilamentTemperatureWarning(warning.preset)
+            if (proceed) onBack()
+        }
+    }
     val presets = state.presets
     val enabled = state.enabled && presets != null
     val tab = rememberSettingsTab(state.tab, actions, enabled)
@@ -257,7 +293,7 @@ internal fun PresetSettingsScreen(
         OrcaPageTopBar(
             title = orcaString(state.kind.tabTitle),
             backDescription = stringResource(R.string.settings_back),
-            onBack = onBack,
+            onBack = leave,
         ) {
             // The search of the desktop app's sidebar, which finds a setting on
             // any of the tabs (Search::SearchDialog).

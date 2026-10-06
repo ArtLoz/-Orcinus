@@ -3,6 +3,7 @@ package app.orcinus.shadow.domain.plate
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.ComparedPresets
+import app.orcinus.shadow.core.model.FilamentTemperatureWarning
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
@@ -101,6 +102,16 @@ class PresetSettingsTabs(
     suspend fun save(kind: PresetKind, save: PresetSave) {
         run(kind, SettingsRequest.Save(save), emptyMap())
     }
+
+    /**
+     * Tab::validate_filament_temperature_pairs(): what the Temperature Safety
+     * Check says of the edited filament preset before it is saved or its page
+     * closes; null when it says nothing.
+     */
+    suspend fun filamentTemperatureWarning(): FilamentTemperatureWarning? = editor.filamentTemperatureWarning()
+
+    /** Its "Don't warn again for this preset". */
+    suspend fun suppressFilamentTemperatureWarning(preset: String) = editor.suppressFilamentTemperatureWarning(preset)
 
     /** The first notice of the tab was dismissed. */
     fun dismissNotice(kind: PresetKind) = repository.update { state -> state.withTab(kind) { copy(notices = notices.drop(1)) } }

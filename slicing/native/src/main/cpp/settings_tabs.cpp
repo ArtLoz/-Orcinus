@@ -21,10 +21,12 @@
 #include <stdexcept>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/format.hpp>
 
 #include "engine_context.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/ClipperUtils.hpp"
+#include "libslic3r/I18N.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -1858,6 +1860,97 @@ PresetNameValidation check_preset_name(const PresetKind kind, const std::string&
         result.status = SceneStatus::profile_not_found;
         result.message = error.what();
         return result;
+    }
+}
+
+std::vector<std::string> filament_temperature_warning()
+{
+    using Slic3r::I18N::translate;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return {};
+    }
+    follow_config(engine());
+    Slic3r::PresetCollection* m_presets = &engine().bundle->filaments;
+    // Warn only for newly edited state, not for unchanged presets.
+    if (!m_presets->current_is_dirty()) {
+        return {};
+    }
+    Slic3r::Preset& edited_preset = m_presets->get_edited_preset();
+    Slic3r::DynamicPrintConfig& config = edited_preset.config;
+    const std::string suppress_key = edited_preset.name;
+    // User opted out for this preset during current app session.
+    if (!suppress_key.empty() && engine().filament_temperature_warnings_suppressed.count(suppress_key) > 0) {
+        return {};
+    }
+
+    struct TempPairRule {
+        std::string label;
+        std::string first_layer_key;
+        std::string other_layer_key;
+        int max_delta;
+    };
+    std::vector<TempPairRule> temp_pair_rules;
+    temp_pair_rules.push_back({translate("Nozzle"), "nozzle_temperature_initial_layer", "nozzle_temperature", 30});
+
+    // Derive bed labels/keys from curr_bed_type metadata (BedType order excludes btDefault).
+    if (const Slic3r::ConfigOptionDef* bed_type_def = Slic3r::print_config_def.get("curr_bed_type"); bed_type_def != nullptr) {
+        for (int bt = static_cast<int>(Slic3r::btPC); bt < static_cast<int>(Slic3r::btCount); ++bt) {
+            const Slic3r::BedType bed_type = static_cast<Slic3r::BedType>(bt);
+            const size_t label_idx = static_cast<size_t>(bt - static_cast<int>(Slic3r::btPC));
+            const std::string first_key = Slic3r::get_bed_temp_1st_layer_key(bed_type);
+            const std::string other_key = Slic3r::get_bed_temp_key(bed_type);
+            if (first_key.empty() || other_key.empty()) {
+                continue;
+            }
+            temp_pair_rules.push_back({translate(bed_type_def->enum_labels[label_idx].c_str()), first_key, other_key, 15});
+        }
+    }
+
+    std::string invalid_pairs;
+    int invalid_count = 0;
+    for (const TempPairRule& rule : temp_pair_rules) {
+        if (!config.has(rule.first_layer_key) || !config.has(rule.other_layer_key)) {
+            continue;
+        }
+        const auto* first_opt = config.option<Slic3r::ConfigOptionInts>(rule.first_layer_key);
+        const auto* other_opt = config.option<Slic3r::ConfigOptionInts>(rule.other_layer_key);
+        if (first_opt == nullptr || other_opt == nullptr || first_opt->values.empty() || other_opt->values.empty()) {
+            continue;
+        }
+        const int first_temp = first_opt->get_at(0);
+        const int other_temp = other_opt->get_at(0);
+        // Keep existing semantics: 0 means unsupported/off for these temperatures.
+        if (first_temp <= 0 || other_temp <= 0) {
+            continue;
+        }
+        const int delta = std::abs(first_temp - other_temp);
+        if (delta <= rule.max_delta) {
+            continue;
+        }
+        const std::string deg_c = "°C";
+        const std::string bullet = "•";
+        invalid_pairs += (boost::format(translate(" - %s:\n    %s first layer %d %s, other layers %d %s\n    %s max delta %d %s, current delta %d %s\n")) %
+                          rule.label % bullet % first_temp % deg_c % other_temp % deg_c % bullet % rule.max_delta % deg_c % delta % deg_c)
+                             .str();
+        ++invalid_count;
+    }
+    if (invalid_count == 0) {
+        return {};
+    }
+    std::string msg_text = translate("Some first-layer and other-layer temperature pairs exceed safety limits.\n");
+    msg_text += translate("\nInvalid pairs:\n");
+    msg_text += invalid_pairs;
+    msg_text += translate("\nYou can go back to edit values, or continue if this is intentional.");
+    msg_text += translate("\n\nContinue anyway?");
+    return {suppress_key, msg_text};
+}
+
+void suppress_filament_temperature_warning(const std::string& preset)
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (!preset.empty()) {
+        engine().filament_temperature_warnings_suppressed.insert(preset);
     }
 }
 

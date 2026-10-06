@@ -1086,6 +1086,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_initialize(
     return result.ready ? nullptr : to_java(env, result.message);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_takeConfigCorrupted(JNIEnv* /* env */, jobject /* this */)
+{
+    return orcinus::orca::take_config_corrupted() ? JNI_TRUE : JNI_FALSE;
+}
+
 // The codes on the layers: one entry per code in every array.
 static std::vector<orcinus::orca::LayerGcode> to_layer_gcodes(
     JNIEnv* env,
@@ -2385,6 +2391,18 @@ extern "C" JNIEXPORT void JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_finishFilamentEdit(JNIEnv* /* env */, jobject /* this */)
 {
     orcinus::orca::finish_filament_edit();
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_filamentTemperatureWarning(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::filament_temperature_warning());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_suppressFilamentTemperatureWarning(JNIEnv* env, jobject /* this */, jstring preset)
+{
+    orcinus::orca::suppress_filament_temperature_warning(to_utf8(env, preset));
 }
 
 extern "C" JNIEXPORT jobject JNICALL

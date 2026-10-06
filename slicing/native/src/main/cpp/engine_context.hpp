@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <set>
 
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/BuildVolume.hpp"
@@ -49,6 +50,10 @@ struct EngineContext {
     int editing_filament = -1;
     // Plater::get_next_color_for_filament()'s curr_color_filamenet.
     std::size_t next_filament_color = 0;
+    // GUI_App's m_config_corrupted, until the app says so.
+    bool config_corrupted = false;
+    // Tab's s_filament_temp_pair_warning_suppressed_for_session.
+    std::set<std::string> filament_temperature_warnings_suppressed;
 };
 
 EngineContext& engine();

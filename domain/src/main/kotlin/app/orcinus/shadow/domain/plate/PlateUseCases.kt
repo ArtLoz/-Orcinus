@@ -213,7 +213,29 @@ class StartEngineUseCase(
         }
         if (!status.ready) return
         preferences.load()
+        // GUI_App::on_init_inner(): a configuration that could not be parsed was
+        // made anew, which the app says once.
+        if (presetManager.takeConfigCorrupted()) {
+            repository.update { it.copy(plateNotices = it.plateNotices + CONFIG_CORRUPTED) }
+        }
         platePresets.apply(before = null, outcome = presetManager.presets())
+    }
+
+    private companion object {
+        val CONFIG_CORRUPTED = SettingsDialog(
+            id = "config_corrupted",
+            icon = DialogIcon.ERROR,
+            title = emptyList(),
+            text = listOf(
+                OrcaText(
+                    "The OrcaSlicer configuration file may be corrupted and cannot be parsed.\nOrcaSlicer has attempted to recreate the " +
+                        "configuration file.\nPlease note, application settings will be lost, but printer profiles will not be affected.",
+                ),
+            ),
+            question = false,
+            yes = null,
+            no = null,
+        )
     }
 }
 

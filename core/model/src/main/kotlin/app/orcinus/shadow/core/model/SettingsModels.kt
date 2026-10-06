@@ -1503,6 +1503,13 @@ sealed interface SettingsRequest {
     data object Delete : SettingsRequest
 }
 
+/**
+ * Tab::validate_filament_temperature_pairs(): the edited filament [preset] has
+ * first-layer and other-layer temperatures further apart than Orca allows, as
+ * its "Temperature Safety Check" says in [text].
+ */
+data class FilamentTemperatureWarning(val preset: String, val text: String)
+
 /** A question a request asked: it runs again with [answers] and the answer to [dialog]. */
 data class PendingSettingsQuestion(
     val dialog: SettingsDialog,

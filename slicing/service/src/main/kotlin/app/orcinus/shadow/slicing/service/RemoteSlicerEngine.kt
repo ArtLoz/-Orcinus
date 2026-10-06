@@ -41,6 +41,7 @@ import app.orcinus.shadow.core.model.EngineStatus
 import app.orcinus.shadow.core.model.ExportedMesh
 import app.orcinus.shadow.core.model.FilamentPresetChoice
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
+import app.orcinus.shadow.core.model.FilamentTemperatureWarning
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
@@ -1277,6 +1278,8 @@ class RemoteSlicerEngine(
         remote({ }) { finishFilamentEdit() }
     }
 
+    override suspend fun takeConfigCorrupted(): Boolean = remote({ false }) { takeConfigCorrupted() }
+
     override suspend fun selectFilament(index: Int, name: ProfileId, action: PresetChangeAction): PresetsOutcome =
         remote(PresetsOutcome::Failure) { selectFilament(index, name.value, action.name).toPresetsOutcome() }
 
@@ -1418,6 +1421,13 @@ class RemoteSlicerEngine(
 
     override suspend fun savePreset(kind: PresetKind, name: String, detach: Boolean, saveToProject: Boolean): PresetSettingsOutcome =
         remote(PresetSettingsOutcome::Failure) { savePreset(kind.name, name, detach, saveToProject).toPresetSettingsOutcome() }
+
+    override suspend fun filamentTemperatureWarning(): FilamentTemperatureWarning? =
+        remote({ null }) { filamentTemperatureWarning().takeIf { it.size == 2 }?.let { FilamentTemperatureWarning(it[0], it[1]) } }
+
+    override suspend fun suppressFilamentTemperatureWarning(preset: String) {
+        remote({ }) { suppressFilamentTemperatureWarning(preset) }
+    }
 
     override suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean>): PresetSettingsOutcome =
         remote(PresetSettingsOutcome::Failure) {

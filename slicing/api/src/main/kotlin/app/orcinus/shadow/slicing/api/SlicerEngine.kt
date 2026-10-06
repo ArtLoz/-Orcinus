@@ -27,6 +27,7 @@ import app.orcinus.shadow.core.model.CutPlaneOutcome
 import app.orcinus.shadow.core.model.DirtyPresetsOutcome
 import app.orcinus.shadow.core.model.EngineStatus
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
+import app.orcinus.shadow.core.model.FilamentTemperatureWarning
 import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
@@ -907,6 +908,9 @@ interface PresetManager {
     /** ParamsDialog closing (Sidebar::finish_param_edit()): the filament tab edits no slot any more. */
     suspend fun finishFilamentEdit() {}
 
+    /** GUI_App's m_config_corrupted: OrcaSlicer.conf was made anew at start-up; true once. */
+    suspend fun takeConfigCorrupted(): Boolean = false
+
     /** Every printer model the Setup Wizard offers. */
     suspend fun setupPrinters(): SetupPrintersOutcome
 
@@ -1127,6 +1131,16 @@ interface PresetSettingsEditor {
      * its parent (SavePresetDialog's "Detach from parent").
      */
     suspend fun savePreset(kind: PresetKind, name: String, detach: Boolean = false, saveToProject: Boolean = false): PresetSettingsOutcome
+
+    /**
+     * Tab::validate_filament_temperature_pairs() of the edited filament preset,
+     * before its save dialog and as its page closes; null when there is
+     * nothing to warn of.
+     */
+    suspend fun filamentTemperatureWarning(): FilamentTemperatureWarning? = null
+
+    /** "Don't warn again for this preset", while the app runs. */
+    suspend fun suppressFilamentTemperatureWarning(preset: String) {}
 
     /** Deletes the selected user preset, which asks first, and selects another. */
     suspend fun deletePreset(kind: PresetKind, answers: Map<String, Boolean> = emptyMap()): PresetSettingsOutcome

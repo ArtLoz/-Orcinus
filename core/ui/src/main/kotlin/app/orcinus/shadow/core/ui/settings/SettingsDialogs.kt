@@ -47,6 +47,8 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeKind
 import app.orcinus.shadow.core.model.BedShapeOutcome
+import app.orcinus.shadow.core.model.DialogIcon
+import app.orcinus.shadow.core.model.FilamentTemperatureWarning
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PresetKind
@@ -79,6 +81,27 @@ fun SettingsNoticeDialog(dialog: SettingsDialog, onDismissChecked: (checked: Boo
         confirm = { OrcaButton(orcaString("OK"), onClick = { onDismissChecked(checked) }) },
         below = dialog.checkbox?.let { label -> { DialogCheckBox(label, checked) { checked = it } } },
     )
+}
+
+/**
+ * Tab::validate_filament_temperature_pairs()'s "Temperature Safety Check":
+ * Continue or Back ([onAnswer]'s proceed), with "Don't warn again for this
+ * preset" ([onAnswer]'s dontWarn).
+ */
+@Composable
+fun TemperatureSafetyDialog(warning: FilamentTemperatureWarning, onAnswer: (proceed: Boolean, dontWarn: Boolean) -> Unit) {
+    val dialog = SettingsDialog(
+        id = "filament_temperature_pairs",
+        icon = DialogIcon.WARNING,
+        title = listOf(OrcaText("Temperature Safety Check")),
+        // The engine wrote the message in the app's language.
+        text = listOf(OrcaText(warning.text)),
+        question = true,
+        yes = OrcaText("Continue"),
+        no = OrcaText("Back"),
+        checkbox = OrcaText("Don't warn again for this preset"),
+    )
+    SettingsQuestionDialog(dialog, onAnswerChecked = onAnswer)
 }
 
 /**

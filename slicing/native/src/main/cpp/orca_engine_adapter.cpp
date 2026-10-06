@@ -1662,9 +1662,12 @@ EngineInitialization initialize(const EngineDirectories& directories)
         // GUI_App::init_app_config(): the configuration of the data directory, when there is one.
         auto config = std::make_unique<Slic3r::AppConfig>();
         const bool config_existed = config->exists();
+        bool config_corrupted = false;
         if (config_existed) {
             if (const std::string error = config->load(); !error.empty()) {
                 BOOST_LOG_TRIVIAL(error) << "Unable to load the app configuration: " << error;
+                // Orca: if the config file is corrupted, we will show a error dialog and create a default config file.
+                config_corrupted = true;
             }
         }
         // GUI_App::init_app_config(): the log level of the Preferences.
@@ -1677,6 +1680,9 @@ EngineInitialization initialize(const EngineDirectories& directories)
         auto bundle = std::make_unique<Slic3r::PresetBundle>();
         // Same substitution rule as the desktop app's start-up.
         bundle->load_presets(*config, Slic3r::ForwardCompatibilitySubstitutionRule::EnableSystemSilent);
+        // GUI_App::on_init_inner(): the user's presets are copied once per
+        // OrcaSlicer version, into user_backup-v<version> of the data directory.
+        bundle->backup_user_folder();
         // The printers the user can send G-code to. This build of OrcaSlicer
         // never loads them (its own printers are found over the network), so
         // the app reads them itself from the data directory, where
@@ -1695,6 +1701,7 @@ EngineInitialization initialize(const EngineDirectories& directories)
             engine().bundle = std::move(bundle);
             engine().config = std::move(config);
             engine().config_existed = config_existed;
+            engine().config_corrupted = config_corrupted;
             engine().bundle_follows_config = true;
             result->ready = true;
         }
@@ -1706,6 +1713,14 @@ EngineInitialization initialize(const EngineDirectories& directories)
     return *initialization;
 }
 
+
+bool take_config_corrupted()
+{
+    const std::lock_guard<std::mutex> lock(engine().mutex);
+    const bool corrupted = engine().config_corrupted;
+    engine().config_corrupted = false;
+    return corrupted;
+}
 
 namespace {
 

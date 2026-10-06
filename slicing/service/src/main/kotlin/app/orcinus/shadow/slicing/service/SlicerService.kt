@@ -1111,6 +1111,8 @@ abstract class SlicerService<E> : Service()
 
         override fun finishFilamentEdit() = runBlocking { engine.finishFilamentEdit() }
 
+        override fun takeConfigCorrupted(): Boolean = runBlocking { engine.takeConfigCorrupted() }
+
         override fun selectFilament(index: Int, name: String, action: String): PresetsParcel =
             runBlocking { engine.selectFilament(index, ProfileId(name), PresetChangeAction.valueOf(action)) }.toParcel()
 
@@ -1302,6 +1304,12 @@ abstract class SlicerService<E> : Service()
 
         override fun checkPresetName(kind: String, name: String): PresetNameParcel =
             runBlocking { engine.checkPresetName(PresetKind.valueOf(kind), name) }.toParcel()
+
+        override fun filamentTemperatureWarning(): Array<String> = runBlocking {
+            engine.filamentTemperatureWarning()?.let { arrayOf(it.preset, it.text) } ?: emptyArray()
+        }
+
+        override fun suppressFilamentTemperatureWarning(preset: String) = runBlocking { engine.suppressFilamentTemperatureWarning(preset) }
 
         override fun savePreset(kind: String, name: String, detach: Boolean, saveToProject: Boolean): PresetSettingsParcel =
             runBlocking { engine.savePreset(PresetKind.valueOf(kind), name, detach, saveToProject) }.toParcel()

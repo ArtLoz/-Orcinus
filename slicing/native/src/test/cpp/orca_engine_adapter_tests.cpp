@@ -970,6 +970,37 @@ TEST_CASE("The fields read what Orca's controls read: a filament's type, an extr
     }
 }
 
+TEST_CASE("A filament whose first-layer and other-layer temperatures are too far apart is warned of", "[Adapter][Settings]")
+{
+    require_engine();
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
+    const auto filament = orca::PresetKind::filament;
+    // Tab::validate_filament_temperature_pairs(): an unchanged preset is not checked.
+    CHECK(orca::filament_temperature_warning().empty());
+
+    const orca::PresetSettings described = orca::describe_settings(filament, "Filament", {});
+    const auto value = [&described](const std::string& id) {
+        const auto state = std::find_if(described.settings.begin(), described.settings.end(), [&id](const orca::SettingState& candidate) { return candidate.id == id; });
+        REQUIRE(state != described.settings.end());
+        return std::atoi(state->value.c_str());
+    };
+    const int other_layers = value("textured_plate_temp");
+    REQUIRE(other_layers > 0);
+    // The bed's limit is 15 degrees.
+    REQUIRE(orca::change_setting(filament, "Filament", "textured_plate_temp_initial_layer", std::to_string(other_layers + 30), {}).dirty);
+    const std::vector<std::string> warning = orca::filament_temperature_warning();
+    REQUIRE(warning.size() == 2);
+    CHECK(warning[0] == "Generic PLA @K2 Plus-all");
+    CHECK(warning[1].find("Textured PEI Plate") != std::string::npos);
+    CHECK(warning[1].find("current delta 30") != std::string::npos);
+
+    // "Don't warn again for this preset", while the app runs.
+    orca::suppress_filament_temperature_warning(warning[0]);
+    CHECK(orca::filament_temperature_warning().empty());
+    CHECK_FALSE(orca::reset_settings(filament, "Filament", {}, {}).dirty);
+}
+
 TEST_CASE("The printer tab edits the machine preset and its extruder pages", "[Adapter][Settings]")
 {
     require_engine();

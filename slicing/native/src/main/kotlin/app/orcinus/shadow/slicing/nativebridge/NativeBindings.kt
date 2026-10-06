@@ -2214,6 +2214,9 @@ internal object NativeBindings {
     /** finish_filament_edit(): ParamsDialog closing, Sidebar::finish_param_edit(). */
     external fun finishFilamentEdit()
 
+    /** take_config_corrupted(): OrcaSlicer.conf was made anew at start-up; true once. */
+    external fun takeConfigCorrupted(): Boolean
+
     external fun describeSetupPrinters(): NativeSetupPrinters
 
     /** For the printer model ids [models]. */
@@ -2455,6 +2458,11 @@ internal object NativeBindings {
     external fun checkPresetName(kind: Long, name: String): NativePresetNameValidation
 
     external fun savePreset(kind: Long, name: String, detach: Boolean, saveToProject: Boolean): NativePresetSettings
+
+    /** filament_temperature_warning(): the preset and the message, or nothing. */
+    external fun filamentTemperatureWarning(): Array<String>
+
+    external fun suppressFilamentTemperatureWarning(preset: String)
 
     external fun deletePreset(kind: Long, answerIds: Array<String>, answers: BooleanArray): NativePresetSettings
 
