@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,8 +80,9 @@ internal fun ToolpathsControls(
     val windowSpace = if (windowed) windowsHeight + ControlsMargin else 0.dp
     val windowsBottom = bottomInset + MovePlayerHeight + ControlsMargin * 2
     var oneLayer by rememberSaveable { mutableStateOf(false) }
-    // The layer whose menu is open, the layer whose G-code is being edited, and the jump dialog.
+    // The layer whose menu is open (and whether by the lower handle), the layer whose G-code is being edited, and the jump dialog.
     var menuLayer by rememberSaveable { mutableStateOf<Int?>(null) }
+    var menuLower by rememberSaveable { mutableStateOf(false) }
     var customLayer by rememberSaveable { mutableStateOf<Int?>(null) }
     var jumping by rememberSaveable { mutableStateOf(false) }
     // IMSlider::switch_one_layer_mode() remembers the layer it showed.
@@ -97,11 +99,32 @@ internal fun ToolpathsControls(
         LayerMark(at, color)
     }
     val codeLabels = codes.mapNotNull { code -> layerOf(code)?.let { it to layerGcodeLabel(code.type) } }.toMap()
-    // IMSlider::do_go_to_layer(): the handle last moved goes to the layer.
+    // IMSlider::do_go_to_layer(): the handle the menu was opened by goes to the layer.
     fun jumpTo(target: Int) {
         val value = target.coerceIn(0, last)
-        if (oneLayer) layer.setLayerRange(value, value) else layer.setLayerRange(minOf(view.lowerLayer, value), value)
+        when {
+            oneLayer -> layer.setLayerRange(value, value)
+            menuLower -> layer.setLayerRange(value, maxOf(view.upperLayer, value))
+            else -> layer.setLayerRange(minOf(view.lowerLayer, value), value)
+        }
     }
+    // IMSlider::SetSelectionSpan(): a span of several layers leaves the one-layer mode.
+    LaunchedEffect(layer, view.lowerLayer, view.upperLayer) {
+        if (oneLayer && view.lowerLayer < view.upperLayer) oneLayer = false
+    }
+    // IMSlider::draw_colored_band(): with a filament change among the codes, the
+    // first filament's colour from the bottom, and each change's from its layer up.
+    val bands = if (codes.any { it.type == LayerGcodeType.TOOL_CHANGE }) {
+        val colors = layerGcodes?.filamentColors.orEmpty()
+        listOfNotNull(colors.firstOrNull()?.let { LayerMark(0, it) }) + codes.filter { it.type == LayerGcodeType.TOOL_CHANGE }.mapNotNull { code ->
+            val at = layerOf(code) ?: return@mapNotNull null
+            colors.getOrNull(code.extruder - 1)?.let { LayerMark(at, it) }
+        }
+    } else {
+        emptyList()
+    }
+    // IMSlider::draw_tick_on_mouse_position(): the time the print takes up to a layer.
+    val elapsed = view.layerTimes.runningFold(0f, Float::plus).drop(1)
 
     Box(modifier) {
         if (view.layerZs.isNotEmpty()) {
@@ -128,11 +151,14 @@ internal fun ToolpathsControls(
                     oneLayer = enabled
                 },
                 label = { index ->
-                    val text = resources.getString(R.string.layer_label, index + 1, String.format(Locale.ROOT, "%.2f", view.layerZs.getOrElse(index) { 0f }))
+                    val height = resources.getString(R.string.layer_label, index + 1, String.format(Locale.ROOT, "%.2f", view.layerZs.getOrElse(index) { 0f }))
+                    // The hover tooltip's time, which a phone writes beside the height.
+                    val text = elapsed.getOrNull(index)?.let { "$height · ${LegendFormat.shortTime(it)}" } ?: height
                     codeLabels[index]?.let { "$text · $it" } ?: text
                 },
                 marks = marks,
-                onLayerMenu = layerGcodes?.let { { layer -> menuLayer = layer } },
+                bands = bands,
+                onLayerMenu = layerGcodes?.let { { layer, lower -> menuLayer = layer; menuLower = lower } },
                 layerMenuDescription = stringResource(R.string.layer_codes),
                 contentDescription = stringResource(R.string.layer_slider),
                 stepUpDescription = stringResource(R.string.layer_up),

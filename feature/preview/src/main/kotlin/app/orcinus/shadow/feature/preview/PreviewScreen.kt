@@ -116,6 +116,7 @@ import app.orcinus.shadow.core.ui.shareDocument
 import app.orcinus.shadow.domain.plate.AllPlatesSliceState
 import app.orcinus.shadow.render.gcode.GcodeLines
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
+import app.orcinus.shadow.render.gcode.ToolpathsMemory
 import app.orcinus.shadow.render.gcode.ToolpathsMoveType
 import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateNavigator
@@ -225,6 +226,12 @@ internal class PrinterActions(
     }
 }
 
+/**
+ * What the preview keeps from one G-code to the next, as the desktop app's one
+ * GCodeViewer does while it runs.
+ */
+private val PreviewToolpathsMemory = ToolpathsMemory()
+
 /** GCodeViewer::load_shells()' alpha, and GLCanvas3D::set_shell_transparence()'s once the G-code is loaded. */
 private const val SHELL_ALPHA = 0.5f
 private const val SHELL_ALPHA_GCODE = 0.2f
@@ -319,15 +326,18 @@ internal fun PreviewScreen(
     val gcodeLines by produceState<GcodeLines?>(null, gcodePath) {
         value = if (inspection) null else gcodePath?.let { GcodeLines.open(it) }
     }
-    // The plate view owns the layer once it has it.
+    // The plate view owns the layer once it has it; it starts from what the G-code before left.
     val layer by produceState<ToolpathsLayer?>(null, toolpaths) {
-        value = if (inspection) null else toolpaths?.let { ToolpathsLayer.load(it) }
+        value = if (inspection) null else toolpaths?.let { ToolpathsLayer.load(it, PreviewToolpathsMemory) }?.also {
+            it.keepTimeMode(it.statistics.keepsTimeMode())
+        }
     }
     val shown = layer
     val view = shown?.view?.collectAsStateWithLifecycle()?.value
-    // The File menu's "Export toolpaths as OBJ" writes what the preview shows, while it shows toolpaths.
+    // The File menu's "Export toolpaths as OBJ" writes what the preview shows, while it shows
+    // an extrusion (MainFrame::can_export_toolpaths()).
     val toolpathsExport = LocalToolpathsExport.current
-    val exportable = shown?.takeIf { view != null }
+    val exportable = shown?.takeIf { view?.canExportToolpaths == true }
     DisposableEffect(exportable) {
         toolpathsExport.value = exportable?.let { layer -> { path: String -> withContext(Dispatchers.IO) { layer.exportToObj(path) } } }
         onDispose { toolpathsExport.value = null }
@@ -403,6 +413,8 @@ internal fun PreviewScreen(
                     onOptionVisibleChange = shown::setOptionVisible,
                     gcodeWindow = canvas.gcodeWindow,
                     onGcodeWindowChange = { onSetCanvas(AppConfigKeys.SHOW_GCODE_WINDOW, it.toString()) },
+                    layerGcodes = state.layerGcodes,
+                    onTimeModeChange = shown::setTimeMode,
                 )
             }
         },

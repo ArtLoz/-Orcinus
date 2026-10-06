@@ -274,6 +274,14 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_setViewType(JNIEnv*, jobjec
 }
 
 JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_render_gcode_NativeToolpaths_setTimeMode(JNIEnv*, jobject, jlong viewer, jint mode)
+{
+    if (mode >= 0 && mode < static_cast<jint>(libvgcode::ETimeMode::COUNT)) {
+        viewer_of(viewer).set_time_mode(static_cast<libvgcode::ETimeMode>(mode));
+    }
+}
+
+JNIEXPORT void JNICALL
 Java_app_orcinus_shadow_render_gcode_NativeToolpaths_setLayersViewRange(JNIEnv*, jobject, jlong viewer, jint min, jint max)
 {
     viewer_of(viewer).set_layers_view_range(static_cast<libvgcode::Interval::value_type>(min), static_cast<libvgcode::Interval::value_type>(max));
@@ -494,7 +502,18 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
             speed_range = {interval[0], interval[1]};
         }
     }
-    const jmethodID constructor = env->GetMethodID(type, "<init>", "(I[F[I[I[I[Z[F[I[I[ZFF[F[I[I[I[I[I[II[FZ[F[I[F[F[F[I)V");
+    // GCodeViewer::can_export_toolpaths(): an extrusion among the visible moves.
+    bool visible_extrusion = false;
+    if (!zs.empty()) {
+        const libvgcode::Interval& shown = source.get_view_visible_range();
+        for (std::size_t i = shown[0]; i <= shown[1] && i < source.get_vertices_count(); ++i) {
+            if (source.get_vertex_at(i).is_extrusion()) {
+                visible_extrusion = true;
+                break;
+            }
+        }
+    }
+    const jmethodID constructor = env->GetMethodID(type, "<init>", "(I[F[I[I[I[Z[F[I[I[ZFF[F[I[I[I[I[I[II[FZ[F[I[F[F[F[II[FZ)V");
     return env->NewObject(
         type,
         constructor,
@@ -525,7 +544,10 @@ Java_app_orcinus_shadow_render_gcode_NativeToolpaths_snapshot(JNIEnv* env, jobje
         float_array(env, speed_profile),
         float_array(env, speed_range),
         float_array(env, speed_levels),
-        int_array(env, speed_level_colors)
+        int_array(env, speed_level_colors),
+        static_cast<jint>(source.get_time_mode()),
+        float_array(env, source.get_layers_estimated_times()),
+        visible_extrusion ? JNI_TRUE : JNI_FALSE
     );
 }
 

@@ -33,6 +33,9 @@ internal object NativeToolpaths {
 
     external fun setLayersViewRange(viewer: Long, min: Int, max: Int)
 
+    /** libvgcode::ETimeMode. */
+    external fun setTimeMode(viewer: Long, mode: Int)
+
     /** Vertex ids of the first and last visible move. */
     external fun setViewVisibleRange(viewer: Long, first: Int, last: Int)
 
@@ -135,4 +138,9 @@ internal class NativeToolpathsSnapshot(
     @JvmField val speedRange: FloatArray,
     @JvmField val speedLevels: FloatArray,
     @JvmField val speedLevelColors: IntArray,
+    /** libvgcode::ETimeMode, and the time of every layer in it (get_layers_estimated_times()). */
+    @JvmField val timeMode: Int,
+    @JvmField val layerTimes: FloatArray,
+    /** GCodeViewer::can_export_toolpaths(): an extrusion among the visible moves. */
+    @JvmField val visibleExtrusion: Boolean,
 )

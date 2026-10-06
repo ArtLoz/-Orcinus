@@ -87,7 +87,10 @@ data class MoveStatistics(val count: Int, val time: Float, val distance: Float)
  */
 data class ToolpathsStatistics(
     val time: Float,
+    /** The stealth mode's time (silent_mode), 0 without one. */
+    val stealthTime: Float = 0f,
     val prepareTime: Float,
+    val stealthPrepareTime: Float = 0f,
     val filamentPerRole: Map<ToolpathsRole, FilamentUsage>,
     val modelFilament: FilamentUsage,
     val supportFilament: FilamentUsage,
@@ -168,7 +171,19 @@ data class ToolpathsView(
     val vertex: ToolpathsVertex? = null,
     /** The actual speed along the current move's G-code line, as last worked out; null before. */
     val speedProfile: ActualSpeedProfile? = null,
+    /** libvgcode::ETimeMode the times are in: normal, or stealth. */
+    val timeMode: ToolpathsTimeMode = ToolpathsTimeMode.Normal,
+    /** Seconds of every layer in [timeMode] (get_layers_estimated_times()). */
+    val layerTimes: List<Float> = emptyList(),
+    /** GCodeViewer::can_export_toolpaths(): an extrusion among the visible moves. */
+    val canExportToolpaths: Boolean = false,
 )
+
+/** libvgcode::ETimeMode, in its order. */
+enum class ToolpathsTimeMode {
+    Normal,
+    Stealth,
+}
 
 /**
  * GCodeViewer::SequentialView::ActualSpeedImguiWidget's data: the points of a

@@ -108,10 +108,16 @@ fun OrcaLayerRangeSlider(
     /** The codes on the layers, marked on the track. */
     marks: List<LayerMark> = emptyList(),
     /**
-     * Opens the menu of the layer the last moved handle is on, which the
-     * desktop slider opens with a right click on the handle; null shows no button.
+     * IMSlider::draw_colored_band(): the colour the print takes from each
+     * layer up, drawn in a band beside the track; none without one.
      */
-    onLayerMenu: ((layer: Int) -> Unit)? = null,
+    bands: List<LayerMark> = emptyList(),
+    /**
+     * Opens the menu of the layer the last moved handle is on, which the
+     * desktop slider opens with a right click on the handle, and tells
+     * whether that is the lower handle; null shows no button.
+     */
+    onLayerMenu: ((layer: Int, lowerHandle: Boolean) -> Unit)? = null,
     layerMenuDescription: String = "",
 ) {
     val colors = OrcaTheme.colors
@@ -310,6 +316,13 @@ fun OrcaLayerRangeSlider(
                         handle(lowerY, lowerLength.toPx(), if (stepped == RangeThumb.Lower) colors.accent else secondary)
                         handle(higherY, higherLength.toPx(), if (stepped == RangeThumb.Higher) colors.accent else secondary)
                     }
+                    // IMSlider::draw_colored_band(): from each band's layer up, its colour, the next band on top.
+                    val bandWidth = 3.dp.toPx()
+                    val bandX = x - thickness / 2 - bandWidth - 3.dp.toPx()
+                    for (band in bands.sortedBy { it.layer }) {
+                        val from = yAt(band.layer.coerceIn(0, last)) + if (band.layer <= 0) outer else 0f
+                        drawRoundRect(band.color, Offset(bandX, trackStart), Size(bandWidth, from - trackStart), CornerRadius(bandWidth / 2))
+                    }
                     // IMSlider::draw_ticks(): a line across the track at every code.
                     for (mark in marks) {
                         val y = yAt(mark.layer.coerceIn(0, last))
@@ -327,7 +340,7 @@ fun OrcaLayerRangeSlider(
             ) { onOneLayerChange(!oneLayer) }
             if (onLayerMenu != null) {
                 Box(Modifier.height(ControlGap))
-                ControlButton(OrcaGlyphs.Plus, layerMenuDescription, enabled = layerCount > 0) { onLayerMenu(steppedValue) }
+                ControlButton(OrcaGlyphs.Plus, layerMenuDescription, enabled = layerCount > 0) { onLayerMenu(steppedValue, stepped == RangeThumb.Lower) }
             }
         }
     }

@@ -30,20 +30,26 @@ class ToolpathsLayer private constructor(
     override val bounds: LayerBounds,
     /** The slice's figures for the legend. */
     val statistics: ToolpathsStatistics,
+    /** What the page keeps from the G-code before, and keeps for the next one. */
+    private val memory: ToolpathsMemory,
 ) : PlateLayer {
     private var viewer = 0L
     private var onChanged: (() -> Unit)? = null
 
-    // Requested, and what the current viewer has.
-    private var viewType = ToolpathsViewType.FeatureType
-    /** The user picked a view type, which the smart default no longer overrides. */
-    private var viewTypeChosen = false
+    // Requested, and what the current viewer has; the viewer's settings start as the G-code before left them.
+    private var viewType = memory.viewType ?: ToolpathsViewType.FeatureType
+    private var timeMode = memory.timeMode
     private var layerRange: Pair<Int, Int>? = null
     private var visibleMoves: Pair<Int, Int>? = null
-    private val roleVisibility = HashMap<ToolpathsRole, Boolean>()
-    private val optionVisibility = HashMap<ToolpathsOption, Boolean>()
+    private val roleVisibility = HashMap(memory.roleVisibility)
+    private val optionVisibility = HashMap(memory.optionVisibility)
+    /** GCodeViewer::reset_visible() waits for the feature types the viewer has. */
+    private var resetVisible = false
+    /** What GCodeViewer::load() and update_layers_slider() do once for this G-code. */
+    private var loaded = false
     private var dirty = true
     private var appliedViewType: ToolpathsViewType? = null
+    private var appliedTimeMode: ToolpathsTimeMode? = null
     private var appliedLayerRange: Pair<Int, Int>? = null
     private var appliedVisibleMoves: Pair<Int, Int>? = null
 
@@ -56,11 +62,24 @@ class ToolpathsLayer private constructor(
         synchronized(this) { onChanged = listener }
     }
 
-    /** GCodeViewer::set_view_type() from the legend's combo box. */
+    /**
+     * GCodeViewer::set_view_type() from the legend's combo box, and
+     * reset_visible(): the feature types show again for their own view.
+     */
     fun setViewType(type: ToolpathsViewType) = request {
         viewType = type
-        viewTypeChosen = true
+        if (type == ToolpathsViewType.FeatureType) resetVisible = true
     }
+
+    /** The legend's "Show stealth mode" and "Show normal mode" (Viewer::set_time_mode()). */
+    fun setTimeMode(mode: ToolpathsTimeMode) = request { timeMode = mode }
+
+    /**
+     * GCodeViewer::load_as_gcode(): the stealth mode the G-code before was
+     * shown in gives way to the normal one when this G-code tells no other
+     * time ([otherTimeShown] false).
+     */
+    fun keepTimeMode(otherTimeShown: Boolean) = request { if (!otherTimeShown) timeMode = ToolpathsTimeMode.Normal }
 
     /** GCodeViewer::set_layers_z_range(): the visible layers; every move of the top one shows. */
     fun setLayerRange(lower: Int, upper: Int) = request {
@@ -130,18 +149,36 @@ class ToolpathsLayer private constructor(
     }
 
     private fun applyRequests() {
-        // GCodeViewer::load(): OrcaSlicer shows a print of several filaments
-        // in their colours (ColorPrint) and a print of one by the feature type,
-        // unless the user picked a view type.
-        if (!viewTypeChosen) {
-            val used = NativeToolpaths.snapshot(viewer).usedExtruders.size
-            viewType = if (used > 1) ToolpathsViewType.ColorPrint else ToolpathsViewType.FeatureType
+        if (!loaded) {
+            loaded = true
+            val first = NativeToolpaths.snapshot(viewer)
+            // GCodeViewer::load(): a print of several filaments shows in their
+            // colours (ColorPrint) and a print of one by the feature type, once
+            // the count of filaments changes; within the same count the user's
+            // view type stays.
+            synchronized(memory) {
+                val count = if (first.usedExtruders.size > 1) 2 else 1
+                if (memory.lastExtruderCountDefaultApplied != count) {
+                    viewType = if (count == 2) ToolpathsViewType.ColorPrint else ToolpathsViewType.FeatureType
+                    memory.lastExtruderCountDefaultApplied = count
+                }
+                // update_layers_slider(): the span stays at its heights while the top height does.
+                if (layerRange == null) layerRange = spanAfterReload(memory.span, first.layersZs.toList())
+            }
         }
         if (appliedViewType != viewType) {
             NativeToolpaths.setViewType(viewer, viewType.ordinal)
             appliedViewType = viewType
         }
+        if (appliedTimeMode != timeMode) {
+            NativeToolpaths.setTimeMode(viewer, timeMode.ordinal)
+            appliedTimeMode = timeMode
+        }
         var snapshot = NativeToolpaths.snapshot(viewer)
+        if (resetVisible) {
+            resetVisible = false
+            snapshot.roles.forEach { role -> ToolpathsRole.entries.getOrNull(role)?.let { roleVisibility[it] = true } }
+        }
         var toggled = false
         snapshot.roles.forEachIndexed { index, role ->
             val wanted = ToolpathsRole.entries.getOrNull(role)?.let(roleVisibility::get) ?: return@forEachIndexed
@@ -171,12 +208,29 @@ class ToolpathsLayer private constructor(
             appliedVisibleMoves = moves
         }
         snapshot = NativeToolpaths.snapshot(viewer)
+        remember(snapshot)
         // GCodeViewer::render(): m_show_marker stays on from the first time the
         // visible moves end before the last, until the G-code is loaded again.
         markerShown = markerShown || !snapshot.atEnd
         // The widget keeps the data it was last given (set_actual_speed_data()).
         snapshot.speedProfile()?.let { speedProfile = it }
         mutableView.value = snapshot.toView(markerShown).copy(speedProfile = speedProfile)
+    }
+
+    /** What the next G-code starts from: the viewer's settings and the slider's span now. */
+    private fun remember(snapshot: NativeToolpathsSnapshot) = synchronized(memory) {
+        memory.viewType = viewType
+        memory.timeMode = timeMode
+        memory.roleVisibility.clear()
+        memory.roleVisibility.putAll(roleVisibility)
+        memory.optionVisibility.clear()
+        memory.optionVisibility.putAll(optionVisibility)
+        val zs = snapshot.layersZs
+        if (zs.isNotEmpty()) {
+            val lower = snapshot.layersRange.getOrElse(0) { 0 }.coerceIn(0, zs.lastIndex)
+            val upper = snapshot.layersRange.getOrElse(1) { zs.lastIndex }.coerceIn(0, zs.lastIndex)
+            memory.span = LayerSpan(zs[lower], zs[upper], lower == 0, upper == zs.lastIndex, zs.last())
+        }
     }
 
     @Synchronized
@@ -194,6 +248,7 @@ class ToolpathsLayer private constructor(
             viewer = 0L
         }
         appliedViewType = null
+        appliedTimeMode = null
         appliedLayerRange = null
         appliedVisibleMoves = null
         dirty = true
@@ -202,8 +257,11 @@ class ToolpathsLayer private constructor(
     companion object {
         private const val BOUNDS_SIZE = 6
 
-        /** Reads the toolpaths the engine wrote to [path]; null when the file cannot be read. */
-        suspend fun load(path: ScenePath): ToolpathsLayer? {
+        /**
+         * Reads the toolpaths the engine wrote to [path], which start from what
+         * [memory] kept of the G-code before; null when the file cannot be read.
+         */
+        suspend fun load(path: ScenePath, memory: ToolpathsMemory = ToolpathsMemory()): ToolpathsLayer? {
             // The read finishes even when the caller is cancelled, so the data is freed here, not lost.
             val layer = withContext(Dispatchers.IO + NonCancellable) {
                 val box = FloatArray(BOUNDS_SIZE)
@@ -219,6 +277,7 @@ class ToolpathsLayer private constructor(
                             max = Vector3(box[3].toDouble(), box[4].toDouble(), box[5].toDouble()),
                         ),
                         statistics = NativeToolpaths.statistics(data).toStatistics(),
+                        memory = memory,
                     )
                 }
             }
@@ -237,7 +296,9 @@ private fun NativeToolpathsStatistics.toStatistics(): ToolpathsStatistics {
     fun usage(offset: Int, values: DoubleArray) = FilamentUsage(values[offset], values[offset + 1])
     return ToolpathsStatistics(
         time = time.firstOrNull() ?: 0f,
+        stealthTime = time.getOrElse(1) { 0f },
         prepareTime = prepareTime.firstOrNull() ?: 0f,
+        stealthPrepareTime = prepareTime.getOrElse(1) { 0f },
         filamentPerRole = roles.withIndex()
             .mapNotNull { (index, role) -> ToolpathsRole.entries.getOrNull(role)?.let { it to usage(index * 2, roleFilament) } }
             .toMap(),
@@ -295,6 +356,9 @@ private fun NativeToolpathsSnapshot.toView(markerShown: Boolean): ToolpathsView 
         currentLine = currentLine,
         marker = markerPosition.takeIf { markerShown && it.size == 3 }?.let { Vector3(it[0].toDouble(), it[1].toDouble(), it[2].toDouble()) },
         vertex = takeIf { markerShown }?.vertex(),
+        timeMode = ToolpathsTimeMode.entries.getOrElse(timeMode) { ToolpathsTimeMode.Normal },
+        layerTimes = layerTimes.toList(),
+        canExportToolpaths = visibleExtrusion,
     )
 }
 

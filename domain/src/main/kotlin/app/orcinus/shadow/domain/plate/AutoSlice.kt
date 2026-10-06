@@ -36,8 +36,31 @@ class AutoSliceUseCase(
     private var afterCancel = false
     private var timer: Job? = null
 
-    /** Plater::priv::is_preview_shown(): whether the workspace shows Preview. */
-    fun setPreviewShown(shown: Boolean) = synchronized(lock) { previewShown = shown }
+    /**
+     * Plater::priv::is_preview_shown(): whether the workspace shows Preview.
+     * Showing it slices the current plate (set_current_panel()'s do_reslice()).
+     */
+    fun setPreviewShown(shown: Boolean) {
+        val shownNow = synchronized(lock) {
+            val was = previewShown
+            previewShown = shown
+            shown && !was
+        }
+        if (shownNow) doReslice()
+    }
+
+    /**
+     * do_reslice(): a plate with objects that fit its build volume, with a
+     * printable copy, is sliced unless a slice runs; Plater::reslice() then
+     * restarts nothing whose G-code still applies.
+     */
+    private fun doReslice() {
+        val state = repository.state.value
+        val fits = state.copies().none { it.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE }
+        if (state.objects.isEmpty() || !fits || !state.hasPrintableInstances() || state.running) return
+        if (state.result != null) return
+        slicePlate()
+    }
 
     /** schedule_auto_reslice_if_needed(): the settings changed. */
     fun onConfigChange() {

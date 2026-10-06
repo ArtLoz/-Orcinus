@@ -20,6 +20,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
+import app.orcinus.shadow.core.designsystem.component.OrcaButton
+import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
+import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaChoiceChips
 import app.orcinus.shadow.core.designsystem.component.OrcaColorScale
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
@@ -31,6 +34,9 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSummaryItem
 import app.orcinus.shadow.core.designsystem.component.OrcaSummaryRow
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ImperialUnits
+import app.orcinus.shadow.core.model.LayerGcode
+import app.orcinus.shadow.core.model.LayerGcodeType
+import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.render.gcode.ExtruderFilament
 import app.orcinus.shadow.render.gcode.FilamentUsage
 import app.orcinus.shadow.render.gcode.OptionLegend
@@ -38,6 +44,7 @@ import app.orcinus.shadow.render.gcode.ToolpathsMoveType
 import app.orcinus.shadow.render.gcode.ToolpathsOption
 import app.orcinus.shadow.render.gcode.ToolpathsRole
 import app.orcinus.shadow.render.gcode.ToolpathsStatistics
+import app.orcinus.shadow.render.gcode.ToolpathsTimeMode
 import app.orcinus.shadow.render.gcode.ToolpathsView
 import app.orcinus.shadow.render.gcode.ToolpathsViewType
 
@@ -80,9 +87,13 @@ internal fun ToolpathsSheet(
     /** show_gcode_window, which the legend's button toggles (GUI_App::toggle_show_gcode_window()). */
     gcodeWindow: Boolean = true,
     onGcodeWindowChange: (Boolean) -> Unit = {},
+    /** The plate's codes on the layers, which the "Custom G-code" section lists. */
+    layerGcodes: List<LayerGcode> = emptyList(),
+    onTimeModeChange: (ToolpathsTimeMode) -> Unit = {},
 ) {
     // render_legend() takes the estimated time of the time mode, or the viewer's own.
-    val totalTime = if (statistics.time > 0f) statistics.time else view.estimatedTime
+    val modeTime = statistics.timeIn(view.timeMode)
+    val totalTime = if (modeTime > 0f) modeTime else view.estimatedTime
     val navigationBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Column(
         Modifier
@@ -128,7 +139,8 @@ internal fun ToolpathsSheet(
             ToolpathsViewType.Tool -> Unit
             else -> ColorRange(view, onOptionVisibleChange)
         }
-        Estimation(view, statistics, imperial)
+        CustomGcodes(view, layerGcodes)
+        Estimation(view, statistics, imperial, onTimeModeChange)
         if (view.viewType == ToolpathsViewType.ColorPrint) {
             Options(view, onOptionVisibleChange)
         }
@@ -335,10 +347,58 @@ private fun OptionItem(option: OptionLegend, name: String, onOptionVisibleChange
     )
 }
 
+/**
+ * render_legend()'s "Custom G-code" section: every code of the plate, its
+ * kind, its layer (find_close_layer_idx(), from 1) and the time the print
+ * takes before that layer in the time mode shown.
+ */
 @Composable
-private fun Estimation(view: ToolpathsView, statistics: ToolpathsStatistics, imperial: Boolean) {
+private fun CustomGcodes(view: ToolpathsView, codes: List<LayerGcode>) {
+    if (codes.isEmpty()) return
+    OrcaLegendSection(orcaString("Custom G-code")) {
+        OrcaLegendValue(orcaString("Layer"), orcaString("Time"))
+        codes.forEach { code ->
+            val layer = view.layerZs.indexOfFirst { kotlin.math.abs(it - code.printZ) < LAYER_EPSILON }
+            val before = view.layerTimes.take(layer.coerceAtLeast(0)).sum()
+            val kind = when (code.type) {
+                LayerGcodeType.PAUSE_PRINT -> "Pause"
+                LayerGcodeType.TEMPLATE -> "Template"
+                LayerGcodeType.TOOL_CHANGE -> "Tool Change"
+                LayerGcodeType.CUSTOM -> "Custom"
+                else -> "Unknown"
+            }
+            OrcaLegendValue("${orcaString(kind)} · ${layer + 1}", LegendFormat.shortTime(before))
+        }
+    }
+}
+
+/** find_close_layer_idx()'s epsilon, for the heights the G-code writes. */
+private const val LAYER_EPSILON = 1e-4f
+
+/** The print's time in [mode] (PrintEstimatedStatistics::modes). */
+private fun ToolpathsStatistics.timeIn(mode: ToolpathsTimeMode) = if (mode == ToolpathsTimeMode.Stealth) stealthTime else time
+
+/**
+ * can_show_mode_button(): the G-code tells more than one time (the modes'
+ * times above 0 that short_time() writes apart).
+ */
+private fun ToolpathsStatistics.hasOtherTimeMode(): Boolean =
+    listOf(time, stealthTime).filter { it > 0f }.map(LegendFormat::shortTime).distinct().size > 1
+
+/** GCodeViewer::load_as_gcode(): whether the time mode shown may stay for this G-code. */
+internal fun ToolpathsStatistics.keepsTimeMode(): Boolean = hasOtherTimeMode()
+
+@Composable
+private fun Estimation(view: ToolpathsView, statistics: ToolpathsStatistics, imperial: Boolean, onTimeModeChange: (ToolpathsTimeMode) -> Unit) {
     val featureType = view.viewType == ToolpathsViewType.FeatureType
-    OrcaLegendSection(stringResource(if (featureType) R.string.total_estimation else R.string.time_estimation)) {
+    val stealth = view.timeMode == ToolpathsTimeMode.Stealth
+    val time = statistics.timeIn(view.timeMode)
+    val prepareTime = if (stealth) statistics.stealthPrepareTime else statistics.prepareTime
+    val modes = statistics.hasOtherTimeMode()
+    // The title names the normal mode while another one can be shown.
+    val title = stringResource(if (featureType) R.string.total_estimation else R.string.time_estimation) +
+        if (modes && !stealth) " [${orcaString("Normal mode")}]" else ""
+    OrcaLegendSection(title) {
         if (featureType) {
             fun length(millimeters: Double, grams: Double) =
                 "${LegendFormat.spacedMeters(millimeters / 1_000.0, imperial)} · ${LegendFormat.compactWeight(grams, imperial)}"
@@ -351,11 +411,21 @@ private fun Estimation(view: ToolpathsView, statistics: ToolpathsStatistics, imp
             )
             OrcaLegendValue(stringResource(R.string.cost), LegendFormat.cost(statistics.totalCost))
         }
-        if (statistics.prepareTime != 0f) {
-            OrcaLegendValue(stringResource(R.string.prepare_time), LegendFormat.shortTime(statistics.prepareTime))
+        if (prepareTime != 0f) {
+            OrcaLegendValue(stringResource(R.string.prepare_time), LegendFormat.shortTime(prepareTime))
         }
-        OrcaLegendValue(stringResource(R.string.model_printing_time), LegendFormat.shortTime(statistics.time - statistics.prepareTime))
-        OrcaLegendValue(stringResource(R.string.total_time), LegendFormat.shortTime(statistics.time), emphasized = true)
+        OrcaLegendValue(stringResource(R.string.model_printing_time), LegendFormat.shortTime(time - prepareTime))
+        OrcaLegendValue(stringResource(R.string.total_time), LegendFormat.shortTime(time), emphasized = true)
+        // show_mode_button()
+        if (modes) {
+            OrcaButton(
+                text = orcaString(if (stealth) "Show normal mode" else "Show stealth mode"),
+                onClick = { onTimeModeChange(if (stealth) ToolpathsTimeMode.Normal else ToolpathsTimeMode.Stealth) },
+                style = OrcaButtonStyle.Regular,
+                size = OrcaButtonSize.Compact,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
     }
 }
 
