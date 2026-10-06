@@ -703,7 +703,11 @@ PaintingState begin_painting(
             painted.index = index;
             painted.mesh = std::make_unique<Slic3r::TriangleMesh>(volume.mesh());
             painted.tree = std::make_unique<Slic3r::AABBMesh>(*painted.mesh);
-            painted.selector = std::make_unique<PatchSelector>(*painted.mesh);
+            // GLGizmoMmuSegmentation::init_model_triangle_selectors() splits the
+            // triangles down to 0.2 mm; the other painting gizmos keep
+            // TriangleSelector's own limit.
+            painted.selector = kind == PaintKind::color ? std::make_unique<PatchSelector>(*painted.mesh, 0.2f)
+                                                        : std::make_unique<PatchSelector>(*painted.mesh);
             painted.in_object = volume.get_matrix();
             if (loaded.instances.empty()) {
                 painted.world = volume.get_matrix();

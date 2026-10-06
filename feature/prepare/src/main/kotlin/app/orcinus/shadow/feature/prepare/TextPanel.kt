@@ -202,15 +202,19 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
                 tint = Color.Unspecified,
             )
         }
-        // draw_height() and draw_depth(): millimetres, or inches with "use_inches".
+        // draw_height() and draw_depth(): millimetres, or inches with "use_inches",
+        // as large as the text stands in the world (rev_input_mm() with
+        // m_scale_height and m_scale_depth); the limits hold for the style.
+        val heightScale = mode.described?.scaleHeight ?: 1.0
+        val depthScale = mode.described?.scaleDepth ?: 1.0
         TextRow(orcaString("Height")) {
-            LengthField(style.sizeInMm, imperial, enabled = editable) { value ->
-                actions.setStyle { it.copy(sizeInMm = value.coerceIn(SIZE_MIN, SIZE_MAX)) }
+            LengthField(style.sizeInMm * heightScale, imperial, enabled = editable) { value ->
+                actions.setStyle { it.copy(sizeInMm = (value / heightScale).coerceIn(SIZE_MIN, SIZE_MAX)) }
             }
         }
         TextRow(orcaString("Depth")) {
-            LengthField(style.depth, imperial, enabled = editable) { value ->
-                actions.setStyle { it.copy(depth = value.coerceIn(DEPTH_MIN, DEPTH_MAX)) }
+            LengthField(style.depth * depthScale, imperial, enabled = editable) { value ->
+                actions.setStyle { it.copy(depth = (value / depthScale).coerceIn(DEPTH_MIN, DEPTH_MAX)) }
             }
         }
         // "Advanced"
