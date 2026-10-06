@@ -332,6 +332,13 @@ data class PrepareUiState(
     val canManipulate: Boolean get() = selectedObject != null && canEditPlate
 
     /**
+     * GLGizmoMove3D, GLGizmoRotate3D and GLGizmoScale3D::on_is_activable():
+     * anything selected, a group of copies too; GLGizmoFlatten's is a single
+     * full instance.
+     */
+    fun canOpen(gizmo: PlateGizmo): Boolean = if (gizmo == PlateGizmo.LAY_ON_FACE) canManipulate else canEditPlate && (selectedObject != null || group != null)
+
+    /**
      * GLGizmoCut3D::on_is_activable(): a copy to cut, which is not a dowel a
      * cut made an object of (a part of a cut whose one volume is that connector).
      */
@@ -956,7 +963,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         selectedObjects = selectedIndexes,
         selectionMenu = takeIf { !view.assemblyView && it.selectsSeveralObjects() }
             ?.let { selectionMenuState(it, canEditPlate, clipboard, settingsClipboard, emptyList()) },
-        gizmo = gizmo.takeIf { selectedObject != null && canEditPlate },
+        // GLGizmosManager::refresh_on_off_state(): a gizmo the selection can't take closes.
+        gizmo = gizmo.takeIf { canEditPlate && (selectedObject != null || group != null && it != PlateGizmo.LAY_ON_FACE) },
         flatteningPlanes = if (gizmo == PlateGizmo.LAY_ON_FACE) view.flatteningPlanes else emptyList(),
         painting = view.painting?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
         cut = view.cut?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },

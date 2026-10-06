@@ -989,7 +989,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** The selected volume's sphere in the world, which the rotation gizmo turns it about; null until known. */
     var volumeSphere: BoundingSphere? = null
+    /** enable_ununiversal_scale(false) of a group: its scale gizmo keeps the corner grabbers alone. */
     var groupUniformScale = false
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
     var onGroupSphere: (BoundingSphere?) -> Unit = {}
     private var reportedGroupSphere: Pair<Vec3, Double>? = null
         set(value) {
@@ -1686,9 +1692,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     private fun volumeMode(): String? = selectedVolume?.takeIf { gizmo != PlateGizmo.LAY_ON_FACE }
 
-    /** What the gizmos stand around: the selected volume, or the selected copy. */
+    /**
+     * What the gizmos stand around: the selected volume, the selected copy, or
+     * the first copy of a group, whose gizmos take the box of them all.
+     */
     private fun selectedTarget(): SceneObject? =
-        volumeMode()?.let { key -> objects.firstOrNull { it.index == selectedIndex && it.key == key } } ?: objects.firstOrNull { it.index == selectedIndex }
+        volumeMode()?.let { key -> objects.firstOrNull { it.index == selectedIndex && it.key == key } }
+            ?: objects.firstOrNull { it.index == selectedIndex }
+            ?: groupIndexes()?.first()?.let { first -> objects.firstOrNull { it.index == first } }
 
     /** What [drag] moves: its volume, or the copy. */
     private fun targetOf(drag: Drag): SceneObject? =

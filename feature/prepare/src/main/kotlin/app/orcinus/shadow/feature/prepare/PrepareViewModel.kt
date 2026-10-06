@@ -1638,7 +1638,7 @@ class PrepareViewModel(
     /** A gizmo's toolbar icon opens the gizmo, or closes it when it is open. */
     fun toggleGizmo(type: PlateGizmo) {
         val state = state.value
-        if (!state.canManipulate) return
+        if (!state.canOpen(type)) return
         openSimplify.close()
         closeCut()
         closeEmbossTools()

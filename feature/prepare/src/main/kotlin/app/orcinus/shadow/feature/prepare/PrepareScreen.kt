@@ -1177,7 +1177,6 @@ internal fun PrepareScreen(
                             ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo)
                         state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(
                             position = position,
-                            group = state.group != null,
                             imperial = canvas.imperialUnits,
                             objectCoordinates = state.moveObjectCoordinates,
                             canObjectCoordinates = state.canMoveObjectCoordinates,
@@ -1749,7 +1748,7 @@ private fun CanvasToolbar(
         icon = icon,
         contentDescription = stringResource(name),
         onClick = { gizmo?.let(onToggleGizmo) },
-        enabled = gizmo != null && state.canManipulate,
+        enabled = gizmo != null && state.canOpen(gizmo),
         selected = gizmo != null && state.gizmo == gizmo,
     )
 
@@ -2486,8 +2485,6 @@ private const val GAP_AREA_MAX = 5f
 @Composable
 private fun MoveGizmoPanel(
     position: ObjectPosition,
-    /** A group of copies: "Translate" from where it stands, as GizmoObjectManipulation's "Group Operations". */
-    group: Boolean,
     imperial: Boolean,
     objectCoordinates: Boolean,
     canObjectCoordinates: Boolean,
@@ -2511,7 +2508,8 @@ private fun MoveGizmoPanel(
         )
         // The captions' column is as wide as both captions need, as the window measures them.
         val translate = orcaString("Translate(Relative)")
-        val positionCaption = if (group) orcaString("Translate") else stringResource(R.string.gizmo_position)
+        // A group's "Position" starts at zero and moves it by what is typed.
+        val positionCaption = stringResource(R.string.gizmo_position)
         val labelWidth = captionWidth(listOf(translate, positionCaption), PositionLabelWidth)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(labelWidth))
