@@ -80,10 +80,11 @@ LayerEditing begin_layer_editing(
     LayerEditingSession& current = session();
     current.open = false;
     try {
-        // LayersEditing::set_config(): the configuration of the presets.
+        // LayersEditing::set_config(): the configuration of the presets, as the
+        // background process applies it.
         Slic3r::DynamicPrintConfig config;
         std::string message;
-        if (detail::select_profiles(*detail::engine().bundle, profiles, config, message) != SliceStatus::success) {
+        if (detail::select_profiles(*detail::engine().bundle, profiles, config, message, false) != SliceStatus::success) {
             return failure(SceneStatus::profile_not_found, message);
         }
         Slic3r::Model model;

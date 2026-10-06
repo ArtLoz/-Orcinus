@@ -189,16 +189,19 @@ bool is_selected(const Slic3r::PresetBundle& bundle, const ProfileSelection& pro
 // the desktop app restores a selection at start-up, on a copy of the app
 // configuration: the printer model and filament are marked as installed, as the
 // Setup Wizard does, and the process and filament remembered for that printer
-// are selected by load_selections().
+// are selected by load_selections(). The configuration a print is applied with
+// keeps the extruder variants of every filament (apply_extruder false, as
+// Plater::priv::update_background_process()), which Print::apply() resolves.
 SliceStatus select_profiles(
     Slic3r::PresetBundle& bundle,
     const ProfileSelection& profiles,
     Slic3r::DynamicPrintConfig& config,
-    std::string& message
+    std::string& message,
+    const bool apply_extruder = true
 )
 {
     if (is_selected(bundle, profiles)) {
-        config = bundle.full_config();
+        config = bundle.full_config(apply_extruder);
         return SliceStatus::success;
     }
 
@@ -269,7 +272,7 @@ SliceStatus select_profiles(
         return SliceStatus::profile_not_found;
     }
 
-    config = bundle.full_config();
+    config = bundle.full_config(apply_extruder);
     return SliceStatus::success;
 }
 
@@ -1733,7 +1736,7 @@ SliceResult slice(
     try {
         Slic3r::DynamicPrintConfig config;
         std::string message;
-        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, message);
+        if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, message, false);
             status != SliceStatus::success) {
             return failure(status, message);
         }
@@ -1804,6 +1807,17 @@ SliceResult slice(
         // restriction" lets filaments of very different temperatures print together.
         print.set_check_multi_filaments_compatibility(engine().config->get("enable_high_low_temp_mixed_printing") == "false");
         print.apply(model, config);
+        // Plater::priv::on_action_slice_plate(): the extruder parameters and the
+        // speed table of the presets, which the automatic brim width reads
+        // (configBrimWidthByVolumeGroups()), before the plate is sliced.
+        {
+            const Slic3r::DynamicPrintConfig presets = engine().bundle->full_config();
+            Slic3r::Model::setExtruderParams(presets, int(engine().bundle->filament_presets.size()));
+            Slic3r::Model::setPrintSpeedTable(presets, print.config());
+        }
+        // BackgroundSlicingProcess::validate(): the checks of a Bambu printer
+        // differ, so the print knows it before it validates.
+        print.is_BBL_printer() = engine().bundle->is_bbl_vendor();
         Slic3r::StringObjectException warning;
         const Slic3r::StringObjectException error = print.validate(&warning);
         if (!error.string.empty()) {
@@ -1813,7 +1827,6 @@ SliceResult slice(
             return failure(SliceStatus::cancelled, {});
         }
 
-        print.is_BBL_printer() = engine().bundle->is_bbl_vendor();
         print.process();
 
         Slic3r::GCodeProcessorResult gcode_result;
@@ -1973,7 +1986,7 @@ PlateValidation validate_plate(
     try {
         Slic3r::DynamicPrintConfig config;
         std::string message;
-        if (select_profiles(*engine().bundle, profiles, config, message) != SliceStatus::success) {
+        if (select_profiles(*engine().bundle, profiles, config, message, false) != SliceStatus::success) {
             return result;
         }
         config.apply(detail::model_config(plate_settings), true);
@@ -6906,10 +6919,11 @@ SliceStatus select_profiles(
     Slic3r::PresetBundle& bundle,
     const ProfileSelection& profiles,
     Slic3r::DynamicPrintConfig& config,
-    std::string& message
+    std::string& message,
+    const bool apply_extruder
 )
 {
-    return orcinus::orca::select_profiles(bundle, profiles, config, message);
+    return orcinus::orca::select_profiles(bundle, profiles, config, message, apply_extruder);
 }
 
 bool load_plate(

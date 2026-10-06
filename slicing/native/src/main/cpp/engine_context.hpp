@@ -54,12 +54,14 @@ Slic3r::DynamicPrintConfig model_config(const ModelSettings& settings);
 
 // The configuration of the presets a request names, selected on a copy of the
 // app configuration when they are not the current selection (select_profiles of
-// the adapter).
+// the adapter); apply_extruder false keeps the extruder variants of every
+// filament for Print::apply(), as the background process takes them.
 SliceStatus select_profiles(
     Slic3r::PresetBundle& bundle,
     const ProfileSelection& profiles,
     Slic3r::DynamicPrintConfig& config,
-    std::string& message
+    std::string& message,
+    bool apply_extruder = true
 );
 
 // The objects of the plate loaded into model, with their parts, settings and

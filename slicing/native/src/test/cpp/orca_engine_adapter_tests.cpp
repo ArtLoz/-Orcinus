@@ -1351,6 +1351,36 @@ TEST_CASE("The G-code holds the thumbnails the app rendered, in the printer's si
     CHECK(read_file(bare).find("; THUMBNAIL_BLOCK_START") == std::string::npos);
 }
 
+TEST_CASE("A Bambu Lab printer slices the cube with two filaments, each at its own temperature", "[Adapter]")
+{
+    require_engine();
+    // The print knows it is a Bambu printer before it validates
+    // (BackgroundSlicingProcess::validate()), whose relative extrusion needs no
+    // G92 E0 in its layer change G-code; the filaments keep their own values
+    // (full_config(false) of Plater::priv::update_background_process()).
+    const orca::PresetState added = orca::apply_setup({"Creality K2 Plus", "Bambu Lab A1"}, {"Generic PLA @K2 Plus-all"});
+    INFO(added.message);
+    REQUIRE(added.status == orca::SceneStatus::success);
+
+    orca::ProfileSelection profiles;
+    profiles.printer = "Bambu Lab A1 0.4 nozzle";
+    profiles.process = "0.20mm Standard @BBL A1";
+    profiles.filament = "Bambu PLA Basic @BBL A1";
+    profiles.filaments = {"Bambu PLA Basic @BBL A1", "Bambu PETG Basic @BBL A1"};
+    const std::string output = output_path("bambu-cube.gcode");
+    const orca::SliceResult result = orca::slice("cube", plate_of({}), output, output_path("bambu-cube.toolpaths"), profiles, {}, nullptr);
+
+    INFO(result.message);
+    REQUIRE(result.status == orca::SliceStatus::success);
+    const std::string gcode = read_file(output);
+    CHECK(gcode.find("; printer_settings_id = Bambu Lab A1 0.4 nozzle") != std::string::npos);
+    CHECK(gcode.find("; nozzle_temperature = 220,245") != std::string::npos);
+
+    // Back to the printer the other tests work with.
+    REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+}
+
 TEST_CASE("An imported STL is sliced through the same pipeline", "[Adapter]")
 {
     require_engine();
