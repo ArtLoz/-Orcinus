@@ -2052,6 +2052,8 @@ class NativeSlicerEngine(context: Context) :
             is PresetChoice.NozzleDiameter -> NativeBindings.selectPreset(NativePresetChoice.NOZZLE_DIAMETER, choice.diameter, selection)
             is PresetChoice.Filament -> NativeBindings.selectPreset(NativePresetChoice.FILAMENT, choice.preset.value, selection)
             is PresetChoice.Process -> NativeBindings.selectPreset(NativePresetChoice.PROCESS, choice.preset.value, selection)
+            is PresetChoice.SlotFilament -> NativeBindings.selectPreset(NativePresetChoice.SLOT_FILAMENT, choice.preset.value, selection)
+            is PresetChoice.EditFilament -> NativeBindings.selectPreset(NativePresetChoice.EDIT_FILAMENT, choice.slot.toString(), selection)
         }.toOutcome()
     }
 
@@ -2357,6 +2359,10 @@ class NativeSlicerEngine(context: Context) :
         whenReady(PresetsOutcome::Failure) {
             NativeBindings.selectFilament(index.toLong(), name.value, action.native).toOutcome()
         }
+
+    override suspend fun finishFilamentEdit() {
+        whenReady({ }) { NativeBindings.finishFilamentEdit() }
+    }
 
     override suspend fun setFilamentColor(index: Int, color: String): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
         NativeBindings.setFilamentColor(index.toLong(), color).toOutcome()
@@ -2730,6 +2736,7 @@ class NativeSlicerEngine(context: Context) :
         bedType = bedType,
         bedTypeSelectable = bedTypeSelectable,
         plateBedTypeSelectable = plateBedTypeSelectable,
+        multiMaterialButtons = multiMaterialButtons,
     )
 
     private fun NativePresetItem.toItem() = PresetListItem(

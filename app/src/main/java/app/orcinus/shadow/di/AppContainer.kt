@@ -92,6 +92,7 @@ import app.orcinus.shadow.domain.plate.ExportPlateMeshesUseCase
 import app.orcinus.shadow.domain.plate.ExportToolpathsUseCase
 import app.orcinus.shadow.domain.plate.FillBedWithInstancesUseCase
 import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
+import app.orcinus.shadow.domain.plate.FlushVolumesWarning
 import app.orcinus.shadow.domain.plate.GcodeSender
 import app.orcinus.shadow.domain.plate.GetSetupFilamentsUseCase
 import app.orcinus.shadow.domain.plate.GetSetupPrintersUseCase
@@ -317,6 +318,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         OverhangUpdates(engine, plateRepository, applicationScope).start()
         // The colours painted on the objects, which the 3D view draws over them.
         PaintedColorUpdates(engine, sceneFiles, plateRepository, applicationScope).start()
+        // Sidebar::set_flushing_volume_warning(): the flushing button's mark.
+        FlushVolumesWarning(engine, plateRepository, applicationScope).start()
         // The plate is validated after every change, as the desktop app's background process does.
         PlateValidationUpdates(engine, plateRepository, appPreferences, engineLanguage, applicationScope).start()
         // Meshes go once neither the plate, its undo/redo stack nor the clipboard needs them.

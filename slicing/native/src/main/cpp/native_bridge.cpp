@@ -201,7 +201,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
         "<init>",
         "(JLjava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;"
         "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
-        "Ljava/lang/String;ZZ"
+        "Ljava/lang/String;ZZZ"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
         "[Lapp/orcinus/shadow/slicing/nativebridge/NativePresetItem;"
@@ -226,6 +226,7 @@ jobject to_java(JNIEnv* env, const orcinus::orca::PresetState& state)
         to_java(env, state.bed_type),
         state.bed_type_selectable ? JNI_TRUE : JNI_FALSE,
         state.plate_bed_type_selectable ? JNI_TRUE : JNI_FALSE,
+        state.multi_material_buttons ? JNI_TRUE : JNI_FALSE,
         to_java_objects(env, item_class, state.printers, item),
         to_java_objects(env, item_class, state.filaments, item),
         to_java_objects(env, item_class, state.processes, item),
@@ -2378,6 +2379,12 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_selectFilament(
         env,
         orcinus::orca::select_filament(index, to_utf8(env, name), static_cast<orcinus::orca::PresetChangeAction>(action))
     );
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_finishFilamentEdit(JNIEnv* /* env */, jobject /* this */)
+{
+    orcinus::orca::finish_filament_edit();
 }
 
 extern "C" JNIEXPORT jobject JNICALL

@@ -204,6 +204,7 @@ internal class NativePresetState(
     @JvmField val bedType: String,
     @JvmField val bedTypeSelectable: Boolean,
     @JvmField val plateBedTypeSelectable: Boolean,
+    @JvmField val multiMaterialButtons: Boolean,
     @JvmField val printers: Array<NativePresetItem>,
     @JvmField val filaments: Array<NativePresetItem>,
     @JvmField val processes: Array<NativePresetItem>,
@@ -1152,6 +1153,8 @@ internal object NativePresetChoice {
     const val NOZZLE_DIAMETER = 2L
     const val FILAMENT = 3L
     const val PROCESS = 4L
+    const val SLOT_FILAMENT = 5L
+    const val EDIT_FILAMENT = 6L
 }
 
 /** PresetChangeAction in orca_engine_adapter.hpp. */
@@ -2207,6 +2210,9 @@ internal object NativeBindings {
     external fun selectFilament(index: Long, name: String, action: Long): NativePresetState
 
     external fun setFilamentColor(index: Long, color: String): NativePresetState
+
+    /** finish_filament_edit(): ParamsDialog closing, Sidebar::finish_param_edit(). */
+    external fun finishFilamentEdit()
 
     external fun describeSetupPrinters(): NativeSetupPrinters
 

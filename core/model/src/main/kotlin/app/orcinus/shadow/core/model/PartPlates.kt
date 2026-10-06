@@ -31,12 +31,16 @@ data class PartPlate(
 /**
  * What the G-code of a plate is sliced from besides the plate itself: the
  * objects as the engine loads them (whatever plate judged their fit), the
- * presets and their values.
+ * presets and their values, the filaments' colours, which the G-code export
+ * writes (Print's steps_gcode), and the project's flushing volumes, which the
+ * wipe tower takes.
  */
 data class SliceBasis(
     val objects: List<PlacedModel>,
     val profiles: SlicingProfileSelection?,
     val presetValues: List<List<String>?>,
+    val filamentColors: List<String> = emptyList(),
+    val flushVolumes: List<String?> = emptyList(),
 )
 
 /** The current plate and the number of plates, as the engine was told them (PlateInspector.selectPlate). */

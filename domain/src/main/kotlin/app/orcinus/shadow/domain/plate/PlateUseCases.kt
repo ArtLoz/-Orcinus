@@ -253,12 +253,16 @@ class PlatePresets(
             is PresetsOutcome.Success -> outcome.presets
         }
         var bedTypeChanged = false
+        var colorsChanged = false
         repository.update { state ->
             val updated = state.copy(presets = presets, changingPresets = false)
             // Plater::priv::on_select_bed_type(): the G-code of the plates that
             // print on the project's plate type no longer applies to another one.
             bedTypeChanged = state.presets.let { it != null && it.bedType != presets.bedType }
-            updated.copy(result = state.result.takeIf { updated.profiles == before })
+            // Plater::on_config_change() of filament_colour: the G-code export
+            // writes the colours (Print's steps_gcode).
+            colorsChanged = state.presets.let { it != null && it.filamentColors != presets.filamentColors }
+            updated.copy(result = state.result.takeIf { updated.profiles == before && !colorsChanged })
                 .let { if (bedTypeChanged) it.withoutResultsOnProjectBedType() else it }
                 // Sidebar::reset_bed_type_combox_choices() for another printer:
                 // PartPlateList::check_all_plate_local_bed_type().
@@ -280,7 +284,7 @@ class PlatePresets(
             placePlateObjects(PlateManipulation.UpdatePrintVolume)
         }
         settingsTabs.refresh()
-        if (before != profiles || bedTypeChanged) onConfigChange()
+        if (before != profiles || bedTypeChanged || colorsChanged) onConfigChange()
     }
 }
 
@@ -534,14 +538,27 @@ class SelectPresetUseCase(
     }
 
     /**
+     * Sidebar::edit_filament(): the filament tab selects the preset of filament
+     * slot [slot] and edits that slot until its page closes.
+     */
+    fun editFilament(slot: Int) = invoke(PresetChoice.EditFilament(slot))
+
+    /** ParamsDialog closing (Sidebar::finish_param_edit()): the filament tab edits no slot any more. */
+    fun finishFilamentEdit() {
+        applicationScope.launch { presetManager.finishFilamentEdit() }
+    }
+
+    /**
      * on_select_preset(): another printer works every filament's volumes out
-     * again, another first filament its own.
+     * again, another filament its own.
      */
     private suspend fun updateFlushVolumes(before: SlicingProfileSelection) {
         val after = repository.state.value.profiles ?: return
+        val filaments = after.allFilaments
+        val changed = filaments.indices.firstOrNull { filaments[it] != before.allFilaments.getOrNull(it) }
         when {
             after.printer != before.printer -> flushVolumes.update(FlushVolumesChange.PRINTER_CHANGED, -1)
-            after.filament != before.filament -> flushVolumes.update(FlushVolumesChange.FILAMENT_CHANGED, 0)
+            changed != null -> flushVolumes.update(FlushVolumesChange.FILAMENT_CHANGED, changed)
         }
     }
 }

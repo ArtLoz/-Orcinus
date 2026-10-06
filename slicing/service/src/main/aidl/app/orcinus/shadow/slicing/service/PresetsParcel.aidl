@@ -27,6 +27,8 @@ parcelable PresetsParcel {
     @nullable String bedType;
     boolean bedTypeSelectable;
     boolean plateBedTypeSelectable;
+    /** Presets.multiMaterialButtons */
+    boolean multiMaterialButtons;
     /** Nothing was selected: the preset of changedKind has these unsaved changes. */
     boolean asksUnsavedChanges;
     @nullable String changedKind;

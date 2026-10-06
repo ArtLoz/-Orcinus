@@ -334,7 +334,8 @@ internal fun PlateState.withPlates(plates: List<PartPlate>, index: Int): PlateSt
 }
 
 /** What G-code sliced now would be sliced from besides the plate itself. */
-internal fun PlateState.sliceBasis() = SliceBasis(objects.map { it.placed() }, profiles, presetValues())
+internal fun PlateState.sliceBasis() =
+    SliceBasis(objects.map { it.placed() }, profiles, presetValues(), presets?.filamentColors.orEmpty(), plateSettings.flushVolumes())
 
 /** The values of the edited presets, which the desktop app reloads the scene after every change of. */
 internal fun PlateState.presetValues(): List<List<String>?> =

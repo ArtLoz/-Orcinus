@@ -44,6 +44,11 @@ struct EngineContext {
     // another printer makes it take that printer's (update_all_preset_comboboxes),
     // a loaded project brings its own.
     std::string bed_type_printer;
+    // Sidebar's editing_filament: the slot the filament tab edits, which takes
+    // the presets the tab selects; -1 for none.
+    int editing_filament = -1;
+    // Plater::get_next_color_for_filament()'s curr_color_filamenet.
+    std::size_t next_filament_color = 0;
 };
 
 EngineContext& engine();

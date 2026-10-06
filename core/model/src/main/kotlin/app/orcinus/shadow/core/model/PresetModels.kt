@@ -62,6 +62,13 @@ data class Presets(
     val bedTypeSelectable: Boolean = false,
     /** PlateSettingsDialog chooses a plate's own type: a Bambu Lab printer. */
     val plateBedTypeSelectable: Boolean = false,
+    /**
+     * Sidebar::should_show_SEMM_buttons(): one extruder printing several
+     * materials, or a Bambu Lab printer, whose sidebar adds filaments, and
+     * with several takes them away, merges them and edits their flushing
+     * volumes; another printer's filaments stay as many as its extruders.
+     */
+    val multiMaterialButtons: Boolean = false,
 )
 
 /** A plate type: curr_bed_type's [value] and OrcaSlicer's [label] for it. */
@@ -123,9 +130,22 @@ sealed interface PresetChoice {
     /** Another nozzle diameter of the selected printer model. */
     data class NozzleDiameter(val diameter: String) : PresetChoice
 
+    /** A filament preset as the filament tab selects it: the slot it edits takes it, or the only one. */
     data class Filament(val preset: ProfileId) : PresetChoice
 
     data class Process(val preset: ProfileId) : PresetChoice
+
+    /**
+     * The preset of the only filament, chosen in the combo box of its slot: the
+     * slot takes the preset's colour, then the filament tab selects it.
+     */
+    data class SlotFilament(val preset: ProfileId) : PresetChoice
+
+    /**
+     * The edit button of filament slot [slot] (Sidebar::edit_filament()): the
+     * filament tab selects the slot's preset and edits that slot.
+     */
+    data class EditFilament(val slot: Int) : PresetChoice
 }
 
 /** A printer model the Setup Wizard offers. */

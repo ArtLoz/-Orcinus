@@ -1109,6 +1109,8 @@ abstract class SlicerService<E> : Service()
 
         override fun removeFilament(index: Int): PresetsParcel = runBlocking { engine.removeFilament(index) }.toParcel()
 
+        override fun finishFilamentEdit() = runBlocking { engine.finishFilamentEdit() }
+
         override fun selectFilament(index: Int, name: String, action: String): PresetsParcel =
             runBlocking { engine.selectFilament(index, ProfileId(name), PresetChangeAction.valueOf(action)) }.toParcel()
 

@@ -13,8 +13,10 @@ import app.orcinus.shadow.domain.placed
 import app.orcinus.shadow.slicing.api.PlateInspector
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 
 /**
@@ -199,6 +201,40 @@ private fun flushValue(value: Double): String = String.format(Locale.ROOT, "%.2f
 
 private const val FLUSH_MATRIX_KEY = "flush_volumes_matrix"
 private const val FLUSH_MULTIPLIER_KEY = "flush_multiplier"
+
+/** flush_volumes_matrix and flush_multiplier as the settings hold them. */
+internal fun ModelSettings.flushVolumes(): List<String?> = listOf(values[FLUSH_MATRIX_KEY], values[FLUSH_MULTIPLIER_KEY])
+
+/**
+ * Sidebar::set_flushing_volume_warning(is_flush_config_modified()), which the
+ * desktop app calls after its flushing dialog, after it works the volumes out
+ * again and after a project loads: the engine compares the project's volumes
+ * with the ones it would work out, whenever the volumes, the presets or the
+ * filaments' colours change.
+ */
+class FlushVolumesWarning(
+    private val inspector: PlateInspector,
+    private val repository: PlateRepository,
+    private val applicationScope: CoroutineScope,
+) {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun start() {
+        applicationScope.launch {
+            repository.state
+                .map { state -> Triple(state.profiles, state.plateSettings.flushVolumes(), state.presets?.filamentColors) }
+                .distinctUntilChanged()
+                .mapLatest { (profiles, _, _) ->
+                    val state = repository.state.value
+                    if (profiles == null) return@mapLatest false
+                    val outcome = inspector.describeFlushVolumes(state.objects.map(PlateObject::placed), profiles, state.plateSettings)
+                    (outcome as? FlushVolumesOutcome.Success)?.volumes?.modified == true
+                }
+                .collect { modified ->
+                    repository.update { if (it.flushVolumesModified == modified) it else it.copy(flushVolumesModified = modified) }
+                }
+        }
+    }
+}
 
 /**
  * The settings with the flushing volumes of [current]: they are the project's

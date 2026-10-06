@@ -5,6 +5,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.DialogProperties
+import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
 import app.orcinus.shadow.core.model.BedFileOutcome
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.CanvasPreferences
@@ -290,6 +291,8 @@ data class SidebarUiState(
     val engine: EngineState,
     /** Null until the engine reported the presets. */
     val presets: Presets? = null,
+    /** PlateState.flushVolumesModified: the flushing button's mark. */
+    val flushVolumesModified: Boolean = false,
     /** The first filament's colour, as the plate shows it. */
     val filamentColor: ColorRgba? = null,
     /** Presets can be chosen: the plate is not busy and no placement is settling. */
@@ -605,6 +608,12 @@ class SidebarViewModel(
     fun addFilament() = plateFilaments.add()
 
     fun removeFilament(index: Int) = plateFilaments.remove(index)
+
+    /** "Merge with" of a slot's menu (Sidebar::change_filament()): [index] leaves, and [into] takes its objects. */
+    fun mergeFilament(index: Int, into: Int) = plateFilaments.remove(index, into)
+
+    /** "Edit" of a slot (Sidebar::edit_filament()): the filament tab edits that slot. */
+    fun editFilament(index: Int) = selectPreset.editFilament(index)
 
     fun selectFilament(index: Int, name: ProfileId) = plateFilaments.select(index, name)
 
@@ -1046,6 +1055,7 @@ class SidebarViewModel(
 private fun PlateState.toSidebarUiState() = SidebarUiState(
     engine = engine,
     presets = presets,
+    flushVolumesModified = flushVolumesModified,
     filamentColor = plate?.filamentColor,
     canChoose = profiles != null && !busy && objects.none(PlateObject::placing),
     changing = changingPresets,
@@ -1543,12 +1553,67 @@ internal class FilamentActions(
     val remove: (Int) -> Unit,
     val select: (Int, ProfileId) -> Unit,
     val setColor: (Int, String) -> Unit,
+    /** "Merge with": the slot leaves, and the other one takes its objects. */
+    val merge: (index: Int, into: Int) -> Unit = { _, _ -> },
+    /** "Edit": the filament tab edits the slot. */
+    val edit: (Int) -> Unit = {},
     /** WipingDialog: the flushing volumes of the plate, read when its sheet opens. */
     val describeFlushVolumes: suspend () -> FlushVolumesOutcome = { FlushVolumesOutcome.Failure("") },
     val setFlushVolumes: (matrix: List<Double>, multipliers: List<Double>) -> Unit = { _, _ -> },
 ) {
     companion object {
         val NONE = FilamentActions(add = {}, remove = {}, select = { _, _ -> }, setColor = { _, _ -> })
+    }
+}
+
+/**
+ * The edit button of a slot with several materials and its menu
+ * (MenuFactory::create_filament_action_menu()): "Edit", "Merge with" the other
+ * slots, each by its preset's name and colour, and "Delete" last, apart.
+ */
+@Composable
+private fun FilamentSlotMenu(
+    slot: Int,
+    labels: List<String>,
+    colors: List<Color>,
+    enabled: Boolean,
+    onEdit: () -> Unit,
+    onMerge: (Int) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_menu_filament,
+            contentDescription = orcaString("Click to edit preset"),
+            onClick = { open = true },
+            enabled = enabled,
+        )
+        if (open) {
+            OrcaContextMenu(expanded = true, position = IntOffset.Zero, onDismissRequest = { open = false }) {
+                OrcaMenuItem(orcaString("Edit"), onClick = {
+                    open = false
+                    onEdit()
+                })
+                OrcaSubmenu(orcaString("Merge with"), enabled = labels.size > 1) {
+                    labels.forEachIndexed { other, label ->
+                        if (other == slot) return@forEachIndexed
+                        OrcaMenuItem(
+                            text = label.ifEmpty { orcaText(OrcaText("Filament %d", listOf((other + 1).toString()))) },
+                            onClick = {
+                                open = false
+                                onMerge(other)
+                            },
+                            leading = { OrcaFilamentSlot(number = other + 1, color = colors[other], modifier = Modifier.size(OrcaTheme.dimensions.iconSmall)) },
+                        )
+                    }
+                }
+                OrcaMenuItem(orcaString("Delete"), onClick = {
+                    open = false
+                    onDelete()
+                })
+            }
+        }
     }
 }
 
@@ -1935,6 +2000,8 @@ fun PlateSidebar(
             remove = viewModel::removeFilament,
             select = viewModel::selectFilament,
             setColor = viewModel::setFilamentColor,
+            merge = viewModel::mergeFilament,
+            edit = viewModel::editFilament,
             describeFlushVolumes = viewModel::describeFlushVolumes,
             setFlushVolumes = viewModel::setFlushVolumes,
         ),
@@ -2193,23 +2260,38 @@ internal fun PlateSidebarContent(
         item(key = "filament") {
         // Sidebar: one row per filament of the plate, with the buttons that add
         // one and take one away (Sidebar::add_custom_filament / delete_filament).
+        // Sidebar::show_SEMM_buttons(): one extruder printing several materials,
+        // or a Bambu Lab printer, adds filaments, and with several removes the
+        // last one, edits the flushing volumes and has a menu on each slot;
+        // another printer's slots each open their own preset.
+        val slotCount = presets?.selection?.allFilaments?.size ?: 0
+        val semm = presets?.multiMaterialButtons == true
+        val multiMaterial = semm && slotCount > 1
         OrcaSidebarTitle(stringResource(R.string.section_filament), DesignR.drawable.orca_filament) {
-            // Sidebar: the flushing volumes are edited from the filament
-            // section, and only matter with several filaments.
-            if ((presets?.selection?.allFilaments?.size ?: 0) > 1) {
+            if (multiMaterial) {
+                // set_flushing_volume_warning(): OrcaSlicer's orange marks volumes of the project's own.
                 OrcaIconButton(
                     icon = DesignR.drawable.orca_param_flush,
                     contentDescription = orcaString("Flushing volumes"),
                     onClick = { openFlushVolumes = true },
                     enabled = enabled,
+                    tint = if (state.flushVolumesModified) OrcaTheme.colors.secondary else OrcaTheme.colors.textSide,
+                )
+                OrcaIconButton(
+                    icon = DesignR.drawable.orca_delete_filament,
+                    contentDescription = orcaString("Remove last filament"),
+                    onClick = { filaments.remove(slotCount - 1) },
+                    enabled = enabled,
                 )
             }
-            OrcaIconButton(
-                icon = DesignR.drawable.orca_add,
-                contentDescription = stringResource(R.string.filament_add),
-                onClick = filaments.add,
-                enabled = enabled,
-            )
+            if (semm) {
+                OrcaIconButton(
+                    icon = DesignR.drawable.orca_add_filament,
+                    contentDescription = orcaString("Add one filament"),
+                    onClick = filaments.add,
+                    enabled = enabled,
+                )
+            }
         }
         OrcaSidebarSection {
             val slots = presets?.selection?.allFilaments.orEmpty()
@@ -2238,18 +2320,28 @@ internal fun PlateSidebarContent(
                         )
                         Spacer(Modifier.width(8.dp))
                     }
-                    if (index == 0) {
-                        OrcaIconButton(
-                            icon = DesignR.drawable.orca_edit,
-                            contentDescription = orcaString("Click to edit preset"),
-                            onClick = { onOpenSettings(PresetKind.FILAMENT) },
+                    // The slot's edit button: with several materials, the filament
+                    // action menu (MenuFactory::create_filament_action_menu());
+                    // otherwise the filament tab on the slot's preset.
+                    val edit = {
+                        filaments.edit(index)
+                        onOpenSettings(PresetKind.FILAMENT)
+                    }
+                    if (multiMaterial) {
+                        FilamentSlotMenu(
+                            slot = index,
+                            labels = slots.map { other -> presets?.filaments?.labelOf(other.value).orEmpty() },
+                            colors = slots.indices.map { slotColor(presets, state, it) },
                             enabled = enabled,
+                            onEdit = edit,
+                            onMerge = { into -> filaments.merge(index, into) },
+                            onDelete = { filaments.remove(index) },
                         )
                     } else {
                         OrcaIconButton(
-                            icon = DesignR.drawable.orca_delete,
-                            contentDescription = stringResource(R.string.filament_remove),
-                            onClick = { filaments.remove(index) },
+                            icon = DesignR.drawable.orca_edit,
+                            contentDescription = orcaString("Click to edit preset"),
+                            onClick = edit,
                             enabled = enabled,
                         )
                     }
@@ -2579,16 +2671,17 @@ internal fun PlateSidebarContent(
             PresetList.FILAMENTS -> PresetListSheet(
                 title = stringResource(R.string.section_filament),
                 // The list of a slot marks the preset of that slot.
-                items = presets.selection.allFilaments.getOrNull(editingSlot)?.takeIf { editingSlot > 0 }?.let { slot ->
+                items = presets.selection.allFilaments.getOrNull(editingSlot)?.let { slot ->
                     presets.filaments.map { it.copy(selected = it.name == slot.value) }
                 } ?: presets.filaments,
                 onDismiss = { openList = null },
                 onChoose = { item ->
                     openList = null
-                    // The first slot is the preset the filament tab edits; the
-                    // others are slots of the plate (PlaterPresetComboBox).
-                    if (editingSlot == 0) {
-                        onChoose(PresetChoice.Filament(ProfileId(item.name)))
+                    // Plater::priv::on_select_preset(): the only filament goes through
+                    // the filament tab, which asks about its changes; with several the
+                    // slot takes the preset alone.
+                    if (presets.selection.allFilaments.size <= 1) {
+                        onChoose(PresetChoice.SlotFilament(ProfileId(item.name)))
                     } else {
                         filaments.select(editingSlot, ProfileId(item.name))
                     }

@@ -1273,6 +1273,10 @@ class RemoteSlicerEngine(
     override suspend fun removeFilament(index: Int): PresetsOutcome =
         remote(PresetsOutcome::Failure) { removeFilament(index).toPresetsOutcome() }
 
+    override suspend fun finishFilamentEdit() {
+        remote({ }) { finishFilamentEdit() }
+    }
+
     override suspend fun selectFilament(index: Int, name: ProfileId, action: PresetChangeAction): PresetsOutcome =
         remote(PresetsOutcome::Failure) { selectFilament(index, name.value, action.name).toPresetsOutcome() }
 

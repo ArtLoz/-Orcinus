@@ -904,6 +904,9 @@ interface PresetManager {
     /** The colour the sidebar shows for the filament at [index]. */
     suspend fun setFilamentColor(index: Int, color: String): PresetsOutcome
 
+    /** ParamsDialog closing (Sidebar::finish_param_edit()): the filament tab edits no slot any more. */
+    suspend fun finishFilamentEdit() {}
+
     /** Every printer model the Setup Wizard offers. */
     suspend fun setupPrinters(): SetupPrintersOutcome
 

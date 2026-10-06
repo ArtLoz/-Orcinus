@@ -1031,6 +1031,7 @@ private fun PresetsParcel.fill(presets: Presets) {
     bedType = presets.bedType
     bedTypeSelectable = presets.bedTypeSelectable
     plateBedTypeSelectable = presets.plateBedTypeSelectable
+    multiMaterialButtons = presets.multiMaterialButtons
 }
 
 internal fun PresetChange.toParcel() = PresetChangeParcel().also {
@@ -1100,6 +1101,7 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         bedType = bedType.orEmpty(),
         bedTypeSelectable = bedTypeSelectable,
         plateBedTypeSelectable = plateBedTypeSelectable,
+        multiMaterialButtons = multiMaterialButtons,
     )
     if (!asksUnsavedChanges) {
         return PresetsOutcome.Success(presets)
@@ -1136,6 +1138,8 @@ internal fun PresetChoice.parcelKind(): String = when (this) {
     is PresetChoice.NozzleDiameter -> "NozzleDiameter"
     is PresetChoice.Filament -> "Filament"
     is PresetChoice.Process -> "Process"
+    is PresetChoice.SlotFilament -> "SlotFilament"
+    is PresetChoice.EditFilament -> "EditFilament"
 }
 
 internal fun PresetChoice.parcelValue(): String = when (this) {
@@ -1144,6 +1148,8 @@ internal fun PresetChoice.parcelValue(): String = when (this) {
     is PresetChoice.NozzleDiameter -> diameter
     is PresetChoice.Filament -> preset.value
     is PresetChoice.Process -> preset.value
+    is PresetChoice.SlotFilament -> preset.value
+    is PresetChoice.EditFilament -> slot.toString()
 }
 
 internal fun presetChoiceOf(kind: String, value: String): PresetChoice = when (kind) {
@@ -1152,6 +1158,8 @@ internal fun presetChoiceOf(kind: String, value: String): PresetChoice = when (k
     "NozzleDiameter" -> PresetChoice.NozzleDiameter(value)
     "Filament" -> PresetChoice.Filament(ProfileId(value))
     "Process" -> PresetChoice.Process(ProfileId(value))
+    "SlotFilament" -> PresetChoice.SlotFilament(ProfileId(value))
+    "EditFilament" -> PresetChoice.EditFilament(value.toInt())
     else -> error("Unknown preset choice $kind")
 }
 

@@ -113,6 +113,11 @@ class PresetSettingsViewModel(
 
     fun choose(choice: PresetChoice) = selectPreset(choice)
 
+    // ParamsDialog closing: Sidebar::finish_param_edit().
+    override fun onCleared() {
+        if (kind == PresetKind.FILAMENT) selectPreset.finishFilamentEdit()
+    }
+
     fun resolvePresetChange(action: PresetChangeAction) = selectPreset.resolve(action)
 
     fun savePresetChange(save: PresetSave) = selectPreset.save(save)

@@ -86,6 +86,8 @@ val orcaIconNames = listOf(
     "open_project",
     // The sidebar's "Preset Bundle", whose item in the top menu has no icon: the menus' preset icon.
     "menu_edit_preset",
+    // The sidebar's filaments: the buttons that add one and remove the last, and a slot's menu.
+    "add_filament", "delete_filament", "menu_filament",
     // MainFrame's slice button: the arrow of its drop-down.
     "sidebutton_dropdown",
     // The Calibration menu of the top bar (BBLTopbar).

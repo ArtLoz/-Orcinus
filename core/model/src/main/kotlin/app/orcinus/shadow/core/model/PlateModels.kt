@@ -1246,6 +1246,12 @@ data class PlateState(
      * gizmo opens on it.
      */
     val simplifySuggestions: List<ScenePath> = emptyList(),
+    /**
+     * is_flush_config_modified(): the project's flushing volumes are not the
+     * ones OrcaSlicer would work out on its own, which the sidebar's flushing
+     * button marks (Sidebar::set_flushing_volume_warning()).
+     */
+    val flushVolumesModified: Boolean = false,
     /** The objects on the plate, in the order they were added, as OrcaSlicer's object list shows them. */
     val objects: List<PlateObject> = emptyList(),
     /** The copies the user picked (GLCanvas3D's Selection); empty when none is. */

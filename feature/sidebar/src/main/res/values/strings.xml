@@ -4,8 +4,6 @@
     <string name="section_printer">Printer</string>
     <string name="section_filament">Filament</string>
     <!-- Sidebar::add_custom_filament() and delete_filament(). -->
-    <string name="filament_add">Add filament</string>
-    <string name="filament_remove">Remove filament</string>
     <string name="section_process">Process</string>
     <string name="section_objects">Objects</string>
     <!-- ObjectDataViewModel: the copies of an object, which OrcaSlicer leaves untranslated ("Instance %d"). -->

@@ -384,6 +384,44 @@ TEST_CASE("A filament saved under a new name takes the old one's place in every 
     REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
 }
 
+TEST_CASE("With several filaments a slot takes its preset alone, and the filament tab edits the slot it opened on", "[Adapter][Presets]")
+{
+    require_engine();
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
+    const orca::PresetState added = orca::add_filament("#FF0000");
+    REQUIRE(added.status == orca::SceneStatus::success);
+    // Sidebar::should_show_SEMM_buttons(): the K2 Plus prints several materials with one extruder.
+    CHECK(added.multi_material_buttons);
+
+    // Plater::priv::on_select_preset() with several filaments: the first slot
+    // takes the preset alone, and the filament tab keeps its own.
+    const orca::PresetState first = orca::select_filament(0, "CR-PETG @K2 Plus-all");
+    INFO(first.message);
+    REQUIRE(first.status == orca::SceneStatus::success);
+    CHECK_FALSE(first.asks_unsaved_changes);
+    CHECK(first.selection.filaments == std::vector<std::string>{"CR-PETG @K2 Plus-all", "Generic PLA @K2 Plus-all"});
+    CHECK(orca::describe_settings(orca::PresetKind::filament, {}, {}).preset == "Generic PLA @K2 Plus-all");
+
+    // Sidebar::edit_filament() of the first slot: the tab selects its preset;
+    // another preset the tab selects then goes to that slot.
+    REQUIRE(orca::select_preset(orca::PresetChoice::edit_filament, "0").status == orca::SceneStatus::success);
+    CHECK(orca::describe_settings(orca::PresetKind::filament, {}, {}).preset == "CR-PETG @K2 Plus-all");
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
+    CHECK(orca::describe_presets().selection.filaments == std::vector<std::string>{"Generic PLA @K2 Plus-all", "Generic PLA @K2 Plus-all"});
+
+    // ParamsDialog closing: the tab edits no slot, and its choice leaves them as they are.
+    orca::finish_filament_edit();
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "CR-PETG @K2 Plus-all").status == orca::SceneStatus::success);
+    CHECK(orca::describe_presets().selection.filaments == std::vector<std::string>{"Generic PLA @K2 Plus-all", "Generic PLA @K2 Plus-all"});
+
+    // The only filament takes what the tab selects.
+    REQUIRE(orca::remove_filament(1).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "CR-PETG @K2 Plus-all").status == orca::SceneStatus::success);
+    CHECK(orca::describe_presets().selection.filaments == std::vector<std::string>{"CR-PETG @K2 Plus-all"});
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
+}
+
 TEST_CASE("The sidebar selects presets as the desktop app does", "[Adapter][Presets]")
 {
     require_engine();
@@ -2638,13 +2676,18 @@ TEST_CASE("A plate prints with several filaments the sidebar lists", "[Adapter][
     CHECK(one.selection.filaments.front() == k2_plus_profiles().filament);
 
     // Sidebar::add_custom_filament(): the new filament takes the next colour
-    // of OrcaSlicer's palette, and starts with the preset of the first one.
+    // of OrcaSlicer's palette, which goes round over the app's run
+    // (Plater::get_next_color_for_filament()), and starts with the preset of
+    // the first one.
     const orca::PresetState added = orca::add_filament();
     INFO(added.message);
     REQUIRE(added.status == orca::SceneStatus::success);
     REQUIRE(added.selection.filaments.size() == 2);
     REQUIRE(added.filament_colors.size() == 2);
-    CHECK(added.filament_colors[1] == "#F4E2C1");
+    const std::vector<std::string> palette = {"#00C1AE", "#F4E2C1", "#ED1C24", "#00FF7F", "#F26722", "#FFEB31", "#7841CE", "#115877",
+                                              "#ED1E79", "#2EBDEF", "#345B2F", "#800080", "#FA8173", "#800000", "#F7B763", "#A4C41E"};
+    const auto color = std::find(palette.begin(), palette.end(), added.filament_colors[1]);
+    REQUIRE(color != palette.end());
 
     // A slot of its own takes another preset, and the first one is untouched.
     const std::string other = "Generic PETG @K2 Plus-all";

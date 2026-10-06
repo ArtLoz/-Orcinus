@@ -471,6 +471,7 @@ PresetState preset_state(Slic3r::PresetBundle& bundle)
     state.bed_type = value_of(bundle.project_config.opt_enum<Slic3r::BedType>("curr_bed_type"));
     state.bed_type_selectable = bundle.is_bbl_vendor() || bundle.printers.get_edited_preset().config.opt_bool("support_multi_bed_types");
     state.plate_bed_type_selectable = bundle.is_bbl_vendor();
+    state.multi_material_buttons = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
     return state;
 }
 
@@ -586,6 +587,8 @@ PresetKind choice_kind(const PresetChoice choice)
 {
     switch (choice) {
     case PresetChoice::filament:
+    case PresetChoice::slot_filament:
+    case PresetChoice::edit_filament:
         return PresetKind::filament;
     case PresetChoice::process:
         return PresetKind::print;
@@ -597,6 +600,45 @@ PresetKind choice_kind(const PresetChoice choice)
     }
 }
 
+// PresetComboBox::update_ams_color() of a slot that takes a preset: the
+// slot's colour is the preset's default colour, when it has one.
+void take_default_colour(Slic3r::PresetBundle& bundle, const std::size_t index, const std::string& name)
+{
+    const Slic3r::Preset* preset = bundle.filaments.find_preset(name, false);
+    const auto* defaults = preset == nullptr ? nullptr : preset->config.option<Slic3r::ConfigOptionStrings>("default_filament_colour");
+    const std::string color = defaults == nullptr || defaults->values.empty() ? std::string() : defaults->values.front();
+    if (color.empty()) {
+        return;
+    }
+    auto* color_head = bundle.project_config.option<Slic3r::ConfigOptionStrings>("filament_colour", true);
+    auto* color_type = bundle.project_config.option<Slic3r::ConfigOptionStrings>("filament_colour_type", true);
+    auto* color_pack = bundle.project_config.option<Slic3r::ConfigOptionStrings>("filament_multi_colour", true);
+    for (Slic3r::ConfigOptionStrings* option : {color_head, color_type, color_pack}) {
+        if (option->values.size() <= index) {
+            option->values.resize(index + 1);
+        }
+    }
+    color_head->values[index] = color;
+    color_type->values[index] = std::string();
+    color_pack->values[index] = color;
+}
+
+// Sidebar::update_presets() of the filament tab's preset: the slot being
+// edited takes it, or else the only slot, when the preset suits the printer.
+void update_filament_slots(Slic3r::PresetBundle& bundle)
+{
+    const std::string& name = bundle.filaments.get_selected_preset_name();
+    const int editing = engine().editing_filament;
+    if (editing >= 0 && std::size_t(editing) < bundle.filament_presets.size()) {
+        bundle.set_filament_preset(std::size_t(editing), name);
+    } else if (bundle.filament_presets.size() == 1) {
+        const Slic3r::Preset* preset = bundle.filaments.find_preset(name, false);
+        if (preset != nullptr && preset->is_compatible) {
+            bundle.set_filament_preset(0, name);
+        }
+    }
+}
+
 // Tab::select_preset(): the changes of a printer are never moved, and neither
 // are the ones of a filament of another type.
 bool may_transfer(Slic3r::PresetBundle& bundle, const PresetChoice choice, const std::string& value)
@@ -605,7 +647,7 @@ bool may_transfer(Slic3r::PresetBundle& bundle, const PresetChoice choice, const
     if (choice == PresetChoice::printer || choice == PresetChoice::printer_model || choice == PresetChoice::nozzle_diameter) {
         return false;
     }
-    if (choice != PresetChoice::filament) {
+    if (choice_kind(choice) != PresetKind::filament) {
         return true;
     }
     const Slic3r::Preset* to_be_selected = bundle.filaments.find_preset(value, false, true);
@@ -630,6 +672,22 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
     try {
         Slic3r::PresetBundle& bundle = *engine().bundle;
         follow_config(engine());
+        // The preset to select: an edited filament slot's own.
+        std::string target = value;
+        if (choice == PresetChoice::edit_filament) {
+            const int slot = std::stoi(value);
+            if (slot < 0 || std::size_t(slot) >= bundle.filament_presets.size()) {
+                return preset_failure(SceneStatus::profile_not_found, "No such filament slot");
+            }
+            target = bundle.filament_presets[std::size_t(slot)];
+            engine().editing_filament = -1;
+            // PlaterPresetComboBox::switch_to_tab(): "Call select_preset() only if
+            // there is new preset and not just modified".
+            if (bundle.filaments.get_edited_preset().name == target) {
+                engine().editing_filament = slot;
+                return preset_state(bundle);
+            }
+        }
         // Tab::select_preset(): a preset with unsaved changes is not left
         // behind before the user says what happens to them.
         const PresetKind kind = choice_kind(choice);
@@ -639,7 +697,7 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
                 result.asks_unsaved_changes = true;
                 result.changed_kind = kind;
                 result.unsaved_changes = detail::preset_changes(kind);
-                result.can_transfer = may_transfer(bundle, choice, value);
+                result.can_transfer = may_transfer(bundle, choice, target);
                 result.save_name = detail::save_preset_name(preset_collection(bundle, kind).get_selected_preset(), result.save_name_copy_suffix);
                 result.save_can_overwrite = preset_collection(bundle, kind).get_edited_preset().can_overwrite();
                 if (result.save_can_overwrite) {
@@ -686,12 +744,20 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
             break;
         }
         case PresetChoice::filament:
-            if (bundle.filaments.find_preset(value, false) == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Unknown filament profile: " + value);
+        case PresetChoice::slot_filament:
+        case PresetChoice::edit_filament:
+            if (bundle.filaments.find_preset(target, false) == nullptr) {
+                return preset_failure(SceneStatus::profile_not_found, "Unknown filament profile: " + target);
             }
-            // Plater::priv::on_select_preset(), then Tab::select_preset() of the filament tab.
-            bundle.set_filament_preset(0, value);
-            bundle.filaments.select_preset_by_name(value, false);
+            if (choice == PresetChoice::slot_filament) {
+                take_default_colour(bundle, 0, target);
+            }
+            // Tab::select_preset() of the filament tab, and Sidebar::update_presets().
+            bundle.filaments.select_preset_by_name(target, false);
+            update_filament_slots(bundle);
+            if (choice == PresetChoice::edit_filament) {
+                engine().editing_filament = std::stoi(value);
+            }
             break;
         case PresetChoice::process:
             if (bundle.prints.find_preset(value, false) == nullptr) {
@@ -895,13 +961,13 @@ PresetState add_filament(const std::string& custom_color)
     try {
         Slic3r::PresetBundle& bundle = *engine().bundle;
         follow_config(engine());
-        // Sidebar::add_filament(): the desktop app prints with at most 16.
-        constexpr std::size_t maximum = 16;
-        if (bundle.filament_presets.size() >= maximum) {
-            return preset_failure(SceneStatus::profile_not_found, "A plate prints with at most 16 filaments");
+        // Sidebar::add_filament()
+        if (bundle.filament_presets.size() >= MAXIMUM_EXTRUDER_NUMBER) {
+            return preset_failure(SceneStatus::profile_not_found, "A plate prints with at most 64 filaments");
         }
         const std::size_t count = bundle.filament_presets.size() + 1;
-        const std::string color = custom_color.empty() ? filament_palette()[(count - 1) % filament_palette().size()] : custom_color;
+        const std::string color =
+            custom_color.empty() ? filament_palette()[engine().next_filament_color++ % filament_palette().size()] : custom_color;
         bundle.set_num_filaments(unsigned(count), color);
         detail::reload_tab_after_selection(PresetKind::print);
         bundle.export_selections(*engine().config);
@@ -925,6 +991,14 @@ PresetState remove_filament(const std::int64_t index)
         if (index < 0 || std::size_t(index) >= bundle.filament_presets.size() || bundle.filament_presets.size() <= 1) {
             return preset_failure(SceneStatus::profile_not_found, "A plate prints with at least one filament");
         }
+        // The slot being edited leaves with it. Orca keeps the number of a later
+        // one, which then names the slot after it; here it comes one lower.
+        int& editing = engine().editing_filament;
+        if (editing == int(index)) {
+            editing = -1;
+        } else if (editing > int(index)) {
+            --editing;
+        }
         bundle.update_num_filaments(unsigned(index));
         detail::reload_tab_after_selection(PresetKind::print);
         bundle.export_selections(*engine().config);
@@ -937,10 +1011,15 @@ PresetState remove_filament(const std::int64_t index)
 
 PresetState select_filament(const std::int64_t index, const std::string& name, const PresetChangeAction action)
 {
-    if (index == 0) {
-        // The first filament is the one the tab edits, which asks about
+    bool only = false;
+    {
+        const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+        only = engine().bundle != nullptr && engine().bundle->filament_presets.size() <= 1;
+    }
+    if (only && index == 0) {
+        // The only filament goes through the filament tab, which asks about
         // unsaved changes as any other preset choice does.
-        return select_preset(PresetChoice::filament, name, action);
+        return select_preset(PresetChoice::slot_filament, name, action);
     }
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
     if (engine().bundle == nullptr) {
@@ -955,7 +1034,10 @@ PresetState select_filament(const std::int64_t index, const std::string& name, c
         if (bundle.filaments.find_preset(name, false) == nullptr) {
             return preset_failure(SceneStatus::profile_not_found, "Unknown filament profile: " + name);
         }
-        // PlaterPresetComboBox of that slot (Plater::priv::on_select_preset).
+        // PlaterPresetComboBox of that slot: update_ams_color(), then
+        // Plater::priv::on_select_preset() of a plate with several filaments,
+        // which leaves the filament tab as it is.
+        take_default_colour(bundle, std::size_t(index), name);
         bundle.set_filament_preset(std::size_t(index), name);
         bundle.update_multi_material_filament_presets();
         bundle.export_selections(*engine().config);
@@ -964,6 +1046,12 @@ PresetState select_filament(const std::int64_t index, const std::string& name, c
     } catch (const std::exception& error) {
         return preset_failure(SceneStatus::profile_not_found, error.what());
     }
+}
+
+void finish_filament_edit()
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    engine().editing_filament = -1;
 }
 
 PresetState set_filament_color(const std::int64_t index, const std::string& color)

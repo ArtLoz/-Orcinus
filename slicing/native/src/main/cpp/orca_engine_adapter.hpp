@@ -1279,6 +1279,10 @@ struct PresetState {
     std::string bed_type;
     bool bed_type_selectable{false};
     bool plate_bed_type_selectable{false};
+    // Sidebar::should_show_SEMM_buttons(): one extruder printing several
+    // materials, or a Bambu Lab printer, which adds filaments, and with
+    // several takes them away, merges them and edits their flushing volumes.
+    bool multi_material_buttons{false};
 };
 
 // The preset combo boxes for the selection the app configuration remembers.
@@ -1300,10 +1304,19 @@ enum class PresetChoice : std::int64_t {
     printer_model = 1,
     // A nozzle diameter of the selected printer model (Sidebar::priv::switch_diameter).
     nozzle_diameter = 2,
-    // The first filament by preset name (Plater::priv::on_select_preset).
+    // A filament preset by name, as the filament tab selects it (Tab::select_preset):
+    // the slot being edited takes it, or the only one (Sidebar::update_presets()).
     filament = 3,
     // A process preset by name; the filament changes when it is not compatible with it.
     process = 4,
+    // The preset of the only filament, chosen in the combo box of its slot:
+    // the slot takes the preset's colour (PresetComboBox::update_ams_color()),
+    // then the filament tab selects it (Plater::priv::on_select_preset()).
+    slot_filament = 5,
+    // The edit button of a filament slot, by its index (Sidebar::edit_filament(),
+    // PlaterPresetComboBox::switch_to_tab()): the filament tab selects the
+    // slot's preset and edits that slot (Sidebar's editing_filament).
+    edit_filament = 6,
 };
 
 // What happens to the unsaved changes of the edited preset when another one is
@@ -1360,20 +1373,29 @@ PresetState reset_project_presets();
 // or a new one starts: the edited presets are what the project has.
 void update_saved_presets();
 
-// Sidebar::add_custom_filament(): another filament joins the plate, with
-// color ("#RRGGBB"), or without one the next colour of OrcaSlicer's palette
-// (Plater::get_next_color_for_filament).
+// Sidebar::add_custom_filament(): another filament joins the plate, up to
+// MAXIMUM_EXTRUDER_NUMBER, with color ("#RRGGBB"), or without one the next
+// colour of OrcaSlicer's palette (Plater::get_next_color_for_filament()),
+// which goes round over the app's run.
 PresetState add_filament(const std::string& color = {});
 
 // Sidebar::delete_filament(): the filament at index leaves the plate; the first
 // one cannot, as the desktop app keeps at least one.
 PresetState remove_filament(std::int64_t index);
 
-// The preset of the filament at index (PlaterPresetComboBox of that slot).
+// The preset of the filament at index (PlaterPresetComboBox of that slot,
+// Plater::priv::on_select_preset()): the slot takes the preset's colour
+// (update_ams_color()); with several filaments the slot takes the preset
+// alone, and the only one goes through the filament tab, which asks about its
+// unsaved changes.
 PresetState select_filament(std::int64_t index, const std::string& name, PresetChangeAction action = PresetChangeAction::ask);
 
 // The colour the sidebar shows for a filament (project_config's filament_colour).
 PresetState set_filament_color(std::int64_t index, const std::string& color);
+
+// ParamsDialog closing (Sidebar::finish_param_edit()): the filament tab edits
+// no slot any more.
+void finish_filament_edit();
 
 // A printer model of the Setup Wizard's printer page.
 struct SetupPrinterModel {
