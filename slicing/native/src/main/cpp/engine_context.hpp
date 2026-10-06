@@ -52,6 +52,9 @@ struct EngineContext {
     std::size_t next_filament_color = 0;
     // GUI_App's m_config_corrupted, until the app says so.
     bool config_corrupted = false;
+    // PresetUpdater's checked_vendors: the vendors whose profiles were asked
+    // about while the app runs.
+    std::set<std::string> checked_profile_vendors;
     // Tab's s_filament_temp_pair_warning_suppressed_for_session.
     std::set<std::string> filament_temperature_warnings_suppressed;
 };

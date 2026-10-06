@@ -66,6 +66,7 @@ import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetSettings
 import app.orcinus.shadow.core.model.Presets
+import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsItem
@@ -3637,6 +3638,11 @@ class PrepareViewModel(
     fun dismissExportFinished() = dismissPlateProblem.exportFinished()
 
     fun dismissSimplifySuggestion(mesh: ScenePath) = dismissPlateProblem.simplifySuggestion(mesh)
+
+    /** "Detail." ([detail]), or the close button, of "Configuration can update now.". */
+    fun closeProfileUpdates(detail: Boolean) = dismissPlateProblem.profileUpdates(detail)
+
+    fun dismissProfileUpdateInstalled(update: ProfileUpdate) = dismissPlateProblem.profileUpdateInstalled(update)
 
     /** "Simplify model" of the advice to simplify an object. */
     fun simplifySuggested(mesh: ScenePath) = openSimplify.suggested(mesh)

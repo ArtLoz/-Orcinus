@@ -50,6 +50,10 @@ import app.orcinus.shadow.core.model.PresetBundleInfo
 import app.orcinus.shadow.core.model.PresetBundleType
 import app.orcinus.shadow.core.model.PresetBundlesOutcome
 import app.orcinus.shadow.core.model.PrintedObject
+import app.orcinus.shadow.core.model.ProfileCheckAnswer
+import app.orcinus.shadow.core.model.ProfileDownload
+import app.orcinus.shadow.core.model.ProfileUpdate
+import app.orcinus.shadow.core.model.ProfileUpdateRequest
 import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.SliceNotice
 import app.orcinus.shadow.core.model.SliceNoticeLevel
@@ -206,6 +210,7 @@ import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PlateMeasurer
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
+import app.orcinus.shadow.slicing.api.ProfileUpdater
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import java.io.File
@@ -228,7 +233,8 @@ class NativeSlicerEngine(context: Context) :
     LayerHeightEditor,
     EmbossEditor,
     PlateMeasurer,
-    BrimEarsEditor {
+    BrimEarsEditor,
+    ProfileUpdater {
     private val applicationContext = context.applicationContext
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
@@ -2027,6 +2033,29 @@ class NativeSlicerEngine(context: Context) :
         NativeBindings.discardPresetChanges().toOutcome()
     }
 
+    override suspend fun profileUpdateRequest(startup: Boolean): ProfileUpdateRequest =
+        whenReady({ ProfileUpdateRequest(enabled = false, vendor = "", url = "") }) {
+            val values = NativeBindings.profileUpdateRequest(startup)
+            ProfileUpdateRequest(enabled = values[0].isNotEmpty(), vendor = values[1], url = values[2])
+        }
+
+    override suspend fun profileUpdateAnswer(vendor: String, answer: ProfileCheckAnswer): ProfileDownload? = whenReady({ null }) {
+        val values = NativeBindings.profileUpdateAnswer(vendor, answer.status, answer.body, answer.error)
+        ProfileDownload(url = values[0], path = values[1]).takeIf { it.url.isNotEmpty() && it.path.isNotEmpty() }
+    }
+
+    override suspend fun cacheProfileUpdate(vendor: String): Boolean = whenReady({ false }) { NativeBindings.cacheProfileUpdate(vendor) }
+
+    override suspend fun profileUpdates(): List<ProfileUpdate> = whenReady({ emptyList() }) {
+        NativeBindings.profileUpdates().toList().chunked(PROFILE_UPDATE_FIELDS).map { ProfileUpdate(it[0], it[1], it[2], forced = it[3].isNotEmpty()) }
+    }
+
+    override suspend fun performProfileUpdates(): Boolean = whenReady({ false }) { NativeBindings.performProfileUpdates() }
+
+    override suspend fun reloadSystemPresets(): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        NativeBindings.reloadSystemPresets().toOutcome()
+    }
+
     override suspend fun selectBedType(value: String): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
         NativeBindings.selectBedType(value).toOutcome()
     }
@@ -3212,3 +3241,6 @@ private fun DoubleArray.toVector() = Vector3(this[0], this[1], this[2])
 
 /** OrcaSlicer's messages are written in English, which has no catalogue. */
 private const val ENGLISH_CATALOG = "en"
+
+/** The values NativeBindings.profileUpdates() gives each update. */
+private const val PROFILE_UPDATE_FIELDS = 4

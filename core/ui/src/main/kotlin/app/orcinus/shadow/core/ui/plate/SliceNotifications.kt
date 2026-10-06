@@ -192,6 +192,31 @@ fun UpdatedItemsInfoNotification(count: Int, loads: Int) {
     }
 }
 
+/**
+ * NotificationType::PresetUpdateAvailable: "Configuration can update now.",
+ * whose "Detail." opens MsgUpdateConfig ([onDetail]) and closes it. It stays
+ * until then or its close button.
+ */
+@Composable
+fun ProfileUpdateAvailableNotification(onDetail: () -> Unit, onClose: () -> Unit) {
+    OrcaNotification(action = { CloseButton(onClose) }) {
+        OrcaNotificationText(orcaString("Configuration can update now."))
+        OrcaNotificationLink(orcaString("Detail."), onClick = onDetail)
+    }
+}
+
+/**
+ * NotificationType::PresetUpdateFinished of a forced update: the [vendor]'s
+ * configuration package and the [version] it was updated to, until its close
+ * button.
+ */
+@Composable
+fun ProfileUpdateFinishedNotification(vendor: String, version: String, onClose: () -> Unit) {
+    OrcaNotification(action = { CloseButton(onClose) }) {
+        OrcaNotificationText(orcaString("Configuration package: ") + vendor + orcaString(" updated to ") + version)
+    }
+}
+
 /** PopNotification::render_close_button(): its icon's own colours, the box and the cross. */
 @Composable
 private fun RowScope.CloseButton(onClick: () -> Unit) {

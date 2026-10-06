@@ -8463,3 +8463,170 @@ TEST_CASE("The measuring tool scales the selection to a distance", "[Adapter][Me
     CHECK(scaled.measure.infinite == Catch::Approx(2.0 * cube.size_z).margin(1e-3));
     orca::end_measure();
 }
+
+namespace {
+
+// The JSON string value of key in text replaced by value; the old value.
+std::string replace_json_value(std::string& text, const std::string& key, const std::string& value)
+{
+    const std::size_t at = text.find("\"" + key + "\"");
+    REQUIRE(at != std::string::npos);
+    const std::size_t open = text.find('"', text.find(':', at) + 1);
+    const std::size_t close = text.find('"', open + 1);
+    REQUIRE(close != std::string::npos);
+    const std::string old = text.substr(open + 1, close - open - 1);
+    text.replace(open + 1, close - open - 1, value);
+    return old;
+}
+
+std::string read_text(const fs::path& path)
+{
+    std::ifstream input(path.string(), std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+}
+
+void copy_tree(const fs::path& from, const fs::path& to)
+{
+    fs::create_directories(to);
+    for (const fs::directory_entry& entry : fs::recursive_directory_iterator(from)) {
+        const fs::path target = to / fs::relative(entry.path(), from);
+        if (fs::is_directory(entry.path())) {
+            fs::create_directories(target);
+        } else {
+            fs::copy_file(entry.path(), target, fs::copy_options::overwrite_existing);
+        }
+    }
+}
+
+}  // namespace
+
+TEST_CASE("A newer system bundle is cached, offered, installed and loaded as the profile updater does", "[Adapter][ProfileUpdates]")
+{
+    require_engine();
+    const std::string standard = "0.20mm Standard @Creality K2 Plus 0.4 nozzle";
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, k2_plus_profiles().printer, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::process, standard, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+    const auto density = [] {
+        const orca::PresetSettings strength = orca::describe_settings(orca::PresetKind::print, "Strength", {});
+        const auto state = std::find_if(strength.settings.begin(), strength.settings.end(), [](const orca::SettingState& candidate) {
+            return candidate.id == "sparse_infill_density";
+        });
+        REQUIRE(state != strength.settings.end());
+        return state->value;
+    };
+    REQUIRE(density() == "15");
+
+    // The installed bundle comes back whatever the test does.
+    const fs::path system = fs::path(data_dir) / "system";
+    const fs::path ota = fs::path(data_dir) / "ota";
+    const fs::path backup = fs::path(device_dir) / "tmp" / "profile-update-backup";
+    fs::remove_all(ota);
+    fs::remove_all(backup);
+    copy_tree(system / "Creality", backup / "Creality");
+    fs::copy_file(system / "Creality.json", backup / "Creality.json", fs::copy_options::overwrite_existing);
+    struct Restore {
+        fs::path system;
+        fs::path ota;
+        fs::path backup;
+        ~Restore()
+        {
+            fs::remove_all(system / "Creality");
+            copy_tree(backup / "Creality", system / "Creality");
+            fs::copy_file(backup / "Creality.json", system / "Creality.json", fs::copy_options::overwrite_existing);
+            fs::remove_all(ota);
+            fs::remove_all(backup);
+            orca::reload_system_presets();
+        }
+    } restore{system, ota, backup};
+
+    // The check asks about the edited printer's vendor, once while the app runs.
+    const std::string engine_version = orca::engine_version();
+    const std::size_t slash = engine_version.find('/');
+    const std::string orca_version = engine_version.substr(slash + 1, engine_version.find(' ') - slash - 1);
+    const orca::ProfileUpdateRequest request = orca::profile_update_request(true);
+    CHECK(request.enabled);
+    CHECK(request.vendor == "Creality");
+    CHECK(request.url == "https://check-version.orcaslicer.com/profile?vendor=Creality&orca_version=" + orca_version);
+    CHECK(orca::profile_update_request(false).url.empty());
+
+    // Answers that name no bundle.
+    CHECK(orca::profile_update_answer("Creality", 404, R"({"error":"no profiles for this orca_version"})", "HTTP 404").url.empty());
+    CHECK(orca::profile_update_answer("Creality", 200, "not json", "").url.empty());
+    CHECK(orca::profile_update_answer("Creality", 200, R"({"vendor_version":"02.03.02.76"})", "").url.empty());
+    CHECK(orca::profile_update_answer("Creality", 0, "", "timeout").url.empty());
+
+    const orca::ProfileDownload download =
+        orca::profile_update_answer("Creality", 200, R"({"vendor_version":"02.03.02.76","download_url":"https://example.invalid/Creality.zip"})", "");
+    CHECK(download.url == "https://example.invalid/Creality.zip");
+    CHECK(fs::path(download.path) == ota / "Creality.data");
+
+    // A download that is not a zip.
+    {
+        std::ofstream(download.path, std::ios::binary) << "not a zip";
+    }
+    CHECK_FALSE(orca::cache_profile_update("Creality"));
+
+    // The bundle: the installed one with its version raised, installed without
+    // asking, a changelog beside it, and another infill density.
+    std::string vendor_json = read_text(system / "Creality.json");
+    const std::string installed = replace_json_value(vendor_json, "version", "");
+    const std::size_t last_dot = installed.rfind('.');
+    REQUIRE(last_dot != std::string::npos);
+    const int build = std::stoi(installed.substr(last_dot + 1)) + 1;
+    const std::string newer = installed.substr(0, last_dot + 1) + (build < 10 ? "0" : "") + std::to_string(build);
+    replace_json_value(vendor_json, "version", newer);
+    replace_json_value(vendor_json, "force_update", "1");
+    int parts[4] = {0, 0, 0, 0};
+    REQUIRE(std::sscanf(newer.c_str(), "%d.%d.%d.%d", &parts[0], &parts[1], &parts[2], &parts[3]) == 4);
+    const std::string newer_version = (boost::format("%1%.%2%.%3%.%4%") % parts[0] % parts[1] % parts[2] % parts[3]).str();
+
+    const fs::path process_file = system / "Creality" / "process" / (standard + ".json");
+    std::string process_json = read_text(process_file);
+    CHECK(replace_json_value(process_json, "sparse_infill_density", "25%") == "15%");
+
+    mz_zip_archive zip;
+    mz_zip_zero_struct(&zip);
+    REQUIRE(mz_zip_writer_init_file(&zip, download.path.c_str(), 0) == MZ_TRUE);
+    const auto add_text = [&zip](const std::string& name, const std::string& text) {
+        REQUIRE(mz_zip_writer_add_mem(&zip, name.c_str(), text.data(), text.size(), MZ_BEST_SPEED) == MZ_TRUE);
+    };
+    add_text("Creality.json", vendor_json);
+    add_text("Creality.changelog", "Orcinus test changelog");
+    REQUIRE(mz_zip_writer_add_mem(&zip, "Creality/", nullptr, 0, MZ_NO_COMPRESSION) == MZ_TRUE);
+    for (const fs::directory_entry& entry : fs::recursive_directory_iterator(system / "Creality")) {
+        const std::string name = "Creality/" + fs::relative(entry.path(), system / "Creality").generic_string();
+        if (fs::is_directory(entry.path())) {
+            REQUIRE(mz_zip_writer_add_mem(&zip, (name + "/").c_str(), nullptr, 0, MZ_NO_COMPRESSION) == MZ_TRUE);
+        } else if (entry.path() == process_file) {
+            add_text(name, process_json);
+        } else {
+            REQUIRE(mz_zip_writer_add_file(&zip, name.c_str(), entry.path().string().c_str(), nullptr, 0, MZ_BEST_SPEED) == MZ_TRUE);
+        }
+    }
+    REQUIRE(mz_zip_writer_finalize_archive(&zip) == MZ_TRUE);
+    REQUIRE(mz_zip_writer_end(&zip) == MZ_TRUE);
+
+    REQUIRE(orca::cache_profile_update("Creality"));
+    CHECK_FALSE(fs::exists(download.path));
+    CHECK(fs::exists(ota / "profiles" / "Creality.json"));
+    CHECK(fs::exists(ota / "profiles" / "Creality" / "process" / (standard + ".json")));
+
+    // The cached bundle is offered; until it is installed the presets stay as they were.
+    const std::vector<orca::ProfileUpdate> updates = orca::profile_updates();
+    REQUIRE(updates.size() == 1);
+    CHECK(updates.front().vendor == "Creality");
+    CHECK(updates.front().version == newer_version);
+    CHECK(updates.front().changelog == "Orcinus test changelog");
+    CHECK(updates.front().forced);
+    CHECK(density() == "15");
+
+    // Installed, it is no longer newer, and the presets load with it.
+    REQUIRE(orca::perform_profile_updates());
+    CHECK(orca::profile_updates().empty());
+    CHECK(read_text(process_file).find("\"25%\"") != std::string::npos);
+    const orca::PresetState reloaded = orca::reload_system_presets();
+    INFO(reloaded.message);
+    REQUIRE(reloaded.status == orca::SceneStatus::success);
+    CHECK(reloaded.selection.process == standard);
+    CHECK(density() == "25");
+}

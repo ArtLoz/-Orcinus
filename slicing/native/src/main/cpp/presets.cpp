@@ -1353,6 +1353,30 @@ PresetState apply_setup(const std::vector<std::string>& models, const std::vecto
     }
 }
 
+PresetState reload_system_presets()
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return preset_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+    }
+    try {
+        Slic3r::PresetBundle& bundle = *engine().bundle;
+        follow_config(engine());
+        // Reload global configuration
+        // System profiles should not trigger any substitutions, user profiles may trigger substitutions, but these substitutions
+        // were already presented to the user on application start up. Just do substitutions now and keep quiet about it.
+        // However throw on substitutions in system profiles, those shall never happen with system profiles installed over the air.
+        bundle.load_presets(*engine().config, Slic3r::ForwardCompatibilitySubstitutionRule::EnableSilentDisableSystem);
+        // GUI_App::load_current_presets()
+        for (const PresetKind kind : {PresetKind::print, PresetKind::filament, PresetKind::printer}) {
+            detail::reload_tab(kind);
+        }
+        return preset_state(bundle);
+    } catch (const std::exception& error) {
+        return preset_failure(SceneStatus::profile_not_found, error.what());
+    }
+}
+
 PresetState apply_default_setup()
 {
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);

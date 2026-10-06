@@ -935,7 +935,8 @@ sealed interface ProjectPrompt {
     /**
      * The presets with unsaved changes, under [caption] and [header]. The
      * changes can move to a new project ([transfer]), be saved ([save]),
-     * discarded, or the project stays as it is.
+     * discarded, or the project stays as it is. [remember] offers "Remember
+     * my choice." (REMEMBER_CHOISE).
      */
     data class PresetChanges(
         val caption: OrcaText,
@@ -943,6 +944,7 @@ sealed interface ProjectPrompt {
         val presets: List<DirtyPreset>,
         val transfer: Boolean,
         val save: Boolean,
+        val remember: Boolean = true,
     ) : ProjectPrompt
 }
 
@@ -1246,6 +1248,16 @@ data class PlateState(
      * gizmo opens on it.
      */
     val simplifySuggestions: List<ScenePath> = emptyList(),
+    /**
+     * PresetUpdater's waiting updates, with their notification
+     * (PresetUpdateAvailable) and dialog (MsgUpdateConfig); null for none.
+     */
+    val profileUpdates: ProfileUpdatesNotice? = null,
+    /**
+     * PresetUpdateFinished: the configuration packages a forced update
+     * installed, each until its notification closes.
+     */
+    val profileUpdatesInstalled: List<ProfileUpdate> = emptyList(),
     /**
      * is_flush_config_modified(): the project's flushing volumes are not the
      * ones OrcaSlicer would work out on its own, which the sidebar's flushing

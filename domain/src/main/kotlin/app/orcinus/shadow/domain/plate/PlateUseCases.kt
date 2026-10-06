@@ -94,6 +94,7 @@ import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ProjectContent
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsDialog
@@ -185,6 +186,8 @@ class StartEngineUseCase(
     private val plateCache: PlateCache,
     private val repository: PlateRepository,
     private val preferences: AppPreferences,
+    /** What follows the start: GUI_App::on_init_inner()'s preset_updater->sync(). */
+    private val onStarted: () -> Unit = {},
 ) {
     suspend operator fun invoke() {
         val state = repository.state.value
@@ -219,6 +222,7 @@ class StartEngineUseCase(
             repository.update { it.copy(plateNotices = it.plateNotices + CONFIG_CORRUPTED) }
         }
         platePresets.apply(before = null, outcome = presetManager.presets())
+        onStarted()
     }
 
     private companion object {
@@ -261,6 +265,8 @@ class PlatePresets(
     private val settingsTabs: PresetSettingsTabs,
     /** Plater::on_config_change() after another preset is selected (auto slice after changes). */
     private val onConfigChange: () -> Unit = {},
+    /** Tab::on_presets_changed() of the printer tab when another printer is selected (the profile updater's check). */
+    private val onPrinterChange: () -> Unit = {},
 ) : PresetsApplier {
     /** Applies [outcome] of a change that started from the selection [before]. */
     override suspend fun apply(before: SlicingProfileSelection?, outcome: PresetsOutcome) {
@@ -304,6 +310,7 @@ class PlatePresets(
         }
         if (before != null && before.printer != profiles.printer) {
             placePlateObjects(PlateManipulation.UpdatePrintVolume)
+            onPrinterChange()
         }
         settingsTabs.refresh()
         if (before != profiles || bedTypeChanged || colorsChanged) onConfigChange()
@@ -2960,6 +2967,19 @@ class DismissPlateProblemUseCase(private val repository: PlateRepository) {
     /** The close button of the advice to simplify the object of [mesh]. */
     fun simplifySuggestion(mesh: ScenePath) {
         repository.update { if (mesh in it.simplifySuggestions) it.copy(simplifySuggestions = it.simplifySuggestions - mesh) else it }
+    }
+
+    /**
+     * "Configuration can update now." closes: by its "Detail.", which opens
+     * MsgUpdateConfig ([detail]), or by its close button.
+     */
+    fun profileUpdates(detail: Boolean) {
+        repository.update { state -> state.profileUpdates?.let { state.copy(profileUpdates = it.copy(notified = false, confirming = detail)) } ?: state }
+    }
+
+    /** The close button of "Configuration package: ... updated to ...". */
+    fun profileUpdateInstalled(update: ProfileUpdate) {
+        repository.update { if (update in it.profileUpdatesInstalled) it.copy(profileUpdatesInstalled = it.profileUpdatesInstalled - update) else it }
     }
 }
 

@@ -1478,6 +1478,68 @@ bool setup_changes_installation(const std::vector<std::string>& models, const st
 // so the wizard is not required again.
 PresetState apply_default_setup();
 
+// OrcaSlicer's PresetUpdater for the system profiles of a vendor. The app asks
+// the server and downloads the bundle the answer names; the engine tells what
+// to ask, keeps the bundle in its cache (data_dir/ota/profiles) and installs
+// from there the bundles newer than the installed ones.
+
+// PresetUpdater::sync() at start-up and check_vendor_update() when another
+// printer is selected: the vendor of the edited printer preset, empty for a
+// printer of the user's own, and the address its check asks
+// (AppConfig::profile_update_url() with the vendor and OrcaSlicer's version).
+// enabled is false in stealth mode, always until the Setup Wizard finished,
+// and without "Update built-in presets automatically." (sync_system_preset);
+// the url is empty then, and for a vendor asked about before while the app
+// runs (checked_vendors).
+struct ProfileUpdateRequest {
+    bool enabled{false};
+    std::string vendor;
+    std::string url;
+};
+
+// startup also removes the downloads a check left behind (prune_tmps()).
+ProfileUpdateRequest profile_update_request(bool startup);
+
+// sync_vendor_config() with the server's answer to the check of vendor: its
+// HTTP status (0 for no answer), its body, and the error that came instead of
+// a success. The address of the newer bundle the answer names, with the
+// vendor's cache cleared and the file of the cache the bundle is downloaded
+// into; both empty when the answer names none.
+struct ProfileDownload {
+    std::string url;
+    std::string path;
+};
+ProfileDownload profile_update_answer(const std::string& vendor, int http_status, const std::string& body, const std::string& error);
+
+// extract_file(): the bundle downloaded for vendor unpacked into the cache and
+// the download removed; false when it could not be unpacked.
+bool cache_profile_update(const std::string& vendor);
+
+// A bundle of the cache newer than the installed one (PresetUpdater's Update
+// of a vendor's json file): the vendor, the version the cache has
+// (Semver::to_string()), the changelog kept beside it, and whether it installs
+// without asking (force_update).
+struct ProfileUpdate {
+    std::string vendor;
+    std::string version;
+    std::string changelog;
+    bool forced{false};
+};
+
+// get_config_updates(): the bundles of the cache newer than the installed ones.
+std::vector<ProfileUpdate> profile_updates();
+
+// perform_updates() of get_config_updates(): the vendors' json files and
+// folders copied from the cache over the installed ones. False when a copy
+// failed.
+bool perform_profile_updates();
+
+// reload_configs_update_gui() after its question about unsaved changes: the
+// presets loaded again with the installed bundles
+// (load_presets(EnableSilentDisableSystem)) and every tab with them
+// (load_current_presets()).
+PresetState reload_system_presets();
+
 
 // Which settings the tabs show (ConfigOptionMode). The app configuration keeps
 // "user_mode"; with "developer_mode" the tabs show develop settings too.

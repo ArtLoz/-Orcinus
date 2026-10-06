@@ -28,6 +28,7 @@ import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
+import app.orcinus.shadow.core.model.ProfileCheckAnswer
 import app.orcinus.shadow.data.notices.AboutLibrariesNoticeCatalog
 import app.orcinus.shadow.data.plate.InMemoryPlateRepository
 import app.orcinus.shadow.domain.CancelSliceUseCase
@@ -131,6 +132,8 @@ import app.orcinus.shadow.domain.plate.PresetSettingsTabs
 import app.orcinus.shadow.domain.plate.PrintHostCertificateUseCase
 import app.orcinus.shadow.domain.plate.PrintHostDiscovery
 import app.orcinus.shadow.domain.plate.PreviewSimplifyUseCase
+import app.orcinus.shadow.domain.plate.ProfileUpdateSource
+import app.orcinus.shadow.domain.plate.ProfileUpdatesUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectInfoUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
@@ -205,6 +208,7 @@ import app.orcinus.shadow.network.printhost.Bonjour
 import app.orcinus.shadow.network.printhost.CrealityHostDiscovery
 import app.orcinus.shadow.network.printhost.FlashforgeDiscovery
 import app.orcinus.shadow.network.printhost.PrintHostUploader
+import app.orcinus.shadow.network.printhost.ProfileUpdateClient
 import app.orcinus.shadow.render.scene.ThumbnailRenderer
 import app.orcinus.shadow.slicing.service.RemoteSlicerEngine
 import app.orcinus.shadow.storage.android.AndroidSystemFonts
@@ -287,8 +291,16 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         onConfigChange = { autoSlice.onConfigChange() },
         filamentRenumbering = filamentRenumbering,
     )
-    private val platePresets: PlatePresets =
-        PlatePresets(engine, sceneFiles, plateCache, plateRepository, placePlateObjects, settingsTabs) { autoSlice.onConfigChange() }
+    private val platePresets: PlatePresets = PlatePresets(
+        engine,
+        sceneFiles,
+        plateCache,
+        plateRepository,
+        placePlateObjects,
+        settingsTabs,
+        onConfigChange = { autoSlice.onConfigChange() },
+        onPrinterChange = { profileUpdates.printerChanged() },
+    )
     private val selectPreset = SelectPresetUseCase(engine, platePresets, flushVolumes, settingsTabs, plateRepository, applicationScope)
     private val applySetup = ApplySetupUseCase(engine, platePresets, plateRepository, applicationScope) {
         projectLifecycle.keepPresetChangesForSetup()
@@ -335,7 +347,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     }
 
     val observePlate = ObservePlateUseCase(plateRepository)
-    val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, platePresets, sceneFiles, plateCache, plateRepository, appPreferences)
+    val startEngine = StartEngineUseCase(GetEngineStatusUseCase(engine), engine, platePresets, sceneFiles, plateCache, plateRepository, appPreferences) {
+        profileUpdates.syncAtStartup()
+    }
     // The desktop app renders the G-code thumbnails with its 3D view's
     // renderer; the app's renderer draws them offscreen before it slices.
     private val thumbnailRenderer = ThumbnailRenderer(applicationContext)
@@ -369,6 +383,22 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val saveProject =
         SaveProjectUseCase(engine, plateThumbnails, sceneFiles, AppDocumentExport(applicationContext), plateRepository, applicationScope, recentProjects, engine, fileShare)
     val projectLifecycle = ProjectLifecycleUseCase(plateRepository, saveProject, engine, engine, platePresets, applicationScope, appPreferences)
+
+    // PresetUpdater: the system profiles' updates of check-version.orcaslicer.com.
+    val profileUpdates = ProfileUpdatesUseCase(
+        engine,
+        object : ProfileUpdateSource {
+            private val client = ProfileUpdateClient()
+
+            override suspend fun check(url: String): ProfileCheckAnswer = client.check(url)
+
+            override suspend fun download(url: String, target: String): Boolean = client.download(url, File(target))
+        },
+        plateRepository,
+        platePresets,
+        savePresetChanges = { projectLifecycle.savePresetChangesForUpdate() },
+        applicationScope = applicationScope,
+    )
 
     /** SavePresetDialog's check of a name, which the project's questions ask too. */
     suspend fun checkPresetName(kind: PresetKind, name: String): PresetNameOutcome = engine.checkPresetName(kind, name)

@@ -42,6 +42,7 @@ import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.ProfileCheckAnswer
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
@@ -73,6 +74,7 @@ import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PlateMeasurer
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
+import app.orcinus.shadow.slicing.api.ProfileUpdater
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -93,7 +95,7 @@ import kotlinx.coroutines.runBlocking
  * itself when the job ends.
  */
 abstract class SlicerService<E> : Service()
-    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor, E : PlateMeasurer, E : BrimEarsEditor {
+    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor, E : PlateMeasurer, E : BrimEarsEditor, E : ProfileUpdater {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -998,6 +1000,24 @@ abstract class SlicerService<E> : Service()
         override fun dirtyPresets(): DirtyPresetsParcel = runBlocking { engine.dirtyPresets() }.toParcel()
 
         override fun discardPresetChanges(): PresetsParcel = runBlocking { engine.discardPresetChanges() }.toParcel()
+
+        override fun profileUpdateRequest(startup: Boolean): Array<String> = runBlocking {
+            engine.profileUpdateRequest(startup).let { arrayOf(if (it.enabled) "1" else "", it.vendor, it.url) }
+        }
+
+        override fun profileUpdateAnswer(vendor: String, status: Int, body: String, error: String): Array<String> = runBlocking {
+            engine.profileUpdateAnswer(vendor, ProfileCheckAnswer(status, body, error))?.let { arrayOf(it.url, it.path) } ?: emptyArray()
+        }
+
+        override fun cacheProfileUpdate(vendor: String): Boolean = runBlocking { engine.cacheProfileUpdate(vendor) }
+
+        override fun profileUpdates(): Array<String> = runBlocking {
+            engine.profileUpdates().flatMap { listOf(it.vendor, it.version, it.changelog, if (it.forced) "1" else "") }.toTypedArray()
+        }
+
+        override fun performProfileUpdates(): Boolean = runBlocking { engine.performProfileUpdates() }
+
+        override fun reloadSystemPresets(): PresetsParcel = runBlocking { engine.reloadSystemPresets() }.toParcel()
 
         override fun selectBedType(value: String): PresetsParcel = runBlocking { engine.selectBedType(value) }.toParcel()
 

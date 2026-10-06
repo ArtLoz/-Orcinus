@@ -2194,6 +2194,21 @@ internal object NativeBindings {
 
     external fun discardPresetChanges(): NativePresetState
 
+    /** profile_update_request(): enabled ("1" or empty), the vendor and the address its check asks. */
+    external fun profileUpdateRequest(startup: Boolean): Array<String>
+
+    /** profile_update_answer(): the newer bundle's address and the file it goes into, both empty for none. */
+    external fun profileUpdateAnswer(vendor: String, status: Int, body: String, error: String): Array<String>
+
+    external fun cacheProfileUpdate(vendor: String): Boolean
+
+    /** profile_updates(): the vendor, version, changelog and forced ("1" or empty) of each update, one after another. */
+    external fun profileUpdates(): Array<String>
+
+    external fun performProfileUpdates(): Boolean
+
+    external fun reloadSystemPresets(): NativePresetState
+
     /** select_bed_type(): the project's plate type, one of curr_bed_type's values. */
     external fun selectBedType(value: String): NativePresetState
 

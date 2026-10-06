@@ -98,8 +98,9 @@ internal data class PreferencePage(val title: String, val sections: List<Prefere
  * Left out: what belongs to a desktop window, a mouse or Windows (single
  * instance, window buttons, the downloads folder, camera style, mouse drag and
  * wheel, file associations), BambuLab's network plug-in and devices, and
- * Orca's cloud (the Online tab, shared profiles, multi-device management),
- * and the items whose features are not ported yet — see docs/work-plan.md.
+ * Orca's cloud (logins, the user presets' sync, shared profiles, multi-device
+ * management), and the items whose features are not ported yet — see
+ * docs/work-plan.md.
  */
 internal val PREFERENCE_PAGES = listOf(
     PreferencePage(
@@ -316,6 +317,26 @@ internal val PREFERENCE_PAGES = listOf(
                         "Displays current viewport FPS in the top-right corner.",
                     ),
                 ),
+            ),
+        ),
+    ),
+    PreferencePage(
+        "Online",
+        listOf(
+            PreferenceSection(
+                "Connection",
+                listOf(
+                    PreferenceItem.Check(
+                        AppConfigKeys.STEALTH_MODE,
+                        "Stealth mode",
+                        "This disables all cloud features, including Orca Cloud profile syncing. Users who prefer to work entirely offline " +
+                            "can enable this option.\nNote: When Stealth Mode is enabled, your user profiles will not be backed up to Orca Cloud.",
+                    ),
+                ),
+            ),
+            PreferenceSection(
+                "Update & sync",
+                listOf(PreferenceItem.Check(AppConfigKeys.SYNC_SYSTEM_PRESET, "Update built-in presets automatically.")),
             ),
         ),
     ),

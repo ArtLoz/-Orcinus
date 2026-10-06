@@ -9,7 +9,7 @@ Early preview:
 • See the estimated print time, filament use, and layer count
 • A workspace laid out like desktop OrcaSlicer, following the system light or dark theme
 
-Private by design: Orcinus works fully offline. It does not request internet access and collects no data.
+Private by design: no accounts, analytics, or ads, and no data collected. Orcinus goes online only to check for printer profile updates, which can be turned off, and to send G-code to the printers you add.
 
 Free and open source under the GNU AGPL v3.0. The source code is linked from the app's About page.
 

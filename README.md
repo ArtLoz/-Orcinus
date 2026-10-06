@@ -35,7 +35,7 @@ OrcaSlicer would.
 | 🎯 **Desktop parity** | G-code from the phone is compared with official OrcaSlicer 2.4.2: 10 models, same layers and settings, extrusion within 1 %. [Details](docs/golden-comparison.md) |
 | ⚡ **Slices in the background** | The engine runs in its own process as a foreground service: progress and a cancel button in a notification, and a native crash never takes the app down. |
 | 🎨 **Feels like OrcaSlicer** | OrcaSlicer's colours, icons, and workspace layout, light and dark, with an adaptive layout for phones and wider screens. |
-| 🔒 **Private by design** | Works fully offline. No internet permission, no analytics, no accounts. |
+| 🔒 **Private by design** | No analytics, no accounts. Goes online only for printer profile updates (can be turned off) and the printers you add. |
 | 🆓 **Free software** | GNU AGPL v3.0, like OrcaSlicer. Every bundled component and its license is listed in the app. |
 
 ## Roadmap

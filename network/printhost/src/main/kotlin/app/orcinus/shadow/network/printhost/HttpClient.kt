@@ -83,6 +83,13 @@ interface HttpClient {
     suspend fun get(url: String, headers: Map<String, String>, auth: HttpAuth? = null): Result<String>
 
     /**
+     * Http::get() of a file: the answer's body written to [target] as it
+     * comes, as the profile updater saves a bundle. Nothing is left of a
+     * download that failed.
+     */
+    suspend fun download(url: String, target: File): Result<Unit> = Result.failure(UnsupportedOperationException("download"))
+
+    /**
      * Http::ca_file(): the same client trusting the certificates of the file
      * at [path] for HTTPS instead of the system's, as curl's CAINFO does.
      */
@@ -206,6 +213,15 @@ class UrlConnectionHttpClient(
         request(url, "GET", headers, contentType = null, auth = auth, aborter = aborter, writeBody = null)
     }
 
+    override suspend fun download(url: String, target: File): Result<Unit> = try {
+        cancellable { aborter -> perform(url, "GET", emptyMap(), contentType = null, streamed = false, aborter = aborter, writeBody = null, sink = target).result() }
+            .map { }
+            .onFailure { target.delete() }
+    } catch (cancelled: CancellationException) {
+        target.delete()
+        throw cancelled
+    }
+
     /**
      * Http::cancel(): a request whose coroutine is cancelled is aborted, its
      * connection closed under the read or write it blocks in — a login that
@@ -303,6 +319,8 @@ class UrlConnectionHttpClient(
         streamed: Boolean,
         aborter: Aborter,
         writeBody: ((OutputStream) -> Unit)?,
+        /** The file a success's body is written to instead of being read as text. */
+        sink: File? = null,
     ): Answer {
         if (aborter.aborted) return Answer.Failed(IOException("Canceled"))
         val connection = try {
@@ -336,6 +354,10 @@ class UrlConnectionHttpClient(
             }
             val code = connection.responseCode
             when {
+                code in 200..299 && sink != null -> {
+                    connection.inputStream.use { input -> sink.outputStream().use { input.copyTo(it) } }
+                    Answer.Ok("")
+                }
                 code in 200..299 -> Answer.Ok(connection.inputStream.use { it.readBytes().decodeToString() })
                 else -> {
                     val body = errorBody(connection)

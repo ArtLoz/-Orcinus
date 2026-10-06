@@ -70,6 +70,7 @@ import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
+import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
@@ -99,6 +100,8 @@ import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
+import app.orcinus.shadow.core.ui.plate.ProfileUpdateAvailableNotification
+import app.orcinus.shadow.core.ui.plate.ProfileUpdateFinishedNotification
 import app.orcinus.shadow.core.ui.plate.SimplifySuggestionNotification
 import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
@@ -149,6 +152,8 @@ internal fun PreviewRoute(
             onOpenPrepare()
         },
         onCloseSimplifySuggestion = viewModel::dismissSimplifySuggestion,
+        onProfileUpdates = viewModel::closeProfileUpdates,
+        onCloseProfileUpdateInstalled = viewModel::dismissProfileUpdateInstalled,
         onSlice = {
             onSliceRequested()
             viewModel.slice()
@@ -250,6 +255,9 @@ internal fun PreviewScreen(
     /** "Simplify model", and the close button, of the advice to simplify an object. */
     onSimplifySuggested: (ScenePath) -> Unit = {},
     onCloseSimplifySuggestion: (ScenePath) -> Unit = {},
+    /** "Detail." (true), and the close button, of "Configuration can update now."; the close button of a forced update's. */
+    onProfileUpdates: (detail: Boolean) -> Unit = {},
+    onCloseProfileUpdateInstalled: (ProfileUpdate) -> Unit = {},
     /** The G-code as Android's share sheet takes it; null when there is none. */
     onShareGcode: suspend () -> ExternalDocumentReference? = { null },
     layerGcodeActions: LayerGcodeActions = LayerGcodeActions.NONE,
@@ -521,6 +529,12 @@ internal fun PreviewScreen(
                         onSimplify = { onSimplifySuggested(target.mesh) },
                         onClose = { onCloseSimplifySuggestion(target.mesh) },
                     )
+                }
+                if (state.profileUpdates?.notified == true) {
+                    ProfileUpdateAvailableNotification(onDetail = { onProfileUpdates(true) }, onClose = { onProfileUpdates(false) })
+                }
+                state.profileUpdatesInstalled.forEach { update ->
+                    ProfileUpdateFinishedNotification(update.vendor, update.version, onClose = { onCloseProfileUpdateInstalled(update) })
                 }
                 // The slicing notifications stay on the preview (NotificationManager::set_in_preview()).
                 state.result?.let { sliced ->

@@ -141,6 +141,7 @@ import app.orcinus.shadow.core.model.PlateNoticeKind
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateSlicing
+import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SliceJobId
@@ -177,6 +178,8 @@ import app.orcinus.shadow.core.ui.plate.PlateNameDialog
 import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
+import app.orcinus.shadow.core.ui.plate.ProfileUpdateAvailableNotification
+import app.orcinus.shadow.core.ui.plate.ProfileUpdateFinishedNotification
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.SeqPrintInfoNotification
@@ -467,6 +470,8 @@ internal fun PrepareRoute(
             closeExportFinished = viewModel::dismissExportFinished,
             simplify = viewModel::simplifySuggested,
             closeSimplifySuggestion = viewModel::dismissSimplifySuggestion,
+            profileUpdates = viewModel::closeProfileUpdates,
+            closeProfileUpdateInstalled = viewModel::dismissProfileUpdateInstalled,
         ),
         onRepairObject = viewModel::repairSelected,
         onJumpTo = viewModel::jumpTo,
@@ -1648,6 +1653,12 @@ private fun Notifications(
             onClose = { actions.closeSimplifySuggestion(target.mesh) },
         )
     }
+    if (state.profileUpdates?.notified == true) {
+        ProfileUpdateAvailableNotification(onDetail = { actions.profileUpdates(true) }, onClose = { actions.profileUpdates(false) })
+    }
+    state.profileUpdatesInstalled.forEach { update ->
+        ProfileUpdateFinishedNotification(update.vendor, update.version, onClose = { actions.closeProfileUpdateInstalled(update) })
+    }
     // GLGizmoMmuSegmentation::on_opening(): show_notification_extruders_limit_exceeded().
     if (state.painting?.kind == PaintKind.COLOR && state.filamentColors.size > MMU_EXTRUDERS_LIMIT) {
         OrcaNotification {
@@ -1728,6 +1739,10 @@ internal class NotificationActions(
     /** "Simplify model", and the close button, of the advice to simplify an object. */
     val simplify: (ScenePath) -> Unit = {},
     val closeSimplifySuggestion: (ScenePath) -> Unit = {},
+    /** "Detail." (true), and the close button, of "Configuration can update now.". */
+    val profileUpdates: (detail: Boolean) -> Unit = {},
+    /** The close button of a forced update's "Configuration package: ... updated to ...". */
+    val closeProfileUpdateInstalled: (ProfileUpdate) -> Unit = {},
 ) {
     companion object {
         val NONE = NotificationActions()

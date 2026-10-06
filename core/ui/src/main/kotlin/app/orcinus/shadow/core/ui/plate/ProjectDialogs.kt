@@ -94,7 +94,8 @@ fun ProjectRestoreDialog(onAnswer: (restore: Boolean) -> Unit) {
  * unsaved changes and its changes; Transfer keeps them for a new project,
  * Save saves them (SavePresetDialog asks the names of the presets that cannot
  * be overwritten, one after another on a phone), Discard lets them go. A
- * project asks it with REMEMBER_CHOISE: "Remember my choice." keeps the action.
+ * project asks it with REMEMBER_CHOISE: "Remember my choice." keeps the action;
+ * the configuration updates ask it without.
  */
 @Composable
 fun ProjectPresetChangesDialog(
@@ -140,7 +141,7 @@ fun ProjectPresetChangesDialog(
                         items(preset.changes) { PresetChangeRow(it) }
                     }
                 }
-                RememberChoice(remember) { remember = it }
+                if (prompt.remember) RememberChoice(remember) { remember = it }
             }
         },
         confirmButton = {

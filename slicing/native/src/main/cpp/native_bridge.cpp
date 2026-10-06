@@ -2356,6 +2356,56 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_discardPresetChanges
     return to_java(env, orcinus::orca::discard_preset_changes());
 }
 
+// profile_update_request(): enabled ("1" or empty), the vendor and the address.
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_profileUpdateRequest(JNIEnv* env, jobject /* this */, jboolean startup)
+{
+    const orcinus::orca::ProfileUpdateRequest request = orcinus::orca::profile_update_request(startup == JNI_TRUE);
+    return to_java(env, std::vector<std::string>{request.enabled ? "1" : "", request.vendor, request.url});
+}
+
+// profile_update_answer(): the bundle's address and the file it goes into.
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_profileUpdateAnswer(
+    JNIEnv* env, jobject /* this */, jstring vendor, jint status, jstring body, jstring error)
+{
+    const orcinus::orca::ProfileDownload download =
+        orcinus::orca::profile_update_answer(to_utf8(env, vendor), static_cast<int>(status), to_utf8(env, body), to_utf8(env, error));
+    return to_java(env, std::vector<std::string>{download.url, download.path});
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_cacheProfileUpdate(JNIEnv* env, jobject /* this */, jstring vendor)
+{
+    return orcinus::orca::cache_profile_update(to_utf8(env, vendor)) ? JNI_TRUE : JNI_FALSE;
+}
+
+// profile_updates(): the vendor, version, changelog and forced ("1" or empty) of each.
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_profileUpdates(JNIEnv* env, jobject /* this */)
+{
+    std::vector<std::string> values;
+    for (const orcinus::orca::ProfileUpdate& update : orcinus::orca::profile_updates()) {
+        values.push_back(update.vendor);
+        values.push_back(update.version);
+        values.push_back(update.changelog);
+        values.push_back(update.forced ? "1" : "");
+    }
+    return to_java(env, values);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_performProfileUpdates(JNIEnv* /* env */, jobject /* this */)
+{
+    return orcinus::orca::perform_profile_updates() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_reloadSystemPresets(JNIEnv* env, jobject /* this */)
+{
+    return to_java(env, orcinus::orca::reload_system_presets());
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_resetProjectPresets(JNIEnv* env, jobject /* this */)
 {

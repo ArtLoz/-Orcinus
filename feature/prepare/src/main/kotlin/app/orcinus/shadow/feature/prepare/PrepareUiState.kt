@@ -48,6 +48,8 @@ import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PlateValidationMessage
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.ProfileUpdate
+import app.orcinus.shadow.core.model.ProfileUpdatesNotice
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SettingsMode
@@ -263,6 +265,10 @@ data class PrepareUiState(
     val exportFinished: String? = null,
     /** PlateState.simplifySuggestions: the objects advised to be simplified. */
     val simplifySuggestions: List<PlateObject> = emptyList(),
+    /** PlateState.profileUpdates: "Configuration can update now." shows while it is notified. */
+    val profileUpdates: ProfileUpdatesNotice? = null,
+    /** PlateState.profileUpdatesInstalled: the packages a forced update installed. */
+    val profileUpdatesInstalled: List<ProfileUpdate> = emptyList(),
     /** The sequential printing's clearances while the validation fails. */
     val clearance: PlateClearance? = null,
     val arrangeOptionsOpen: Boolean,
@@ -1094,6 +1100,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         seqPrintInfo = seqPrintInfo,
         exportFinished = exportFinished,
         simplifySuggestions = simplifySuggestions.mapNotNull { mesh -> objects.firstOrNull { it.mesh == mesh } },
+        profileUpdates = profileUpdates,
+        profileUpdatesInstalled = profileUpdatesInstalled,
         clearance = validation?.takeIf { it.error != null && (it.clearance.isNotEmpty() || it.heightLimitFill.isNotEmpty()) }
             ?.let { PlateClearance(it.clearance, it.clearanceFill, it.heightLimitFill) },
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,

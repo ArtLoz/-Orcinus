@@ -479,6 +479,27 @@ class ProjectLifecycleUseCase(
     }
 
     /**
+     * GUI_App::check_and_save_current_preset_changes() of
+     * reload_configs_update_gui(): before the configuration updates load, the
+     * changes are saved as presets or discarded, which the presets loaded anew
+     * do; it offers no "Remember my choice.". False for Cancel.
+     */
+    suspend fun savePresetChangesForUpdate(): Boolean {
+        val dirty = dirtyPresets() ?: return true
+        val prompt = ProjectPrompt.PresetChanges(
+            OrcaText("Configuration updates"),
+            listOf(OrcaText("Need to check the unsaved changes before configuration updates.")),
+            dirty,
+            transfer = false,
+            save = true,
+            remember = false,
+        )
+        val reply = ask<Reply<PresetChangesAnswer>>(prompt) { presetChanges = it } ?: return false
+        (reply.answer as? PresetChangesAnswer.Save)?.let { savePresets(dirty, it) }
+        return true
+    }
+
+    /**
      * GUI_App::check_and_save_current_preset_changes() before a project
      * loads: the changes are saved as presets, or left to the project's own.
      */

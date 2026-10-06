@@ -450,6 +450,15 @@ interface ISlicerService {
     /** dirty_presets(), discard_preset_changes() and reset_project_presets(). */
     DirtyPresetsParcel dirtyPresets();
     PresetsParcel discardPresetChanges();
+    /** profile_update_request(): enabled ("1" or empty), the vendor and the address its check asks. */
+    String[] profileUpdateRequest(boolean startup);
+    /** profile_update_answer(): the newer bundle's address and the file it goes into, none for no bundle. */
+    String[] profileUpdateAnswer(String vendor, int status, String body, String error);
+    boolean cacheProfileUpdate(String vendor);
+    /** profile_updates(): the vendor, version, changelog and forced ("1" or empty) of each update, one after another. */
+    String[] profileUpdates();
+    boolean performProfileUpdates();
+    PresetsParcel reloadSystemPresets();
     PresetsParcel selectBedType(String value);
     PresetsParcel resetProjectPresets();
     /** update_saved_presets() */

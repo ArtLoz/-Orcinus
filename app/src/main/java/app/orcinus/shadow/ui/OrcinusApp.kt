@@ -62,6 +62,7 @@ import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.ObjColorActions
 import app.orcinus.shadow.core.ui.plate.ObjColorDialog
+import app.orcinus.shadow.core.ui.plate.ProfileUpdateDialog
 import app.orcinus.shadow.core.ui.plate.ProjectDropSheet
 import app.orcinus.shadow.core.ui.plate.ProjectPresetChangesDialog
 import app.orcinus.shadow.core.ui.plate.ProjectRestoreDialog
@@ -77,6 +78,7 @@ import app.orcinus.shadow.domain.plate.AutoSliceUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateNoticeUseCase
 import app.orcinus.shadow.domain.plate.ObjColorPrompt
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
+import app.orcinus.shadow.domain.plate.ProfileUpdatesUseCase
 import app.orcinus.shadow.domain.plate.ProjectBackupUseCase
 import app.orcinus.shadow.domain.plate.ProjectLifecycleUseCase
 import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
@@ -132,6 +134,7 @@ class AppShellViewModel(
     private val reloadFromDisk: ReloadFromDiskUseCase,
     /** ObjColorDialog's panel and answer. */
     val objColorPrompt: ObjColorPrompt,
+    private val profileUpdates: ProfileUpdatesUseCase,
 ) : ViewModel() {
     val plate: StateFlow<PlateState> = observePlate()
 
@@ -179,6 +182,9 @@ class AppShellViewModel(
     /** "Do you want to replace it ?" of "Reload from disk". */
     fun reloadReplace(yes: Boolean) = reloadFromDisk.replace(yes)
 
+    /** MsgUpdateConfig's OK, which installs the configuration packages, or Cancel. */
+    fun answerProfileUpdates(install: Boolean) = profileUpdates.answer(install)
+
     /** Whether the workspace shows Preview, which "Auto slice after changes" asks. */
     fun showingPreview(shown: Boolean) = autoSlice.setPreviewShown(shown)
 }
@@ -214,6 +220,7 @@ fun OrcinusApp(
             container.defaultPage,
             container.reloadFromDisk,
             container.objColorPrompt,
+            container.profileUpdates,
         )
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
@@ -314,6 +321,7 @@ private fun Workspace(
     val reloadPrompt = plate.reloadPrompt
     val stepMesh = plate.stepMesh
     val objColor = plate.objColor
+    val profileUpdates = plate.profileUpdates?.takeIf { it.confirming }
     // "Reload from disk"'s file dialog for a file the app can no longer read.
     var reloadPicking by remember { mutableStateOf(false) }
     val reloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -340,6 +348,7 @@ private fun Workspace(
         projectPrompt is ProjectPrompt.RestoreBackup -> ProjectRestoreDialog(onAnswer = shell::answerRestore)
         projectPrompt is ProjectPrompt.PresetChanges ->
             ProjectPresetChangesDialog(projectPrompt, checkName = shell::checkPresetName, onAnswer = shell::answerPresetChanges)
+        profileUpdates != null -> ProfileUpdateDialog(profileUpdates.updates, onAnswer = shell::answerProfileUpdates)
         projectDrop != null -> ProjectDropSheet(projectDrop.value.substringAfterLast('/'), onChoose = shell::openProjectAs)
         // wxFileDialog's "Please select a file:", named after the file it looks for.
         reloadPrompt is ReloadPrompt.PickFile && !reloadPicking -> SettingsQuestionDialog(

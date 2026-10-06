@@ -96,7 +96,11 @@ import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
 import app.orcinus.shadow.core.model.PresetsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
+import app.orcinus.shadow.core.model.ProfileCheckAnswer
+import app.orcinus.shadow.core.model.ProfileDownload
 import app.orcinus.shadow.core.model.ProfileId
+import app.orcinus.shadow.core.model.ProfileUpdate
+import app.orcinus.shadow.core.model.ProfileUpdateRequest
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
@@ -142,6 +146,7 @@ import app.orcinus.shadow.slicing.api.PlateInspector
 import app.orcinus.shadow.slicing.api.PlateMeasurer
 import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
+import app.orcinus.shadow.slicing.api.ProfileUpdater
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
@@ -161,7 +166,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor, PlateMeasurer, BrimEarsEditor {
+) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor, PlateMeasurer, BrimEarsEditor, ProfileUpdater {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -1112,6 +1117,26 @@ class RemoteSlicerEngine(
 
     override suspend fun discardPresetChanges(): PresetsOutcome = remote(PresetsOutcome::Failure) { discardPresetChanges().toPresetsOutcome() }
 
+    override suspend fun profileUpdateRequest(startup: Boolean): ProfileUpdateRequest =
+        remote({ ProfileUpdateRequest(enabled = false, vendor = "", url = "") }) {
+            val values = profileUpdateRequest(startup)
+            ProfileUpdateRequest(enabled = values[0].isNotEmpty(), vendor = values[1], url = values[2])
+        }
+
+    override suspend fun profileUpdateAnswer(vendor: String, answer: ProfileCheckAnswer): ProfileDownload? = remote({ null }) {
+        profileUpdateAnswer(vendor, answer.status, answer.body, answer.error).takeIf { it.size == 2 }?.let { ProfileDownload(it[0], it[1]) }
+    }
+
+    override suspend fun cacheProfileUpdate(vendor: String): Boolean = remote({ false }) { cacheProfileUpdate(vendor) }
+
+    override suspend fun profileUpdates(): List<ProfileUpdate> = remote({ emptyList() }) {
+        profileUpdates().toList().chunked(PROFILE_UPDATE_FIELDS).map { ProfileUpdate(it[0], it[1], it[2], forced = it[3].isNotEmpty()) }
+    }
+
+    override suspend fun performProfileUpdates(): Boolean = remote({ false }) { performProfileUpdates() }
+
+    override suspend fun reloadSystemPresets(): PresetsOutcome = remote(PresetsOutcome::Failure) { reloadSystemPresets().toPresetsOutcome() }
+
     override suspend fun selectBedType(value: String): PresetsOutcome = remote(PresetsOutcome::Failure) { selectBedType(value).toPresetsOutcome() }
 
     override suspend fun resetProjectPresets(): PresetsOutcome = remote(PresetsOutcome::Failure) { resetProjectPresets().toPresetsOutcome() }
@@ -1596,5 +1621,8 @@ class RemoteSlicerEngine(
 
     private companion object {
         const val PROCESS_DIED = "The slicing engine process terminated unexpectedly"
+
+        /** The values ISlicerService.profileUpdates() gives each update. */
+        const val PROFILE_UPDATE_FIELDS = 4
     }
 }

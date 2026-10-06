@@ -23,6 +23,8 @@ import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterConnectionOutcome
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
+import app.orcinus.shadow.core.model.ProfileUpdate
+import app.orcinus.shadow.core.model.ProfileUpdatesNotice
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
@@ -91,6 +93,10 @@ data class PreviewUiState(
     val exportFinished: String? = null,
     /** PlateState.simplifySuggestions: the objects advised to be simplified. */
     val simplifySuggestions: List<PlateObject> = emptyList(),
+    /** PlateState.profileUpdates: "Configuration can update now." shows while it is notified. */
+    val profileUpdates: ProfileUpdatesNotice? = null,
+    /** PlateState.profileUpdatesInstalled: the packages a forced update installed. */
+    val profileUpdatesInstalled: List<ProfileUpdate> = emptyList(),
 ) {
     /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
     val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
@@ -247,6 +253,15 @@ class PreviewViewModel(
         dismissPlateProblem?.simplifySuggestion(mesh)
     }
 
+    /** "Detail." ([detail]), or the close button, of "Configuration can update now.". */
+    fun closeProfileUpdates(detail: Boolean) {
+        dismissPlateProblem?.profileUpdates(detail)
+    }
+
+    fun dismissProfileUpdateInstalled(update: ProfileUpdate) {
+        dismissPlateProblem?.profileUpdateInstalled(update)
+    }
+
     /** "Simplify model": the 3D editor opens with the Simplify gizmo on the object. */
     fun simplifySuggested(mesh: ScenePath) {
         openSimplify?.suggested(mesh)
@@ -283,4 +298,6 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     shells = validation?.printObjects.orEmpty().mapNotNull { printed -> objects.getOrNull(printed.objectIndex)?.let { it to printed.printZMin } },
     exportFinished = exportFinished,
     simplifySuggestions = simplifySuggestions.mapNotNull { mesh -> objects.firstOrNull { it.mesh == mesh } },
+    profileUpdates = profileUpdates,
+    profileUpdatesInstalled = profileUpdatesInstalled,
 )

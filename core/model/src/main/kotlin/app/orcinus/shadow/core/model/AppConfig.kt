@@ -139,6 +139,12 @@ object AppConfigKeys {
     const val BACKUP_SWITCH = "backup_switch"
     const val BACKUP_INTERVAL = "backup_interval"
 
+    /** "Stealth mode": no online request at all (AppConfig's default "false"). */
+    const val STEALTH_MODE = "stealth_mode"
+
+    /** "Update built-in presets automatically.": the system profiles' updates are checked (AppConfig's default "true"). */
+    const val SYNC_SYSTEM_PRESET = "sync_system_preset"
+
     /** StepMeshDialog's values, which its OK writes (the desktop app's spelling). */
     const val IS_SPLIT_COMPOUND = "is_split_compound"
     const val LINEAR_DEFLETION = "linear_defletion"
@@ -197,6 +203,8 @@ object AppConfigKeys {
         ENABLE_STEP_MESH_SETTING,
         BACKUP_SWITCH,
         BACKUP_INTERVAL,
+        STEALTH_MODE,
+        SYNC_SYSTEM_PRESET,
         DEFAULT_PAGE,
         MAX_RECENT_COUNT,
         RECENT_MODELS,
