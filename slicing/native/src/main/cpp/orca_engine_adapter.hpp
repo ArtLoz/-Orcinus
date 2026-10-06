@@ -2015,6 +2015,9 @@ struct ImportedModels {
     ObjColorQuestion obj_color;
     // The OBJ file that waits, by its place among the files of the load.
     int obj_color_file{0};
+    // load_files()'s is_user_cancel: the user cancelled the load in its
+    // progress dialog. Nothing was added, and no error tells of it.
+    bool cancelled{false};
     std::vector<ImportedObject> objects;
     // load_files() of several files the user wants as separate objects that
     // keep their places: they load as one object, which split_object() then
@@ -2133,6 +2136,11 @@ enum class ModelLoad : std::int64_t {
     geometry = 0,
     project = 1,
 };
+
+// ProgressDialog::Update() of Plater::priv::load_files(): the load's percent
+// in [0, 100] and the name of the file it reads ("Loading file: %s"). It
+// answers false once the user pressed Cancel.
+using LoadProgressFn = std::function<bool(int percent, const std::string& file_name)>;
 
 // What the object menu changes the mesh of an object with.
 enum class ObjectEdit : std::int64_t {
@@ -3262,7 +3270,9 @@ ImportedModels import_model(
 // they drop onto the plate. step_meshes holds StepMeshDialog's answer for
 // each file; a STEP file without one stops the load (step_file). obj_colors
 // holds ObjColorDialog's answer for each file; an OBJ file with colours
-// without one stops the load (obj_color_file).
+// without one stops the load (obj_color_file). progress is told of the load
+// as load_files()'s ProgressDialog is; when it answers false, the load stops
+// and adds nothing (cancelled).
 ImportedModels import_models(
     const std::vector<std::string>& source_paths,
     const ProfileSelection& profiles,
@@ -3273,7 +3283,8 @@ ImportedModels import_models(
     bool chosen,
     const std::vector<StepMeshChoice>& step_meshes,
     bool ask_multi,
-    const std::vector<ObjColorChoice>& obj_colors = {}
+    const std::vector<ObjColorChoice>& obj_colors = {},
+    const LoadProgressFn& progress = nullptr
 );
 
 // ObjColorPanel::deal_thumbnail(): the OBJ file at path that waits for the

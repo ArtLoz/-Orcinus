@@ -4847,6 +4847,42 @@ TEST_CASE("Several model files load together and ask whether they make one objec
     CHECK_FALSE(kept.objects.front().auto_drops.front());
 }
 
+TEST_CASE("Import progress goes through every file, and its Cancel stops the load, which adds nothing", "[Adapter][Import]")
+{
+    require_engine();
+    const std::string base = device_dir + "/tmp/import/progress-base.obj";
+    const std::string top = device_dir + "/tmp/import/progress-top.obj";
+    write_text(base, cube_obj(20.0));
+    write_text(top, cube_obj_at(10.0, 5.0, 5.0, 20.0));
+    const auto load = [&](const std::string& name, const orca::LoadProgressFn& progress) {
+        return orca::import_models({base, top}, k2_plus_profiles(), {}, import_prefix(name), {}, orca::ModelLoad::geometry, false, {}, false, {}, progress);
+    };
+
+    // load_files(): each file has half of the dialog, which it fills to 90% once its objects are placed.
+    std::vector<std::pair<int, std::string>> shown;
+    const orca::ImportedModels loaded = load("progress-all", [&](int percent, const std::string& file) {
+        shown.emplace_back(percent, file);
+        return true;
+    });
+    INFO(loaded.message);
+    REQUIRE(loaded.objects.size() == 2);
+    CHECK_FALSE(loaded.cancelled);
+    REQUIRE_FALSE(shown.empty());
+    CHECK(shown.front() == std::make_pair(0, std::string("progress-base.obj")));
+    CHECK(std::find(shown.begin(), shown.end(), std::make_pair(50, std::string("progress-top.obj"))) != shown.end());
+    CHECK(shown.back() == std::make_pair(95, std::string("progress-top.obj")));
+    CHECK(std::is_sorted(shown.begin(), shown.end(), [](const auto& a, const auto& b) { return a.first < b.first; }));
+
+    // Cancel while the second file loads: nothing of either file is added, and no error or warning tells of it.
+    const orca::ImportedModels cancelled = load("progress-cancel", [](int, const std::string& file) { return file != "progress-top.obj"; });
+    INFO(cancelled.message);
+    REQUIRE(cancelled.status == orca::SceneStatus::success);
+    CHECK(cancelled.cancelled);
+    CHECK(cancelled.objects.empty());
+    CHECK(cancelled.notices.empty());
+    CHECK_FALSE(cancelled.has_question);
+}
+
 TEST_CASE("Split to parts makes every shell of a mesh a part of the object", "[Adapter][Edit]")
 {
     require_engine();

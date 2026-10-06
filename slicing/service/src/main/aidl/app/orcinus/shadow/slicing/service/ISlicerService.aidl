@@ -32,6 +32,7 @@ import app.orcinus.shadow.slicing.service.EngineStatusParcel;
 import app.orcinus.shadow.slicing.service.FlatteningPlanesParcel;
 import app.orcinus.shadow.slicing.service.VolumeDescriptionParcel;
 import app.orcinus.shadow.slicing.service.InspectionParcel;
+import app.orcinus.shadow.slicing.service.IModelLoadProgress;
 import app.orcinus.shadow.slicing.service.ISliceCallback;
 import app.orcinus.shadow.slicing.service.ModelLoadParcel;
 import app.orcinus.shadow.slicing.service.ModelSettingsParcel;
@@ -80,7 +81,8 @@ interface ISlicerService {
      * each: chosen (1 or 0), the linear and angle deflections, split (1 or 0).
      * askMulti asks whether several files make one object. objColorCounts
      * holds ObjColorDialog's answer for every file: -1 for none, otherwise
-     * how many of objColorFilaments, in turn, are its filaments.
+     * how many of objColorFilaments, in turn, are its filaments. progress
+     * is told what load_files()'s ProgressDialog shows while the load runs.
      */
     ModelLoadParcel load(
         in String[] sources,
@@ -94,8 +96,11 @@ interface ISlicerService {
         in double[] stepMeshes,
         boolean askMulti,
         in int[] objColorCounts,
-        in int[] objColorFilaments
+        in int[] objColorFilaments,
+        @nullable IModelLoadProgress progress
     );
+    /** The Cancel of the load's ProgressDialog; runs beside the load. */
+    oneway void cancelLoad();
     /** edit_object(): edit is the ObjectEdit's name; volume -1 edits the whole object. */
     ModelLoadParcel edit(
         in PlacedModelParcel[] plate,

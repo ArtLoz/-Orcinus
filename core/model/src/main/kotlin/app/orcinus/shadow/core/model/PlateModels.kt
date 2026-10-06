@@ -1185,6 +1185,12 @@ fun cutConnectors(values: DoubleArray, kinds: IntArray): List<CutConnector> = (0
     )
 }
 
+/**
+ * What Plater::priv::load_files()'s ProgressDialog shows: how far the load got,
+ * in percent, and the file it reads ("Loading file: %s").
+ */
+data class LoadProgress(val percent: Int, val file: String)
+
 /** Everything the app knows about the plate being prepared and sliced. */
 data class PlateState(
     val engine: EngineState = EngineState(),
@@ -1206,6 +1212,8 @@ data class PlateState(
     /** The plate of the selected printer; null until the engine described it. */
     val plate: PlateDescription? = null,
     val importing: Boolean = false,
+    /** The ProgressDialog of the load_files() that runs; null while none does or it asks something. */
+    val loadProgress: LoadProgress? = null,
     /** The object menu is changing the meshes of an object (ObjectEdit). */
     val editing: Boolean = false,
     /** A question OrcaSlicer asked while it changed the plate; the change goes on once it is answered. */

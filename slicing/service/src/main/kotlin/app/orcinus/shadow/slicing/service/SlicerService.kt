@@ -156,6 +156,7 @@ abstract class SlicerService<E> : Service()
             askMulti: Boolean,
             objColorCounts: IntArray,
             objColorFilaments: IntArray,
+            progress: IModelLoadProgress?,
         ): ModelLoadParcel = runBlocking {
             engine.load(
                 sources.map(::ModelPath),
@@ -168,8 +169,16 @@ abstract class SlicerService<E> : Service()
                 stepMeshes.toStepMeshes(),
                 askMulti,
                 objColorChoices(objColorCounts, objColorFilaments),
-            )
+            ) { percent, file ->
+                try {
+                    progress?.onProgress(percent, file)
+                } catch (_: RemoteException) {
+                    // The app is gone, and its dialog with it.
+                }
+            }
         }.toParcel()
+
+        override fun cancelLoad() = engine.cancelLoad()
 
         override fun edit(
             plate: Array<PlacedModelParcel>,

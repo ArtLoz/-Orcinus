@@ -239,6 +239,10 @@ class NativeSlicerEngine(context: Context) :
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
 
+    /** The Cancel of the progress dialog of the load that runs, until the next load starts. */
+    @Volatile
+    private var loadCancelled = false
+
     override suspend fun status(): EngineStatus = statusLock.withLock {
         status ?: withContext(Dispatchers.IO) { start() }.also { status = it }
     }
@@ -374,6 +378,7 @@ class NativeSlicerEngine(context: Context) :
         stepMeshes: Map<Int, StepMeshOptions>,
         askMulti: Boolean,
         objColors: Map<Int, ObjColorChoice>,
+        progress: (percent: Int, file: String) -> Unit,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -381,6 +386,9 @@ class NativeSlicerEngine(context: Context) :
         }
         val stepMesh = sources.indices.map { stepMeshes[it] }
         val objColor = sources.indices.map { objColors[it] }
+        loadCancelled = false
+        // The dialog changes only when what it shows does.
+        var shown: Pair<Int, String>? = null
         NativeBindings.importModel(
             sourcePaths = sources.map(ModelPath::value).toTypedArray(),
             printerProfile = profiles.printer.value,
@@ -400,7 +408,18 @@ class NativeSlicerEngine(context: Context) :
             askMulti = askMulti,
             objColorChosen = objColor.map { it != null }.toBooleanArray(),
             objColorFilaments = objColor.map { it?.clusterFilaments.orEmpty().toIntArray() }.toTypedArray(),
+            progressListener = { percent, file ->
+                if (shown != percent to file) {
+                    shown = percent to file
+                    progress(percent, file)
+                }
+                !loadCancelled
+            },
         ).toOutcome()
+    }
+
+    override fun cancelLoad() {
+        loadCancelled = true
     }
 
     override suspend fun editObjects(
@@ -2841,6 +2860,7 @@ class NativeSlicerEngine(context: Context) :
         return when {
             status != NativeSceneStatus.SUCCESS ->
                 ModelLoadOutcome.Failure(message.ifBlank { "OrcaSlicer could not load the file" }, shown)
+            cancelled -> ModelLoadOutcome.Cancelled(shown)
             hasQuestion -> ModelLoadOutcome.Question(question.toDialog(), shown)
             stepMesh -> ModelLoadOutcome.StepMesh(StepMeshOptions(stepLinearDeflection, stepAngleDeflection, stepSplitCompound), shown, stepFile)
             objColors -> ModelLoadOutcome.ObjColors(

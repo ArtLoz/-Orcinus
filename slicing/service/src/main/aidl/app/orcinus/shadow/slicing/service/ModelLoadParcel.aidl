@@ -5,7 +5,7 @@ import app.orcinus.shadow.slicing.service.LoadedObjectParcel;
 import app.orcinus.shadow.slicing.service.ProjectPlateParcel;
 import app.orcinus.shadow.slicing.service.SettingsDialogParcel;
 
-/** ModelLoadOutcome flattened: an error, a question, or the objects. */
+/** ModelLoadOutcome flattened: an error, a question, a cancel, or the objects. */
 parcelable ModelLoadParcel {
     @nullable String error;
     @nullable SettingsDialogParcel question;
@@ -40,4 +40,6 @@ parcelable ModelLoadParcel {
     int objColorRecommended;
     /** The OBJ file that waits, by its place among the files of the load. */
     int objColorFile;
+    /** ModelLoadOutcome.Cancelled: the user cancelled the load in its progress dialog. */
+    boolean cancelled;
 }

@@ -61,6 +61,7 @@ import app.orcinus.shadow.core.model.LayerGcodeType
 import app.orcinus.shadow.core.model.LayerHeightEdit
 import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.LayerRangeId
+import app.orcinus.shadow.core.model.LoadProgress
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.LoadedProject
 import app.orcinus.shadow.core.model.Manipulation
@@ -876,8 +877,8 @@ class PlateUseCasesTest {
         autoSlice.onConfigChange()
         assertNull(engine.request)
 
+        // set_current_panel()'s do_reslice(): showing Preview slices the plate.
         autoSlice.setPreviewShown(true)
-        autoSlice.onConfigChange()
         assertNotNull(repository.state.value.result)
 
         // Plater::reslice() restarts nothing whose G-code still applies.
@@ -885,11 +886,18 @@ class PlateUseCasesTest {
         autoSlice.onConfigChange()
         assertNull(engine.request)
 
+        // A change that leaves no G-code slices again.
+        repository.update { it.copy(result = null) }
+        autoSlice.onConfigChange()
+        assertNotNull(engine.request)
+
         val off = FakeRepository(readyState(CUBE))
         val offEngine = FakeEngine()
-        AutoSliceUseCase(preferences(), slicePlate(offEngine, off), CancelPlateSlicingUseCase(CancelSliceUseCase(offEngine), off, scope), off, scope)
+        val offSlice = AutoSliceUseCase(preferences(), slicePlate(offEngine, off), CancelPlateSlicingUseCase(CancelSliceUseCase(offEngine), off, scope), off, scope)
             .apply { setPreviewShown(true) }
-            .onConfigChange()
+        offEngine.request = null
+        off.update { it.copy(result = null) }
+        offSlice.onConfigChange()
         assertNull(offEngine.request)
     }
 
@@ -914,6 +922,9 @@ class PlateUseCasesTest {
         val repository = FakeRepository(readyState(CUBE))
         val engine = FakeEngine()
         val autoSlice = autoSlice(engine, repository, delay = "1").apply { setPreviewShown(true) }
+        // Leave the slice showing Preview made.
+        engine.request = null
+        repository.update { it.copy(result = null) }
 
         autoSlice.onConfigChange()
         Thread.sleep(700)
@@ -1053,6 +1064,33 @@ class PlateUseCasesTest {
         assertTrue(cancelledInspector.loads.isEmpty())
         assertFalse(cancelled.state.value.importing)
         assertEquals(listOf(CUBE), cancelled.state.value.objects)
+    }
+
+    @Test
+    fun `Cancel of the load's progress dialog adds nothing, ends the batch and tells of no error, as load_files() does`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val inspector = FakeInspector()
+        val file = ImportedModelFile(ModelPath("/imports/first.3mf"), "first.3mf")
+        val adding = addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles())
+        inspector.loadProgress = listOf(LoadProgress(0, "first.3mf"), LoadProgress(35, "first.3mf"))
+        var shown: LoadProgress? = null
+        inspector.whileLoading = {
+            shown = repository.state.value.loadProgress
+            adding.cancelLoad()
+        }
+
+        adding.loadUnzipped(listOf(ModelPath("/imports/first.3mf"), ModelPath("/imports/second.3mf")), emptyList())
+
+        // The dialog showed how far the load got, and its Cancel reached the engine.
+        assertEquals(LoadProgress(35, "first.3mf"), shown)
+        assertTrue(inspector.loadCancelled)
+        // The second file of the batch never loads, and the plate keeps what it had.
+        assertEquals(1, inspector.loads.size)
+        val state = repository.state.value
+        assertEquals(listOf(CUBE), state.objects)
+        assertFalse(state.importing)
+        assertNull(state.loadProgress)
+        assertNull(state.problem)
     }
 
     @Test
@@ -4325,6 +4363,17 @@ class PlateUseCasesTest {
         /** What the load of a model file answers, for the answers it was given; by default one object. */
         var load: (Map<String, Boolean>) -> ModelLoadOutcome = { ModelLoadOutcome.Success(listOf(LOADED), emptyList()) }
 
+        /** What a load tells its progress dialog before it answers, and what it does meanwhile. */
+        var loadProgress: List<LoadProgress> = emptyList()
+        var whileLoading: () -> Unit = {}
+
+        /** The progress dialog's Cancel reached the engine: the load running answers Cancelled. */
+        var loadCancelled = false
+
+        override fun cancelLoad() {
+            loadCancelled = true
+        }
+
         /** StepMeshDialog's values a load asks with before it is answered; null for a file that does not ask. */
         var stepMeshAsked: StepMeshOptions? = null
         val stepMeshes = mutableListOf<StepMeshOptions?>()
@@ -4349,12 +4398,17 @@ class PlateUseCasesTest {
             stepMeshes: Map<Int, StepMeshOptions>,
             askMulti: Boolean,
             objColors: Map<Int, ObjColorChoice>,
+            progress: (percent: Int, file: String) -> Unit,
         ): ModelLoadOutcome {
             loads += Load(sources.first(), prefix, answers, load, chosen, sources, askMulti)
             val stepMesh = stepMeshes[0]
             this.stepMeshes += stepMesh
             this.profiles = profiles
             this.plate = plate
+            loadCancelled = false
+            loadProgress.forEach { progress(it.percent, it.file) }
+            whileLoading()
+            if (loadCancelled) return ModelLoadOutcome.Cancelled()
             // A STEP file waits for StepMeshDialog until it is answered.
             stepMeshAsked?.let { asked -> if (stepMesh == null) return ModelLoadOutcome.StepMesh(asked, emptyList()) }
             return load(answers)

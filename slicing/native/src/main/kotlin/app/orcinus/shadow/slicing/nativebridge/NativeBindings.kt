@@ -5,6 +5,14 @@ internal fun interface NativeProgressListener {
     fun onProgress(percent: Int, message: String)
 }
 
+/**
+ * Called by the native bridge on the thread of a load, as load_files() updates
+ * its ProgressDialog; false cancels the load.
+ */
+internal fun interface NativeLoadProgressListener {
+    fun onProgress(percent: Int, file: String): Boolean
+}
+
 /** Constructed by the native bridge; field order matches native_bridge.cpp. */
 internal class NativeSliceResult(
     @JvmField val status: Long,
@@ -1049,6 +1057,8 @@ internal class NativeImportedModels(
     @JvmField val objColorRecommended: Int,
     /** The OBJ file that waits, by its place among the files of the load. */
     @JvmField val objColorFile: Int,
+    /** The user cancelled the load in its progress dialog; nothing was added. */
+    @JvmField val cancelled: Boolean,
 )
 
 /**
@@ -1485,6 +1495,7 @@ internal object NativeBindings {
         /** ObjColorChoice in orca_engine_adapter.hpp, for every file. */
         objColorChosen: BooleanArray,
         objColorFilaments: Array<IntArray>,
+        progressListener: NativeLoadProgressListener,
     ): NativeImportedModels
 
     /**

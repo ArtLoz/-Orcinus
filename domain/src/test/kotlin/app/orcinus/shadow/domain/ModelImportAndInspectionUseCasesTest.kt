@@ -249,6 +249,7 @@ class ModelImportAndInspectionUseCasesTest {
             stepMeshes: Map<Int, StepMeshOptions>,
             askMulti: Boolean,
             objColors: Map<Int, ObjColorChoice>,
+            progress: (percent: Int, file: String) -> Unit,
         ) = ModelLoadOutcome.Failure("not used")
 
         override suspend fun stepTriangleCount(source: ModelPath, linearDeflection: Double, angleDeflection: Double) = 0L

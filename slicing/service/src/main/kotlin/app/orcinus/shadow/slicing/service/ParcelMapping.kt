@@ -491,6 +491,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
     }
     when (this) {
         is ModelLoadOutcome.Failure -> it.error = message
+        is ModelLoadOutcome.Cancelled -> it.cancelled = true
         is ModelLoadOutcome.Question -> it.question = question.toParcel()
         is ModelLoadOutcome.StepMesh -> {
             it.stepMesh = options.toArray()
@@ -535,6 +536,7 @@ internal fun ModelLoadOutcome.toParcel() = ModelLoadParcel().also {
 internal fun ModelLoadParcel.toModelLoadOutcome(): ModelLoadOutcome {
     val shown = notices.orEmpty().map { it.toDialog() }
     error?.let { return ModelLoadOutcome.Failure(it, shown) }
+    if (cancelled) return ModelLoadOutcome.Cancelled(shown)
     question?.let { return ModelLoadOutcome.Question(it.toDialog(), shown) }
     stepMesh?.let { return ModelLoadOutcome.StepMesh(it.toStepMeshOptions(), shown, stepFile) }
     if (objColors) {

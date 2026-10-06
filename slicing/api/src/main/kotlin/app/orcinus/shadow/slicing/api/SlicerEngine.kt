@@ -194,6 +194,8 @@ interface PlateInspector {
      * ProjectDropDialog when set; a project loads onto an empty plate and
      * selects its presets. Several files are model files, none a 3MF file;
      * with [askMulti] the user is asked whether they make one object.
+     * [progress] is told, on any thread while the load runs, what load_files()
+     * tells its ProgressDialog; [cancelLoad] is its Cancel.
      */
     suspend fun load(
         sources: List<ModelPath>,
@@ -208,7 +210,16 @@ interface PlateInspector {
         askMulti: Boolean = false,
         /** ObjColorDialog's answers for the OBJ files that asked, by their place among [sources]. */
         objColors: Map<Int, ObjColorChoice> = emptyMap(),
+        /** The load's percent and the name of the file it reads ("Loading file: %s"). */
+        progress: (percent: Int, file: String) -> Unit = { _, _ -> },
     ): ModelLoadOutcome
+
+    /**
+     * The Cancel of load_files()'s ProgressDialog: the load that runs stops
+     * at its next update and answers ModelLoadOutcome.Cancelled. It returns
+     * at once, from any thread.
+     */
+    fun cancelLoad() = Unit
 
     /**
      * Plater::export_3mf() for "Save project": the objects of every plate in

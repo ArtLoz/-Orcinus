@@ -47,13 +47,15 @@ struct Archive3mf {
 // Reads the 3MF file at path, as a project when project is set, and shows what
 // the desktop app shows about it: the kind of file and its version, the
 // settings it could not read and the presets whose G-code it changed. current
-// is the configuration of the selected presets.
+// is the configuration of the selected presets. progress is told of the
+// reader's stages, and cancels it.
 Slic3r::Model read_3mf(
     const std::string& path,
     bool project,
     const Slic3r::DynamicPrintConfig& current,
     SettingsDialogs& dialogs,
-    Archive3mf& archive
+    Archive3mf& archive,
+    const Slic3r::Import3mfProgressFn& progress = nullptr
 );
 
 // The build volume the objects of the file are placed in: the project's

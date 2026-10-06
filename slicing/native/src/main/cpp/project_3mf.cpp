@@ -399,7 +399,8 @@ Slic3r::Model read_3mf(
     const bool project,
     const Slic3r::DynamicPrintConfig& current,
     SettingsDialogs& dialogs,
-    Archive3mf& archive
+    Archive3mf& archive,
+    const Slic3r::Import3mfProgressFn& progress
 )
 {
     using Slic3r::LoadStrategy;
@@ -417,7 +418,7 @@ Slic3r::Model read_3mf(
     Slic3r::ConfigSubstitutionContext config_substitutions{Slic3r::ForwardCompatibilitySubstitutionRule::Enable};
     Slic3r::En3mfType en_3mf_file_type = Slic3r::En3mfType::From_BBS;
     Slic3r::Model model = Slic3r::Model::read_from_archive(path, &config_loaded, &config_substitutions, en_3mf_file_type, strategy,
-                                                           &archive.plate_data, &archive.project_presets, &archive.file_version);
+                                                           &archive.plate_data, &archive.project_presets, &archive.file_version, progress);
     const Slic3r::Semver& file_version = archive.file_version;
 
     // 1. add extruder for prusa model if the number of existing extruders is not enough

@@ -364,6 +364,12 @@ sealed interface ModelLoadOutcome {
     ) : ModelLoadOutcome
 
     data class Failure(val message: String, override val notices: List<SettingsDialog> = emptyList()) : ModelLoadOutcome
+
+    /**
+     * load_files()'s is_user_cancel: the user cancelled the load in its
+     * progress dialog, which added nothing and tells of no error.
+     */
+    data class Cancelled(override val notices: List<SettingsDialog> = emptyList()) : ModelLoadOutcome
 }
 
 /**

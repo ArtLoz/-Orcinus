@@ -40,6 +40,7 @@ import app.orcinus.shadow.core.model.LayerRange
 import app.orcinus.shadow.core.model.LayerRangeEditor
 import app.orcinus.shadow.core.model.LayerRangeId
 import app.orcinus.shadow.core.model.ListClipboard
+import app.orcinus.shadow.core.model.LoadProgress
 import app.orcinus.shadow.core.model.LoadedObject
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.MeshBooleanPicks
@@ -1100,14 +1101,27 @@ class AddModelToPlateUseCase(
         applicationScope.launch { load(request.files, request.batch, answers, question.shown) }
     }
 
+    /**
+     * The Cancel of load_files()'s ProgressDialog: the load stops at its next
+     * update, adds nothing and tells of no error, and the files of the batch
+     * after it do not load.
+     */
+    fun cancelLoad() {
+        if (repository.state.value.loadProgress != null) inspector.cancelLoad()
+    }
+
     private suspend fun load(files: ImportFiles, batch: ImportBatch, answers: Map<String, Boolean>, shown: List<SettingsDialog>) {
         val state = repository.state.value
         val profiles = state.profiles ?: return finish(ModelLoadOutcome.Failure("No printer is set up"))
         val prefix = sceneFiles.newImportPrefix()
         // Plater::load_project() resets the plate before the project loads.
         val plate = if (batch.load == ModelLoad.PROJECT || batch.loadProject) emptyList() else state.objects.map { it.placed() }
+        // load_files()'s ProgressDialog names a restored backup after its origin (real_filename).
+        val restoredName = batch.displayName?.takeIf { batch.restore }
         val outcome = try {
-            inspector.load(files.files, profiles, plate, prefix, answers, batch.load, batch.chosen, batch.stepMeshes, files.askMulti, batch.objColors)
+            inspector.load(files.files, profiles, plate, prefix, answers, batch.load, batch.chosen, batch.stepMeshes, files.askMulti, batch.objColors) { percent, file ->
+                repository.update { it.copy(loadProgress = LoadProgress(percent, restoredName ?: file)) }
+            }
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
             throw cancellation
@@ -1115,6 +1129,8 @@ class AddModelToPlateUseCase(
             ModelLoadOutcome.Failure(error.message.orEmpty())
         }
         if (outcome !is ModelLoadOutcome.Success) sceneFiles.deleteImport(prefix)
+        // The progress dialog closes while a dialog of the load asks.
+        if (outcome is ModelLoadOutcome.StepMesh || outcome is ModelLoadOutcome.ObjColors) repository.update { it.copy(loadProgress = null) }
         if (outcome is ModelLoadOutcome.StepMesh) {
             // StepMeshDialog for the STEP file that asked. Its Cancel fails that file
             // alone, with no error (is_user_cancel): the other files of the load
@@ -1171,6 +1187,7 @@ class AddModelToPlateUseCase(
             val informed = state.copy(
                 plateNotices = state.plateNotices + notices,
                 presets = (presets as? PresetsOutcome.Success)?.presets ?: state.presets,
+                loadProgress = null,
             )
             when (outcome) {
                 is ModelLoadOutcome.Success -> {
@@ -1287,6 +1304,9 @@ class AddModelToPlateUseCase(
                 )
                 // load() asked StepMeshDialog before.
                 is ModelLoadOutcome.StepMesh, is ModelLoadOutcome.ObjColors -> informed.copy(importing = false)
+                // load_files() returned empty_result: nothing of the load joins the
+                // plate, the batch ends there, and no error tells of it.
+                is ModelLoadOutcome.Cancelled -> informed.copy(importing = false)
                 is ModelLoadOutcome.Failure -> informed.copy(
                     importing = false,
                     problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, outcome.message),

@@ -148,8 +148,8 @@ class EditPlateObjectUseCase(
                     editing = false,
                     problem = PlateProblem(PlateProblemKind.PLACEMENT_FAILED, outcome.message),
                 )
-                // An edit reads no STEP file.
-                is ModelLoadOutcome.StepMesh, is ModelLoadOutcome.ObjColors -> informed.copy(editing = false)
+                // An edit reads no STEP file, and shows no progress dialog.
+                is ModelLoadOutcome.StepMesh, is ModelLoadOutcome.ObjColors, is ModelLoadOutcome.Cancelled -> informed.copy(editing = false)
                 is ModelLoadOutcome.Success -> {
                     val olds = request.meshes.mapNotNull(state.objects::withMesh)
                     if (olds.size != request.meshes.size || outcome.objects.isEmpty()) return@update informed.copy(editing = false)

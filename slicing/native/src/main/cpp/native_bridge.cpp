@@ -321,6 +321,31 @@ private:
     jmethodID on_progress_{nullptr};
 };
 
+// Tells a Kotlin NativeLoadProgressListener of load_files()'s progress, on the
+// thread of the load, and answers whether the load goes on.
+orcinus::orca::LoadProgressFn to_load_progress(JNIEnv* env, jobject listener)
+{
+    if (listener == nullptr) {
+        return nullptr;
+    }
+    const jclass listener_class = env->GetObjectClass(listener);
+    const jmethodID on_progress = env->GetMethodID(listener_class, "onProgress", "(ILjava/lang/String;)Z");
+    env->DeleteLocalRef(listener_class);
+    return [env, listener, on_progress](const int percent, const std::string& file_name) {
+        if (env->PushLocalFrame(4) != JNI_OK) {
+            return true;
+        }
+        const jboolean goes_on = env->CallBooleanMethod(listener, on_progress, static_cast<jint>(percent), to_java(env, file_name));
+        // A listener that threw cancels nothing.
+        const bool thrown = env->ExceptionCheck();
+        if (thrown) {
+            env->ExceptionClear();
+        }
+        env->PopLocalFrame(nullptr);
+        return thrown || goes_on != JNI_FALSE;
+    };
+}
+
 std::vector<double> to_doubles(JNIEnv* env, jdoubleArray values)
 {
     std::vector<double> result(static_cast<std::size_t>(env->GetArrayLength(values)));
@@ -3755,7 +3780,7 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         "Z[Lapp/orcinus/shadow/slicing/nativebridge/NativeProjectPlate;ZLjava/lang/String;"
         "Lapp/orcinus/shadow/slicing/nativebridge/NativeCalibration;I"
         "ZDDZIZ[Ljava/lang/String;"
-        "ZLjava/lang/String;Z[Ljava/lang/String;II)V"
+        "ZLjava/lang/String;Z[Ljava/lang/String;IIZ)V"
     );
     const jobjectArray plates = to_java_objects(
         env,
@@ -3792,7 +3817,8 @@ static jobject to_java(JNIEnv* env, const orcinus::orca::ImportedModels& importe
         imported.obj_color.some_face_no_color ? JNI_TRUE : JNI_FALSE,
         to_java(env, imported.obj_color.cluster_colors),
         static_cast<jint>(imported.obj_color.recommended),
-        static_cast<jint>(imported.obj_color_file)
+        static_cast<jint>(imported.obj_color_file),
+        imported.cancelled ? JNI_TRUE : JNI_FALSE
     );
 }
 
@@ -4416,7 +4442,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
     jbooleanArray step_split,
     jboolean ask_multi,
     jbooleanArray obj_color_chosen,
-    jobjectArray obj_color_filaments
+    jobjectArray obj_color_filaments,
+    jobject progress_listener
 )
 {
     // ObjColorDialog's answer for every file.
@@ -4452,7 +4479,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_importModel(
             chosen == JNI_TRUE,
             step_meshes,
             ask_multi == JNI_TRUE,
-            obj_colors
+            obj_colors,
+            to_load_progress(env, progress_listener)
         )
     );
 }

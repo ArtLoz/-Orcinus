@@ -63,6 +63,7 @@ import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.ArchivePreviewSheet
+import app.orcinus.shadow.core.ui.plate.LoadProgressDialog
 import app.orcinus.shadow.core.ui.plate.ObjColorActions
 import app.orcinus.shadow.core.ui.plate.ObjColorDialog
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateDialog
@@ -165,6 +166,9 @@ class AppShellViewModel(
 
     /** ProjectDropDialog's choice for the 3MF file that waits; null cancels. */
     fun openProjectAs(load: ModelLoad?) = addModelToPlate.openAs(load)
+
+    /** The Cancel of the load's progress dialog. */
+    fun cancelLoad() = addModelToPlate.cancelLoad()
 
     /** FileArchiveDialog over an archive whose files wait to be picked; null while none does. */
     val archivePreview: StateFlow<ArchivePreview?> = openFiles.preview
@@ -336,8 +340,10 @@ private fun Workspace(
     val plate by shell.plate.collectAsStateWithLifecycle()
     // GUI_App::on_init_inner() selects the Home tab first (MainFrame::tpHome).
     val backStack = rememberNavBackStack(PrepareNavKey, HomeNavKey)
-    // The message boxes OrcaSlicer showed while it changed the plate, in their
-    // order, then the question it waits on, over whichever tab is open.
+    // The progress dialog of a load, the message boxes OrcaSlicer showed while
+    // it changed the plate, in their order, then the question it waits on,
+    // over whichever tab is open.
+    val loadProgress = plate.loadProgress
     val notice = plate.plateNotices.firstOrNull()
     val question = plate.plateQuestion?.question
     val projectDrop = plate.projectDrop
@@ -354,6 +360,7 @@ private fun Workspace(
         shell.reloadPick(uri?.let { ExternalDocumentReference(it.toString()) })
     }
     when {
+        loadProgress != null -> LoadProgressDialog(loadProgress, onCancel = shell::cancelLoad)
         notice != null -> SettingsNoticeDialog(notice, onDismissChecked = shell::dismissNotice)
         question != null -> SettingsQuestionDialog(question, onAnswerChecked = shell::answer, onCancel = shell::cancelQuestion)
         stepMesh != null -> StepMeshDialog(stepMesh, countTriangles = shell::stepTriangleCount, onAnswer = shell::answerStepMesh)

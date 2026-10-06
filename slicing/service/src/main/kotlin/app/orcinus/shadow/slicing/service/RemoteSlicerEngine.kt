@@ -152,6 +152,7 @@ import app.orcinus.shadow.slicing.api.SlicerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -256,21 +257,49 @@ class RemoteSlicerEngine(
         stepMeshes: Map<Int, StepMeshOptions>,
         askMulti: Boolean,
         objColors: Map<Int, ObjColorChoice>,
-    ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
-        load(
-            sources.map(ModelPath::value).toTypedArray(),
-            profiles.toParcel(),
-            plate.toParcels(),
-            prefix.value,
-            answers.keys.toTypedArray(),
-            answers.values.toBooleanArray(),
-            load.name,
-            chosen,
-            stepMeshes.toArray(sources.size),
-            askMulti,
-            objColors.toCounts(sources.size),
-            objColors.toFilaments(sources.size),
-        ).toModelLoadOutcome()
+        progress: (percent: Int, file: String) -> Unit,
+    ): ModelLoadOutcome {
+        // One-way calls may arrive after the load answered; those are dropped.
+        val running = Any()
+        var open = true
+        val listener = object : IModelLoadProgress.Stub() {
+            override fun onProgress(percent: Int, file: String) = synchronized(running) {
+                if (open) progress(percent, file)
+            }
+        }
+        return try {
+            remote({ ModelLoadOutcome.Failure(it) }) {
+                load(
+                    sources.map(ModelPath::value).toTypedArray(),
+                    profiles.toParcel(),
+                    plate.toParcels(),
+                    prefix.value,
+                    answers.keys.toTypedArray(),
+                    answers.values.toBooleanArray(),
+                    load.name,
+                    chosen,
+                    stepMeshes.toArray(sources.size),
+                    askMulti,
+                    objColors.toCounts(sources.size),
+                    objColors.toFilaments(sources.size),
+                    listener,
+                ).toModelLoadOutcome()
+            }
+        } finally {
+            synchronized(running) { open = false }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override fun cancelLoad() {
+        // Cancelling never starts the engine process, and the one-way call does
+        // not wait. A completed connection always holds a service.
+        val current = synchronized(lock) { connected?.takeIf { it.isCompleted } } ?: return
+        try {
+            current.getCompleted().cancelLoad()
+        } catch (_: RemoteException) {
+            // The engine process is gone, and the load with it.
+        }
     }
 
     override suspend fun edit(

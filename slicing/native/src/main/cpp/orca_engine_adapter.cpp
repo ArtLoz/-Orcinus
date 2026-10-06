@@ -4474,9 +4474,11 @@ bool is_any_amf(const std::string& path)
 
 // Plater::priv::load_files() and replace_volume_with_stl() (replacing): the
 // reader of the file's type. imperial is set for an AMF file in inches, whose
-// objects are then scaled whatever their size.
+// objects are then scaled whatever their size. step_progress and stl_progress
+// are the progress functions load_files() gives the STEP and STL readers.
 Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& dialogs, bool& imperial, const StepMeshChoice& step_mesh,
-                              const bool replacing, const Slic3r::ObjImportColorFn& obj_color_fun = nullptr)
+                              const bool replacing, const Slic3r::ObjImportColorFn& obj_color_fun = nullptr,
+                              const Slic3r::ImportStepProgressFn& step_progress = nullptr, const ImportstlProgressFn& stl_progress = nullptr)
 {
     imperial = false;
     if (boost::algorithm::iends_with(path, ".stp") || boost::algorithm::iends_with(path, ".step")) {
@@ -4484,7 +4486,7 @@ Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& 
         // The deflections and split of the app configuration or of
         // StepMeshDialog, which stops the load until it is answered.
         const detail::StepMeshParameters mesh = detail::step_mesh_parameters(path, step_mesh, replacing);
-        Slic3r::Model model = Slic3r::Model::read_from_step(path, Slic3r::LoadStrategy::LoadModel, nullptr, [&utf8](int is_utf8) { utf8 = is_utf8 != 0; },
+        Slic3r::Model model = Slic3r::Model::read_from_step(path, Slic3r::LoadStrategy::LoadModel, step_progress, [&utf8](int is_utf8) { utf8 = is_utf8 != 0; },
                                                             nullptr, mesh.linear_deflection, mesh.angle_deflection, mesh.split_compound);
         // The desktop app warns, unless "Remember my choice." was ticked
         // (step_not_utf8_no_warn), and Step::load() then fails the file.
@@ -4503,7 +4505,7 @@ Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& 
     }
     bool is_xxx = false;
     Slic3r::Model model = Slic3r::Model::read_from_file(path, nullptr, nullptr, Slic3r::LoadStrategy::LoadModel, nullptr, nullptr, &is_xxx,
-                                                        nullptr, nullptr, nullptr, nullptr, 0, obj_color_fun);
+                                                        nullptr, nullptr, stl_progress, nullptr, 0, obj_color_fun);
     // is_xxx means "in inches" for an AMF file.
     imperial = is_any_amf(path) && is_xxx;
     return model;
@@ -4807,7 +4809,8 @@ ImportedModels import_models(
     const bool chosen,
     const std::vector<StepMeshChoice>& step_meshes,
     const bool ask_multi,
-    const std::vector<ObjColorChoice>& obj_colors
+    const std::vector<ObjColorChoice>& obj_colors,
+    const LoadProgressFn& progress
 )
 {
     ImportedModels result;
@@ -4820,6 +4823,54 @@ ImportedModels import_models(
     detail::SettingsDialogs dialogs(answers);
     // The file being read, whose STEP mesh StepMeshDialog may be asked for.
     std::size_t reading = 0;
+
+    // load_files()'s ProgressDialog: every file takes an equal share of it,
+    // of which reading the file takes INPUT_FILES_RATIO, each stage of the
+    // 3MF and STEP readers from where stage_percent and step_percent put it.
+    const int stage_percent[Slic3r::IMPORT_STAGE_MAX + 1] = {
+            5,      // IMPORT_STAGE_RESTORE
+            10,     // IMPORT_STAGE_OPEN
+            30,     // IMPORT_STAGE_READ_FILES
+            50,     // IMPORT_STAGE_EXTRACT
+            60,     // IMPORT_STAGE_LOADING_OBJECTS
+            70,     // IMPORT_STAGE_LOADING_PLATES
+            80,     // IMPORT_STAGE_FINISH
+            85,     // IMPORT_STAGE_ADD_INSTANCE
+            90,      // IMPORT_STAGE_UPDATE_GCODE
+            92,     // IMPORT_STAGE_CHECK_MODE_GCODE
+            95,     // UPDATE_GCODE_RESULT
+            98,     // IMPORT_LOAD_CONFIG
+            99,     // IMPORT_LOAD_MODEL_OBJECTS
+            100
+     };
+    const int step_percent[Slic3r::LOAD_STEP_STAGE_NUM + 1] = {
+            5,     // LOAD_STEP_STAGE_READ_FILE
+            30,     // LOAD_STEP_STAGE_GET_SOLID
+            60,     // LOAD_STEP_STAGE_GET_MESH
+            100
+     };
+    const float INPUT_FILES_RATIO            = 0.7;
+    const float INIT_MODEL_RATIO             = 0.75;
+    const float CENTER_AROUND_ORIGIN_RATIO   = 0.8;
+    const float LOAD_MODEL_RATIO             = 0.9;
+    const float total_files = static_cast<float>(source_paths.size());
+    // dlg.Update(): false from the user's Cancel on (is_user_cancel).
+    bool is_user_cancel = false;
+    auto update = [&progress, &is_user_cancel](const float percent, const std::string& file_name) {
+        if (!is_user_cancel && progress && !progress(static_cast<int>(percent), file_name)) {
+            is_user_cancel = true;
+        }
+        return !is_user_cancel;
+    };
+    // load_files() returns empty_result: what it read is dropped, and the
+    // message boxes it showed before stay shown.
+    auto cancelled = [&result, &dialogs]() {
+        release_obj_colors();
+        result.cancelled = true;
+        result.notices = dialogs.take_notices();
+        result.status = SceneStatus::success;
+        return result;
+    };
     try {
         Slic3r::DynamicPrintConfig config;
         if (const SliceStatus status = select_profiles(*engine().bundle, profiles, config, result.message);
@@ -4858,12 +4909,23 @@ ImportedModels import_models(
             // The questions about every file but the first are told apart by its place.
             dialogs.set_scope(reading == 0 ? std::string() : "@" + std::to_string(reading));
             const std::string file_name = fs::path(source_path).filename().string();
+            const float file_percent = 100.0f * static_cast<float>(reading) / total_files;
+            if (!update(file_percent, file_name)) {
+                return cancelled();
+            }
+            // The read callbacks: the stage the reader got to within its share of the file.
+            const auto read_progress = [&](const float read_percent, bool& cancel) {
+                cancel = !update(file_percent + INPUT_FILES_RATIO * read_percent / total_files, file_name);
+            };
             const bool type_3mf = boost::algorithm::iends_with(source_path, ".3mf");
             bool imperial = false;
             Slic3r::Model model;
             try {
                 if (type_3mf) {
-                    model = detail::read_3mf(source_path, load == ModelLoad::project, config, dialogs, archive);
+                    model = detail::read_3mf(source_path, load == ModelLoad::project, config, dialogs, archive,
+                                             [&](int import_stage, int current, int total, bool& cancel) {
+                                                 read_progress((float)stage_percent[import_stage] + (float)current * (float)(stage_percent[import_stage + 1] - stage_percent[import_stage]) / (float)total, cancel);
+                                             });
                     if (archive.translate_old) {
                         translate_old_plates(model, config, static_cast<int>(archive.plate_data.size()));
                     }
@@ -4878,7 +4940,14 @@ ImportedModels import_models(
                         obj_color_fun = detail::obj_color_function(source_path, first,
                                                                    reading < obj_colors.size() ? obj_colors[reading] : ObjColorChoice{});
                     }
-                    model = read_model_file(source_path, dialogs, imperial, step_mesh, false, obj_color_fun);
+                    model = read_model_file(
+                        source_path, dialogs, imperial, step_mesh, false, obj_color_fun,
+                        [&](int load_stage, int current, int total, bool& cancel) {
+                            read_progress((float)step_percent[load_stage] + (float)current * (float)(step_percent[load_stage + 1] - step_percent[load_stage]) / (float)total, cancel);
+                        },
+                        [&](int current, int total, bool& cancel, std::string&, std::string&) {
+                            read_progress(100.0f * ((float)current / (float)total), cancel);
+                        });
                     for (Slic3r::ModelObject* object : model.objects) {
                         if (object->name.empty()) {
                             object->name = file_name;
@@ -4892,8 +4961,16 @@ ImportedModels import_models(
                                               detail::ui_text("\n\n"), detail::ui_text("%1%", {error.what()})});
                 continue;
             } catch (const std::exception& error) {
+                // The reader the user cancelled fails without an error.
+                if (is_user_cancel) {
+                    return cancelled();
+                }
                 dialogs.error("load_failed", {detail::ui_text("%1%", {error.what()})});
                 continue;
+            }
+            // The model is read; a STEP file the user cancelled came empty.
+            if (!update(file_percent + INIT_MODEL_RATIO * 100.0f / total_files, file_name)) {
+                return cancelled();
             }
             const bool project = archive.load_config;
 
@@ -4934,13 +5011,22 @@ ImportedModels import_models(
             // An object of a file other than 3MF or AMF is centred around the
             // origin without its modifiers, and an object the file placed rests on
             // the plate, or keeps a project's height below it.
+            if (!update(file_percent + CENTER_AROUND_ORIGIN_RATIO * 100.0f / total_files, file_name)) {
+                return cancelled();
+            }
             for (Slic3r::ModelObject* object : model.objects) {
                 if (!type_3mf && !is_any_amf(source_path)) {
                     object->center_around_origin(false);
                 }
+                if (!update(file_percent + CENTER_AROUND_ORIGIN_RATIO * 100.0f / total_files, file_name)) {
+                    return cancelled();
+                }
                 if (!object->instances.empty()) {
                     object->ensure_on_bed(project);
                 }
+            }
+            if (!update(file_percent + LOAD_MODEL_RATIO * 100.0f / total_files, file_name)) {
+                return cancelled();
             }
             if (one_by_one) {
                 // The objects of a 3MF file loaded without its settings gather around

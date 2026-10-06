@@ -170,6 +170,7 @@ private fun sliceNotice(notice: SliceNotice, sliced: List<PlateObject>, objects:
 data class PrepareUiState(
     /** The printer's plate for the 3D view; null until the engine described it. */
     val plate: PlateDescription?,
+    /** The plate is busy adding objects, while no load's progress dialog shows over the app. */
     val importing: Boolean,
     /** The objects on the plate, as the 3D view shows them. */
     val sceneObjects: List<PlateObject>,
@@ -1019,7 +1020,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     }
     return PrepareUiState(
         plate = plate,
-        importing = importing,
+        importing = importing && loadProgress == null,
         // GLGizmoSimplify::init_model(): the decimated mesh is drawn in the volume's place.
         sceneObjects = view.simplify?.let { mode -> objects.withSimplified(mode, selectedInstance) } ?: objects,
         sceneCopies = copies,
