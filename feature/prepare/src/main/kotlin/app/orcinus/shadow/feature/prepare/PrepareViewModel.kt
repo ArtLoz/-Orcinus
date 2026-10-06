@@ -7,6 +7,7 @@ import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.AssemblyAction
 import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.Axis
+import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BrimEarsOutcome
 import app.orcinus.shadow.core.model.BrimPoint
 import app.orcinus.shadow.core.model.CanvasPreferences
@@ -616,6 +617,15 @@ class PrepareViewModel(
                     }
                 }
             }
+        }
+        // ObjectList::fix_cut_selection(): while the scale gizmo is open, a part of a
+        // cut in the selection takes every part of that cut with it, whatever
+        // changed the selection or opened the gizmo.
+        viewModelScope.launch {
+            combine(
+                plate.map { it.selectedInstances to it.selectedPart }.distinctUntilChanged(),
+                view.map { it.gizmo }.distinctUntilChanged(),
+            ) { _, gizmo -> gizmo }.collect { gizmo -> if (gizmo == PlateGizmo.SCALE) selectPlateObject.withCutParts() }
         }
         // GLGizmoBrimEars: the engine keeps the first layer of the copy the tool
         // is open on, sliced anew once the copy changed otherwise than by its
@@ -3220,6 +3230,12 @@ class PrepareViewModel(
      */
     fun rotateBy(axis: Int, degrees: Double) {
         if (degrees == 0.0) return
+        state.value.group?.let { group ->
+            // Selection::rotate() of a group in world coordinates: about its sphere's centre.
+            val pivot = group.sphere?.center ?: return
+            placeGroup(groupPlacements(group).map { (id, placement) -> id to ObjectTransforms.rotated(placement, axis, degrees, pivot) }, Manipulation.Rotate)
+            return
+        }
         state.value.selectedVolume?.let { volume ->
             // Selection::rotate() of a volume in world coordinates: about the world axis through its sphere's centre.
             val pivot = state.value.volumeSphere?.center ?: return
@@ -3318,6 +3334,12 @@ class PrepareViewModel(
 
     /** GizmoObjectManipulation::change_scale_value(): [percent] of the unscaled size on [axis], or on every axis when uniform. */
     fun setScale(axis: Int, percent: Double) {
+        state.value.group?.let { group ->
+            if (percent <= 0.0) return
+            val ratio = percent / 100.0
+            scaleGroup(group, if (view.value.uniformScale) Vector3(ratio, ratio, ratio) else Vector3(1.0, 1.0, 1.0).with(axis, ratio))
+            return
+        }
         state.value.selectedVolume?.let { volume ->
             val shown = state.value.selectedScale ?: return
             if (percent > 0.0) scaleVolume(volume, axis, percent / shown[axis])
@@ -3339,6 +3361,12 @@ class PrepareViewModel(
 
     /** GizmoObjectManipulation::change_size_value(): [millimeters] on [axis], as a scale of the unscaled size. */
     fun setSize(axis: Int, millimeters: Double) {
+        state.value.group?.let { group ->
+            if (millimeters <= 0.0) return
+            val ratio = millimeters.coerceAtMost(MAX_NUM) / group.size[axis]
+            scaleGroup(group, if (view.value.uniformScale) Vector3(ratio, ratio, ratio) else Vector3(1.0, 1.0, 1.0).with(axis, ratio))
+            return
+        }
         state.value.selectedVolume?.let { volume ->
             val size = state.value.selectedSize ?: return
             if (millimeters > 0.0) scaleVolume(volume, axis, millimeters.coerceAtMost(MAX_NUM) / size[axis])
@@ -3359,6 +3387,8 @@ class PrepareViewModel(
 
     /** GizmoObjectManipulation::reset_scale_value(): the unscaled size, or 100 % on every axis of a volume. */
     fun resetScale() {
+        // A group shows 100 % from where it stands.
+        if (state.value.group != null) return
         state.value.selectedVolume?.let { volume ->
             val shown = state.value.selectedScale ?: return
             scaleVolumeBy(volume, Vector3(100.0 / shown.x, 100.0 / shown.y, 100.0 / shown.z))
@@ -3420,6 +3450,16 @@ class PrepareViewModel(
      */
     fun setPosition(axis: Int, value: Double) {
         val state = state.value
+        state.group?.let { group ->
+            // change_position_value() of a group: Selection::translate() of every copy by what was typed.
+            val clamped = value.coerceIn(-MAX_NUM, MAX_NUM)
+            if (abs(clamped) < POSITION_EPSILON) return
+            placeGroup(
+                groupPlacements(group).map { (id, placement) -> id to Transform3(placement.columns.toMutableList().also { it[12 + axis] += clamped }) },
+                Manipulation.Move,
+            )
+            return
+        }
         val index = state.selectedObject ?: return
         val copy = state.sceneCopies[index]
         state.selectedVolume?.let { volume ->
@@ -3536,10 +3576,35 @@ class PrepareViewModel(
     }
 
     /** GLCanvas3D::do_move() of a selection the finger dragged: every copy placed, as one step of Undo ("Move Object"). */
-    fun placeObjects(placements: List<Pair<Int, Transform3>>) {
+    fun placeObjects(placements: List<Pair<Int, Transform3>>, manipulation: Manipulation) {
         val copies = state.value.sceneCopies
-        placements.mapNotNull { (index, placement) -> copies.getOrNull(index)?.let { it.id to placement } }
-            .forEachIndexed { step, (id, placement) -> placePlateObject(id, placement, Manipulation.Move, record = step == 0) }
+        placeGroup(placements.mapNotNull { (index, placement) -> copies.getOrNull(index)?.let { it.id to placement } }, manipulation)
+    }
+
+    /** do_move(), do_rotate() and do_scale() of a selection of copies: all of them, as one step of Undo. */
+    private fun placeGroup(placements: List<Pair<PlateInstanceId, Transform3>>, manipulation: Manipulation) {
+        placements.forEachIndexed { step, (id, placement) -> placePlateObject(id, placement, manipulation, record = step == 0) }
+    }
+
+    /** The copies of the group and where they stand. */
+    private fun groupPlacements(group: GroupSelection): List<Pair<PlateInstanceId, Transform3>> =
+        group.copies.mapNotNull { id -> state.value.sceneCopies.firstOrNull { it.id == id }?.let { id to it.instance.inspection.placement } }
+
+    /** The 3D view found the smallest sphere around the group, which its rotation window turns it about. */
+    fun setGroupSphere(sphere: BoundingSphere?) {
+        view.update { if (it.groupSphere == sphere) it else it.copy(groupSphere = sphere) }
+    }
+
+    /** change_scale_value() and change_size_value() of a group: Selection::scale() of every copy about the group's centre. */
+    private fun scaleGroup(group: GroupSelection, factors: Vector3) {
+        // limit_scaling_ratio(): no side beyond MAX_NUM.
+        val limited = Vector3(
+            factors.x.coerceAtMost(MAX_NUM / group.size.x),
+            factors.y.coerceAtMost(MAX_NUM / group.size.y),
+            factors.z.coerceAtMost(MAX_NUM / group.size.z),
+        )
+        if (limited == Vector3(1.0, 1.0, 1.0)) return
+        placeGroup(groupPlacements(group).map { (id, placement) -> id to ObjectTransforms.scaledInWorld(placement, limited, group.center) }, Manipulation.Scale)
     }
 
     /** The object menu's "Auto Drop": ObjectList::toggle_auto_drop() for the object [index]. */

@@ -29,6 +29,7 @@ import app.orcinus.shadow.core.model.MeasureHover
 import app.orcinus.shadow.core.model.Measurement
 import app.orcinus.shadow.core.model.MeshBooleanOperation
 import app.orcinus.shadow.core.model.MeshBooleanPicks
+import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintTool
@@ -259,6 +260,11 @@ data class PrepareUiState(
     val printerI3: Boolean = false,
     /** What the info notification shows of the selection (Plater::show_object_info()); null for nothing. */
     val objectInfo: ObjectInfo? = null,
+    /**
+     * Several copies selected together in the 3D view, which the gizmos and
+     * their windows work on as one ("Group Operations"); null otherwise.
+     */
+    val group: GroupSelection? = null,
     /** Position of the selected object. */
     val selectedPosition: ObjectPosition?,
     /** The move window shows "Object coordinates" for the selected copy (ECoordinatesType::Instance). */
@@ -539,6 +545,8 @@ internal data class PrepareViewState(
      * selection keeps it.
      */
     val assemblyPartSelection: Boolean = false,
+    /** Selection::get_bounding_sphere() of a group of copies, as the 3D view found it for the rotation window. */
+    val groupSphere: BoundingSphere? = null,
 ) {
     /**
      * GLGizmosManager::get_current_type() != Undefined: a gizmo is open — the
@@ -568,6 +576,21 @@ data class MeshBooleanMode(
     val source: Int? = null,
     val tool: Int? = null,
     val deleteInput: Boolean = true,
+)
+
+/**
+ * Selection of several copies in the 3D view (GizmoObjectManipulation's
+ * "Group Operations"): the copies, the box of them all in the world, whether
+ * a part of a cut among several objects keeps the scale uniform
+ * (enable_ununiversal_scale(false)), and the smallest sphere around them,
+ * which they turn about, once the 3D view found it.
+ */
+data class GroupSelection(
+    val copies: List<PlateInstanceId>,
+    val center: Vector3,
+    val size: Vector3,
+    val uniformOnly: Boolean,
+    val sphere: BoundingSphere? = null,
 )
 
 /** ObjectClipper's m_active_inst_bb_radius: the radius of the copy's box. */
@@ -903,6 +926,26 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     }
     // The plate changes once OrcaSlicer has the presets it places objects with.
     val canEditPlate = !busy && !slicingAll && engine.availability == EngineAvailability.READY && profiles != null
+    // "Group Operations": several copies, and nothing of them alone, in the 3D view.
+    val group = if (selectedInstances.size > 1 && selectedPart == null && !view.wipeTowerSelected && !view.assemblyView) {
+        val chosen = copies.filter { it.id in selectedInstances }
+        val boxes = chosen.map { it.instance.inspection }
+        fun low(axis: (ModelInspection) -> Pair<Double, Double>) = boxes.minOf { axis(it).first - axis(it).second / 2 }
+        fun high(axis: (ModelInspection) -> Pair<Double, Double>) = boxes.maxOf { axis(it).first + axis(it).second / 2 }
+        val x = { it: ModelInspection -> it.boxCenter.x to it.dimensions.widthMillimeters }
+        val y = { it: ModelInspection -> it.boxCenter.y to it.dimensions.depthMillimeters }
+        val z = { it: ModelInspection -> it.boxCenter.z to it.dimensions.heightMillimeters }
+        GroupSelection(
+            copies = chosen.map { it.id },
+            center = Vector3((low(x) + high(x)) / 2, (low(y) + high(y)) / 2, (low(z) + high(z)) / 2),
+            size = Vector3(high(x) - low(x), high(y) - low(y), high(z) - low(z)),
+            // GUI_ObjectList's disable_ununiform_scale: several objects, a part of a cut among them.
+            uniformOnly = chosen.map { it.id.mesh }.distinct().size > 1 && chosen.any { it.plateObject.cutId != null },
+            sphere = view.groupSphere,
+        )
+    } else {
+        null
+    }
     return PrepareUiState(
         plate = plate,
         importing = importing,
@@ -1005,7 +1048,11 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         bedTypes = presets?.bedTypes.orEmpty(),
         spiralVaseMode = spiralVaseMode(),
         printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",
-        selectedPosition = if (volume != null && selected != null) {
+        group = group,
+        selectedPosition = if (group != null) {
+            // update_settings_value() of a group: "Translate" from where it stands.
+            ObjectPosition(0.0, 0.0, 0.0)
+        } else if (volume != null && selected != null) {
             // update_settings_value() of a volume: its offset in the object, or in the world.
             (if (moveObjectCoordinates) volume.matrix else selected.placement * volume.matrix).translation.let { ObjectPosition(it.x, it.y, it.z) }
         } else {
@@ -1021,16 +1068,19 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             ?.let { copy -> objects.firstOrNull { it.mesh == copy.mesh } }
             ?.parts?.filter { it.cutInfo.connector }?.mapTo(HashSet()) { it.mesh.value }.orEmpty(),
         objectInfo = objectInfo(view, volume),
-        selectedRotation = volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
+        selectedRotation = if (group != null) Vector3(0.0, 0.0, 0.0) else volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees,
         canResetRotation = when {
+            group != null -> false
             // update_reset_buttons_visibility() of a volume: its own rotation against the one it started from.
             volume != null -> view.volumeRotationStart?.let { start -> !volume.matrix.hasLinearPartOf(start) } == true
             view.assemblyView -> assembled != null && rotationStart != null && !assembled.hasLinearPartOf(rotationStart)
             else -> selected != null && rotationStart != null && !selected.placement.hasLinearPartOf(rotationStart)
         },
-        canResetRotationToZero = (volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees)
+        canResetRotationToZero = group == null && (volumeRotation ?: if (view.assemblyView) assembledRotation else selected?.rotationDegrees)
             ?.let { rotation -> listOf(rotation.x, rotation.y, rotation.z).any { abs(it) > 0.001 } } == true,
-        selectedScale = if (volume != null) {
+        selectedScale = if (group != null) {
+            Vector3(100.0, 100.0, 100.0)
+        } else if (volume != null) {
             // update_settings_value() of a volume: its own scaling factor in its own coordinates, 100 % in the others.
             if (scaleCoordinates == CoordinateSystem.LOCAL) {
                 AssemblyTransforms.scalingFactor(volume.matrix).let { Vector3(it.x * 100.0, it.y * 100.0, it.z * 100.0) }
@@ -1051,6 +1101,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             }
         },
         selectedSize = when {
+            group != null -> group.size
             volume != null -> volumeBox?.size
             // The bounding box in the copy's own axes: its unscaled size times its scaling factor.
             moveObjectCoordinates -> selected?.let { copy ->

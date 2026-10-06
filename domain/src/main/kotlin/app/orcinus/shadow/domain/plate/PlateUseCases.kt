@@ -1572,6 +1572,23 @@ class SelectPlateObjectUseCase(private val repository: PlateRepository) {
             state.copy(selectedInstances = selected, selectedPart = null, selectedRange = null, selectedConnectors = null)
         }
     }
+
+    /**
+     * ObjectList::fix_cut_selection() while the scale gizmo is open: the first
+     * copy of a part of a cut in the selection takes the same copy of every
+     * part of that cut (CutObjectBase::has_same_id()) in place of the rest.
+     */
+    fun withCutParts() = repository.update { state ->
+        if (state.selectedPart != null) return@update state
+        for (id in state.selectedInstances) {
+            val cut = state.objects.withMesh(id.mesh)?.cutId ?: continue
+            val parts = state.objects
+                .filter { it.cutId?.hasSameId(cut) == true && id.instance < it.instances.size }
+                .mapTo(LinkedHashSet()) { PlateInstanceId(it.mesh, id.instance) }
+            return@update if (parts == state.selectedInstances) state else state.copy(selectedInstances = parts, selectedRange = null, selectedConnectors = null)
+        }
+        state
+    }
 }
 
 /**

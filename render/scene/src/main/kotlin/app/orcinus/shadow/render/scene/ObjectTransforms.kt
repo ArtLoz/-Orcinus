@@ -35,6 +35,16 @@ object ObjectTransforms {
     }
 
     /**
+     * Selection::scale_and_translate() of a copy of a group in world
+     * coordinates (transform_instance_relative()): [factors] along the world's
+     * axes about [center], the group's dragging centre.
+     */
+    fun scaledInWorld(placement: Transform3, factors: Vector3, center: Vector3): Transform3 {
+        val start = Affine3(placement.columns.toDoubleArray())
+        return Transform3(ScaleGizmo.scaled(start, Vec3(factors.x, factors.y, factors.z), Vec3(center.x, center.y, center.z)).elements().toList())
+    }
+
+    /**
      * Selection::scale_and_translate() of a copy in "Object coordinates"
      * (TransformationType::Instance): the copy scaled by [factors] along its
      * own axes, about [center], the centre of its bounding box (the

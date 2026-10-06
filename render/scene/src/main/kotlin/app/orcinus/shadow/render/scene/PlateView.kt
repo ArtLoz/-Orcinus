@@ -161,7 +161,7 @@ fun PlateView(
     onSelectVolume: (index: Int, key: String) -> Unit = { _, _ -> },
     onPlaceObject: (index: Int, placement: Transform3, manipulation: Manipulation) -> Unit,
     onOpenObjectMenu: (index: Int, position: Offset) -> Unit,
-    onPlaceObjects: (placements: List<Pair<Int, Transform3>>) -> Unit = {},
+    onPlaceObjects: (placements: List<Pair<Int, Transform3>>, manipulation: Manipulation) -> Unit = { _, _ -> },
     contentDescription: String,
     modifier: Modifier = Modifier,
     layer: PlateLayer? = null,
@@ -278,6 +278,13 @@ fun PlateView(
      * it, when the gizmo waits.
      */
     selectedVolumeSphere: BoundingSphere? = null,
+    /**
+     * A group of copies holds a part of a cut (GUI_ObjectList's
+     * disable_ununiform_scale), so its scale gizmo keeps the corner grabbers alone.
+     */
+    groupUniformScale: Boolean = false,
+    /** Selection::get_bounding_sphere() of a group of copies while the rotation gizmo shows, which its window turns them about. */
+    onGroupSphere: (BoundingSphere?) -> Unit = {},
     /** The scale gizmo of the selected volume: its reference system and box there; null until the engine measured it. */
     selectedVolumeScale: VolumeScaleFrame? = null,
     /** The painting tool's section plane as the view placed it, its normal and offset. */
@@ -621,6 +628,8 @@ fun PlateView(
             controller.setSelectedVolume(selectedVolume)
             controller.setHighlightedVolumes(highlightedVolumes)
             controller.volumeSphere = selectedVolumeSphere
+            controller.groupUniformScale = groupUniformScale
+            controller.onGroupSphere = onGroupSphere
             controller.volumeScale = selectedVolumeScale
             controller.onPaintSection = onPaintSection
             controller.setPaintSection(painting?.section ?: brimEars?.section)
@@ -980,6 +989,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** The selected volume's sphere in the world, which the rotation gizmo turns it about; null until known. */
     var volumeSphere: BoundingSphere? = null
+    var groupUniformScale = false
+    var onGroupSphere: (BoundingSphere?) -> Unit = {}
+    private var reportedGroupSphere: Pair<Vec3, Double>? = null
         set(value) {
             if (field == value) return
             field = value
@@ -1054,7 +1066,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
     var onPaint: (Line3, starts: Boolean) -> Unit = { _, _ -> }
     var onPlaceObject: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
-    var onPlaceObjects: (List<Pair<Int, Transform3>>) -> Unit = {}
+    var onPlaceObjects: (List<Pair<Int, Transform3>>, Manipulation) -> Unit = { _, _ -> }
     var onOpenObjectMenu: (Int, Float, Float) -> Unit = { _, _, _ -> }
     var onOpenPlateMenu: ((Float, Float) -> Unit)? = null
     /** A tap on another plate, with its index; null where plates are not picked. */
@@ -1067,7 +1079,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     private sealed class Drag(val index: Int, val startWorld: Affine3, val key: String? = null) {
         var moved = false
+
+        /** The other copies of a group a grabber holds, from where they stood. */
+        var group: List<Pair<Int, Affine3>> = emptyList()
     }
+
+    /** The other copies that go with [this]: the ones a finger drags along, or a gizmo's group. */
+    private fun Drag.together(): List<Pair<Int, Affine3>> = (this as? ObjectDrag)?.others?.takeIf { it.isNotEmpty() } ?: group
 
     /**
      * GLCanvas3D::Mouse::Drag: the object itself, touched at [startPosition].
@@ -1791,6 +1809,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 }
                 else -> moveGizmo(target).let { MoveGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.center, volumeMode()) }
             }
+            drag?.group = groupStarts(target.index)
             invalidate()
             return true
         }
@@ -1904,6 +1923,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             drag.angle = RotateGizmo(drag.center, drag.sphereRadius, pixel()).dragAngle(drag.axis, ray)
             drag.moved = true
             replaceObject(target.withWorld(RotateGizmo.rotated(drag.startWorld, drag.axis, drag.angle, drag.center)), alone = drag.key != null)
+            // Selection::rotate() in world coordinates: the group turns about its sphere's centre.
+            drag.group.forEach { (index, start) ->
+                objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(RotateGizmo.rotated(start, drag.axis, drag.angle, drag.center))) }
+            }
             return
         }
         if (drag is ScaleGrabberDrag) {
@@ -1924,6 +1947,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     Affine3().translated(-volume.origin) * drag.startWorld
             } ?: ScaleGizmo.scaled(drag.startWorld, scale, drag.center)
             replaceObject(target.withWorld(world), alone = drag.key != null)
+            // Selection::scale_and_translate() of a group: every copy about the box's centre.
+            drag.group.forEach { (index, start) ->
+                objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(ScaleGizmo.scaled(start, scale, drag.center))) }
+            }
             return
         }
         val offset = when (drag) {
@@ -1941,7 +1968,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         drag.moved = true
         replaceObject(target.withWorld(drag.startWorld.withTranslation(drag.startWorld.translation() + offset)), alone = drag.key != null)
         // Selection::translate(): the other copies of the selection go the same way.
-        (drag as? ObjectDrag)?.others?.forEach { (index, start) ->
+        drag.together().forEach { (index, start) ->
             objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(start.withTranslation(start.translation() + offset))) }
         }
     }
@@ -2085,30 +2112,76 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             onPlaceInAssembly(target.index, Transform3(assemble.elements().toList()), manipulation)
             return
         }
-        if (drag is ObjectDrag && drag.held) {
-            // do_move() of the selection: each copy rests on the plate unless its
-            // auto drop is off, and the app places them all as one step.
-            val placed = (listOf(target) + drag.others.mapNotNull { (index, _) -> objects.firstOrNull { it.index == index } }).map { copy ->
-                val shift = copy.minZ()
-                if (copy.autoDrop && shift > SINKING_Z_THRESHOLD) copy.withWorld(copy.world.withTranslation(copy.world.translation() - Vec3(0.0, 0.0, shift))) else copy
+        val together = drag.together()
+        if (together.isNotEmpty()) {
+            // do_move(), do_rotate() and do_scale() of the selection: each copy rests on
+            // the plate as its manipulation lets it, and the app places them all as one step.
+            val starts = together.toMap() + (target.index to drag.startWorld)
+            val placed = (listOf(target) + together.mapNotNull { (index, _) -> objects.firstOrNull { it.index == index } }).map { copy ->
+                dropped(copy, starts[copy.index] ?: copy.world, manipulation)
             }
             placed.forEach(::replaceObject)
-            onPlaceObjects(placed.map { it.index to Transform3(it.world.elements().toList()) })
+            onPlaceObjects(placed.map { it.index to Transform3(it.world.elements().toList()) }, manipulation)
             return
         }
-        val shiftZ = target.minZ()
-        val drops = target.autoDrop && when (manipulation) {
-            Manipulation.Move -> shiftZ > SINKING_Z_THRESHOLD
-            // do_rotate(): an object that was not sunk before rests on the plate.
-            else -> (target.withWorld(drag.startWorld).minZ() >= SINKING_Z_THRESHOLD || shiftZ > SINKING_Z_THRESHOLD) && shiftZ != 0.0
-        }
-        val placed = if (drops) {
-            target.withWorld(target.world.withTranslation(target.world.translation() - Vec3(0.0, 0.0, shiftZ)))
-        } else {
-            target
-        }
+        val placed = dropped(target, drag.startWorld, manipulation)
         replaceObject(placed)
         onPlaceObject(placed.index, Transform3(placed.world.elements().toList()), manipulation)
+    }
+
+    /**
+     * do_move(), do_rotate() and do_scale(): the copy [copy], which stood at
+     * [start], rests on the plate unless its auto drop is off — moved, when it
+     * floats; turned or scaled, unless it was sunk before.
+     */
+    private fun dropped(copy: SceneObject, start: Affine3, manipulation: Manipulation): SceneObject {
+        val shiftZ = copy.minZ()
+        val drops = copy.autoDrop && when (manipulation) {
+            Manipulation.Move -> shiftZ > SINKING_Z_THRESHOLD
+            // do_rotate(): an object that was not sunk before rests on the plate.
+            else -> (copy.withWorld(start).minZ() >= SINKING_Z_THRESHOLD || shiftZ > SINKING_Z_THRESHOLD) && shiftZ != 0.0
+        }
+        return if (drops) copy.withWorld(copy.world.withTranslation(copy.world.translation() - Vec3(0.0, 0.0, shiftZ))) else copy
+    }
+
+    /**
+     * Selection::is_multiple_full_instance() or is_multiple_full_object() in the
+     * 3D view ("Group Operations"): the copies the gizmos work on together;
+     * null for one copy, a volume or the assembly view.
+     */
+    private fun groupIndexes(): List<Int>? =
+        selectedIndexes.filter { it != WIPE_TOWER_INDEX }.sorted().takeIf { it.size > 1 && volumeMode() == null && assembly == null }
+
+    /** The other copies of the group but the copy [index], where they stand now. */
+    private fun groupStarts(index: Int): List<Pair<Int, Affine3>> =
+        groupIndexes().orEmpty().filter { it != index }.mapNotNull { other -> objects.firstOrNull { it.index == other }?.let { other to it.world } }
+
+    /** Selection::get_bounding_box() of the group: every volume of its copies. */
+    private fun groupBox(indexes: List<Int>): Box3? =
+        objects.filter { it.index in indexes && !it.overlay }.map(SceneObject::bounds).reduceOrNull(Box3::merge)
+
+    /** The group's sphere as the volumes stood when it was found: their keys and places. */
+    private var groupSphereCache: Pair<List<Pair<String, List<Double>>>, Pair<Vec3, Double>?>? = null
+
+    /**
+     * Selection::get_bounding_sphere() of the group: the smallest sphere around
+     * the points of its volumes in the world (Min_sphere_of_spheres_d).
+     */
+    private fun groupSphere(indexes: List<Int>): Pair<Vec3, Double>? {
+        val volumes = objects.filter { it.index in indexes && !it.overlay }
+        val key = volumes.map { it.key to it.world.elements().toList() }
+        groupSphereCache?.takeIf { it.first == key }?.let { return it.second }
+        val points = ArrayList<Vec3>()
+        for (volume in volumes) {
+            val vertices = volume.mesh.vertices
+            for (corner in 0 until volume.mesh.cornerCount) {
+                val base = corner * MeshFiles.FLOATS_PER_CORNER
+                points += volume.world.transformPoint(Vec3(vertices.get(base).toDouble(), vertices.get(base + 1).toDouble(), vertices.get(base + 2).toDouble()))
+            }
+        }
+        val sphere = MinimalSphere.of(points)
+        groupSphereCache = key to sphere
+        return sphere
     }
 
     /**
@@ -2586,7 +2659,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             PlateGizmo.SCALE -> scaleGizmo(target)?.let { scale -> { id: Int -> scale.grabberCenter(id).let { it to it } } } ?: return null
             PlateGizmo.LAY_ON_FACE, null -> return null
         }
-        val grabbers = if (gizmo == PlateGizmo.SCALE) ScaleGizmo.VISIBLE_GRABBERS else listOf(0, 1, 2)
+        val grabbers = if (gizmo == PlateGizmo.SCALE) ScaleGizmo.grabbers(groupIndexes() != null && groupUniformScale) else listOf(0, 1, 2)
         return grabbers
             .mapNotNull { axis ->
                 val (from, to) = ends(axis)
@@ -2764,6 +2837,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * the copy's rotation in object coordinates.
      */
     private fun moveGizmo(target: SceneObject): MoveGizmo {
+        // A group moves in world coordinates on the box of all its copies.
+        groupIndexes()?.let(::groupBox)?.let { return MoveGizmo(it, pixel()) }
         val placement = moveFrame ?: return MoveGizmo(target.bounds, pixel())
         val rotation = Affine3(AssemblyTransforms.rotation(Transform3(placement.elements().toList())).columns.toDoubleArray())
         return MoveGizmo(target.mesh.bounds.transformed(rotation.inverse() * target.world), pixel(), rotation, placement)
@@ -2771,6 +2846,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /** The sphere the rotation gizmo turns [target] about: the copy's, or the selected volume's once the engine measured it. */
     private fun rotationSphere(target: SceneObject): Pair<Vec3, Double>? {
+        groupIndexes()?.let { return groupSphere(it) }
         if (volumeMode() == null) return target.sphereCenter() to target.sphereRadius
         val sphere = volumeSphere ?: return null
         return Vec3(sphere.center.x, sphere.center.y, sphere.center.z) to sphere.radius
@@ -2784,6 +2860,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * of it has gone.
      */
     private fun scaleGizmo(target: SceneObject): ScaleGizmo? {
+        groupIndexes()?.let { indexes -> return groupBox(indexes)?.let { ScaleGizmo(it, pixel()) } }
         if (volumeMode() == null) return ScaleGizmo(target.bounds, pixel())
         val held = drag as? ScaleGrabberDrag
         val volume = held?.volume ?: return volumeScaling(target)?.let { ScaleGizmo(it.box, pixel(), it.frame) }
@@ -2895,6 +2972,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (camera.zoom > 0.0 && pixel() != reportedPixel) {
             reportedPixel = pixel()
             onPixelSize(reportedPixel)
+        }
+        // The group's sphere for the rotation window, found while nothing moves.
+        if (drag == null) {
+            val sphere = if (gizmo == PlateGizmo.ROTATE) groupIndexes()?.let(::groupSphere) else null
+            if (sphere != reportedGroupSphere) {
+                reportedGroupSphere = sphere
+                onGroupSphere(sphere?.let { (center, radius) -> BoundingSphere(Vector3(center.x, center.y, center.z), radius) })
+            }
         }
         val bed = bed
         if (bed != null && framedBed !== bed && camera.viewportWidth > 1 && assembly == null) {
@@ -3018,7 +3103,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 val gizmo = rotating?.let { RotateGizmo(it.center, it.sphereRadius, pixel()) } ?: rotateGizmo(target) ?: return null
                 gizmo.frame(rotating?.axis, rotating?.angle ?: 0.0, density)
             }
-            PlateGizmo.SCALE -> scaleGizmo(target)?.frame((drag as? ScaleGrabberDrag)?.id, density)
+            PlateGizmo.SCALE -> scaleGizmo(target)?.frame((drag as? ScaleGrabberDrag)?.id, density, uniformOnly = groupIndexes() != null && groupUniformScale)
             PlateGizmo.LAY_ON_FACE -> layOnFace.frame(target.world, pressed = null)
             null -> null
         }

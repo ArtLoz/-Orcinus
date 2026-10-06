@@ -1803,6 +1803,25 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `while the scale gizmo is open a part of a cut takes every part of that cut`() {
+        val upper = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/upper.mesh")))), cutId = CutId(9))
+        val lower = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/lower.mesh")))), cutId = CutId(9, checkSum = 2))
+        val other = CUBE.copy(instances = listOf(PlateInstance(INSPECTION.copy(mesh = ScenePath("/scene/other.mesh")))))
+        val selected = setOf(PlateInstanceId(other.mesh), PlateInstanceId(lower.mesh))
+        val repository = FakeRepository(readyState(upper, lower, other).copy(selectedInstances = selected))
+        val select = SelectPlateObjectUseCase(repository)
+
+        // ObjectList::fix_cut_selection(): the cut's parts in place of the rest.
+        select.withCutParts()
+        assertEquals(setOf(PlateInstanceId(upper.mesh), PlateInstanceId(lower.mesh)), repository.state.value.selectedInstances)
+
+        // A selection without a part of a cut stays as it is.
+        select(PlateInstanceId(other.mesh))
+        select.withCutParts()
+        assertEquals(setOf(PlateInstanceId(other.mesh)), repository.state.value.selectedInstances)
+    }
+
+    @Test
     fun `a solid part of a cut stays until its cut info is invalidated`() {
         val cut = CutId(7)
         val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/part.mesh"), Transform3.IDENTITY)

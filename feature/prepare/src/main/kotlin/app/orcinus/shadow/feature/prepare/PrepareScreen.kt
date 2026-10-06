@@ -331,6 +331,7 @@ internal fun PrepareRoute(
         ),
         onPlaceObject = viewModel::placeObject,
         onPlaceObjects = viewModel::placeObjects,
+        onGroupSphere = viewModel::setGroupSphere,
         onSetAutoDrop = viewModel::setAutoDrop,
         onDeleteObject = viewModel::deleteObject,
         objectMenuActions = PrepareObjectMenuActions(
@@ -683,7 +684,7 @@ internal fun PrepareScreen(
     onTogglePainting: (PaintKind) -> Unit,
     paintingActions: PaintingActions,
     onPlaceObject: (Int, Transform3, Manipulation) -> Unit,
-    onPlaceObjects: (List<Pair<Int, Transform3>>) -> Unit,
+    onPlaceObjects: (List<Pair<Int, Transform3>>, Manipulation) -> Unit,
     onSetAutoDrop: (index: Int, enabled: Boolean) -> Unit,
     onDeleteObject: (index: Int) -> Unit,
     objectMenuActions: PrepareObjectMenuActions,
@@ -728,6 +729,8 @@ internal fun PrepareScreen(
     onTranslateInObject: (axis: Int, value: Double) -> Unit = { _, _ -> },
     /** A gizmo or a finger moved the selected volume of the copy at index by a change in the world. */
     onPlaceVolume: (index: Int, change: Transform3, manipulation: VolumeManipulation) -> Unit = { _, _, _ -> },
+    /** The 3D view found the smallest sphere around a group of copies, for the rotation window. */
+    onGroupSphere: (BoundingSphere?) -> Unit = {},
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         val viewCamera = rememberPlateViewCamera()
@@ -904,6 +907,8 @@ internal fun PrepareScreen(
                 selectedVolume = state.selectedVolume?.mesh?.value,
                 highlightedVolumes = state.highlightedVolumes,
                 selectedVolumeSphere = state.volumeSphere,
+                groupUniformScale = state.group?.uniformOnly == true,
+                onGroupSphere = onGroupSphere,
                 selectedVolumeScale = state.volumeScale,
                 onPlaceVolume = onPlaceVolume,
             )
@@ -1172,6 +1177,7 @@ internal fun PrepareScreen(
                             ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo)
                         state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(
                             position = position,
+                            group = state.group != null,
                             imperial = canvas.imperialUnits,
                             objectCoordinates = state.moveObjectCoordinates,
                             canObjectCoordinates = state.canMoveObjectCoordinates,
@@ -2480,6 +2486,8 @@ private const val GAP_AREA_MAX = 5f
 @Composable
 private fun MoveGizmoPanel(
     position: ObjectPosition,
+    /** A group of copies: "Translate" from where it stands, as GizmoObjectManipulation's "Group Operations". */
+    group: Boolean,
     imperial: Boolean,
     objectCoordinates: Boolean,
     canObjectCoordinates: Boolean,
@@ -2503,7 +2511,7 @@ private fun MoveGizmoPanel(
         )
         // The captions' column is as wide as both captions need, as the window measures them.
         val translate = orcaString("Translate(Relative)")
-        val positionCaption = stringResource(R.string.gizmo_position)
+        val positionCaption = if (group) orcaString("Translate") else stringResource(R.string.gizmo_position)
         val labelWidth = captionWidth(listOf(translate, positionCaption), PositionLabelWidth)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(labelWidth))
@@ -2957,7 +2965,7 @@ private val PreviewState = PrepareUiState(
 @Composable
 private fun PrepareCompactPreview() = OrcinusTheme {
     PrepareScreen(
-        PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, {}, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        PreviewState, OrcaWindowLayout.Compact, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }
@@ -2974,7 +2982,7 @@ private fun PrepareWidePreview() = OrcinusTheme {
             canEditPlate = true,
             canSlice = true,
         ),
-        OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, {}, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }

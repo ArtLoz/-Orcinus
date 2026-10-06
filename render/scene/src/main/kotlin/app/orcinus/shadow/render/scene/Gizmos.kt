@@ -571,7 +571,11 @@ internal class ScaleGizmo(box: Box3, private val pixel: Double, private val fram
         },
     )
 
-    fun frame(dragged: Int?, pixelScale: Float): GizmoFrame {
+    /**
+     * The grabbers and their connection; [uniformOnly] leaves the uniform
+     * corner grabbers alone (enable_ununiversal_scale(false)).
+     */
+    fun frame(dragged: Int?, pixelScale: Float, uniformOnly: Boolean = false): GizmoFrame {
         val width = (if (dragged != null) 2f else 1.5f) * pixelScale
         val size = MoveGizmo.FIXED_GRABBER_SIZE * pixel
         // render_grabbers_connection(): the bottom rectangle in the Y and X colours.
@@ -582,7 +586,7 @@ internal class ScaleGizmo(box: Box3, private val pixel: Double, private val fram
                 width,
             )
         }
-        val grabbers = VISIBLE_GRABBERS.map { id ->
+        val grabbers = grabbers(uniformOnly).map { id ->
             val hover = id == dragged
             val color = when {
                 id >= 6 -> if (hover) GizmoColors.UNIFORM_HOVER else GizmoColors.UNIFORM
@@ -597,6 +601,9 @@ internal class ScaleGizmo(box: Box3, private val pixel: Double, private val fram
     companion object {
         /** Grabbers drawn and touchable: all but the bottom centre. */
         val VISIBLE_GRABBERS = listOf(0, 1, 2, 3, 5, 6, 7, 8, 9)
+
+        /** The grabbers drawn and touchable, but the corners alone when [uniformOnly]. */
+        fun grabbers(uniformOnly: Boolean) = if (uniformOnly) VISIBLE_GRABBERS.filter { it >= 6 } else VISIBLE_GRABBERS
 
         /**
          * GLGizmoScale3D::calc_ratio(): how far the drag has moved the grabber,
