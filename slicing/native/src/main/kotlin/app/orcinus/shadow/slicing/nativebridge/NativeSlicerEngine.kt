@@ -1692,6 +1692,33 @@ class NativeSlicerEngine(context: Context) :
             )
         }
 
+    override suspend fun renumberPaintedFilaments(
+        plateObject: PlacedModel,
+        filamentCount: Int,
+        deletedFilament: Int,
+        replaceFilament: Int,
+        profiles: SlicingProfileSelection,
+        outputPrefix: ScenePath,
+    ): PaintingOutcome = withContext(Dispatchers.IO) {
+        val engineStatus = status()
+        if (!engineStatus.ready) {
+            return@withContext PaintingOutcome.Failure(engineStatus.message ?: "OrcaSlicer engine is not ready")
+        }
+        painting(
+            NativeBindings.renumberPaintedFilaments(
+                plateObject = nativePlate(listOf(plateObject)),
+                filamentCount = filamentCount,
+                deletedFilament = deletedFilament,
+                replaceFilament = replaceFilament,
+                printerProfile = profiles.printer.value,
+                filamentProfile = profiles.filament.value,
+                filamentProfiles = profiles.allFilaments.map(ProfileId::value).toTypedArray(),
+                processProfile = profiles.process.value,
+                outputPrefix = outputPrefix.value,
+            ),
+        )
+    }
+
     override suspend fun beginPainting(
         plateObject: PlacedModel,
         kind: PaintKind,

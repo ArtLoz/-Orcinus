@@ -364,6 +364,26 @@ TEST_CASE("The Preferences group user filaments and show unsupported presets", "
     REQUIRE(orca::delete_preset(orca::PresetKind::filament, {{"delete_preset", true}}).status == orca::SceneStatus::success);
 }
 
+TEST_CASE("A filament saved under a new name takes the old one's place in every slot", "[Adapter][Presets]")
+{
+    require_engine();
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
+    // The new slot takes the preset of the last one.
+    const orca::PresetState added = orca::add_filament("#FF0000");
+    REQUIRE(added.status == orca::SceneStatus::success);
+    REQUIRE(added.selection.filaments == std::vector<std::string>{"Generic PLA @K2 Plus-all", "Generic PLA @K2 Plus-all"});
+
+    // Tab::save_preset() -> Sidebar::update_presets_from_to()
+    const std::string name = "Orcinus slots test PLA";
+    REQUIRE(orca::save_preset(orca::PresetKind::filament, name).status == orca::SceneStatus::success);
+    CHECK(orca::describe_presets().selection.filaments == std::vector<std::string>{name, name});
+
+    REQUIRE(orca::delete_preset(orca::PresetKind::filament, {{"delete_preset", true}}).status == orca::SceneStatus::success);
+    REQUIRE(orca::remove_filament(1).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, "Generic PLA @K2 Plus-all").status == orca::SceneStatus::success);
+}
+
 TEST_CASE("The sidebar selects presets as the desktop app does", "[Adapter][Presets]")
 {
     require_engine();
@@ -5678,6 +5698,72 @@ TEST_CASE("Mesh Boolean joins, subtracts and intersects two volumes of an object
         REQUIRE(result.instances.size() == 1);
         CHECK(result.instances.front().size_x == Catch::Approx(2.0).margin(0.01));
         CHECK(result.instances.front().size_z == Catch::Approx(10.0).margin(0.01));
+    }
+}
+
+TEST_CASE("A deleted filament's colour goes to the one that takes its place, and the later filaments come one lower", "[Adapter][Scene][PaintRenumber]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("renumber.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    orca::ProfileSelection profiles = k2_plus_profiles();
+    profiles.filaments = {profiles.filament, profiles.filament, profiles.filament};
+
+    // The top of the cube in filament 3, its foot in filament 2.
+    const orca::PaintingState opened = orca::begin_painting(plate.front(), orca::PaintKind::color, profiles, output_path("renumber-paint"));
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SceneStatus::success);
+    const std::vector<double> center = matrix_of(cube);
+    orca::PaintStroke top;
+    top.origin[0] = center[12];
+    top.origin[1] = center[13];
+    top.origin[2] = 100.0;
+    top.direction[2] = -1.0;
+    top.state = 3;
+    top.radius = 6.0;
+    REQUIRE(orca::paint(top, output_path("renumber-paint")).hit);
+    orca::PaintStroke foot = top;
+    foot.origin[0] = center[12] + 100.0;
+    foot.origin[2] = 0.5;
+    foot.direction[0] = -1.0;
+    foot.direction[2] = 0.0;
+    foot.state = 2;
+    foot.tool = orca::PaintTool::height_range;
+    foot.cursor_height = 1.0;
+    REQUIRE(orca::paint(foot, output_path("renumber-paint")).hit);
+    const orca::PaintingState closed = orca::end_painting();
+    REQUIRE(closed.status == orca::SceneStatus::success);
+    plate.front().painted = closed.facets;
+
+    const auto states_of = [&profiles](const orca::PlateObject& object, const std::string& name) {
+        const orca::PaintingState colors = orca::painted_colors(object, profiles, output_path(name));
+        INFO(colors.message);
+        REQUIRE(colors.status == orca::SceneStatus::success);
+        return std::set<int>(colors.states.begin(), colors.states.end());
+    };
+    const auto renumbered = [&](int count, int deleted, int replace, const std::string& name) {
+        const orca::PaintingState result = orca::renumber_painted_filaments(plate.front(), count, deleted, replace, profiles, output_path(name));
+        INFO(result.message);
+        REQUIRE(result.status == orca::SceneStatus::success);
+        CHECK(result.part_facets.empty());
+        orca::PlateObject after = plate.front();
+        after.painted = result.facets;
+        return states_of(after, name + "-colors");
+    };
+    CHECK(states_of(plate.front(), "renumber-before") == std::set<int>{2, 3});
+
+    SECTION("deleting filament 2 takes its colour away, and filament 3 becomes 2")
+    {
+        CHECK(renumbered(2, 2, 0, "renumber-deleted") == std::set<int>{2});
+    }
+    SECTION("merging filament 2 into filament 1 paints its facets with filament 1")
+    {
+        CHECK(renumbered(2, 2, 1, "renumber-merged") == std::set<int>{1, 2});
+    }
+    SECTION("fewer filaments take the colours beyond them away")
+    {
+        CHECK(renumbered(2, 0, 0, "renumber-fewer") == std::set<int>{2});
     }
 }
 

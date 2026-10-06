@@ -1320,6 +1320,19 @@ internal object NativeBindings {
         meshPrefix: String,
     ): NativePainting
 
+    /** renumber_painted_filaments(): the colours painted on the object once a filament left or the filaments became fewer. */
+    external fun renumberPaintedFilaments(
+        plateObject: NativePlate,
+        filamentCount: Int,
+        deletedFilament: Int,
+        replaceFilament: Int,
+        printerProfile: String,
+        filamentProfile: String,
+        filamentProfiles: Array<String>,
+        processProfile: String,
+        outputPrefix: String,
+    ): NativePainting
+
     /** GLGizmoPainterBase: opens the painting tool of a kind on an object or one of its parts. */
     external fun beginPainting(
         /** The object alone, as a plate of one. */

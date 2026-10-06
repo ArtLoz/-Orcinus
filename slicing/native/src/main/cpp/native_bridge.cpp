@@ -1511,6 +1511,35 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintedColors(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_renumberPaintedFilaments(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject object,
+    jint filament_count,
+    jint deleted_filament,
+    jint replace_filament,
+    jstring printer_profile,
+    jstring filament_profile,
+    jobjectArray filament_profiles,
+    jstring process_profile,
+    jstring output_prefix
+)
+{
+    const std::vector<orcinus::orca::PlateObject> plate = to_plate(env, object);
+    return to_java(
+        env,
+        orcinus::orca::renumber_painted_filaments(
+            plate.empty() ? orcinus::orca::PlateObject{} : plate.front(),
+            filament_count,
+            deleted_filament,
+            replace_filament,
+            to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
+            to_utf8(env, output_prefix)
+        )
+    );
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_beginPainting(
     JNIEnv* env,
     jobject /* this */,

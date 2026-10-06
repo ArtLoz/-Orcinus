@@ -652,6 +652,24 @@ interface PlateInspector {
     suspend fun paintedColors(plateObject: PlacedModel, profiles: SlicingProfileSelection, meshPrefix: ScenePath): PaintingOutcome =
         PaintingOutcome.Failure("Painted colours are not supported")
 
+    /**
+     * ModelVolume::update_extruder_count_when_delete_filament() and
+     * update_extruder_count() of the colours painted on [plateObject]: with
+     * [deletedFilament] (from 1) its facets take [replaceFilament] (from 1, 0
+     * for none) and those of the filaments after it the one before; then the
+     * facets beyond [filamentCount] lose their colour. The surface's facets and
+     * part facets are the object's own painting and each part's, written to
+     * files whose names start with [outputPrefix].
+     */
+    suspend fun renumberPaintedFilaments(
+        plateObject: PlacedModel,
+        filamentCount: Int,
+        deletedFilament: Int,
+        replaceFilament: Int,
+        profiles: SlicingProfileSelection,
+        outputPrefix: ScenePath,
+    ): PaintingOutcome = PaintingOutcome.Failure("Renumbering painted filaments is not supported")
+
     /** One touch of a finger on the model being painted. */
     suspend fun paint(stroke: PaintStroke, meshPrefix: ScenePath): PaintingOutcome
 

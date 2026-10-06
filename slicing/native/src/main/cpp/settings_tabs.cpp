@@ -1847,6 +1847,9 @@ PresetSettings save_preset(const PresetKind kind, const std::string& name, const
             }
 
             // Tab::save_preset()
+            //BBS record current preset name
+            const std::string curr_preset_name = m_presets->get_edited_preset().name;
+
             bool exist_preset = false;
             Slic3r::Preset* new_preset = m_presets->find_preset(name, false);
             if (new_preset) {
@@ -1880,6 +1883,16 @@ PresetSettings save_preset(const PresetKind kind, const std::string& name, const
             // Mark the print & filament enabled if they are compatible with the currently selected preset.
             // If saving the preset changes compatibility with other presets, keep the now incompatible dependent presets selected, however with a "red flag" icon showing that they are no more compatible.
             bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Never);
+
+            //BBS if create a new prset name, preset changed from preset name to new preset name
+            // (Sidebar::update_presets_from_to()): every filament slot of the old preset takes the new one.
+            if (!exist_preset && kind == PresetKind::filament) {
+                for (std::string& filament : bundle.filament_presets) {
+                    if (filament == curr_preset_name) {
+                        filament = new_preset->name;
+                    }
+                }
+            }
 
             // Sidebar::update_presets()
             bundle.export_selections(*engine().config);

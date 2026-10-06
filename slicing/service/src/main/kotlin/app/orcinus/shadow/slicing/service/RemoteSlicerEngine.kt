@@ -932,6 +932,28 @@ class RemoteSlicerEngine(
             }
         }
 
+    override suspend fun renumberPaintedFilaments(
+        plateObject: PlacedModel,
+        filamentCount: Int,
+        deletedFilament: Int,
+        replaceFilament: Int,
+        profiles: SlicingProfileSelection,
+        outputPrefix: ScenePath,
+    ): PaintingOutcome = withContext(Dispatchers.IO) {
+        try {
+            service().renumberPaintedFilaments(
+                listOf(plateObject).toParcels().first(),
+                filamentCount,
+                deletedFilament,
+                replaceFilament,
+                profiles.toParcel(),
+                outputPrefix.value,
+            ).toOutcome()
+        } catch (_: RemoteException) {
+            PaintingOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
     override suspend fun beginPainting(
         plateObject: PlacedModel,
         kind: PaintKind,

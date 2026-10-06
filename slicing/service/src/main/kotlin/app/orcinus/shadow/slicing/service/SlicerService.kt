@@ -841,6 +841,24 @@ abstract class SlicerService<E> : Service()
             engine.paintedColors(arrayOf(plateObject).toPlacedModels().first(), profiles.toProfiles(), ScenePath(meshPrefix))
         }.toParcel()
 
+        override fun renumberPaintedFilaments(
+            plateObject: PlacedModelParcel,
+            filamentCount: Int,
+            deletedFilament: Int,
+            replaceFilament: Int,
+            profiles: ProfilesParcel,
+            outputPrefix: String,
+        ): PaintingParcel = runBlocking {
+            engine.renumberPaintedFilaments(
+                arrayOf(plateObject).toPlacedModels().first(),
+                filamentCount,
+                deletedFilament,
+                replaceFilament,
+                profiles.toProfiles(),
+                ScenePath(outputPrefix),
+            )
+        }.toParcel()
+
         override fun beginPainting(
             plateObject: PlacedModelParcel,
             kind: String,

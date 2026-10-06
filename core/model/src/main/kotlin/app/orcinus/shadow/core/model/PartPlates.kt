@@ -274,6 +274,55 @@ fun ModelSettings.withPlateSettingsChoice(choice: PlateSettingsChoice): ModelSet
     return ModelSettings(updated)
 }
 
+/**
+ * PartPlate::update_first_layer_print_sequence_when_delete_filament(): the
+ * plate's filament orders without [filament] (from 1), every filament after it
+ * one lower; a first layer on "Auto" stays so.
+ */
+fun ModelSettings.withFilamentDeletedFromSequences(filament: Int): ModelSettings {
+    fun List<Int>.without() = filter { it != filament }.map { if (it > filament) it - 1 else it }
+    return withSequences(filament = { it.without() }, otherLayers = { it.without() })
+}
+
+/**
+ * PartPlate::update_first_layer_print_sequence() of [count] filaments: an
+ * order longer than that loses the filaments beyond it, and a shorter one
+ * gets the filaments after its length, as Orca appends them.
+ */
+fun ModelSettings.withSequencesForFilamentCount(count: Int): ModelSettings {
+    fun List<Int>.appended() = this + (size + 1..count).toList()
+    return withSequences(
+        filament = { order ->
+            when {
+                order.size > count -> order.filter { it <= count }
+                order.size < count -> order.appended()
+                else -> order
+            }
+        },
+        // The ranges check both, one after the other.
+        otherLayers = { order ->
+            val kept = if (order.size > count) order.filter { it <= count } else order
+            if (kept.size < count) kept.appended() else kept
+        },
+    )
+}
+
+/**
+ * The first layer's order through [filament] unless it is "Auto" (empty or
+ * 0), and every range's order through [otherLayers]; the other settings stay.
+ */
+private fun ModelSettings.withSequences(filament: (List<Int>) -> List<Int>, otherLayers: (List<Int>) -> List<Int>): ModelSettings {
+    val choice = plateSettingsChoice()
+    val updated = values.toMutableMap()
+    choice.firstLayerSequence?.takeUnless { it.isEmpty() || it.first() == 0 }?.let { order ->
+        updated[FIRST_LAYER_SEQUENCE] = filament(order).joinToString(",")
+    }
+    choice.otherLayersSequence?.takeIf { it.isNotEmpty() }?.let { ranges ->
+        updated[OTHER_LAYERS_SEQUENCE] = ranges.flatMap { listOf(it.begin, it.end) + otherLayers(it.filaments) }.joinToString(",")
+    }
+    return if (updated == values) this else ModelSettings(updated)
+}
+
 private const val BED_TYPE = "curr_bed_type"
 private const val PRINT_SEQUENCE = "print_sequence"
 private const val SPIRAL_MODE = "spiral_mode"

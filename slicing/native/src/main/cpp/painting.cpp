@@ -606,6 +606,63 @@ PaintingState painted_colors(const PlateObject& object, const ProfileSelection& 
     }
 }
 
+PaintingState renumber_painted_filaments(
+    const PlateObject& object,
+    const int filament_count,
+    const int deleted_filament,
+    const int replace_filament,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+)
+{
+    PaintingState result;
+    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    if (detail::engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        Slic3r::DynamicPrintConfig config;
+        std::string message;
+        if (detail::select_profiles(*detail::engine().bundle, profiles, config, message) != SliceStatus::success) {
+            result.status = SceneStatus::profile_not_found;
+            result.message = message;
+            return result;
+        }
+        Slic3r::Model model;
+        if (!detail::load_plate({object}, config, model, message) || model.objects.empty()) {
+            result.status = SceneStatus::model_read_failed;
+            result.message = message;
+            return result;
+        }
+        std::vector<std::string> facets{object.painted};
+        for (const ObjectPart& part : object.parts) {
+            facets.push_back(part.painted);
+        }
+        Slic3r::ModelObject& loaded = *model.objects.front();
+        for (std::size_t index = 0; index < loaded.volumes.size() && index < facets.size(); ++index) {
+            Slic3r::ModelVolume& volume = *loaded.volumes[index];
+            if (volume.mmu_segmentation_facets.empty()) {
+                continue;
+            }
+            // Orca renumbers a volume once one of its filaments is the deleted one
+            // or after it, or beyond the count; the facets of the filaments before
+            // stay as they are, so every painted volume goes through it here.
+            volume.mmu_segmentation_facets.set_enforcer_block_type_limit(volume, static_cast<Slic3r::EnforcerBlockerType>(filament_count),
+                static_cast<Slic3r::EnforcerBlockerType>(deleted_filament), static_cast<Slic3r::EnforcerBlockerType>(replace_filament));
+            facets[index] = painted_facets_of(volume, output_prefix + "-" + std::to_string(index) + ".painted");
+        }
+        result.facets = facets.front();
+        result.part_facets.assign(facets.begin() + 1, facets.end());
+        result.status = SceneStatus::success;
+        return result;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::model_read_failed;
+        result.message = error.what();
+        return result;
+    }
+}
+
 // Called by the adapter while it loads a plate, so painted objects are sliced
 // with their paint: colours, supports, seams and fuzzy skin.
 bool apply_painted_facets(Slic3r::ModelVolume& volume, const std::string& path)

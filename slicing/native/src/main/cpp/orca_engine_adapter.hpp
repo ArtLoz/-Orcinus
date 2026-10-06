@@ -1145,6 +1145,24 @@ PaintingState end_painting();
 // volumes; none for an object painted with no colour.
 PaintingState painted_colors(const PlateObject& object, const ProfileSelection& profiles, const std::string& mesh_prefix);
 
+// ModelVolume::update_extruder_count_when_delete_filament() and
+// update_extruder_count() of the colours painted on the object's volumes
+// (FacetsAnnotation::set_enforcer_block_type_limit()): with deleted_filament
+// (from 1) the facets of that filament take replace_filament (from 1, 0 for
+// none) and the facets of every filament after it the one before; then the
+// facets beyond filament_count lose their colour. The other kinds of paint
+// stay. The painting of the object's own mesh (facets) and of each part
+// (part_facets) is written to files named after output_prefix; a volume
+// painted with no colour keeps the file it had.
+PaintingState renumber_painted_filaments(
+    const PlateObject& object,
+    int filament_count,
+    int deleted_filament,
+    int replace_filament,
+    const ProfileSelection& profiles,
+    const std::string& output_prefix
+);
+
 // What the desktop app's settings tabs edit (Preset::Type): the presets, and
 // the settings an object or the plate overrides them with.
 enum class PresetKind : std::int64_t {

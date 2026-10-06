@@ -56,6 +56,8 @@ class PresetSettingsTabs(
      * the values or of the preset a tab edits (auto slice after changes).
      */
     private val onConfigChange: () -> Unit = {},
+    /** Plater::on_filament_count_change() of the objects and plates. */
+    private val filamentRenumbering: PlateFilamentRenumbering? = null,
     /**
      * Sidebar::on_filament_count_change(): the filament slots follow the
      * extruder count of the printer. The plate is built after this class, so it
@@ -224,6 +226,10 @@ class PresetSettingsTabs(
                 if (request is SettingsRequest.Change && request.id.substringBefore('#') == EXTRUDERS_COUNT_KEY) {
                     val before = repository.state.value.profiles
                     platePresets().apply(before, presetManager.presets())
+                    // MainFrame::on_value_changed(): Plater::on_filament_count_change() of the extruders.
+                    repository.state.value.profiles?.allFilaments?.size?.let { count ->
+                        filamentRenumbering?.countChanged(count, before?.allFilaments?.size)
+                    }
                 }
                 // Plater::on_config_change(): the bed is built anew when a printer
                 // setting of its shape changes, and when a reset takes the printer

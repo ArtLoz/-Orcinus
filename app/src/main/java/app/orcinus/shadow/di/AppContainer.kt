@@ -119,6 +119,7 @@ import app.orcinus.shadow.domain.plate.PlaceInAssemblyUseCase
 import app.orcinus.shadow.domain.plate.PlaceObjectVolumeUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectUseCase
 import app.orcinus.shadow.domain.plate.PlacePlateObjectsUseCase
+import app.orcinus.shadow.domain.plate.PlateFilamentRenumbering
 import app.orcinus.shadow.domain.plate.PlateFilamentsUseCase
 import app.orcinus.shadow.domain.plate.PlateJobsUseCase
 import app.orcinus.shadow.domain.plate.PlateObjectsUseCase
@@ -273,6 +274,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     // Sidebar::auto_calc_flushing_volumes(), which filament, printer and settings changes ask for.
     private val flushVolumes = UpdateFlushVolumesUseCase(engine, plateRepository)
     // Plater::on_config_change() asks "Auto slice after changes", which is built with the slice below.
+    // Plater::on_filaments_delete() and on_filament_count_change(): the objects and plates follow the filaments.
+    private val filamentRenumbering = PlateFilamentRenumbering(engine, sceneFiles, plateRepository)
     private val settingsTabs = PresetSettingsTabs(
         engine,
         engine,
@@ -281,6 +284,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         applicationScope,
         platePresets = { platePresets },
         onConfigChange = { autoSlice.onConfigChange() },
+        filamentRenumbering = filamentRenumbering,
     )
     private val platePresets: PlatePresets =
         PlatePresets(engine, sceneFiles, plateCache, plateRepository, placePlateObjects, settingsTabs) { autoSlice.onConfigChange() }
@@ -407,7 +411,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         applicationScope = applicationScope,
     )
     // Sidebar: the filaments the plate prints with.
-    private val plateFilaments = PlateFilamentsUseCase(engine, platePresets, flushVolumes, plateRepository, applicationScope)
+    private val plateFilaments = PlateFilamentsUseCase(engine, platePresets, flushVolumes, plateRepository, applicationScope, filamentRenumbering)
     private val selectPlateObject = SelectPlateObjectUseCase(plateRepository)
     private val selectObjectPart = SelectObjectPartUseCase(plateRepository)
     private val setBedShape = SetBedShapeUseCase(settingsTabs, engine, platePresets)

@@ -390,6 +390,15 @@ interface ISlicerService {
     );
     /** painted_colors(): the colours painted on the object, outside the painting tools. */
     PaintingParcel paintedColors(in PlacedModelParcel plateObject, in ProfilesParcel profiles, String meshPrefix);
+    /** renumber_painted_filaments(): the colours painted on the object once a filament left or the filaments became fewer. */
+    PaintingParcel renumberPaintedFilaments(
+        in PlacedModelParcel plateObject,
+        int filamentCount,
+        int deletedFilament,
+        int replaceFilament,
+        in ProfilesParcel profiles,
+        String outputPrefix
+    );
     /** GLGizmoPainterBase: the painting tools of the 3D view; kind is the PaintKind's name. */
     PaintingParcel beginPainting(
         in PlacedModelParcel plateObject,

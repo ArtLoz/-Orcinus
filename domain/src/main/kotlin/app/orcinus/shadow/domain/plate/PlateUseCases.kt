@@ -325,22 +325,42 @@ class PlateFilamentsUseCase(
     private val flushVolumes: FlushVolumesUpdater,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    /** Plater::on_filaments_delete() and on_filament_count_change() of the objects and plates. */
+    private val renumbering: PlateFilamentRenumbering? = null,
 ) {
-    // The added filament is the last one.
-    fun add() = change(FlushVolumesChange.FILAMENT_ADDED, index = null) { presetManager.addFilament() }
+    // The added filament is the last one; Sidebar::add_custom_filament() ends with on_filament_count_change().
+    fun add() = change(FlushVolumesChange.FILAMENT_ADDED, index = null, plate = { before, count -> renumbering?.countChanged(count, before) }) {
+        presetManager.addFilament()
+    }
 
-    fun remove(index: Int) = change(FlushVolumesChange.FILAMENT_REMOVED, index) { presetManager.removeFilament(index) }
+    /**
+     * Sidebar::delete_filament(): the filament at [index] leaves, and
+     * [mergeInto] (from 0 among the filaments before, -1 for none) takes its
+     * objects, facets and filament changes, as "Merge with" asks
+     * (Sidebar::change_filament()).
+     */
+    fun remove(index: Int, mergeInto: Int = -1) = change(
+        FlushVolumesChange.FILAMENT_REMOVED,
+        index,
+        plate = { _, count -> renumbering?.deleted(index, if (mergeInto > index) mergeInto - 1 else mergeInto, count) },
+    ) { presetManager.removeFilament(index) }
 
     fun select(index: Int, name: ProfileId) = change(FlushVolumesChange.FILAMENT_CHANGED, index) { presetManager.selectFilament(index, name) }
 
     fun setColor(index: Int, color: String) = change(FlushVolumesChange.COLOR_CHANGED, index) { presetManager.setFilamentColor(index, color) }
 
     /**
-     * Runs [action], brings the plate to the presets it leaves, and then the
-     * flushing volumes to the filaments, as the sidebar's handlers end with
-     * auto_calc_flushing_volumes().
+     * Runs [action], brings the plate to the presets it leaves, the objects
+     * and plates to the filaments ([plate], with the number of filaments
+     * before and after), and then the flushing volumes to the filaments, as
+     * the sidebar's handlers end with auto_calc_flushing_volumes().
      */
-    private fun change(flush: FlushVolumesChange, index: Int?, action: suspend () -> PresetsOutcome) {
+    private fun change(
+        flush: FlushVolumesChange,
+        index: Int?,
+        plate: suspend (before: Int, count: Int) -> Unit = { _, _ -> },
+        action: suspend () -> PresetsOutcome,
+    ) {
         var before: SlicingProfileSelection? = null
         repository.update { state ->
             before = null
@@ -353,7 +373,9 @@ class PlateFilamentsUseCase(
             val outcome = action()
             platePresets.apply(before = selection, outcome = outcome)
             if (outcome !is PresetsOutcome.Success) return@launch
-            val changed = index ?: (repository.state.value.profiles?.allFilaments?.size?.minus(1) ?: return@launch)
+            val count = repository.state.value.profiles?.allFilaments?.size ?: return@launch
+            plate(selection.allFilaments.size, count)
+            val changed = index ?: (count - 1)
             flushVolumes.update(flush, changed)
         }
     }
