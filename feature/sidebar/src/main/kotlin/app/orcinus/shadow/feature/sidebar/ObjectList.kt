@@ -28,29 +28,26 @@ import app.orcinus.shadow.core.model.ObjectPart
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.hasVariableLayerHeight
 import app.orcinus.shadow.core.model.meshErrors
-import app.orcinus.shadow.core.model.reloadableVolumes
 import app.orcinus.shadow.core.ui.orca.orcaText
-import app.orcinus.shadow.core.ui.plate.MirrorSubmenu
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
-import app.orcinus.shadow.core.ui.plate.conversionsOf
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.hasConnectors
 import app.orcinus.shadow.core.model.HandyModel
 import app.orcinus.shadow.core.ui.plate.AddObjectItems
-import app.orcinus.shadow.core.ui.plate.conversionName
 import app.orcinus.shadow.core.model.ObjectEdit
-import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
 import app.orcinus.shadow.core.ui.plate.volumeName
 import app.orcinus.shadow.core.ui.plate.objectMenuState
-import app.orcinus.shadow.core.ui.plate.ClipboardItems
+import app.orcinus.shadow.core.ui.plate.PartMenuActions
+import app.orcinus.shadow.core.ui.plate.PartMenuItems
+import app.orcinus.shadow.core.ui.plate.RenameItem
+import app.orcinus.shadow.core.ui.plate.partMenuState
 import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
 import app.orcinus.shadow.core.ui.plate.SetAsIndividualItem
 import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
 import app.orcinus.shadow.core.ui.plate.ChangeFilamentItem
 import app.orcinus.shadow.core.ui.plate.MenuFilament
 import app.orcinus.shadow.core.ui.plate.ProcessSettingsItems
-import app.orcinus.shadow.core.ui.plate.SmoothMeshItem
 import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.MeshFormat
 import app.orcinus.shadow.core.model.SettingsItem
@@ -89,7 +86,6 @@ import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
-import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -97,7 +93,6 @@ import app.orcinus.shadow.core.model.LayerRangeId
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PlateInstance
-import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.ScenePath
@@ -571,166 +566,44 @@ private fun LazyListScope.objectRows(
                     onClick = { actions.selectPart(partId) },
                     menu = { dismiss ->
                         val volumeName = plateObject.volumeName(at)
-                        RenameItem(enabled) {
-                            dismiss()
-                            onAskRename(RenameRequest.Volume(partId, volumeName))
-                        }
-                        // MenuFactory::text_part_menu() and svg_part_menu() of a volume embossed
-                        // from a text or an SVG: its tool, and fewer edits of its mesh.
-                        val embossed = part.emboss?.kind
-                        // The Edit menu for the volume, which the list picks over the first
-                        // copy; the object's own mesh cannot be cut out of it yet.
+                        val partMenu = partMenuState(
+                            plateObject,
+                            at,
+                            plateObject.instances.first(),
+                            enabled,
+                            clipboard = state.clipboard,
+                            simplifying = state.simplifying,
+                            filaments = menuFilaments,
+                            settingsClipboard = state.settingsClipboard,
+                        ) ?: return@ObjectListRow
+                        // The list picks the volume over the object's first copy.
                         val first = PlateInstanceId(mesh, 0)
-                        ClipboardItems(
-                            enabled = enabled,
-                            canPaste = enabled && state.clipboard is PlateClipboard.Volumes,
-                            cut = { dismiss(); actions.copyVolumes(first, setOf(at), true) },
-                            copy = { dismiss(); actions.copyVolumes(first, setOf(at), false) },
-                            paste = { dismiss(); actions.paste(first) },
-                        )
-                        OrcaMenuSeparator()
-                        if (embossed != null) {
-                            OrcaMenuItem(
-                                text = orcaString(if (embossed == EmbossKind.TEXT) "Edit text" else "Edit SVG"),
-                                enabled = enabled,
-                                onClick = {
-                                    dismiss()
-                                    if (embossed == EmbossKind.TEXT) actions.editText(partId) else actions.editSvg(partId)
-                                },
-                            )
-                        }
-                        // ObjectList::del_subobject_item(), the object's own mesh too.
-                        OrcaMenuItem(
-                            text = stringResource(UiR.string.object_menu_delete),
-                            enabled = enabled,
-                            onClick = {
-                                dismiss()
-                                actions.removePart(partId)
-                            },
-                        )
-                        // MenuFactory::create_bbl_part_menu(), with the items the app has.
-                        OrcaMenuItem(
-                            text = orcaString("Fix model"),
-                            enabled = enabled,
-                            onClick = {
-                                dismiss()
-                                actions.editObject(mesh, ObjectEdit.FIX, at)
-                            },
-                        )
-                        OrcaMenuItem(
-                            text = orcaString("Simplify Model"),
-                            enabled = enabled && !state.simplifying,
-                            onClick = {
-                                dismiss()
-                                actions.simplifyVolume(partId)
-                            },
-                        )
-                        // Plater::can_smooth_mesh() goes by the object's meshes.
-                        if (embossed == null) SmoothMeshItem(enabled = enabled && plateObject.instances.first().inspection.openEdges == 0L) {
-                            dismiss()
-                            actions.editObject(mesh, ObjectEdit.SMOOTH_MESH, at)
-                        }
-                        // append_menu_item_center(), append_menu_item_drop() and append_menu_items_mirror() of the volume.
-                        OrcaMenuItem(
-                            text = orcaString("Center"),
-                            enabled = enabled,
-                            onClick = {
-                                dismiss()
-                                actions.centerVolume(partId)
-                            },
-                        )
-                        OrcaMenuItem(
-                            text = orcaString("Drop"),
-                            enabled = enabled,
-                            onClick = {
-                                dismiss()
-                                actions.dropVolume(partId)
-                            },
-                        )
-                        MirrorSubmenu(enabled = enabled && !plateObject.isCut) { axis ->
-                            dismiss()
-                            actions.mirrorVolume(partId, axis)
-                        }
-                        // can_split(true): ObjectList::is_splittable(true) refuses a volume, which turns the submenu off.
-                        if (embossed == null) OrcaSubmenu(text = orcaString("Split"), enabled = false) {
-                            // ObjectList::is_splittable(true) refuses a volume.
-                            OrcaMenuItem(text = orcaString("To objects"), enabled = false, onClick = {})
-                            OrcaMenuItem(
-                                text = orcaString("To parts"),
-                                enabled = enabled && part.splittable,
-                                onClick = {
-                                    dismiss()
-                                    actions.editObject(mesh, ObjectEdit.SPLIT_TO_PARTS, at)
-                                },
-                            )
-                        }
-                        // MenuFactory::part_menu() appends the conversions of the volume.
-                        OrcaMenuSeparator()
                         val item = SettingsItem.Volume(partId)
-                        ProcessSettingsItems(
-                            enabled = enabled,
-                            canPaste = enabled && state.settingsClipboard?.kind == SettingsItemKind.VOLUME,
-                            edit = { dismiss(); actions.editProcessSettings(item) },
-                            copy = { dismiss(); actions.copyProcessSettings(item) },
-                            paste = { dismiss(); actions.pasteProcessSettings(item) },
+                        PartMenuItems(
+                            partMenu,
+                            PartMenuActions(
+                                rename = { onAskRename(RenameRequest.Volume(partId, volumeName)) },
+                                cut = { actions.copyVolumes(first, setOf(at), true) },
+                                copy = { actions.copyVolumes(first, setOf(at), false) },
+                                paste = { actions.paste(first) },
+                                editText = { actions.editText(partId) },
+                                editSvg = { actions.editSvg(partId) },
+                                delete = { actions.removePart(partId) },
+                                edit = { actions.editObject(mesh, it, at) },
+                                simplify = { actions.simplifyVolume(partId) },
+                                center = { actions.centerVolume(partId) },
+                                drop = { actions.dropVolume(partId) },
+                                mirror = { actions.mirrorVolume(partId, it) },
+                                editProcessSettings = { actions.editProcessSettings(item) },
+                                copyProcessSettings = { actions.copyProcessSettings(item) },
+                                pasteProcessSettings = { actions.pasteProcessSettings(item) },
+                                changeType = { actions.changeVolumeType(partId, it) },
+                                reloadFromDisk = { actions.reloadFromDisk(mesh, at) },
+                                replace = { actions.replaceVolume(first, at) },
+                                setFilament = { actions.setPartExtruder(partId, it) },
+                            ),
+                            dismiss,
                         )
-                        // append_menu_item_change_type(): the kinds of volume, the volume's checked;
-                        // a text or an SVG is no support blocker or enforcer.
-                        OrcaSubmenu(text = orcaString("Change type"), enabled = enabled) {
-                            VOLUME_TYPES.forEach { (type, label) ->
-                                val support = type == VolumeType.SUPPORT_BLOCKER || type == VolumeType.SUPPORT_ENFORCER
-                                OrcaMenuCheckItem(
-                                    text = orcaString(label),
-                                    checked = part.type == type,
-                                    enabled = enabled && !(support && embossed != null),
-                                    onClick = {
-                                        dismiss()
-                                        actions.changeVolumeType(partId, type)
-                                    },
-                                )
-                            }
-                        }
-                        // append_menu_item_reload_from_disk(): Plater::can_reload_from_disk() of the volume.
-                        OrcaMenuItem(
-                            text = orcaString("Reload from disk"),
-                            enabled = enabled && !plateObject.isCut && at in plateObject.reloadableVolumes(),
-                            onClick = {
-                                dismiss()
-                                actions.reloadFromDisk(mesh, at)
-                            },
-                        )
-                        // Plater::can_replace_with_stl(): the list selects the volume alone, of no cut.
-                        if (embossed == null) OrcaMenuItem(
-                            text = orcaString("Replace 3D file") + "...",
-                            enabled = enabled && !plateObject.isCut,
-                            onClick = {
-                                dismiss()
-                                actions.replaceVolume(first, at)
-                            },
-                        )
-                        if (embossed == null) conversionsOf(listOf(part)).forEach { conversion ->
-                            OrcaMenuItem(
-                                text = orcaString(conversionName(conversion)),
-                                enabled = enabled,
-                                onClick = {
-                                    dismiss()
-                                    actions.editObject(mesh, conversion, at)
-                                },
-                            )
-                        }
-                        // MenuFactory::part_menu(): a part of the model or a modifier takes a
-                        // filament; a modifier may follow its object's ("Default").
-                        if (part.type == VolumeType.PART || part.type == VolumeType.MODIFIER) {
-                            ChangeFilamentItem(
-                                menuFilaments,
-                                withDefault = part.type == VolumeType.MODIFIER,
-                                enabled = enabled,
-                                onPick = { filament ->
-                                    dismiss()
-                                    actions.setPartExtruder(partId, filament)
-                                },
-                            )
-                        }
                     },
                 )
             }
@@ -955,15 +828,6 @@ private fun FilamentColumn(column: ExtruderColumn, enabled: Boolean) {
     }
 }
 
-/** The types "Change type" offers, with their texts (MenuFactory::append_menu_item_change_type). */
-private val VOLUME_TYPES = listOf(
-    VolumeType.PART to "Part",
-    VolumeType.NEGATIVE to "Negative Part",
-    VolumeType.MODIFIER to "Modifier",
-    VolumeType.SUPPORT_BLOCKER to "Support Blocker",
-    VolumeType.SUPPORT_ENFORCER to "Support Enforcer",
-)
-
 /**
  * ObjectDataViewModel's bitmap of a volume: a text or an SVG by its type
  * (MenuFactory::get_text_volume_bitmaps(), get_svg_volume_bitmaps()), the
@@ -1038,13 +902,6 @@ private fun PlateObject.listsVolumes(): Boolean {
     if (!isCut) return true
     val listed = (0..parts.size).mapNotNull { volumeAt(it) }.filterNot { it.cutInfo.connector }
     return listed.any { it.type != VolumeType.PART } || listed.size > 1
-}
-
-/** ObjectList::rename_item(), first in the menu of a row. */
-@Composable
-private fun RenameItem(enabled: Boolean, onClick: () -> Unit) {
-    OrcaMenuItem(text = orcaString("Rename"), enabled = enabled, onClick = onClick)
-    OrcaMenuSeparator()
 }
 
 /** The settings row of an item, which the desktop app names after their pages. */

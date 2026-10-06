@@ -690,6 +690,13 @@ fun CloneDialog(autoArrange: Boolean, onDismiss: () -> Unit, onFill: () -> Unit,
     )
 }
 
+/** ObjectList::rename_item(), first in the menu of an item. */
+@Composable
+fun RenameItem(enabled: Boolean, onClick: () -> Unit) {
+    OrcaMenuItem(text = orcaString("Rename"), enabled = enabled, onClick = onClick)
+    OrcaMenuSeparator()
+}
+
 /**
  * ObjectList::rename_item(): wxGetTextFromUser() asks for the new name. The
  * desktop app refuses a name with a character a file name cannot hold once OK

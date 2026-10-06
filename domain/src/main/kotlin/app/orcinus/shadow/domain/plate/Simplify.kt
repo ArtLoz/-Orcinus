@@ -47,13 +47,16 @@ class OpenSimplifyUseCase(private val repository: PlateRepository) {
         )
     }
 
-    /** A volume of an object, as its row of the object list selects it. */
-    fun ofVolume(id: ObjectPartId) = repository.update { state ->
+    /**
+     * A volume of an object, selected over the copy [instance] it is picked on:
+     * the first, as its row of the object list selects it, or the canvas's.
+     */
+    fun ofVolume(id: ObjectPartId, instance: Int = 0) = repository.update { state ->
         val target = state.objects.withMesh(id.mesh)
         if (target?.volumeAt(id.index) == null || state.simplifyTarget != null) return@update state
         state.copy(
             simplifyTarget = id,
-            selectedInstances = setOf(PlateInstanceId(id.mesh)),
+            selectedInstances = setOf(PlateInstanceId(id.mesh, instance.takeIf { it in target.instances.indices } ?: 0)),
             selectedPart = id,
             selectedRange = null,
             simplifySuggestions = state.simplifySuggestions - id.mesh,

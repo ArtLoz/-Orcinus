@@ -614,6 +614,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     )
     private val setFlushOption = SetFlushOptionUseCase(plateRepository, settingsTabs, applicationScope)
     private val openSimplify = OpenSimplifyUseCase(plateRepository)
+    private val placeObjectVolume = PlaceObjectVolumeUseCase(engine, sceneFiles, plateRepository, applicationScope)
+    private val volumeMenu = VolumeMenuUseCase(engine, plateRepository, placeObjectVolume, applicationScope)
+    private val changeVolumeType = ChangeVolumeTypeUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val replaceAllVolumes = ReplaceAllVolumesUseCase(
         ImportModelUseCase(modelFiles),
         AppDocumentFolders(applicationContext),
@@ -703,7 +706,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             cancelPlateSlicing = cancelPlateSlicing,
             dismissPlateProblem = dismissPlateProblem,
             meshBooleans = MeshBooleanUseCase(engine, sceneFiles, plateRepository, applicationScope),
-            placeObjectVolume = PlaceObjectVolumeUseCase(engine, sceneFiles, plateRepository, applicationScope),
+            placeObjectVolume = placeObjectVolume,
             paintingSection = PaintingSectionUseCase(engine, sceneFiles, plateRepository),
             describeVolume = DescribeVolumeUseCase(engine),
             setPlateObjectPrintable = setPlateObjectPrintable,
@@ -755,6 +758,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             takeSnapshot = TakePlateSnapshotUseCase(plateRepository),
             placeInAssembly = PlaceInAssemblyUseCase(plateRepository),
             assemblySection = AssemblySectionUseCase(engine, sceneFiles, plateRepository),
+            volumeMenu = volumeMenu,
+            changeVolumeType = changeVolumeType,
+            renamePlateItem = renamePlateItem,
             preferences = appPreferences,
             setPreference = setPreference,
             findValidationSetting = FindValidationSettingUseCase(settingsTabs),
@@ -860,8 +866,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         exportObjectMesh = exportObjectMesh,
         replaceObjectVolume = replaceObjectVolume,
         openSimplify = openSimplify,
-        volumeMenu = VolumeMenuUseCase(engine, plateRepository, PlaceObjectVolumeUseCase(engine, sceneFiles, plateRepository, applicationScope), applicationScope),
-        changeVolumeType = ChangeVolumeTypeUseCase(engine, sceneFiles, plateRepository, applicationScope),
+        volumeMenu = volumeMenu,
+        changeVolumeType = changeVolumeType,
         replaceAllVolumesUseCase = replaceAllVolumes,
         reloadFromDiskUseCase = reloadFromDisk,
         saveProject = saveProject,

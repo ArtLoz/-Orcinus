@@ -103,6 +103,7 @@ import app.orcinus.shadow.domain.plate.ApplySimplifyUseCase
 import app.orcinus.shadow.domain.plate.AssemblySectionUseCase
 import app.orcinus.shadow.domain.plate.BrimEarsTarget
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
+import app.orcinus.shadow.domain.plate.ChangeVolumeTypeUseCase
 import app.orcinus.shadow.domain.plate.ClonePlateObjectsUseCase
 import app.orcinus.shadow.domain.plate.CopyProcessSettingsUseCase
 import app.orcinus.shadow.domain.plate.CopyToClipboardUseCase
@@ -146,6 +147,7 @@ import app.orcinus.shadow.domain.plate.ReloadFromDiskUseCase
 import app.orcinus.shadow.domain.plate.RemoveLastPlateInstancesUseCase
 import app.orcinus.shadow.domain.plate.RemoveObjectPartUseCase
 import app.orcinus.shadow.domain.plate.RemovePlateInstanceUseCase
+import app.orcinus.shadow.domain.plate.RenamePlateItemUseCase
 import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
@@ -173,6 +175,7 @@ import app.orcinus.shadow.domain.plate.TextFontsUseCase
 import app.orcinus.shadow.domain.plate.TextStyleList
 import app.orcinus.shadow.domain.plate.TextStylesUseCase
 import app.orcinus.shadow.domain.plate.UndoRedoPlateUseCase
+import app.orcinus.shadow.domain.plate.VolumeMenuUseCase
 import app.orcinus.shadow.domain.plate.embossKindOf
 import app.orcinus.shadow.domain.plate.hasAssembleView
 import app.orcinus.shadow.domain.plate.isTextVolume
@@ -299,6 +302,10 @@ class PrepareViewModel(
     private val takeSnapshot: TakePlateSnapshotUseCase,
     private val placeInAssembly: PlaceInAssemblyUseCase,
     private val assemblySection: AssemblySectionUseCase,
+    /** The part menu's Center, Drop and Mirror of a volume, its "Change type" and its Rename. */
+    private val volumeMenu: VolumeMenuUseCase,
+    private val changeVolumeType: ChangeVolumeTypeUseCase,
+    private val renamePlateItem: RenamePlateItemUseCase,
     preferences: AppPreferences,
     private val setPreference: SetPreferenceUseCase,
     private val findValidationSetting: FindValidationSettingUseCase? = null,
@@ -3223,8 +3230,60 @@ class PrepareViewModel(
     /** Plater::reload_from_disk() of the object's volumes. */
     fun reloadFromDiskAt(index: Int) = copyAt(index)?.let { reloadFromDisk(it.mesh) }
 
-    /** "Replace 3D file": the object's own mesh takes the one of the document the user picked. */
-    fun replaceMesh(copy: PlateInstanceId, document: String) = replaceObjectVolume(copy, 0, ExternalDocumentReference(document))
+    /**
+     * "Replace 3D file": the volume [volume] of the object, its own mesh for the
+     * object menu, takes the one of the document the user picked.
+     */
+    fun replaceMesh(copy: PlateInstanceId, volume: Int, document: String) = replaceObjectVolume(copy, volume, ExternalDocumentReference(document))
+
+    /**
+     * The part menu (MenuFactory::create_bbl_part_menu()) of the volume
+     * [volume] the canvas selected alone on the copy at [index]: Cut and Copy
+     * of the volume over that copy.
+     */
+    fun copyVolumeAt(index: Int, volume: Int, cut: Boolean) = copyAt(index)?.let { copyToClipboard.volumes(it, setOf(volume), cut) }
+
+    /** ObjectList::simplify(): the gizmo opens on the volume, which stays selected on that copy. */
+    fun simplifyVolumeAt(index: Int, volume: Int) = copyAt(index)?.let { openSimplify.ofVolume(ObjectPartId(it.mesh, volume), it.instance) }
+
+    /** Center, Drop and Mirror of the volume in the world, by its box over that copy. */
+    fun centerVolumeAt(index: Int, volume: Int) = copyAt(index)?.let { volumeMenu.center(it, volume) }
+
+    fun dropVolumeAt(index: Int, volume: Int) = copyAt(index)?.let { volumeMenu.drop(it, volume) }
+
+    fun mirrorVolumeAt(index: Int, volume: Int, axis: Axis) = copyAt(index)?.let { volumeMenu.mirror(it, volume, axis) }
+
+    /**
+     * ObjectList::switch_to_object_process() of the volume: it stays selected
+     * on that copy, and the settings show its own.
+     */
+    fun editVolumeProcessSettingsAt(index: Int, volume: Int) {
+        val id = copyAt(index) ?: return
+        selectObjectPart(ObjectPartId(id.mesh, volume), id.instance)
+        setSettingsScope(SettingsScope.OBJECT)
+    }
+
+    fun copyVolumeProcessSettings(volume: ObjectPartId) = copyProcessSettings(SettingsItem.Volume(volume))
+
+    fun pasteVolumeProcessSettings(volume: ObjectPartId) = pasteProcessSettings(SettingsItem.Volume(volume))
+
+    /** ObjectList::rename_item() of the volume. */
+    fun renameVolume(volume: ObjectPartId, name: String) = renamePlateItem(volume, name)
+
+    /** ObjectList::del_subobject_item() of the volume: the object's own mesh goes through the engine. */
+    fun removeVolume(volume: ObjectPartId) = if (volume.index == 0) editPlateObject.deleteOwnVolume(volume.mesh) else removeObjectPart(volume)
+
+    /** The part menu's commands that change the volume's mesh. */
+    fun editVolume(volume: ObjectPartId, edit: ObjectEdit) = editPlateObject(volume.mesh, edit, volume.index)
+
+    /** "Change type" of the volume (ObjectList::set_volume_type). */
+    fun setVolumeType(volume: ObjectPartId, type: VolumeType) = changeVolumeType(volume, type)
+
+    /** Plater::reload_from_disk() of the volume. */
+    fun reloadVolumeFromDisk(volume: ObjectPartId) = reloadFromDisk(volume.mesh, volume.index)
+
+    /** "Change Filament" of the volume: 0 leaves a modifier to its object's. */
+    fun setVolumeFilament(volume: ObjectPartId, filament: Int) = setExtruder(volume, filament)
 
     private fun copyAt(index: Int): PlateInstanceId? = state.value.sceneCopies.getOrNull(index)?.id
 

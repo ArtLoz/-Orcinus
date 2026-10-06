@@ -114,6 +114,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.AssemblyMode
+import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.CanvasPreferences
@@ -172,6 +173,8 @@ import app.orcinus.shadow.core.ui.plate.MenuFilament
 import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
 import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
 import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
+import app.orcinus.shadow.core.ui.plate.PartMenuActions
+import app.orcinus.shadow.core.ui.plate.PartMenuItems
 import app.orcinus.shadow.core.ui.plate.PartShapeSheet
 import app.orcinus.shadow.core.ui.plate.PlateIconActions
 import app.orcinus.shadow.core.ui.plate.PlateMenuItems
@@ -181,6 +184,7 @@ import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateAvailableNotification
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateFinishedNotification
+import app.orcinus.shadow.core.ui.plate.RenameDialog
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
 import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.SeqPrintInfoNotification
@@ -193,6 +197,7 @@ import app.orcinus.shadow.core.ui.plate.UpdatedItemsInfoNotification
 import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
+import app.orcinus.shadow.core.ui.plate.partMenuState
 import app.orcinus.shadow.core.ui.plate.volumeName
 import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.AssemblyView
@@ -287,10 +292,12 @@ internal fun PrepareRoute(
     }
     var replaceTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var replaceInstance by rememberSaveable { mutableStateOf(0) }
+    // The volume the file replaces: the object's own mesh, or the part menu's volume.
+    var replaceVolume by rememberSaveable { mutableStateOf(0) }
     val replacement = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val mesh = replaceTarget
         replaceTarget = null
-        if (uri != null && mesh != null) viewModel.replaceMesh(PlateInstanceId(ScenePath(mesh), replaceInstance), uri.toString())
+        if (uri != null && mesh != null) viewModel.replaceMesh(PlateInstanceId(ScenePath(mesh), replaceInstance), replaceVolume, uri.toString())
     }
     // choose_svg_file() and "Save as" of the SVG tool.
     val svgPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> viewModel.svgPicked(uri?.toString()) }
@@ -397,6 +404,7 @@ internal fun PrepareRoute(
                 viewModel.copyOf(index)?.let { copy ->
                     replaceTarget = copy.mesh.value
                     replaceInstance = copy.instance
+                    replaceVolume = 0
                     replacement.launch(arrayOf("*/*"))
                 }
             },
@@ -421,6 +429,33 @@ internal fun PrepareRoute(
                     meshExport.launch(exportFileName(name, format))
                 }
             },
+            part = PreparePartMenuActions(
+                rename = viewModel::renameVolume,
+                copy = viewModel::copyVolumeAt,
+                delete = viewModel::removeVolume,
+                edit = viewModel::editVolume,
+                simplify = viewModel::simplifyVolumeAt,
+                center = viewModel::centerVolumeAt,
+                drop = viewModel::dropVolumeAt,
+                mirror = viewModel::mirrorVolumeAt,
+                editProcessSettings = { index, volume ->
+                    viewModel.editVolumeProcessSettingsAt(index, volume)
+                    onOpenSidebar()
+                },
+                copyProcessSettings = viewModel::copyVolumeProcessSettings,
+                pasteProcessSettings = viewModel::pasteVolumeProcessSettings,
+                changeType = viewModel::setVolumeType,
+                reloadFromDisk = viewModel::reloadVolumeFromDisk,
+                replace = { index, volume ->
+                    viewModel.copyOf(index)?.let { copy ->
+                        replaceTarget = copy.mesh.value
+                        replaceInstance = copy.instance
+                        replaceVolume = volume
+                        replacement.launch(arrayOf("*/*"))
+                    }
+                },
+                setFilament = viewModel::setVolumeFilament,
+            ),
         ),
         onPaste = viewModel::paste,
         plateMenuActions = PlateMenuActions(
@@ -785,6 +820,8 @@ internal fun PrepareScreen(
         // The desktop measuring tool's Esc: the phone's Back drops the last selection, and with none closes the tool.
         BackHandler(enabled = state.measure != null) { measureActions.escape() }
         var renamingPlate by remember { mutableStateOf<Int?>(null) }
+        // The part menu's Rename: the volume, with the name it has.
+        var renamingVolume by remember { mutableStateOf<Pair<ObjectPartId, String>?>(null) }
         // Plater::select_plate_by_hover_id(), action 5: the plate is selected, then its settings open.
         var customizingPlate by remember { mutableStateOf<Int?>(null) }
         val untitled = orcaString("Untitled")
@@ -988,6 +1025,17 @@ internal fun PrepareScreen(
                 onEditSvg = { volume -> svgActions.edit(volume) },
                 onAskNumberOfInstances = { askingCopies = menu.index },
                 onAskClone = { cloning = menu.index },
+                onAskRenameVolume = { volume, name -> renamingVolume = volume to name },
+            )
+        }
+        renamingVolume?.let { (volume, name) ->
+            RenameDialog(
+                name = name,
+                onDismiss = { renamingVolume = null },
+                onRename = { newName ->
+                    renamingVolume = null
+                    objectMenuActions.part?.rename(volume, newName)
+                },
             )
         }
         cloning?.let { index ->
@@ -1403,6 +1451,8 @@ internal class PrepareObjectMenuActions(
     val reloadFromDisk: (index: Int) -> Unit = {},
     /** The multi-selection menu's items over the selected objects. */
     val selection: SelectionMenuActions? = null,
+    /** The part menu's items over the volume the canvas selected alone. */
+    val part: PreparePartMenuActions? = null,
 ) {
     companion object {
         val NONE = PrepareObjectMenuActions(
@@ -1411,6 +1461,36 @@ internal class PrepareObjectMenuActions(
         )
     }
 }
+
+/**
+ * What the part menu of the 3D view does to a volume selected alone
+ * (Selection::Volume): by the volume itself, or by its index in the object
+ * over the copy at an index of the scene, which the canvas picked it on.
+ */
+internal class PreparePartMenuActions(
+    /** ObjectList::rename_item() of the volume. */
+    val rename: (ObjectPartId, name: String) -> Unit,
+    /** Cut, or Copy, of the volume over the copy. */
+    val copy: (index: Int, volume: Int, cut: Boolean) -> Unit,
+    val delete: (ObjectPartId) -> Unit,
+    /** The commands that change the volume's mesh. */
+    val edit: (ObjectPartId, ObjectEdit) -> Unit,
+    /** "Simplify Model": the gizmo opens on the volume. */
+    val simplify: (index: Int, volume: Int) -> Unit,
+    /** Center, Drop and Mirror of the volume in the world, by its box over the copy. */
+    val center: (index: Int, volume: Int) -> Unit,
+    val drop: (index: Int, volume: Int) -> Unit,
+    val mirror: (index: Int, volume: Int, Axis) -> Unit,
+    val editProcessSettings: (index: Int, volume: Int) -> Unit,
+    val copyProcessSettings: (ObjectPartId) -> Unit,
+    val pasteProcessSettings: (ObjectPartId) -> Unit,
+    val changeType: (ObjectPartId, VolumeType) -> Unit,
+    val reloadFromDisk: (ObjectPartId) -> Unit,
+    /** Opens the document picker for the volume's new mesh. */
+    val replace: (index: Int, volume: Int) -> Unit,
+    /** "Change Filament", 0 for the object's. */
+    val setFilament: (ObjectPartId, filament: Int) -> Unit,
+)
 
 /** What the plates of the 3D view do: selected, added after the last one, and what their icons do. */
 internal class PlateActions(
@@ -1535,6 +1615,8 @@ private fun ObjectContextMenu(
     onAskClone: () -> Unit,
     onEditText: (ObjectPartId) -> Unit = {},
     onEditSvg: (ObjectPartId) -> Unit = {},
+    /** The part menu's Rename: the canvas asks for the volume's name. */
+    onAskRenameVolume: (ObjectPartId, name: String) -> Unit = { _, _ -> },
 ) {
     val copy = state.sceneCopies.getOrNull(menu.index)
     OrcaContextMenu(
@@ -1544,19 +1626,66 @@ private fun ObjectContextMenu(
     ) {
         if (copy == null) return@OrcaContextMenu
         val index = menu.index
+        val filaments = state.filamentNames.zip(state.filamentColors) { filament, color ->
+            MenuFilament(filament, Color(color.red, color.green, color.blue, color.alpha))
+        }
         // Plater::priv::on_right_click() over a copy of a selection of several objects.
         val selection = actions.selection
         val selectionMenu = state.selectionMenu
         if (selection != null && selectionMenu != null && index in state.selectedObjects) {
             SelectionMenuItems(
-                state = selectionMenu.copy(
-                    filaments = state.filamentNames.zip(state.filamentColors) { filament, color ->
-                        MenuFilament(filament, Color(color.red, color.green, color.blue, color.alpha))
-                    }.takeIf { it.size > 1 }.orEmpty(),
-                ),
+                state = selectionMenu.copy(filaments = filaments.takeIf { it.size > 1 }.orEmpty()),
                 actions = selection,
                 dismiss = onDismiss,
                 onClone = onAskClone,
+            )
+            return@OrcaContextMenu
+        }
+        // Plater::priv::on_right_click() over the copy whose volume is selected alone
+        // (Selection::is_single_volume() or is_single_modifier()): MenuFactory::part_menu(),
+        // or text_part_menu() and svg_part_menu() of a volume embossed from a text or an SVG.
+        val part = actions.part
+        val volume = state.selectedVolume?.id?.takeIf { index == state.selectedObject && it.mesh == copy.id.mesh }
+        val partMenu = volume?.let {
+            partMenuState(
+                copy.plateObject,
+                it.index,
+                copy.instance,
+                state.canEditPlate,
+                clipboard = state.clipboard,
+                simplifying = state.simplify != null,
+                filaments = filaments,
+                settingsClipboard = state.settingsClipboard,
+            )
+        }
+        if (part != null && volume != null && partMenu != null) {
+            val at = volume.index
+            val volumeName = copy.plateObject.volumeName(at)
+            PartMenuItems(
+                partMenu,
+                PartMenuActions(
+                    rename = { onAskRenameVolume(volume, volumeName) },
+                    // The Edit menu for the volume over the copy the canvas picked it on.
+                    cut = { part.copy(index, at, true) },
+                    copy = { part.copy(index, at, false) },
+                    paste = { actions.paste(index) },
+                    editText = { onEditText(volume) },
+                    editSvg = { onEditSvg(volume) },
+                    delete = { part.delete(volume) },
+                    edit = { part.edit(volume, it) },
+                    simplify = { part.simplify(index, at) },
+                    center = { part.center(index, at) },
+                    drop = { part.drop(index, at) },
+                    mirror = { part.mirror(index, at, it) },
+                    editProcessSettings = { part.editProcessSettings(index, at) },
+                    copyProcessSettings = { part.copyProcessSettings(volume) },
+                    pasteProcessSettings = { part.pasteProcessSettings(volume) },
+                    changeType = { part.changeType(volume, it) },
+                    reloadFromDisk = { part.reloadFromDisk(volume) },
+                    replace = { part.replace(index, at) },
+                    setFilament = { part.setFilament(volume, it) },
+                ),
+                onDismiss,
             )
             return@OrcaContextMenu
         }
@@ -1570,9 +1699,7 @@ private fun ObjectContextMenu(
                 clipboard = state.clipboard,
                 listClipboard = state.listClipboard,
                 simplifying = state.simplify != null,
-                filaments = state.filamentNames.zip(state.filamentColors) { filament, color ->
-                    MenuFilament(filament, Color(color.red, color.green, color.blue, color.alpha))
-                },
+                filaments = filaments,
                 flushing = state.flushing,
                 settingsClipboard = state.settingsClipboard,
             ),
