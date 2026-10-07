@@ -45,7 +45,9 @@
 
 #include "orca_engine_adapter.hpp"
 #include "toolpaths_file.hpp"
+#include "libslic3r/AppConfig.hpp"
 #include "libslic3r/I18N.hpp"
+#include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Utils.hpp"
 
 namespace orca = orcinus::orca;
@@ -196,6 +198,15 @@ TEST_CASE("On first run the Setup Wizard is required, and closing it installs Or
     CHECK(model->selected);
     CHECK(fs::exists(config_path));
     CHECK(read_file(config_path).find("MyKlipper 0.4 nozzle") != std::string::npos);
+
+    // A printer chosen in the wizard and its bed type, before anything else
+    // exported its selections: the next start still loads the configuration
+    // (AppConfig::load() reads each printer's entry by its "machine").
+    REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_bed_type("Cool Plate").status == orca::SceneStatus::success);
+    Slic3r::AppConfig reloaded;
+    CHECK(reloaded.load().empty());
+    CHECK(reloaded.get_printer_setting("Creality K2 Plus 0.4 nozzle", "curr_bed_type") == std::to_string(int(Slic3r::btPC)));
 }
 
 TEST_CASE("The Setup Wizard offers every bundled printer model and the filaments for the chosen ones", "[Adapter][Setup]")

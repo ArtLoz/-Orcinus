@@ -406,7 +406,16 @@ bool set_bed_type(Slic3r::PresetBundle& bundle, const Slic3r::BedType new_bed_ty
     }
     proj_config.set_key_value("curr_bed_type", new Slic3r::ConfigOptionEnum<Slic3r::BedType>(new_bed_type));
     engine().config->set("curr_bed_type", std::to_string(int(new_bed_type)));
-    engine().config->set_printer_setting(bundle.printers.get_selected_preset_name(), "curr_bed_type", std::to_string(int(new_bed_type)));
+    const std::string printer = bundle.printers.get_selected_preset_name();
+    // PresetBundle::export_selections() names the printer of its entry
+    // ("machine"), by which AppConfig::load() reads the entry back. The bed type
+    // of a printer whose selections were never exported yet (right after the
+    // first-run wizard) would make an entry without it, and the next load would
+    // throw and leave the whole configuration at its defaults.
+    if (!engine().config->has_printer_setting(printer, PRESET_PRINTER_NAME)) {
+        engine().config->set_printer_setting(printer, PRESET_PRINTER_NAME, printer);
+    }
+    engine().config->set_printer_setting(printer, "curr_bed_type", std::to_string(int(new_bed_type)));
     return true;
 }
 

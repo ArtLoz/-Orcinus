@@ -25,6 +25,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/format.hpp>
 #include <boost/filesystem.hpp>
+#include <nlohmann/json.hpp>
 #include <png.h>
 
 #include "android_log_sink.hpp"
@@ -1866,6 +1867,48 @@ std::size_t install_vendor_bundles(const Slic3r::AppConfig& config)
     return vendor_bundles;
 }
 
+// AppConfig::load() reads every entry of "orca_presets" by its printer
+// ("machine"), which PresetBundle::export_selections() writes. An entry a
+// single setting made before that (the bed type, in builds before the fix in
+// set_bed_type()) has none and makes the load throw, so the whole
+// configuration would fall back to its defaults: the file loses such entries
+// and is loaded again. Returns whether the file changed.
+bool drop_unnamed_printer_settings(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    nlohmann::json config = nlohmann::json::parse(text, nullptr, false);
+    if (config.is_discarded() || !config.is_object() || !config.contains("orca_presets") || !config["orca_presets"].is_array()) {
+        return false;
+    }
+    nlohmann::json kept = nlohmann::json::array();
+    for (const nlohmann::json& entry : config["orca_presets"]) {
+        if (entry.is_object() && entry.contains(PRESET_PRINTER_NAME) && entry[PRESET_PRINTER_NAME].is_string()) {
+            kept.push_back(entry);
+        }
+    }
+    if (kept.size() == config["orca_presets"].size()) {
+        return false;
+    }
+    config["orca_presets"] = kept;
+    // Written beside the file and moved over it, as AppConfig::save() does.
+    const std::string written = path + ".repaired";
+    {
+        std::ofstream out(written, std::ios::binary | std::ios::trunc);
+        out << config.dump(1, '\t');
+        if (!out) {
+            return false;
+        }
+    }
+    boost::system::error_code error;
+    boost::filesystem::rename(written, path, error);
+    return !error;
+}
+
 }  // namespace
 
 std::string engine_version()
@@ -1896,7 +1939,12 @@ EngineInitialization initialize(const EngineDirectories& directories)
         const bool config_existed = config->exists();
         bool config_corrupted = false;
         if (config_existed) {
-            if (const std::string error = config->load(); !error.empty()) {
+            std::string error = config->load();
+            if (!error.empty() && drop_unnamed_printer_settings(config->config_path())) {
+                config = std::make_unique<Slic3r::AppConfig>();
+                error = config->load();
+            }
+            if (!error.empty()) {
                 BOOST_LOG_TRIVIAL(error) << "Unable to load the app configuration: " << error;
                 // Orca: if the config file is corrupted, we will show a error dialog and create a default config file.
                 config_corrupted = true;
