@@ -5198,6 +5198,35 @@ TEST_CASE("Assemble makes one object of the selected objects and their copies, a
         CHECK(fixed.notices.front().text.front().count == 2);
         CHECK(fixed.notices.front().text[2].msgid == "\n   - %s");
     }
+    SECTION("the volumes of one object")
+    {
+        const orca::ImportedModels assembled =
+            orca::edit_objects(plate, {0, 1}, orca::ObjectEdit::assemble, k2_plus_profiles(), import_prefix("assembly-volumes"), {});
+        REQUIRE(assembled.objects.size() == 1);
+        REQUIRE(assembled.objects.front().parts.size() == 2);
+        const std::vector<orca::PlateObject> assembly{plate_object_of(assembled.objects.front())};
+
+        // Plater::convert_unit() of the two parts alone: the object's own mesh stays in millimetres.
+        const orca::ImportedModels converted = orca::edit_objects(assembly, {0}, orca::ObjectEdit::convert_from_inches, k2_plus_profiles(),
+                                                                  import_prefix("assembly-inches"), {}, {1, 2});
+        INFO(converted.message);
+        REQUIRE(converted.status == orca::SceneStatus::success);
+        REQUIRE(converted.objects.size() == 1);
+        const orca::ImportedObject& object = converted.objects.front();
+        CHECK_FALSE(object.volume_from_inches);
+        REQUIRE(object.parts.size() == 2);
+        CHECK(object.parts[0].from_inches);
+        CHECK(object.parts[1].from_inches);
+
+        // ObjectList::fix_through_cgal() of the two volumes: one notification naming both.
+        const orca::ImportedModels fixed = orca::edit_objects(assembly, {0}, orca::ObjectEdit::fix, k2_plus_profiles(),
+                                                              import_prefix("assembly-fixed"), {}, {0, 2});
+        INFO(fixed.message);
+        REQUIRE(fixed.status == orca::SceneStatus::success);
+        CHECK(fixed.objects.size() == 1);
+        REQUIRE(fixed.notices.size() == 1);
+        CHECK(fixed.notices.front().text.front().count == 2);
+    }
 }
 
 TEST_CASE("An OBJ file with colours asks ObjColorDialog, and its OK paints the filaments it chose", "[Adapter][Import]")

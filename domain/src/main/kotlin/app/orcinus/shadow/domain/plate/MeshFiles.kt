@@ -269,13 +269,20 @@ class ReplaceAllVolumesUseCase(
     /** The multi-selection menu's item: every volume of the selected objects. */
     fun selected(folder: ExternalDocumentReference) = replaceAll(repository.state.value.selectedObjectMeshes(), folder)
 
+    /**
+     * The menu of several volumes of one object: the selected volumes alone
+     * (Selection::get_volume_idxs()), in their order in the object.
+     */
+    fun volumes(mesh: ScenePath, volumes: List<Int>, folder: ExternalDocumentReference) =
+        replaceAll(listOf(mesh), folder, volumes.distinct().sorted())
+
     /** A plate item: the objects whose first copy stands on the plate whole (PartPlate::contain_instance_totally). */
     fun onPlate(index: Int, folder: ExternalDocumentReference) {
         val state = repository.state.value
         replaceAll(state.objects.filter { state.listPlateOf(it) == index }.map(PlateObject::mesh), folder)
     }
 
-    private fun replaceAll(meshes: List<ScenePath>, folder: ExternalDocumentReference) {
+    private fun replaceAll(meshes: List<ScenePath>, folder: ExternalDocumentReference, volumes: List<Int>? = null) {
         var profiles: SlicingProfileSelection? = null
         repository.update { state ->
             profiles = null
@@ -288,7 +295,7 @@ class ReplaceAllVolumesUseCase(
         applicationScope.launch {
             val status = mutableListOf(OrcaText("Replaced with 3D files from directory:\n"), OrcaText("%s", listOf(folders.displayName(folder) + "\n\n")))
             try {
-                for (first in meshes) replaceVolumes(first, folder, selection, status)
+                for (first in meshes) replaceVolumes(first, folder, selection, status, volumes)
             } finally {
                 repository.update { state ->
                     state.copy(
@@ -309,10 +316,16 @@ class ReplaceAllVolumesUseCase(
     }
 
     /** The volumes of the object, one after another; each replaced one gives the object another mesh file. */
-    private suspend fun replaceVolumes(first: ScenePath, folder: ExternalDocumentReference, selection: SlicingProfileSelection, status: MutableList<OrcaText>) {
+    private suspend fun replaceVolumes(
+        first: ScenePath,
+        folder: ExternalDocumentReference,
+        selection: SlicingProfileSelection,
+        status: MutableList<OrcaText>,
+        only: List<Int>?,
+    ) {
         var mesh = first
         val volumes = (repository.state.value.objects.withMesh(mesh)?.parts?.size ?: 0) + 1
-        for (index in 0 until volumes) {
+        for (index in only ?: (0 until volumes).toList()) {
             val target = repository.state.value.objects.withMesh(mesh) ?: break
             // volumeAt() lists the object's own mesh only once the object has parts.
             val part = target.volumeAt(index)

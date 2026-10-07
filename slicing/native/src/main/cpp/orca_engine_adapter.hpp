@@ -2287,7 +2287,10 @@ ImportedModels edit_objects(
     ObjectEdit edit,
     const ProfileSelection& profiles,
     const std::string& output_prefix,
-    const DialogAnswers& answers
+    const DialogAnswers& answers,
+    // The volumes of the one object the edit takes, as the menu of several
+    // volumes of an object edits them (fix and conversions); none for whole objects.
+    const std::vector<int>& volumes = {}
 );
 
 // GLGizmoCut3D::bounding_box() of the copy the cut gizmo opened on: its solid

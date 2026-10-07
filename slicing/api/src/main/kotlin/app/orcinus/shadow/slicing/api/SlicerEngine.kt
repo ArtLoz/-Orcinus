@@ -556,7 +556,8 @@ interface PlateInspector {
 
     /**
      * The multi-selection menu's commands that change meshes: [edit] of the
-     * objects at [indexes] of [plate] as one change (edit_objects()).
+     * objects at [indexes] of [plate] as one change (edit_objects()), or of
+     * the [volumes] (ObjectPartId.index) of the one object at [indexes].
      */
     suspend fun editObjects(
         plate: List<PlacedModel>,
@@ -565,6 +566,7 @@ interface PlateInspector {
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
         answers: Map<String, Boolean> = emptyMap(),
+        volumes: List<Int> = emptyList(),
     ): ModelLoadOutcome = ModelLoadOutcome.Failure("Editing several objects is not supported")
 
     /**

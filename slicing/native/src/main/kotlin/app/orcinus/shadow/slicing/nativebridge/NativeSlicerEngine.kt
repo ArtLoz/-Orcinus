@@ -462,6 +462,7 @@ class NativeSlicerEngine(context: Context) :
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
         answers: Map<String, Boolean>,
+        volumes: List<Int>,
     ): ModelLoadOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -478,6 +479,7 @@ class NativeSlicerEngine(context: Context) :
             outputPrefix = prefix.value,
             answerIds = answers.keys.toTypedArray(),
             answers = answers.values.toBooleanArray(),
+            volumes = volumes.toIntArray(),
         ).toOutcome()
     }
 

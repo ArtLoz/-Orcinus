@@ -4598,12 +4598,17 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObjects(
     jstring process_profile,
     jstring output_prefix,
     jobjectArray answer_ids,
-    jbooleanArray answers
+    jbooleanArray answers,
+    jintArray volumes
 )
 {
     std::vector<std::size_t> indexes;
     for (const std::int32_t index : to_ints(env, objects)) {
         indexes.push_back(static_cast<std::size_t>(index));
+    }
+    std::vector<int> volume_indexes;
+    for (const std::int32_t volume : to_ints(env, volumes)) {
+        volume_indexes.push_back(volume);
     }
     return to_java(
         env,
@@ -4613,7 +4618,8 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_editObjects(
             static_cast<orcinus::orca::ObjectEdit>(edit),
             to_profiles(env, printer_profile, filament_profile, process_profile, filament_profiles),
             to_utf8(env, output_prefix),
-            to_answers(env, answer_ids, answers)
+            to_answers(env, answer_ids, answers),
+            volume_indexes
         )
     );
 }

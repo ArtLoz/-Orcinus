@@ -1823,7 +1823,10 @@ internal object NativeBindings {
         outputPrefix: String,
     ): NativeImportedModels
 
-    /** edit_objects(): [edit] (ObjectEdit in orca_engine_adapter.hpp) of the objects at [objects] of [plate]. */
+    /**
+     * edit_objects(): [edit] (ObjectEdit in orca_engine_adapter.hpp) of the
+     * objects at [objects] of [plate], or of the [volumes] of the one object.
+     */
     external fun editObjects(
         plate: NativePlate,
         objects: IntArray,
@@ -1835,6 +1838,7 @@ internal object NativeBindings {
         outputPrefix: String,
         answerIds: Array<String>,
         answers: BooleanArray,
+        volumes: IntArray,
     ): NativeImportedModels
 
     /**

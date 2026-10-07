@@ -314,6 +314,9 @@ class ProjectLifecycleUseCase(
         saveAs?.complete(document)
     }
 
+    /** Plater::save_project() of a project with no file: the name get_export_file(FT_3MF) offers. */
+    fun saveAsName(untitled: String): String = saveProject.projectFileName(untitled)
+
     /** UnsavedChangesDialog's answer, null for Cancel; [remember] keeps the action (save_preset_choise). */
     fun answerPresetChanges(answer: PresetChangesAnswer?, remember: Boolean = false) {
         presetChanges?.complete(answer?.let { Reply(it, remember) })

@@ -68,13 +68,24 @@ class EditPlateObjectUseCase(
     }
 
     /**
+     * The menu of several volumes of one object: "Fix model"
+     * (ObjectList::fix_through_cgal() of each volume) and the conversions of
+     * units (Plater::convert_unit() of the volumes) of the [volumes]
+     * (ObjectPartId.index) of the object with the [mesh] file, as one change.
+     */
+    fun volumes(mesh: ScenePath, edit: ObjectEdit, volumes: List<Int>) {
+        if (volumes.isNotEmpty()) start(PlateRequest.Edit(mesh, edit, volumes = volumes.distinct().sorted()))
+    }
+
+    /**
      * ObjectList::del_subobject_from_object() of the object's own mesh, which
      * the engine takes out of the object with the [mesh] file (its other
      * volumes stay, the first of them in its place; the last solid part
      * stays). An object that is a part of a cut asks to invalidate the cut
-     * first, and keeps the mesh (del_from_cut_object()).
+     * first, and keeps the mesh (del_from_cut_object()). [joined]: the
+     * deletion of several volumes took the step of Undo already.
      */
-    fun deleteOwnVolume(mesh: ScenePath) {
+    fun deleteOwnVolume(mesh: ScenePath, joined: Boolean = false) {
         var asked = false
         repository.update { state ->
             val target = state.objects.withMesh(mesh)
@@ -83,7 +94,7 @@ class EditPlateObjectUseCase(
             asked = true
             state.copy(plateQuestion = question)
         }
-        if (!asked) start(PlateRequest.Edit(mesh, ObjectEdit.DELETE_VOLUME, 0))
+        if (!asked) start(PlateRequest.Edit(mesh, ObjectEdit.DELETE_VOLUME, 0, joined = joined))
     }
 
     private fun start(request: PlateRequest.Edit) {
@@ -118,10 +129,10 @@ class EditPlateObjectUseCase(
         val prefix = sceneFiles.newImportPrefix()
         val outcome = try {
             val plate = state.objects.map { it.placed() }
-            if (request.others.isEmpty()) {
+            if (request.others.isEmpty() && request.volumes.isEmpty()) {
                 inspector.edit(plate, indexes.single(), request.edit, request.volume, profiles, prefix, answers, request.cut)
             } else {
-                inspector.editObjects(plate, indexes, request.edit, profiles, prefix, answers)
+                inspector.editObjects(plate, indexes, request.edit, profiles, prefix, answers, request.volumes)
             }
         } catch (cancellation: CancellationException) {
             sceneFiles.deleteImport(prefix)
@@ -163,7 +174,7 @@ class EditPlateObjectUseCase(
                     val cutId = edited.firstNotNullOfOrNull { it.cutId }.takeIf { request.edit == ObjectEdit.CUT }
                     val objects = if (cutId != null) placed.synchronizedAfterCut(cutId) else placed
                     // The old object's meshes stay with the snapshot taken before the edit.
-                    informed.recorded().copy(
+                    (if (request.joined) informed else informed.recorded()).copy(
                         editing = false,
                         objects = objects,
                         // Plater::priv::split_object() selects the new objects.

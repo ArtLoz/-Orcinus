@@ -493,7 +493,15 @@ class SidebarViewModel(
     fun replaceAllOnPlate(index: Int, folder: ExternalDocumentReference) = replaceAllVolumesUseCase.onPlate(index, folder)
 
     /** The multi-selection menu's "Replace all with 3D files", from [folder]. */
-    fun replaceAllInSelection(folder: ExternalDocumentReference) = replaceAllVolumesUseCase.selected(folder)
+    fun replaceAllInSelection(folder: ExternalDocumentReference) {
+        // Several volumes of one object: those volumes alone.
+        val parts = plateState.value.selectedParts().takeIf { it.size > 1 }
+        if (parts != null) {
+            replaceAllVolumesUseCase.volumes(parts.first().mesh, parts.map(ObjectPartId::index), folder)
+        } else {
+            replaceAllVolumesUseCase.selected(folder)
+        }
+    }
 
     /** The plate menu of the object list (MenuFactory::create_plate_menu) for the current plate. */
     fun selectPlateObjects() = plateObjects.selectCurrentPlate()
@@ -602,7 +610,7 @@ class SidebarViewModel(
     )
 
     /** The multi-selection menu's items over the selected volumes of one object. */
-    fun volumesActions(openSettings: () -> Unit) = VolumesMenuActions(
+    fun volumesActions(openSettings: () -> Unit, replaceAll: () -> Unit = {}) = VolumesMenuActions(
         // The list picks the volumes over the object's first copy.
         center = {
             val parts = plateState.value.selectedParts()
@@ -614,8 +622,15 @@ class SidebarViewModel(
         },
         delete = {
             val parts = plateState.value.selectedParts()
-            if (removeObjectPart.all(parts)) editPlateObject.deleteOwnVolume(parts.first().mesh)
+            // Plater::remove_selected(): the own mesh goes in the same step of Undo.
+            val removed = removeObjectPart.all(parts)
+            if (removed.ownVolume) editPlateObject.deleteOwnVolume(parts.first().mesh, joined = removed.recorded)
         },
+        edit = { edit ->
+            val parts = plateState.value.selectedParts()
+            parts.firstOrNull()?.let { editPlateObject.volumes(it.mesh, edit, parts.map(ObjectPartId::index)) }
+        },
+        replaceAll = replaceAll,
         editProcessSettings = {
             setSettingsScope(SettingsScope.OBJECT)
             openSettings()
@@ -1972,7 +1987,10 @@ fun PlateSidebar(
                 replaceAll = { if (viewModel.toolsClosedForReplace()) selectionFolderPicker.launch(null) },
                 export = exportSelection,
             ),
-            volumes = viewModel.volumesActions(openSettings = {}),
+            volumes = viewModel.volumesActions(
+                openSettings = {},
+                replaceAll = { if (viewModel.toolsClosedForReplace()) selectionFolderPicker.launch(null) },
+            ),
             select = viewModel::chooseSettingsTarget,
             selectAlone = { viewModel.chooseSettingsTarget(it, add = false) },
             selectSettings = viewModel::openSettingsOf,

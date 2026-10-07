@@ -2243,12 +2243,15 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
      * Undo (Plater::remove_selected()); a solid part or a negative volume of a
      * part of a cut stops the rest with its question. Returns whether the
      * object's own mesh is still to go, which the engine takes out
-     * (EditPlateObjectUseCase.deleteOwnVolume()).
+     * (EditPlateObjectUseCase.deleteOwnVolume()), and whether the step of
+     * Undo was taken already, which that deletion joins.
      */
-    fun all(ids: List<ObjectPartId>): Boolean {
+    fun all(ids: List<ObjectPartId>): RemovedParts {
         var ownVolume = false
+        var recorded = false
         repository.update { state ->
             ownVolume = false
+            recorded = false
             val mesh = ids.firstOrNull()?.mesh ?: return@update state
             val target = state.objects.withMesh(mesh)
             if (target == null || state.busy || ids.any { it.mesh != mesh }) return@update state
@@ -2263,6 +2266,7 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
             ownVolume = question == null && ids.any { it.index == 0 }
             val asked = if (question != null) state.copy(plateQuestion = question) else state
             if (updated == target) return@update asked
+            recorded = true
             asked.recorded().copy(
                 selectedPart = null,
                 selectedPartGroup = emptySet(),
@@ -2270,8 +2274,11 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
                 result = null,
             )
         }
-        return ownVolume
+        return RemovedParts(ownVolume, recorded)
     }
+
+    /** What RemoveObjectPartUseCase.all() leaves to the engine: the object's own mesh, and whether Undo has the step. */
+    data class RemovedParts(val ownVolume: Boolean, val recorded: Boolean)
 
     operator fun invoke(id: ObjectPartId) {
         repository.update { state ->

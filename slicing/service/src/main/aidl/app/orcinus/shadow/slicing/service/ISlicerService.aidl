@@ -124,7 +124,8 @@ interface ISlicerService {
         in ProfilesParcel profiles,
         String prefix,
         in String[] answerIds,
-        in boolean[] answers
+        in boolean[] answers,
+        in int[] volumes
     );
     /** begin_cut(): the cut gizmo opened on a copy of the object. */
     CutObjectParcel beginCut(in PlacedModelParcel plateObject, int instance, in ProfilesParcel profiles);

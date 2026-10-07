@@ -346,6 +346,7 @@ class RemoteSlicerEngine(
         profiles: SlicingProfileSelection,
         prefix: ScenePath,
         answers: Map<String, Boolean>,
+        volumes: List<Int>,
     ): ModelLoadOutcome = remote({ ModelLoadOutcome.Failure(it) }) {
         editObjects(
             plate.toParcels(),
@@ -355,6 +356,7 @@ class RemoteSlicerEngine(
             prefix.value,
             answers.keys.toTypedArray(),
             answers.values.toBooleanArray(),
+            volumes.toIntArray(),
         ).toModelLoadOutcome()
     }
 

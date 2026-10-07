@@ -224,6 +224,7 @@ abstract class SlicerService<E> : Service()
             prefix: String,
             answerIds: Array<String>,
             answers: BooleanArray,
+            volumes: IntArray,
         ): ModelLoadParcel = runBlocking {
             engine.editObjects(
                 plate.toPlacedModels(),
@@ -232,6 +233,7 @@ abstract class SlicerService<E> : Service()
                 profiles.toProfiles(),
                 ScenePath(prefix),
                 answerIds.zip(answers.toList()).toMap(),
+                volumes.toList(),
             )
         }.toParcel()
 

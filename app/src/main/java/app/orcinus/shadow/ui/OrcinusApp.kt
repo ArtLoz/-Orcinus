@@ -187,6 +187,8 @@ class AppShellViewModel(
 
     fun saveProjectTo(document: ExternalDocumentReference?) = projectLifecycle.saveTo(document)
 
+    fun saveAsName(untitled: String): String = projectLifecycle.saveAsName(untitled)
+
     fun answerPresetChanges(answer: PresetChangesAnswer?, remember: Boolean) = projectLifecycle.answerPresetChanges(answer, remember)
 
     /** "Previous unsaved project detected, do you want to restore it?" */
@@ -425,7 +427,7 @@ private fun Workspace(
     }
     val untitled = orcaString("Untitled")
     LaunchedEffect(projectPrompt) {
-        if (projectPrompt == ProjectPrompt.SaveAs) saveAsPicker.launch((plate.project.name ?: untitled) + ".3mf")
+        if (projectPrompt == ProjectPrompt.SaveAs) saveAsPicker.launch(shell.saveAsName(untitled))
     }
     val layout = currentOrcaWindowLayout()
     var sidebarVisible by rememberSaveable(layout) { mutableStateOf(layout == OrcaWindowLayout.Wide) }

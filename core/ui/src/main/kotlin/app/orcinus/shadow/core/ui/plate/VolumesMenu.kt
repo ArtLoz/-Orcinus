@@ -6,10 +6,12 @@ import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
+import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.SettingsClipboard
 import app.orcinus.shadow.core.model.SettingsItemKind
 import app.orcinus.shadow.core.model.VolumeType
+import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.volumeAt
 import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
@@ -27,6 +29,10 @@ data class VolumesMenuState(
     val embossed: Boolean,
     /** ObjectList::can_paste_settings_into_list(): the process settings copied are a volume's. */
     val canPasteSettings: Boolean,
+    /** append_menu_items_convert_unit(): the conversions every selected volume allows. */
+    val conversions: List<ObjectEdit> = emptyList(),
+    /** Plater::priv::can_replace_all_with_stl(): the object is no part of a cut. */
+    val canReplaceAll: Boolean = false,
     /** append_menu_item_change_filament(): "Default" while a modifier is selected. */
     val withDefaultFilament: Boolean,
     val filaments: List<MenuFilament>,
@@ -46,6 +52,8 @@ fun volumesMenuState(
         types = parts.mapTo(HashSet()) { it.type },
         embossed = parts.any { it.emboss != null },
         canPasteSettings = enabled && settingsClipboard?.kind == SettingsItemKind.VOLUME,
+        conversions = conversionsOf(parts),
+        canReplaceAll = enabled && !plateObject.isCut,
         withDefaultFilament = parts.any { it.type == VolumeType.MODIFIER },
         filaments = filaments,
     )
@@ -58,6 +66,10 @@ class VolumesMenuActions(
     val drop: () -> Unit = {},
     /** Selection::erase() of the volumes (Plater::remove_selected()). */
     val delete: () -> Unit,
+    /** "Fix model" and the conversions of units of the volumes. */
+    val edit: (ObjectEdit) -> Unit = {},
+    /** Opens the folder "Replace all with 3D files" takes the files of the volumes from. */
+    val replaceAll: () -> Unit = {},
     /** ObjectList::switch_to_object_process(): the settings of the volumes are shown. */
     val editProcessSettings: () -> Unit,
     val pasteProcessSettings: () -> Unit,
@@ -81,7 +93,13 @@ fun VolumesMenuItems(state: VolumesMenuState, actions: VolumesMenuActions, dismi
     // append_menu_item_center() and append_menu_item_drop(), which the 3D view's selection enables.
     OrcaMenuItem(text = orcaString("Center"), enabled = enabled, onClick = run(actions.center))
     OrcaMenuItem(text = orcaString("Drop"), enabled = enabled, onClick = run(actions.drop))
+    // append_menu_item_fix_through_cgal(): FIX_THROUGH_CGAL_ALWAYS.
+    OrcaMenuItem(text = orcaString("Fix model"), enabled = enabled, onClick = run { actions.edit(ObjectEdit.FIX) })
     OrcaMenuItem(text = stringResource(R.string.object_menu_delete), enabled = enabled, onClick = run(actions.delete))
+    state.conversions.forEach { conversion ->
+        OrcaMenuItem(text = orcaString(conversionName(conversion)), enabled = enabled, onClick = run { actions.edit(conversion) })
+    }
+    OrcaMenuItem(text = orcaString("Replace all with 3D files") + DOTS, enabled = state.canReplaceAll, onClick = run(actions.replaceAll))
     // can_split(): ObjectList::is_splittable() takes a single item, so both are off.
     OrcaSubmenu(text = orcaString("Split"), enabled = false) {
         OrcaMenuItem(text = orcaString("To objects"), enabled = false, onClick = {})

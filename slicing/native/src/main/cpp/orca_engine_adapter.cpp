@@ -6179,7 +6179,8 @@ ImportedModels edit_objects(
     ObjectEdit edit,
     const ProfileSelection& profiles,
     const std::string& output_prefix,
-    const DialogAnswers& answers
+    const DialogAnswers& answers,
+    const std::vector<int>& volumes
 )
 {
     ImportedModels result;
@@ -6201,6 +6202,10 @@ ImportedModels edit_objects(
         if (!load_plate(plate, config, model, result.message)) {
             return result;
         }
+        if (!volumes.empty() && object_indexes.size() != 1) {
+            result.message = "Volumes are edited within one object";
+            return result;
+        }
         std::vector<Slic3r::ModelObject*> objects;
         for (const std::size_t index : object_indexes) {
             if (index >= model.objects.size()) {
@@ -6220,21 +6225,38 @@ ImportedModels edit_objects(
 
         switch (edit) {
         case ObjectEdit::fix: {
-            // ObjectList::fix_through_cgal(): FIX_THROUGH_CGAL_ALWAYS repairs every object.
+            // ObjectList::fix_through_cgal(): FIX_THROUGH_CGAL_ALWAYS repairs every
+            // object, or every volume of the one object, one after another.
+            std::vector<std::pair<Slic3r::ModelObject*, int>> targets;
+            if (volumes.empty()) {
+                for (Slic3r::ModelObject* object : objects) {
+                    targets.emplace_back(object, -1);
+                }
+            } else {
+                for (const int volume : volumes) {
+                    targets.emplace_back(objects.front(), volume);
+                }
+            }
             std::vector<std::string> succes_models;
             std::vector<std::pair<std::string, std::string>> failed_models;
-            for (Slic3r::ModelObject* object : objects) {
+            for (const auto& [object, volume] : targets) {
+                if (volume >= int(object->volumes.size())) {
+                    continue;
+                }
+                const std::string name = volume < 0 ? object->name : object->volumes[std::size_t(volume)]->name;
                 if (!keep_painting) {
                     clear_before_change_mesh(*object, dialogs);
                 }
                 try {
-                    fix_model_with_cgal(*object, -1, keep_painting);
+                    fix_model_with_cgal(*object, volume, keep_painting);
                     object->ensure_on_bed();
-                    succes_models.push_back(object->name);
+                    succes_models.push_back(name);
                 } catch (const std::exception& error) {
-                    failed_models.push_back({object->name, error.what()});
+                    failed_models.push_back({name, error.what()});
                 }
-                edited.push_back(object);
+                if (edited.empty() || edited.back() != object) {
+                    edited.push_back(object);
+                }
             }
             // The CgalFinished notification.
             std::vector<UiText> summary;
@@ -6273,10 +6295,11 @@ ImportedModels edit_objects(
                                                 edit == ObjectEdit::restore_to_inches   ? Slic3r::ConversionType::CONV_TO_INCH :
                                                 edit == ObjectEdit::convert_from_meters ? Slic3r::ConversionType::CONV_FROM_METER :
                                                                                           Slic3r::ConversionType::CONV_TO_METER;
-            // Plater::convert_unit(): the objects converted from the last, then loaded in their order.
+            // Plater::convert_unit(): the objects converted from the last, then loaded in
+            // their order; of one object, only the volumes selected.
             Slic3r::ModelObjectPtrs converted;
             for (auto object = objects.rbegin(); object != objects.rend(); ++object) {
-                (*object)->convert_units(converted, type, {});
+                (*object)->convert_units(converted, type, volumes);
                 model.delete_object(*object);
             }
             std::reverse(converted.begin(), converted.end());

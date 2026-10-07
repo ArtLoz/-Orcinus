@@ -808,7 +808,9 @@ sealed interface PlateRequest {
      * [edit] of the object with the [mesh] file, or of its volume at [volume]
      * (ObjectPartId.index); [cut] is what ObjectEdit.CUT cuts with. With
      * [others], the multi-selection menu's edit of the objects with [mesh]
-     * and those files, in the plate's order, as one change.
+     * and those files, in the plate's order, as one change; with [volumes],
+     * its edit of those volumes of the object. [joined] edits within the step
+     * of Undo the action took already.
      */
     data class Edit(
         val mesh: ScenePath,
@@ -816,6 +818,8 @@ sealed interface PlateRequest {
         val volume: Int? = null,
         val cut: ObjectCut? = null,
         val others: List<ScenePath> = emptyList(),
+        val volumes: List<Int> = emptyList(),
+        val joined: Boolean = false,
     ) : PlateRequest {
         /** Every object the edit changes. */
         val meshes: List<ScenePath> get() = listOf(mesh) + others

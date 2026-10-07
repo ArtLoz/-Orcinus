@@ -4072,9 +4072,9 @@ class PlateUseCasesTest {
         assertEquals(listOf(ObjectPartId(cube.mesh, 2)), repository.state.value.selectedParts())
 
         select.toggle(ObjectPartId(cube.mesh, 1))
-        val ownVolume = RemoveObjectPartUseCase(repository).all(repository.state.value.selectedParts())
+        val removed = RemoveObjectPartUseCase(repository).all(repository.state.value.selectedParts())
 
-        assertFalse(ownVolume)
+        assertFalse(removed.ownVolume)
         val state = repository.state.value
         assertTrue(state.objects.single().parts.isEmpty())
         assertEquals(1, state.history.undo.size)
@@ -4496,8 +4496,9 @@ class PlateUseCasesTest {
             return editOutcome(answers)
         }
 
-        /** The objects the last edit of several changed (edit_objects()). */
+        /** The objects the last edit of several changed (edit_objects()), and the volumes of one. */
         var editedObjects = emptyList<Int>()
+        var editedVolumes = emptyList<Int>()
 
         override suspend fun editObjects(
             plate: List<PlacedModel>,
@@ -4506,9 +4507,11 @@ class PlateUseCasesTest {
             profiles: SlicingProfileSelection,
             prefix: ScenePath,
             answers: Map<String, Boolean>,
+            volumes: List<Int>,
         ): ModelLoadOutcome {
             edits += Edit(-1, edit, null, answers)
             editedObjects = indexes
+            editedVolumes = volumes
             this.plate = plate
             return editOutcome(answers)
         }
