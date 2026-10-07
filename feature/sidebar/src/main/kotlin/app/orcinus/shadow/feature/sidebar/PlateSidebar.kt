@@ -2654,7 +2654,9 @@ internal fun PlateSidebarContent(
                         style = OrcaTheme.typography.body14,
                         modifier = Modifier.weight(1f),
                     )
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    // The type takes the width it needs under the combo, as the
+                    // nozzle combo is narrower than "Hardened Steel" in some languages.
+                    Column(horizontalAlignment = Alignment.End) {
                         OrcaComboBox(
                             items = presets.nozzleDiameters,
                             selected = presets.nozzleDiameter,
@@ -2670,10 +2672,8 @@ internal fun PlateSidebarContent(
                                 style = OrcaTheme.typography.body12,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .width(96.dp)
-                                    .padding(top = 2.dp),
-                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = 2.dp),
+                                textAlign = TextAlign.End,
                             )
                         }
                     }

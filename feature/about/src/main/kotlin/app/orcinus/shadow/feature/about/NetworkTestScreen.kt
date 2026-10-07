@@ -16,7 +16,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -200,24 +199,20 @@ private fun InfoLine(title: String, value: String) {
     }
 }
 
-/** A test's line of the grid: its title over the latest status, and its button. */
+/**
+ * A test's line of the grid: its title over the latest status, and its button
+ * under them, as the button's text is too long to share a phone's width.
+ */
 @Composable
 private fun TestLine(button: String, title: String, result: String, onTest: () -> Unit) {
-    Row(
+    Column(
         modifier = Modifier
             .pageContent()
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(
-            Modifier
-                .weight(1f)
-                .padding(end = 12.dp),
-        ) {
-            Text(title, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body15)
-            Text(result, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 2.dp))
-        }
-        OrcaButton(button, onClick = onTest, style = OrcaButtonStyle.Regular)
+        Text(title, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body15)
+        Text(result, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 2.dp))
+        OrcaButton(button, onClick = onTest, style = OrcaButtonStyle.Regular, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
