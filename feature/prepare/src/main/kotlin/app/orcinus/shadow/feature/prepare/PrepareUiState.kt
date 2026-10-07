@@ -336,6 +336,12 @@ data class PrepareUiState(
      * Operations"); null while copies are selected.
      */
     val selectedVolume: SelectedVolume? = null,
+    /**
+     * Selection::is_multiple_volume(): the volumes of the selected copy's
+     * object selected together, which the canvas's menu of several volumes is
+     * for; empty for none or one.
+     */
+    val volumeGroup: List<ObjectPartId> = emptyList(),
     /** The volumes drawn selected besides: the connectors of the copy while the list selected them. */
     val highlightedVolumes: Set<String> = emptySet(),
     /** UpdatedItemsInfo: the objects the last load brought as parts of a cut object, and the loads that told of them. */
@@ -1275,6 +1281,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         canMoveObjectCoordinates = selectedObject != null && selectedInstances.size == 1 && !view.wipeTowerSelected,
         moveFrame = (if (view.assemblyView) assembled else selected?.placement)?.takeIf { moveObjectCoordinates },
         selectedVolume = volume,
+        volumeGroup = selectedParts().takeIf { it.size > 1 }.orEmpty(),
         cutPartsLoaded = cutPartsLoaded,
         cutPartsLoads = cutPartsLoads,
         highlightedVolumes = selectedConnectors?.takeIf { connectorsSelected }

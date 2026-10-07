@@ -3383,7 +3383,15 @@ class PrepareViewModel(
     fun editSelection(edit: ObjectEdit) = editPlateObject.selected(edit)
 
     /** "Replace all with 3D files" of the selected objects, from [folder]. */
-    fun replaceAllInSelection(folder: String) = replaceAllVolumesUseCase.selected(ExternalDocumentReference(folder))
+    fun replaceAllInSelection(folder: String) {
+        // Several volumes of one object: those volumes alone (Selection::get_volume_idxs()).
+        val parts = plate.value.selectedParts().takeIf { it.size > 1 }
+        if (parts != null) {
+            replaceAllVolumesUseCase.volumes(parts.first().mesh, parts.map(ObjectPartId::index), ExternalDocumentReference(folder))
+        } else {
+            replaceAllVolumesUseCase.selected(ExternalDocumentReference(folder))
+        }
+    }
 
     /** export_stl(false, true, multi): the selected objects into [document], one file, or a file each into the folder. */
     fun exportSelection(format: MeshFormat, multi: Boolean, document: String) {
@@ -3505,6 +3513,34 @@ class PrepareViewModel(
     fun dropVolumeAt(index: Int, volume: Int) = copyAt(index)?.let { volumeMenu.drop(it, volume) }
 
     fun mirrorVolumeAt(index: Int, volume: Int, axis: Axis) = copyAt(index)?.let { volumeMenu.mirror(it, volume, axis) }
+
+    /** Selection::center() and drop() of the box of the volumes selected together, over the copy at [index]. */
+    fun centerVolumesAt(index: Int) = copyAt(index)?.let { volumeMenu.centerAll(it, plate.value.selectedParts().map(ObjectPartId::index)) }
+
+    fun dropVolumesAt(index: Int) = copyAt(index)?.let { volumeMenu.dropAll(it, plate.value.selectedParts().map(ObjectPartId::index)) }
+
+    /** Plater::remove_selected() of the volumes: the object's own mesh goes in the same step of Undo. */
+    fun removeSelectedVolumes() {
+        val parts = plate.value.selectedParts()
+        val removed = removeObjectPart.all(parts)
+        if (removed.ownVolume) editPlateObject.deleteOwnVolume(parts.first().mesh, joined = removed.recorded)
+    }
+
+    /** "Fix model" and the conversions of units of the volumes selected together. */
+    fun editSelectedVolumes(edit: ObjectEdit) {
+        val parts = plate.value.selectedParts()
+        parts.firstOrNull()?.let { editPlateObject.volumes(it.mesh, edit, parts.map(ObjectPartId::index)) }
+    }
+
+    /** ObjectList::switch_to_object_process() of the volumes selected together. */
+    fun editSelectedVolumesProcessSettings() = setSettingsScope(SettingsScope.OBJECT)
+
+    fun pasteSelectedProcessSettings() = pasteProcessSettings.selected()
+
+    /** ObjectList::set_volume_type() and set_extruder_for_selected_items() of the volumes selected together. */
+    fun setSelectedVolumesType(type: VolumeType) = changeVolumeType.all(plate.value.selectedParts(), type)
+
+    fun setSelectedFilament(filament: Int) = setExtruder.selected(filament)
 
     /**
      * ObjectList::switch_to_object_process() of the volume: it stays selected

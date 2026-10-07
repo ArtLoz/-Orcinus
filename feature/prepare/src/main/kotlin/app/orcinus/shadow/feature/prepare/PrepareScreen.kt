@@ -197,11 +197,14 @@ import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
 import app.orcinus.shadow.core.ui.plate.SliceNoticeNotification
 import app.orcinus.shadow.core.ui.plate.SlicingNotification
 import app.orcinus.shadow.core.ui.plate.UpdatedItemsInfoNotification
+import app.orcinus.shadow.core.ui.plate.VolumesMenuActions
+import app.orcinus.shadow.core.ui.plate.VolumesMenuItems
 import app.orcinus.shadow.core.ui.plate.exportFileName
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.plate.partMenuState
 import app.orcinus.shadow.core.ui.plate.volumeName
+import app.orcinus.shadow.core.ui.plate.volumesMenuState
 import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.AssemblyView
 import app.orcinus.shadow.render.scene.BrimEarState
@@ -467,6 +470,22 @@ internal fun PrepareRoute(
                 },
                 setFilament = viewModel::setVolumeFilament,
             ),
+            volumes = { index ->
+                VolumesMenuActions(
+                    center = { viewModel.centerVolumesAt(index) },
+                    drop = { viewModel.dropVolumesAt(index) },
+                    delete = viewModel::removeSelectedVolumes,
+                    edit = viewModel::editSelectedVolumes,
+                    replaceAll = { if (viewModel.toolsClosedForReplace()) selectionReplacementFolder.launch(null) },
+                    editProcessSettings = {
+                        viewModel.editSelectedVolumesProcessSettings()
+                        onOpenSidebar()
+                    },
+                    pasteProcessSettings = viewModel::pasteSelectedProcessSettings,
+                    changeType = viewModel::setSelectedVolumesType,
+                    setFilament = viewModel::setSelectedFilament,
+                )
+            },
         ),
         onPaste = viewModel::paste,
         plateMenuActions = PlateMenuActions(
@@ -1500,6 +1519,8 @@ internal class PrepareObjectMenuActions(
     val selection: SelectionMenuActions? = null,
     /** The part menu's items over the volume the canvas selected alone. */
     val part: PreparePartMenuActions? = null,
+    /** The menu of several volumes of one object over the copy at the index of the scene, which the canvas picked them on. */
+    val volumes: ((index: Int) -> VolumesMenuActions)? = null,
 ) {
     companion object {
         val NONE = PrepareObjectMenuActions(
@@ -1695,6 +1716,24 @@ private fun ObjectContextMenu(
                 actions = selection,
                 dismiss = onDismiss,
                 onClone = onAskClone,
+            )
+            return@OrcaContextMenu
+        }
+        // Plater::priv::on_right_click() over the copy whose volumes are selected together
+        // (Selection::is_multiple_volume()): multi_selection_menu()'s branch of several volumes.
+        val volumes = actions.volumes
+        val group = state.volumeGroup
+        if (volumes != null && group.size > 1 && index == state.selectedObject && group.first().mesh == copy.id.mesh) {
+            VolumesMenuItems(
+                volumesMenuState(
+                    copy.plateObject,
+                    group.map(ObjectPartId::index),
+                    state.canEditPlate,
+                    filaments = filaments.takeIf { it.size > 1 }.orEmpty(),
+                    settingsClipboard = state.settingsClipboard,
+                ),
+                volumes(index),
+                onDismiss,
             )
             return@OrcaContextMenu
         }
