@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       PrintHost::upload: the sliced G-code is sent to a printer on the network.
@@ -20,6 +21,8 @@
     <!-- OrcaSlicerService below, a specialUse foreground service: slicing:service asks
          for this permission too, but lint looks for it beside the service's declaration. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Firebase Analytics without the advertising ID: the app shows no ads. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 
     <application
         android:name=".OrcinusApplication"
@@ -31,6 +34,12 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Orcinus">
+        <!-- Firebase Analytics and Crashlytics collect nothing until Telemetry has read
+             Stealth mode, which turns them off with every other online request. -->
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <meta-data android:name="firebase_crashlytics_collection_enabled" android:value="false" />
+        <meta-data android:name="google_analytics_adid_collection_enabled" android:value="false" />
+        <meta-data android:name="google_analytics_default_allow_ad_personalization_signals" android:value="false" />
         <!-- One window, as the desktop app keeps one: files another app opens or shares come to it (onNewIntent). -->
         <activity
             android:name=".MainActivity"

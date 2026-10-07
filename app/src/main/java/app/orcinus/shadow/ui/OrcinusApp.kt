@@ -592,6 +592,17 @@ private fun Workspace(
     // Plater::priv::is_preview_shown()
     val shownTab = backStack.lastOrNull()
     LaunchedEffect(shownTab) { shell.showingPreview(shownTab == PreviewNavKey) }
+    // The tab shown, under a name of its own, which neither the language nor R8 changes.
+    LaunchedEffect(shownTab) {
+        when (shownTab) {
+            HomeNavKey -> "Home"
+            PrepareNavKey -> "Prepare"
+            PreviewNavKey -> "Preview"
+            DeviceNavKey -> "Device"
+            ProjectNavKey -> "Project"
+            else -> null
+        }?.let(container.telemetry::screen)
+    }
     // The Prepare page shows its assembly view in the 3D view's place (Plater::is_view3D_shown()).
     var assemblyShown by rememberSaveable { mutableStateOf(false) }
     // CreatePrinterPresetDialog of the Setup Wizard's "Create" opens from the docked sidebar.

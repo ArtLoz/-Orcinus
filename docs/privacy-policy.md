@@ -7,9 +7,31 @@ describes what the app does with data.
 
 ## Data we collect
 
-None. Orcinus has no accounts, analytics, advertising, or crash reporting, and
-its developers receive no data from the app. The app connects to the network
-only for the features below.
+Orcinus has no accounts and no advertising. To find and fix crashes and to
+learn which parts of the app are used, the app sends anonymous usage
+statistics and crash reports to Google's Firebase:
+
+- **Crash reports (Firebase Crashlytics):** when the app or its slicing engine
+  crashes, the state of the app at that moment — the call stack, the app
+  version, the device model, the Android version, free memory and storage, and
+  a random identifier of this installation.
+- **Usage statistics (Google Analytics for Firebase):** which pages of the app
+  are opened, how long the app is used, the app version, the device model, the
+  Android version, the language, the country derived from the IP address, and
+  a random identifier of this installation.
+
+Neither contains your models, G-code, projects, printer addresses, or
+sign-ins, and neither uses the advertising ID. Google processes this data on
+our behalf under the
+[Firebase terms and privacy information](https://firebase.google.com/support/privacy);
+crash reports are kept for 90 days and usage statistics for two months.
+
+**Turning it off.** Turn on "Stealth mode" in Preferences (or on the Setup
+Wizard's last page): it stops the usage statistics and the crash reports
+along with every other online request of the app. Nothing is sent before the
+app has read this setting.
+
+Apart from this, the app connects to the network only for the features below.
 
 ## Network connections
 
@@ -58,7 +80,8 @@ your device and account provider, not by Orcinus.
 
 ## Children
 
-Orcinus is not directed at children and collects no data from anyone.
+Orcinus is not directed at children and does not knowingly collect data from
+them.
 
 ## Changes
 
@@ -81,9 +104,31 @@ Orcinus — слайсер для 3D-печати, который нарезае
 
 ## Какие данные мы собираем
 
-Никаких. В Orcinus нет учётных записей, аналитики, рекламы и отчётов о сбоях,
-и разработчики не получают от приложения никаких данных. В сеть приложение
-выходит только для описанного ниже.
+В Orcinus нет учётных записей и рекламы. Чтобы находить и исправлять сбои и
+понимать, какими частями приложения пользуются, приложение отправляет в
+Firebase от Google анонимную статистику использования и отчёты о сбоях:
+
+- **Отчёты о сбоях (Firebase Crashlytics):** при падении приложения или ядра
+  нарезки — состояние приложения в этот момент: стек вызовов, версия
+  приложения, модель устройства, версия Android, свободная память и место, и
+  случайный идентификатор этой установки.
+- **Статистика использования (Google Analytics для Firebase):** какие страницы
+  приложения открываются, сколько длится работа с ним, версия приложения,
+  модель устройства, версия Android, язык, страна по IP-адресу и случайный
+  идентификатор этой установки.
+
+В них нет ваших моделей, G-code, проектов, адресов принтеров и данных входа,
+и рекламный идентификатор не используется. Google обрабатывает эти данные по
+нашему поручению на условиях
+[Firebase](https://firebase.google.com/support/privacy); отчёты о сбоях
+хранятся 90 дней, статистика — два месяца.
+
+**Как отключить.** Включите «Режим конфиденциальности» в настройках (или на
+последней странице мастера настройки): он останавливает статистику и отчёты о
+сбоях вместе со всеми остальными сетевыми запросами приложения. Пока
+приложение не прочитало эту настройку, ничего не отправляется.
+
+Кроме этого, в сеть приложение выходит только для описанного ниже.
 
 ## Сетевые подключения
 
@@ -135,7 +180,7 @@ Orcinus — слайсер для 3D-печати, который нарезае
 
 ## Дети
 
-Orcinus не предназначен для детей и ни у кого не собирает данные.
+Orcinus не предназначен для детей и сознательно не собирает данные о них.
 
 ## Изменения
 

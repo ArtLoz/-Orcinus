@@ -8,6 +8,7 @@ import app.orcinus.shadow.BuildConfig
 import app.orcinus.shadow.NetworkWork
 import app.orcinus.shadow.OrcaSlicerService
 import app.orcinus.shadow.R
+import app.orcinus.shadow.Telemetry
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.AppInfo
 import app.orcinus.shadow.core.model.BonjourReply
@@ -341,8 +342,15 @@ class AppContainer(context: Context) : AboutViewModelFactory {
      * the :slicer process, which loads OrcaSlicer's profiles. The app shell
      * calls [startEngine] again when it composes; a started engine returns at once.
      */
+    /** Firebase Analytics and Crashlytics, off in Stealth mode as every other online request. */
+    val telemetry: Telemetry = Telemetry.start(applicationContext)
+
     fun startEngineEarly() {
         applicationScope.launch { startEngine() }
+        telemetry.follow(
+            appPreferences.values.map { values -> if (values.isEmpty()) null else !AppConfigKeys.bool(values[AppConfigKeys.STEALTH_MODE].orEmpty()) },
+            applicationScope,
+        )
         // The engine works on the plate the app shows.
         EnginePlateSync(engine, plateRepository, placePlateObjects, applicationScope).start()
         // The wipe tower follows the plate, as the desktop canvas rebuilds it.

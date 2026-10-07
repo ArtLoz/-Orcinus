@@ -20,6 +20,8 @@ class OrcinusApplication : Application() {
         // while the first screen is laid out; the UI waits for them anyway.
         if (isUiProcess()) {
             container.startEngineEarly()
+        } else {
+            Telemetry.startInSlicerProcess(this)
         }
     }
 

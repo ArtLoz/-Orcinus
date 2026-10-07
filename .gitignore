@@ -18,3 +18,5 @@ gradle/gradle-daemon-jvm.properties
 keystore.properties
 *.jks
 *.keystore
+# The Firebase project's configuration of the Play builds; builds without it have Analytics and Crashlytics off.
+app/google-services.json

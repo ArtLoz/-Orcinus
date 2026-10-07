@@ -1,3 +1,4 @@
+import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 import java.util.Properties
 
 plugins {
@@ -5,6 +6,17 @@ plugins {
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.aboutlibraries.android)
+}
+
+/**
+ * Firebase Analytics and Crashlytics, set up from app/google-services.json: the
+ * Firebase project's configuration, which the Play builds have and the public
+ * repository does not. Without it the app builds and runs with both off.
+ */
+val firebaseConfigured = file("google-services.json").exists()
+if (firebaseConfigured) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
 }
 
 /** The OrcaSlicer release the build bundles, from the submodule's lock file. */
@@ -84,6 +96,10 @@ android {
                 "proguard-rules.pro",
             )
             signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
+            // The engine's native crashes read with symbols: uploadCrashlyticsSymbolFileRelease sends them.
+            if (firebaseConfigured) {
+                (this as ExtensionAware).extensions.configure<CrashlyticsExtension> { nativeSymbolUploadEnabled = true }
+            }
         }
     }
 
@@ -173,4 +189,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.core)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.crashlytics)
+    implementation(libs.firebase.crashlytics.ndk)
+    // Play services under Firebase ask for Fragment 1.1, whose activity results the app's permission request may not use.
+    implementation(libs.androidx.fragment)
 }

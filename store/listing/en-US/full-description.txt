@@ -29,7 +29,7 @@ Made for every screen
 • On a tablet or a foldable, OrcaSlicer's desktop layout: the sidebar beside the canvas, keyboard shortcuts, and mouse control, in split screen and in resizable windows too
 • Translated into OrcaSlicer's 22 languages, with light and dark themes
 
-Private by design: no accounts, analytics, or ads, and no data collected. Orcinus goes online only to check for profile updates (which can be turned off), to reach the printers you add, and to run the network test when you start it.
+Privacy: no accounts and no ads. Anonymous usage statistics and crash reports (Firebase) help improve the app; Stealth mode in Preferences turns them off together with every other online request. Otherwise Orcinus goes online only to check for profile updates, to reach the printers you add, and to run the network test when you start it.
 
 Free and open source under the GNU AGPL v3.0. The source code is linked from the app's About page.
 

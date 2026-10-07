@@ -108,9 +108,12 @@ profiles, and an automated comparison checks this on every engine change.
   tabletop postures.
 - **Projects:** autosave and recovery after a crash, recent projects, and
   OrcaSlicer's project info.
-- **Private by design:** no accounts, analytics, or ads. Orcinus goes online
-  only to check for profile updates (can be turned off), to reach the printers
-  you add, and to run the network test when you start it.
+- **Privacy:** no accounts and no ads. Play builds send anonymous usage
+  statistics and crash reports to Firebase, which Stealth mode turns off with
+  every other online request; builds from source without a Firebase
+  configuration send nothing. Otherwise Orcinus goes online only to check for
+  profile updates, to reach the printers you add, and to run the network test
+  when you start it. See the [privacy policy](docs/privacy-policy.md).
 
 ## How it works
 

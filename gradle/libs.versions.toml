@@ -1,4 +1,8 @@
 [versions]
+androidxFragment = "1.9.1"
+firebaseBom = "35.0.0"
+googleServices = "4.5.0"
+firebaseCrashlyticsGradle = "3.0.8"
 agp = "9.2.1"
 kotlin = "2.3.21"
 composeBom = "2026.08.00"
@@ -15,6 +19,11 @@ androidxCore = "1.18.0"
 webkit = "1.14.0"
 
 [libraries]
+androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "androidxFragment" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-analytics = { module = "com.google.firebase:firebase-analytics" }
+firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
+firebase-crashlytics-ndk = { module = "com.google.firebase:firebase-crashlytics-ndk" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
 androidx-core = { module = "androidx.core:core", version.ref = "androidxCore" }
@@ -44,3 +53,5 @@ compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 aboutlibraries-android = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutLibraries" }
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+firebase-crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "firebaseCrashlyticsGradle" }
