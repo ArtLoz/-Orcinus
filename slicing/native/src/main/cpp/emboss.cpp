@@ -836,17 +836,17 @@ std::string file_name_of(const std::string& file_path)
     if (file_path.empty()) {
         return file_path;
     }
-    std::size_t pos_last_delimiter = file_path.find_last_of("/\\");
-    if (pos_last_delimiter == std::string::npos) {
-        pos_last_delimiter = 0;
-    }
+    // A path without a delimiter is a bare file name, which a project keeps
+    // unless export_sources_full_pathnames is set: OrcaSlicer takes its first
+    // character for the delimiter (an assert in its debug build), the app
+    // keeps the name whole.
+    const std::size_t pos_last_delimiter = file_path.find_last_of("/\\");
+    const std::size_t offset = pos_last_delimiter == std::string::npos ? 0 : pos_last_delimiter + 1;
     std::size_t pos_point = file_path.find_last_of('.');
-    if (pos_point == std::string::npos || pos_point < pos_last_delimiter) {
+    if (pos_point == std::string::npos || pos_point < offset) {
         pos_point = file_path.size();
     }
-    const std::size_t offset = pos_last_delimiter + 1;
-    const std::size_t count = pos_point - pos_last_delimiter - 1;
-    return file_path.substr(offset, count);
+    return file_path.substr(offset, pos_point - offset);
 }
 
 // select_shape() of GLGizmoSVG.cpp for the file at path: its paths as shapes,
@@ -1850,8 +1850,18 @@ EmbossVolume describe_emboss(
             const Slic3r::EmbossShape::SvgFile& svg = *shape.svg_file;
             result.svg_name = file_name_of(!svg.path.empty() ? svg.path : svg.path_in_3mf);
             result.svg_reloadable = !svg.path.empty() && boost::filesystem::exists(boost::filesystem::path(svg.path));
+            // GLGizmoSVG::set_volume_by_selection(): a reopened project keeps no
+            // shapes, which are made again from its SVG.
+            Slic3r::ExPolygonsWithIds made;
+            if (shape.shapes_with_ids.empty()) {
+                Slic3r::EmbossShape::SvgFile file = svg;
+                if (file.image != nullptr || Slic3r::init_image(file) != nullptr) {
+                    const Slic3r::NSVGLineParams params{tesselation_tolerance(svg_scale_for_tolerance(*volume, instance))};
+                    made = Slic3r::create_shape_with_ids(*file.image, params);
+                }
+            }
             // The size of the shape: its bounds in millimetres, as the volume scales them.
-            const Slic3r::BoundingBox bb = Slic3r::get_extents(shape.shapes_with_ids);
+            const Slic3r::BoundingBox bb = Slic3r::get_extents(shape.shapes_with_ids.empty() ? made : shape.shapes_with_ids);
             if (bb.defined) {
                 const Vec2d size = bb.size().cast<double>() * shape.scale;
                 result.width = size.x() * (linear * Vec3d::UnitX()).norm();

@@ -8621,6 +8621,11 @@ TEST_CASE("Text and SVG are embossed on an object, edited, sliced and kept in a 
     described = orca::describe_emboss(reopened, 0, svg_volume, k2_plus_profiles());
     REQUIRE(described.status == orca::SceneStatus::success);
     CHECK(described.kind == orca::EmbossKind::svg);
+    // The project keeps the SVG's bare file name, which the reopened part
+    // names whole, and the part is sized from the SVG it keeps.
+    CHECK(described.svg_name == "emboss");
+    CHECK(described.width > 0.0);
+    CHECK(described.height > 0.0);
     const orca::SvgPreview reopened_svg = orca::preview_svg(reopened, 0, svg_volume, output_path("emboss-reopened.png"), 64, k2_plus_profiles());
     INFO(reopened_svg.message);
     REQUIRE(reopened_svg.status == orca::SceneStatus::success);
