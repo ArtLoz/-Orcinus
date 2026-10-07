@@ -17,6 +17,9 @@
          keep the network after the app's screen is left. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- OrcaSlicerService below, a specialUse foreground service: slicing:service asks
+         for this permission too, but lint looks for it beside the service's declaration. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:name=".OrcinusApplication"
