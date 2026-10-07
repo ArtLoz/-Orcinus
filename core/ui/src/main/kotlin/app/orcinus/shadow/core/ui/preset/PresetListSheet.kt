@@ -1,6 +1,7 @@
 package app.orcinus.shadow.core.ui.preset
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -49,6 +51,7 @@ import app.orcinus.shadow.core.model.PresetGroup
 import app.orcinus.shadow.core.model.PresetListItem
 import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.settings.parseColor
 
 /** An entry under the list: what it can do besides choosing a preset. */
 @Composable
@@ -177,6 +180,7 @@ private fun PresetRow(item: PresetListItem, enabled: Boolean, onClick: () -> Uni
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        parseColor(item.color)?.let { FilamentColorSquare(it) }
         Text(
             item.label,
             color = if (enabled) colors.text else colors.textDisabled,
@@ -190,6 +194,25 @@ private fun PresetRow(item: PresetListItem, enabled: Boolean, onClick: () -> Uni
         }
     }
 }
+
+/**
+ * PresetComboBox::get_bmp(preset): the square of a filament's default colour
+ * before its name, a very light one with a grey border.
+ */
+@Composable
+private fun FilamentColorSquare(color: Color) {
+    val light = color.red > LIGHT_CHANNEL && color.green > LIGHT_CHANNEL && color.blue > LIGHT_CHANNEL
+    Box(
+        Modifier
+            .padding(end = 8.dp)
+            .size(16.dp)
+            .background(color)
+            .then(if (light) Modifier.border(1.dp, Color(0xFF808080)) else Modifier),
+    )
+}
+
+/** A channel above 224 of 255 (clr.Red() > 224 in get_bmp()). */
+private const val LIGHT_CHANNEL = 224f / 255f
 
 /**
  * The sections in the combo box's order; within one, the entries of a submenu

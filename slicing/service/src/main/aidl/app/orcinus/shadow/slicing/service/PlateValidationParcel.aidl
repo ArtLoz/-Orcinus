@@ -25,4 +25,8 @@ parcelable PlateValidationParcel {
     /** The warnings of the plate's filaments: their PlateNoticeKind names and texts. */
     @nullable String[] noticeKinds;
     @nullable String[] noticeTexts;
+    /** Every copy's clearance outline about its offset: each one's point count, then x and y of every point; and its top. */
+    @nullable int[] copyHullCounts;
+    @nullable double[] copyHulls;
+    @nullable double[] copyTops;
 }

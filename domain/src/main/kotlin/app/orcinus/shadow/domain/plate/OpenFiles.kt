@@ -94,6 +94,14 @@ class OpenFilesUseCase(
     /** "Import Zip Archive": load_files() of the archive the user picked. */
     fun importZip(reference: ExternalDocumentReference) = open(listOf(reference))
 
+    /**
+     * PlaterDropTarget::OnDropFiles(): files dropped on the 3D view are one
+     * SVG alone, which emboss_svg() places where it was dropped rather than
+     * load_files() loading it.
+     */
+    suspend fun isSingleSvg(references: List<ExternalDocumentReference>): Boolean =
+        references.singleOrNull()?.let { name(it).endsWith(SVG, ignoreCase = true) } == true
+
     /** FileArchiveDialog's Open with the files picked, or Cancel with null. */
     fun answer(picked: List<ArchiveEntry>?) {
         reply?.complete(picked)
@@ -166,6 +174,7 @@ class OpenFilesUseCase(
 
         const val ZIP = ".zip"
         const val THREE_MF = ".3mf"
+        const val SVG = ".svg"
         const val GCODE_LOADING_ID = "gcode_loading"
         const val ARCHIVE_ERROR_ID = "archive_error"
         val GCODE_LOADING = OrcaText("G-code loading")

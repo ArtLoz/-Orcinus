@@ -13,10 +13,18 @@ import kotlinx.serialization.Serializable
 /**
  * The settings of one preset kind, opened over the whole window from the
  * sidebar. [option] is the setting the search found, which the page opens on
- * its [page] and marks (Tab::activate_option).
+ * its [page] and marks (Tab::activate_option). EditFilamentPresetDialog opens
+ * the filament tab on [editedPreset] of the filament [editingFilament]
+ * (ParamsDialog::set_editing_filament_id()), which it edits alone.
  */
 @Serializable
-data class PresetSettingsNavKey(val kind: PresetKind, val option: String? = null, val page: String? = null) : NavKey
+data class PresetSettingsNavKey(
+    val kind: PresetKind,
+    val option: String? = null,
+    val page: String? = null,
+    val editingFilament: String? = null,
+    val editedPreset: String? = null,
+) : NavKey
 
 /**
  * Registers the settings page. [createViewModel] builds its view model from the
@@ -37,6 +45,7 @@ fun EntryProviderScope<NavKey>.presetSettingsEntry(
             onOpenTab = onOpenTab,
             openOption = key.option,
             openPage = key.page,
+            editedPreset = key.editedPreset.takeIf { key.editingFilament != null },
         )
     }
 }

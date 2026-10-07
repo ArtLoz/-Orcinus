@@ -31,14 +31,26 @@ enum class SetupStart {
     /** No printer is set up yet: closing the wizard installs OrcaSlicer's default printer. */
     FIRST_RUN,
 
-    /** "Select/Remove printers (system presets)" */
+    /** Help's "Setup Wizard" (GUI_App::ShowUserGuide()): the whole guide again. */
+    GUIDE,
+
+    /**
+     * "Select/Remove printers (system presets)" (guide/24): the printers
+     * alone, which its Confirm installs at once.
+     */
     PRINTERS,
 
     /** "Add/Remove filaments": the filaments for the installed printers. */
     FILAMENTS,
 }
 
-internal enum class SetupPage { PRINTERS, FILAMENTS }
+/**
+ * The guide's pages: the printers (21, or 24 alone), the filaments (22, or 23
+ * alone), and the whole guide's Stealth Mode page (4orca) after them. The
+ * Proprietary Plugins page that follows it (5) installs BambuLab's network
+ * plug-in, which the app has not, so the Stealth Mode page finishes the guide.
+ */
+internal enum class SetupPage { PRINTERS, FILAMENTS, STEALTH }
 
 internal enum class SetupNotice {
     /** "At least one printer must be selected." */
@@ -83,13 +95,20 @@ internal data class SetupUiState(
     val keyword: String = "",
     val filaments: FilamentPageState = FilamentPageState(),
     val notice: SetupNotice? = null,
+    /** The Stealth Mode page's "Enable Stealth Mode.", which starts unticked as guide/4orca's does. */
+    val stealthMode: Boolean = false,
     /** The engine installs the choice. */
     val applying: Boolean = false,
     val error: String? = null,
     /** The wizard has done its work and closes. */
     val finished: Boolean = false,
+    /** The printer page's "Create" (user_guide_create_printer): the wizard closes for CreatePrinterPresetDialog. */
+    val creatingPrinter: Boolean = false,
 ) {
     val vendors: List<PrinterVendor> get() = PrinterPage.vendors(printers, keyword)
+
+    /** The whole guide, whose filament page goes on to the Stealth Mode page. */
+    val wholeGuide: Boolean get() = start == SetupStart.FIRST_RUN || start == SetupStart.GUIDE
 }
 
 /**
@@ -103,6 +122,8 @@ class SetupWizardViewModel(
     private val getSetupFilaments: GetSetupFilamentsUseCase,
     private val applySetup: ApplySetupUseCase,
     private val customFilaments: CustomFilamentsUseCase,
+    /** GuideFrame::SaveProfile()'s app_config->set_bool("stealth_mode", ...). */
+    private val saveStealthMode: (Boolean) -> Unit = {},
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(SetupUiState(start))
     internal val state: StateFlow<SetupUiState> = mutableState.asStateFlow()
@@ -167,6 +188,52 @@ class SetupWizardViewModel(
 
     internal suspend fun filamentPresets(filamentId: String): FilamentPresetsOutcome = customFilaments.presets(filamentId)
 
+    /** EditFilamentPresetDialog: the filament it is open on, null while it is closed. */
+    internal var editingFilament: String? by mutableStateOf(null)
+        private set
+
+    /** The changes made to the presets it lists, which it asks for again after each. */
+    internal var filamentPresetsRevision: Int by mutableStateOf(0)
+        private set
+
+    /** CreatePresetForPrinterDialog, which its "+ Add Preset" opens. */
+    internal var addingFilamentPreset: Boolean by mutableStateOf(false)
+        private set
+
+    internal fun editFilament(filamentId: String) {
+        editingFilament = filamentId
+    }
+
+    internal fun closeEditFilament() {
+        editingFilament = null
+        addingFilamentPreset = false
+    }
+
+    internal fun openAddFilamentPreset() {
+        addingFilamentPreset = true
+    }
+
+    internal fun closeAddFilamentPreset() {
+        addingFilamentPreset = false
+    }
+
+    internal suspend fun filamentPresetSources(filamentId: String): FilamentPresetsOutcome = customFilaments.presetSources(filamentId)
+
+    /** CreatePresetForPrinterDialog's OK. */
+    internal fun addFilamentPreset(printer: String, preset: String) {
+        val filamentId = editingFilament ?: return
+        pendingAddition = FilamentPresetAddition(filamentId, printer, preset)
+        answers = emptyMap()
+        runCreation()
+    }
+
+    /** EditFilamentPresetDialog's "Delete": the whole filament. */
+    internal fun deleteFilament() {
+        pendingFilamentDeletion = editingFilament ?: return
+        answers = emptyMap()
+        runCreation()
+    }
+
     /** The Create button of the dialog, and the answers the user has given it. */
     internal fun createFilament(request: CreateFilamentRequest) {
         pendingCreation = request
@@ -191,8 +258,7 @@ class SetupWizardViewModel(
 
     internal fun dismissFilamentQuestion() {
         filamentQuestion = null
-        pendingCreation = null
-        pendingDeletion = null
+        clearPending()
     }
 
     internal fun dismissFilamentProblem() {
@@ -209,29 +275,46 @@ class SetupWizardViewModel(
 
     private var pendingCreation: CreateFilamentRequest? = null
     private var pendingDeletion: String? = null
+    private var pendingAddition: FilamentPresetAddition? = null
+    private var pendingFilamentDeletion: String? = null
     private var answers: Map<String, Boolean> = emptyMap()
+
+    private fun clearPending() {
+        pendingCreation = null
+        pendingDeletion = null
+        pendingAddition = null
+        pendingFilamentDeletion = null
+    }
 
     private fun runCreation() {
         val request = pendingCreation
         val deletion = pendingDeletion
+        val addition = pendingAddition
+        val filamentDeletion = pendingFilamentDeletion
         viewModelScope.launch {
             val outcome = when {
                 request != null -> customFilaments.create(request, answers)
                 deletion != null -> customFilaments.deletePreset(deletion, answers)
+                addition != null -> customFilaments.addPreset(addition.filamentId, addition.printer, addition.preset, answers)
+                filamentDeletion != null -> customFilaments.deleteFilament(filamentDeletion, answers)
                 else -> return@launch
             }
             when (outcome) {
                 is PresetCreationOutcome.Question -> filamentQuestion = outcome.question
                 is PresetCreationOutcome.Failure -> {
                     filamentProblem = outcome.message
-                    pendingCreation = null
-                    pendingDeletion = null
+                    clearPending()
                 }
                 is PresetCreationOutcome.Success -> {
                     if (request != null) filamentCreated = true
-                    pendingCreation = null
-                    pendingDeletion = null
+                    clearPending()
                     creatingFilament = false
+                    // A No to the dialog's question changed nothing, and the dialog stays.
+                    if (outcome.name.isNotEmpty()) {
+                        if (addition != null) addingFilamentPreset = false
+                        if (filamentDeletion != null) closeEditFilament()
+                    }
+                    filamentPresetsRevision++
                     loadCustomFilaments()
                     // The wizard's filament list follows the presets it made.
                     if (state.value.filaments.lines.isNotEmpty()) loadFilaments()
@@ -246,15 +329,62 @@ class SetupWizardViewModel(
 
     internal fun toggleVendor(vendor: PrinterVendor) = mutableState.update { it.copy(chosen = PrinterPage.toggleVendor(it.chosen, vendor.models)) }
 
-    /** GotoFilamentPage() */
+    /**
+     * GotoFilamentPage() of the printer page; on the whole guide's filament
+     * page GotoNetPluginPage(), which takes its filaments
+     * (ResponseFilamentResult()) and goes on to the Stealth Mode page.
+     */
     internal fun next() {
         val state = mutableState.value
+        when (state.page) {
+            SetupPage.PRINTERS -> {
+                if (state.chosen.isEmpty()) {
+                    mutableState.update { it.copy(notice = SetupNotice.NO_PRINTER) }
+                    return
+                }
+                mutableState.update { it.copy(page = SetupPage.FILAMENTS) }
+                loadFilaments()
+            }
+            SetupPage.FILAMENTS -> {
+                if (state.filaments.loading) return
+                if (state.filaments.checked.isEmpty()) {
+                    mutableState.update { it.copy(notice = SetupNotice.NO_FILAMENT) }
+                    return
+                }
+                mutableState.update { it.copy(page = SetupPage.STEALTH) }
+            }
+            SetupPage.STEALTH -> Unit
+        }
+    }
+
+    /** The Stealth Mode page's check box (SendStealthModeCheck()). */
+    internal fun setStealthMode(enabled: Boolean) = mutableState.update { it.copy(stealthMode = enabled) }
+
+    /**
+     * ConfirmSelect() of the printers-only page: the chosen printers are
+     * installed at once, their default materials selected among the installed
+     * filaments (save_userguide_models), as Finish installs them.
+     */
+    internal fun confirm() {
+        val state = mutableState.value
+        if (state.applying || state.loadingPrinters) return
         if (state.chosen.isEmpty()) {
             mutableState.update { it.copy(notice = SetupNotice.NO_PRINTER) }
             return
         }
-        mutableState.update { it.copy(page = SetupPage.FILAMENTS) }
-        loadFilaments()
+        val models = state.printers.filter { it.id in state.chosen }.map(SetupPrinterModel::id)
+        apply {
+            when (val outcome = getSetupFilaments(models)) {
+                is SetupFilamentsOutcome.Failure -> PresetsOutcome.Failure(outcome.message)
+                is SetupFilamentsOutcome.Success -> applySetup(models, outcome.filaments.filter { it.selected }.map { it.name })
+            }
+        }
+    }
+
+    /** CreateNewPrinter(): the wizard closes, and CreatePrinterPresetDialog opens (user_guide_create_printer). */
+    internal fun createPrinter() {
+        if (mutableState.value.applying) return
+        mutableState.update { it.copy(creatingPrinter = true, finished = true) }
     }
 
     private fun loadFilaments() {
@@ -333,7 +463,10 @@ class SetupWizardViewModel(
 
     internal fun dismissError() = mutableState.update { it.copy(error = null) }
 
-    /** FinishGuide() */
+    /**
+     * FinishGuide(): of the filament page alone, or of the Stealth Mode page,
+     * whose choice the app configuration takes first (GuideFrame::SaveProfile()).
+     */
     internal fun finish() {
         val state = mutableState.value
         if (state.applying || state.filaments.loading) return
@@ -341,19 +474,22 @@ class SetupWizardViewModel(
             mutableState.update { it.copy(notice = SetupNotice.NO_FILAMENT) }
             return
         }
+        if (state.page == SetupPage.STEALTH) saveStealthMode(state.stealthMode)
         val models = state.filaments.models.map(SetupPrinterModel::id)
         val filaments = FilamentPage.presets(state.filaments.lines, state.filaments.checked)
         apply { applySetup(models, filaments) }
     }
 
     /**
-     * Back: the filament page returns to the printer page; otherwise the wizard
-     * closes, and on first run OrcaSlicer's default printer is installed.
+     * Back: the Stealth Mode page returns to the filament page, and that one to
+     * the printer page; otherwise the wizard closes, and on first run
+     * OrcaSlicer's default printer is installed.
      */
     internal fun back() {
         val state = mutableState.value
         when {
             state.applying -> Unit
+            state.page == SetupPage.STEALTH -> mutableState.update { it.copy(page = SetupPage.FILAMENTS, notice = null) }
             state.page == SetupPage.FILAMENTS && state.start != SetupStart.FILAMENTS -> mutableState.update { it.copy(page = SetupPage.PRINTERS, notice = null) }
             state.start == SetupStart.FIRST_RUN -> apply { applySetup.defaults() }
             else -> mutableState.update { it.copy(finished = true) }
@@ -381,3 +517,6 @@ class SetupWizardViewModel(
 
     private fun <T> Set<T>.toggled(value: T): Set<T> = if (value in this) this - value else this + value
 }
+
+/** CreatePresetForPrinterDialog's choice, which waits for the answer to its question. */
+private data class FilamentPresetAddition(val filamentId: String, val printer: String, val preset: String)

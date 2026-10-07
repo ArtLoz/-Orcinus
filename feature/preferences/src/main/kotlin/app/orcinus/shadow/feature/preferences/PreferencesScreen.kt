@@ -63,7 +63,7 @@ import app.orcinus.shadow.core.ui.settings.openInBrowser
 import java.util.Locale
 
 @Composable
-internal fun PreferencesRoute(viewModel: PreferencesViewModel, onBack: () -> Unit) {
+internal fun PreferencesRoute(viewModel: PreferencesViewModel, onBack: () -> Unit, onOpenNetworkTest: () -> Unit = {}) {
     val values by viewModel.values.collectAsStateWithLifecycle()
     val problem by viewModel.problem.collectAsStateWithLifecycle()
     PreferencesScreen(
@@ -73,6 +73,7 @@ internal fun PreferencesRoute(viewModel: PreferencesViewModel, onBack: () -> Uni
         onSelectLanguage = viewModel::selectLanguage,
         onDismissProblem = viewModel::dismissProblem,
         onBack = onBack,
+        onOpenNetworkTest = onOpenNetworkTest,
     )
 }
 
@@ -90,6 +91,8 @@ internal fun PreferencesScreen(
     onSelectLanguage: (OrcaLanguage) -> Unit,
     onDismissProblem: () -> Unit,
     onBack: () -> Unit,
+    /** "Network test"'s "Test...": NetworkTestDialog. */
+    onOpenNetworkTest: () -> Unit = {},
 ) {
     val colors = OrcaTheme.colors
     var page by rememberSaveable { mutableIntStateOf(0) }
@@ -111,7 +114,7 @@ internal fun PreferencesScreen(
             for (section in PREFERENCE_PAGES[page].sections) {
                 item(key = "section:${section.title}") { SectionTitle(orcaString(section.title)) }
                 items(section.items, key = { it.key }) { item ->
-                    PreferenceRow(item, values, enabled, language, onTooltip = { tooltip = item }) { key, value ->
+                    PreferenceRow(item, values, enabled, language, onTooltip = { tooltip = item }, onOpen = onOpenNetworkTest) { key, value ->
                         when {
                             // create_item_checkbox(): turning the restriction off asks first.
                             key == AppConfigKeys.ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING && value == "true" -> confirmingMixedTemperatures = true
@@ -136,6 +139,8 @@ internal fun PreferencesScreen(
                 else -> listOf(OrcaText(item.tooltip.ifEmpty { item.title }))
             },
             onDismiss = { tooltip = null },
+            // create_item_label(): the label of an item with a page of the wiki opens it.
+            wikiUrl = item.wiki.takeIf(String::isNotEmpty)?.let { WIKI + it },
         )
     }
     confirmingLanguage?.let { chosen ->
@@ -191,6 +196,8 @@ private fun PreferenceRow(
     enabled: Boolean,
     language: OrcaLanguage,
     onTooltip: () -> Unit,
+    /** The button of an item that opens a dialog of its own. */
+    onOpen: () -> Unit,
     onChange: (key: String, value: String) -> Unit,
 ) {
     val colors = OrcaTheme.colors
@@ -268,6 +275,11 @@ private fun PreferenceRow(
                 text = orcaString("Clear"),
                 onClick = { onChange(item.key, "") },
                 enabled = enabled,
+                style = OrcaButtonStyle.Regular,
+            )
+            is PreferenceItem.Open -> OrcaButton(
+                text = orcaString(item.button) + " " + DOTS,
+                onClick = onOpen,
                 style = OrcaButtonStyle.Regular,
             )
         }
@@ -389,6 +401,8 @@ private fun LanguageDialog(onContinue: () -> Unit, onCancel: () -> Unit) {
 private fun MixedTemperatureDialog(onEnable: () -> Unit, onDismiss: () -> Unit) {
     val colors = OrcaTheme.colors
     val context = LocalContext.current
+    // The wiki in Chinese for an app in Chinese, in English otherwise.
+    val region = if ("zh" in orcaLanguageOf(LocalConfiguration.current.locales[0]).canonicalName) "zh" else "en"
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { OrcaButton(orcaString("Yes"), onClick = onEnable) },
@@ -411,8 +425,7 @@ private fun MixedTemperatureDialog(onEnable: () -> Unit, onDismiss: () -> Unit) 
                     ),
                     style = OrcaTheme.typography.body14,
                 )
-                // The wiki in Chinese for a Chinese app, in English otherwise.
-                OrcaLink(orcaString("Click Wiki for help."), onClick = { openInBrowser(context, MIXED_TEMPERATURE_WIKI) })
+                OrcaLink(orcaString("Click Wiki for help."), onClick = { openInBrowser(context, MIXED_TEMPERATURE_WIKI.format(region)) })
             }
         },
         containerColor = colors.window,
@@ -427,4 +440,9 @@ private val SECONDS_WIDTH = 97.dp
 
 /** The break between the two tooltips of an item. */
 private const val PARAGRAPH = "\n\n"
-private const val MIXED_TEMPERATURE_WIKI = "https://wiki.bambulab.com/en/filament-acc/filament/h2d-filament-config-limit"
+private const val MIXED_TEMPERATURE_WIKI = "https://wiki.bambulab.com/%s/filament-acc/filament/h2d-filament-config-limit"
+
+/** create_item_label(): the wiki's pages, which an item names. */
+private const val WIKI = "https://www.orcaslicer.com/wiki/"
+
+private const val DOTS = "..."

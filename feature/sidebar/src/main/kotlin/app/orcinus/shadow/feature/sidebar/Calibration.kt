@@ -58,11 +58,14 @@ import java.util.Locale
 
 /**
  * MainFrame's Calibration menu, which the desktop app's top bar opens: the
- * tests in its order, and the calibration guide on the web.
+ * tests in its order, and the calibration guide on the web. Every item wants
+ * the 3D view shown (Plater::is_view3D_shown()) [view3D], and a test, which
+ * starts a project of its own, the plate idle as well ([enabled]).
  */
 @Composable
 internal fun CalibrationMenuItems(
     enabled: Boolean,
+    view3D: Boolean,
     dismiss: () -> Unit,
     onTemperature: () -> Unit,
     onRange: (RangeTest) -> Unit,
@@ -74,7 +77,7 @@ internal fun CalibrationMenuItems(
     @Composable
     fun item(text: String, onClick: () -> Unit) = OrcaMenuItem(
         text = orcaString(text),
-        enabled = enabled,
+        enabled = enabled && view3D,
         onClick = {
             dismiss()
             onClick()
@@ -86,13 +89,14 @@ internal fun CalibrationMenuItems(
     item("Flow ratio", onFlowRate)
     item("Retraction") { onRange(RangeTest.RETRACTION) }
     item("Cornering") { onPrinterTest(PrinterTest.CORNERING) }
-    OrcaSubmenu(text = orcaString("Input Shaping"), enabled = enabled) {
+    OrcaSubmenu(text = orcaString("Input Shaping"), enabled = enabled && view3D) {
         item("Input Shaping Frequency") { onPrinterTest(PrinterTest.INPUT_SHAPING_FREQUENCY) }
         item("Input Shaping Damping/zeta factor") { onPrinterTest(PrinterTest.INPUT_SHAPING_DAMPING) }
     }
     item("VFA") { onRange(RangeTest.VFA) }
     OrcaMenuItem(
         text = orcaString("Calibration Guide"),
+        enabled = view3D,
         onClick = {
             dismiss()
             uriHandler.openUri(CALIBRATION_GUIDE)
@@ -409,6 +413,8 @@ internal fun InputShapingFrequencySheet(printer: CalibrationPrinter, onDismiss: 
         SectionLabel(orcaString("Frequency settings"))
         if (reprap) {
             RangeFields(orcaString("Frequency (Start / End): "), startX, endX, hz, { startX = it }, { endX = it })
+            // The fields' tooltip.
+            Note(orcaString("RepRap firmware uses the same frequency range for both axes."))
         } else {
             RangeFields("X $startEnd: ", startX, endX, hz, { startX = it }, { endX = it })
             RangeFields("Y $startEnd: ", startY, endY, hz, { startY = it }, { endY = it })
@@ -472,6 +478,8 @@ internal fun InputShapingDampingSheet(printer: CalibrationPrinter, onDismiss: ()
         SectionLabel(orcaString("Frequency settings"))
         if (reprap) {
             NumberField(orcaString("Frequency: "), frequencyX, hz) { frequencyX = it }
+            // The field's tooltip.
+            Note(orcaString("RepRap firmware uses the same frequency for both axes."))
         } else {
             RangeFields(orcaString("Frequency") + " X / Y: ", frequencyX, frequencyY, hz, { frequencyX = it }, { frequencyY = it })
         }

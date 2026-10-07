@@ -36,10 +36,12 @@ import app.orcinus.shadow.di.AppContainer
 import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
 import app.orcinus.shadow.core.ui.orca.orcaLanguageOf
 import app.orcinus.shadow.core.ui.orca.rememberOrcaCatalog
+import app.orcinus.shadow.core.ui.plate.ProvideOrcaNotificationLabels
 import app.orcinus.shadow.domain.plate.EngineLanguage
 import app.orcinus.shadow.ui.OrcinusApp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -87,12 +89,15 @@ class MainActivity : ComponentActivity() {
                     // The preview offers the File menu its toolpaths while it shows them.
                     LocalToolpathsExport provides remember { mutableStateOf(null) },
                 ) {
-                    OrcinusApp(
-                        container = container,
-                        onSliceRequested = ::requestNotificationPermission,
-                        openedDocuments = openedDocuments,
-                        onDocumentsTaken = { openedDocuments.value = emptyList() },
-                    )
+                    // The notifications' close button, "More" and minimize button in the app's language.
+                    ProvideOrcaNotificationLabels {
+                        OrcinusApp(
+                            container = container,
+                            onSliceRequested = ::requestNotificationPermission,
+                            openedDocuments = openedDocuments,
+                            onDocumentsTaken = { openedDocuments.value = emptyList() },
+                        )
+                    }
                 }
             }
         }
@@ -124,8 +129,16 @@ class MainActivity : ComponentActivity() {
      * process. The screen goes as soon as the engine has answered, and never
      * hangs on it: a slow start (the first run after an install reads every
      * profile) gives up waiting, since the app draws the last plate meanwhile.
+     * GUI_App::on_init_inner() shows its splash screen only while the
+     * Preferences' "Show splash screen" is on; OrcaSlicer.conf is read once
+     * the engine runs, so the launch goes by the value read last.
      */
     private fun keepSplashWhileEngineStarts(splash: SplashScreen, container: AppContainer) {
+        val launch = getSharedPreferences(LAUNCH_PREFERENCES, MODE_PRIVATE)
+        lifecycleScope.launch {
+            container.showSplashScreen.filterNotNull().collect { shown -> launch.edit().putBoolean(SHOW_SPLASH_SCREEN, shown).apply() }
+        }
+        if (!launch.getBoolean(SHOW_SPLASH_SCREEN, true)) return
         val shown = SystemClock.uptimeMillis()
         var ready = false
         lifecycleScope.launch {
@@ -176,5 +189,9 @@ class MainActivity : ComponentActivity() {
 
         const val SPLASH_EXIT_MILLIS = 220L
         const val SPLASH_EXIT_SCALE = 1.12f
+
+        /** The launch's own preferences: the "Show splash screen" OrcaSlicer.conf held last. */
+        const val LAUNCH_PREFERENCES = "launch"
+        const val SHOW_SPLASH_SCREEN = "show_splash_screen"
     }
 }

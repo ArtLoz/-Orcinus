@@ -4,8 +4,10 @@ import android.content.res.AssetManager
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import androidx.compose.ui.geometry.Rect
+import app.orcinus.shadow.core.model.BedLogoKind
 import app.orcinus.shadow.core.model.BuildVolumeShape
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.render.scene.gl.GlDepthTarget
 import app.orcinus.shadow.render.scene.gl.GlOffscreenFrame
 import app.orcinus.shadow.render.scene.gl.GlProgram
@@ -122,6 +124,14 @@ internal class SceneFrame(
     val forceSinkingContours: Boolean = false,
     /** Selection::render_sidebar_hints() of the field of the move, rotate or scale window being edited. */
     val sidebarHints: List<GizmoMesh> = emptyList(),
+    /** Selection::render() and render_synchronized_volumes(): the boxes of the selection; none while a tool runs. */
+    val selectionBrackets: List<SelectionBracket> = emptyList(),
+    /** PartPlate::render_height_limit() over the current plate while it prints by object; null for none. */
+    val heightLimits: ExtruderClearance? = null,
+    /** The plate type of the current plate (PartPlate::get_bed_type()), whose pictures a Bambu Lab plate shows. */
+    val bedType: String? = null,
+    /** _render_platelist()'s render_cali: the 3D view shows the calibration lines, the preview does not. */
+    val calibrationLogo: Boolean = false,
 )
 
 /** Whether [sceneObject] is drawn selected: its copy is, and it is the selected volume when one is selected alone. */
@@ -204,7 +214,8 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     private var markerChanged = false
     private var gpuMarker: Pair<MeshData, GlVertexArray>? = null
     private var markerPosition: Vec3? = null
-    private var selectionBox: Triple<Box3, Boolean, GlVertexArray>? = null
+    /** Selection::m_box of every bracket drawn in the last frame, by its box and auto drop. */
+    private val bracketArrays = HashMap<Pair<Box3, Boolean>, GlVertexArray>()
     private var grabberCone: GlVertexArray? = null
     private var grabberCube: GlVertexArray? = null
     private var grabberSphere: GlVertexArray? = null
@@ -314,7 +325,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         gpuWireframes.clear()
         gpuShells.clear()
         gpuMarker = null
-        selectionBox = null
+        bracketArrays.clear()
         grabberCone = null
         grabberCube = null
         grabberSphere = null
@@ -563,8 +574,12 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             // Bed3D::render_internal(): the axes first.
             if (frame.showAxes) renderAxes(programs.flat, bed, frame)
             GLES30.glEnable(GLES30.GL_DEPTH_TEST)
-            // Bed3D stands under the current plate (Plater::set_bed_position).
-            if (!bottom) renderBedModel(programs.hotbed, bed, frame, plates.currentOrigin)
+            // Bed3D stands under the current plate (Plater::set_bed_position); render_custom()
+            // draws the default bed for want of a model.
+            if (!bottom) {
+                if (bed.model != null) renderBedModel(programs.hotbed, bed, frame, plates.currentOrigin)
+                else if (bed.scene.defaultBed) renderDefaultBed(programs.flat, bed, frame, plates.currentOrigin)
+            }
             // PartPlateList::render()
             plates.origins.forEachIndexed { index, origin ->
                 renderPlate(programs, bed, frame, bottom, origin, index, selected = index == plates.current, name = plates.names.getOrNull(index))
@@ -764,6 +779,25 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     /**
+     * Bed3D::render_default(): the printable area at the plate's ground in
+     * the bed model's colour, blended without writing the depth.
+     */
+    private fun renderDefaultBed(flat: GlProgram, bed: GpuBed, frame: SceneFrame, origin: Vec3) {
+        flat.use()
+        flat.setMatrix4("view_model_matrix", (frame.view * Affine3().translated(Vec3(origin.x, origin.y, (GROUND_Z - LOGO_Z).toDouble()))).toFloatArray())
+        flat.setMatrix4("projection_matrix", frame.projection)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glDepthMask(false)
+        val color = if (frame.dark) BED_MODEL_COLOR_DARK else BED_MODEL_COLOR
+        // ORCA shift color a darker tone to fix difference between flat / gouraud_light shader
+        flat.setVec4("uniform_color", color[0] * 0.8f, color[1] * 0.8f, color[2] * 0.8f, color[3])
+        bed.plateTriangles.draw()
+        GLES30.glDepthMask(true)
+        GLES30.glDisable(GLES30.GL_BLEND)
+    }
+
+    /**
      * PartPlate::render() for the plate at [index], standing at [origin]: the
      * background of a plate other than the current one, the excluded area, the
      * grid, the current plate's texture, and the plate's number.
@@ -789,6 +823,18 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             flat.setVec4("uniform_color", exclude[0], exclude[1], exclude[2], exclude[3])
             bed.excludeTriangles.draw()
             GLES30.glDepthMask(true)
+        }
+
+        // render_height_limit(), HEIGHT_LIMIT_BOTH for the current plate (PartPlateList::render()).
+        val heightLimits = frame.heightLimits
+        if (selected && heightLimits != null) {
+            val (lower, upper) = bed.heightLimits(heightLimits)
+            GLES30.glLineWidth(lineWidth(3f * frame.pixelScale))
+            flat.setVec4("uniform_color", HEIGHT_LIMIT_BOTTOM_COLOR[0], HEIGHT_LIMIT_BOTTOM_COLOR[1], HEIGHT_LIMIT_BOTTOM_COLOR[2], HEIGHT_LIMIT_BOTTOM_COLOR[3])
+            lower.draw()
+            flat.setVec4("uniform_color", HEIGHT_LIMIT_TOP_COLOR[0], HEIGHT_LIMIT_TOP_COLOR[1], HEIGHT_LIMIT_TOP_COLOR[2], HEIGHT_LIMIT_TOP_COLOR[3])
+            upper.draw()
+            GLES30.glLineWidth(1f)
         }
 
         // render_grid(), while show_plate_gridlines is on
@@ -825,6 +871,39 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture.id)
             bed.plateTriangles.draw()
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+            GLES30.glDisable(GLES30.GL_BLEND)
+            GLES30.glDepthMask(true)
+        }
+        // render_logo() of a Bambu Lab plate: the parts of its plate type's picture, the
+        // calibration lines in the 3D view, and the extruders' own areas, each by render_logo_texture().
+        val logos = if (!bottom && selected) {
+            bed.logos.filter { logo ->
+                when (logo.kind) {
+                    BedLogoKind.BED_TYPE -> logo.bedType == frame.bedType
+                    BedLogoKind.CALIBRATION -> frame.calibrationLogo
+                    BedLogoKind.EXTRUDER_AREA -> true
+                }
+            }.sortedBy { LOGO_ORDER.indexOf(it.kind) }
+        } else {
+            emptyList()
+        }
+        if (logos.isNotEmpty()) {
+            val printbed = programs.printbed
+            printbed.use()
+            printbed.setMatrix4("view_model_matrix", view)
+            printbed.setMatrix4("projection_matrix", frame.projection)
+            printbed.setBoolean("transparent_background", false)
+            printbed.setBoolean("svg_source", false)
+            printbed.setInt("in_texture", 0)
+            GLES30.glDepthMask(false)
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+            for (logo in logos) {
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, logo.texture.id)
+                logo.triangles.draw()
+            }
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
             GLES30.glDisable(GLES30.GL_BLEND)
             GLES30.glDepthMask(true)
@@ -952,7 +1031,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glStencilMask(0xFF)
     }
 
-    /** SequentialPrintClearance::render() with its fill, as a failing validation shows it. */
+    /** SequentialPrintClearance::render(): with its fill as a failing validation shows it, greyed without it while a drag shows it. */
     private fun renderClearance(program: GlProgram, clearance: SceneClearance, frame: SceneFrame) {
         val arrays = clearanceArrays?.takeIf { it.first === clearance }?.second ?: run {
             clearanceArrays?.second?.forEach(GlVertexArray::release)
@@ -969,12 +1048,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glLineWidth(lineWidth(frame.pixelScale))
-        program.setVec4("uniform_color", CLEARANCE_FILL_COLOR[0], CLEARANCE_FILL_COLOR[1], CLEARANCE_FILL_COLOR[2], CLEARANCE_FILL_COLOR[3])
+        val color = if (clearance.renderFill) CLEARANCE_FILL_COLOR else CLEARANCE_NO_FILL_COLOR
+        program.setVec4("uniform_color", color[0], color[1], color[2], color[3])
         perimeter.draw()
         // The fill keeps the colour set_polygons() gave its geometry.
         program.setVec4("uniform_color", 0.8f, 0.8f, 1f, 0.5f)
         fill.draw()
-        program.setVec4("uniform_color", CLEARANCE_FILL_COLOR[0], CLEARANCE_FILL_COLOR[1], CLEARANCE_FILL_COLOR[2], CLEARANCE_FILL_COLOR[3])
+        program.setVec4("uniform_color", color[0], color[1], color[2], color[3])
         heightLimit.draw()
         GLES30.glLineWidth(1f)
         GLES30.glDisable(GLES30.GL_BLEND)
@@ -1327,19 +1407,23 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     /**
-     * Selection::render() in the world reference system: white brackets at the
-     * corners of the bounding box, with arrows under it when auto drop is off.
+     * Selection::render() and render_synchronized_volumes(): brackets at the
+     * corners of the selection's boxes, with arrows under them when auto drop
+     * is off; then the frames a tool draws as the selection is framed.
      */
     private fun renderSelection(program: GlProgram, frame: SceneFrame) {
-        // GLCanvas3D::_render_selection(): not while the cut gizmo or the measuring tool runs.
-        if (frame.colorClipPlane != null || frame.selectionHidden) return
-        // The desktop app draws one box around the whole selection; a plate of
-        // a phone holds few objects, so each selected one gets its brackets,
-        // around the copy and the parts that belong to it together.
-        for ((_, volumes) in objects.filter(frame::selects).groupBy(SceneObject::index)) {
-            val box = volumes.map(SceneObject::bounds).reduce(Box3::merge)
-            renderSelectionOf(program, frame, box, volumes.first().autoDrop)
+        val drawn = HashSet<Pair<Box3, Boolean>>()
+        // GLCanvas3D::_render_selection(): not while a tool runs.
+        if (frame.colorClipPlane == null && !frame.selectionHidden) {
+            for (bracket in frame.selectionBrackets) {
+                val key = bracket.box to bracket.autoDrop
+                drawn += key
+                renderSelectionOf(program, frame, bracket, bracketArrays.getOrPut(key) {
+                    GlVertexArray(GlVertexArray.floatBuffer(boundingBoxBrackets(bracket.box, bracket.autoDrop)), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
+                })
+            }
         }
+        bracketArrays.keys.filter { it !in drawn }.forEach { bracketArrays.remove(it)?.release() }
         for (framed in frame.framedVolumes) {
             val lines = GlVertexArray(GlVertexArray.floatBuffer(boundingBoxBrackets(framed.box, true)), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
             GLES30.glEnable(GLES30.GL_DEPTH_TEST)
@@ -1355,18 +1439,14 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         }
     }
 
-    private fun renderSelectionOf(program: GlProgram, frame: SceneFrame, box: Box3, autoDrop: Boolean) {
-        val lines = selectionBox?.takeIf { it.first == box && it.second == autoDrop }?.third ?: run {
-            selectionBox?.third?.release()
-            GlVertexArray(GlVertexArray.floatBuffer(boundingBoxBrackets(box, autoDrop)), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
-                .also { selectionBox = Triple(box, autoDrop, it) }
-        }
+    /** Selection::render_bounding_box(): the box's brackets, drawn through its transformation. */
+    private fun renderSelectionOf(program: GlProgram, frame: SceneFrame, bracket: SelectionBracket, lines: GlVertexArray) {
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         program.use()
-        program.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+        program.setMatrix4("view_model_matrix", (frame.view * bracket.transform).toFloatArray())
         program.setMatrix4("projection_matrix", frame.projection)
-        // ColorRGB::YELLOW() in the assembly view, WHITE() in the 3D view.
-        program.setVec4("uniform_color", 1f, 1f, if (frame.assembly) 0f else 1f, 1f)
+        // ColorRGB::YELLOW() or WHITE().
+        program.setVec4("uniform_color", 1f, 1f, if (bracket.yellow) 0f else 1f, 1f)
         GLES30.glLineWidth(lineWidth(2f * frame.pixelScale))
         lines.draw()
         GLES30.glLineWidth(1f)
@@ -1554,6 +1634,9 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         val variableLayerHeight = GlProgram(assets, "variable_layer_height")
     }
 
+    /** A picture of a Bambu Lab plate on the GPU (PartPlateList::BedTextureInfo::TexturePart). */
+    private class GpuLogo(val kind: BedLogoKind, val bedType: String, val texture: GlTexture, val triangles: GlVertexArray)
+
     private class GpuBed(val scene: SceneBed) {
         val model = scene.model?.let(::meshArray)
         val texture = scene.texture?.let { GlTexture(it.width, it.height, it.rgba) }
@@ -1570,6 +1653,32 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.GL_TRIANGLES,
         )
 
+        /** The pictures of a Bambu Lab plate, each its texture, which plate types may share, and rectangle. */
+        private val logoTextures = scene.logos.map(SceneBedLogo::image).distinct().associateWith { GlTexture(it.width, it.height, it.rgba) }
+        val logos = scene.logos.map { logo ->
+            GpuLogo(
+                logo.kind,
+                logo.bedType,
+                logoTextures.getValue(logo.image),
+                GlVertexArray(logo.triangles, listOf(GlProgram.POSITION to 3, GlProgram.TEX_COORD to 2), GLES30.GL_TRIANGLES),
+            )
+        }
+
+        /** PartPlate's m_height_limit_common and m_height_limit_bottom together, and m_height_limit_top, for the heights they were made at. */
+        private var heightLimitArrays: Triple<ExtruderClearance, GlVertexArray, GlVertexArray>? = null
+
+        fun heightLimits(clearance: ExtruderClearance): Pair<GlVertexArray, GlVertexArray> {
+            heightLimitArrays?.takeIf { it.first == clearance }?.let { return it.second to it.third }
+            heightLimitArrays?.let {
+                it.second.release()
+                it.third.release()
+            }
+            val (lower, upper) = heightLimitLines(scene.printableArea, clearance)
+            val arrays = listOf(lower, upper).map { GlVertexArray(GlVertexArray.floatBuffer(it), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES) }
+            heightLimitArrays = Triple(clearance, arrays[0], arrays[1])
+            return arrays[0] to arrays[1]
+        }
+
         /** The names written over the plates, with the squares they are drawn on, by name. */
         private val names = HashMap<String, Pair<GlTexture, GlVertexArray>>()
 
@@ -1582,6 +1691,13 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
         fun release() {
             model?.release()
             texture?.release()
+            logoTextures.values.forEach(GlTexture::release)
+            logos.forEach { logo -> logo.triangles.release() }
+            heightLimitArrays?.let {
+                it.second.release()
+                it.third.release()
+            }
+            heightLimitArrays = null
             labelQuad.release()
             axis.release()
             names.values.forEach { (nameTexture, quad) ->
@@ -1597,8 +1713,16 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
     }
 
     private companion object {
-        // SequentialPrintClearance::render(): FILL_COLOR, while the clearance is drawn with its fill.
+        // SequentialPrintClearance::render(): FILL_COLOR while the clearance is drawn with its fill, NO_FILL_COLOR without.
         val CLEARANCE_FILL_COLOR = floatArrayOf(0.7f, 0.7f, 1f, 0.5f)
+        val CLEARANCE_NO_FILL_COLOR = floatArrayOf(0.75f, 0.75f, 0.75f, 0.75f)
+
+        // PartPlate::HEIGHT_LIMIT_BOTTOM_COLOR and HEIGHT_LIMIT_TOP_COLOR
+        val HEIGHT_LIMIT_BOTTOM_COLOR = floatArrayOf(0.4f, 0.4f, 1f, 1f)
+        val HEIGHT_LIMIT_TOP_COLOR = floatArrayOf(0.6f, 0.6f, 1f, 1f)
+
+        // PartPlate::render_logo(): the plate type's picture, then the calibration lines, then the extruders' own areas.
+        val LOGO_ORDER = listOf(BedLogoKind.BED_TYPE, BedLogoKind.CALIBRATION, BedLogoKind.EXTRUDER_AREA)
 
         // GLCanvas3D::_render_cast_shadows_on_plate(): the light, normalized (-0.6, 0.6, 1) in eye space, and the shadows' alpha.
         val LIGHT_DIR_EYE = Vec3(-0.4574957, 0.4574957, 0.7624929).normalized()
@@ -1696,6 +1820,28 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             GLES30.GL_TRIANGLES,
         )
     }
+}
+
+/**
+ * PartPlate::calc_height_limit() of the plate's contour [shape]: lines from a
+ * little over the plate up to the extruder's rod at every corner, and the
+ * contour at the rod's height (m_height_limit_common and m_height_limit_bottom,
+ * drawn in one colour); the contour at the lid's height, and lines from the
+ * rod up to the lid at every corner (m_height_limit_top). x, y and z of both
+ * ends of every line.
+ */
+internal fun heightLimitLines(shape: List<Point2>, clearance: ExtruderClearance): Pair<FloatArray, FloatArray> {
+    val firstZ = 0.02
+    val lower = ArrayList<Float>()
+    val upper = ArrayList<Float>()
+    fun ArrayList<Float>.line(a: Point2, az: Double, b: Point2, bz: Double) {
+        listOf(a.x, a.y, az, b.x, b.y, bz).mapTo(this, Double::toFloat)
+    }
+    for (point in shape) lower.line(point, firstZ, point, clearance.heightToRod)
+    for (i in shape.indices) lower.line(shape[i], clearance.heightToRod, shape[(i + 1) % shape.size], clearance.heightToRod)
+    for (i in shape.indices) upper.line(shape[i], clearance.heightToLid, shape[(i + 1) % shape.size], clearance.heightToLid)
+    for (point in shape) upper.line(point, clearance.heightToRod, point, clearance.heightToLid)
+    return lower.toFloatArray() to upper.toFloatArray()
 }
 
 /** view_normal_matrix: the view's rotation times the inverse transpose of the model's linear part. */

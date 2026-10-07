@@ -17,12 +17,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
+import app.orcinus.shadow.core.designsystem.component.OrcaLink
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.OrcaText
@@ -53,7 +55,7 @@ fun PresetChangeDialog(change: PendingPresetChange?, presets: Presets?, actions:
     if (change == null) return
     UnsavedChangesDialog(
         change = change,
-        presetName = presets?.selectedLabel(change.kind).orEmpty(),
+        presetName = change.presetName.ifEmpty { presets?.selectedLabel(change.kind).orEmpty() },
         checkName = { name -> settings.checkPresetName(change.kind, name) },
         onTransfer = { actions.resolve(PresetChangeAction.TRANSFER) },
         onDiscard = { actions.resolve(PresetChangeAction.DISCARD) },
@@ -71,10 +73,11 @@ fun Presets.selectedLabel(kind: PresetKind): String = when (kind) {
 }.firstOrNull { it.selected }?.label.orEmpty()
 
 /**
- * OrcaSlicer's UnsavedChangesDialog: the preset that is left behind was
- * modified, and the changes are saved under a name, moved to the preset that is
- * selected, or lost. Cancel selects nothing. Every change is listed with the
- * value before and after it, in the page and group of its setting.
+ * OrcaSlicer's UnsavedChangesDialog: the preset that is left behind, or one
+ * that depends on it, was modified, and the changes are saved under a name,
+ * moved to the preset that is selected, or lost. Cancel selects nothing, unless
+ * the dependent preset suits the new one. Every change is listed with the value
+ * before and after it, in the page and group of its setting.
  */
 @Composable
 fun UnsavedChangesDialog(
@@ -87,7 +90,9 @@ fun UnsavedChangesDialog(
     onCancel: () -> Unit,
 ) {
     val colors = OrcaTheme.colors
+    val uriHandler = LocalUriHandler.current
     var saving by rememberSaveable { mutableStateOf(false) }
+    var droppingVariants by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onCancel,
         properties = DialogProperties(dismissOnClickOutside = false),
@@ -113,6 +118,7 @@ fun UnsavedChangesDialog(
                 LazyColumn(Modifier.heightIn(max = 320.dp)) {
                     items(change.changes) { PresetChangeRow(it) }
                 }
+                OrcaLink(orcaString("Help"), onClick = { runCatching { uriHandler.openUri(TRANSFER_DISCARD_HELP) } })
             }
         },
         confirmButton = {
@@ -124,7 +130,11 @@ fun UnsavedChangesDialog(
                     style = OrcaButtonStyle.Regular,
                 )
                 if (change.canTransfer) {
-                    OrcaButton(orcaString("Transfer"), onClick = onTransfer, style = OrcaButtonStyle.Regular)
+                    OrcaButton(
+                        orcaString("Transfer"),
+                        onClick = { if (change.transferDropsVariants) droppingVariants = true else onTransfer() },
+                        style = OrcaButtonStyle.Regular,
+                    )
                 }
                 OrcaButton(orcaString("Discard"), onClick = onDiscard)
                 OrcaButton(orcaString("Cancel"), onClick = onCancel, style = OrcaButtonStyle.Regular)
@@ -135,6 +145,31 @@ fun UnsavedChangesDialog(
         textContentColor = colors.text,
         shape = OrcaTheme.shapes.window,
     )
+    if (droppingVariants) {
+        // Tab::may_discard_current_dirty_preset() with no_transfer_variant: the
+        // message box only informs, and the Transfer goes on however it closes.
+        val proceed = {
+            droppingVariants = false
+            onTransfer()
+        }
+        AlertDialog(
+            onDismissRequest = proceed,
+            title = { Text(orcaString("Use Modified Value"), style = OrcaTheme.typography.head16) },
+            text = {
+                Text(
+                    orcaString(
+                        "Switching to a printer with different extruder types or numbers will discard or reset changes to extruder or multi-nozzle-related parameters.",
+                    ),
+                    style = OrcaTheme.typography.body14,
+                )
+            },
+            confirmButton = { OrcaButton(orcaString("OK"), onClick = proceed) },
+            containerColor = colors.window,
+            titleContentColor = colors.text,
+            textContentColor = colors.text,
+            shape = OrcaTheme.shapes.window,
+        )
+    }
     if (saving) {
         val copy = orcaString("Copy", context = "PresetName")
         SavePresetDialog(
@@ -149,6 +184,9 @@ fun UnsavedChangesDialog(
         )
     }
 }
+
+/** The HyperLink "Help" of UnsavedChangesDialog::build() for a preset that is switched. */
+private const val TRANSFER_DISCARD_HELP = "https://www.orcaslicer.com/wiki/transfer_discard_changes"
 
 /**
  * One changed value: where its setting sits, and the value before and after.

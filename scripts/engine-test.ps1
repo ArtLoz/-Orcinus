@@ -52,7 +52,11 @@ if ($Suite -contains 'orca_engine_adapter_tests') {
     $orcaResources = Join-Path $repo 'upstream/OrcaSlicer/resources'
     New-Item -ItemType Directory -Force -Path $deviceBinaries | Out-Null
     $archive = Join-Path $deviceBinaries 'resources.tar'
-    & "$env:SystemRoot\System32\tar.exe" -cf $archive -C $orcaResources profiles profiles_template info flush printers handy_models calib
+    # The pictures PartPlate::render_logo() lays on a Bambu Lab plate, as prepareOrcaAssets packages them.
+    $images = Get-ChildItem -LiteralPath (Join-Path $orcaResources 'images') -File |
+        Where-Object { $_.Name -like 'bbl_bed_*.svg' -or $_.Name -eq 'orca_bed_pct_left.svg' -or $_.Name -like '*_extruder_only_area*.svg' -or $_.Name -eq 'bbl_cali_lines.svg' } |
+        ForEach-Object { "images/$($_.Name)" }
+    & "$env:SystemRoot\System32\tar.exe" -cf $archive -C $orcaResources profiles profiles_template info flush printers handy_models calib @images
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to archive the Orca resources'
     }

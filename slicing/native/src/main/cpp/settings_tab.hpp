@@ -242,8 +242,16 @@ std::string save_preset_name(const Slic3r::Preset& selected, bool& copy_suffix);
 // Tab::may_discard_current_dirty_preset(): the unsaved changes of the edited
 // preset, which the app shows before it selects another one.
 std::vector<PresetChange> preset_changes(PresetKind kind);
-// The dialog's Transfer: the changes move to the preset selected next.
-void cache_preset_changes(PresetKind kind);
+// The dialog's Transfer: the changes move to the preset selected next. With
+// no_transfer_variant, a dependent preset of a printer that is left for one of
+// other extruder variants, the changes of the variants stay behind.
+void cache_preset_changes(PresetKind kind, bool no_transfer_variant = false);
+// Whether that Transfer leaves changes of the variants behind, which the
+// desktop app warns about ("Use Modified Value").
+bool transfer_drops_variants(PresetKind kind);
+// Tab::apply_config_from_cache() alone: the moved values go into the preset
+// that was selected, before anything else follows the selection.
+void apply_tab_cache(PresetKind kind);
 // Tab::apply_config_from_cache() and load_current_preset() once a preset was
 // selected: the moved values go into it.
 void reload_tab_after_selection(PresetKind kind);
@@ -267,6 +275,8 @@ public:
     Slic3r::Preset::Type type() const { return m_type; }
     Slic3r::PresetCollection* get_presets() { return m_presets; }
     Slic3r::DynamicPrintConfig* get_config() { return m_config; }
+    // Tab::m_options_list, which init_options_list() fills.
+    const std::map<std::string, int>& options_list() const { return m_options_list; }
 
     virtual bool supports_printer_technology(Slic3r::PrinterTechnology tech) const = 0;
     virtual void build() = 0;
@@ -309,6 +319,9 @@ public:
     void update_dirty();
     void update_changed_ui();
     void get_sys_and_mod_flags(const std::string& opt_key, bool& sys_page, bool& modified_page);
+    // Tab::update_changed_tree_ui(): the name of the page takes the colour of
+    // a modified value.
+    bool is_page_modified(const Page& page);
     virtual void on_roll_back_value(bool to_sys = false);
     virtual void back_to_initial_value(const std::string& opt_id);
     void toggle_option(const std::string& opt_key, bool toggle, int opt_index = -1);

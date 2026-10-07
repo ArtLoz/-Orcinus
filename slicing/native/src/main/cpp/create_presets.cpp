@@ -106,11 +106,13 @@ std::string printer_nozzle_diameter(const std::string& printer_name)
     return nozzle.substr(nozzle.find_last_of('(') + 1);
 }
 
-// sort_printer_by_nozzle(): the printers by the nozzle their name carries.
+// sort_printer_by_nozzle(): the printers by the nozzle their name carries. The
+// presets of one printer keep their order, the order of the names the dialog
+// lists them in (a std::map in the desktop app).
 template<typename T>
 void sort_printers_by_nozzle(std::vector<std::pair<std::string, T>>& printers)
 {
-    std::sort(printers.begin(), printers.end(), [](const std::pair<std::string, T>& a, const std::pair<std::string, T>& b) {
+    std::stable_sort(printers.begin(), printers.end(), [](const std::pair<std::string, T>& a, const std::pair<std::string, T>& b) {
         const std::size_t nozzle_index_a = a.first.find(" nozzle");
         const std::size_t nozzle_index_b = b.first.find(" nozzle");
         if (nozzle_index_a == std::string::npos || nozzle_index_b == std::string::npos) {
@@ -582,6 +584,45 @@ CustomFilaments custom_filaments()
     return result;
 }
 
+namespace {
+
+// EditFilamentPresetDialog's constructor: the filament's name, vendor, type and
+// serial, from a preset that inherits from no other one when there is one.
+void describe_filament(Slic3r::PresetBundle& bundle, const std::string& filament_id, FilamentPresetList& result)
+{
+    const Slic3r::Preset* basic = nullptr;
+    for (const Slic3r::Preset& preset : bundle.filaments.get_presets()) {
+        if (preset.is_system || preset.filament_id != filament_id) {
+            continue;
+        }
+        if (basic == nullptr || (preset.inherits().empty() && !basic->inherits().empty())) {
+            basic = &preset;
+        }
+    }
+    if (basic == nullptr) {
+        return;
+    }
+    result.name = filament_public_name(basic->name);
+    const auto* vendor_names = basic->config.opt<Slic3r::ConfigOptionStrings>("filament_vendor");
+    if (vendor_names != nullptr && !vendor_names->values.empty()) {
+        result.vendor = vendor_names->values[0];
+    }
+    const auto* filament_types = basic->config.opt<Slic3r::ConfigOptionStrings>("filament_type");
+    if (filament_types != nullptr && !filament_types->values.empty()) {
+        result.type = filament_types->values[0];
+    }
+    const std::string filament_type = result.type == "PLA-AERO" ? "PLA Aero" : result.type;
+    const std::size_t index = result.name.find(filament_type);
+    if (index != std::string::npos && index + filament_type.size() < result.name.size()) {
+        result.serial = result.name.substr(index + filament_type.size());
+        if (result.serial.size() > 2 && result.serial[0] == ' ') {
+            result.serial = result.serial.substr(1);
+        }
+    }
+}
+
+}  // namespace
+
 FilamentPresetList filament_presets(const std::string& filament_id)
 {
     FilamentPresetList result;
@@ -596,13 +637,9 @@ FilamentPresetList filament_presets(const std::string& filament_id)
         // get_same_filament_id_presets(): the user presets of that filament, by
         // the printer each of them is compatible with.
         std::vector<std::pair<std::string, const Slic3r::Preset*>> printer_to_preset;
-        const Slic3r::Preset* basic = nullptr;
         for (const Slic3r::Preset& preset : bundle.filaments.get_presets()) {
             if (preset.is_system || preset.filament_id != filament_id) {
                 continue;
-            }
-            if (basic == nullptr || (preset.inherits().empty() && !basic->inherits().empty())) {
-                basic = &preset;
             }
             // get_filament_compatible_printer()
             const auto* compatible_printers = preset.config.opt<Slic3r::ConfigOptionStrings>("compatible_printers");
@@ -618,25 +655,7 @@ FilamentPresetList filament_presets(const std::string& filament_id)
             result.presets.push_back(FilamentPresetChoice{printer, preset->name});
         }
         // The basic information the dialog shows over the presets.
-        if (basic != nullptr) {
-            result.name = filament_public_name(basic->name);
-            const auto* vendor_names = basic->config.opt<Slic3r::ConfigOptionStrings>("filament_vendor");
-            if (vendor_names != nullptr && !vendor_names->values.empty()) {
-                result.vendor = vendor_names->values[0];
-            }
-            const auto* filament_types = basic->config.opt<Slic3r::ConfigOptionStrings>("filament_type");
-            if (filament_types != nullptr && !filament_types->values.empty()) {
-                result.type = filament_types->values[0];
-            }
-            const std::string filament_type = result.type == "PLA-AERO" ? "PLA Aero" : result.type;
-            const std::size_t index = result.name.find(filament_type);
-            if (index != std::string::npos && index + filament_type.size() < result.name.size()) {
-                result.serial = result.name.substr(index + filament_type.size());
-                if (result.serial.size() > 2 && result.serial[0] == ' ') {
-                    result.serial = result.serial.substr(1);
-                }
-            }
-        }
+        describe_filament(bundle, filament_id, result);
         result.status = SceneStatus::success;
     } catch (const std::exception& error) {
         result.status = SceneStatus::profile_not_found;
@@ -647,29 +666,71 @@ FilamentPresetList filament_presets(const std::string& filament_id)
 
 namespace {
 
-// delete_filament_preset_by_name(): the preset the filaments select once this
-// one is gone.
-std::string next_selected_preset(Slic3r::PresetCollection& presets, const std::string& delete_preset_name)
+// delete_filament_preset_by_name() of CreatePresetsDialog.cpp: the preset goes,
+// and the one to select is another when it was that one.
+bool delete_filament_preset_by_name(Slic3r::PresetBundle& bundle, const std::string& delete_preset_name, std::string& selected_preset_name)
 {
-    const std::string selected_preset_name = presets.get_selected_preset().name;
-    if (delete_preset_name != selected_preset_name) {
-        return selected_preset_name;
+    if (delete_preset_name.empty()) return false;
+
+    // Find an alternate preset to be selected after the current preset is deleted.
+    Slic3r::PresetCollection& m_presets = bundle.filaments;
+    if (delete_preset_name == selected_preset_name) {
+        const std::deque<Slic3r::Preset>& presets = m_presets.get_presets();
+        std::size_t idx_current = m_presets.get_idx_selected();
+
+        // Find the visible preset.
+        std::size_t idx_new = idx_current;
+        if (idx_current > presets.size()) idx_current = presets.size();
+        if (idx_new < presets.size())
+            for (; idx_new < presets.size() && (presets[idx_new].name == delete_preset_name || !presets[idx_new].is_visible); ++idx_new)
+                ;
+        if (idx_new == presets.size())
+            for (idx_new = idx_current - 1; idx_new > 0 && (presets[idx_new].name == delete_preset_name || !presets[idx_new].is_visible); --idx_new)
+                ;
+        selected_preset_name = presets[idx_new].name;
     }
-    const std::deque<Slic3r::Preset>& all = presets.get_presets();
-    std::size_t idx_current = presets.get_idx_selected();
-    if (idx_current > all.size()) {
-        idx_current = all.size();
+
+    Slic3r::Preset* need_delete_preset = m_presets.find_preset(delete_preset_name);
+    if (need_delete_preset == nullptr) {
+        return false;
     }
-    std::size_t idx_new = idx_current;
-    if (idx_new < all.size()) {
-        for (; idx_new < all.size() && (all[idx_new].name == delete_preset_name || !all[idx_new].is_visible); ++idx_new) {
+    if (m_presets.get_edited_preset().name == delete_preset_name) {
+        m_presets.discard_current_changes();
+    }
+    m_presets.delete_preset(need_delete_preset->name);
+    return true;
+}
+
+// What the filaments select once presets are deleted: next_selected_preset_name,
+// which the slots of a deleted preset take too.
+void select_after_deletion(Slic3r::PresetBundle& bundle, const std::string& next_selected_preset_name)
+{
+    bundle.filaments.select_preset_by_name(next_selected_preset_name, true);
+    for (std::size_t i = 0; i < bundle.filament_presets.size(); ++i) {
+        if (bundle.filaments.find_preset(bundle.filament_presets[i]) == nullptr) {
+            bundle.filament_presets[i] = bundle.filaments.get_selected_preset_name();
         }
     }
-    if (idx_new == all.size()) {
-        for (idx_new = idx_current - 1; idx_new > 0 && (all[idx_new].name == delete_preset_name || !all[idx_new].is_visible); --idx_new) {
-        }
-    }
-    return all[idx_new].name;
+    bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
+    bundle.export_selections(*engine().config);
+    save_config(engine());
+}
+
+// A question the user said No to: the dialog stays as it is.
+PresetCreation refused()
+{
+    PresetCreation result;
+    result.status = SceneStatus::success;
+    return result;
+}
+
+PresetCreation question_of(const detail::QuestionPending& pending)
+{
+    PresetCreation result;
+    result.status = SceneStatus::success;
+    result.has_question = true;
+    result.question = pending.dialog;
+    return result;
 }
 
 }  // namespace
@@ -707,40 +768,176 @@ PresetCreation delete_filament_preset(const std::string& preset_name, const Dial
                 return creation_failure(SceneStatus::profile_not_found, "Presets inherited by other presets cannot be deleted" + presets);
             }
         }
-        dialogs.ask(
-            "delete_filament_preset",
-            {ui_text(is_base_preset ? "Are you sure to delete the selected preset?\n"
-                                      "If the preset corresponds to a filament currently in use on your printer, please reset the filament "
-                                      "information for that slot." :
-                                      "Are you sure to delete the selected preset?")},
-            {ui_text("Delete preset")}
-        );
+        // wxYES_NO | wxNO_DEFAULT, whose No deletes nothing.
+        if (!dialogs.ask(
+                "delete_filament_preset",
+                {ui_text(is_base_preset ? "Are you sure to delete the selected preset?\n"
+                                          "If the preset corresponds to a filament currently in use on your printer, please reset the filament "
+                                          "information for that slot." :
+                                          "Are you sure to delete the selected preset?")},
+                {ui_text("Delete preset")})) {
+            return refused();
+        }
 
         // delete preset
-        const std::string selected = next_selected_preset(bundle.filaments, preset_name);
-        if (bundle.filaments.get_edited_preset().name == preset_name) {
-            bundle.filaments.discard_current_changes();
-        }
-        bundle.filaments.delete_preset(preset_name);
-        bundle.filaments.select_preset_by_name(selected, true);
-        for (std::size_t i = 0; i < bundle.filament_presets.size(); ++i) {
-            if (bundle.filaments.find_preset(bundle.filament_presets[i]) == nullptr) {
-                bundle.filament_presets[i] = bundle.filaments.get_selected_preset_name();
-            }
-        }
-        bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
-        bundle.export_selections(*engine().config);
-        save_config(engine());
+        std::string next_selected_preset_name = bundle.filaments.get_selected_preset().name;
+        delete_filament_preset_by_name(bundle, preset_name, next_selected_preset_name);
+        select_after_deletion(bundle, next_selected_preset_name);
         PresetCreation result;
         result.status = SceneStatus::success;
         result.name = preset_name;
         return result;
     } catch (const detail::QuestionPending& pending) {
+        return question_of(pending);
+    } catch (const std::exception& error) {
+        return creation_failure(SceneStatus::profile_not_found, error.what());
+    }
+}
+
+PresetCreation delete_filament(const std::string& filament_id, const DialogAnswers& answers)
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return creation_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+    }
+    try {
+        Slic3r::PresetBundle& bundle = *engine().bundle;
+        follow_config(engine());
+        detail::SettingsDialogs dialogs(answers);
+        // WarningDialog with wxYES | wxCANCEL.
+        if (!dialogs.ask("delete_filament",
+                         {detail::ui_text("All the filament presets belong to this filament would be deleted.\n"
+                                          "If you are using this filament on your printer, please reset the filament information for that slot.")},
+                         {detail::ui_text("Delete filament")}, {}, detail::ui_text("Cancel"))) {
+            return refused();
+        }
+        // The presets of m_printer_compatible_presets (get_same_filament_id_presets()).
+        std::set<std::string> inherit_preset_names;
+        std::set<std::string> root_preset_names;
+        for (const Slic3r::Preset& preset : bundle.filaments.get_presets()) {
+            if (preset.is_system || preset.filament_id != filament_id) {
+                continue;
+            }
+            const auto* compatible_printers = preset.config.opt<Slic3r::ConfigOptionStrings>("compatible_printers");
+            if (compatible_printers == nullptr || compatible_printers->values.empty()) {
+                continue;
+            }
+            if (preset.inherits().empty()) {
+                root_preset_names.insert(preset.name);
+            } else {
+                inherit_preset_names.insert(preset.name);
+            }
+        }
+        // delete inherit preset first
+        std::string next_selected_preset_name = bundle.filaments.get_selected_preset().name;
+        for (const std::string& name : inherit_preset_names) {
+            delete_filament_preset_by_name(bundle, name, next_selected_preset_name);
+        }
+        for (const std::string& name : root_preset_names) {
+            delete_filament_preset_by_name(bundle, name, next_selected_preset_name);
+        }
+        select_after_deletion(bundle, next_selected_preset_name);
         PresetCreation result;
         result.status = SceneStatus::success;
-        result.has_question = true;
-        result.question = pending.dialog;
+        result.name = filament_id;
         return result;
+    } catch (const detail::QuestionPending& pending) {
+        return question_of(pending);
+    } catch (const std::exception& error) {
+        return creation_failure(SceneStatus::profile_not_found, error.what());
+    }
+}
+
+FilamentPresetList filament_preset_sources(const std::string& filament_id)
+{
+    FilamentPresetList result;
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        result.message = "OrcaSlicer profiles are not loaded";
+        return result;
+    }
+    try {
+        follow_config(engine());
+        describe_filament(*engine().bundle, filament_id, result);
+        // get_visible_printer_and_compatible_filament_presets() on a copy of the
+        // presets (m_preset_bundle), which selects every printer in turn.
+        Slic3r::PresetBundle preset_bundle(*engine().bundle);
+        const std::deque<Slic3r::Preset>& printer_presets = preset_bundle.printers.get_presets();
+        for (const Slic3r::Preset& printer_preset : printer_presets) {
+            if (!printer_preset.is_visible) {
+                continue;
+            }
+            if (preset_bundle.printers.get_preset_base(printer_preset) != &printer_preset) continue;
+            if (preset_bundle.printers.select_preset_by_name(printer_preset.name, true)) {
+                preset_bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always);
+                const std::deque<Slic3r::Preset>& filament_presets = preset_bundle.filaments.get_presets();
+                for (const Slic3r::Preset& filament_preset : filament_presets) {
+                    if (filament_preset.is_default || !filament_preset.is_compatible || filament_preset.is_project_embedded) continue;
+                    const Slic3r::Preset* filament_preset_base = preset_bundle.filaments.get_preset_base(filament_preset);
+                    const Slic3r::Preset& typed = filament_preset_base == nullptr ? filament_preset : *filament_preset_base;
+                    const auto* filament_types = typed.config.option<Slic3r::ConfigOptionStrings>("filament_type");
+                    if (filament_types == nullptr || filament_types->values.empty()) continue;
+                    const std::string filament_type = filament_types->values[0];
+                    std::string filament_type_ = result.type == "PLA Aero" ? "PLA-AERO" : result.type;
+                    if (filament_type == filament_type_) {
+                        result.presets.push_back(FilamentPresetChoice{printer_preset.name, filament_preset.name});
+                    }
+                }
+            }
+        }
+        result.status = SceneStatus::success;
+    } catch (const std::exception& error) {
+        result.status = SceneStatus::profile_not_found;
+        result.message = error.what();
+        result.presets.clear();
+    }
+    return result;
+}
+
+PresetCreation add_filament_preset(const std::string& filament_id, const std::string& printer, const std::string& preset,
+                                   const DialogAnswers& answers)
+{
+    const std::lock_guard<std::mutex> engine_lock(engine().mutex);
+    if (engine().bundle == nullptr) {
+        return creation_failure(SceneStatus::engine_not_ready, "OrcaSlicer profiles are not loaded");
+    }
+    try {
+        Slic3r::PresetBundle& bundle = *engine().bundle;
+        follow_config(engine());
+        detail::SettingsDialogs dialogs(answers);
+        FilamentPresetList filament;
+        describe_filament(bundle, filament_id, filament);
+        const Slic3r::Preset* filament_preset = bundle.filaments.find_preset(preset, false);
+        if (filament_preset == nullptr || printer.empty()) {
+            return creation_failure(SceneStatus::profile_not_found, "The filament choice not find filament preset, please reselect it");
+        }
+        std::vector<std::string> failures;
+        Slic3r::DynamicConfig dynamic_config;
+        dynamic_config.set_key_value("filament_vendor", new Slic3r::ConfigOptionStrings({filament.vendor}));
+        dynamic_config.set_key_value("compatible_printers", new Slic3r::ConfigOptionStrings({printer}));
+        dynamic_config.set_key_value("filament_type", new Slic3r::ConfigOptionStrings({filament.type}));
+        const bool res = bundle.filaments.clone_presets_for_filament(filament_preset, failures, filament.name, filament_id, dynamic_config, printer);
+        if (!res) {
+            std::string failure_names;
+            for (std::string& failure : failures) {
+                failure_names += failure + "\n";
+            }
+            // wxYES_NO, whose No returns to the dialog.
+            if (!dialogs.ask("rewrite_presets",
+                             {detail::ui_text("Some existing presets have failed to be created, as follows:\n"), detail::ui_text("%1%", {failure_names}),
+                              detail::ui_text("\nDo you want to rewrite it?")})) {
+                return refused();
+            }
+            bundle.filaments.clone_presets_for_filament(filament_preset, failures, filament.name, filament_id, dynamic_config, printer, true);
+        }
+        // The combo boxes list the new preset as the selected printer suits it.
+        bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Never);
+        PresetCreation result;
+        result.status = SceneStatus::success;
+        result.name = filament.name + " @" + printer;
+        return result;
+    } catch (const detail::QuestionPending& pending) {
+        return question_of(pending);
     } catch (const std::exception& error) {
         return creation_failure(SceneStatus::profile_not_found, error.what());
     }

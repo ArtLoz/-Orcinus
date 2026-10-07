@@ -1,6 +1,10 @@
 package app.orcinus.shadow.core.ui.plate
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
@@ -23,6 +27,8 @@ import app.orcinus.shadow.core.ui.title
  * Plater::priv::process_validation_warning() and push_validate_error_notification():
  * "WARNING:" or "Error:" ([title]) over the message, and "Jump to" with the
  * name of the object it is about ([objectName]) and its setting ([option]).
+ * Closed, it stays away until the desktop app would push it again: after the
+ * next change it validates ([pushed] changes), or with another message.
  */
 @Composable
 fun ValidationNotification(
@@ -31,14 +37,17 @@ fun ValidationNotification(
     text: String,
     objectName: String?,
     option: String,
+    pushed: Any? = null,
     onJumpTo: () -> Unit,
 ) {
+    var closed by remember(title, text, objectName, option, pushed) { mutableStateOf(false) }
+    if (closed) return
     val link = if (objectName != null || option.isNotEmpty()) {
         orcaString("Jump to") + (objectName?.let { " [$it]" }.orEmpty()) + option.takeIf { it.isNotEmpty() }?.let { " ($it)" }.orEmpty()
     } else {
         null
     }
-    OrcaNotification(level = level) {
+    OrcaNotification(level = level, onClose = { closed = true }) {
         OrcaNotificationText(title, emphasized = true)
         OrcaNotificationText(text.trimEnd())
         link?.let { OrcaNotificationLink(it, onClick = onJumpTo) }
@@ -48,11 +57,14 @@ fun ValidationNotification(
 /**
  * GLCanvas3D::EWarning::ObjectClashed, push_plater_error_notification() of
  * construct_error_string(): the objects laid over the plate's boundary or
- * above its height, by name.
+ * above its height, by name. Closed, it stays away until the scene is loaded
+ * again ([pushed] changes) or other objects clash.
  */
 @Composable
-fun ObjectClashedNotification(names: List<String>) {
-    OrcaNotification(level = OrcaNotificationLevel.Error) {
+fun ObjectClashedNotification(names: List<String>, pushed: Any? = null) {
+    var closed by remember(names, pushed) { mutableStateOf(false) }
+    if (closed) return
+    OrcaNotification(level = OrcaNotificationLevel.Error, onClose = { closed = true }) {
         OrcaNotificationText(orcaString("Error:"), emphasized = true)
         OrcaNotificationText(
             (
@@ -64,10 +76,16 @@ fun ObjectClashedNotification(names: List<String>) {
     }
 }
 
-/** NotificationManager::push_plater_warning_notification(): "Warning:" above [text], and the notification's own link. */
+/**
+ * NotificationManager::push_plater_warning_notification(): "Warning:" above
+ * [text], and the notification's own link. Closed, it hides while it is pushed
+ * again (PlaterWarningNotification::close()), until its cause is gone.
+ */
 @Composable
 fun PlaterWarningNotification(text: String, link: @Composable () -> Unit = {}) {
-    OrcaNotification(level = OrcaNotificationLevel.Warning) {
+    var closed by remember(text) { mutableStateOf(false) }
+    if (closed) return
+    OrcaNotification(level = OrcaNotificationLevel.Warning, onClose = { closed = true }) {
         OrcaNotificationText(orcaString("Warning:"), emphasized = true)
         OrcaNotificationText(text.trimEnd())
         link()
@@ -114,7 +132,7 @@ fun PlateProblemNotification(problem: PlateProblem, objectNames: List<String>, o
             kind.warning -> OrcaNotificationLevel.Warning
             else -> OrcaNotificationLevel.Regular
         },
-        action = { CloseButton(onClose) },
+        onClose = onClose,
     ) {
         if (header != null) {
             OrcaNotificationText(header, emphasized = true)

@@ -10,6 +10,7 @@ import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.ClippingPlane
 import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.CoordinateSystem
+import app.orcinus.shadow.core.model.CopyClearance
 import app.orcinus.shadow.core.model.CutConnector
 import app.orcinus.shadow.core.model.CutConnectorShape
 import app.orcinus.shadow.core.model.CutConnectorStyle
@@ -40,6 +41,7 @@ import app.orcinus.shadow.core.model.PlateClipboard
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.PlateJobProgress
 import app.orcinus.shadow.core.model.PlateNotice
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
@@ -53,6 +55,7 @@ import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ProfileUpdatesNotice
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsClipboard
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SimplifyConfig
 import app.orcinus.shadow.core.model.SliceMode
@@ -70,6 +73,7 @@ import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.lockedPlates
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.meshErrors
+import app.orcinus.shadow.core.model.notificationLevel
 import app.orcinus.shadow.core.model.parseFilamentColor
 import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.placing
@@ -91,6 +95,7 @@ import app.orcinus.shadow.core.ui.plate.selectsSeveralObjects
 import app.orcinus.shadow.domain.plate.SimplifyPreview
 import app.orcinus.shadow.domain.plate.canAddPlate
 import app.orcinus.shadow.domain.plate.canDeletePlate
+import app.orcinus.shadow.domain.plate.currentBedType
 import app.orcinus.shadow.domain.plate.hasAssembleView
 import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.measuredVolumes
@@ -99,6 +104,7 @@ import app.orcinus.shadow.domain.plate.sameStyleAs
 import app.orcinus.shadow.domain.plate.spiralVaseMode
 import app.orcinus.shadow.render.scene.AssemblyTransforms
 import app.orcinus.shadow.render.scene.CutPlanes
+import app.orcinus.shadow.render.scene.ExtruderClearance
 import app.orcinus.shadow.render.scene.LayerRangeHint
 import app.orcinus.shadow.render.scene.PaintCursor
 import app.orcinus.shadow.render.scene.PaintCursorShape
@@ -203,6 +209,15 @@ data class PrepareUiState(
     val svg: SvgMode? = null,
     /** What the object list asks of the text or SVG tool, which the canvas places. */
     val embossRequest: EmbossRequest? = null,
+    /** PlateState.zoomToSelection: a row of the object list activated, each change framing the selection. */
+    val zoomToSelection: Int = 0,
+    /**
+     * PlateState.projectResets: a project started or opened, each change
+     * turning the camera to it; [projectOpened] while the project came from a
+     * file, with its objects or its document, rather than New Project.
+     */
+    val projectResets: Int = 0,
+    val projectOpened: Boolean = false,
     /** The measuring tool (GLGizmoMeasure), while it is open. */
     val measure: MeasureMode? = null,
     /** The copies the measuring tool measures: the selected ones. */
@@ -270,6 +285,8 @@ data class PrepareUiState(
     val seqPrintInfo: Boolean = false,
     /** PlateState.exportFinished: the file the last export wrote, while its notification shows. */
     val exportFinished: String? = null,
+    /** The engine's notices OrcaSlicer shows here rather than as message boxes (SettingsDialog.notificationLevel). */
+    val noticeNotifications: List<SettingsDialog> = emptyList(),
     /** PlateState.simplifySuggestions: the objects advised to be simplified. */
     val simplifySuggestions: List<PlateObject> = emptyList(),
     /** PlateState.profileUpdates: "Configuration can update now." shows while it is notified. */
@@ -278,8 +295,36 @@ data class PrepareUiState(
     val profileUpdatesInstalled: List<ProfileUpdate> = emptyList(),
     /** The sequential printing's clearances while the validation fails. */
     val clearance: PlateClearance? = null,
+    /**
+     * The extruder's clearance heights while the current plate prints by
+     * object (its print_sequence, or the process preset's); null while it
+     * prints by layer.
+     */
+    val sequentialPrint: ExtruderClearance? = null,
+    /** GLCanvas3D::update_sequential_clearance()'s outlines of the copies, by their index, from the plate's validation. */
+    val copyClearances: List<CopyClearance> = emptyList(),
+    /** PartPlate::get_bed_type() of the current plate: its own plate type, or the project's. */
+    val bedType: String? = null,
+    /**
+     * GizmoObjectManipulation::get_coordinates_type(): what the open move,
+     * rotation or scale window shows, else what they showed last, which the
+     * selection's box stands in.
+     */
+    val selectionCoordinates: CoordinateSystem = CoordinateSystem.WORLD,
     val arrangeOptionsOpen: Boolean,
     val arrangeSettings: ArrangeSettings,
+    /**
+     * _render_arrange_menu()'s has_lidar: a Bambu Lab printer that scans its
+     * first layer (scan_first_layer), whose window offers "Avoid extrusion
+     * calibration region"; null until the printer's settings are known.
+     */
+    val lidar: Boolean? = null,
+    /** The arrangement, orientation or bed fill that runs, as its progress notification shows it; null for none. */
+    val plateJob: PlateJobProgress? = null,
+    /** "Arranging...": the number of the job that pushed it; null while it does not show. */
+    val arrangeOngoing: Long? = null,
+    /** The objects without area the last arrangement left out, each with its warning. */
+    val zeroSizeObjects: List<String> = emptyList(),
     /** What Copy and Cut took, which Paste puts on the plate. */
     val clipboard: PlateClipboard? = null,
     /** Plater::can_undo() and can_redo(). */
@@ -639,6 +684,11 @@ internal data class PrepareViewState(
      */
     val volumeScaleCoordinates: VolumeCoordinates? = null,
     /**
+     * GizmoObjectManipulation::m_coordinates_type as the move, rotation and
+     * scale windows left it, which stays once they close.
+     */
+    val coordinates: CoordinateSystem = CoordinateSystem.WORLD,
+    /**
      * Its "Delete input" of the difference and of the intersection, which the
      * desktop tool keeps from one opening to the next.
      */
@@ -945,6 +995,9 @@ sealed interface ObjectInfo {
     /** "Number of currently selected objects": the objects of the selected copies. */
     data class Count(val objects: Int) : ObjectInfo
 
+    /** "Number of currently selected parts": the volumes of one copy selected together (Selection::Volume). */
+    data class PartCount(val parts: Int) : ObjectInfo
+
     /**
      * One copy of [plateObject], or its volume [part] selected alone: the size
      * in the world, the volume in cubic millimetres, the triangles, the open
@@ -965,12 +1018,18 @@ sealed interface ObjectInfo {
 /**
  * Plater::show_object_info(), which the assembly view hides: several volumes
  * selected count the objects (a copy of an object of several volumes counts
- * as several, as there); one copy, or a model part selected alone, is
- * described; all copies of one object, a modifier alone or the wipe tower
- * alone show nothing.
+ * as several, as there), or the parts of one copy selected together; one
+ * copy, or a model part selected alone, is described; all copies of one
+ * object, a modifier alone or the wipe tower alone show nothing.
  */
 internal fun PlateState.objectInfo(view: PrepareViewState, volume: SelectedVolume?): ObjectInfo? {
     if (view.assemblyView) return null
+    if (selectsSeveralParts) {
+        // Selection::Volume: every volume of an object of one copy is the object itself (is_single_full_object()).
+        val parts = selectedParts()
+        val owner = selectedPartOwner
+        if (owner == null || owner.instances.size > 1 || parts.size < owner.parts.size + 1) return ObjectInfo.PartCount(parts.size)
+    }
     if (volume != null) {
         // Selection::is_single_volume(): a model part.
         val owner = objects.getOrNull(volume.index.objectIndex) ?: return null
@@ -998,6 +1057,48 @@ internal fun PlateState.objectInfo(view: PrepareViewState, volume: SelectedVolum
     val size = inspection.dimensions.let { Vector3(it.widthMillimeters, it.depthMillimeters, it.heightMillimeters) }
     return ObjectInfo.Single(owner, null, size, inspection.volume, inspection.facetCount, inspection.openEdges, owner.meshErrors.repairedCount)
 }
+
+/**
+ * PartPlate::render_height_limit() and GLCanvas3D::update_sequential_clearance()
+ * of a plate whose print prints by object (the plate's own print_sequence, or
+ * the process preset's): the printer's extruder_clearance_height_to_lid and
+ * extruder_clearance_height_to_rod; null while it prints by layer.
+ */
+private fun PlateState.sequentialPrint(): ExtruderClearance? {
+    val sequence = plateSettings.plateSettingsChoice().printSequence ?: presetValue(PresetKind.PRINT, "print_sequence")
+    if (sequence != "by object") return null
+    val lid = presetValue(PresetKind.PRINTER, "extruder_clearance_height_to_lid")?.toDoubleOrNull() ?: return null
+    val rod = presetValue(PresetKind.PRINTER, "extruder_clearance_height_to_rod")?.toDoubleOrNull() ?: return null
+    return ExtruderClearance(lid, rod)
+}
+
+/**
+ * GizmoObjectManipulation::m_coordinates_type while the move, rotation or
+ * scale tool is open: what its window shows (the rotation tool's world
+ * coordinates, set_coordinates_type() as it opens); null while none is.
+ */
+internal fun PlateState.windowCoordinates(view: PrepareViewState): CoordinateSystem? {
+    val gizmo = view.gizmo ?: return null
+    val volume = selectedVolume(view)
+    val shown = if (moveObjectCoordinates(view, volume)) CoordinateSystem.INSTANCE else CoordinateSystem.WORLD
+    return when (gizmo) {
+        PlateGizmo.MOVE -> shown
+        PlateGizmo.SCALE -> scaleCoordinates(view, volume) ?: shown
+        PlateGizmo.ROTATE -> CoordinateSystem.WORLD
+        PlateGizmo.LAY_ON_FACE -> null
+    }
+}
+
+/** GLGizmoMove3D::change_cs_by_selection(): a volume shows object coordinates, a copy world coordinates, until the other is picked. */
+private fun PlateState.moveObjectCoordinates(view: PrepareViewState, volume: SelectedVolume?): Boolean = if (volume != null) {
+    view.moveWorldVolume != volume.index
+} else {
+    view.moveObjectCoordinatesCopy != null && view.moveObjectCoordinatesCopy == selectedInstance && selectedInstances.size == 1 && !view.wipeTowerSelected
+}
+
+/** GLGizmoScale3D::change_cs_by_selection(): a volume scales in its own coordinates until others are picked; null for a copy. */
+private fun scaleCoordinates(view: PrepareViewState, volume: SelectedVolume?): CoordinateSystem? =
+    volume?.let { selected -> view.volumeScaleCoordinates?.takeIf { it.index == selected.index }?.coordinates ?: CoordinateSystem.LOCAL }
 
 /**
  * Selection::Volume: the volume of the one selected copy the object list, or
@@ -1119,8 +1220,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     val volume = selectedVolume(view)
     // update_settings_value() of a volume: the rotation of its own transformation.
     val volumeRotation = volume?.matrix?.let(AssemblyTransforms::rotationDegrees)
-    // GLGizmoScale3D::change_cs_by_selection(): a volume scales in its own coordinates until others are picked.
-    val scaleCoordinates = volume?.let { selected -> view.volumeScaleCoordinates?.takeIf { it.index == selected.index }?.coordinates ?: CoordinateSystem.LOCAL }
+    val scaleCoordinates = scaleCoordinates(view, volume)
     val volumeBox = volume?.description?.let { described ->
         when (scaleCoordinates) {
             CoordinateSystem.WORLD -> described.world
@@ -1128,12 +1228,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             else -> described.local
         }
     }
-    // GLGizmoMove3D::change_cs_by_selection(): a volume shows object coordinates, a copy world coordinates, until the other is picked.
-    val moveObjectCoordinates = if (volume != null) {
-        view.moveWorldVolume != volume.index
-    } else {
-        view.moveObjectCoordinatesCopy != null && view.moveObjectCoordinatesCopy == selectedInstance && selectedInstances.size == 1 && !view.wipeTowerSelected
-    }
+    val moveObjectCoordinates = moveObjectCoordinates(view, volume)
     // The plate changes once OrcaSlicer has the presets it places objects with.
     val canEditPlate = !busy && !slicingAll && engine.availability == EngineAvailability.READY && profiles != null
     val tools = toolActivity(view)
@@ -1180,6 +1275,9 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         text = view.text?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } && canEditPlate },
         svg = view.svg?.takeIf { mode -> objects.any { it.mesh == mode.volume.mesh } && canEditPlate },
         embossRequest = embossRequest.takeIf { canEditPlate },
+        zoomToSelection = zoomToSelection,
+        projectResets = projectResets,
+        projectOpened = objects.isNotEmpty() || project.document != null,
         measure = view.measure?.takeIf { canEditPlate },
         brimEars = view.brimEars?.takeIf { mode -> objects.any { it.mesh == mode.copy.mesh } && canEditPlate },
         canEditBrimEars = canEditPlate && selectedInstances.size == 1 && selectedPart == null,
@@ -1236,13 +1334,23 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         primeTowerOutside = result?.primeTowerOutside == true,
         seqPrintInfo = seqPrintInfo,
         exportFinished = exportFinished,
+        noticeNotifications = plateNotices.filter { it.notificationLevel != null },
         simplifySuggestions = simplifySuggestions.mapNotNull { mesh -> objects.firstOrNull { it.mesh == mesh } },
         profileUpdates = profileUpdates,
         profileUpdatesInstalled = profileUpdatesInstalled,
+        sequentialPrint = sequentialPrint(),
+        copyClearances = validation?.copyClearances.orEmpty(),
+        bedType = currentBedType(),
+        selectionCoordinates = windowCoordinates(view) ?: view.coordinates,
         clearance = validation?.takeIf { it.error != null && (it.clearance.isNotEmpty() || it.heightLimitFill.isNotEmpty()) }
             ?.let { PlateClearance(it.clearance, it.clearanceFill, it.heightLimitFill) },
         arrangeOptionsOpen = view.arrangeOptionsOpen && objects.isNotEmpty() && canEditPlate,
         arrangeSettings = currentArrangeSettings,
+        // is_bbl_vendor(), which the plate settings dialog's own plate type goes by too.
+        lidar = presetValue(PresetKind.PRINTER, "scan_first_layer")?.let { presets?.plateBedTypeSelectable == true && it == "1" },
+        plateJob = plateJob,
+        arrangeOngoing = arrangeOngoing,
+        zeroSizeObjects = zeroSizeObjects,
         clipboard = clipboard,
         // While the painting tool is open, Undo and Redo work on its strokes (the gizmo's stack),
         // and while the cut gizmo is, on its plane.

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -22,7 +21,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,12 +50,10 @@ import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.LayerRangeId
-import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.ScenePath
-import app.orcinus.shadow.core.model.SettingDefinition
 import app.orcinus.shadow.core.model.hasConnectors
 import app.orcinus.shadow.core.model.isCut
 import app.orcinus.shadow.core.model.mesh
@@ -71,26 +67,21 @@ import app.orcinus.shadow.core.ui.plate.volumeName
 internal sealed interface ObjectListTarget {
     data class Plate(val index: Int) : ObjectListTarget
 
-    data class PlateSettings(val index: Int) : ObjectListTarget
-
     data object Outside : ObjectListTarget
 
     /** An object's row, which picks its first copy. */
     data class Object(val copy: PlateInstanceId) : ObjectListTarget
 
-    data class ObjectSettings(val copy: PlateInstanceId) : ObjectListTarget
-
     data class Connectors(val copy: PlateInstanceId) : ObjectListTarget
 
     data class Part(val id: ObjectPartId) : ObjectListTarget
-
-    data class PartSettings(val id: ObjectPartId) : ObjectListTarget
 
     data class Layers(val mesh: ScenePath) : ObjectListTarget
 
     data class Range(val id: LayerRangeId) : ObjectListTarget
 
-    data class RangeSettings(val id: LayerRangeId) : ObjectListTarget
+    /** The "Instances" row of an object, which picks the object as its row does. */
+    data class Instances(val mesh: ScenePath) : ObjectListTarget
 
     data class Copy(val id: PlateInstanceId) : ObjectListTarget
 }
@@ -152,31 +143,19 @@ internal object ObjectListSearch {
 
 /**
  * The rows [objectListItems] lists, in its order and with the names they show,
- * as the search goes through them. The list has no "Instances" row, so the
- * copies of an object hang under the object itself.
+ * folded or not, as the search goes through them (every node of
+ * ObjectDataViewModel; NEW_OBJECT_SETTING leaves no settings items).
  */
 @Composable
 internal fun objectListTree(state: SidebarUiState): List<ObjectListNode> {
-    val plateDefinitions = state.plateSettings.tab?.definitions.orEmpty()
-    val objectDefinitions = (state.objectSettings.tab ?: state.processSettings.tab)?.definitions.orEmpty()
-    val partDefinitions = (state.partSettings.tab ?: state.processSettings.tab)?.definitions.orEmpty()
-    val rangeDefinitions = (state.rangeSettings.tab ?: state.processSettings.tab)?.definitions.orEmpty()
     val plates = state.plates.map { plate ->
-        val settings = settingsNode(ObjectListTarget.PlateSettings(plate.index), plate.overrides, plateDefinitions)
-        val objects = plate.objects.map { objectNode(it, objectDefinitions, partDefinitions, rangeDefinitions) }
-        ObjectListNode(ObjectListTarget.Plate(plate.index), plate.itemName(), listOfNotNull(settings) + objects)
+        ObjectListNode(ObjectListTarget.Plate(plate.index), plate.itemName(), plate.objects.map { objectNode(it) })
     }
-    val outside = state.outsideObjects.map { objectNode(it, objectDefinitions, partDefinitions, rangeDefinitions) }
-    return plates + ObjectListNode(ObjectListTarget.Outside, orcaString("Outside"), outside)
+    return plates + ObjectListNode(ObjectListTarget.Outside, orcaString("Outside"), state.outsideObjects.map { objectNode(it) })
 }
 
 @Composable
-private fun objectNode(
-    plateObject: PlateObject,
-    definitions: Map<String, SettingDefinition>,
-    partDefinitions: Map<String, SettingDefinition>,
-    rangeDefinitions: Map<String, SettingDefinition>,
-): ObjectListNode {
+private fun objectNode(plateObject: PlateObject): ObjectListNode {
     val mesh = plateObject.mesh
     val first = PlateInstanceId(mesh, 0)
     val children = buildList {
@@ -186,44 +165,35 @@ private fun objectNode(
         if (plateObject.listsVolumes()) (0..plateObject.parts.size).forEach { at ->
             val part = plateObject.volumeAt(at) ?: return@forEach
             if (plateObject.isCut && part.cutInfo.connector) return@forEach
-            val id = ObjectPartId(mesh, at)
-            val settings = settingsNode(ObjectListTarget.PartSettings(id), part.settings, partDefinitions)
-            add(ObjectListNode(ObjectListTarget.Part(id), plateObject.volumeName(at), listOfNotNull(settings)))
+            add(ObjectListNode(ObjectListTarget.Part(ObjectPartId(mesh, at)), plateObject.volumeName(at)))
         }
         if (plateObject.layerRanges.isNotEmpty()) {
             val ranges = plateObject.layerRanges.mapIndexed { at, range ->
-                val id = LayerRangeId(mesh, at)
-                val settings = settingsNode(ObjectListTarget.RangeSettings(id), range.settings, rangeDefinitions)
-                ObjectListNode(ObjectListTarget.Range(id), stringResource(R.string.object_layer_range, range.bottom, range.top), listOfNotNull(settings))
+                ObjectListNode(ObjectListTarget.Range(LayerRangeId(mesh, at)), stringResource(R.string.object_layer_range, range.bottom, range.top))
             }
             add(ObjectListNode(ObjectListTarget.Layers(mesh), orcaString("Layers"), ranges))
         }
-        if (plateObject.instances.size > 1) plateObject.instances.indices.forEach { index ->
-            add(ObjectListNode(ObjectListTarget.Copy(PlateInstanceId(mesh, index)), stringResource(R.string.object_instance_name, index + 1)))
+        if (plateObject.instances.size > 1) {
+            val copies = plateObject.instances.indices.map { index ->
+                ObjectListNode(ObjectListTarget.Copy(PlateInstanceId(mesh, index)), stringResource(R.string.object_instance_name, index + 1))
+            }
+            add(ObjectListNode(ObjectListTarget.Instances(mesh), stringResource(R.string.object_instances), copies))
         }
-        settingsNode(ObjectListTarget.ObjectSettings(first), plateObject.settings, definitions)?.let { add(it) }
     }
     return ObjectListNode(ObjectListTarget.Object(first), plateObject.displayName(), children)
 }
-
-@Composable
-private fun settingsNode(target: ObjectListTarget, settings: ModelSettings, definitions: Map<String, SettingDefinition>): ObjectListNode? =
-    settings.categories(definitions).takeIf { it.isNotEmpty() }?.let { ObjectListNode(target, settingsItemName(it)) }
 
 /** Sidebar::jump_to_object(): ObjectList::selected_object() selects the row alone, as a tap on it does. */
 internal fun ObjectListActions.jumpTo(target: ObjectListTarget) {
     when (target) {
         is ObjectListTarget.Plate -> selectPlate(target.index)
-        is ObjectListTarget.PlateSettings -> selectPlateSettings(target.index)
         ObjectListTarget.Outside -> Unit
         is ObjectListTarget.Object -> select(target.copy, false)
-        is ObjectListTarget.ObjectSettings -> selectSettings(target.copy)
         is ObjectListTarget.Connectors -> selectConnectors(target.copy)
         is ObjectListTarget.Part -> selectPart(target.id)
-        is ObjectListTarget.PartSettings -> selectPartSettings(target.id)
         is ObjectListTarget.Layers -> addRange(target.mesh, null)
         is ObjectListTarget.Range -> selectRange(target.id)
-        is ObjectListTarget.RangeSettings -> selectRangeSettings(target.id)
+        is ObjectListTarget.Instances -> select(PlateInstanceId(target.mesh, 0), false)
         is ObjectListTarget.Copy -> select(target.id, false)
     }
 }
@@ -234,13 +204,13 @@ internal fun ObjectListActions.jumpTo(target: ObjectListTarget) {
  * focus, and then the rows it finds stand in for the list's.
  */
 @Stable
-internal class ObjectListSearchState(private val listState: LazyListState, private val focusManager: FocusManager) {
+internal class ObjectListSearchState(private val focusManager: FocusManager) {
     var text by mutableStateOf("")
     var active by mutableStateOf(false)
         private set
 
-    /** The index of the row a pick scrolls the list to once its rows are back. */
-    var reveal by mutableStateOf<Int?>(null)
+    /** The row a pick shows once the list's rows are back (ensure_current_item_visible()); null for none. */
+    var reveal by mutableStateOf<ObjectListTarget?>(null)
 
     /** SearchObjectDialog::Popup(): the bar took the focus, and the search starts empty. */
     fun open() {
@@ -261,34 +231,19 @@ internal class ObjectListSearchState(private val listState: LazyListState, priva
         text = ""
     }
 
-    /**
-     * SearchItem::on_mouse_left_up(): the search closes and the row is picked.
-     * The list's rows come back where the found ones stand, the first of them
-     * where the first found one is.
-     */
-    fun choose(at: Int, found: ObjectListFound, onChoose: (ObjectListTarget) -> Unit) {
-        val shown = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == foundKey(at) }
-        reveal = shown?.let { it.index - at + found.row }
+    /** SearchItem::on_mouse_left_up(): the search closes and the row is picked, which the list then shows. */
+    fun choose(found: ObjectListFound, onChoose: (ObjectListTarget) -> Unit) {
+        reveal = found.target
         close()
         onChoose(found.target)
     }
 }
 
 @Composable
-internal fun rememberObjectListSearch(listState: LazyListState): ObjectListSearchState {
+internal fun rememberObjectListSearch(): ObjectListSearchState {
     val focusManager = LocalFocusManager.current
-    val search = remember(listState, focusManager) { ObjectListSearchState(listState, focusManager) }
+    val search = remember(focusManager) { ObjectListSearchState(focusManager) }
     BackHandler(enabled = search.active, onBack = search::close)
-    // ObjectList::ensure_current_item_visible() of the picked row.
-    LaunchedEffect(search.reveal) {
-        val index = search.reveal ?: return@LaunchedEffect
-        try {
-            listState.animateScrollToItem(index)
-        } finally {
-            // A finger on the list stops the scroll; the next pick scrolls again.
-            if (search.reveal == index) search.reveal = null
-        }
-    }
     return search
 }
 
@@ -321,7 +276,7 @@ internal fun LazyListScope.objectSearchItems(
         }
     }
     items(found.size, key = ::foundKey) { at ->
-        FoundRow(found[at]) { search.choose(at, found[at], onChoose) }
+        FoundRow(found[at]) { search.choose(found[at], onChoose) }
     }
 }
 

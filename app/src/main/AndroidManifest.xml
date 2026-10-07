@@ -38,7 +38,10 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- The files Plater::load_files() takes: models, projects, ZIP archives and G-code. -->
+            <!-- The files Plater::load_files() takes: models, projects, ZIP archives and G-code.
+                 Android types a file by its extension (MimeTypeMap): .stl as application/sla, and
+                 .obj, .3mf, .step, .amf and .gcode as application/octet-stream, for which it has no
+                 type; tables that know .obj type it application/x-tgif. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -52,12 +55,45 @@
                 <data android:mimeType="model/step" />
                 <data android:mimeType="application/step" />
                 <data android:mimeType="model/obj" />
+                <data android:mimeType="application/x-tgif" />
                 <data android:mimeType="application/x-amf" />
                 <data android:mimeType="image/svg+xml" />
                 <data android:mimeType="application/zip" />
                 <data android:mimeType="text/x.gcode" />
                 <data android:mimeType="text/x-gcode" />
                 <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <!-- The text files among them, OBJ, ASCII STL and G-code, which apps that look
+                 into a file type text/plain: by their names, so other text does not open here.
+                 The glob of a path pattern takes ".*" up to the first dot, hence a pattern for
+                 names with more dots. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:host="*" />
+                <data android:mimeType="text/plain" />
+                <data android:pathPattern=".*\\.obj" />
+                <data android:pathPattern=".*\\..*\\.obj" />
+                <data android:pathPattern=".*\\..*\\..*\\.obj" />
+                <data android:pathPattern=".*\\.OBJ" />
+                <data android:pathPattern=".*\\..*\\.OBJ" />
+                <data android:pathPattern=".*\\..*\\..*\\.OBJ" />
+                <data android:pathPattern=".*\\.stl" />
+                <data android:pathPattern=".*\\..*\\.stl" />
+                <data android:pathPattern=".*\\..*\\..*\\.stl" />
+                <data android:pathPattern=".*\\.STL" />
+                <data android:pathPattern=".*\\..*\\.STL" />
+                <data android:pathPattern=".*\\..*\\..*\\.STL" />
+                <data android:pathPattern=".*\\.gcode" />
+                <data android:pathPattern=".*\\..*\\.gcode" />
+                <data android:pathPattern=".*\\..*\\..*\\.gcode" />
+                <data android:pathPattern=".*\\.GCODE" />
+                <data android:pathPattern=".*\\..*\\.GCODE" />
+                <data android:pathPattern=".*\\..*\\..*\\.GCODE" />
+                <data android:pathPattern=".*\\.g" />
+                <data android:pathPattern=".*\\..*\\.g" />
+                <data android:pathPattern=".*\\..*\\..*\\.g" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -72,6 +108,7 @@
                 <data android:mimeType="model/step" />
                 <data android:mimeType="application/step" />
                 <data android:mimeType="model/obj" />
+                <data android:mimeType="application/x-tgif" />
                 <data android:mimeType="application/x-amf" />
                 <data android:mimeType="image/svg+xml" />
                 <data android:mimeType="application/zip" />
@@ -92,6 +129,7 @@
                 <data android:mimeType="model/step" />
                 <data android:mimeType="application/step" />
                 <data android:mimeType="model/obj" />
+                <data android:mimeType="application/x-tgif" />
                 <data android:mimeType="application/x-amf" />
                 <data android:mimeType="image/svg+xml" />
                 <data android:mimeType="application/zip" />

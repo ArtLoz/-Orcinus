@@ -801,6 +801,118 @@ bool read_thumbnail(const ThumbnailImage& image, Slic3r::ThumbnailData& data)
     return true;
 }
 
+using SvgFile = Slic3r::EmbossShape::SvgFile;
+using SvgFiles = std::vector<SvgFile*>;
+
+// get_file_name() of Plater.cpp
+std::string get_file_name(const std::string& file_path)
+{
+    size_t pos_last_delimiter = file_path.find_last_of("/\\");
+    size_t pos_point = file_path.find_last_of('.');
+    size_t offset = pos_last_delimiter + 1;
+    size_t count = pos_point - pos_last_delimiter - 1;
+    return file_path.substr(offset, count);
+}
+
+// create_unique_3mf_filepath() of Plater.cpp
+std::string create_unique_3mf_filepath(const std::string& file, const SvgFiles& svgs)
+{
+    // const std::string MODEL_FOLDER = "3D/"; // copy from file 3mf.cpp
+    std::string path_in_3mf = "3D/" + file + ".svg";
+    size_t suffix_number = 0;
+    bool is_unique = false;
+    do {
+        is_unique = true;
+        path_in_3mf = "3D/" + file + ((suffix_number++) ? ("_" + std::to_string(suffix_number)) : "") + ".svg";
+        for (SvgFile* svgfile : svgs) {
+            if (svgfile->path_in_3mf.empty())
+                continue;
+            if (svgfile->path_in_3mf.compare(path_in_3mf) == 0) {
+                is_unique = false;
+                break;
+            }
+        }
+    } while (!is_unique);
+    return path_in_3mf;
+}
+
+// set_by_local_path() of Plater.cpp
+bool set_by_local_path(SvgFile& svg, const SvgFiles& svgs)
+{
+    // Try to find already used svg file
+    for (SvgFile* svg_ : svgs) {
+        if (svg_->path_in_3mf.empty())
+            continue;
+        if (svg.path.compare(svg_->path) == 0) {
+            svg.path_in_3mf = svg_->path_in_3mf;
+            return true;
+        }
+    }
+    return false;
+}
+
+// publish() of Plater.cpp, which Plater::export_3mf() runs on the model before
+// every project, backup and plate file it writes: each SVG a volume was
+// embossed from gets its place in the 3MF (path_in_3mf), without which
+// store_bbs_3mf() leaves the SVG out. The desktop app's model keeps the places
+// from one save to the next, so the files the plate keeps the volumes' SVGs in
+// (PlateObject::volume_emboss, ObjectPart::emboss) take them as well.
+void publish(const std::vector<PlateObject>& plate, Slic3r::Model& model)
+{
+    // SVG file publishing
+    SvgFiles svgfiles;
+    std::vector<std::pair<const Slic3r::ModelVolume*, std::string>> unpublished;
+    for (std::size_t index = 0; index < model.objects.size(); ++index) {
+        const Slic3r::ModelObject& object = *model.objects[index];
+        for (std::size_t volume_index = 0; volume_index < object.volumes.size(); ++volume_index) {
+            Slic3r::ModelVolume* volume = object.volumes[volume_index];
+            if (!volume->emboss_shape.has_value())
+                continue;
+            if (volume->text_configuration.has_value())
+                continue; // text dosen't have svg path
+            if (!volume->emboss_shape->svg_file.has_value())
+                continue;
+
+            SvgFile* svg = &(*volume->emboss_shape->svg_file);
+            if (svg->path_in_3mf.empty() && index < plate.size()) {
+                const PlateObject& kept = plate[index];
+                const std::string& file = volume_index == 0 ? kept.volume_emboss
+                                          : volume_index - 1 < kept.parts.size() ? kept.parts[volume_index - 1].emboss
+                                                                                 : std::string();
+                if (!file.empty()) {
+                    unpublished.emplace_back(volume, file);
+                }
+            }
+            svgfiles.push_back(svg);
+        }
+    }
+
+    for (SvgFile* svgfile : svgfiles) {
+        if (!svgfile->path_in_3mf.empty())
+            continue; // already suggested path (previous save)
+
+        // create unique name for svgs, when local path differ
+        std::string filename = "unknown";
+        if (!svgfile->path.empty()) {
+            if (set_by_local_path(*svgfile, svgfiles))
+                continue;
+            // check whether original filename is already in:
+            filename = get_file_name(svgfile->path);
+        }
+        svgfile->path_in_3mf = create_unique_3mf_filepath(filename, svgfiles);
+    }
+
+    // Each file is written beside its place and moved there once complete.
+    for (const auto& [volume, file] : unpublished) {
+        const std::string written = file + ".published";
+        boost::system::error_code error;
+        if (!detail::write_emboss(*volume, written).empty()) {
+            boost::filesystem::rename(written, file, error);
+        }
+        boost::filesystem::remove(written, error);
+    }
+}
+
 }  // namespace
 
 ProjectSave save_project(
@@ -845,6 +957,7 @@ ProjectSave save_project(
         if (!project_info.empty()) {
             detail::restore_project_info(model, project_info);
         }
+        publish(plate, model);
         // The mode the layer slider keeps its codes in (Preview::update_layers_slider_mode).
         const Slic3r::CustomGCode::Mode mode = profiles.filaments.size() > 1 ? Slic3r::CustomGCode::MultiAsSingle : Slic3r::CustomGCode::SingleExtruder;
         for (std::size_t index = 0; index < plates.size(); ++index) {

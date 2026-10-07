@@ -295,6 +295,32 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import android.graphics.BitmapFactory
+import android.util.LruCache
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.withFrameNanos
+import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.ui.plate.PlateNameDialog
+import app.orcinus.shadow.domain.plate.PickListItemUseCase
+import app.orcinus.shadow.domain.plate.ObjectListColumnsUseCase
+import app.orcinus.shadow.domain.plate.CanvasRequestsUseCase
+import app.orcinus.shadow.domain.plate.paintingsOf
+import app.orcinus.shadow.core.model.AppConfigKeys
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onStart
 
 data class SidebarUiState(
     val engine: EngineState,
@@ -324,6 +350,8 @@ data class SidebarUiState(
     val selectedParts: List<ObjectPartId> = emptyList(),
     /** The height range whose settings are shown, when one is selected. */
     val selectedRange: LayerRangeId? = null,
+    /** PlateState.selectedRanges(): the selected ranges of one object, [selectedRange] alone or several. */
+    val selectedRanges: List<LayerRangeId> = emptyList(),
     /** The copy whose object's "Cut connectors" item is the selection; null for none. */
     val selectedConnectors: PlateInstanceId? = null,
     /** OrcaSlicer's tabs for the plate, for the selected object and for its part. */
@@ -349,8 +377,18 @@ data class SidebarUiState(
     val projectName: String? = null,
     /** The project changed since it was opened, saved or started, which its name's star marks. */
     val projectDirty: Boolean = false,
-    /** The project can be saved: the presets are known and the plate is not changing. */
+    /**
+     * MainFrame::can_save_as(): the project can be saved, not while the plate
+     * shows a G-code file or an exported file; a slice going on does not stop
+     * it, as nothing but a slice runs beside the desktop app's menus.
+     */
     val canSaveProject: Boolean = false,
+    /**
+     * MainFrame::can_start_new_project() and can_open_project(): New Project
+     * and Open Project, which wait for no slice, and the calibrations, which
+     * start a project of their own.
+     */
+    val canStartProject: Boolean = false,
     /**
      * "Export plate sliced file" and "Export all plate sliced file" can write
      * their file (MainFrame::can_export_gcode(), can_export_all_gcode()).
@@ -366,6 +404,10 @@ data class SidebarUiState(
     val currentPlate: Int = 0,
     /** Plater::can_delete_plate(). */
     val canDeletePlate: Boolean = false,
+    /** The kinds of paint on each object, by its mesh, as the object list's columns show them. */
+    val paintedKinds: Map<ScenePath, Set<PaintKind>> = emptyMap(),
+    /** PlateState.objectProcessHints: each change blinks the arrow at the switch of the settings. */
+    val objectProcessHints: Int = 0,
 ) {
     /** Which settings the Objects side shows: a selected part's, the objects', or the plate's. */
     val modelKind: PresetKind get() = when {
@@ -460,13 +502,42 @@ class SidebarViewModel(
     private val addPrimitive: AddPrimitiveUseCase,
     private val editLayerHeights: EditLayerHeightsUseCase,
     private val requestEmboss: RequestEmbossUseCase,
-    preferences: AppPreferences,
+    private val pickListItem: PickListItemUseCase,
+    private val objectColumns: ObjectListColumnsUseCase,
+    private val canvasRequests: CanvasRequestsUseCase,
+    private val preferences: AppPreferences,
 ) : ViewModel() {
     /** What the Preferences change on the clone dialog. */
     val canvas: StateFlow<CanvasPreferences> = preferences.canvas
 
+    /** Sidebar::update_filaments_counter()'s filaments_area_preferred_count. */
+    val filamentsPreferredCount: StateFlow<Int> = preferences.values
+        .map { AppConfigKeys.filamentsAreaPreferredCount(it[AppConfigKeys.FILAMENTS_AREA_PREFERRED_COUNT]) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppConfigKeys.filamentsAreaPreferredCount(null))
+
     /** The variable layer height mark of an object's row: the bar opens on the object. */
     fun editLayersOf(mesh: ScenePath) = editLayerHeights.enableFor(mesh)
+
+    /** A row picked while several are being picked (ObjectList::fix_multiselection_conflicts()). */
+    fun pickCopy(id: PlateInstanceId, copyRow: Boolean) = pickListItem.copy(id, copyRow)
+
+    fun pickPart(id: ObjectPartId) = pickListItem.part(id)
+
+    fun pickRange(id: LayerRangeId) = pickListItem.range(id)
+
+    /** The paint columns of an object's row: the tool of the kind opens on the object, or closes. */
+    fun paint(mesh: ScenePath, kind: PaintKind) = canvasRequests.paint(mesh, kind)
+
+    /** The sinking column of an object's row: "Shift objects to bed". */
+    fun shiftToBed(mesh: ScenePath) = objectColumns.shiftToBed(mesh)
+
+    /** A row activated by a second tap: the 3D view frames the selection. */
+    fun zoomToSelection() = canvasRequests.zoomToSelection()
+
+    /** "Text" and "SVG" of the plate menu's "Add Primitive": objects of their own, which the canvas places. */
+    fun addTextObject() = requestEmboss.addObject(EmbossKind.TEXT)
+
+    fun addSvgObject() = requestEmboss.addObject(EmbossKind.SVG)
 
     /** "Edit text" of a row: the canvas's text tool opens on the volume. */
     fun editTextOf(volume: ObjectPartId) = requestEmboss.edit(volume)
@@ -603,7 +674,7 @@ class SidebarViewModel(
         setPrintable = { selectionMenu?.setPrintable(it) },
         setAutoDrop = { selectionMenu?.setAutoDrop(it) },
         editProcessSettings = {
-            setSettingsScope(SettingsScope.OBJECT)
+            setSettingsScope.objectProcess()
             openSettings()
         },
         pasteProcessSettings = { pasteSettings.selected() },
@@ -635,7 +706,7 @@ class SidebarViewModel(
         },
         replaceAll = replaceAll,
         editProcessSettings = {
-            setSettingsScope(SettingsScope.OBJECT)
+            setSettingsScope.objectProcess()
             openSettings()
         },
         pasteProcessSettings = { pasteSettings.selected() },
@@ -660,8 +731,15 @@ class SidebarViewModel(
 
     private val plateState = observePlate()
 
+    /** ObjectList::update_info_items(): the kinds of paint on each object, read off its paintings as they change. */
+    private val paintedKinds: Flow<Map<ScenePath, Set<PaintKind>>> = observePlate()
+        .map { paintingsOf(it.objects) }
+        .distinctUntilChanged()
+        .map { objectColumns.paintedKinds(it) }
+
     val state: StateFlow<SidebarUiState> = observePlate()
         .map(PlateState::toSidebarUiState)
+        .combine(paintedKinds.onStart { emit(emptyMap()) }) { state, kinds -> state.copy(paintedKinds = kinds) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toSidebarUiState())
 
     fun choose(choice: PresetChoice) = selectPreset(choice)
@@ -700,7 +778,6 @@ class SidebarViewModel(
     fun chooseSettingsPart(id: ObjectPartId?) = selectObjectPart(id)
 
     /** A row of a part tapped while several items are being picked. */
-    fun togglePart(id: ObjectPartId) = selectObjectPart.toggle(id)
 
     fun openSettingsOfPart(id: ObjectPartId) {
         selectObjectPart(id)
@@ -721,6 +798,11 @@ class SidebarViewModel(
     }
 
     fun removeRange(id: LayerRangeId) = removeLayerRange(id)
+
+    /** ObjectList::remove() of the ranges selected together, and del_layers_from_object() of the "Layers" row. */
+    fun removeSelectedRanges() = removeLayerRange.selected()
+
+    fun removeAllRanges(mesh: ScenePath) = removeLayerRange.all(mesh)
 
     fun chooseSettingsRange(id: LayerRangeId?) = selectLayerRange(id)
 
@@ -744,6 +826,8 @@ class SidebarViewModel(
     fun moveVolume(mesh: ScenePath, from: Int, to: Int) = objectOrder.moveVolume(mesh, from, to)
 
     fun copyRanges(mesh: ScenePath) = copyLayerRanges.all(mesh)
+
+    fun copySelectedRanges() = copyLayerRanges.selected()
 
     /** The filament column of the object list (set_extruder_for_selected_items). */
     fun setObjectExtruder(mesh: ScenePath, extruder: Int) = setExtruder(mesh, extruder)
@@ -769,6 +853,9 @@ class SidebarViewModel(
 
     private var importDocuments: List<ExternalDocumentReference> = emptyList()
     private val importAnswers = mutableMapOf<String, ConfigOverwriteAnswer>()
+
+    /** How many files the import was given, which its result counts (MainFrame::load_config_file()). */
+    val configImportFiles: Int get() = importDocuments.size
 
     fun importConfig(references: List<ExternalDocumentReference>) {
         importDocuments = references
@@ -831,11 +918,14 @@ class SidebarViewModel(
 
     fun toggleFlushOption(mesh: ScenePath, option: FlushOption) = setFlushOption(mesh, option)
 
-    /** ObjectList::switch_to_object_process(): the item's own settings are shown. */
-    fun editProcessSettings(item: SettingsItem) = when (item) {
-        is SettingsItem.Object -> openSettingsOf(PlateInstanceId(item.mesh))
-        is SettingsItem.Volume -> openSettingsOfPart(item.id)
-        is SettingsItem.Layer -> openSettingsOfRange(item.id)
+    /** ObjectList::switch_to_object_process(): the item is selected and its own settings are shown, with the tip of it. */
+    fun editProcessSettings(item: SettingsItem) {
+        when (item) {
+            is SettingsItem.Object -> selectPlateObject(PlateInstanceId(item.mesh))
+            is SettingsItem.Volume -> selectObjectPart(item.id)
+            is SettingsItem.Layer -> selectLayerRange(item.id)
+        }
+        setSettingsScope.objectProcess()
     }
 
     fun copyProcessSettings(item: SettingsItem) = copySettings(item)
@@ -900,6 +990,9 @@ class SidebarViewModel(
 
     /** ObjectList::split_instances() of those copies of the object. */
     fun setAsIndividual(mesh: ScenePath, instances: Set<Int>) = separatePlateInstances(mesh, instances)
+
+    /** MenuFactory::instance_menu() over a copy: the selected copies of its object, or the copy alone. */
+    fun setAsIndividualOver(id: PlateInstanceId) = separatePlateInstances.overCopy(id)
 
     /** Cut and Copy of copies of objects, and of volumes of an object over one of its copies. */
     fun copyObjects(copies: Set<PlateInstanceId>, cut: Boolean) = copyToClipboard.objects(copies, cut)
@@ -1141,6 +1234,13 @@ class SidebarViewModel(
     }
 }
 
+/**
+ * The plate changes in a way that the desktop app runs in its menus' place
+ * (a load, an edit of the object menu, a preset change), as opposed to the
+ * background slice, which leaves its File menu working.
+ */
+private val PlateState.busyBesideSlice: Boolean get() = copy(slicing = null).busy
+
 private fun PlateState.toSidebarUiState() = SidebarUiState(
     engine = engine,
     presets = presets,
@@ -1156,6 +1256,7 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     selectedPart = selectedPart,
     selectedParts = selectedParts(),
     selectedRange = selectedRange,
+    selectedRanges = selectedRanges(),
     selectedConnectors = selectedConnectors.takeIf { connectorsSelected },
     plateSettings = settingsTabs[PresetKind.PLATE] ?: SettingsTabState(PresetKind.PLATE),
     objectSettings = settingsTabs[PresetKind.OBJECT] ?: SettingsTabState(PresetKind.OBJECT),
@@ -1170,11 +1271,12 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     simplifying = simplifyTarget != null,
     projectName = project.name,
     projectDirty = projectDirty,
-    canSaveProject = profiles != null && !busy,
+    canSaveProject = profiles != null && !busyBesideSlice && previewOnly == null,
+    canStartProject = profiles != null && !busy,
     // PartPlate::is_slice_result_ready_for_export()
-    canExportSliced = profiles != null && !busy && objects.isNotEmpty() && result?.printReady == true,
-    canExportAllSliced = profiles != null && !busy && objects.isNotEmpty() && allSliceResultsReady(),
-    canExportModel = profiles != null && !busy && objects.isNotEmpty(),
+    canExportSliced = profiles != null && !busyBesideSlice && objects.isNotEmpty() && result?.printReady == true,
+    canExportAllSliced = profiles != null && !busyBesideSlice && objects.isNotEmpty() && allSliceResultsReady(),
+    canExportModel = profiles != null && !busyBesideSlice && objects.isNotEmpty(),
     plates = objects.groupBy(::listPlateOf).let { groups ->
         partPlates().mapIndexed { index, plate ->
             ObjectListPlate(
@@ -1190,6 +1292,7 @@ private fun PlateState.toSidebarUiState() = SidebarUiState(
     outsideObjects = objects.filter { listPlateOf(it) == null },
     currentPlate = currentPlate,
     canDeletePlate = canDeletePlate,
+    objectProcessHints = objectProcessHints,
 )
 
 /**
@@ -1332,35 +1435,39 @@ private fun ConfigsOverwriteConfirmDialog(preset: String, onAnswer: (ConfigOverw
     )
 }
 
-/** What the import or the export did, as the desktop app reports it. */
+/**
+ * What the import or the export did, as the desktop app reports it:
+ * MainFrame::load_config_file()'s "Import result", which counts the [files]
+ * picked, and ExportConfigsDialog::show_export_result().
+ */
 @Composable
-private fun ConfigTransferDialog(outcome: ConfigTransferOutcome, exported: Boolean, onDismiss: () -> Unit) {
+private fun ConfigTransferDialog(outcome: ConfigTransferOutcome, exported: Boolean, files: Int, onDismiss: () -> Unit) {
     val colors = OrcaTheme.colors
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { OrcaButton(orcaString("OK"), onClick = onDismiss) },
-        title = { Text(orcaString(if (exported) "Export result" else "Import result"), style = OrcaTheme.typography.head16) },
+        title = { Text(orcaString(if (exported) "Info" else "Import result"), style = OrcaTheme.typography.head16) },
         text = {
             Column {
                 when (outcome) {
-                    is ConfigTransferOutcome.Failure -> Text(outcome.message, color = colors.error, style = OrcaTheme.typography.body14)
+                    is ConfigTransferOutcome.Failure -> Text(orcaString(outcome.message), color = colors.error, style = OrcaTheme.typography.body14)
                     // An import that still waits for an answer shows no result.
                     is ConfigTransferOutcome.Overwrite -> Unit
                     is ConfigTransferOutcome.Success -> Text(
-                        text = stringResource(
-                            if (exported) R.string.config_exported else R.string.config_imported,
-                            outcome.names.size,
-                        ),
+                        text = if (exported) {
+                            orcaString("Export successful")
+                        } else {
+                            orcaText(
+                                OrcaText(
+                                    "There is %d config imported. (Only non-system and compatible configs)",
+                                    listOf(files.toString()),
+                                    msgidPlural = "There are %d configs imported. (Only non-system and compatible configs)",
+                                    count = files.toLong(),
+                                ),
+                            ) + if (files == 0) orcaString("\nHint: Make sure you have added the corresponding printer before importing the configs.") else ""
+                        },
                         color = colors.text,
                         style = OrcaTheme.typography.body14,
-                    )
-                }
-                if (!exported) {
-                    Text(
-                        text = stringResource(R.string.config_import_hint),
-                        color = colors.textSide,
-                        style = OrcaTheme.typography.body12,
-                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }
@@ -1453,6 +1560,11 @@ private fun ProjectTitle(
     canExportSliced: Boolean = false,
     canExportAllSliced: Boolean = false,
     canExportModel: Boolean = false,
+    canStartProject: Boolean = canSave,
+    /** BBLTopbar::EnableUndoRedoItems(): the Calibration button works on the Prepare tab alone. */
+    prepareShown: Boolean = true,
+    /** Plater::is_view3D_shown(), which every item of the Calibration menu wants. */
+    view3DShown: Boolean = true,
 ) {
     var fileMenu by remember { mutableStateOf(false) }
     var calibrationMenu by remember { mutableStateOf(false) }
@@ -1479,10 +1591,12 @@ private fun ProjectTitle(
                 icon = DesignR.drawable.orca_calib_sf,
                 contentDescription = orcaString("Calibration"),
                 onClick = { calibrationMenu = true },
+                enabled = prepareShown,
             )
-            OrcaContextMenu(expanded = calibrationMenu, position = IntOffset.Zero, onDismissRequest = { calibrationMenu = false }) {
+            OrcaContextMenu(expanded = calibrationMenu && prepareShown, position = IntOffset.Zero, onDismissRequest = { calibrationMenu = false }) {
                 CalibrationMenuItems(
-                    enabled = canSave,
+                    enabled = canStartProject,
+                    view3D = view3DShown,
                     dismiss = { calibrationMenu = false },
                     onTemperature = { temperature = true },
                     onRange = { rangeTest = it },
@@ -1505,7 +1619,7 @@ private fun ProjectTitle(
                         fileMenu = false
                         actions.new()
                     },
-                    enabled = canSave,
+                    enabled = canStartProject,
                 )
                 OrcaMenuItem(
                     text = orcaString("Open Project") + "…",
@@ -1513,7 +1627,7 @@ private fun ProjectTitle(
                         fileMenu = false
                         actions.open()
                     },
-                    enabled = canSave,
+                    enabled = canStartProject,
                 )
                 OrcaMenuSeparator()
                 OrcaMenuItem(
@@ -1768,8 +1882,11 @@ private const val GCODE_MIME_TYPE = "text/x-gcode"
 private const val OBJ_MIME_TYPE = "model/obj"
 private const val MATERIALS_MIME_TYPE = "model/mtl"
 
-/** Which Setup Wizard page a preset list opens: its printers or its filaments. */
-enum class PresetWizardPage { PRINTERS, FILAMENTS }
+/**
+ * Which Setup Wizard page a preset list opens: its printers or its filaments;
+ * or Help's "Setup Wizard" (GUI_App::ShowUserGuide()), the whole guide.
+ */
+enum class PresetWizardPage { PRINTERS, FILAMENTS, GUIDE }
 
 /**
  * OrcaSlicer's sidebar: printer, nozzle, material, and process of the plate,
@@ -1795,10 +1912,28 @@ fun PlateSidebar(
     onShowPrepare: () -> Unit = {},
     /** Plater::PopupObjectTable(): the Parameter Table, on the row of the item or on none. */
     onOpenObjectTable: (SettingsItem?) -> Unit = {},
+    /** The Prepare tab shows, and on it the 3D view rather than the assembly view, which the Calibration menu wants. */
+    prepareShown: Boolean = true,
+    view3DShown: Boolean = true,
+    /** Help's "Open Network Test" (NetworkTestDialog). */
+    onOpenNetworkTest: () -> Unit = {},
+    /**
+     * The Setup Wizard's "Create" asked for CreatePrinterPresetDialog
+     * (Sidebar::create_printer_preset()), which opens once the sidebar shows
+     * and [onCreatePrinterTaken] is told.
+     */
+    createPrinterPending: Boolean = false,
+    onCreatePrinterTaken: () -> Unit = {},
 ) {
     val viewModel = viewModel { createViewModel() }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val canvas by viewModel.canvas.collectAsStateWithLifecycle()
+    LaunchedEffect(createPrinterPending) {
+        if (createPrinterPending) {
+            viewModel.openCreatePrinter()
+            onCreatePrinterTaken()
+        }
+    }
     // "Export as one STL/DRC" and "Replace 3D file": the object waits for the
     // document the user picks, as the desktop app waits for its file dialog.
     var meshExport by rememberSaveable { mutableStateOf<Pair<String, MeshFormat>?>(null) }
@@ -1981,7 +2116,7 @@ fun PlateSidebar(
         ConfigsOverwriteConfirmDialog(preset, onAnswer = viewModel::answerOverwrite, onDismiss = viewModel::cancelOverwrite)
     }
     viewModel.configTransfer?.let { outcome ->
-        ConfigTransferDialog(outcome, exported = viewModel.configExported, onDismiss = viewModel::dismissConfigTransfer)
+        ConfigTransferDialog(outcome, exported = viewModel.configExported, files = viewModel.configImportFiles, onDismiss = viewModel::dismissConfigTransfer)
     }
     PlateSidebarContent(
         state,
@@ -2010,6 +2145,7 @@ fun PlateSidebar(
             removeCopy = viewModel::removeObjectCopy,
             fillBed = viewModel::fillBed,
             setAsIndividual = viewModel::setAsIndividual,
+            setAsIndividualOver = viewModel::setAsIndividualOver,
             clone = viewModel::clone,
             copyObjects = viewModel::copyObjects,
             copyVolumes = viewModel::copyVolumes,
@@ -2029,10 +2165,14 @@ fun PlateSidebar(
             deleteConnectors = viewModel::deleteCutConnectors,
             setConnectorsExtruder = viewModel::setConnectorsExtruder,
             selectPart = viewModel::chooseSettingsPart,
-            togglePart = viewModel::togglePart,
+            pickCopy = viewModel::pickCopy,
+            pickPart = viewModel::pickPart,
+            pickRange = viewModel::pickRange,
             selectPartSettings = viewModel::openSettingsOfPart,
             addRange = viewModel::addRange,
             removeRange = viewModel::removeRange,
+            removeSelectedRanges = viewModel::removeSelectedRanges,
+            removeAllRanges = viewModel::removeAllRanges,
             selectRange = viewModel::chooseSettingsRange,
             selectRangeSettings = viewModel::openSettingsOfRange,
             resetSettings = { kind -> viewModel.requestSettings(kind, SettingsRequest.Reset(emptyList())) },
@@ -2042,7 +2182,22 @@ fun PlateSidebar(
             setRangeExtruder = viewModel::setRangeExtruder,
             delete = viewModel::deleteObject,
             setObjectPrintable = viewModel::setWholeObjectPrintable,
-            editLayers = viewModel::editLayersOf,
+            // The bar is a window of the canvas.
+            editLayers = { mesh ->
+                viewModel.editLayersOf(mesh)
+                onShowCanvas()
+            },
+            // The painting tools are windows of the canvas.
+            paint = { mesh, kind ->
+                viewModel.paint(mesh, kind)
+                onShowCanvas()
+            },
+            shiftToBed = viewModel::shiftToBed,
+            // The 3D view frames the selection where the drawer lets it show.
+            zoomToSelection = {
+                viewModel.zoomToSelection()
+                onShowCanvas()
+            },
             toggleFlushOption = viewModel::toggleFlushOption,
             editProcessSettings = viewModel::editProcessSettings,
             copyProcessSettings = viewModel::copyProcessSettings,
@@ -2052,6 +2207,7 @@ fun PlateSidebar(
             moveObject = viewModel::moveObject,
             moveVolume = viewModel::moveVolume,
             copyRanges = viewModel::copyRanges,
+            copySelectedRanges = viewModel::copySelectedRanges,
             focusRangeField = viewModel::focusRangeField,
             pasteProcessSettings = viewModel::pasteProcessSettings,
             replaceVolume = { copy, volume ->
@@ -2119,6 +2275,15 @@ fun PlateSidebar(
             renamePlate = viewModel::setPlateName,
             addPrimitive = viewModel::addShape,
             addHandyModel = viewModel::addHandyModel,
+            // The text tool and the SVG's file picker are of the canvas.
+            addTextObject = {
+                viewModel.addTextObject()
+                onShowCanvas()
+            },
+            addSvgObject = {
+                viewModel.addSvgObject()
+                onShowCanvas()
+            },
             addModels = { modelPicker.launch(arrayOf("*/*")) },
         ),
         onOpenWizard = onOpenWizard,
@@ -2130,6 +2295,10 @@ fun PlateSidebar(
         onOpenTroubleshoot = onOpenTroubleshoot,
         onOpenPresetBundles = { presetBundlesOpen = true },
         onOpenObjectTable = onOpenObjectTable,
+        prepareShown = prepareShown,
+        view3DShown = view3DShown,
+        onOpenNetworkTest = onOpenNetworkTest,
+        filamentsPreferredCount = viewModel.filamentsPreferredCount.collectAsStateWithLifecycle().value,
         autoArrange = canvas.autoArrange,
         onImportConfig = { configPicker.launch(arrayOf("*/*")) },
         onExportConfig = { exporting = true },
@@ -2288,6 +2457,13 @@ internal fun PlateSidebarContent(
     printers: CustomPrinterActions = CustomPrinterActions.NONE,
     network: NetworkPrinterActions = NetworkPrinterActions.NONE,
     project: ProjectActions = ProjectActions.NONE,
+    /** The Prepare tab shows (MainFrame's tp3DEditor), and on it the 3D view rather than the assembly view. */
+    prepareShown: Boolean = true,
+    view3DShown: Boolean = true,
+    /** Help's "Open Network Test" (NetworkTestDialog). */
+    onOpenNetworkTest: () -> Unit = {},
+    /** filaments_area_preferred_count, up to which the filament title leaves out the count. */
+    filamentsPreferredCount: Int = AppConfigKeys.filamentsAreaPreferredCount(null),
 ) {
     // DiffPresetDialog, which the compare button of the process panel opens.
     var comparing by rememberSaveable { mutableStateOf(false) }
@@ -2319,8 +2495,29 @@ internal fun PlateSidebarContent(
     val rowDrag = remember { ObjectListDrag() }
     // The search bar above the object list, and the rows it goes through while it is open.
     val listState = rememberLazyListState()
-    val objectSearch = rememberObjectListSearch(listState)
+    val objectSearch = rememberObjectListSearch()
     val searchedRows = objectSearchRows(state, objectSearch)
+    // The folds of the object list, and where its rows stand in the sidebar's list.
+    val objectTree = rememberObjectListTree()
+    // ObjectList::update_selections(): what the plate selects unfolds in the
+    // list, whose current row then shows (ensure_current_item_visible()).
+    val selectionRows = state.selectionRows()
+    LaunchedEffect(selectionRows) {
+        val current = selectionRows.lastOrNull() ?: return@LaunchedEffect
+        objectTree.expand(selectionRows.flatMap(ObjectListRowPath::ancestors))
+        // The rows the folds let out are laid out first.
+        withFrameNanos {}
+        objectTree.reveal(listState, current.key)
+    }
+    // Sidebar::jump_to_object(): the row the search picked shows, once the list's rows are back.
+    LaunchedEffect(objectSearch.reveal) {
+        val target = objectSearch.reveal ?: return@LaunchedEffect
+        val row = state.rowOf(target)
+        objectTree.expand(row.ancestors)
+        withFrameNanos {}
+        objectTree.reveal(listState, row.key)
+        objectSearch.reveal = null
+    }
     // Plater::set_number_of_copies() and ObjectList::rename_item() ask first.
     var askingCopies by remember { mutableStateOf<ScenePath?>(null) }
     var cloning by remember { mutableStateOf<ScenePath?>(null) }
@@ -2328,16 +2525,57 @@ internal fun PlateSidebarContent(
     // The flushing volumes are asked for when their sheet opens.
     var openFlushVolumes by remember { mutableStateOf(false) }
     var flushVolumes by remember { mutableStateOf<FlushVolumesOutcome?>(null) }
+    // m_panel_printer_title folds the printer's settings until another printer
+    // is selected (Sidebar::priv::layout_printer()): the printer it was folded over.
+    var printerFoldedOver by rememberSaveable { mutableStateOf<String?>(null) }
+    // m_panel_filament_title folds the filaments.
+    var filamentsFolded by rememberSaveable { mutableStateOf(false) }
+    // Sidebar::add_filament() and delete_filament(): the list unfolds, and shows its end once the count changes.
+    var revealFilaments by remember { mutableStateOf(false) }
     val presets = state.presets
     val enabled = state.canChoose && presets != null
     val process = state.processSettings
     val global = state.settingsScope == SettingsScope.GLOBAL
+    // Sidebar::show_object_list(false) hides the search bar with the list, which ends a search.
+    LaunchedEffect(global) { if (global && objectSearch.active) objectSearch.close() }
+    val slotCount = presets?.selection?.allFilaments?.size ?: 0
+    LaunchedEffect(slotCount) {
+        if (!revealFilaments) return@LaunchedEffect
+        revealFilaments = false
+        withFrameNanos {}
+        val shown = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "filament" } ?: return@LaunchedEffect
+        val below = shown.offset + shown.size - listState.layoutInfo.viewportEndOffset
+        if (below > 0) listState.animateScrollBy(below.toFloat())
+    }
+    // ParamsPanel::notify_object_config_changed(): an object or a volume has
+    // settings of its own (SettingsFactory::get_bundle() of its config).
+    val objectDefinitions = (state.objectSettings.tab ?: process.tab)?.definitions.orEmpty()
+    val objectConfigs = state.objects.any { plateObject ->
+        (listOf(plateObject.settings, plateObject.volume.settings) + plateObject.parts.map { it.settings }).any { it.categories(objectDefinitions).isNotEmpty() }
+    }
+    // ParamsPanel::switch_to_object(true): its Highlighter blinks the arrow at
+    // the switch, shown and hidden every 300 ms until it has turned 11 times.
+    var arrowHints by remember { mutableIntStateOf(state.objectProcessHints) }
+    var arrowShown by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(state.objectProcessHints) {
+        if (state.objectProcessHints == arrowHints) return@LaunchedEffect
+        arrowHints = state.objectProcessHints
+        try {
+            arrowShown = false
+            repeat(ARROW_BLINKS - 1) {
+                delay(ARROW_BLINK_MILLIS)
+                arrowShown = arrowShown == false
+            }
+        } finally {
+            arrowShown = null
+        }
+    }
     val processTab = rememberSettingsTab(process, settings, enabled)
     val modelTab = rememberSettingsTab(state.modelSettings, settings, enabled)
     val tab = if (global) processTab else modelTab
     // The settings of the plate and of an object are described for what the
     // plate has selected, and again when the user picks other objects.
-    LaunchedEffect(global, state.modelKind, state.selectedInstances, state.selectedParts, state.selectedRange, enabled) {
+    LaunchedEffect(global, state.modelKind, state.selectedInstances, state.selectedParts, state.selectedRanges, enabled) {
         if (!global && enabled) settings.request(state.modelKind, SettingsRequest.Describe)
     }
     // The filament column of the object list is painted with the colours of the
@@ -2353,13 +2591,31 @@ internal fun PlateSidebarContent(
             .fillMaxSize()
             .background(OrcaTheme.colors.window),
         state = listState,
-    ) {
+        content = objectTree.counted {
         item(key = "project") {
-            ProjectTitle(state.projectName, state.projectDirty, state.canSaveProject, project, state.canExportSliced, state.canExportAllSliced, state.canExportModel)
+            ProjectTitle(
+                state.projectName,
+                state.projectDirty,
+                state.canSaveProject,
+                project,
+                state.canExportSliced,
+                state.canExportAllSliced,
+                state.canExportModel,
+                canStartProject = state.canStartProject,
+                prepareShown = prepareShown,
+                view3DShown = view3DShown,
+            )
         }
 
         item(key = "printer") {
-        OrcaSidebarTitle(stringResource(R.string.section_printer), DesignR.drawable.orca_printer) {
+        val printerLabel = presets?.printers?.selectedLabel(presets.selection.printer.value).orEmpty()
+        val printerFolded = printerFoldedOver != null && printerFoldedOver == presets?.selection?.printer?.value
+        // A tap on the title folds the printer's settings, and the folded title names the printer.
+        OrcaSidebarTitle(
+            stringResource(R.string.section_printer) + if (printerFolded) "  |  $printerLabel" else "",
+            DesignR.drawable.orca_printer,
+            modifier = Modifier.clickable(role = Role.Button) { printerFoldedOver = if (printerFolded) null else presets?.selection?.printer?.value },
+        ) {
             // Plater's m_printer_connect: the printers of the network the app
             // sends the sliced G-code to.
             OrcaIconButton(
@@ -2369,10 +2625,13 @@ internal fun PlateSidebarContent(
                 enabled = enabled,
             )
         }
-        OrcaSidebarSection {
+        if (!printerFolded) OrcaSidebarSection {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Sidebar::update_printer_thumbnail(): the cover of the printer's model.
+                PrinterThumbnail(presets?.printerCover.orEmpty())
+                Spacer(Modifier.width(8.dp))
                 OrcaComboField(
-                    text = presets?.printers?.selectedLabel(presets.selection.printer.value).orEmpty(),
+                    text = printerLabel,
                     enabled = enabled,
                     onClick = { openList = PresetList.PRINTERS },
                     modifier = Modifier.weight(1f),
@@ -2385,7 +2644,9 @@ internal fun PlateSidebarContent(
                     enabled = enabled,
                 )
             }
-            if (presets != null && presets.nozzleDiameters.isNotEmpty()) {
+            // Sidebar::priv::layout_printer(): the nozzle of a printer of one
+            // extruder (panel_nozzle_dia), with its type under it (label_nozzle_type).
+            if (presets != null && presets.nozzleDiameters.isNotEmpty() && presets.extruderCount < 2) {
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         stringResource(R.string.nozzle_diameter),
@@ -2393,14 +2654,29 @@ internal fun PlateSidebarContent(
                         style = OrcaTheme.typography.body14,
                         modifier = Modifier.weight(1f),
                     )
-                    OrcaComboBox(
-                        items = presets.nozzleDiameters,
-                        selected = presets.nozzleDiameter,
-                        label = { it },
-                        onSelect = { onChoose(PresetChoice.NozzleDiameter(it)) },
-                        enabled = enabled && presets.nozzleDiameters.size > 1,
-                        modifier = Modifier.width(96.dp),
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        OrcaComboBox(
+                            items = presets.nozzleDiameters,
+                            selected = presets.nozzleDiameter,
+                            label = { it },
+                            onSelect = { onChoose(PresetChoice.NozzleDiameter(it)) },
+                            enabled = enabled && presets.nozzleDiameters.size > 1,
+                            modifier = Modifier.width(96.dp),
+                        )
+                        if (presets.nozzleType.isNotEmpty()) {
+                            Text(
+                                if (presets.nozzleType == "-") "-" else orcaString(presets.nozzleType),
+                                color = OrcaTheme.colors.textSide,
+                                style = OrcaTheme.typography.body12,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .width(96.dp)
+                                    .padding(top = 2.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
                 }
             }
             // Sidebar's plate type (combo_printer_bed), which a Bambu Lab printer and
@@ -2408,6 +2684,14 @@ internal fun PlateSidebarContent(
             if (presets != null && presets.bedTypeSelectable && presets.bedTypes.isNotEmpty()) {
                 val bedLabels = presets.bedTypes.associate { it.value to orcaString(it.label) }
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Sidebar::get_cur_select_bed_image(): the picture of the plate type.
+                    Image(
+                        painterResource(bedTypeThumbnail(presets.bedType)),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(PRINTER_THUMBNAIL),
+                    )
                     Text(
                         orcaString("Bed type"),
                         color = OrcaTheme.colors.textLabel,
@@ -2434,10 +2718,19 @@ internal fun PlateSidebarContent(
         // or a Bambu Lab printer, adds filaments, and with several removes the
         // last one, edits the flushing volumes and has a menu on each slot;
         // another printer's slots each open their own preset.
-        val slotCount = presets?.selection?.allFilaments?.size ?: 0
         val semm = presets?.multiMaterialButtons == true
         val multiMaterial = semm && slotCount > 1
-        OrcaSidebarTitle(stringResource(R.string.section_filament), DesignR.drawable.orca_filament) {
+        // Sidebar::update_presets(): a pellet printer's section is "Pellets";
+        // update_filaments_counter(): the count follows the title while the
+        // list is folded or longer than filaments_area_preferred_count.
+        val pellets = presets?.pelletPrinter == true
+        val filamentTitle = if (pellets) orcaString("Pellets") else stringResource(R.string.section_filament)
+        // A tap on the title folds the filaments.
+        OrcaSidebarTitle(
+            filamentTitle + if (filamentsFolded || slotCount > filamentsPreferredCount) " ($slotCount)" else "",
+            if (pellets) DesignR.drawable.orca_pellets else DesignR.drawable.orca_filament,
+            modifier = Modifier.clickable(role = Role.Button) { filamentsFolded = !filamentsFolded },
+        ) {
             if (multiMaterial) {
                 // set_flushing_volume_warning(): OrcaSlicer's orange marks volumes of the project's own.
                 OrcaIconButton(
@@ -2450,7 +2743,11 @@ internal fun PlateSidebarContent(
                 OrcaIconButton(
                     icon = DesignR.drawable.orca_delete_filament,
                     contentDescription = orcaString("Remove last filament"),
-                    onClick = { filaments.remove(slotCount - 1) },
+                    onClick = {
+                        filamentsFolded = false
+                        revealFilaments = true
+                        filaments.remove(slotCount - 1)
+                    },
                     enabled = enabled,
                 )
             }
@@ -2458,12 +2755,16 @@ internal fun PlateSidebarContent(
                 OrcaIconButton(
                     icon = DesignR.drawable.orca_add_filament,
                     contentDescription = orcaString("Add one filament"),
-                    onClick = filaments.add,
+                    onClick = {
+                        filamentsFolded = false
+                        revealFilaments = true
+                        filaments.add()
+                    },
                     enabled = enabled,
                 )
             }
         }
-        OrcaSidebarSection {
+        if (!filamentsFolded) OrcaSidebarSection {
             val slots = presets?.selection?.allFilaments.orEmpty()
             slots.forEachIndexed { index, slot ->
                 Row(
@@ -2505,7 +2806,10 @@ internal fun PlateSidebarContent(
                             enabled = enabled,
                             onEdit = edit,
                             onMerge = { into -> filaments.merge(index, into) },
-                            onDelete = { filaments.remove(index) },
+                            onDelete = {
+                                revealFilaments = true
+                                filaments.remove(index)
+                            },
                         )
                     } else {
                         OrcaIconButton(
@@ -2568,7 +2872,21 @@ internal fun PlateSidebarContent(
                     onSelect = { onChooseScope(if (it == 0) SettingsScope.GLOBAL else SettingsScope.OBJECT) },
                     enabled = enabled,
                     modifier = Modifier.weight(1f, fill = false),
+                    // "Objects" in the modified colour while an object or a volume has settings of its own.
+                    modifiedIndex = 1.takeIf { objectConfigs },
                 )
+                // ParamsPanel's m_tips_arrow, there while it blinks.
+                arrowShown?.let { shown ->
+                    Icon(
+                        painterResource(DesignR.drawable.orca_tips_arrow),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .alpha(if (shown) 1f else 0f)
+                            .size(OrcaTheme.dimensions.iconSmall),
+                    )
+                }
                 if (!global) {
                     val model = state.modelSettings.settings
                     if (model != null && model.dirty) {
@@ -2584,7 +2902,9 @@ internal fun PlateSidebarContent(
         }
         }
 
-        item(key = "objects") {
+        // Sidebar::show_object_list(): the list and its search bar show in the
+        // objects' mode alone (ParamsPanel::set_active_tab()).
+        if (!global) item(key = "objects") {
             OrcaSidebarTitle(stringResource(R.string.section_objects), DesignR.drawable.orca_split_objects) {
                 // The desktop app adds to its selection with a Ctrl-click; a
                 // phone has no modifier, so the list is switched to picking
@@ -2598,14 +2918,19 @@ internal fun PlateSidebarContent(
                 )
             }
         }
-        objectSearchItems(objectSearch, searchedRows, onChoose = objectList::jumpTo)
-        if (!objectSearch.active) objectListItems(
+        if (!global) objectSearchItems(objectSearch, searchedRows, onChoose = objectList::jumpTo)
+        if (!global && !objectSearch.active) objectListItems(
             state = state,
             enabled = enabled,
+            // ObjectList::show_context_menu() opens nothing over Preview's canvas; the
+            // sidebar of another tab, which the desktop app has none of, neither.
+            preview = !prepareShown,
+            tree = objectTree,
             drag = rowDrag,
             picking = picking,
             filaments = filamentColors,
             menuFilaments = menuFilaments,
+            paintedKinds = state.paintedKinds,
             actions = objectList,
             onChooseShape = { mesh, type -> addingPart = mesh to type },
             // The desktop app edits the heights of the selected range.
@@ -2633,19 +2958,22 @@ internal fun PlateSidebarContent(
         )
 
         // Import Configs and Export Preset Bundle of the desktop app's File menu.
-        SidebarAction(DesignR.drawable.orca_add, stringResource(R.string.config_import), onImportConfig)
-        SidebarAction(DesignR.drawable.orca_save, stringResource(R.string.config_export), onExportConfig)
+        SidebarAction(DesignR.drawable.orca_add, orcaString("Import Configs"), onImportConfig)
+        SidebarAction(DesignR.drawable.orca_save, orcaString("Export Preset Bundle"), onExportConfig)
         // The top menu's Preferences (MainFrame's ConfigMenuPreferences).
         SidebarAction(DesignR.drawable.orca_cog, orcaString("Preferences"), onOpenPreferences)
         // Its Preset Bundle, after Preferences (MainFrame's top menu).
         SidebarAction(DesignR.drawable.orca_menu_edit_preset, orcaString("Preset Bundle"), onOpenPresetBundles)
-        // Help's "Troubleshoot Center", before its "Show Tip of the Day" (generate_help_menu()).
+        // Help's "Setup Wizard" (GUI_App::ShowUserGuide()), first of generate_help_menu()'s items here.
+        SidebarAction(DesignR.drawable.orca_help, orcaString("Setup Wizard")) { onOpenWizard(PresetWizardPage.GUIDE) }
+        // Its "Troubleshoot Center" and "Open Network Test", before "Show Tip of the Day".
         SidebarAction(DesignR.drawable.orca_help, stringResource(R.string.troubleshoot), onOpenTroubleshoot)
+        SidebarAction(DesignR.drawable.orca_help, orcaString("Open Network Test"), onOpenNetworkTest)
         // Help's "Show Tip of the Day" (DailyTipsWindow::open()).
         SidebarAction(DesignR.drawable.orca_help, orcaString("Show Tip of the Day")) { showingTips = true }
         SidebarAction(DesignR.drawable.orca_help, stringResource(R.string.about), onOpenAbout)
         }
-    }
+    })
 
     SettingsTabDialogs(tab)
 
@@ -2718,6 +3046,9 @@ internal fun PlateSidebarContent(
         SettingsSearchSheet(
             mode = process.settings?.mode ?: SettingsMode.SIMPLE,
             loadCatalog = searchCatalog,
+            // Tab::m_btn_search of the process tab (or of an object's, which
+            // edits process settings): Plater::search(false, m_type).
+            kind = PresetKind.PRINT,
             onChoose = { option ->
                 searching = false
                 onOpenSetting(option)
@@ -2812,6 +3143,18 @@ internal fun PlateSidebarContent(
         )
     }
     renaming?.let { request ->
+        if (request is RenameRequest.Plate) {
+            // PlateNameEditDialog, as the plate's own "Edit Plate Name" opens it.
+            PlateNameDialog(
+                name = request.name,
+                onDismiss = { renaming = null },
+                onConfirm = { name ->
+                    renaming = null
+                    objectList.renamePlate(request.index, name)
+                },
+            )
+            return@let
+        }
         RenameDialog(
             name = request.name,
             onDismiss = { renaming = null },
@@ -2820,7 +3163,7 @@ internal fun PlateSidebarContent(
                 when (request) {
                     is RenameRequest.Object -> objectList.rename(request.mesh, name)
                     is RenameRequest.Volume -> objectList.renamePart(request.id, name)
-                    is RenameRequest.Plate -> objectList.renamePlate(request.index, name)
+                    is RenameRequest.Plate -> Unit
                 }
             },
         )
@@ -2914,6 +3257,40 @@ internal fun PlateSidebarContent(
 
 /** The label the combo box shows for its selected entry. */
 private fun List<PresetListItem>.selectedLabel(fallback: String): String = firstOrNull(PresetListItem::selected)?.label ?: fallback
+
+/** PRINTER_THUMBNAIL_SIZE of the sidebar's printer and plate pictures. */
+private val PRINTER_THUMBNAIL = 40.dp
+
+/** The turns of ParamsPanel's Highlighter, and the time between them. */
+private const val ARROW_BLINKS = 11
+private const val ARROW_BLINK_MILLIS = 300L
+
+/** The covers read so far, by their file. */
+private val printerCovers = LruCache<String, ImageBitmap>(8)
+
+/** Sidebar's image_printer: the cover at [path], read off the main thread, or printer_placeholder without one. */
+@Composable
+private fun PrinterThumbnail(path: String) {
+    val cover by produceState(printerCovers.get(path), path) {
+        if (value == null && path.isNotEmpty()) {
+            value = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(path)?.asImageBitmap() }?.also { printerCovers.put(path, it) }
+        }
+    }
+    val modifier = Modifier.size(PRINTER_THUMBNAIL)
+    cover?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = modifier) }
+        ?: Image(painterResource(DesignR.drawable.orca_printer_placeholder), contentDescription = null, modifier = modifier)
+}
+
+/** bed_type_thumbnails of curr_bed_type's value; printer_placeholder for a type without a picture. */
+private fun bedTypeThumbnail(value: String): Int = when (value) {
+    "Cool Plate" -> DesignR.drawable.orca_bed_cool
+    "Engineering Plate" -> DesignR.drawable.orca_bed_engineering
+    "High Temp Plate" -> DesignR.drawable.orca_bed_high_templ
+    "Textured PEI Plate" -> DesignR.drawable.orca_bed_pei
+    "Textured Cool Plate" -> DesignR.drawable.orca_bed_pei_cool
+    "Supertack Plate" -> DesignR.drawable.orca_bed_cool_supertack
+    else -> DesignR.drawable.orca_printer_placeholder
+}
 
 private fun List<PresetListItem>.labelOf(name: String): String = firstOrNull { it.name == name }?.label ?: name
 

@@ -117,12 +117,14 @@ data class EmbossVolume(
  * What the object list asks of the canvas's text or SVG tool: "Edit text" or
  * "Edit SVG" of a volume, or a text or SVG added to an object as a volume of
  * a type, which the canvas places on it as the desktop app places one without
- * a mouse position (start_create_volume_without_position()).
+ * a mouse position (start_create_volume_without_position()); with no [Add.mesh]
+ * an object of its own, which the canvas places under the centre of the view
+ * (start_create_object_job() of the screen's centre).
  */
 sealed interface EmbossRequest {
     data class Edit(val volume: ObjectPartId) : EmbossRequest
 
-    data class Add(val kind: EmbossKind, val mesh: ScenePath, val type: VolumeType) : EmbossRequest
+    data class Add(val kind: EmbossKind, val mesh: ScenePath?, val type: VolumeType) : EmbossRequest
 }
 
 /**

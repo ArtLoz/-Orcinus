@@ -8,6 +8,11 @@
     <string name="section_objects">Objects</string>
     <!-- ObjectDataViewModel: the copies of an object, which OrcaSlicer leaves untranslated ("Instance %d"). -->
     <string name="object_instance_name">Instance %1$d</string>
+    <!-- ObjectDataViewModel's "Instances" item, over the copies of an object. -->
+    <string name="object_instances">Instances</string>
+    <!-- The expander of a container of the object list (wxDataViewCtrl::Expand() and Collapse()). -->
+    <string name="object_list_expand">Expand</string>
+    <string name="object_list_collapse">Collapse</string>
     <!-- MenuFactory::append_menu_item_layers_editing() and the menu of a range's row. -->
     <string name="object_menu_add_range_after">Add range after</string>
     <string name="object_menu_edit_range">Edit heights</string>
@@ -18,11 +23,6 @@
     <string name="object_range_unit">mm</string>
     <string name="object_range_apply">Apply</string>
     <!-- Import Configs and Export Preset Bundle of the desktop app's File menu. -->
-    <string name="config_import">Import Configs</string>
-    <string name="config_export">Export Configs</string>
-    <string name="config_imported">Presets imported: %1$d</string>
-    <string name="config_exported">Files exported: %1$d</string>
-    <string name="config_import_hint">Only user presets compatible with the installed printers. A preset with the same name is replaced.</string>
     <string name="collapse_sidebar">Collapse sidebar</string>
     <string name="expand_sidebar">Expand sidebar</string>
 

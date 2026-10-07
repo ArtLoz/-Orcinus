@@ -27,6 +27,8 @@ fun EntryProviderScope<NavKey>.prepareEntry(
     onOpenSetting: (SearchOption) -> Unit = {},
     /** The object menus' "Edit in Parameter Table": the table opens on the row of the item, or on none. */
     onOpenObjectTable: (SettingsItem?) -> Unit = {},
+    /** The assembly view shows in the 3D view's place, or no longer (Plater::is_view3D_shown()). */
+    onAssemblyViewChange: (Boolean) -> Unit = {},
 ) {
     entry<PrepareNavKey> {
         PrepareRoute(
@@ -36,6 +38,7 @@ fun EntryProviderScope<NavKey>.prepareEntry(
             onOpenSidebar = onOpenSidebar,
             onOpenSetting = onOpenSetting,
             onOpenObjectTable = onOpenObjectTable,
+            onAssemblyViewChange = onAssemblyViewChange,
         )
     }
 }

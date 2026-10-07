@@ -155,9 +155,10 @@ fun PartMenuItems(state: PartMenuState, actions: PartMenuActions, dismiss: () ->
     OrcaMenuItem(text = orcaString("Simplify Model"), enabled = state.canSimplify, onClick = run(actions.simplify))
     // Plater::can_smooth_mesh() goes by the object's meshes.
     if (embossed == null) SmoothMeshItem(enabled = state.canSmooth, onClick = run { actions.edit(ObjectEdit.SMOOTH_MESH) })
-    // append_menu_item_center(), append_menu_item_drop() and append_menu_items_mirror() of the volume.
-    OrcaMenuItem(text = orcaString("Center"), enabled = enabled, onClick = run(actions.center))
-    OrcaMenuItem(text = orcaString("Drop"), enabled = enabled, onClick = run(actions.drop))
+    // append_menu_item_center(), append_menu_item_drop() and append_menu_items_mirror() of the volume;
+    // text_part_menu() has no Drop, and svg_part_menu() neither Center nor Drop.
+    if (embossed != EmbossKind.SVG) OrcaMenuItem(text = orcaString("Center"), enabled = enabled, onClick = run(actions.center))
+    if (embossed == null) OrcaMenuItem(text = orcaString("Drop"), enabled = enabled, onClick = run(actions.drop))
     MirrorSubmenu(enabled = state.canMirror) { axis -> run { actions.mirror(axis) }() }
     // can_split(true): ObjectList::is_splittable(true) refuses a volume, which turns the submenu off.
     if (embossed == null) OrcaSubmenu(text = orcaString("Split"), enabled = false) {
@@ -187,8 +188,9 @@ fun PartMenuItems(state: PartMenuState, actions: PartMenuActions, dismiss: () ->
             )
         }
     }
-    // append_menu_item_reload_from_disk(): Plater::can_reload_from_disk() of the volume.
-    OrcaMenuItem(text = orcaString("Reload from disk"), enabled = state.canReloadFromDisk, onClick = run(actions.reloadFromDisk))
+    // append_menu_item_reload_from_disk(): Plater::can_reload_from_disk() of the volume, which
+    // text_part_menu() and svg_part_menu() do not offer.
+    if (embossed == null) OrcaMenuItem(text = orcaString("Reload from disk"), enabled = state.canReloadFromDisk, onClick = run(actions.reloadFromDisk))
     // Plater::can_replace_with_stl(): the volume is selected alone, of no cut.
     if (embossed == null) OrcaMenuItem(text = orcaString("Replace 3D file") + DOTS, enabled = state.canReplace, onClick = run(actions.replace))
     if (embossed == null) state.conversions.forEach { conversion ->

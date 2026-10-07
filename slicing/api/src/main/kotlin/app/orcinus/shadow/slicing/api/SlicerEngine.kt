@@ -61,6 +61,7 @@ import app.orcinus.shadow.core.model.PaintingOutcome
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateJobProgress
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateValidation
 import app.orcinus.shadow.core.model.Point2
@@ -783,6 +784,26 @@ interface PlateInspector {
     ): PlateInspectionOutcome
 
     /**
+     * placeObjects() as the job numbered [job] (ArrangeJob, OrientJob,
+     * FillBedJob), which [progress] is told of, on any thread, as its
+     * Ctl::update_status() tells; [cancelPlacement] is its Cancel.
+     */
+    suspend fun placeObjects(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        manipulation: PlateManipulation,
+        job: Long,
+        progress: (PlateJobProgress) -> Unit,
+    ): PlateInspectionOutcome = placeObjects(plate, profiles, manipulation)
+
+    /**
+     * The Cancel of the job numbered [job] (Worker::cancel()), which may not
+     * have started yet: it answers PlateInspectionOutcome.Cancelled and places
+     * nothing. It returns at once, from any thread.
+     */
+    fun cancelPlacement(job: Long) = Unit
+
+    /**
      * ObjectList::load_generic_subobject(): one of OrcaSlicer's shapes joins
      * [plateObject] as a part, a negative volume, a modifier, or a support
      * blocker or enforcer. The engine writes the part's mesh to [mesh] and
@@ -858,8 +879,13 @@ interface PresetManager {
     /** The presets the sidebar offers for the selection the engine remembers. */
     suspend fun presets(): PresetsOutcome
 
-    /** Selects a preset as the sidebar does and remembers the selection. */
-    suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction = PresetChangeAction.ASK): PresetsOutcome
+    /**
+     * Selects a preset as the sidebar does and remembers the selection.
+     * Tab::select_preset() asks about the unsaved changes of the edited
+     * preset, then of the presets that depend on it; [answers] are what the
+     * user answered so far, in that order.
+     */
+    suspend fun selectPreset(choice: PresetChoice, answers: List<PresetChangeAction> = emptyList()): PresetsOutcome
 
     /**
      * GUI_App::has_current_preset_changes(): the presets of the process,
@@ -927,6 +953,20 @@ interface PresetManager {
 
     /** Its Delete button: the preset is deleted once the user has answered. */
     suspend fun deleteFilamentPreset(preset: String, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome
+
+    /** Its "Delete" button: every preset of the filament with [filamentId] goes once the user has answered. */
+    suspend fun deleteFilament(filamentId: String, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome =
+        PresetCreationOutcome.Failure("not supported")
+
+    /**
+     * CreatePresetForPrinterDialog, which its "+ Add Preset" opens: the printers
+     * the filament can get a preset for, each with the presets it can copy.
+     */
+    suspend fun filamentPresetSources(filamentId: String): FilamentPresetsOutcome = FilamentPresetsOutcome.Failure("not supported")
+
+    /** Its OK: a preset of the filament for [printer], copied from [preset]. */
+    suspend fun addFilamentPreset(filamentId: String, printer: String, preset: String, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome =
+        PresetCreationOutcome.Failure("not supported")
 
     /** Sidebar::add_custom_filament(): another filament joins the plate, with [color] ("#RRGGBB") or the palette's next one. */
     suspend fun addFilament(color: String? = null): PresetsOutcome

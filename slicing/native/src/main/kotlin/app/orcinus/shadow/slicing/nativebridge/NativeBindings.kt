@@ -13,6 +13,15 @@ internal fun interface NativeLoadProgressListener {
     fun onProgress(percent: Int, file: String): Boolean
 }
 
+/**
+ * Called by the native bridge, possibly from an Orca worker thread, as a job
+ * that places objects updates its status: the job (PlateJob in
+ * orca_engine_adapter.hpp), its percent and the object it got to.
+ */
+internal fun interface NativePlacementProgressListener {
+    fun onProgress(job: Int, percent: Int, name: String)
+}
+
 /** Constructed by the native bridge; field order matches native_bridge.cpp. */
 internal class NativeSliceResult(
     @JvmField val status: Long,
@@ -84,6 +93,13 @@ internal class NativePlateDescription(
     @JvmField val buildVolumeType: Int,
     @JvmField val circle: DoubleArray,
     @JvmField val hotendModelMesh: String,
+    @JvmField val defaultBed: Boolean,
+    @JvmField val bedTypeLogo: Boolean,
+    /** What every picture of the plate shows (BedLogoKind), its plate type, its rectangle (x, y, width, height) and its PNG. */
+    @JvmField val logoKinds: IntArray,
+    @JvmField val logoBedTypes: Array<String>,
+    @JvmField val logoRects: DoubleArray,
+    @JvmField val logoTextures: Array<String>,
 )
 
 /** Constructed by the native bridge; see WipeTowerState in orca_engine_adapter.hpp. */
@@ -170,6 +186,10 @@ internal class NativePlateInspection(
     @JvmField val plates: Int,
     /** After arranging, the plate's indexes in the objects' new order; empty when it stays. */
     @JvmField val objectOrder: IntArray,
+    /** The job was cancelled and placed nothing; [objects] is empty. */
+    @JvmField val cancelled: Boolean,
+    /** The objects without area the arrangement told of (ArrangeJob::check_unprintable()). */
+    @JvmField val zeroSizeObjects: Array<String>,
 )
 
 /** Constructed by the native bridge: place_instance(). */
@@ -207,6 +227,7 @@ internal class NativePresetItem(
     @JvmField val subgroup: String,
     @JvmField val subgroupMsgid: Boolean,
     @JvmField val selected: Boolean,
+    @JvmField val color: String,
 )
 
 /** Constructed by the native bridge; see SliceNotice in orca_engine_adapter.hpp. */
@@ -251,6 +272,15 @@ internal class NativePresetState(
     @JvmField val saveName: String,
     @JvmField val saveNameCopySuffix: Boolean,
     @JvmField val saveCanOverwrite: Boolean,
+    @JvmField val changedPreset: String,
+    @JvmField val transferDropsVariants: Boolean,
+    @JvmField val cancelSelects: Boolean,
+    @JvmField val tabPrinters: Array<NativePresetItem>,
+    @JvmField val tabFilaments: Array<NativePresetItem>,
+    @JvmField val printerCover: String,
+    @JvmField val nozzleType: String,
+    @JvmField val extruderCount: Int,
+    @JvmField val pelletPrinter: Boolean,
 )
 
 /** Constructed by the native bridge; see DirtyPreset in orca_engine_adapter.hpp. */
@@ -385,6 +415,7 @@ internal class NativeSettingsLine(
     @JvmField val widget: Long,
     @JvmField val hasOverride: Boolean,
     @JvmField val options: Array<NativeSettingsLineOption>,
+    @JvmField val labelPath: String,
 )
 
 /** Constructed by the native bridge; see SettingsGroup in orca_engine_adapter.hpp. */
@@ -400,6 +431,7 @@ internal class NativeSettingsPage(
     @JvmField val label: Array<NativeUiText>,
     @JvmField val icon: String,
     @JvmField val groups: Array<NativeSettingsGroup>,
+    @JvmField val modified: Boolean,
 )
 
 /** Constructed by the native bridge; see SettingState in orca_engine_adapter.hpp. */
@@ -655,6 +687,10 @@ internal class NativePlateValidation(
     /** PlateNoticeKind of every warning of the plate's filaments, and its text. */
     @JvmField val noticeKinds: IntArray,
     @JvmField val noticeTexts: Array<String>,
+    /** Every copy's outline about its offset (point counts, then x and y), and its top. */
+    @JvmField val copyHullCounts: IntArray,
+    @JvmField val copyHulls: DoubleArray,
+    @JvmField val copyTops: DoubleArray,
 )
 
 internal class NativeThumbnailSizes(
@@ -1198,6 +1234,7 @@ internal object NativePresetChangeAction {
     const val ASK = 0L
     const val TRANSFER = 1L
     const val DISCARD = 2L
+    const val CANCEL = 3L
 }
 
 /** Constructed by the native bridge; see GcodeLoad in orca_engine_adapter.hpp. */
@@ -2217,6 +2254,7 @@ internal object NativeBindings {
         arrangeEnableRotation: Boolean,
         arrangeAllowMultiMaterials: Boolean,
         arrangeAlignToYAxis: Boolean,
+        arrangeAvoidExtrusionCaliRegion: Boolean,
         selectedInstance: Int,
         /** One flag per plate, set for a locked one. */
         lockedPlates: BooleanArray,
@@ -2224,7 +2262,14 @@ internal object NativeBindings {
         plateSettingKeys: Array<String>,
         plateSettingValues: Array<String>,
         plateSettingCounts: IntArray,
+        /** Told of the job's progress; null for none. */
+        progressListener: NativePlacementProgressListener?,
+        /** The job's number for [cancelPlacement], 0 for one that cannot be cancelled. */
+        job: Long,
     ): NativePlateInspection
+
+    /** Worker::cancel() of the placing job numbered [job], which may not have started yet; returns at once. */
+    external fun cancelPlacement(job: Long)
 
     /** ObjectList::load_generic_subobject(): a shape added to the object as a part. */
     external fun addObjectPart(
@@ -2265,8 +2310,8 @@ internal object NativeBindings {
 
     external fun describePresets(): NativePresetState
 
-    /** [choice]: NativePresetChoice. */
-    external fun selectPreset(choice: Long, value: String, action: Long): NativePresetState
+    /** [choice]: NativePresetChoice; [answers]: NativePresetChangeAction of every question answered so far. */
+    external fun selectPreset(choice: Long, value: String, answers: LongArray): NativePresetState
 
     /** dirty_presets(), discard_preset_changes() and reset_project_presets(). */
     external fun dirtyPresets(): NativeDirtyPresets
@@ -2454,6 +2499,21 @@ internal object NativeBindings {
 
     /** Its Delete button. */
     external fun deleteFilamentPreset(preset: String, answerIds: Array<String>, answers: BooleanArray): NativePresetCreation
+
+    /** Its "Delete" button: every preset of the filament. */
+    external fun deleteFilament(filamentId: String, answerIds: Array<String>, answers: BooleanArray): NativePresetCreation
+
+    /** CreatePresetForPrinterDialog: the printers and the presets each of them can copy. */
+    external fun filamentPresetSources(filamentId: String): NativeFilamentPresets
+
+    /** Its OK. */
+    external fun addFilamentPreset(
+        filamentId: String,
+        printer: String,
+        preset: String,
+        answerIds: Array<String>,
+        answers: BooleanArray,
+    ): NativePresetCreation
 
     /** ExportConfigsDialog: what it offers for an export kind. */
     external fun configExportOptions(kind: Long): NativeConfigExportOptions

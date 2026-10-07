@@ -71,6 +71,8 @@ import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
+import app.orcinus.shadow.core.model.PlateJob
+import app.orcinus.shadow.core.model.PlateJobProgress
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateProblem
@@ -165,6 +167,7 @@ import app.orcinus.shadow.storage.api.PlateCache
 import app.orcinus.shadow.storage.api.ProjectBackup
 import app.orcinus.shadow.storage.api.SceneFiles
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -494,7 +497,12 @@ class SelectPresetUseCase(
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
-    operator fun invoke(choice: PresetChoice, action: PresetChangeAction = PresetChangeAction.ASK) {
+    /**
+     * Tab::select_preset() of [choice], which asks about the unsaved changes
+     * of the edited preset, then of the presets that depend on it; [answers]
+     * are what the user answered so far.
+     */
+    operator fun invoke(choice: PresetChoice, answers: List<PresetChangeAction> = emptyList()) {
         var before: SlicingProfileSelection? = null
         repository.update { state ->
             before = null
@@ -503,7 +511,7 @@ class SelectPresetUseCase(
             state.copy(changingPresets = true, problem = null, presetChange = null)
         }
         val selection = before ?: return
-        applicationScope.launch { select(choice, action, selection) }
+        applicationScope.launch { select(choice, answers, selection) }
     }
 
     /**
@@ -553,20 +561,7 @@ class SelectPresetUseCase(
                 repository.update { it.copy(changingPresets = true) }
                 val outcome = presetManager.transferPresetOptions(transfer.kind, transfer.from, transfer.to, transfer.options)
                 if (outcome is PresetsOutcome.UnsavedChanges) {
-                    repository.update { state ->
-                        state.copy(
-                            changingPresets = false,
-                            presetChange = PendingPresetChange(
-                                choice = transfer.choice(),
-                                kind = outcome.kind,
-                                changes = outcome.changes,
-                                canTransfer = outcome.canTransfer,
-                                saveName = outcome.saveName,
-                                saveNameCopySuffix = outcome.saveNameCopySuffix,
-                                saveCanOverwrite = outcome.saveCanOverwrite,
-                            ),
-                        )
-                    }
+                    repository.update { state -> state.copy(changingPresets = false, presetChange = outcome.pending(transfer.choice(), emptyList())) }
                     return@launch
                 }
                 platePresets.apply(start, outcome)
@@ -578,6 +573,21 @@ class SelectPresetUseCase(
         }
     }
 
+    /** The question of [choice] that waits, after [answers]. */
+    private fun PresetsOutcome.UnsavedChanges.pending(choice: PresetChoice, answers: List<PresetChangeAction>) = PendingPresetChange(
+        choice = choice,
+        kind = kind,
+        changes = changes,
+        canTransfer = canTransfer,
+        saveName = saveName,
+        saveNameCopySuffix = saveNameCopySuffix,
+        saveCanOverwrite = saveCanOverwrite,
+        answers = answers,
+        presetName = presetName,
+        transferDropsVariants = transferDropsVariants,
+        cancelSelects = cancelSelects,
+    )
+
     /** The preset the transfer selects, as the sidebar would select it. */
     private fun PresetTransfer.choice(): PresetChoice = when (kind) {
         PresetKind.PRINTER -> PresetChoice.Printer(ProfileId(to))
@@ -587,16 +597,18 @@ class SelectPresetUseCase(
 
     /**
      * The Transfer and Discard buttons of the unsaved-changes dialog: the
-     * choice that waits runs again with what happens to the changes.
+     * choice that waits runs again with what happens to the changes, which
+     * the engine applies once every question is answered.
      */
     fun resolve(action: PresetChangeAction) {
         val pending = repository.state.value.presetChange ?: return
-        invoke(pending.choice, action)
+        invoke(pending.choice, pending.answers + action)
     }
 
     /**
      * Its Save button: the changes are saved as [save] says, which leaves the
-     * preset unmodified, and the choice that waits runs.
+     * preset unmodified, so the choice that waits runs with the answers before
+     * it (UnsavedChangesDialog::save() saves before the next question).
      */
     fun save(save: PresetSave) {
         val pending = repository.state.value.presetChange ?: return
@@ -611,30 +623,30 @@ class SelectPresetUseCase(
         applicationScope.launch {
             settingsTabs.save(pending.kind, save)
             // The saved preset has no changes left; the selection asks about the next one that has.
-            select(pending.choice, PresetChangeAction.ASK, before)
+            select(pending.choice, pending.answers, before)
         }
     }
 
-    /** Its Cancel button: nothing is selected, and the changes stay. */
-    fun cancelPresetChange() = repository.update { it.copy(presetChange = null) }
+    /**
+     * Its Cancel button: nothing is selected and the changes stay, unless the
+     * question was about a preset that depends on the selected one and suits
+     * the new one, which Tab::select_preset() goes on with.
+     */
+    fun cancelPresetChange() {
+        val pending = repository.state.value.presetChange ?: return
+        if (pending.cancelSelects) {
+            invoke(pending.choice, pending.answers + PresetChangeAction.CANCEL)
+        } else {
+            repository.update { it.copy(presetChange = null) }
+        }
+    }
 
-    private suspend fun select(choice: PresetChoice, action: PresetChangeAction, before: SlicingProfileSelection) {
-        when (val outcome = presetManager.selectPreset(choice, action)) {
+    private suspend fun select(choice: PresetChoice, answers: List<PresetChangeAction>, before: SlicingProfileSelection) {
+        when (val outcome = presetManager.selectPreset(choice, answers)) {
             // Tab::may_discard_current_dirty_preset(): the app asks the user
-            // what happens to the changes, and selects again with the answer.
+            // what happens to the changes, and selects again with the answers.
             is PresetsOutcome.UnsavedChanges -> repository.update { state ->
-                state.copy(
-                    changingPresets = false,
-                    presetChange = PendingPresetChange(
-                        choice = choice,
-                        kind = outcome.kind,
-                        changes = outcome.changes,
-                        canTransfer = outcome.canTransfer,
-                        saveName = outcome.saveName,
-                        saveNameCopySuffix = outcome.saveNameCopySuffix,
-                        saveCanOverwrite = outcome.saveCanOverwrite,
-                    ),
-                )
+                state.copy(changingPresets = false, presetChange = outcome.pending(choice, answers))
             }
             else -> {
                 platePresets.apply(before, outcome)
@@ -700,6 +712,17 @@ class CustomFilamentsUseCase(
     /** Its Delete button. */
     suspend fun deletePreset(preset: String, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome =
         presetManager.deleteFilamentPreset(preset, answers).also { follow(it) }
+
+    /** Its "Delete" button: every preset of the filament. */
+    suspend fun deleteFilament(filamentId: String, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome =
+        presetManager.deleteFilament(filamentId, answers).also { follow(it) }
+
+    /** CreatePresetForPrinterDialog, which its "+ Add Preset" opens: the printers and the presets each of them can copy. */
+    suspend fun presetSources(filamentId: String): FilamentPresetsOutcome = presetManager.filamentPresetSources(filamentId)
+
+    /** Its OK: a preset of the filament for [printer], copied from [preset]. */
+    suspend fun addPreset(filamentId: String, printer: String, preset: String, answers: Map<String, Boolean> = emptyMap()): PresetCreationOutcome =
+        presetManager.addFilamentPreset(filamentId, printer, preset, answers).also { follow(it) }
 
     private suspend fun follow(outcome: PresetCreationOutcome) {
         if (outcome is PresetCreationOutcome.Success) {
@@ -1325,7 +1348,7 @@ class AddModelToPlateUseCase(
                             selectedRange = null,
                             result = if (added.isEmpty()) state.result else null,
                             previewOnly = if (added.isEmpty()) state.previewOnly else null,
-                        )
+                        ).joiningPlates(added)
                     }
                 }
                 is ModelLoadOutcome.Question -> informed.copy(
@@ -1537,7 +1560,7 @@ class AddPrimitiveUseCase(
                         selectedPart = null,
                         selectedRange = null,
                         result = null,
-                    )
+                    ).joiningPlates(added)
                     else -> state.copy(
                         importing = false,
                         problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, (outcome as? ModelLoadOutcome.Failure)?.message),
@@ -1613,7 +1636,7 @@ private class PlateObjectLoader(
                             selectedPart = null,
                             selectedRange = null,
                             result = null,
-                        )
+                        ).joiningPlates(listOf(it))
                     },
                     onFailure = { state.copy(importing = false, problem = PlateProblem(PlateProblemKind.IMPORT_FAILED, it.message)) },
                 )
@@ -1657,6 +1680,8 @@ class PlacePlateObjectUseCase(
         gizmoAction: Boolean = false,
     ) {
         var request: Triple<PlateObject, Transform3, SlicingProfileSelection>? = null
+        // The copy where it stood, which leaves its plate or not.
+        var stood: PlateInstance? = null
         repository.update { state ->
             request = null
             val target = state.objects.withMesh(id.mesh)
@@ -1668,6 +1693,7 @@ class PlacePlateObjectUseCase(
             }
             val moved = target.with(id.instance, copy.inspection.copy(placement = placement), placing = true)
             request = Triple(moved, copy.inspection.placement, profiles)
+            stood = copy
             // G-code no longer applies once the copy stands elsewhere.
             (if (record) state.recorded(gizmoAction = gizmoAction) else state)
                 .copy(objects = state.objects.replaced(moved), result = state.result.takeIf { placement == copy.inspection.placement })
@@ -1709,7 +1735,7 @@ class PlacePlateObjectUseCase(
                                 },
                             ),
                             result = state.result.takeIf { outcome.inspection.placement == previous && followed.isEmpty() },
-                        )
+                        ).joiningPlate(id.mesh, id.instance, stood)
                     }
                     is ModelInspectionOutcome.Failure -> state.copy(
                         objects = state.objects.replaced(current.with(id.instance, copy.inspection, placing = false)),
@@ -1737,12 +1763,29 @@ class PlacePlateObjectUseCase(
  * The answer applies to every object that still stands where it stood when the
  * job began, so an object the user moved or deleted meanwhile keeps the user's
  * change. G-code sliced before no longer applies once an object moved.
+ *
+ * While ArrangeJob, OrientJob or FillBedJob runs, the plate shows its progress
+ * as its notification does (NotificationProgressIndicator), and [cancel] is
+ * the notification's Cancel. Judging the fit for another printer is no job.
  */
 class PlacePlateObjectsUseCase(
     private val placeModels: PlaceModelsUseCase,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
 ) {
+    /** The number of the last job, which its Cancel names. */
+    private val jobs = AtomicLong()
+
+    /** The number of the job that runs; 0 while none runs. */
+    @Volatile
+    private var running = 0L
+
+    /** Worker::cancel() of the job that runs: it stops and its finalize() places nothing. */
+    fun cancel() {
+        val job = running
+        if (job != 0L) placeModels.cancel(job)
+    }
+
     /**
      * [skipLockedPlates] off when the job works on the current plate alone
      * (OrientJob's prepare_partplate()), which leaves no plate out.
@@ -1762,6 +1805,8 @@ class PlacePlateObjectsUseCase(
     private fun start(asked: PlateManipulation, skipLockedPlates: Boolean, settle: (PlateState) -> PlateState?) {
         var request: Triple<List<PlateObject>, Set<ScenePath>, SlicingProfileSelection>? = null
         var manipulation = asked
+        val kind = asked.job()
+        val job = if (kind != null) jobs.incrementAndGet() else 0L
         repository.update { current ->
             request = null
             val state = settle(current) ?: return@update current
@@ -1786,17 +1831,19 @@ class PlacePlateObjectsUseCase(
                 objects = state.objects.map { target ->
                     if (target.mesh !in targets) target else target.withInstances(target.instances.map { it.copy(placing = true) })
                 },
-            )
+            ).let { placing -> if (kind == null) placing else placing.startingJob(kind, job) }
         }
         val (plate, targets, profiles) = request ?: return
+        if (kind != null) running = job
         applicationScope.launch {
             val outcome = try {
-                placeModels(plate.map { it.placed() }, profiles, manipulation)
+                placeModels(plate.map { it.placed() }, profiles, manipulation, job, kind?.let { { told: PlateJobProgress -> progress(job, told) } })
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
                 PlateInspectionOutcome.Failure(error.message.orEmpty())
             }
+            if (running == job) running = 0L
             repository.update { state ->
                 var moved = false
                 val objects = state.objects.map { current ->
@@ -1840,9 +1887,62 @@ class PlacePlateObjectsUseCase(
                 // did not hold, then rebuild_plates_after_arrangement() recycles
                 // the empty ones at the end.
                 val plates = (outcome as? PlateInspectionOutcome.Success)?.plates
-                if (manipulation is PlateManipulation.Arrange && plates != null) placed.withArrangedPlates(plates) else placed
+                val arranged = if (manipulation is PlateManipulation.Arrange && plates != null) placed.withArrangedPlates(plates) else placed
+                if (kind == null) arranged else arranged.finishingJob(job, outcome)
             }
         }
+    }
+
+    /**
+     * Ctl::update_status() of the job numbered [job] while it runs. A bed fill
+     * goes on as an arrangement (FillBedJob::finalize()), whose prepare()
+     * pushes "Arranging..." and closes the plate's info notifications.
+     */
+    private fun progress(job: Long, told: PlateJobProgress) {
+        if (running != job) return
+        repository.update { state ->
+            val shown = state.plateJob ?: return@update state
+            val arranging = told.job == PlateJob.ARRANGE && shown.job != PlateJob.ARRANGE
+            state.copy(
+                plateJob = told,
+                arrangeOngoing = if (arranging) job else state.arrangeOngoing,
+                zeroSizeObjects = if (arranging) emptyList() else state.zeroSizeObjects,
+                problem = state.problem.takeUnless { arranging && it?.kind in PLATE_INFO },
+            )
+        }
+    }
+
+    /**
+     * The progress of the job numbered [job] shows from its start. ArrangeJob's
+     * prepare() pushes "Arranging...", and it and OrientJob's close the plate's
+     * info notifications (bbl_close_plateinfo_notification()).
+     */
+    private fun PlateState.startingJob(kind: PlateJob, job: Long): PlateState {
+        val closesInfo = kind != PlateJob.FILL_BED
+        return copy(
+            plateJob = PlateJobProgress(kind),
+            arrangeOngoing = if (kind == PlateJob.ARRANGE) job else arrangeOngoing,
+            zeroSizeObjects = if (closesInfo) emptyList() else zeroSizeObjects,
+            problem = problem.takeUnless { closesInfo && it?.kind in PLATE_INFO },
+        )
+    }
+
+    /**
+     * The job's progress closes at its end. ArrangeJob::finalize() closes
+     * "Arranging..." unless the job was cancelled or failed, and
+     * check_unprintable() told of every object without area.
+     */
+    private fun PlateState.finishingJob(job: Long, outcome: PlateInspectionOutcome): PlateState = copy(
+        plateJob = null,
+        arrangeOngoing = arrangeOngoing.takeUnless { it == job && outcome is PlateInspectionOutcome.Success },
+        zeroSizeObjects = zeroSizeObjects + (outcome as? PlateInspectionOutcome.Success)?.zeroSizeObjects.orEmpty(),
+    )
+
+    private fun PlateManipulation.job(): PlateJob? = when (this) {
+        is PlateManipulation.AutoOrient -> PlateJob.ORIENT
+        is PlateManipulation.Arrange, is PlateManipulation.ArrangePlate -> PlateJob.ARRANGE
+        is PlateManipulation.FillBed -> PlateJob.FILL_BED
+        PlateManipulation.UpdatePrintVolume -> null
     }
 
     /**
@@ -2145,11 +2245,41 @@ class SetGizmoOpenUseCase(private val repository: PlateRepository) {
  * The switch over the settings (ParamsPanel::m_mode_region): the presets, or
  * the settings of the plate and of the selected object.
  */
-class SetSettingsScopeUseCase(private val repository: PlateRepository) {
+class SetSettingsScopeUseCase(
+    private val repository: PlateRepository,
+    /** do_not_show_object_process_tips: the "Edit Process Settings" tip was turned off. */
+    private val objectProcessTipsOff: () -> Boolean = { true },
+) {
     operator fun invoke(scope: SettingsScope) = repository.update { state ->
         if (state.settingsScope == scope) state else state.copy(settingsScope = scope)
     }
+
+    /**
+     * ObjectList::switch_to_object_process() of the menus' "Edit Process
+     * Settings": the settings of the selection are shown, the switch's arrow
+     * blinks (ParamsPanel::switch_to_object(true)), and the TipsDialog tells
+     * of it until "Don't show again" turns it off.
+     */
+    fun objectProcess() = repository.update { state ->
+        state.copy(
+            settingsScope = SettingsScope.OBJECT,
+            objectProcessHints = state.objectProcessHints + 1,
+            plateNotices = if (objectProcessTipsOff()) state.plateNotices else state.plateNotices + OBJECT_PROCESS_TIP,
+        )
+    }
 }
+
+/** ObjectList::switch_to_object_process()'s TipsDialog. */
+internal val OBJECT_PROCESS_TIP = SettingsDialog(
+    id = AppConfigKeys.DO_NOT_SHOW_OBJECT_PROCESS_TIPS,
+    icon = DialogIcon.INFO,
+    title = listOf(OrcaText("Edit Process Settings")),
+    text = listOf(OrcaText("Switch to per-object setting mode to edit process settings of selected objects.")),
+    question = false,
+    yes = OrcaText("OK"),
+    no = null,
+    checkbox = OrcaText("Don't show again"),
+)
 
 /**
  * ObjectList::load_generic_subobject(): one of OrcaSlicer's shapes joins the
@@ -2928,12 +3058,24 @@ class AddLayerRangeUseCase(private val repository: PlateRepository, private val 
 
 /** ObjectList::del_layer_range(): the range leaves the object. */
 class RemoveLayerRangeUseCase(private val repository: PlateRepository) {
-    operator fun invoke(id: LayerRangeId) = repository.update { state ->
-        val target = state.objects.withMesh(id.mesh)
-        if (target == null || target.layerRanges.getOrNull(id.index) == null || state.busy) return@update state
+    operator fun invoke(id: LayerRangeId) = remove(id.mesh, setOf(id.index))
+
+    /** ObjectList::remove() of the height ranges the list holds selected: "Delete selected", as one step of Undo. */
+    fun selected() {
+        val ranges = repository.state.value.selectedRanges()
+        ranges.firstOrNull()?.let { first -> remove(first.mesh, ranges.mapTo(HashSet(), LayerRangeId::index)) }
+    }
+
+    /** del_subobject_item() of the "Layers" row (del_layers_from_object()): every range of the object goes. */
+    fun all(mesh: ScenePath) = remove(mesh, repository.state.value.objects.withMesh(mesh)?.layerRanges?.indices?.toSet().orEmpty())
+
+    private fun remove(mesh: ScenePath, indexes: Set<Int>) = repository.update { state ->
+        val target = state.objects.withMesh(mesh)
+        if (target == null || indexes.isEmpty() || indexes.any { target.layerRanges.getOrNull(it) == null } || state.busy) return@update state
         state.recorded().copy(
-            selectedRange = state.selectedRange?.takeUnless { it.mesh == id.mesh && it.index >= id.index },
-            objects = state.objects.replaced(target.withLayerRanges(target.layerRanges.filterIndexed { at, _ -> at != id.index })),
+            selectedRange = state.selectedRange?.takeUnless { it.mesh == mesh && it.index >= indexes.min() },
+            selectedRangeGroup = emptySet(),
+            objects = state.objects.replaced(target.withLayerRanges(target.layerRanges.filterIndexed { at, _ -> at !in indexes })),
             result = null,
         )
     }
@@ -2963,6 +3105,7 @@ class EditLayerRangeUseCase(private val repository: PlateRepository) {
         val updated = target.withLayerRanges(others + moved)
         state.recorded().copy(
             selectedRange = LayerRangeId(id.mesh, updated.layerRanges.indexOfFirst { it === moved }),
+            selectedRangeGroup = emptySet(),
             objects = state.objects.replaced(updated),
             result = null,
         )
@@ -2975,6 +3118,15 @@ class EditLayerRangeUseCase(private val repository: PlateRepository) {
         const val TOP_ABOVE_BOTTOM = 0.5
     }
 }
+
+/** The warnings of ArrangeJob and OrientJob that are BBLPlateInfo notifications, which their next run closes. */
+private val PLATE_INFO = setOf(
+    PlateProblemKind.PLATE_LOCKED_ARRANGE,
+    PlateProblemKind.PLATE_LOCKED_ORIENT,
+    PlateProblemKind.SELECTION_LOCKED_ARRANGE,
+    PlateProblemKind.SELECTION_LOCKED_ORIENT,
+    PlateProblemKind.NO_ARRANGEABLE_OBJECTS,
+)
 
 /**
  * ArrangeJob::prepare_all() and OrientJob::prepare_selection(): the copies on
@@ -3016,6 +3168,7 @@ class SelectLayerRangeUseCase(private val repository: PlateRepository) {
                 selectedInstances = setOf(PlateInstanceId(target.mesh)),
                 selectedPart = null,
                 selectedRange = target,
+                selectedRangeGroup = emptySet(),
                 layerRangeEditor = LayerRangeEditor.LAYER_HEIGHT,
             )
         }
@@ -3034,10 +3187,16 @@ class SelectLayerRangeUseCase(private val repository: PlateRepository) {
  * one of the same heights.
  */
 class CopyLayerRangesUseCase(private val repository: PlateRepository) {
-    operator fun invoke(id: LayerRangeId) = repository.update { state ->
-        val range = state.objects.withMesh(id.mesh)?.layerRanges?.getOrNull(id.index) ?: return@update state
-        val kept = state.listClipboard?.ranges.orEmpty().filterNot { it.bottom == range.bottom && it.top == range.top }
-        state.copy(listClipboard = ListClipboard(holdsRanges = true, ranges = (kept + range).sortedWith(RANGE_ORDER)))
+    operator fun invoke(id: LayerRangeId) = copy(listOf(id))
+
+    /** The range rows the list holds selected, each added in turn. */
+    fun selected() = copy(repository.state.value.selectedRanges())
+
+    private fun copy(ids: List<LayerRangeId>) = repository.update { state ->
+        val ranges = ids.mapNotNull { id -> state.objects.withMesh(id.mesh)?.layerRanges?.getOrNull(id.index) }
+        if (ranges.isEmpty()) return@update state
+        val kept = state.listClipboard?.ranges.orEmpty().filterNot { cached -> ranges.any { it.bottom == cached.bottom && it.top == cached.top } }
+        state.copy(listClipboard = ListClipboard(holdsRanges = true, ranges = (kept + ranges).sortedWith(RANGE_ORDER)))
     }
 
     /** The "Layers" row: every range of the object with the [mesh] file. */
@@ -3483,6 +3642,11 @@ class DismissPlateProblemUseCase(private val repository: PlateRepository) {
         repository.update { if (it.exportFinished != null) it.copy(exportFinished = null) else it }
     }
 
+    /** A notice the 3D view shows as a notification (SettingsDialog.notificationLevel) closes, by its button or after its time. */
+    fun notice(notice: SettingsDialog) {
+        repository.update { if (notice in it.plateNotices) it.copy(plateNotices = it.plateNotices - notice) else it }
+    }
+
     /** The close button of the advice to simplify the object of [mesh]. */
     fun simplifySuggestion(mesh: ScenePath) {
         repository.update { if (mesh in it.simplifySuggestions) it.copy(simplifySuggestions = it.simplifySuggestions - mesh) else it }
@@ -3499,6 +3663,18 @@ class DismissPlateProblemUseCase(private val repository: PlateRepository) {
     /** The close button of "Configuration package: ... updated to ...". */
     fun profileUpdateInstalled(update: ProfileUpdate) {
         repository.update { if (update in it.profileUpdatesInstalled) it.copy(profileUpdatesInstalled = it.profileUpdatesInstalled - update) else it }
+    }
+
+    /** "Arranging..." of the job numbered [job] closes, by its close button or after its time. */
+    fun arrangeOngoing(job: Long) {
+        repository.update { if (it.arrangeOngoing == job) it.copy(arrangeOngoing = null) else it }
+    }
+
+    /** The close button of the warning of the object without area at [index] among them. */
+    fun zeroSizeObject(index: Int) {
+        repository.update { state ->
+            if (index !in state.zeroSizeObjects.indices) state else state.copy(zeroSizeObjects = state.zeroSizeObjects.filterIndexed { at, _ -> at != index })
+        }
     }
 }
 

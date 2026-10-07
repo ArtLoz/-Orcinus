@@ -14,13 +14,14 @@ class ObjectListSearchTest {
         assertEquals(
             listOf(
                 "Plate 1",
-                "Plate 1:Quality",
                 "Plate 1:Cube",
                 "Plate 1:Cube:Cube",
-                "Plate 1:Cube:Cube:Strength",
                 "Plate 1:Cube:Cylinder",
                 "Plate 1:Cube:Layers",
                 "Plate 1:Cube:Layers:Range 0.00-2.00 (mm)",
+                "Plate 1:Cube:Instances",
+                "Plate 1:Cube:Instances:Instance 1",
+                "Plate 1:Cube:Instances:Instance 2",
                 "Outside",
                 "Outside:Cone",
             ),
@@ -42,7 +43,7 @@ class ObjectListSearchTest {
     fun `the text is found whatever its case, every place it stands in marked`() {
         val found = ObjectListSearch.search(ObjectListSearch.names(TREE), "cUbE")
 
-        assertEquals(listOf(2, 3, 4, 5, 6, 7), found.map { it.row })
+        assertEquals(listOf(1, 2, 3, 4, 5, 6, 7, 8), found.map { it.row })
         val part = found.first { it.name == "Plate 1:Cube:Cube" }
         assertEquals(ObjectListTarget.Part(ObjectPartId(MESH, 0)), part.target)
         assertEquals(listOf(8..11, 13..16), part.matches)
@@ -69,21 +70,24 @@ class ObjectListSearchTest {
                 ObjectListTarget.Plate(0),
                 "Plate 1",
                 listOf(
-                    ObjectListNode(ObjectListTarget.PlateSettings(0), "Quality"),
                     ObjectListNode(
                         ObjectListTarget.Object(PlateInstanceId(MESH)),
                         "Cube",
                         listOf(
-                            ObjectListNode(
-                                ObjectListTarget.Part(ObjectPartId(MESH, 0)),
-                                "Cube",
-                                listOf(ObjectListNode(ObjectListTarget.PartSettings(ObjectPartId(MESH, 0)), "Strength")),
-                            ),
+                            ObjectListNode(ObjectListTarget.Part(ObjectPartId(MESH, 0)), "Cube"),
                             ObjectListNode(ObjectListTarget.Part(ObjectPartId(MESH, 1)), "Cylinder"),
                             ObjectListNode(
                                 ObjectListTarget.Layers(MESH),
                                 "Layers",
                                 listOf(ObjectListNode(ObjectListTarget.Range(LayerRangeId(MESH, 0)), "Range 0.00-2.00 (mm)")),
+                            ),
+                            ObjectListNode(
+                                ObjectListTarget.Instances(MESH),
+                                "Instances",
+                                listOf(
+                                    ObjectListNode(ObjectListTarget.Copy(PlateInstanceId(MESH, 0)), "Instance 1"),
+                                    ObjectListNode(ObjectListTarget.Copy(PlateInstanceId(MESH, 1)), "Instance 2"),
+                                ),
                             ),
                         ),
                     ),

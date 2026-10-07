@@ -4,11 +4,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -17,15 +17,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
-import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.designsystem.component.LocalOrcaNotificationLabels
 import app.orcinus.shadow.core.designsystem.component.OrcaNotification
+import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLabels
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLink
 import app.orcinus.shadow.core.designsystem.component.OrcaNotificationText
@@ -38,6 +38,22 @@ import app.orcinus.shadow.core.ui.orca.OrcaHintsFile
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
 import kotlinx.coroutines.delay
+
+/**
+ * The labels of every notification in [content], in the app's language:
+ * OrcaSlicer's "Close" and "More", and the minimize button's own.
+ */
+@Composable
+fun ProvideOrcaNotificationLabels(content: @Composable () -> Unit) {
+    CompositionLocalProvider(
+        LocalOrcaNotificationLabels provides OrcaNotificationLabels(
+            close = orcaString("Close"),
+            more = orcaString("More"),
+            minimize = stringResource(R.string.notification_minimize),
+        ),
+        content = content,
+    )
+}
 
 /**
  * SlicingProgressNotification's completed state: the complete icon and
@@ -92,7 +108,7 @@ private fun SliceEndedNotification(count: Int, sliceRunning: Boolean, tips: (@Co
             touches++
         }
     }
-    OrcaNotification(modifier = touched, action = { CloseButton { shown = false } }) {
+    OrcaNotification(modifier = touched, onClose = { shown = false }, collapsible = false) {
         content()
         // The daily tips stay under the completed and the cancelled state.
         tips?.invoke()
@@ -138,7 +154,7 @@ fun ExportFinishedNotification(name: String, onClose: () -> Unit) {
         delay(EXPORT_FINISHED_MILLIS)
         onClose()
     }
-    OrcaNotification(action = { CloseButton(onClose) }) {
+    OrcaNotification(onClose = onClose, collapsible = false) {
         OrcaNotificationText(orcaString("Exported successfully"))
         OrcaNotificationText(name)
     }
@@ -151,7 +167,7 @@ fun ExportFinishedNotification(name: String, onClose: () -> Unit) {
  */
 @Composable
 fun SeqPrintInfoNotification(onClose: () -> Unit) {
-    OrcaNotification(action = { CloseButton(onClose) }) {
+    OrcaNotification(onClose = onClose) {
         OrcaNotificationText(orcaString("Print By Object: \nSuggest to use auto-arrange to avoid collisions when printing."))
     }
 }
@@ -164,7 +180,7 @@ fun SeqPrintInfoNotification(onClose: () -> Unit) {
  */
 @Composable
 fun SimplifySuggestionNotification(name: String, onSimplify: () -> Unit, onClose: () -> Unit) {
-    OrcaNotification(action = { CloseButton(onClose) }) {
+    OrcaNotification(onClose = onClose) {
         OrcaNotificationText(
             orcaText(
                 OrcaText(
@@ -196,7 +212,7 @@ fun UpdatedItemsInfoNotification(count: Int, loads: Int) {
         shown = false
     }
     if (!shown || count <= 0) return
-    OrcaNotification(action = { CloseButton { shown = false } }) {
+    OrcaNotification(onClose = { shown = false }) {
         OrcaNotificationText(
             orcaText(
                 OrcaText(
@@ -217,7 +233,7 @@ fun UpdatedItemsInfoNotification(count: Int, loads: Int) {
  */
 @Composable
 fun ProfileUpdateAvailableNotification(onDetail: () -> Unit, onClose: () -> Unit) {
-    OrcaNotification(action = { CloseButton(onClose) }) {
+    OrcaNotification(onClose = onClose) {
         OrcaNotificationText(orcaString("Configuration can update now."))
         OrcaNotificationLink(orcaString("Detail."), onClick = onDetail)
     }
@@ -230,15 +246,9 @@ fun ProfileUpdateAvailableNotification(onDetail: () -> Unit, onClose: () -> Unit
  */
 @Composable
 fun ProfileUpdateFinishedNotification(vendor: String, version: String, onClose: () -> Unit) {
-    OrcaNotification(action = { CloseButton(onClose) }) {
+    OrcaNotification(onClose = onClose) {
         OrcaNotificationText(orcaString("Configuration package: ") + vendor + orcaString(" updated to ") + version)
     }
-}
-
-/** PopNotification::render_close_button(): its icon's own colours, the box and the cross. */
-@Composable
-internal fun RowScope.CloseButton(onClick: () -> Unit) {
-    OrcaIconButton(icon = DesignR.drawable.orca_notification_close, contentDescription = orcaString("Close"), onClick = onClick, tint = Color.Unspecified)
 }
 
 /** SlicingProgressNotification::get_duration() of the completed and the cancelled state. */
@@ -256,15 +266,18 @@ private const val EXPORT_FINISHED_MILLIS = 20_000L
  * push_slicing_error_notification() of the sliced plate: "Warning:",
  * "Serious warning:" or "Error:" above the text, and "Jump to [object]" when
  * the notice names an object that is still on the plate ([objectName]).
+ * Closed, it stays away until the next slice pushes it again.
  */
 @Composable
 fun SliceNoticeNotification(notice: SliceNotice, objectName: String?, onJumpTo: () -> Unit) {
+    var closed by remember(notice) { mutableStateOf(false) }
+    if (closed) return
     val (level, title) = when (notice.level) {
         SliceNoticeLevel.WARNING -> OrcaNotificationLevel.Warning to orcaString("Warning:")
         SliceNoticeLevel.SERIOUS_WARNING -> OrcaNotificationLevel.SeriousWarning to orcaString("Serious warning:")
         SliceNoticeLevel.ERROR -> OrcaNotificationLevel.Error to orcaString("Error:")
     }
-    OrcaNotification(level = level) {
+    OrcaNotification(level = level, onClose = { closed = true }) {
         OrcaNotificationText(title, emphasized = true)
         OrcaNotificationText(orcaText(notice.text).trimEnd())
         objectName?.let { OrcaNotificationLink(orcaString("Jump to") + " [$it]", onClick = onJumpTo) }
@@ -274,11 +287,14 @@ fun SliceNoticeNotification(notice: SliceNotice, objectName: String?, onJumpTo: 
 /**
  * The process names post-processing scripts (post_process), which the
  * desktop app runs on the G-code it exports and sends
- * (run_post_process_scripts()); the app cannot run them, and says so.
+ * (run_post_process_scripts()); the app cannot run them, and says so until
+ * its close button, as a slicing warning.
  */
 @Composable
 fun PostProcessSkippedNotification() {
-    OrcaNotification(level = OrcaNotificationLevel.Warning) {
+    var closed by remember { mutableStateOf(false) }
+    if (closed) return
+    OrcaNotification(level = OrcaNotificationLevel.Warning, onClose = { closed = true }) {
         OrcaNotificationText(orcaString("Warning:"), emphasized = true)
         OrcaNotificationText(stringResource(R.string.post_process_skipped))
     }

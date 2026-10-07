@@ -238,12 +238,13 @@ std::string file_name_of(const Slic3r::Preset& preset)
     return std::filesystem::path(preset.file).filename().string();
 }
 
-// save_presets_to_zip(): every preset as <name>.json of one archive.
-bool save_presets_to_zip(const std::string& export_file, const std::vector<const Slic3r::Preset*>& presets)
+// save_presets_to_zip(): every preset as <name>.json of one archive; the
+// message show_export_result() shows for its ExportCase, empty once written.
+std::string save_presets_to_zip(const std::string& export_file, const std::vector<const Slic3r::Preset*>& presets)
 {
     ZipArchive archive(export_file);
     if (!archive.opened()) {
-        return false;
+        return "initialize fail";
     }
     for (const Slic3r::Preset* preset : presets) {
         const std::string path = preset_path(*preset);
@@ -251,10 +252,10 @@ bool save_presets_to_zip(const std::string& export_file, const std::vector<const
             continue;
         }
         if (!archive.add_file(preset->name + ".json", path)) {
-            return false;
+            return "add file fail";
         }
     }
-    return archive.finish();
+    return archive.finish() ? std::string() : "finalize fail";
 }
 
 // The head of a bundle's bundle_structure.json. The desktop app puts the id of
@@ -391,13 +392,13 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                 ZipArchive archive(file);
                 if (!archive.opened()) {
                     result.status = SceneStatus::write_failed;
-                    result.message = "Failed to initialize ZIP archive";
+                    result.message = "initialize fail";
                     return result;
                 }
                 const std::string printer_config_file_name = "printer/" + file_name_of(printer_preset);
                 if (!archive.add_file(printer_config_file_name, path)) {
                     result.status = SceneStatus::write_failed;
-                    result.message = name + ": failed to add file to ZIP archive";
+                    result.message = "add file fail";
                     return result;
                 }
                 printer_config.push_back(printer_config_file_name);
@@ -412,7 +413,7 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                         const std::string filament_config_file_name = "filament/" + file_name_of(preset);
                         if (!archive.add_file(filament_config_file_name, filament_path)) {
                             result.status = SceneStatus::write_failed;
-                            result.message = preset.name + ": failed to add file to ZIP archive";
+                            result.message = "add file fail";
                             return result;
                         }
                         filament_configs.push_back(filament_config_file_name);
@@ -429,7 +430,7 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                         const std::string process_config_file_name = "process/" + file_name_of(preset);
                         if (!archive.add_file(process_config_file_name, process_path)) {
                             result.status = SceneStatus::write_failed;
-                            result.message = preset.name + ": failed to add file to ZIP archive";
+                            result.message = "add file fail";
                             return result;
                         }
                         process_configs.push_back(process_config_file_name);
@@ -439,9 +440,14 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                 bundle_structure["printer_config"] = printer_config;
                 bundle_structure["filament_config"] = filament_configs;
                 bundle_structure["process_config"] = process_configs;
-                if (!archive.add_text(BUNDLE_STRUCTURE_JSON_NAME, bundle_structure.dump()) || !archive.finish()) {
+                if (!archive.add_text(BUNDLE_STRUCTURE_JSON_NAME, bundle_structure.dump())) {
                     result.status = SceneStatus::write_failed;
-                    result.message = "Failed to finalize ZIP archive";
+                    result.message = "add bundle structure file fail";
+                    return result;
+                }
+                if (!archive.finish()) {
+                    result.status = SceneStatus::write_failed;
+                    result.message = "finalize fail";
                     return result;
                 }
                 result.names.push_back(file);
@@ -462,7 +468,7 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                 ZipArchive archive(file);
                 if (!archive.opened()) {
                     result.status = SceneStatus::write_failed;
-                    result.message = "Failed to initialize ZIP archive";
+                    result.message = "initialize fail";
                     return result;
                 }
                 std::set<std::pair<std::string, std::string>> vendor_to_filament_name;
@@ -481,7 +487,7 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                     const std::string file_name = printer_vendor + "/" + filament_preset.name + ".json";
                     if (!archive.add_file(file_name, path)) {
                         result.status = SceneStatus::write_failed;
-                        result.message = filament_preset.name + ": failed to add file to ZIP archive";
+                        result.message = "add file fail";
                         return result;
                     }
                     vendor_structure[printer_vendor].push_back(file_name);
@@ -489,9 +495,14 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                 for (const auto& [vendor, files] : vendor_structure) {
                     bundle_structure[vendor] = files;
                 }
-                if (!archive.add_text(BUNDLE_STRUCTURE_JSON_NAME, bundle_structure.dump()) || !archive.finish()) {
+                if (!archive.add_text(BUNDLE_STRUCTURE_JSON_NAME, bundle_structure.dump())) {
                     result.status = SceneStatus::write_failed;
-                    result.message = "Failed to finalize ZIP archive";
+                    result.message = "add bundle structure file fail";
+                    return result;
+                }
+                if (!archive.finish()) {
+                    result.status = SceneStatus::write_failed;
+                    result.message = "finalize fail";
                     return result;
                 }
                 result.names.push_back(file);
@@ -507,9 +518,9 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                 }
             }
             const std::string file = (folder / "Printer presets.zip").string();
-            if (!save_presets_to_zip(file, presets)) {
+            if (std::string failure = save_presets_to_zip(file, presets); !failure.empty()) {
                 result.status = SceneStatus::write_failed;
-                result.message = "Failed to write ZIP archive";
+                result.message = failure;
                 return result;
             }
             result.names.push_back(file);
@@ -532,9 +543,9 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                 }
             }
             const std::string file = (folder / "Filament presets.zip").string();
-            if (!save_presets_to_zip(file, presets)) {
+            if (std::string failure = save_presets_to_zip(file, presets); !failure.empty()) {
                 result.status = SceneStatus::write_failed;
-                result.message = "Failed to write ZIP archive";
+                result.message = failure;
                 return result;
             }
             result.names.push_back(file);
@@ -557,9 +568,9 @@ ConfigTransfer export_configs(const ConfigExportKind kind, const std::vector<std
                 }
             }
             const std::string file = (folder / "Process presets.zip").string();
-            if (!save_presets_to_zip(file, presets)) {
+            if (std::string failure = save_presets_to_zip(file, presets); !failure.empty()) {
                 result.status = SceneStatus::write_failed;
-                result.message = "Failed to write ZIP archive";
+                result.message = failure;
                 return result;
             }
             result.names.push_back(file);

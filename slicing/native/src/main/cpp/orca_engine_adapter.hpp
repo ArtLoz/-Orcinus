@@ -552,6 +552,16 @@ void set_translations(const std::string& po);
 // NaN when the presets cannot be selected.
 double overhang_normal_z(const ProfileSelection& profiles);
 
+// What a picture PartPlate::render_logo() lays on a Bambu Lab plate shows.
+enum class BedLogoKind : std::int32_t {
+    // A part of the plate type's picture (PartPlateList::bed_texture_info).
+    bed_type = 0,
+    // An extruder's own area on a plate of two extruders (extruder_only_area_info).
+    extruder_area = 1,
+    // The calibration lines (cali_texture_info), which the 3D view alone shows.
+    calibration = 2,
+};
+
 // The plate of the selected printer as desktop OrcaSlicer draws it (Bed3D and
 // PartPlate), in millimetres on the plate plane. Files are written into the
 // output directory given to describe_plate().
@@ -584,6 +594,24 @@ struct PlateDescription {
     // Mesh file of the printer's hotend, the preview's tool marker
     // (GCodeViewer::init()); empty when it cannot be read.
     std::string hotend_model_mesh;
+    // Bed3D::render_custom() of a bed no system profile has a model of
+    // (Bed3D::Type::Custom) and without a model of its own: render_default()
+    // draws the printable area grey under the current plate.
+    bool default_bed{false};
+    // PartPlateList::render_bedtype_logo, set for a Bambu Lab printer
+    // (Tab::select_preset()): the current plate shows the pictures of its
+    // plate type, and of the calibration lines and the extruders' own areas,
+    // instead of the bed texture, which is then left empty.
+    bool bed_type_logo{false};
+    // The pictures PartPlate::render_logo() lays on the current plate: what
+    // each shows (BedLogoKind), the plate type a part of a plate type's
+    // picture is of (curr_bed_type's value; empty for the others), its
+    // rectangle from the plate's origin (x, y, width, height in millimetres)
+    // and its RGBA PNG.
+    std::vector<std::int32_t> logo_kinds;
+    std::vector<std::string> logo_bed_types;
+    std::vector<double> logo_rects;
+    std::vector<std::string> logo_textures;
 };
 
 PlateDescription describe_plate(const ProfileSelection& profiles, const std::string& output_dir);
@@ -692,7 +720,22 @@ struct ArrangeSettings {
     bool enable_rotation{false};
     bool allow_multi_materials_on_same_plate{true};
     bool align_to_y_axis{false};
+    // "Avoid extrusion calibration region", which a Bambu Lab printer that
+    // scans its first layer keeps free (PartPlateList::preprocess_nonprefered_areas()).
+    bool avoid_extrusion_cali_region{true};
 };
+
+// The jobs place_objects() runs (ArrangeJob, OrientJob and FillBedJob); a
+// fill_bed job goes on as an arrange job, as FillBedJob::finalize() starts one.
+enum class PlateJob : std::int32_t {
+    arrange = 0,
+    orient = 1,
+    fill_bed = 2,
+};
+
+// Job::Ctl::update_status() of the running job: its percent and the name of
+// the object it got to, empty at its start. Called on any thread.
+using PlateJobProgressFn = std::function<void(PlateJob job, int percent, const std::string& name)>;
 
 // A face the object can lie on, as GLGizmoFlatten offers it: a flat region of
 // the convex hull, shrunk and rounded for display.
@@ -819,6 +862,11 @@ struct PlateInspection {
     // order of the objects, by their first copy's arrange_order: the plate's
     // indexes in their new order; empty when the order stays.
     std::vector<int> object_order;
+    // The job was cancelled and changed nothing (its finalize() ignores what it found); objects is empty.
+    bool canceled{false};
+    // ArrangeJob::check_unprintable(): the names of the objects with no area,
+    // "Object %s has zero size and can't be arranged.", one notification each.
+    std::vector<std::string> zero_size_objects;
 };
 
 // ObjectList::load_generic_subobject(): a shape added to the object as a part,
@@ -839,7 +887,9 @@ ModelInspection add_object_part(
 // object fill_bed adds copies of; selected_instance is its selected copy, or -1
 // when the whole object is selected. locked_plates marks the plates locked
 // (PartPlate::is_locked), whose copies arranging and orienting leave alone.
-// An object has as many copies afterwards as the result describes.
+// An object has as many copies afterwards as the result describes. The job
+// tells progress what it got to; job numbers it for cancel_placement(), 0
+// for one that cannot be cancelled.
 PlateInspection place_objects(
     const std::vector<PlateObject>& plate,
     const std::vector<bool>& selected,
@@ -850,8 +900,16 @@ PlateInspection place_objects(
     const std::vector<bool>& locked_plates = {},
     // The settings of every plate (PartPlate's config), whose wipe_tower_x and
     // wipe_tower_y place the wipe towers arranging keeps clear of; none for no towers.
-    const std::vector<ModelSettings>& plate_settings = {}
+    const std::vector<ModelSettings>& plate_settings = {},
+    const PlateJobProgressFn& progress = nullptr,
+    std::int64_t job = 0
 );
+
+// Worker::cancel() of the job place_objects() runs as job, from any thread,
+// before it starts too: it stops at its next Ctl::was_canceled() and answers
+// canceled, or goes on in the phase that no longer can be (the arrangement
+// after a bed fill keeps the copies the fill added).
+void cancel_placement(std::int64_t job);
 
 // The wipe tower of the plate, which the desktop app draws as a volume of its
 // own (GLVolumeCollection::load_wipe_tower_preview): a box striped with the
@@ -946,6 +1004,16 @@ struct PlateValidation {
     // of each warning the 3D editor shows (PlateNoticeKind) and its text.
     std::vector<std::int32_t> notice_kinds;
     std::vector<std::string> notice_texts;
+    // GLCanvas3D::update_sequential_clearance() while the plate prints by
+    // object, for every copy of every object passed, object by object: the
+    // outline of its object at the first copy (m_hull_2d_cache), turned as
+    // far as the copy is turned against that first copy, about the copy's
+    // offset; each one's point count, then x and y of every point in mm; and
+    // the copy's top (ModelObject::get_instance_max_z()). Empty while the
+    // plate prints by layer.
+    std::vector<std::int32_t> copy_hull_counts;
+    std::vector<double> copy_hulls;
+    std::vector<double> copy_tops;
 };
 
 // What a warning of the plate's filaments is about: EWarning::MixUsePLAAndPETG,
@@ -1276,6 +1344,10 @@ struct PresetItem {
     // "Project", "Unsupported"), which the app translates.
     bool subgroup_msgid{false};
     bool selected{false};
+    // PresetComboBox::get_bmp(preset): the square of a filament's
+    // default_filament_colour before the entry, the edited preset's for the
+    // selected one; empty when the preset has no valid colour.
+    std::string color;
 };
 
 // A value the edited preset changed, as UnsavedChangesDialog lists it: where
@@ -1313,19 +1385,32 @@ struct PresetState {
     std::vector<PresetItem> filaments;
     // TabPresetComboBox::update() of the process tab.
     std::vector<PresetItem> processes;
+    // TabPresetComboBox::update() of the printer and filament tabs: every
+    // visible preset by its own name, without the sidebar's printer models.
+    std::vector<PresetItem> tab_printers;
+    std::vector<PresetItem> tab_filaments;
     // Sidebar::update_presets(): the nozzle diameters of the selected printer
     // model and the one of the selected printer, "0.4".
     std::vector<std::string> nozzle_diameters;
     std::string nozzle_diameter;
     // Tab::may_discard_current_dirty_preset(): nothing was selected, because
-    // the edited preset of changed_kind has the unsaved changes below. The app
-    // asks the user and selects again with a PresetChangeAction.
+    // the edited preset of changed_kind, changed_preset, has the unsaved
+    // changes below. The app asks the user and selects again with the answers
+    // to this question and the ones before it.
     bool asks_unsaved_changes{false};
     PresetKind changed_kind{PresetKind::print};
+    std::string changed_preset;
     std::vector<PresetChange> unsaved_changes;
     // The changes can be moved to the preset that is selected (the dialog's
     // Transfer button, which a printer and a filament of another type lack).
     bool can_transfer{false};
+    // The changes are a dependent preset's, which a printer of other extruder
+    // variants does not take whole: its Transfer warns "Use Modified Value"
+    // and leaves the values of the extruder variants behind.
+    bool transfer_drops_variants{false};
+    // The dialog's Cancel goes on with the selection, as the changed preset
+    // depends on the selected one and suits the new one; it keeps its changes.
+    bool cancel_selects{false};
     // The name its Save button suggests (SavePresetDialog::Item::Item()), and
     // whether the preset is saved under its own name without asking one
     // (UnsavedChangesDialog::save(): Preset::can_overwrite()).
@@ -1358,6 +1443,19 @@ struct PresetState {
     // The printer's min_layer_height of each extruder, which get_min_layer_height()
     // of the object list reads for its height ranges.
     std::vector<double> min_layer_heights;
+    // Sidebar::update_printer_thumbnail(): the cover of the printer's model,
+    // <resources>/profiles/<vendor>/<model>_cover.png; empty for the
+    // placeholder of a model without one.
+    std::string printer_cover;
+    // Sidebar::update_presets(): label_nozzle_type, the nozzle type of the
+    // first extruder ("Hardened Steel", "Stainless Steel", "Tungsten Carbide",
+    // "Brass"), "-" for another.
+    std::string nozzle_type;
+    // PresetBundle::get_printer_extruder_count(), which hides the sidebar's
+    // nozzle combo box from two extruders on (Sidebar::priv::layout_printer()).
+    int extruder_count{1};
+    // pellet_modded_printer: the sidebar's filament section is titled "Pellets".
+    bool pellet_printer{false};
 };
 
 // The preset combo boxes for the selection the app configuration remembers.
@@ -1403,12 +1501,20 @@ enum class PresetChangeAction : std::int64_t {
     transfer = 1,
     // The changes are lost with the preset they were made in.
     discard = 2,
+    // The dialog was closed (wxID_CANCEL): the selection stops, unless the
+    // question was about a dependent preset the new one keeps.
+    cancel = 3,
 };
 
 // Selects a preset as the desktop app's sidebar does and remembers the
-// selection in the app configuration (PresetBundle::export_selections). The
-// unsaved changes of the edited preset are kept, moved, or lost, as action
-// says; saving them is a request of the settings tab.
+// selection in the app configuration (PresetBundle::export_selections).
+// Tab::select_preset() asks about the unsaved changes of the edited preset,
+// then about the ones of the presets that depend on it: answers holds what
+// the user answered so far, in that order. The changes are kept, moved, or
+// lost once every question is answered; saving them is a request of the
+// settings tab, after which the preset is not asked about any more.
+PresetState select_preset(PresetChoice choice, const std::string& value, const std::vector<PresetChangeAction>& answers);
+// The selection with the answer to its first question, or none.
 PresetState select_preset(PresetChoice choice, const std::string& value, PresetChangeAction action = PresetChangeAction::ask);
 
 // A preset a settings tab edits with unsaved changes
@@ -1734,6 +1840,9 @@ struct SettingsLine {
     // (create_single_option_line).
     std::string label;
     std::string tooltip;
+    // Line::label_path: the page of OrcaSlicer's wiki the label links to
+    // (OptionsGroup::get_url()), "" for none.
+    std::string label_path;
     // append_separator(): a line without options.
     bool separator{false};
     SettingWidget widget{SettingWidget::none};
@@ -1757,6 +1866,11 @@ struct SettingsPage {
     std::vector<UiText> label;
     std::string icon;
     std::vector<SettingsGroup> groups;
+    // Tab::update_changed_tree_ui(): the page's name takes the colour of a
+    // modified value, as a setting on it differs from the saved preset, or
+    // on the tab of an object, a part, a height range or the plate, as the
+    // page overrides one.
+    bool modified{false};
 };
 
 // How a message box of the desktop app looks.
@@ -3752,6 +3866,23 @@ FilamentPresetList filament_presets(const std::string& filament_id);
 // the preset is deleted once the user has answered, and the filaments select
 // another one. A preset other presets inherit from cannot be deleted.
 PresetCreation delete_filament_preset(const std::string& preset_name, const DialogAnswers& answers);
+
+// Its "Delete" button (EditFilamentPresetDialog::create_dialog_buttons()): every
+// preset of the filament goes once the user has answered, the presets that
+// inherit first, and the filaments select another one.
+PresetCreation delete_filament(const std::string& filament_id, const DialogAnswers& answers);
+
+// CreatePresetForPrinterDialog, which its "+ Add Preset" opens: every printer
+// that inherits from no other one, each with the filament presets of the
+// filament's type it is compatible with (get_visible_printer_and_compatible_filament_presets()),
+// in printer order, and what the filament is.
+FilamentPresetList filament_preset_sources(const std::string& filament_id);
+
+// Its OK: a preset of the filament for printer, copied from preset
+// (clone_presets_for_filament()), once the user has answered whether one that
+// is there already is written again.
+PresetCreation add_filament_preset(const std::string& filament_id, const std::string& printer, const std::string& preset,
+                                   const DialogAnswers& answers);
 
 // The presets one side of DiffPresetDialog selects in its combo boxes. An empty
 // name is the preset the app has selected, which the dialog opens with.

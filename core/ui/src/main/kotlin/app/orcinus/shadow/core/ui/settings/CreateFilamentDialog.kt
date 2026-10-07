@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,8 +47,8 @@ import app.orcinus.shadow.core.ui.preset.ChoiceListSheet
  * OrcaSlicer's CreateFilamentPresetDialog: a filament of the user's own, made
  * from one that is installed. The vendor, the type and the serial become its
  * name, and it is created for every printer whose preset is picked — either the
- * presets of a filament ("Create Based on Current Filament") or any preset of
- * that type ("Copy Current Filament Preset").
+ * presets of a filament ("Create Based on Current Filament") or, for each
+ * printer, a preset of that type it chooses ("Copy Current Filament Preset").
  */
 @Composable
 fun CreateFilamentDialog(
@@ -70,8 +71,20 @@ fun CreateFilamentDialog(
         outcome = loadOptions(type, baseFilament)
     }
     val options = outcome as? CreateFilamentOptionsOutcome.Success
-    val presets = if (copyPreset) options?.copyPresets.orEmpty() else options?.presets.orEmpty()
+    val presets = options?.presets.orEmpty()
     val chosen = remember(presets) { presets.map { false }.toMutableStateList() }
+    // create_select_filament_preset_checkbox(): every printer with its check
+    // box and the preset its combo box selected, which checks the box.
+    val copyPresets = options?.copyPresets.orEmpty()
+    val copyPrinters = remember(copyPresets) { copyPresets.map(FilamentPresetChoice::printer).distinct() }
+    val copyChecked = remember(copyPresets) { mutableStateMapOf<String, Boolean>() }
+    val copyChosen = remember(copyPresets) { mutableStateMapOf<String, String>() }
+    var choosingCopyFor by remember { mutableStateOf<String?>(null) }
+    val requested = if (copyPreset) {
+        copyPrinters.filter { copyChecked[it] == true }.mapNotNull { printer -> copyChosen[printer]?.let { FilamentPresetChoice(printer, it) } }
+    } else {
+        presets.filterIndexed { index, _ -> chosen.getOrElse(index) { false } }
+    }
     val vendorName = if (customVendor) customVendorName else vendor
 
     Dialog(
@@ -85,7 +98,7 @@ fun CreateFilamentDialog(
         ) {
             FullScreenDialogTopBar(
                 title = orcaString("Create Filament"),
-                okEnabled = vendorName.isNotBlank() && type.isNotEmpty() && serial.isNotBlank() && chosen.any { it },
+                okEnabled = vendorName.isNotBlank() && type.isNotEmpty() && serial.isNotBlank() && requested.isNotEmpty(),
                 onCancel = onDismiss,
                 onOk = {
                     onCreate(
@@ -94,7 +107,7 @@ fun CreateFilamentDialog(
                             customVendor = customVendor,
                             type = type,
                             serial = serial.trim(),
-                            presets = presets.filterIndexed { index, _ -> chosen.getOrElse(index) { false } },
+                            presets = requested,
                         ),
                     )
                 },
@@ -167,8 +180,15 @@ fun CreateFilamentDialog(
                         }
                     }
                     RadioLine(orcaString("Copy Current Filament Preset "), selected = copyPreset) { copyPreset = true }
+                    // select_curr_radiobox(): m_filament_preset_text of either way.
                     Text(
-                        text = orcaString("We could create the filament presets for your following printer:"),
+                        text = if (copyPreset) {
+                            orcaString(
+                                "We would rename the presets as \"Vendor Type Serial @printer you selected\".\nTo add preset for more printers, please go to printer selection",
+                            )
+                        } else {
+                            orcaString("We could create the filament presets for your following printer:")
+                        },
                         color = colors.textSide,
                         style = OrcaTheme.typography.body12,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -184,7 +204,31 @@ fun CreateFilamentDialog(
                         Text(failure.message, color = colors.error, style = OrcaTheme.typography.body13, modifier = Modifier.padding(16.dp))
                     }
                 }
-                items(presets.size, key = { "preset:${presets[it].printer}:${presets[it].preset}" }) { index ->
+                if (copyPreset) {
+                    items(copyPrinters.size, key = { "printer:${copyPrinters[it]}" }) { index ->
+                        val printer = copyPrinters[index]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OrcaCheckBox(checked = copyChecked[printer] == true, onCheckedChange = { copyChecked[printer] = it })
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    .padding(start = 4.dp),
+                            ) {
+                                Text(printer, color = colors.text, style = OrcaTheme.typography.body13)
+                                OrcaComboField(
+                                    text = copyChosen[printer] ?: orcaString("Select filament preset"),
+                                    onClick = { choosingCopyFor = printer },
+                                )
+                            }
+                        }
+                    }
+                }
+                items(if (copyPreset) 0 else presets.size, key = { "preset:${presets[it].printer}:${presets[it].preset}" }) { index ->
                     val choice = presets[index]
                     Row(
                         modifier = Modifier
@@ -206,6 +250,18 @@ fun CreateFilamentDialog(
         }
     }
 
+    choosingCopyFor?.let { printer ->
+        ChoiceListSheet(
+            title = printer,
+            items = copyPresets.filter { it.printer == printer }.map(FilamentPresetChoice::preset),
+            onDismiss = { choosingCopyFor = null },
+            onChoose = { picked ->
+                choosingCopyFor = null
+                copyChosen[printer] = picked
+                copyChecked[printer] = true
+            },
+        )
+    }
     choosing?.let { which ->
         val items = when (which) {
             FilamentChoice.VENDOR -> options?.vendors.orEmpty()

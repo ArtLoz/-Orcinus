@@ -236,24 +236,98 @@ std::vector<PresetChange> preset_changes(const PresetKind kind)
     return tab->describe_changes();
 }
 
-void cache_preset_changes(const PresetKind kind)
+}  // namespace detail
+
+namespace {
+
+// The dialog of the desktop app moves every change it lists
+// (UnsavedChangesDialog::get_selected_options()).
+std::vector<std::string> selected_options(detail::Tab& tab)
+{
+    std::vector<std::string> options;
+    for (const PresetChange& change : tab.describe_changes()) {
+        options.push_back(change.id);
+    }
+    return options;
+}
+
+// Tab::may_discard_current_dirty_preset() with no_transfer_variant: the
+// values of the extruder variants are not transferred to a printer of other
+// variants. Whether there were any.
+bool remove_variant_options(detail::Tab& tab, std::vector<std::string>& selected_options)
+{
+    tab.init_options_list();
+    auto & options_list = tab.options_list();
+    bool has_variants = false;
+    for (auto &opt : selected_options) {
+        if (auto n = opt.find('#'); n != std::string::npos) {
+            auto iter = options_list.lower_bound(opt.substr(0, n));
+            if (iter == options_list.end() || opt.compare(0, n, iter->first)) {
+                has_variants = true;
+                opt.clear();
+            }
+        }
+    }
+    if (has_variants) {
+        selected_options.erase(std::remove(selected_options.begin(), selected_options.end(), ""), selected_options.end());
+    }
+    return has_variants;
+}
+
+}  // namespace
+
+namespace detail {
+
+void cache_preset_changes(const PresetKind kind, const bool no_transfer_variant)
 {
     Slic3r::PresetBundle& bundle = *engine().bundle;
     const DialogAnswers no_answers;
     detail::SettingsDialogs dialogs(no_answers);
     const std::unique_ptr<detail::Tab> tab = make_tab(kind, bundle, *engine().config, dialogs);
     tab->build();
-    // The dialog of the desktop app moves every change it lists.
-    std::vector<std::string> selected_options;
-    for (const PresetChange& change : tab->describe_changes()) {
-        if (change.id == "extruders_count") {
+    std::vector<std::string> options = selected_options(*tab);
+    if (no_transfer_variant) {
+        remove_variant_options(*tab, options);
+    }
+    if (kind == PresetKind::printer) {
+        auto it = std::find(options.begin(), options.end(), "extruders_count");
+        if (it != options.end()) {
+            // erase "extruders_count" option from the list
+            options.erase(it);
             // cache the extruders count
             static_cast<detail::TabPrinter*>(tab.get())->cache_extruder_cnt();
-            continue;
         }
-        selected_options.push_back(change.id);
     }
-    tab->cache_config_diff(selected_options);
+    tab->cache_config_diff(options);
+}
+
+bool transfer_drops_variants(const PresetKind kind)
+{
+    Slic3r::PresetBundle& bundle = *engine().bundle;
+    const DialogAnswers no_answers;
+    detail::SettingsDialogs dialogs(no_answers);
+    const std::unique_ptr<detail::Tab> tab = make_tab(kind, bundle, *engine().config, dialogs);
+    tab->build();
+    std::vector<std::string> options = selected_options(*tab);
+    return remove_variant_options(*tab, options);
+}
+
+void apply_tab_cache(const PresetKind kind)
+{
+    const detail::TabState& state = tab_state(kind);
+    if (state.cache_config.empty() && state.cache_extruder_count == 0) {
+        return;
+    }
+    Slic3r::PresetBundle& bundle = *engine().bundle;
+    const DialogAnswers no_answers;
+    detail::SettingsDialogs dialogs(no_answers);
+    const std::unique_ptr<detail::Tab> tab = make_tab(kind, bundle, *engine().config, dialogs);
+    try {
+        tab->build();
+        tab->apply_config_from_cache();
+    } catch (const detail::QuestionPending&) {
+        // Nothing the cached values change asks the user anything.
+    }
 }
 
 void cache_transfer(const PresetKind kind, const Slic3r::DynamicPrintConfig& from, const std::vector<std::string>& selected)

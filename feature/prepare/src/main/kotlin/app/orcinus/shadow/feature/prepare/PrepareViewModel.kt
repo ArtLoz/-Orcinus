@@ -70,6 +70,7 @@ import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SettingsScope
 import app.orcinus.shadow.core.model.SimplifyConfig
@@ -154,6 +155,7 @@ import app.orcinus.shadow.domain.plate.RenamePlateUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
 import app.orcinus.shadow.domain.plate.RequestEmbossUseCase
+import app.orcinus.shadow.domain.plate.CanvasRequestsUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
 import app.orcinus.shadow.domain.plate.SelectPlateObjectUseCase
@@ -218,6 +220,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -299,6 +302,8 @@ class PrepareViewModel(
     private val textFonts: TextFontsUseCase,
     private val textStyles: TextStylesUseCase,
     private val requestEmboss: RequestEmbossUseCase,
+    /** The object list's paint columns and activated rows. */
+    private val canvasRequests: CanvasRequestsUseCase,
     private val removeObjectPart: RemoveObjectPartUseCase,
     private val measureFeatures: MeasureUseCase,
     private val brimEarsTool: EditBrimEarsUseCase,
@@ -463,6 +468,12 @@ class PrepareViewModel(
         }
         // GLGizmosManager::get_current_type(): the plate knows while a tool is open.
         viewModelScope.launch { view.map { it.gizmoOpen }.distinctUntilChanged().collect { setGizmoOpen(it) } }
+        // GizmoObjectManipulation::m_coordinates_type stays as the move, rotation and scale windows leave it.
+        viewModelScope.launch {
+            combine(plate, view, PlateState::windowCoordinates).filterNotNull().distinctUntilChanged().collect { coordinates ->
+                view.update { if (it.coordinates == coordinates) it else it.copy(coordinates = coordinates) }
+            }
+        }
         // GLGizmosManager::refresh_on_off_state() whenever the selection changes.
         viewModelScope.launch { combine(plate, view, PlateState::toolActivity).distinctUntilChanged().collect(::refreshTools) }
         // GLGizmoMeshBoolean::on_save(): the snapshots keep the mesh boolean tool's picks ...
@@ -530,6 +541,19 @@ class PrepareViewModel(
                         selected != open.volume -> openSvg(selected)
                     }
                 }
+            }
+        }
+        // ObjectList::list_manipulation() of a paint column: the tool of its
+        // kind opens on the object the click selected, or closes while it is
+        // open; colour painting is not offered in the assembly view.
+        viewModelScope.launch {
+            plate.map { it.paintingRequest }.distinctUntilChanged().collect { kind ->
+                if (kind == null) return@collect
+                canvasRequests.paintingTaken()
+                // The canvas's state takes the selection the click made first.
+                val selected = plate.value.selectedInstance
+                withTimeoutOrNull(SELECTION_WAIT_MILLIS) { state.first { it.selectedCopy?.id == selected } } ?: return@collect
+                if (kind != PaintKind.COLOR || !view.value.assemblyView) togglePainting(kind)
             }
         }
         // The object list's "Edit text": the tool opens on the volume.
@@ -854,6 +878,26 @@ class PrepareViewModel(
 
     /** "Import Zip Archive": Plater::import_zip_archive() of the archive the user picked. */
     fun importZip(reference: String) = openFiles.importZip(ExternalDocumentReference(reference))
+
+    /**
+     * PlaterDropTarget::OnDropFiles() on the 3D view, which leaves the
+     * assembly view: one SVG alone becomes a part where it landed on the copy
+     * at [copy] ([hit]), or an object at [bedPoint] off the objects
+     * (emboss_svg(), GLGizmoSVG::create_volume()); other files load as
+     * load_files() loads them.
+     */
+    fun dropFiles(documents: List<String>, copy: Int?, hit: SurfaceHit?, bedPoint: Point2?) {
+        val references = documents.map(::ExternalDocumentReference)
+        returnFromAssemblyView()
+        viewModelScope.launch {
+            if (openFiles.isSingleSvg(references)) {
+                chooseSvg(copy, VolumeType.PART, hit, bedPoint)
+                svgPicked(documents.single())
+            } else {
+                openFiles.open(references)
+            }
+        }
+    }
 
     fun addCalibrationCube() = addCalibrationCubeToPlate()
 
@@ -1883,10 +1927,11 @@ class PrepareViewModel(
     }
 
     /** The object list's "Add part" > "Text": the canvas places it as [addText] without a position. */
-    fun addRequestedText(request: EmbossRequest.Add, hit: SurfaceHit?, defaultText: String) {
+    fun addRequestedText(request: EmbossRequest.Add, hit: SurfaceHit?, bedPoint: Point2?, defaultText: String) {
         requestEmboss.done()
         if (request.kind != EmbossKind.TEXT) return
-        createText(placementOn(PlateInstanceId(request.mesh, 0), hit), request.type, defaultText)
+        val mesh = request.mesh
+        createText(if (mesh == null) EmbossPlacement.onBed(bedPoint) else placementOn(PlateInstanceId(mesh, 0), hit), request.type, defaultText)
     }
 
     /** The menus' "Edit text" over a volume. */
@@ -2173,10 +2218,11 @@ class PrepareViewModel(
     }
 
     /** The object list's "Add part" > "SVG", which the canvas places as without a position. */
-    fun chooseRequestedSvg(request: EmbossRequest.Add, hit: SurfaceHit?) {
+    fun chooseRequestedSvg(request: EmbossRequest.Add, hit: SurfaceHit?, bedPoint: Point2?) {
         requestEmboss.done()
         if (request.kind != EmbossKind.SVG) return
-        svgPick = SvgPick.Create(placementOn(PlateInstanceId(request.mesh, 0), hit), request.type)
+        val mesh = request.mesh
+        svgPick = SvgPick.Create(if (mesh == null) EmbossPlacement.onBed(bedPoint) else placementOn(PlateInstanceId(mesh, 0), hit), request.type)
     }
 
     /** "Change file" of the SVG window: the picker's file replaces the open SVG's. */
@@ -3274,6 +3320,12 @@ class PrepareViewModel(
     /** _render_arrange_menu()'s Reset: OrcaSlicer's default arrange settings. */
     fun resetArrangeSettings() = setArrangeSettings.reset()
 
+    /** _render_arrange_menu() over a printer without the lidar: "Avoid extrusion calibration region" is off. */
+    fun clearCalibrationRegion() = setArrangeSettings.withoutCalibrationRegion()
+
+    /** The Cancel of the progress notification of an arrangement, an orientation or a bed fill (Worker::cancel()). */
+    fun cancelPlateJob() = placePlateObjects.cancel()
+
     /** _render_arrange_menu()'s Arrange: ArrangeJob for every object on the plate. */
     fun arrange() = placePlateObjects(PlateManipulation.Arrange(plate.value.currentArrangeSettings))
 
@@ -3348,8 +3400,8 @@ class PrepareViewModel(
         fillBedWithInstances(copy.mesh, copy.instance)
     }
 
-    /** "Set as an individual object" over a copy: the canvas selects that copy alone. */
-    fun setAsIndividualObject(index: Int) = copyAt(index)?.let { separatePlateInstances(it.mesh, setOf(it.instance)) }
+    /** "Set as an individual object" over a copy: the selected copies of its object, or that copy alone. */
+    fun setAsIndividualObject(index: Int) = copyAt(index)?.let(separatePlateInstances::overCopy)
 
     /** Cut, Copy and Paste over a copy, which the canvas selects alone. */
     fun cutObjectAt(index: Int) = copyAt(index)?.let { copyToClipboard.objects(setOf(it), cut = true) }
@@ -3376,7 +3428,7 @@ class PrepareViewModel(
     fun setSelectionAutoDrop(enabled: Boolean) = selectionMenu?.setAutoDrop(enabled)
 
     /** ObjectList::switch_to_object_process() over the selection: the settings of the selected objects. */
-    fun editSelectionProcessSettings() = setSettingsScope(SettingsScope.OBJECT)
+    fun editSelectionProcessSettings() = setSettingsScope.objectProcess()
 
     fun pasteSelectionProcessSettings() = pasteProcessSettings.selected()
 
@@ -3449,6 +3501,29 @@ class PrepareViewModel(
     /** The Edit menu's "Delete all". */
     fun deleteAllObjects() = plateObjects.deleteAll()
 
+    /** The plate menu of a plate the finger held (MenuFactory::plate_menu()), on the current plate. */
+    fun selectPlateObjects() = plateObjects.selectCurrentPlate()
+
+    fun selectAllPlates() = plateObjects.selectAll()
+
+    fun deletePlateObjects() = plateObjects.deleteCurrentPlate()
+
+    /** Its "Reload All" (Plater::reload_all_from_disk()). */
+    fun reloadAll() = reloadFromDisk.all()
+
+    /** Its "Replace all with 3D files": the objects on the plate at [index], from the files of [folder]. */
+    fun replaceAllOnPlate(index: Int, folder: String) = replaceAllVolumesUseCase.onPlate(index, ExternalDocumentReference(folder))
+
+    /**
+     * GLCanvas3D::on_mouse()'s double click: EVT_GLCANVAS_SWITCH_TO_OBJECT
+     * while the selection holds one object (Selection::get_object_idx(), the
+     * wipe tower too), EVT_GLCANVAS_SWITCH_TO_GLOBAL otherwise.
+     */
+    fun switchSettingsScope() {
+        val oneObject = plate.value.selectedInstances.mapTo(HashSet()) { it.mesh }.size == 1 || view.value.wipeTowerSelected
+        setSettingsScope(if (oneObject) SettingsScope.OBJECT else SettingsScope.GLOBAL)
+    }
+
     /** The Edit menu's "Duplicate Current Plate". */
     fun duplicatePlate() = duplicatePlateUseCase()
 
@@ -3467,7 +3542,7 @@ class PrepareViewModel(
     fun editProcessSettingsAt(index: Int) {
         val id = copyAt(index) ?: return
         selectPlateObject(id)
-        setSettingsScope(SettingsScope.OBJECT)
+        setSettingsScope.objectProcess()
     }
 
     fun copyProcessSettingsAt(index: Int) = copyAt(index)?.let { copyProcessSettings(SettingsItem.Object(it.mesh)) }
@@ -3536,7 +3611,7 @@ class PrepareViewModel(
     }
 
     /** ObjectList::switch_to_object_process() of the volumes selected together. */
-    fun editSelectedVolumesProcessSettings() = setSettingsScope(SettingsScope.OBJECT)
+    fun editSelectedVolumesProcessSettings() = setSettingsScope.objectProcess()
 
     fun pasteSelectedProcessSettings() = pasteProcessSettings.selected()
 
@@ -3552,7 +3627,7 @@ class PrepareViewModel(
     fun editVolumeProcessSettingsAt(index: Int, volume: Int) {
         val id = copyAt(index) ?: return
         selectObjectPart(ObjectPartId(id.mesh, volume), id.instance)
-        setSettingsScope(SettingsScope.OBJECT)
+        setSettingsScope.objectProcess()
     }
 
     fun copyVolumeProcessSettings(volume: ObjectPartId) = copyProcessSettings(SettingsItem.Volume(volume))
@@ -4025,9 +4100,17 @@ class PrepareViewModel(
 
     fun dismissProblem() = dismissPlateProblem()
 
+    /** "Arranging..." of the job numbered [job] closes. */
+    fun dismissArrangeOngoing(job: Long) = dismissPlateProblem.arrangeOngoing(job)
+
+    /** The warning of the object without area at [index] among them closes. */
+    fun dismissZeroSizeObject(index: Int) = dismissPlateProblem.zeroSizeObject(index)
+
     fun dismissSeqPrintInfo() = dismissPlateProblem.seqPrintInfo()
 
     fun dismissExportFinished() = dismissPlateProblem.exportFinished()
+
+    fun dismissNoticeNotification(notice: SettingsDialog) = dismissPlateProblem.notice(notice)
 
     fun dismissSimplifySuggestion(mesh: ScenePath) = dismissPlateProblem.simplifySuggestion(mesh)
 
@@ -4076,6 +4159,9 @@ class PrepareViewModel(
 
         // Keeps the upstream flow through configuration changes.
         const val STOP_TIMEOUT_MILLIS = 5_000L
+
+        /** How long the object list's paint column waits for the canvas to show the object it selected. */
+        const val SELECTION_WAIT_MILLIS = 1_000L
 
         /** LayersEditing::strength, and the timer that repeats a press held on the bar (GLCanvas3D::_start_timer()). */
         const val LAYER_EDIT_STRENGTH = 0.005

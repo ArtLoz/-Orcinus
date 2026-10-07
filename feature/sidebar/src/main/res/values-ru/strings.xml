@@ -8,6 +8,11 @@
     <string name="section_objects">Объекты</string>
     <!-- ObjectDataViewModel: the copies of an object, which OrcaSlicer leaves untranslated ("Instance %d"). -->
     <string name="object_instance_name">Экземпляр %1$d</string>
+    <!-- ObjectDataViewModel's "Instances" item, over the copies of an object. -->
+    <string name="object_instances">Экземпляры</string>
+    <!-- The expander of a container of the object list (wxDataViewCtrl::Expand() and Collapse()). -->
+    <string name="object_list_expand">Развернуть</string>
+    <string name="object_list_collapse">Свернуть</string>
     <!-- MenuFactory::append_menu_item_layers_editing() and the menu of a range's row. -->
     <string name="object_menu_add_range_after">Добавить диапазон после</string>
     <string name="object_menu_edit_range">Изменить высоты</string>
@@ -18,11 +23,6 @@
     <string name="object_range_unit">мм</string>
     <string name="object_range_apply">Применить</string>
     <!-- Import Configs and Export Preset Bundle of the desktop app's File menu. -->
-    <string name="config_import">Импорт конфигурации</string>
-    <string name="config_export">Экспорт конфигурации</string>
-    <string name="config_imported">Импортировано профилей: %1$d</string>
-    <string name="config_exported">Экспортировано файлов: %1$d</string>
-    <string name="config_import_hint">Только пользовательские профили, совместимые с установленными принтерами. Профиль с тем же именем будет заменён.</string>
     <string name="collapse_sidebar">Свернуть боковую панель</string>
     <string name="expand_sidebar">Развернуть боковую панель</string>
 

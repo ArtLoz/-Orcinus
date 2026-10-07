@@ -151,7 +151,22 @@ data class ArrangeSettings(
     val allowMultiMaterialsOnSamePlate: Boolean = true,
     /** Only when rotation is not allowed. */
     val alignToYAxis: Boolean = false,
+    /**
+     * "Avoid extrusion calibration region": a Bambu Lab printer that scans its
+     * first layer keeps the region it calibrates extrusion in free.
+     */
+    val avoidExtrusionCaliRegion: Boolean = true,
 )
+
+/** The jobs that place several objects at once (ArrangeJob, OrientJob and FillBedJob). */
+enum class PlateJob { ARRANGE, ORIENT, FILL_BED }
+
+/**
+ * Job::Ctl::update_status() of a running [job]: its [percent], and the name of
+ * the object it got to, empty at its start. A bed fill goes on as an
+ * arrangement, as FillBedJob::finalize() starts one.
+ */
+data class PlateJobProgress(val job: PlateJob, val percent: Int = 0, val name: String = "")
 
 /**
  * A face an object can lie on, as OrcaSlicer's "Lay on face" offers it: a flat
@@ -300,7 +315,47 @@ data class PlateGeometry(
     val buildVolumeShape: BuildVolumeShape = BuildVolumeShape.RECTANGLE,
     /** BuildVolume::circle() of a circular one; null for another shape. */
     val circle: PlateCircle? = null,
+    /**
+     * Bed3D::render_custom() of a bed no system profile has a model of, and
+     * without a model of its own: render_default() draws the printable area
+     * grey under the current plate.
+     */
+    val defaultBed: Boolean = false,
+    /**
+     * PartPlateList::render_bedtype_logo of a Bambu Lab printer: the current
+     * plate shows the [bedLogos] of its plate type rather than [bedTexture].
+     */
+    val bedTypeLogo: Boolean = false,
+    val bedLogos: List<BedLogo> = emptyList(),
 )
+
+/**
+ * A picture PartPlate::render_logo() lays on a Bambu Lab printer's current
+ * plate: what it shows, the plate type ([bedType], curr_bed_type's value) a
+ * part of a plate type's picture is of, its RGBA PNG, and its rectangle from
+ * the plate's origin in millimetres.
+ */
+data class BedLogo(
+    val kind: BedLogoKind,
+    val bedType: String,
+    val texture: ScenePath,
+    val x: Double,
+    val y: Double,
+    val width: Double,
+    val height: Double,
+)
+
+/** What a [BedLogo] shows. */
+enum class BedLogoKind {
+    /** A part of the plate type's picture (PartPlateList::bed_texture_info). */
+    BED_TYPE,
+
+    /** An extruder's own area on a plate of two extruders (extruder_only_area_info), whatever the plate type. */
+    EXTRUDER_AREA,
+
+    /** The calibration lines (cali_texture_info), which the 3D view alone shows. */
+    CALIBRATION,
+}
 
 /** BuildVolume_Type, in its order: the shape of the printable area. */
 enum class BuildVolumeShape { RECTANGLE, CIRCLE, CONVEX, CUSTOM }
@@ -634,6 +689,12 @@ data class PlateValidation(
     val heightLimitFill: List<Vector3> = emptyList(),
     val sequence: List<Int> = emptyList(),
     val printObjects: List<PrintedObject> = emptyList(),
+    /**
+     * GLCanvas3D::update_sequential_clearance()'s outlines while the plate
+     * prints by object, one for every copy validated, object by object; empty
+     * while it prints by layer.
+     */
+    val copyClearances: List<CopyClearance> = emptyList(),
 )
 
 /**
@@ -642,4 +703,13 @@ data class PlateValidation(
  * (SlicingParameters::object_print_z_min), which a raft raises.
  */
 data class PrintedObject(val objectIndex: Int, val printZMin: Double)
+
+/**
+ * A copy's clearance as a drag of the plate's copies shows it while the plate
+ * prints by object: its object's hull at the first copy grown by half the
+ * extruder's clearance radius and the skirt (m_hull_2d_cache), turned as the
+ * copy is turned against that first copy, about the copy's offset
+ * ([outline]); and the copy's top ([top], get_instance_max_z()).
+ */
+data class CopyClearance(val outline: List<Point2>, val top: Double)
 

@@ -127,6 +127,11 @@ val prepareOrcaAssets = tasks.register<PrepareOrcaAssets>("prepareOrcaAssets") {
         orcaResourcesDirectory.dir("handy_models").asFileTree.matching { include("*.drc", "*.3mf") },
         // The models of the Calibration menu (Plater::calib_*).
         orcaResourcesDirectory.dir("calib").asFileTree.matching { include("**/*.drc", "**/*.3mf") },
+        // The pictures PartPlate::render_logo() lays on a Bambu Lab plate: its
+        // plate type's, the extruders' own areas and the calibration lines.
+        orcaResourcesDirectory.dir("images").asFileTree.matching {
+            include("bbl_bed_*.svg", "orca_bed_pct_left.svg", "*_extruder_only_area*.svg", "bbl_cali_lines.svg")
+        },
         // The page the Device tab shows until the printer has a host
         // (Sidebar::update_all_preset_comboboxes()), with what it loads, and
         // Elegoo's LAN page of a Centauri Carbon 2 (ElegooLink::get_print_host_webui()).

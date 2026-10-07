@@ -28,6 +28,7 @@ import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PresetKind
+import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettings
@@ -133,8 +134,8 @@ class SettingsTabUi internal constructor(internal val scope: CoroutineScope) {
 
     internal val request: (SettingsRequest) -> Unit = { actions.request(state.kind, it) }
 
-    internal val showTooltip: (String, String) -> Unit = { id, label ->
-        tooltip = SettingTooltip(label, null)
+    internal val showTooltip: (String, String, String?) -> Unit = { id, label, url ->
+        tooltip = SettingTooltip(label, null, url)
         val kind = state.kind
         scope.launch {
             val text = actions.tooltip(kind, id)
@@ -255,7 +256,7 @@ fun LazyListScope.settingsTabItems(ui: SettingsTabUi, pageTabs: Boolean = true) 
 @Composable
 fun SettingsTabDialogs(ui: SettingsTabUi) {
     val state = ui.state
-    ui.tooltip?.let { tooltip -> SettingTooltipDialog(tooltip.label, tooltip.text, onDismiss = { ui.tooltip = null }) }
+    ui.tooltip?.let { tooltip -> SettingTooltipDialog(tooltip.label, tooltip.text, onDismiss = { ui.tooltip = null }, wikiUrl = tooltip.url) }
     ui.compatible?.let { choice ->
         CompatiblePresetsDialog(
             title = if (choice.key == "compatible_printers") "Compatible printers" else "Compatible process profiles",
@@ -310,10 +311,14 @@ fun SettingsTabDialogs(ui: SettingsTabUi) {
  * undo every change back to the saved preset.
  */
 @Composable
-fun SettingsPresetButtons(kind: PresetKind, settings: PresetSettings, enabled: Boolean, actions: SettingsActions) {
+fun SettingsPresetButtons(kind: PresetKind, settings: PresetSettings, enabled: Boolean, actions: SettingsActions, justEdit: Boolean = false) {
     var saving by rememberSaveable { mutableStateOf(false) }
     var temperatureWarning by remember { mutableStateOf<FilamentTemperatureWarning?>(null) }
     val scope = rememberCoroutineScope()
+    val copy = orcaString("Copy", context = "PresetName")
+    val suggestedName = if (settings.saveNameCopySuffix) "${settings.saveName} - $copy" else settings.saveName
+    // Tab::save_preset() with m_just_edit: SavePresetDialog is not shown, and its name is taken.
+    val save = { if (justEdit) actions.request(kind, SettingsRequest.Save(PresetSave(suggestedName))) else saving = true }
     OrcaIconButton(
         icon = DesignR.drawable.orca_save,
         contentDescription = orcaText(OrcaText("Save current %s", listOf(kind.tabTitle), translateArgs = true)),
@@ -322,10 +327,10 @@ fun SettingsPresetButtons(kind: PresetKind, settings: PresetSettings, enabled: B
                 // Tab::save_preset(): "Validate before opening any save-name UI for filament presets."
                 scope.launch {
                     val warning = actions.filamentTemperatureWarning()
-                    if (warning == null) saving = true else temperatureWarning = warning
+                    if (warning == null) save() else temperatureWarning = warning
                 }
             } else {
-                saving = true
+                save()
             }
         },
         enabled = enabled,
@@ -334,7 +339,7 @@ fun SettingsPresetButtons(kind: PresetKind, settings: PresetSettings, enabled: B
         TemperatureSafetyDialog(warning) { proceed, dontWarn ->
             temperatureWarning = null
             if (dontWarn) actions.suppressFilamentTemperatureWarning(warning.preset)
-            if (proceed) saving = true
+            if (proceed) save()
         }
     }
     if (settings.canDelete) {
@@ -342,7 +347,8 @@ fun SettingsPresetButtons(kind: PresetKind, settings: PresetSettings, enabled: B
             icon = DesignR.drawable.orca_cross,
             contentDescription = orcaString("Delete this preset"),
             onClick = { actions.request(kind, SettingsRequest.Delete) },
-            enabled = enabled,
+            // Tab::set_just_edit(): m_btn_delete_preset->Disable().
+            enabled = enabled && !justEdit,
         )
     }
     if (settings.dirty) {
@@ -354,10 +360,9 @@ fun SettingsPresetButtons(kind: PresetKind, settings: PresetSettings, enabled: B
         )
     }
     if (saving) {
-        val copy = orcaString("Copy", context = "PresetName")
         SavePresetDialog(
             kind = kind,
-            suggestedName = if (settings.saveNameCopySuffix) "${settings.saveName} - $copy" else settings.saveName,
+            suggestedName = suggestedName,
             checkName = { name -> actions.checkPresetName(kind, name) },
             onSave = { save ->
                 saving = false
@@ -386,7 +391,7 @@ fun SettingsModeSwitch(kind: PresetKind, settings: PresetSettings, enabled: Bool
 }
 
 /** The tooltip dialog of a setting: its label, and its text once the engine gave it. */
-internal data class SettingTooltip(val label: String, val text: List<OrcaText>?)
+internal data class SettingTooltip(val label: String, val text: List<OrcaText>?, val url: String? = null)
 
 /** The open dialog of compatible presets: which setting, and what it holds. */
 internal data class CompatibleChoice(val key: String, val selected: List<String>)

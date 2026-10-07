@@ -104,4 +104,6 @@
     <string name="plate_locked">Plate locked</string>
     <!-- The process names post-processing scripts (post_process), which the desktop app runs and the app cannot. -->
     <string name="post_process_skipped">The post-processing scripts of the process were not run: Android cannot run them.</string>
+    <!-- The minimize button of a notification shown whole (PopNotification::render_minimize_button()), as accessibility services read it. -->
+    <string name="notification_minimize">Minimize</string>
 </resources>

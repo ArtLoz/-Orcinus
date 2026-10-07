@@ -12,6 +12,9 @@ parcelable PresetsParcel {
     @nullable PresetItemParcel[] printers;
     @nullable PresetItemParcel[] filaments;
     @nullable PresetItemParcel[] processes;
+    /** Presets.tabPrinters and tabFilaments */
+    @nullable PresetItemParcel[] tabPrinters;
+    @nullable PresetItemParcel[] tabFilaments;
     /** The colour of every filament of the plate, "#RRGGBB". */
     @nullable String[] filamentColors;
     /** filament_type of every filament of the plate. */
@@ -33,6 +36,11 @@ parcelable PresetsParcel {
     boolean sequentialPrint;
     /** Presets.minLayerHeights */
     double[] minLayerHeights;
+    /** Presets.printerCover, nozzleType, extruderCount and pelletPrinter */
+    @nullable String printerCover;
+    @nullable String nozzleType;
+    int extruderCount;
+    boolean pelletPrinter;
     /** Nothing was selected: the preset of changedKind has these unsaved changes. */
     boolean asksUnsavedChanges;
     @nullable String changedKind;
@@ -41,4 +49,8 @@ parcelable PresetsParcel {
     @nullable String saveName;
     boolean saveNameCopySuffix;
     boolean saveCanOverwrite;
+    /** PresetsOutcome.UnsavedChanges' presetName, transferDropsVariants and cancelSelects */
+    @nullable String changedPreset;
+    boolean transferDropsVariants;
+    boolean cancelSelects;
 }

@@ -96,8 +96,8 @@ internal class TextActions(
     val toggle: (hit: SurfaceHit?, bedPoint: Point2?, defaultText: String) -> Unit,
     /** "Text" of the menus: over the copy [copy] where [hit] says, or as an object at [bedPoint]. */
     val add: (copy: Int?, type: VolumeType, hit: SurfaceHit?, bedPoint: Point2?, defaultText: String) -> Unit,
-    /** The object list's "Add part" > "Text", which the canvas places. */
-    val addRequested: (EmbossRequest.Add, SurfaceHit?, String) -> Unit,
+    /** The object list's "Add part" > "Text", which the canvas places, or its plate menu's as an object at [Point2]. */
+    val addRequested: (EmbossRequest.Add, SurfaceHit?, Point2?, String) -> Unit,
     /** "Edit text" of the menus. */
     val edit: (ObjectPartId) -> Unit,
     val close: () -> Unit,
@@ -139,7 +139,7 @@ internal class TextActions(
 ) {
     companion object {
         val NONE = TextActions(
-            { _, _, _ -> }, { _, _, _, _, _ -> }, { _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+            { _, _, _ -> }, { _, _, _, _, _ -> }, { _, _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
             {}, {}, {}, {}, {}, { _, _ -> }, {},
             {}, {}, {}, {}, {}, {}, {},
         )

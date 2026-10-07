@@ -11,4 +11,8 @@ parcelable PlateInspectionParcel {
     int plates;
     /** PlateInspectionOutcome.Success.objectOrder. */
     @nullable int[] objectOrder;
+    /** PlateInspectionOutcome.Cancelled. */
+    boolean cancelled;
+    /** PlateInspectionOutcome.Success.zeroSizeObjects. */
+    @nullable String[] zeroSizeObjects;
 }

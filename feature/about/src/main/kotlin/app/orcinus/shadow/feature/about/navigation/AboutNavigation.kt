@@ -9,6 +9,8 @@ import app.orcinus.shadow.core.model.ComponentId
 import app.orcinus.shadow.core.model.LicenseId
 import app.orcinus.shadow.core.ui.navigation.overlayPageMetadata
 import app.orcinus.shadow.feature.about.AboutScreen
+import app.orcinus.shadow.feature.about.NetworkTestRoute
+import app.orcinus.shadow.feature.about.NetworkTestViewModel
 import app.orcinus.shadow.feature.about.NoticeRoute
 import app.orcinus.shadow.feature.about.NoticeViewModel
 import app.orcinus.shadow.feature.about.ThirdPartyRoute
@@ -24,6 +26,10 @@ data object AboutNavKey : NavKey
 /** OrcaSlicer's Troubleshoot Center, which its Help menu opens beside About. */
 @Serializable
 data object TroubleshootNavKey : NavKey
+
+/** OrcaSlicer's Network Test, which its Help menu and the Preferences open. */
+@Serializable
+data object NetworkTestNavKey : NavKey
 
 @Serializable
 internal data object ThirdPartyNavKey : NavKey
@@ -43,12 +49,14 @@ interface AboutViewModelFactory {
     fun licenseNoticeViewModel(id: LicenseId): NoticeViewModel
 
     fun troubleshootViewModel(): TroubleshootViewModel
+
+    fun networkTestViewModel(): NetworkTestViewModel
 }
 
 /**
- * Registers the About page, the license pages it opens, and the Troubleshoot
- * Center. [logo] draws the app icon; [onNavigate] pushes a page and [onBack]
- * closes the current one.
+ * Registers the About page, the license pages it opens, the Troubleshoot
+ * Center and the Network Test. [logo] draws the app icon; [onNavigate] pushes
+ * a page and [onBack] closes the current one.
  */
 fun EntryProviderScope<NavKey>.aboutEntries(
     appInfo: AppInfo,
@@ -82,5 +90,8 @@ fun EntryProviderScope<NavKey>.aboutEntries(
     // Over the workspace, as the Preferences: the dialog's No goes back to the project as it was.
     entry<TroubleshootNavKey>(metadata = overlayPageMetadata) {
         TroubleshootRoute(viewModel = viewModel { viewModels.troubleshootViewModel() }, logo = logo, onBack = onBack)
+    }
+    entry<NetworkTestNavKey>(metadata = overlayPageMetadata) {
+        NetworkTestRoute(viewModel = viewModel { viewModels.networkTestViewModel() }, onBack = onBack)
     }
 }

@@ -1,5 +1,6 @@
 package app.orcinus.shadow.ui
 
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.EnterTransition
@@ -7,6 +8,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
@@ -21,6 +23,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
@@ -62,6 +67,7 @@ import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.StepMeshChoice
+import app.orcinus.shadow.core.model.notificationLevel
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.plate.ArchivePreviewSheet
 import app.orcinus.shadow.core.ui.plate.LoadProgressDialog
@@ -93,6 +99,7 @@ import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
 import app.orcinus.shadow.domain.plate.StepMeshPrompt
 import app.orcinus.shadow.feature.about.navigation.AboutNavKey
+import app.orcinus.shadow.feature.about.navigation.NetworkTestNavKey
 import app.orcinus.shadow.feature.about.navigation.TroubleshootNavKey
 import app.orcinus.shadow.feature.about.navigation.aboutEntries
 import app.orcinus.shadow.feature.device.navigation.DeviceNavKey
@@ -258,6 +265,9 @@ fun OrcinusApp(
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
     val plate by shell.plate.collectAsStateWithLifecycle()
+    // The Setup Wizard's "Create" (user_guide_create_printer): CreatePrinterPresetDialog
+    // of the sidebar opens once the wizard has closed.
+    var createPrinterPending by rememberSaveable { mutableStateOf(false) }
     // GUI_App::config_wizard_startup(): the Setup Wizard opens while no printer is set up.
     LaunchedEffect(plate.presets?.setupRequired) {
         if (plate.presets?.setupRequired == true && backStack.none { it is SetupNavKey }) {
@@ -283,7 +293,12 @@ fun OrcinusApp(
                     openedDocuments = openedDocuments,
                     onDocumentsTaken = onDocumentsTaken,
                     onOpenWizard = { page ->
-                        backStack.add(SetupNavKey(if (page == PresetWizardPage.PRINTERS) SetupStart.PRINTERS else SetupStart.FILAMENTS))
+                        val start = when (page) {
+                            PresetWizardPage.PRINTERS -> SetupStart.PRINTERS
+                            PresetWizardPage.FILAMENTS -> SetupStart.FILAMENTS
+                            PresetWizardPage.GUIDE -> SetupStart.GUIDE
+                        }
+                        backStack.add(SetupNavKey(start))
                     },
                     onOpenSettings = { kind -> backStack.add(PresetSettingsNavKey(kind)) },
                     // The search of the process panel opens the page of the
@@ -295,11 +310,21 @@ fun OrcinusApp(
                     onOpenPreferences = { backStack.add(PreferencesNavKey) },
                     onOpenTroubleshoot = { backStack.add(TroubleshootNavKey) },
                     onOpenObjectTable = { item -> backStack.add(ObjectTableNavKey.of(item)) },
+                    onOpenNetworkTest = { backStack.add(NetworkTestNavKey) },
+                    createPrinterPending = createPrinterPending,
+                    onCreatePrinterTaken = { createPrinterPending = false },
                 )
             }
             setupEntry(
                 createViewModel = container::setupWizardViewModel,
                 onClose = { backStack.removeAll { it is SetupNavKey } },
+                onCreatePrinter = { createPrinterPending = true },
+                covered = { backStack.lastOrNull() !is SetupNavKey },
+                // Plater::priv::on_modify_filament(): the filament tab opens over
+                // the wizard on the preset, in just-edit mode.
+                onEditFilamentPreset = { filament, preset ->
+                    backStack.add(PresetSettingsNavKey(PresetKind.FILAMENT, editingFilament = filament, editedPreset = preset))
+                },
             )
             presetSettingsEntry(
                 createViewModel = container::presetSettingsViewModel,
@@ -314,6 +339,7 @@ fun OrcinusApp(
             preferencesEntry(
                 createViewModel = container::preferencesViewModel,
                 onBack = { backStack.removeLastOrNull() },
+                onOpenNetworkTest = { backStack.add(NetworkTestNavKey) },
             )
             objectTableEntry(
                 createViewModel = container::objectTableViewModel,
@@ -354,6 +380,11 @@ private fun Workspace(
     onOpenTroubleshoot: () -> Unit,
     /** Plater::PopupObjectTable(): the Parameter Table, on the row of the item or on none. */
     onOpenObjectTable: (SettingsItem?) -> Unit,
+    /** Help's "Open Network Test". */
+    onOpenNetworkTest: () -> Unit,
+    /** The Setup Wizard's "Create" waits for the sidebar's CreatePrinterPresetDialog. */
+    createPrinterPending: Boolean,
+    onCreatePrinterTaken: () -> Unit,
 ) {
     val plate by shell.plate.collectAsStateWithLifecycle()
     // GUI_App::on_init_inner() selects the Home tab first (MainFrame::tpHome).
@@ -362,7 +393,8 @@ private fun Workspace(
     // it changed the plate, in their order, then the question it waits on,
     // over whichever tab is open.
     val loadProgress = plate.loadProgress
-    val notice = plate.plateNotices.firstOrNull()
+    // The notices the 3D view shows as notifications are no message boxes.
+    val notice = plate.plateNotices.firstOrNull { it.notificationLevel == null }
     val question = plate.plateQuestion?.question
     val projectDrop = plate.projectDrop
     val projectPrompt = plate.projectPrompt
@@ -542,6 +574,31 @@ private fun Workspace(
     // Plater::priv::is_preview_shown()
     val shownTab = backStack.lastOrNull()
     LaunchedEffect(shownTab) { shell.showingPreview(shownTab == PreviewNavKey) }
+    // The Prepare page shows its assembly view in the 3D view's place (Plater::is_view3D_shown()).
+    var assemblyShown by rememberSaveable { mutableStateOf(false) }
+    // CreatePrinterPresetDialog of the Setup Wizard's "Create" opens from the docked sidebar.
+    LaunchedEffect(createPrinterPending) {
+        if (createPrinterPending && layout == OrcaWindowLayout.Wide) sidebarVisible = true
+    }
+    // PlaterDropTarget::OnDropFiles(): documents another app drags onto the window (split
+    // screen, a desktop mode) load as load_files() loads them, on the Prepare tab
+    // (select_tab(tp3DEditor)); the 3D view takes a drop on itself where it lands.
+    val activity = LocalActivity.current
+    val fileDrop = remember {
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val dragEvent = event.toAndroidDragEvent()
+                val clip = dragEvent.clipData ?: return false
+                val dropped = (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }.map { ExternalDocumentReference(it.toString()) }
+                if (dropped.isEmpty()) return false
+                // The documents of another app are readable while the activity holds the drop's permissions.
+                activity?.requestDragAndDropPermissions(dragEvent)
+                showTab(PrepareNavKey)
+                shell.openFiles(dropped)
+                return true
+            }
+        }
+    }
 
     val destinations = listOf(HomeNavKey, PrepareNavKey, PreviewNavKey, DeviceNavKey, ProjectNavKey)
     val tabs = listOf(
@@ -556,6 +613,7 @@ private fun Workspace(
     )
 
     OrcaSidebarLayout(
+        modifier = Modifier.dragAndDropTarget(shouldStartDragAndDrop = { true }, target = fileDrop),
         layout = layout,
         sidebarVisible = sidebarVisible,
         onSidebarVisibleChange = { sidebarVisible = it },
@@ -624,6 +682,14 @@ private fun Workspace(
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
                     showTab(PrepareNavKey)
                 },
+                prepareShown = shownTab == PrepareNavKey,
+                view3DShown = shownTab == PrepareNavKey && !assemblyShown,
+                onOpenNetworkTest = {
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    onOpenNetworkTest()
+                },
+                createPrinterPending = createPrinterPending,
+                onCreatePrinterTaken = onCreatePrinterTaken,
             )
         },
     ) {
@@ -646,6 +712,7 @@ private fun Workspace(
                     onOpenSidebar = { sidebarVisible = true },
                     onOpenSetting = onOpenSetting,
                     onOpenObjectTable = onOpenObjectTable,
+                    onAssemblyViewChange = { assemblyShown = it },
                 )
                 previewEntry(
                     createViewModel = container::previewViewModel,

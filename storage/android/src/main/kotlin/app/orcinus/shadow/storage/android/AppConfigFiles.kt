@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import app.orcinus.shadow.core.model.ExternalDocumentReference
 import app.orcinus.shadow.storage.api.ConfigFiles
 import java.io.File
@@ -54,7 +55,7 @@ class AppConfigFiles(context: Context) : ConfigFiles {
             val source = File(path)
             if (!source.exists()) continue
             try {
-                val document = DocumentsContract.createDocument(applicationContext.contentResolver, parent, CONFIG_MIME_TYPE, source.name)
+                val document = DocumentsContract.createDocument(applicationContext.contentResolver, parent, mimeTypeOf(source.name), source.name)
                     ?: continue
                 applicationContext.contentResolver.openOutputStream(document)?.use { output ->
                     source.inputStream().use { it.copyTo(output) }
@@ -68,6 +69,15 @@ class AppConfigFiles(context: Context) : ConfigFiles {
         }
         written
     }
+
+    /**
+     * The type a file is created with: the one its extension stands for, else a
+     * plain stream, for which the provider keeps the name whole rather than
+     * appending its type's extension, so that the files ExportConfigsDialog
+     * names (".orca_printer", ".orca_filament", ".zip") import again.
+     */
+    private fun mimeTypeOf(name: String): String =
+        MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: DEFAULT_MIME_TYPE
 
     /** The document's own name, which the preset keeps. */
     private fun documentName(uri: Uri): String {
@@ -87,7 +97,7 @@ class AppConfigFiles(context: Context) : ConfigFiles {
         map { if (it.isLetterOrDigit() || it in ALLOWED_NAME_CHARS) it else '_' }.joinToString("").ifBlank { DEFAULT_NAME }
 
     private companion object {
-        const val CONFIG_MIME_TYPE = "application/json"
+        const val DEFAULT_MIME_TYPE = "application/octet-stream"
         const val DEFAULT_NAME = "config.json"
         val ALLOWED_NAME_CHARS = setOf('.', '-', '_', ' ', '@', '(', ')')
     }

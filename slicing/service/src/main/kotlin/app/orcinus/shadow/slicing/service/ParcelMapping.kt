@@ -3,6 +3,8 @@ package app.orcinus.shadow.slicing.service
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.AssemblyMode
 import app.orcinus.shadow.core.model.Axis
+import app.orcinus.shadow.core.model.BedLogo
+import app.orcinus.shadow.core.model.BedLogoKind
 import app.orcinus.shadow.core.model.BedTypeChoice
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.BrimEarsOutcome
@@ -60,6 +62,7 @@ import app.orcinus.shadow.core.model.TextStylesOutcome
 import app.orcinus.shadow.core.model.TextVerticalAlign
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.CopyClearance
 import app.orcinus.shadow.core.model.CutGroove
 import app.orcinus.shadow.core.model.CutId
 import app.orcinus.shadow.core.model.CutInfo
@@ -784,6 +787,7 @@ private fun InspectionParcel.toInspection() = ModelInspection(
 internal fun PlateInspectionOutcome.toParcel() = PlateInspectionParcel().also {
     when (this) {
         is PlateInspectionOutcome.Failure -> it.error = message
+        PlateInspectionOutcome.Cancelled -> it.cancelled = true
         is PlateInspectionOutcome.Success -> {
             it.inspections = Array(inspections.size) { index ->
                 PlateObjectInspectionParcel().also { object_ ->
@@ -794,16 +798,19 @@ internal fun PlateInspectionOutcome.toParcel() = PlateInspectionParcel().also {
             }
             it.plates = plates ?: 0
             it.objectOrder = objectOrder.toIntArray()
+            it.zeroSizeObjects = zeroSizeObjects.toTypedArray()
         }
     }
 }
 
 internal fun PlateInspectionParcel.toPlateInspectionOutcome(): PlateInspectionOutcome {
     error?.let { return PlateInspectionOutcome.Failure(it) }
+    if (cancelled) return PlateInspectionOutcome.Cancelled
     return PlateInspectionOutcome.Success(
         checkNotNull(inspections).map { object_ -> object_.instances.orEmpty().map { it.toInspection() } },
         plates = plates.takeIf { it > 0 },
         objectOrder = objectOrder?.toList().orEmpty(),
+        zeroSizeObjects = zeroSizeObjects?.toList().orEmpty(),
     )
 }
 
@@ -917,6 +924,12 @@ internal fun PlateDescriptionOutcome.toParcel() = PlateDescriptionParcel().also 
             it.buildVolumeShape = geometry.buildVolumeShape.name
             it.circle = geometry.circle?.let { circle -> doubleArrayOf(circle.center.x, circle.center.y, circle.radius) }
             it.hotendModel = hotendModel?.value
+            it.defaultBed = geometry.defaultBed
+            it.bedTypeLogo = geometry.bedTypeLogo
+            it.logoKinds = geometry.bedLogos.map { logo -> logo.kind.name }.toTypedArray()
+            it.logoBedTypes = geometry.bedLogos.map(BedLogo::bedType).toTypedArray()
+            it.logoRects = geometry.bedLogos.flatMap { logo -> listOf(logo.x, logo.y, logo.width, logo.height) }.toDoubleArray()
+            it.logoTextures = geometry.bedLogos.map { logo -> logo.texture.value }.toTypedArray()
         }
     }
 }
@@ -937,6 +950,20 @@ internal fun PlateDescriptionParcel.toPlateDescriptionOutcome(): PlateDescriptio
                 bedTexture = bedTexture?.let(::ScenePath),
                 buildVolumeShape = buildVolumeShape?.let(BuildVolumeShape::valueOf) ?: BuildVolumeShape.RECTANGLE,
                 circle = circle?.let { PlateCircle(Point2(it[0], it[1]), it[2]) },
+                defaultBed = defaultBed,
+                bedTypeLogo = bedTypeLogo,
+                bedLogos = logoKinds.orEmpty().indices.map { index ->
+                    val rects = logoRects ?: DoubleArray(0)
+                    BedLogo(
+                        kind = BedLogoKind.valueOf(logoKinds!![index]),
+                        bedType = logoBedTypes?.getOrNull(index).orEmpty(),
+                        texture = ScenePath(logoTextures!![index]),
+                        x = rects[index * 4],
+                        y = rects[index * 4 + 1],
+                        width = rects[index * 4 + 2],
+                        height = rects[index * 4 + 3],
+                    )
+                },
             ),
             filamentColor = ColorRgba(color[0], color[1], color[2], color[3]),
             hotendModel = hotendModel?.let(::ScenePath),
@@ -1014,6 +1041,7 @@ internal fun PlateManipulation.parcelArrangeSettings(): ArrangeSettingsParcel? =
         it.enableRotation = settings.enableRotation
         it.allowMultiMaterialsOnSamePlate = settings.allowMultiMaterialsOnSamePlate
         it.alignToYAxis = settings.alignToYAxis
+        it.avoidExtrusionCaliRegion = settings.avoidExtrusionCaliRegion
     }
 }
 
@@ -1026,7 +1054,7 @@ internal fun plateManipulationOf(
     plateSettings: List<ModelSettings> = emptyList(),
 ): PlateManipulation {
     fun settings() = checkNotNull(arrange).let {
-        ArrangeSettings(it.distance, it.enableRotation, it.allowMultiMaterialsOnSamePlate, it.alignToYAxis)
+        ArrangeSettings(it.distance, it.enableRotation, it.allowMultiMaterialsOnSamePlate, it.alignToYAxis, it.avoidExtrusionCaliRegion)
     }
     val locked = lockedPlates.toSet()
     return when (name) {
@@ -1052,6 +1080,9 @@ internal fun PresetsOutcome.toParcel() = PresetsParcel().also { parcel ->
             parcel.saveNameCopySuffix = saveNameCopySuffix
             parcel.saveCanOverwrite = saveCanOverwrite
             parcel.unsavedChanges = changes.map { it.toParcel() }.toTypedArray()
+            parcel.changedPreset = presetName
+            parcel.transferDropsVariants = transferDropsVariants
+            parcel.cancelSelects = cancelSelects
         }
     }
 }
@@ -1062,6 +1093,8 @@ private fun PresetsParcel.fill(presets: Presets) {
     printers = presets.printers.toParcels()
     filaments = presets.filaments.toParcels()
     processes = presets.processes.toParcels()
+    tabPrinters = presets.tabPrinters.toParcels()
+    tabFilaments = presets.tabFilaments.toParcels()
     filamentColors = presets.filamentColors.toTypedArray()
     filamentTypes = presets.filamentTypes.toTypedArray()
     filamentDisplayTypes = presets.filamentDisplayTypes.toTypedArray()
@@ -1076,6 +1109,10 @@ private fun PresetsParcel.fill(presets: Presets) {
     i3Structure = presets.i3Structure
     sequentialPrint = presets.sequentialPrint
     minLayerHeights = presets.minLayerHeights.toDoubleArray()
+    printerCover = presets.printerCover
+    nozzleType = presets.nozzleType
+    extruderCount = presets.extruderCount
+    pelletPrinter = presets.pelletPrinter
 }
 
 internal fun PresetChange.toParcel() = PresetChangeParcel().also {
@@ -1136,6 +1173,8 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         printers = printers.toItems(),
         filaments = filaments.toItems(),
         processes = processes.toItems(),
+        tabPrinters = tabPrinters.toItems(),
+        tabFilaments = tabFilaments.toItems(),
         filamentColors = filamentColors.orEmpty().toList(),
         filamentTypes = filamentTypes.orEmpty().toList(),
         filamentDisplayTypes = filamentDisplayTypes.orEmpty().toList(),
@@ -1149,6 +1188,10 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         i3Structure = i3Structure,
         sequentialPrint = sequentialPrint,
         minLayerHeights = minLayerHeights?.toList().orEmpty(),
+        printerCover = printerCover.orEmpty(),
+        nozzleType = nozzleType.orEmpty(),
+        extruderCount = extruderCount,
+        pelletPrinter = pelletPrinter,
     )
     if (!asksUnsavedChanges) {
         return PresetsOutcome.Success(presets)
@@ -1161,6 +1204,9 @@ internal fun PresetsParcel.toPresetsOutcome(): PresetsOutcome {
         saveName = saveName.orEmpty(),
         saveNameCopySuffix = saveNameCopySuffix,
         saveCanOverwrite = saveCanOverwrite,
+        presetName = changedPreset.orEmpty(),
+        transferDropsVariants = transferDropsVariants,
+        cancelSelects = cancelSelects,
     )
 }
 
@@ -1173,11 +1219,12 @@ internal fun List<PresetListItem>.toParcels(): Array<PresetItemParcel> = Array(s
         it.subgroup = item.subgroup
         it.subgroupMsgid = item.subgroupMsgid
         it.selected = item.selected
+        it.color = item.color
     }
 }
 
 internal fun Array<PresetItemParcel>?.toItems(): List<PresetListItem> =
-    orEmpty().map { PresetListItem(it.name, it.label, PresetGroup.valueOf(it.group), it.subgroup, it.selected, it.subgroupMsgid) }
+    orEmpty().map { PresetListItem(it.name, it.label, PresetGroup.valueOf(it.group), it.subgroup, it.selected, it.subgroupMsgid, it.color.orEmpty()) }
 
 internal fun PresetChoice.parcelKind(): String = when (this) {
     is PresetChoice.Printer -> "Printer"
@@ -1478,6 +1525,9 @@ internal fun PlateValidation.toParcel() = PlateValidationParcel().also { parcel 
     parcel.printZMin = printObjects.map(PrintedObject::printZMin).toDoubleArray()
     parcel.noticeKinds = notices.map { it.kind.name }.toTypedArray()
     parcel.noticeTexts = notices.map(PlateNotice::text).toTypedArray()
+    parcel.copyHullCounts = copyClearances.map { it.outline.size }.toIntArray()
+    parcel.copyHulls = copyClearances.flatMap { copy -> copy.outline.flatMap { listOf(it.x, it.y) } }.toDoubleArray()
+    parcel.copyTops = copyClearances.map(CopyClearance::top).toDoubleArray()
 }
 
 internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
@@ -1499,6 +1549,7 @@ internal fun PlateValidationParcel.toPlateValidation(): PlateValidation {
         sequence = (sequence ?: IntArray(0)).toList(),
         printObjects = (printObjects ?: IntArray(0)).mapIndexed { at, index -> PrintedObject(index, printZMin?.getOrNull(at) ?: 0.0) },
         notices = noticeKinds.orEmpty().zip(noticeTexts.orEmpty()) { kind, text -> PlateNotice(PlateNoticeKind.valueOf(kind), text) },
+        copyClearances = outlines(copyHullCounts, copyHulls).mapIndexed { index, outline -> CopyClearance(outline, copyTops?.getOrNull(index) ?: 0.0) },
     )
 }
 

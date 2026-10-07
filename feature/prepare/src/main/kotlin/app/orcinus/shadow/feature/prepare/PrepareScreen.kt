@@ -2,11 +2,13 @@ package app.orcinus.shadow.feature.prepare
 
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,11 +62,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -144,9 +151,11 @@ import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateSlicing
+import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
@@ -171,12 +180,16 @@ import app.orcinus.shadow.core.ui.plate.CloneDialog
 import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.MenuFilament
+import app.orcinus.shadow.core.ui.plate.NoticeNotification
 import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
 import app.orcinus.shadow.core.ui.plate.ObjectClashedNotification
 import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
 import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
 import app.orcinus.shadow.core.ui.plate.PartMenuActions
 import app.orcinus.shadow.core.ui.plate.PartMenuItems
+import app.orcinus.shadow.core.ui.plate.PartPlateMenuActions
+import app.orcinus.shadow.core.ui.plate.PartPlateMenuItems
+import app.orcinus.shadow.core.ui.plate.PartPlateMenuState
 import app.orcinus.shadow.core.ui.plate.PartShapeSheet
 import app.orcinus.shadow.core.ui.plate.PlateIconActions
 import app.orcinus.shadow.core.ui.plate.PlateMenuItems
@@ -227,9 +240,11 @@ import app.orcinus.shadow.render.scene.PlateView
 import app.orcinus.shadow.render.scene.PlateViewOptions
 import app.orcinus.shadow.render.scene.SidebarField
 import app.orcinus.shadow.render.scene.SidebarHint
+import app.orcinus.shadow.render.scene.SurfaceHit
 import app.orcinus.shadow.render.scene.TextDragView
 import app.orcinus.shadow.render.scene.rememberPlateViewCamera
 import java.util.Locale
+import kotlin.math.hypot
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -245,9 +260,13 @@ internal fun PrepareRoute(
     onOpenSetting: (SearchOption) -> Unit = {},
     /** The object menus' "Edit in Parameter Table" (Plater::PopupObjectTableBySelection). */
     onOpenObjectTable: (SettingsItem?) -> Unit = {},
+    /** The assembly view shows in the 3D view's place, or no longer, which the Calibration menu goes by. */
+    onAssemblyViewChange: (Boolean) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel) { viewModel.settingToOpen.collect(onOpenSetting) }
+    val assemblyShown = state.assemblyView != null
+    LaunchedEffect(assemblyShown) { onAssemblyViewChange(assemblyShown) }
     // select_view_3D("3D") once the workspace switched to the page; a page made anew,
     // or turned with the phone, has seen the switches before it.
     var seenShown by rememberSaveable { mutableIntStateOf(shown) }
@@ -291,6 +310,13 @@ internal fun PrepareRoute(
     val selectionReplacementFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) viewModel.replaceAllInSelection(uri.toString())
     }
+    // The plate menu's "Replace all with 3D files": the plate whose objects the folder's files replace.
+    var replaceAllPlate by rememberSaveable { mutableStateOf<Int?>(null) }
+    val plateReplacementFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val plate = replaceAllPlate
+        replaceAllPlate = null
+        if (uri != null && plate != null) viewModel.replaceAllOnPlate(plate, uri.toString())
+    }
     var replaceAllTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var replaceAllInstance by rememberSaveable { mutableStateOf(0) }
     val replacementFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -329,6 +355,8 @@ internal fun PrepareRoute(
         onSelectObject = viewModel::selectObject,
         onToggleSelected = viewModel::toggleSelected,
         onAddToSelection = viewModel::addToSelection,
+        onDoubleTap = viewModel::switchSettingsScope,
+        onDropFiles = viewModel::dropFiles,
         onMoveWipeTower = viewModel::moveWipeTower,
         plateActions = PlateActions(
             select = viewModel::selectPlate,
@@ -501,6 +529,16 @@ internal fun PrepareRoute(
             deleteAll = viewModel::deleteAllObjects,
             duplicatePlate = viewModel::duplicatePlate,
             importZip = { zipPicker.launch(arrayOf(ZIP_MIME_TYPE)) },
+            selectPlateObjects = viewModel::selectPlateObjects,
+            selectAllPlates = viewModel::selectAllPlates,
+            deletePlateObjects = viewModel::deletePlateObjects,
+            reloadAll = viewModel::reloadAll,
+            replaceAllOnPlate = { index ->
+                if (viewModel.toolsClosedForReplace()) {
+                    replaceAllPlate = index
+                    plateReplacementFolder.launch(null)
+                }
+            },
         ),
         onToggleGizmo = viewModel::toggleGizmo,
         onCloseGizmo = viewModel::closeGizmo,
@@ -516,6 +554,7 @@ internal fun PrepareRoute(
             change = viewModel::changeArrangeSettings,
             reset = viewModel::resetArrangeSettings,
             arrange = viewModel::arrange,
+            clearCalibrationRegion = viewModel::clearCalibrationRegion,
         ),
         rotationActions = RotationActions(
             rotateBy = viewModel::rotateBy,
@@ -543,11 +582,15 @@ internal fun PrepareRoute(
         notificationActions = NotificationActions(
             closeSeqPrintInfo = viewModel::dismissSeqPrintInfo,
             closeExportFinished = viewModel::dismissExportFinished,
+            closeNotice = viewModel::dismissNoticeNotification,
             simplify = viewModel::simplifySuggested,
             closeSimplifySuggestion = viewModel::dismissSimplifySuggestion,
             profileUpdates = viewModel::closeProfileUpdates,
             closeProfileUpdateInstalled = viewModel::dismissProfileUpdateInstalled,
             jumpToObjects = viewModel::jumpToObjects,
+            cancelPlateJob = viewModel::cancelPlateJob,
+            closeArrangeOngoing = viewModel::dismissArrangeOngoing,
+            closeZeroSizeObject = viewModel::dismissZeroSizeObject,
         ),
         onRepairObject = viewModel::repairSelected,
         onJumpTo = viewModel::jumpTo,
@@ -835,13 +878,47 @@ internal fun PrepareScreen(
     /** The selection mode's Ctrl click on a copy, and the copies its rectangle covers. */
     onToggleSelected: (Int) -> Unit = {},
     onAddToSelection: (Set<Int>) -> Unit = {},
+    /** A double tap of the 3D view: the settings switch to the selected object, or to the global ones. */
+    onDoubleTap: () -> Unit = {},
+    /** Documents dropped on the 3D view, with the copy at the drop and where it was hit, or the bed's point there. */
+    onDropFiles: (documents: List<String>, copy: Int?, hit: SurfaceHit?, bedPoint: Point2?) -> Unit = { _, _, _, _ -> },
 ) {
     OrcaCanvas(Modifier.fillMaxSize()) {
         val viewCamera = rememberPlateViewCamera()
+        // PlaterDropTarget: documents another app drags onto the 3D view (split screen, a desktop
+        // mode). The copy under the drop is the one a ray through it hits nearest the camera.
+        val activity = LocalActivity.current
+        var viewCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+        val copies by rememberUpdatedState(state.sceneCopies.size)
+        val dropFiles by rememberUpdatedState(onDropFiles)
+        val fileDrop = remember(viewCamera) {
+            object : DragAndDropTarget {
+                override fun onDrop(event: DragAndDropEvent): Boolean {
+                    val dragEvent = event.toAndroidDragEvent()
+                    val clip = dragEvent.clipData ?: return false
+                    val documents = (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri?.toString() }
+                    if (documents.isEmpty()) return false
+                    // The documents of another app are readable while the activity holds the drop's permissions.
+                    activity?.requestDragAndDropPermissions(dragEvent)
+                    val at = viewCoordinates?.let { it.localPositionOf(it.findRootCoordinates(), Offset(dragEvent.x, dragEvent.y)) }
+                    val eye = viewCamera.eye()?.position
+                    val hit = at?.let { point ->
+                        (0 until copies).mapNotNull { copy -> viewCamera.surfaceHit(copy, point)?.let { copy to it } }
+                            .minByOrNull { (_, surface) ->
+                                val position = surface.position
+                                eye?.let { hypot(hypot(position.x - it.x, position.y - it.y), position.z - it.z) } ?: 0.0
+                            }
+                    }
+                    dropFiles(documents, hit?.first, hit?.second, if (hit == null) viewCamera.bedPoint(at) else null)
+                    return true
+                }
+            }
+        }
         var objectMenu by remember { mutableStateOf<ObjectMenu?>(null) }
         // _render_assemble_info(): the size of the assembly view's selection, which its view tells.
         var assemblySelection by remember { mutableStateOf<Vector3?>(null) }
-        var plateMenu by remember { mutableStateOf<Offset?>(null) }
+        // Where a finger held empty space, and the plate there (null off the plates).
+        var plateMenu by remember { mutableStateOf<Pair<Offset, Int?>?>(null) }
         var askingCopies by remember { mutableStateOf<Int?>(null) }
         var cloning by remember { mutableStateOf<Int?>(null) }
         var addingPart by remember { mutableStateOf<Triple<Int, VolumeType, Offset>?>(null) }
@@ -851,15 +928,32 @@ internal fun PrepareScreen(
         // object's first copy, as the desktop app does without a mouse position.
         LaunchedEffect(state.embossRequest) {
             val request = state.embossRequest as? EmbossRequest.Add ?: return@LaunchedEffect
-            val copy = state.sceneCopies.indexOfFirst { it.id == PlateInstanceId(request.mesh, 0) }
+            val mesh = request.mesh
+            val copy = mesh?.let { state.sceneCopies.indexOfFirst { it.id == PlateInstanceId(mesh, 0) } } ?: -1
             val hit = copy.takeIf { it >= 0 }?.let { viewCamera.surfaceHit(it) }
+            // An object of its own goes under the centre of the view.
+            val bedPoint = if (mesh == null) viewCamera.bedPoint() else null
             if (request.kind == EmbossKind.SVG) {
                 // choose_svg_file() first.
-                svgActions.chooseRequested(request, hit)
+                svgActions.chooseRequested(request, hit, bedPoint)
                 svgActions.pickFile()
             } else {
-                textActions.addRequested(request, hit, defaultText)
+                textActions.addRequested(request, hit, bedPoint, defaultText)
             }
+        }
+        // wxEVT_DATAVIEW_ITEM_ACTIVATED of a row of the object list: the camera frames the selection.
+        var zoomedToSelection by remember { mutableIntStateOf(state.zoomToSelection) }
+        LaunchedEffect(state.zoomToSelection) {
+            if (state.zoomToSelection == zoomedToSelection) return@LaunchedEffect
+            zoomedToSelection = state.zoomToSelection
+            viewCamera.zoomToSelection()
+        }
+        // Plater::new_project() frames the bed, load_project() every plate, both from the front and above.
+        var projectViewed by remember { mutableIntStateOf(state.projectResets) }
+        LaunchedEffect(state.projectResets) {
+            if (state.projectResets == projectViewed) return@LaunchedEffect
+            projectViewed = state.projectResets
+            viewCamera.projectView(allPlates = state.projectOpened)
         }
         // The phone's Back leaves the assembly view as its "Return" does; an open tool takes it first.
         BackHandler(enabled = state.assemblyView != null) { assemblyViewActions.back() }
@@ -955,15 +1049,19 @@ internal fun PrepareScreen(
                 onPlaceObjects = onPlaceObjects,
                 // GLCanvas3D::on_mouse(): no menu while a tool is open.
                 onOpenObjectMenu = { index, position -> if (!state.toolOpen) objectMenu = ObjectMenu(index, position) },
-                onOpenPlateMenu = { position ->
+                onOpenPlateMenu = { position, plate ->
                     if (!state.toolOpen) {
                         // A right click on empty space deselects all first, then the canvas's menu shows.
                         if (state.selectedObject != null || state.selectedObjects.isNotEmpty()) onSelectObject(null)
-                        plateMenu = position
+                        plateMenu = position to plate
                     }
                 },
+                onDoubleTap = onDoubleTap,
                 contentDescription = stringResource(R.string.plate_view),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { viewCoordinates = it }
+                    .dragAndDropTarget(shouldStartDragAndDrop = { true }, target = fileDrop),
                 plateOrigins = state.plateOrigins,
                 currentPlate = state.currentPlate,
                 onSelectPlate = plateActions.select,
@@ -989,12 +1087,16 @@ internal fun PrepareScreen(
                 labels = if (canvas.labels) objectLabels(state) else emptyMap(),
                 smoothNormals = canvas.realistic && canvas.smoothNormals,
                 // _render_sequential_clearance(): with no gizmo open, or the move, rotation or scale gizmo.
-                clearance = state.clearance.takeIf {
-                    state.painting == null && state.cut == null && state.simplify == null && state.measure == null && state.gizmo != PlateGizmo.LAY_ON_FACE
-                },
+                clearance = state.clearance.takeIf { clearanceShown(state) },
+                copyClearances = state.copyClearances.takeIf { clearanceShown(state) }.orEmpty(),
+                sequentialPrint = state.sequentialPrint,
                 layerRangeHint = state.layerRangeHint,
                 sidebarHint = sidebarField?.let { (field, axis) -> sidebarHintOf(state, field, axis) },
-                printsByObject = state.printSequence.isNotEmpty(),
+                printsByObject = state.sequentialPrint != null,
+                bedType = state.bedType,
+                calibrationLogo = true,
+                selectionCoordinates = state.selectionCoordinates,
+                gizmoRunning = state.toolOpen,
                 antialiasingSamples = canvas.antialiasingSamples,
                 layerEditing = state.layerEditing?.view(),
                 // SurfaceDrag: the text the tool is open on follows a finger over its object.
@@ -1050,22 +1152,51 @@ internal fun PrepareScreen(
                 MeasureScaleDialog(distance, canvas.imperialUnits, measureActions.scale, measureActions.cancelScale)
             }
         }
-        plateMenu?.let { position ->
-            PlateContextMenu(
-                state,
-                position,
-                onDismiss = { plateMenu = null },
-                onAddModel = onAddModel,
-                onPaste = onPaste,
-                actions = plateMenuActions,
-                labels = canvas.labels,
-                // An object of a text standing where the finger held the bed.
-                onAddText = { textActions.add(null, VolumeType.PART, null, viewCamera.bedPoint(position), defaultText) },
-                onAddSvg = {
-                    svgActions.choose(null, VolumeType.PART, null, viewCamera.bedPoint(position))
-                    svgActions.pickFile()
-                },
-            )
+        plateMenu?.let { (position, plate) ->
+            // An object of a text or an SVG standing where the finger held the bed.
+            val addText = { textActions.add(null, VolumeType.PART, null, viewCamera.bedPoint(position), defaultText) }
+            val addSvg = {
+                svgActions.choose(null, VolumeType.PART, null, viewCamera.bedPoint(position))
+                svgActions.pickFile()
+            }
+            if (plate != null) {
+                PartPlateContextMenu(
+                    state,
+                    plate,
+                    position,
+                    onDismiss = { plateMenu = null },
+                    onPaste = onPaste,
+                    actions = PartPlateMenuActions(
+                        selectPlateObjects = plateMenuActions.selectPlateObjects,
+                        selectAllPlates = plateMenuActions.selectAllPlates,
+                        deletePlateObjects = plateMenuActions.deletePlateObjects,
+                        arrangePlate = plateActions.arrange,
+                        reloadAll = plateMenuActions.reloadAll,
+                        orientPlate = plateActions.orient,
+                        deletePlate = plateActions.delete,
+                        addPrimitive = plateMenuActions.addPrimitive,
+                        addHandyModel = plateMenuActions.addHandyModel,
+                        addModels = onAddModel,
+                        replaceAllOnPlate = plateMenuActions.replaceAllOnPlate,
+                        lockPlate = plateActions.lock,
+                        rename = { renamingPlate = it },
+                        addText = addText,
+                        addSvg = addSvg,
+                    ),
+                )
+            } else {
+                PlateContextMenu(
+                    state,
+                    position,
+                    onDismiss = { plateMenu = null },
+                    onAddModel = onAddModel,
+                    onPaste = onPaste,
+                    actions = plateMenuActions,
+                    labels = canvas.labels,
+                    onAddText = addText,
+                    onAddSvg = addSvg,
+                )
+            }
         }
         // Plater::priv::on_right_click() in the assembly view: its own menu.
         objectMenu?.takeIf { state.assemblyView != null }?.let { menu ->
@@ -1324,7 +1455,7 @@ internal fun PrepareScreen(
                             actions = brimEarsActions,
                         )
                         state.layerEditing != null -> LayerEditingPanel(state.layerEditing, layerActions)
-                        state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, arrangeActions)
+                        state.arrangeOptionsOpen -> ArrangeOptionsPanel(state.arrangeSettings, state.lidar, arrangeActions)
                         state.gizmo == PlateGizmo.SCALE && scale != null && size != null ->
                             ScaleGizmoPanel(state, scale, size, canvas.imperialUnits, scaleActions, onCloseGizmo, onFieldFocus)
                         state.gizmo == PlateGizmo.MOVE && position != null -> MoveGizmoPanel(
@@ -1601,6 +1732,12 @@ internal class PlateMenuActions(
     val duplicatePlate: () -> Unit = {},
     /** The File menu's Import > "Import Zip Archive", which a phone offers with the other ways to add models. */
     val importZip: () -> Unit = {},
+    /** The items of a plate's menu (MenuFactory::plate_menu()) that act on the current plate, and its "Replace all with 3D files". */
+    val selectPlateObjects: () -> Unit = {},
+    val selectAllPlates: () -> Unit = {},
+    val deletePlateObjects: () -> Unit = {},
+    val reloadAll: () -> Unit = {},
+    val replaceAllOnPlate: (Int) -> Unit = {},
 ) {
     companion object {
         val NONE = PlateMenuActions({ _, _ -> }, {}, {})
@@ -1684,6 +1821,51 @@ private fun PlateContextMenu(
                 onDismiss()
                 actions.showLabels(!labels)
             },
+        )
+    }
+}
+
+/**
+ * on_plate_right_click(): the menu of the plate a finger held on, which became
+ * the current plate first (MenuFactory::plate_menu()), as the object list's
+ * plate item opens it. Paste stands first, as in the menu over empty space.
+ */
+@Composable
+private fun PartPlateContextMenu(
+    state: PrepareUiState,
+    plate: Int,
+    position: Offset,
+    onDismiss: () -> Unit,
+    onPaste: () -> Unit,
+    actions: PartPlateMenuActions,
+) {
+    OrcaContextMenu(
+        expanded = true,
+        position = IntOffset(position.x.roundToInt(), position.y.roundToInt()),
+        onDismissRequest = onDismiss,
+    ) {
+        OrcaMenuItem(
+            text = orcaString("Paste"),
+            enabled = state.canPasteOnPlate,
+            onClick = {
+                onDismiss()
+                onPaste()
+            },
+        )
+        OrcaMenuSeparator()
+        val current = state.canEditPlate && plate == state.currentPlate
+        PartPlateMenuItems(
+            state = PartPlateMenuState(
+                index = plate,
+                current = current,
+                occupied = current && state.currentPlateCopies.isNotEmpty(),
+                locked = plate in state.lockedPlates,
+                deletable = state.canDeletePlate,
+                anyObjects = state.sceneObjects.isNotEmpty(),
+                enabled = state.canEditPlate,
+            ),
+            actions = actions,
+            dismiss = onDismiss,
         )
     }
 }
@@ -1872,13 +2054,16 @@ private fun Notifications(
     showHints: Boolean = false,
     onShowHints: (Boolean) -> Unit = {},
 ) {
+    // update_background_process() pushes the validation's messages again after
+    // every change of the plate, and reload_scene() the clash: a closed one
+    // shows again once the objects change.
     state.validationWarning?.let { notice ->
-        ValidationNotification(OrcaNotificationLevel.Warning, orcaString("WARNING:"), notice.text, notice.targetObject?.displayName(), notice.option) { onJumpTo(notice) }
+        ValidationNotification(OrcaNotificationLevel.Warning, orcaString("WARNING:"), notice.text, notice.targetObject?.displayName(), notice.option, state.sceneObjects) { onJumpTo(notice) }
     }
     state.validationError?.let { notice ->
-        ValidationNotification(OrcaNotificationLevel.Error, orcaString("Error:"), notice.text, notice.targetObject?.displayName(), notice.option) { onJumpTo(notice) }
+        ValidationNotification(OrcaNotificationLevel.Error, orcaString("Error:"), notice.text, notice.targetObject?.displayName(), notice.option, state.sceneObjects) { onJumpTo(notice) }
     }
-    if (state.clashedObjects.isNotEmpty()) ObjectClashedNotification(state.clashedObjects.map { it.displayName() })
+    if (state.clashedObjects.isNotEmpty()) ObjectClashedNotification(state.clashedObjects.map { it.displayName() }, state.sceneObjects)
     // Plater::priv::on_slicing_update() and GLCanvas3D::_update_slice_error_status()
     // of the current plate's G-code.
     state.sliceNotices.forEach { view ->
@@ -1890,24 +2075,14 @@ private fun Notifications(
     // customized ones, "Warning:" above the text).
     if (state.primeTowerOutside) PlaterWarningNotification(orcaString("The prime tower extends beyond the plate boundary."))
     if (state.somethingNotShown) PlaterWarningNotification(orcaString("Only the object being edited is visible."))
-    // GLGizmoEmboss::create_notification_not_valid_font(): the text's font is
-    // not on the phone, and only another font can be chosen. The phone picks
-    // no similar font, so both names are the one the project gave.
     state.text?.takeIf { it.unknownFont && !it.busy }?.let { text ->
         val name = text.style.faceName.ifEmpty { text.style.fontPath }
-        OrcaNotification(level = OrcaNotificationLevel.Warning) {
-            OrcaNotificationText(
-                orcaText(
-                    OrcaText(
-                        "Can't load exactly same font (\"%1%\"). Application selected a similar one (\"%2%\"). You have to specify font for enable edit text.",
-                        listOf(name, name),
-                    ),
-                ),
-            )
-        }
+        var closed by remember(name) { mutableStateOf(false) }
+        if (!closed) UnknownFontNotification(name) { closed = true }
     }
     if (state.seqPrintInfo) SeqPrintInfoNotification(onClose = actions.closeSeqPrintInfo)
     state.exportFinished?.let { name -> ExportFinishedNotification(name, onClose = actions.closeExportFinished) }
+    state.noticeNotifications.forEach { notice -> NoticeNotification(notice, onClose = { actions.closeNotice(notice) }) }
     state.simplifySuggestions.forEach { target ->
         SimplifySuggestionNotification(
             target.displayName(),
@@ -1923,15 +2098,18 @@ private fun Notifications(
     }
     // GLGizmoMmuSegmentation::on_opening(): show_notification_extruders_limit_exceeded().
     if (state.painting?.kind == PaintKind.COLOR && state.filamentColors.size > MMU_EXTRUDERS_LIMIT) {
-        OrcaNotification {
-            OrcaNotificationText(
-                orcaText(
-                    OrcaText(
-                        "Filament count exceeds the maximum number that painting tool supports. Only the first %1% filaments will be available in painting tool.",
-                        listOf(MMU_EXTRUDERS_LIMIT.toString()),
+        var closed by remember { mutableStateOf(false) }
+        if (!closed) {
+            OrcaNotification(onClose = { closed = true }) {
+                OrcaNotificationText(
+                    orcaText(
+                        OrcaText(
+                            "Filament count exceeds the maximum number that painting tool supports. Only the first %1% filaments will be available in painting tool.",
+                            listOf(MMU_EXTRUDERS_LIMIT.toString()),
+                        ),
                     ),
-                ),
-            )
+                )
+            }
         }
     }
     state.plateNotices.forEach { PlateNoticeNotification(it) }
@@ -1939,6 +2117,10 @@ private fun Notifications(
         val named = problem.objects.mapNotNull { mesh -> state.sceneObjects.firstOrNull { it.mesh == mesh } }
         PlateProblemNotification(problem, named.map { it.displayName() }, onJumpTo = { actions.jumpToObjects(problem.objects) }, onClose = onDismissProblem)
     }
+    // ArrangeJob's, OrientJob's and FillBedJob's notifications.
+    state.zeroSizeObjects.forEachIndexed { index, name -> ZeroSizeObjectNotification(name) { actions.closeZeroSizeObject(index) } }
+    state.arrangeOngoing?.let { job -> ArrangeOngoingNotification(job, actions.closeArrangeOngoing) }
+    state.plateJob?.let { PlateJobNotification(it, actions.cancelPlateJob) }
     val slicing = state.slicing
     UpdatedItemsInfoNotification(state.cutPartsLoaded, state.cutPartsLoads)
     SliceCompletedNotification(state.slicesCompleted, sliceRunning = slicing != null) { DailyTipsPanel(showHints, onShowHints) }
@@ -1970,6 +2152,8 @@ internal class NotificationActions(
     val closeSeqPrintInfo: () -> Unit = {},
     /** The export's notification closes. */
     val closeExportFinished: () -> Unit = {},
+    /** A notice of the engine shown as a notification closes. */
+    val closeNotice: (SettingsDialog) -> Unit = {},
     /** "Simplify model", and the close button, of the advice to simplify an object. */
     val simplify: (ScenePath) -> Unit = {},
     val closeSimplifySuggestion: (ScenePath) -> Unit = {},
@@ -1979,6 +2163,11 @@ internal class NotificationActions(
     val closeProfileUpdateInstalled: (ProfileUpdate) -> Unit = {},
     /** "Jump to" of a slicing error: the objects it names. */
     val jumpToObjects: (List<ScenePath>) -> Unit = {},
+    /** The Cancel of an arrangement's, an orientation's or a bed fill's progress. */
+    val cancelPlateJob: () -> Unit = {},
+    /** "Arranging..." of the job numbered so closes, and the warning of an object without area at an index. */
+    val closeArrangeOngoing: (Long) -> Unit = {},
+    val closeZeroSizeObject: (Int) -> Unit = {},
 ) {
     companion object {
         val NONE = NotificationActions()
@@ -1986,15 +2175,43 @@ internal class NotificationActions(
 }
 
 /**
+ * GLGizmoEmboss::create_notification_not_valid_font(): the text's font is
+ * not on the phone, and only another font can be chosen. The phone picks no
+ * similar font, so both names are the one the project gave.
+ */
+@Composable
+private fun UnknownFontNotification(name: String, onClose: () -> Unit) {
+    OrcaNotification(level = OrcaNotificationLevel.Warning, onClose = onClose) {
+        OrcaNotificationText(
+            orcaText(
+                OrcaText(
+                    "Can't load exactly same font (\"%1%\"). Application selected a similar one (\"%2%\"). You have to specify font for enable edit text.",
+                    listOf(name, name),
+                ),
+            ),
+        )
+    }
+}
+
+/**
  * Plater::show_object_info(): the texts of OrcaSlicer's catalogue, line by
  * line, the mesh errors in the error colour; open edges colour the notification
- * as a warning with " (Repair)" (bbl_show_objectsinfo_notification()).
+ * as a warning with " (Repair)" (bbl_show_objectsinfo_notification()). It shows
+ * every line from the start (set_Multiline(true)); closed, it stays away until
+ * the selection or what it tells of it changes.
  */
 @Composable
 private fun ObjectInfoNotification(info: ObjectInfo, imperial: Boolean, onRepair: () -> Unit) {
+    var closed by remember(info) { mutableStateOf(false) }
+    if (closed) return
+    val close = { closed = true }
     when (info) {
-        is ObjectInfo.Count -> OrcaNotification {
+        is ObjectInfo.Count -> OrcaNotification(onClose = close, multiline = true) {
             val text = orcaText(OrcaText("Number of currently selected objects: %1%\n", listOf(info.objects.toString())))
+            OrcaNotificationText(text.trimEnd('\n'))
+        }
+        is ObjectInfo.PartCount -> OrcaNotification(onClose = close, multiline = true) {
+            val text = orcaText(OrcaText("Number of currently selected parts: %1%\n", listOf(info.parts.toString())))
             OrcaNotificationText(text.trimEnd('\n'))
         }
         is ObjectInfo.Single -> {
@@ -2038,7 +2255,11 @@ private fun ObjectInfoNotification(info: ObjectInfo, imperial: Boolean, onRepair
             } else {
                 repaired
             }
-            OrcaNotification(level = if (info.openEdges > 0) OrcaNotificationLevel.Warning else OrcaNotificationLevel.Regular) {
+            OrcaNotification(
+                level = if (info.openEdges > 0) OrcaNotificationLevel.Warning else OrcaNotificationLevel.Regular,
+                onClose = close,
+                multiline = true,
+            ) {
                 text.trimEnd('\n').split('\n').forEachIndexed { index, line -> OrcaNotificationText(line, emphasized = index == 0) }
                 if (errors.isNotEmpty()) {
                     errors.split('\n').forEach { OrcaNotificationText(it, error = true) }
@@ -2898,17 +3119,23 @@ internal class ArrangeActions(
     val change: (ArrangeSettings) -> Unit,
     val reset: () -> Unit,
     val arrange: () -> Unit,
+    /** The window over a printer without the lidar turns "Avoid extrusion calibration region" off. */
+    val clearCalibrationRegion: () -> Unit = {},
 )
 
 /**
  * GLCanvas3D::_render_arrange_menu() for FFF printers: the spacing slider and
  * its input, auto spacing at 0, the rotation, materials, and Y-axis options,
- * and the Arrange and Reset buttons. The calibration-region option is only for
- * printers with a lidar and does not show.
+ * and the Arrange and Reset buttons. "Avoid extrusion calibration region"
+ * shows for a Bambu Lab printer with the lidar ([lidar]); over another
+ * printer the window turns it off.
  */
 @Composable
-private fun ArrangeOptionsPanel(settings: ArrangeSettings, actions: ArrangeActions) {
+private fun ArrangeOptionsPanel(settings: ArrangeSettings, lidar: Boolean?, actions: ArrangeActions) {
     val colors = OrcaTheme.colors
+    LaunchedEffect(lidar, settings.avoidExtrusionCaliRegion) {
+        if (lidar == false && settings.avoidExtrusionCaliRegion) actions.clearCalibrationRegion()
+    }
     OrcaGizmoPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.arrange_spacing), color = colors.onCanvasPanel, style = OrcaTheme.typography.body13)
@@ -2940,6 +3167,11 @@ private fun ArrangeOptionsPanel(settings: ArrangeSettings, actions: ArrangeActio
         }
         ArrangeOption(stringResource(R.string.arrange_multi_materials), settings.allowMultiMaterialsOnSamePlate) {
             actions.change(settings.copy(allowMultiMaterialsOnSamePlate = it))
+        }
+        if (lidar == true) {
+            ArrangeOption(orcaString("Avoid extrusion calibration region"), settings.avoidExtrusionCaliRegion) {
+                actions.change(settings.copy(avoidExtrusionCaliRegion = it))
+            }
         }
         // No alignment to the Y axis while rotation is allowed.
         ArrangeOption(stringResource(R.string.arrange_align_y), settings.alignToYAxis && !settings.enableRotation, enabled = !settings.enableRotation) {
@@ -3383,6 +3615,13 @@ private fun sidebarHintOf(state: PrepareUiState, field: SidebarField, axis: Int)
 }
 
 /**
+ * GLCanvas3D::_render_sequential_clearance(): with no tool open, or the move,
+ * rotation or scale tool (can_sequential_clearance_show_in_gizmo()).
+ */
+private fun clearanceShown(state: PrepareUiState): Boolean =
+    !state.toolOpen || state.gizmo == PlateGizmo.MOVE || state.gizmo == PlateGizmo.ROTATE || state.gizmo == PlateGizmo.SCALE
+
+/**
  * GLCanvas3D::Labels::render(): the copies of the current plate, each named
  * after its object, with its number when the object has several, and its
  * place in the print order while the plate prints by object; none while a
@@ -3390,7 +3629,8 @@ private fun sidebarHintOf(state: PrepareUiState, field: SidebarField, axis: Int)
  */
 @Composable
 private fun objectLabels(state: PrepareUiState): Map<Int, PlateLabel> {
-    if (state.gizmo != null || state.painting != null || state.cut != null || state.simplify != null) return emptyMap()
+    // GLGizmosManager::is_running(): any tool.
+    if (state.toolOpen) return emptyMap()
     val sequence = orcaString("Sequence")
     return state.currentPlateCopies.associateWith { index ->
         val copy = state.sceneCopies[index]

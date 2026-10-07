@@ -48,7 +48,6 @@ import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PendingPresetChange
 import app.orcinus.shadow.core.model.PresetChangeAction
 import app.orcinus.shadow.core.model.PresetChoice
-import app.orcinus.shadow.core.model.PresetGroup
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
@@ -81,6 +80,7 @@ import app.orcinus.shadow.domain.plate.SetBedShapeUseCase
 import app.orcinus.shadow.domain.plate.SelectPresetUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -105,9 +105,11 @@ class PresetSettingsViewModel(
     private val setBedShape: SetBedShapeUseCase,
     private val bedShapeFiles: BedShapeFilesUseCase? = null,
 ) : ViewModel() {
-    val state: StateFlow<PresetSettingsUiState> = observePlate()
+    private val plate: StateFlow<PlateState> = observePlate()
+
+    val state: StateFlow<PresetSettingsUiState> = plate
         .map { it.toUiState(kind) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toUiState(kind))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), plate.value.toUiState(kind))
 
     init {
         // The page is the first to open this tab; the engine describes it once,
@@ -118,6 +120,27 @@ class PresetSettingsViewModel(
     }
 
     fun choose(choice: PresetChoice) = selectPreset(choice)
+
+    private var editedPreset: String? = null
+
+    /**
+     * Plater::priv::on_modify_filament(): the tab selects [preset] of
+     * EditFilamentPresetDialog, and once more when the printer does not suit
+     * it, as a filament of unsaved changes left behind makes the selection go
+     * to another one (Tab::select_preset()).
+     */
+    fun editPreset(preset: String) {
+        if (editedPreset == preset) return
+        editedPreset = preset
+        val choice = PresetChoice.Filament(ProfileId(preset))
+        selectPreset(choice)
+        viewModelScope.launch {
+            val settled = plate.first { !it.changingPresets && it.presetChange == null }
+            // The tab lists an incompatible preset only while it is selected.
+            val filaments = settled.presets?.tabFilaments ?: return@launch
+            if (filaments.none { it.name == preset }) selectPreset(choice)
+        }
+    }
 
     suspend fun filamentTemperatureWarning(): FilamentTemperatureWarning? = settingsTabs.filamentTemperatureWarning()
 
@@ -197,8 +220,13 @@ fun PresetSettingsRoute(
     onOpenTab: (SearchOption) -> Unit = {},
     openOption: String? = null,
     openPage: String? = null,
+    /** EditFilamentPresetDialog's preset, which the tab edits alone (Tab::set_just_edit()). */
+    editedPreset: String? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(editedPreset) {
+        editedPreset?.let(viewModel::editPreset)
+    }
     PresetSettingsScreen(
         state = state,
         onChoose = viewModel::choose,
@@ -206,6 +234,7 @@ fun PresetSettingsRoute(
         onOpenTab = onOpenTab,
         openOption = openOption,
         openPage = openPage,
+        justEdit = editedPreset != null,
         searchCatalog = viewModel::searchCatalog,
         actions = SettingsActions(
             request = viewModel::requestSettings,
@@ -242,6 +271,8 @@ internal fun PresetSettingsScreen(
     /** The setting the search found before the page opened, and its page. */
     openOption: String? = null,
     openPage: String? = null,
+    /** Tab::set_just_edit(): the preset list and Delete are off, and Save keeps the preset's name. */
+    justEdit: Boolean = false,
     searchCatalog: suspend () -> SearchCatalogOutcome = { SearchCatalogOutcome.Failure("") },
 ) {
     var choosingPreset by rememberSaveable { mutableStateOf(false) }
@@ -271,10 +302,7 @@ internal fun PresetSettingsScreen(
     val presets = state.presets
     // TabPresetComboBox: the tab names the preset it edits, which for a
     // filament is the one of the slot it was opened on, not always the first.
-    val edited = state.tab.settings?.preset
-    val tabItems = presets?.items(state.kind)?.let { items ->
-        if (state.kind == PresetKind.FILAMENT && edited != null) items.map { it.copy(selected = it.name == edited) } else items
-    }
+    val tabItems = presets?.items(state.kind)
     val enabled = state.enabled && presets != null
     val tab = rememberSettingsTab(state.tab, actions, enabled)
     val rows = rememberLazyListState()
@@ -320,11 +348,11 @@ internal fun PresetSettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OrcaComboField(
                         text = tabItems?.selectedLabel().orEmpty(),
-                        enabled = enabled,
+                        enabled = enabled && !justEdit,
                         onClick = { choosingPreset = true },
                         modifier = Modifier.weight(1f),
                     )
-                    state.tab.settings?.let { SettingsPresetButtons(state.kind, it, enabled, actions) }
+                    state.tab.settings?.let { SettingsPresetButtons(state.kind, it, enabled, actions, justEdit) }
                 }
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -347,6 +375,7 @@ internal fun PresetSettingsScreen(
         SettingsSearchSheet(
             mode = state.tab.settings?.mode ?: SettingsMode.SIMPLE,
             loadCatalog = searchCatalog,
+            kind = state.kind,
             onChoose = { option ->
                 searching = false
                 // Tab::activate_option(): the setting's own tab and page open.
@@ -376,18 +405,17 @@ internal fun PresetSettingsScreen(
     PresetChangeDialog(state.presetChange, presets, presetChange, actions)
 }
 
+/** TabPresetComboBox::update() of the tab: the presets by their own names, every nozzle of a printer model too. */
 private fun Presets.items(kind: PresetKind): List<PresetListItem> = when (kind) {
-    PresetKind.FILAMENT -> filaments
-    PresetKind.PRINTER -> printers
+    PresetKind.FILAMENT -> tabFilaments
+    PresetKind.PRINTER -> tabPrinters
     // The settings of an object and of the plate override the process preset.
     else -> processes
 }
 
-/** A printer of the system presets is chosen by its model, as the sidebar does. */
 private fun PresetKind.choiceOf(item: PresetListItem): PresetChoice = when (this) {
     PresetKind.FILAMENT -> PresetChoice.Filament(ProfileId(item.name))
-    PresetKind.PRINTER ->
-        if (item.group == PresetGroup.SYSTEM) PresetChoice.PrinterModel(item.name) else PresetChoice.Printer(ProfileId(item.name))
+    PresetKind.PRINTER -> PresetChoice.Printer(ProfileId(item.name))
     else -> PresetChoice.Process(ProfileId(item.name))
 }
 

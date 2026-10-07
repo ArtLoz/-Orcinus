@@ -55,6 +55,8 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BoundingSphere
 import app.orcinus.shadow.core.model.CameraView
 import app.orcinus.shadow.core.model.ColorRgba
+import app.orcinus.shadow.core.model.CoordinateSystem
+import app.orcinus.shadow.core.model.CopyClearance
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.PaintKind
@@ -183,6 +185,12 @@ fun PlateView(
     /** A double tap on the volume drawn as a mesh (its key) of the copy at an index: GLCanvas3D's double click on a text or an SVG. */
     onDoubleTapVolume: (index: Int, key: String) -> Unit = { _, _ -> },
     /**
+     * Any double tap of the 3D view, after its taps changed the selection:
+     * GLCanvas3D::on_mouse()'s double click, which switches the settings to
+     * the selected object or to the global ones. The assembly view has none.
+     */
+    onDoubleTap: () -> Unit = {},
+    /**
      * The page's selection mode, which stands in for the keys a phone has not:
      * a tap on a copy adds it to the selection or takes it out (a Ctrl click),
      * and a finger drawn over empty space draws a rectangle that adds what it
@@ -199,8 +207,13 @@ fun PlateView(
     contentDescription: String,
     modifier: Modifier = Modifier,
     layer: PlateLayer? = null,
-    /** A finger held on empty space: the canvas's menu there (MenuFactory::default_menu), at that position; null for none. */
-    onOpenPlateMenu: ((position: Offset) -> Unit)? = null,
+    /**
+     * A finger held on empty space: the canvas's menu there, at that position:
+     * the menu of the plate under the finger (on_plate_right_click(),
+     * MenuFactory::plate_menu()), or off the plates MenuFactory::default_menu
+     * (plate null); null for none.
+     */
+    onOpenPlateMenu: ((position: Offset, plate: Int?) -> Unit)? = null,
     /** Where every plate stands, in their order (PartPlateList); the objects stand among them. */
     plateOrigins: List<Point2> = listOf(Point2(0.0, 0.0)),
     /** The plate the view works on, which the bed model stands under and the objects are judged by. */
@@ -241,6 +254,26 @@ fun PlateView(
     sidebarHint: SidebarHint? = null,
     /** The plate prints by object (print_sequence), so a gizmo's drag shows no sinking contours. */
     printsByObject: Boolean = false,
+    /**
+     * The extruder's clearance heights while the plate prints by object: the
+     * current plate shows its height limits (PartPlate::render_height_limit());
+     * null while it prints by layer.
+     */
+    sequentialPrint: ExtruderClearance? = null,
+    /**
+     * Every copy's clearance outline about its offset, by the copy's index,
+     * which a finger dragging copies shows where they go
+     * (GLCanvas3D::update_sequential_clearance()); empty for none.
+     */
+    copyClearances: List<CopyClearance> = emptyList(),
+    /** The plate type of the current plate (PartPlate::get_bed_type()), whose pictures a Bambu Lab plate shows. */
+    bedType: String? = null,
+    /** The calibration lines a Bambu Lab plate shows in the 3D view (_render_platelist()'s render_cali). */
+    calibrationLogo: Boolean = false,
+    /** GizmoObjectManipulation::get_coordinates_type(): the axes the selection's box stands along. */
+    selectionCoordinates: CoordinateSystem = CoordinateSystem.WORLD,
+    /** GLGizmosManager::is_running(): a tool is open, which hides the selection's box. */
+    gizmoRunning: Boolean = false,
     /** The preview's shells (GCodeViewer::load_shells()); null for none. */
     shells: PlateShells? = null,
     /** GCodeViewer's tool marker, the plate's hotend model standing at this point; null while it hides. */
@@ -353,6 +386,12 @@ fun PlateView(
         LaunchedEffect(layerRangeHint, inAssembly) { controller.setLayerRangeHint(layerRangeHint.takeUnless { inAssembly }) }
         LaunchedEffect(sidebarHint) { controller.setSidebarHint(sidebarHint) }
         SideEffect { controller.printsByObject = printsByObject }
+        // The assembly view's canvas has no plates, so no height limits, and no clearance.
+        LaunchedEffect(sequentialPrint, copyClearances, inAssembly) {
+            controller.setSequentialPrint(sequentialPrint.takeUnless { inAssembly }, copyClearances.takeUnless { inAssembly }.orEmpty())
+        }
+        LaunchedEffect(bedType, calibrationLogo) { controller.setPlateLogo(bedType, calibrationLogo) }
+        LaunchedEffect(selectionCoordinates, gizmoRunning) { controller.setSelectionBox(selectionCoordinates, gizmoRunning) }
         LaunchedEffect(shownLabels.keys) { controller.setLabelled(shownLabels.keys) }
         val labelPlacements by controller.labelPlacements.collectAsState()
         val measureDimensions by controller.measureDimensions.collectAsState()
@@ -608,6 +647,7 @@ fun PlateView(
             controller.onSelectObject = onSelectObject
             controller.onSelectVolume = onSelectVolume
             controller.onDoubleTapVolume = onDoubleTapVolume
+            controller.onDoubleTap = onDoubleTap
             controller.selectionMode = selectionMode
             controller.onToggleObject = onToggleObject
             controller.onAddObjects = onAddObjects
@@ -660,9 +700,9 @@ fun PlateView(
                 onOpenObjectMenu(index, Offset(x, y))
             }
             controller.onOpenPlateMenu = onOpenPlateMenu?.let { open ->
-                { x, y ->
+                { x, y, plate ->
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    open(Offset(x, y))
+                    open(Offset(x, y), plate)
                 }
             }
             controller.onAssemblySelection = onAssemblySelection
@@ -850,6 +890,22 @@ class PlateViewCamera {
     /** The zoom button of the canvas toolbar: the plate view framing the selection, or the plate. */
     fun zoomToFit() {
         controller?.zoomToFit()
+    }
+
+    /** GLCanvas3D::zoom_to_selection(): the camera frames the selection as it looks; nothing without one. */
+    fun zoomToSelection() {
+        controller?.zoomToSelection()
+    }
+
+    /**
+     * Plater::new_project() and load_project(): the view from the front and
+     * above (select_view("topfront")), framing the bed of a new project
+     * (requires_zoom_to_bed) or, [allPlates], every plate of an opened one
+     * (requires_zoom_to_plate = REQUIRES_ZOOM_TO_ALL_PLATE), once the view
+     * has its plates, as the next frame does.
+     */
+    fun projectView(allPlates: Boolean) {
+        controller?.requestProjectView(allPlates)
     }
 
     /**
@@ -1042,6 +1098,7 @@ private suspend fun PointerInputScope.detectPlateGestures(
             val now = down.uptimeMillis
             if (now - lastTapUptime <= doubleTapTimeoutMillis) {
                 controller.resetView()
+                controller.doubleClicked()
                 lastTapUptime = 0L
             } else {
                 lastTapUptime = now
@@ -1051,6 +1108,7 @@ private suspend fun PointerInputScope.detectPlateGestures(
             // GLCanvas3D::on_mouse()'s double click on an object: a text or an SVG opens its tool.
             val now = down.uptimeMillis
             if (now - lastObjectTapUptime <= doubleTapTimeoutMillis) {
+                controller.doubleClicked()
                 controller.doubleTap(down.position.x, down.position.y)
                 lastObjectTapUptime = 0L
             } else {
@@ -1223,6 +1281,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var assemblyCameraView: OrcaCamera.View? = null
     private var zoomToVolumes = false
 
+    /** Camera::requires_zoom_to_bed (false) or requires_zoom_to_plate of every plate (true) of a project started or opened; null for none. */
+    private var projectViewOfPlates: Boolean? = null
+
     /** _render_assemble_info(): the size of the assembly view's selection, told as it changes. */
     var onAssemblySelection: (Vector3?) -> Unit = {}
     var onPlaceInAssembly: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
@@ -1255,12 +1316,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     var onSelectObject: (Int?) -> Unit = {}
     var onSelectVolume: (Int, String) -> Unit = { _, _ -> }
     var onDoubleTapVolume: (Int, String) -> Unit = { _, _ -> }
+    var onDoubleTap: () -> Unit = {}
     var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
     var onPaint: (List<Line3>, starts: Boolean) -> Unit = { _, _ -> }
     var onPlaceObject: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
     var onPlaceObjects: (List<Pair<Int, Transform3>>, Manipulation) -> Unit = { _, _ -> }
     var onOpenObjectMenu: (Int, Float, Float) -> Unit = { _, _, _ -> }
-    var onOpenPlateMenu: ((Float, Float) -> Unit)? = null
+    var onOpenPlateMenu: ((Float, Float, Int?) -> Unit)? = null
     /** A tap on another plate, with its index; null where plates are not picked. */
     var onSelectPlate: ((Int) -> Unit)? = null
 
@@ -1445,7 +1507,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     /**
      * Plater::priv::on_right_click() over empty space: the canvas's menu at the
-     * point ([x], [y]). Returns false when the view has none.
+     * point ([x], [y]), the plate's own over a plate (on_plate_right_click()).
+     * Returns false when the view has none.
      */
     fun openPlateMenu(x: Float, y: Float): Boolean {
         if (cut != null) return selectCutPart(x, y)
@@ -1454,13 +1517,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (assembly != null) {
             // The assembly view picks no plate, and has no menu over empty space while something is selected.
             if (selectedIndex != null || selectedIndexes.isNotEmpty()) return false
-            open(x, y)
+            open(x, y, null)
             return true
         }
         // A right click on a plate selects it first.
         selectPlateAt(x, y)
-        open(x, y)
+        open(x, y, plateAt(x, y))
         return true
+    }
+
+    /**
+     * GLCanvas3D::on_mouse()'s double click, after its taps: the page switches
+     * the settings. The assembly view's canvas posts no such event.
+     */
+    fun doubleClicked() {
+        if (assembly == null) onDoubleTap()
     }
 
     /** GLGizmoCut3D::on_mouse() for a right click: the pieces, the one under the point ([x], [y]) turned over. */
@@ -1478,19 +1549,25 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     fun selectPlateAt(x: Float, y: Float) {
         if (assembly != null) return
         val select = onSelectPlate ?: return
-        val bed = bed ?: return
-        val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
+        val index = plateAt(x, y) ?: return
+        if (index != plates.current) select(index)
+    }
+
+    /** m_hover_plate_idxs: the plate under the point ([x], [y]) on the bed, null for none. */
+    private fun plateAt(x: Float, y: Float): Int? {
+        if (assembly != null) return null
+        val bed = bed ?: return null
+        val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return null
         val direction = ray.b - ray.a
-        if (abs(direction.z) < 1e-12) return
+        if (abs(direction.z) < 1e-12) return null
         val t = -ray.a.z / direction.z
-        if (t < 0.0) return
+        if (t < 0.0) return null
         val point = ray.a + direction * t
         val area = bed.buildVolume
-        val index = plates.origins.indexOfFirst { origin ->
+        return plates.origins.indexOfFirst { origin ->
             point.x >= area.min.x + origin.x && point.x <= area.max.x + origin.x &&
                 point.y >= area.min.y + origin.y && point.y <= area.max.y + origin.y
-        }
-        if (index >= 0 && index != plates.current) select(index)
+        }.takeIf { it >= 0 }
     }
 
     fun setAppearance(canvas: Color, dark: Boolean, density: Float) {
@@ -1558,7 +1635,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The volumes of the copies, made for the assembly view when [inAssembly], at an explosion ratio of 1. */
     fun setObjects(objects: List<SceneObject>, inAssembly: Boolean = false, source: List<PlateObject>? = null) {
         drag = null
+        liveClearance = null
         this.source = source
+        copyOwners = source.orEmpty().flatMapIndexed { objectIndex, plateObject ->
+            val ownVolume = Affine3(((plateObject as? PlateObject.ImportedModel)?.frame ?: Transform3.IDENTITY).columns.toDoubleArray())
+            plateObject.instances.map { CopyOwner(objectIndex, it.inspection.mesh.value, ownVolume) }
+        }
+        meshExtents.retain(objects.map(SceneObject::mesh))
         loaded = objects
         volumeLeft = false
         objectsInAssembly = inAssembly
@@ -2291,6 +2374,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         drag.together().forEach { (index, start) ->
             objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(start.withTranslation(start.translation() + offset))) }
         }
+        // GLCanvas3D::on_mouse(): a finger dragging the selection over a plate printed by object
+        // shows where the clearances go; a grabber's drag does not (m_gizmos.is_dragging()).
+        if (drag is ObjectDrag && sequentialPrint != null) {
+            updateSequentialClearance()
+            invalidate()
+        }
         if (drag is MoveGrabberDrag) {
             // GLGizmoMove3D::get_tooltip(): the centre of the box of a single full instance, else the displacement.
             val value = if (drag.key == null && drag.group.isEmpty() && drag.index != WIPE_TOWER_INDEX) {
@@ -2366,6 +2455,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** The finger let go, or [cancelled] as another finger came. */
     fun endMove(cancelled: Boolean = false) {
         gizmoHintState.value = null
+        // do_move(): reset_sequential_print_clearance(); the plate's validation shows it again.
+        liveClearance = null
         brimRay?.let { ray ->
             brimRay = null
             onBrimEars(if (cancelled) BrimEarsTouch.Leave else BrimEarsTouch.Place(ray.a.toVector(), (ray.b - ray.a).toVector()))
@@ -2865,6 +2956,151 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    /** The extruder's clearance heights of a plate printed by object, and the copies' outlines a drag shows. */
+    private var sequentialPrint: ExtruderClearance? = null
+    private var copyClearances: List<CopyClearance> = emptyList()
+
+    /** GLCanvas3D::update_sequential_clearance()'s clearance while a finger drags copies; null otherwise. */
+    private var liveClearance: SceneClearance? = null
+
+    fun setSequentialPrint(clearance: ExtruderClearance?, copies: List<CopyClearance>) {
+        if (sequentialPrint == clearance && copyClearances == copies) return
+        sequentialPrint = clearance
+        copyClearances = copies
+        invalidate()
+    }
+
+    /**
+     * GLCanvas3D::update_sequential_clearance() while a finger drags copies of
+     * a plate printed by object: the copies' outlines where they stand now.
+     */
+    private fun updateSequentialClearance() {
+        val heights = sequentialPrint ?: return
+        val bed = bed ?: return
+        val plate = currentPlateBox() ?: return
+        // Outlines of copies the validation has not seen yet would stand on others.
+        if (copyClearances.isEmpty() || copyClearances.size != copyOwners.size) return
+        liveClearance = SceneClearance(SequentialClearances.of(copyClearances, copyOffsets(), plate, heights, bed.buildVolume.max.z))
+    }
+
+    /** Where every copy stands now: where the engine placed it, moved as far as a drag moved its volumes. */
+    private fun copyOffsets(): Map<Int, Point2> {
+        val offsets = HashMap<Int, Point2>()
+        var index = 0
+        for (plateObject in source.orEmpty()) {
+            for (instance in plateObject.instances) {
+                val copy = index++
+                val start = loaded.firstOrNull { it.index == copy } ?: continue
+                val now = plateObjects.firstOrNull { it.index == copy && it.key == start.key } ?: continue
+                val shift = now.world.translation() - start.world.translation()
+                val placement = instance.inspection.placement.columns
+                offsets[copy] = Point2(placement[12] + shift.x, placement[13] + shift.y)
+            }
+        }
+        return offsets
+    }
+
+    /** PartPlate::get_bed_type() of the current plate and _render_platelist()'s render_cali, for a Bambu Lab plate's pictures. */
+    private var bedType: String? = null
+    private var calibrationLogo = false
+
+    fun setPlateLogo(type: String?, calibration: Boolean) {
+        if (bedType == type && calibrationLogo == calibration) return
+        bedType = type
+        calibrationLogo = calibration
+        invalidate()
+    }
+
+    /** GizmoObjectManipulation::get_coordinates_type() and GLGizmosManager::is_running(). */
+    private var selectionCoordinates = CoordinateSystem.WORLD
+    private var gizmoRunning = false
+    private val meshExtents = MeshExtents()
+
+    fun setSelectionBox(coordinates: CoordinateSystem, running: Boolean) {
+        if (selectionCoordinates == coordinates && gizmoRunning == running) return
+        selectionCoordinates = coordinates
+        gizmoRunning = running
+        invalidate()
+    }
+
+    /**
+     * Every copy by its index: its object's index on the plate, the key of
+     * the object's own mesh, which the scene draws in the object's coordinates,
+     * and that mesh's transformation in the object (its first ModelVolume's).
+     */
+    private class CopyOwner(val objectIndex: Int, val ownKey: String, val ownVolume: Affine3)
+
+    private var copyOwners: List<CopyOwner> = emptyList()
+
+    /** ModelInstance's transformation of the copy at [index]: where its own mesh stands. */
+    private fun instanceWorld(index: Int): Affine3? =
+        copyOwners.getOrNull(index)?.let { owner -> objects.firstOrNull { it.index == index && it.key == owner.ownKey }?.world }
+
+    /** GLVolume::world_matrix(): the object's own mesh goes by the object's own volume. */
+    private fun volumeWorld(volume: SceneObject): Affine3 {
+        val owner = copyOwners.getOrNull(volume.index)?.takeIf { it.ownKey == volume.key } ?: return volume.world
+        return volume.world * owner.ownVolume
+    }
+
+    /**
+     * Selection::render(): the box of each selected copy in the current
+     * reference system (Selection::get_bounding_box_in_current_reference_system()),
+     * which a whole copy takes in world or object coordinates. The desktop app
+     * draws one box around the whole selection; a plate of a phone holds few
+     * objects, so each selected one gets its brackets, around the copy and the
+     * parts that belong to it together, several copies in world coordinates.
+     * Then render_synchronized_volumes(): while volumes are selected alone,
+     * the same volumes of the object's other copies, in yellow. None while a
+     * tool runs (GLCanvas3D::_render_selection()).
+     */
+    private fun selectionBrackets(): List<SelectionBracket> {
+        if (gizmoRunning || measure != null || brimEars != null || cut != null) return emptyList()
+        val volumes = selectedVolumes()
+        val copies = objects.filter { it.index in selectedIndexes && volumes?.contains(it.key) != false && !it.overlay }.groupBy(SceneObject::index)
+        val brackets = ArrayList<SelectionBracket>()
+        for ((index, group) in copies) {
+            val first = group.first()
+            val coordinates = when {
+                copies.size > 1 -> CoordinateSystem.WORLD
+                volumes == null && selectionCoordinates == CoordinateSystem.LOCAL -> CoordinateSystem.WORLD
+                else -> selectionCoordinates
+            }
+            val reference = when (coordinates) {
+                CoordinateSystem.WORLD -> null
+                CoordinateSystem.INSTANCE -> instanceWorld(index) ?: first.world
+                CoordinateSystem.LOCAL -> volumeWorld(first)
+            }
+            // Fix for non centered volume: a volume alone in its own coordinates is boxed about its origin.
+            val centre = volumeWorld(first).translation().takeIf { coordinates == CoordinateSystem.LOCAL && group.size == 1 }
+            val (box, transform) = SelectionBoxes.inReference(group, reference, meshExtents, centre)
+            // ColorRGB::YELLOW() in the assembly view, WHITE() in the 3D view.
+            brackets += SelectionBracket(box, transform, first.autoDrop, yellow = assembly != null)
+            if (volumes == null) continue
+            val owner = copyOwners.getOrNull(index) ?: continue
+            for (volume in group) {
+                // The same ModelVolume: a part by its mesh, the object's own mesh by each copy's.
+                val own = volume.key == owner.ownKey
+                for (other in objects) {
+                    val otherOwner = copyOwners.getOrNull(other.index)
+                    if (other.index == index || other.overlay || otherOwner == null || otherOwner.objectIndex != owner.objectIndex) continue
+                    if (if (own) other.key != otherOwner.ownKey else other.key != volume.key) continue
+                    brackets += when (selectionCoordinates) {
+                        CoordinateSystem.WORLD -> SelectionBracket(meshExtents.of(other.mesh, other.world), Affine3(), first.autoDrop, yellow = true)
+                        CoordinateSystem.LOCAL -> {
+                            val world = volumeWorld(other)
+                            SelectionBracket(meshExtents.of(other.mesh, world.inverse() * other.world), world, first.autoDrop, yellow = true)
+                        }
+                        CoordinateSystem.INSTANCE -> {
+                            val instance = instanceWorld(other.index) ?: other.world
+                            SelectionBracket(meshExtents.of(other.mesh, instance.inverse() * other.world), instance, first.autoDrop, yellow = true)
+                        }
+                    }
+                }
+            }
+        }
+        return brackets
+    }
+
     fun setLayerRangeHint(value: LayerRangeHint?) {
         if (layerRangeHint == value) return
         layerRangeHint = value
@@ -3008,6 +3244,19 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             }
             else -> zoomToBed()
         }
+    }
+
+    /** GLCanvas3D::zoom_to_selection(): DefaultCameraZoomToBoxMarginFactor about the selection, the view kept. */
+    fun zoomToSelection() {
+        val selection = selectionBox() ?: return
+        camera.zoomToBox(selection, ZOOM_TO_BOX_MARGIN_FACTOR)
+        invalidate()
+    }
+
+    /** PlateViewCamera.projectView(): the view frames the bed or every plate at its next frame. */
+    fun requestProjectView(allPlates: Boolean) {
+        projectViewOfPlates = allPlates
+        invalidate()
     }
 
     /**
@@ -3519,6 +3768,20 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             }
         }
         val bed = bed
+        // GLCanvas3D::render(): the zoom a project started or opened asked for, which frames the bed it has now.
+        val projectView = projectViewOfPlates
+        if (projectView != null && bed != null && camera.viewportWidth > 1 && assembly == null) {
+            projectViewOfPlates = null
+            framedBed = bed
+            camera.selectView(CameraView.TOP_FRONT)
+            autoType(CameraView.TOP_FRONT.prefersPerspective)
+            camera.sceneBox = sceneBox()
+            if (projectView) {
+                allPlatesBox()?.let { camera.zoomToBox(it, ZOOM_TO_PLATE_MARGIN_FACTOR) }
+            } else {
+                currentPlateBox()?.let { camera.zoomToBox(it, ZOOM_TO_BED_MARGIN_FACTOR) }
+            }
+        }
         if (bed != null && framedBed !== bed && camera.viewportWidth > 1 && assembly == null) {
             resetView()
             return
@@ -3548,11 +3811,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 selectedIndexes = selectedIndexes,
                 selectedVolumes = selectedVolumes(),
                 showAxes = options.axes,
-                showGridlines = options.gridlines,
+                // GLCanvas3D::render(): no grid under the brim ears tool while the camera does not look down.
+                showGridlines = options.gridlines && (brimEars == null || camera.isLookingDownward()),
                 overhangNormalZ = overhangNormalZ,
                 outline = options.outline,
                 // _render_sequential_clearance(): not while a gizmo's grabber is dragged.
-                clearance = clearance.takeIf { drag !is MoveGrabberDrag && drag !is RotateGrabberDrag && drag !is ScaleGrabberDrag },
+                clearance = (liveClearance ?: clearance).takeIf { drag !is MoveGrabberDrag && drag !is RotateGrabberDrag && drag !is ScaleGrabberDrag },
                 layerRangeHint = layerRangeHint,
                 phong = options.phong,
                 // _render_cast_shadows_on_plate(): the 3D view's alone.
@@ -3596,6 +3860,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     held is ObjectDrag || (!printsByObject && (held is MoveGrabberDrag || held is RotateGrabberDrag || held is ScaleGrabberDrag))
                 } == true,
                 sidebarHints = sidebarHintFrame(),
+                selectionBrackets = selectionBrackets(),
+                heightLimits = sequentialPrint,
+                bedType = bedType,
+                calibrationLogo = calibrationLogo,
             ),
         )
         surface.requestRender()

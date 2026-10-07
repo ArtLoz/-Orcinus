@@ -11,6 +11,7 @@
 #include <sstream>
 #include <unordered_set>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/filesystem.hpp>
 
 #include "engine_context.hpp"
 #include "libslic3r/AppConfig.hpp"
@@ -84,7 +85,20 @@ struct ComboEntry {
     std::string vendor;
     std::string type;
     std::string bundle;
+    std::string color;
+    // What choosing the entry selects when it is not the entry's own name: the
+    // printer model of a system printer listed as "* <model>".
+    std::string choice;
 };
+
+// PresetComboBox::get_bmp(preset): the colour square of a filament preset,
+// which shows the edited preset for the selected one.
+std::string filament_color(Slic3r::PresetCollection& collection, const Slic3r::Preset& preset)
+{
+    const Slic3r::Preset& preset2 = &collection.get_selected_preset() == &preset ? collection.get_edited_preset() : preset;
+    const auto* color = preset2.config.option<Slic3r::ConfigOptionStrings>("default_filament_colour");
+    return color == nullptr || color->values.empty() ? std::string() : color->values.front();
+}
 
 using ComboEntries = std::map<std::string, ComboEntry>;
 
@@ -118,13 +132,14 @@ void append_items(std::vector<PresetItem>& items, const std::vector<ComboEntries
 {
     for (const auto entry : list) {
         PresetItem& item = items.emplace_back();
-        item.name = entry->first;
+        item.name = entry->second.choice.empty() ? entry->first : entry->second.choice;
         item.label = entry->second.label;
         item.group = group;
         const Subgroup of = subgroup(entry->second);
         item.subgroup = of.text;
         item.subgroup_msgid = of.msgid;
         item.selected = entry->first == selected;
+        item.color = entry->second.color;
     }
 }
 
@@ -207,6 +222,7 @@ std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const S
             if (const auto* filament_type = preset.config.option<Slic3r::ConfigOptionStrings>("filament_type"); filament_type != nullptr && !filament_type->values.empty()) {
                 entry.type = filament_type->values.front();
             }
+            entry.color = filament_color(collection, preset);
         }
 
         if (!preset.is_compatible) {
@@ -218,11 +234,21 @@ std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const S
         }
         if (preset.is_default || preset.is_system) {
             if (!is_filament) {
-                // A system printer is listed once per printer model.
-                name = preset.config.opt_string("printer_model");
+                // A system printer is listed once per printer model, which
+                // choosing it selects.
+                const std::string printer_model = preset.config.opt_string("printer_model");
+                // ORCA: Make system printer presets display the dirty "*" prefix when edited.
+                name = is_selected && preset.is_dirty ? Slic3r::Preset::suffix_modified() + printer_model : printer_model;
                 entry.label = name;
-                if (system_printer_models.insert(name).second) {
+                entry.choice = printer_model;
+                if (system_printer_models.insert(printer_model).second) {
                     system_presets.emplace(name, entry);
+                } else if (is_selected) {
+                    const std::string alternate_name = preset.is_dirty ? printer_model : Slic3r::Preset::suffix_modified() + printer_model;
+                    // Remove the old preset name if exists, and add the new one with the same name but with modified suffix if needed.
+                    if (system_presets.erase(alternate_name)) {
+                        system_presets.emplace(name, entry);
+                    }
                 }
             } else {
                 system_presets.emplace(name, entry);
@@ -289,9 +315,9 @@ std::vector<PresetItem> plater_combo_items(Slic3r::PresetBundle& bundle, const S
     return items;
 }
 
-// TabPresetComboBox::update() of the process tab: the visible presets
-// compatible with the printer, and the selected one; the presets inside the
-// project come first ("Project-inside presets").
+// TabPresetComboBox::update() of a tab: the visible presets compatible with
+// the printer, and the selected one; the presets inside the project come
+// first ("Project-inside presets").
 std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::PresetCollection& collection)
 {
     ComboEntries project_presets;
@@ -312,14 +338,20 @@ std::vector<PresetItem> tab_combo_items(Slic3r::PresetBundle& bundle, Slic3r::Pr
         }
         // TabPresetComboBox::get_preset_name() with the label update_dirty() gives the selected preset.
         const Slic3r::Preset& shown = i == idx_selected ? collection.get_edited_preset() : preset;
+        ComboEntry entry{shown.label(true)};
+        if (collection.type() == Slic3r::Preset::TYPE_FILAMENT) {
+            entry.color = filament_color(collection, preset);
+        }
         if (preset.is_default || preset.is_system) {
-            system_presets.emplace(preset.name, ComboEntry{shown.label(true)});
+            system_presets.emplace(preset.name, entry);
         } else if (preset.is_project_embedded) {
-            project_presets.emplace(preset.name, ComboEntry{shown.label(true)});
+            project_presets.emplace(preset.name, entry);
         } else if (preset.is_from_bundle()) {
-            bundle_presets.emplace(preset.name, ComboEntry{shown.label(false), {}, {}, bundle_name(bundle, preset)});
+            entry.label = shown.label(false);
+            entry.bundle = bundle_name(bundle, preset);
+            bundle_presets.emplace(preset.name, entry);
         } else {
-            user_presets.emplace(preset.name, ComboEntry{shown.label(true)});
+            user_presets.emplace(preset.name, entry);
         }
     }
 
@@ -436,6 +468,8 @@ PresetState preset_state(Slic3r::PresetBundle& bundle)
     state.printers = plater_combo_items(bundle, Slic3r::Preset::TYPE_PRINTER);
     state.filaments = plater_combo_items(bundle, Slic3r::Preset::TYPE_FILAMENT);
     state.processes = tab_combo_items(bundle, bundle.prints);
+    state.tab_printers = tab_combo_items(bundle, bundle.printers);
+    state.tab_filaments = tab_combo_items(bundle, bundle.filaments);
 
     // Sidebar::update_presets() for a printer with one extruder.
     const auto* nozzle_diameter = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter");
@@ -479,16 +513,43 @@ PresetState preset_state(Slic3r::PresetBundle& bundle)
     if (const auto* min_layer_height = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionFloats>("min_layer_height")) {
         state.min_layer_heights = min_layer_height->values;
     }
+    const Slic3r::DynamicPrintConfig& printer = bundle.printers.get_edited_preset().config;
+    // Sidebar::update_printer_thumbnail(): the cover of the model the printer
+    // names, in the profiles of the vendor that has it.
+    const std::string model_name = printer.opt_string("printer_model");
+    for (const auto& [id, vendor] : bundle.vendors) {
+        const bool has_model = std::any_of(vendor.models.begin(), vendor.models.end(), [&](const auto& model) { return model.name == model_name; });
+        const boost::filesystem::path cover = boost::filesystem::path(Slic3r::resources_dir()) / "profiles" / vendor.id / (model_name + "_cover.png");
+        if (has_model && boost::filesystem::exists(cover)) {
+            state.printer_cover = cover.string();
+            break;
+        }
+    }
+    // Sidebar::update_presets(): label_nozzle_type of the first extruder.
+    state.nozzle_type = "-";
+    if (const auto* nozzle_type = printer.option<Slic3r::ConfigOptionEnumsGenericNullable>("nozzle_type"); nozzle_type != nullptr && !nozzle_type->values.empty()) {
+        switch (static_cast<Slic3r::NozzleType>(nozzle_type->values.front())) {
+        case Slic3r::ntHardenedSteel: state.nozzle_type = "Hardened Steel"; break;
+        case Slic3r::ntStainlessSteel: state.nozzle_type = "Stainless Steel"; break;
+        case Slic3r::ntTungstenCarbide: state.nozzle_type = "Tungsten Carbide"; break;
+        case Slic3r::ntBrass: state.nozzle_type = "Brass"; break;
+        default: break;
+        }
+    }
+    state.extruder_count = bundle.get_printer_extruder_count();
+    state.pellet_printer = printer.opt_bool("pellet_modded_printer");
     return state;
 }
 
 // Tab::select_preset() of the printer tab with the default preferences, whose
 // "Remember printer configuration" selects the process and filament the
-// printer last used (PresetBundle::update_selections).
+// printer last used (PresetBundle::update_selections) once the values the
+// change moved are in the printer (apply_config_from_cache()).
 void select_printer(Slic3r::PresetBundle& bundle, const std::string& name)
 {
     bundle.printers.select_preset_by_name(name, false);
     bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always, Slic3r::PresetSelectCompatibleType::Always);
+    detail::apply_tab_cache(PresetKind::printer);
     if (engine().config->get_bool("remember_printer_config")) {
         bundle.update_selections(*engine().config);
     }
@@ -647,84 +708,121 @@ void update_filament_slots(Slic3r::PresetBundle& bundle)
 }
 
 // Tab::select_preset(): the changes of a printer are never moved, and neither
-// are the ones of a filament of another type.
-bool may_transfer(Slic3r::PresetBundle& bundle, const PresetChoice choice, const std::string& value)
+// are the ones of a filament of another type (no_transfer).
+bool no_transfer(Slic3r::PresetBundle& bundle, const PresetKind kind, const std::string& preset_name)
 {
-    // printer_tab: no_transfer = true.
-    if (choice == PresetChoice::printer || choice == PresetChoice::printer_model || choice == PresetChoice::nozzle_diameter) {
+    if (kind == PresetKind::printer) {
+        return true;
+    }
+    if (kind != PresetKind::filament || preset_name.empty()) {
         return false;
     }
-    if (choice_kind(choice) != PresetKind::filament) {
-        return true;
-    }
-    const Slic3r::Preset* to_be_selected = bundle.filaments.find_preset(value, false, true);
+    const Slic3r::Preset* to_be_selected = bundle.filaments.find_preset(preset_name, false, true);
     if (to_be_selected == nullptr) {
-        return true;
+        return false;
     }
-    const auto* current = dynamic_cast<const Slic3r::ConfigOptionStrings*>(bundle.filaments.get_edited_preset().config.option("filament_type"));
-    const auto* to_select = dynamic_cast<const Slic3r::ConfigOptionStrings*>(to_be_selected->config.option("filament_type"));
-    const std::string current_type = current != nullptr && !current->values.empty() ? current->values[0] : std::string();
-    const std::string to_select_type = to_select != nullptr && !to_select->values.empty() ? to_select->values[0] : std::string();
-    return current_type == to_select_type;
+    const auto* cur_opt = dynamic_cast<const Slic3r::ConfigOptionStrings*>(bundle.filaments.get_edited_preset().config.option("filament_type"));
+    const auto* to_select_opt = dynamic_cast<const Slic3r::ConfigOptionStrings*>(to_be_selected->config.option("filament_type"));
+    std::string current_type, to_select_type;
+    if (cur_opt && (cur_opt->values.size() > 0)) {
+        current_type = cur_opt->values[0];
+    }
+    if (to_select_opt && (to_select_opt->values.size() > 0)) {
+        to_select_type = to_select_opt->values[0];
+    }
+    return current_type != to_select_type;
 }
 
-// Tab::select_preset(): the presets the selection would change with it, whose
-// unsaved changes the user is asked about too: the process and the filament
-// of a printer they do not suit, the filament of a process it does not suit.
-std::vector<PresetKind> dirty_dependents(Slic3r::PresetBundle& bundle, const PresetChoice choice, const std::string& value)
+// A dialog of Tab::select_preset(): may_discard_current_dirty_preset() for the
+// preset being left, or for one that depends on it (the dependent collection).
+struct ChangesQuestion {
+    PresetKind kind{PresetKind::print};
+    bool dependent{false};
+    // is_compatible_with_printer() or is_compatible_with_print() of a
+    // dependent preset with the one that is selected: it keeps its changes.
+    bool new_preset_compatible{true};
+    // UnsavedChangesDialog's Transfer button.
+    bool can_transfer{false};
+    // The printer that is selected has other extruder variants
+    // (no_transfer_variant), whose values a Transfer leaves behind.
+    bool no_transfer_variant{false};
+};
+
+// Tab::select_preset(): the presets whose unsaved changes the user is asked
+// about, in the order of the dialogs: the edited preset (current_dirty), then
+// for a process the filament, for a printer the process and the filament,
+// whether the new preset suits them or not.
+std::vector<ChangesQuestion> changes_questions(Slic3r::PresetBundle& bundle, const PresetKind kind, const std::string& preset_name)
 {
-    std::vector<PresetKind> dependents;
-    if (choice == PresetChoice::process) {
-        const Slic3r::Preset* print = bundle.prints.find_preset(value, true);
-        if (print == nullptr) {
-            return dependents;
-        }
+    std::vector<ChangesQuestion> questions;
+    if (preset_collection(bundle, kind).current_is_dirty()) {
+        ChangesQuestion& current = questions.emplace_back();
+        current.kind = kind;
+        current.can_transfer = !no_transfer(bundle, kind, preset_name);
+    }
+    if (kind == PresetKind::print) {
+        // Before switching the print profile to a new one, verify, whether the currently active filament
+        // are compatible with the new print.
         const Slic3r::PresetWithVendorProfile printer_profile = bundle.printers.get_edited_preset_with_vendor_profile();
         Slic3r::PresetCollection& dependent = bundle.filaments;
-        const bool old_preset_dirty = dependent.current_is_dirty();
-        const bool new_preset_compatible = Slic3r::is_compatible_with_print(dependent.get_edited_preset_with_vendor_profile(),
-                                                                            bundle.prints.get_preset_with_vendor_profile(*print), printer_profile);
-        if (old_preset_dirty && !new_preset_compatible) {
-            dependents.push_back(PresetKind::filament);
+        if (dependent.current_is_dirty()) {
+            ChangesQuestion& question = questions.emplace_back();
+            question.kind = PresetKind::filament;
+            question.dependent = true;
+            question.new_preset_compatible = Slic3r::is_compatible_with_print(
+                dependent.get_edited_preset_with_vendor_profile(), bundle.prints.get_preset_with_vendor_profile(*bundle.prints.find_preset(preset_name, true)),
+                printer_profile);
+            question.can_transfer = true;
         }
-        return dependents;
-    }
-    const Slic3r::Preset* new_printer_preset = nullptr;
-    switch (choice) {
-    case PresetChoice::printer:
-        new_printer_preset = bundle.printers.find_preset(value, true);
-        break;
-    case PresetChoice::printer_model:
-        new_printer_preset = bundle.get_similar_printer_preset(value, {});
-        break;
-    case PresetChoice::nozzle_diameter: {
-        const auto* nozzle_diameter = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter");
-        if (nozzle_diameter == nullptr || nozzle_diameter->values.empty() || diameter_string(float(nozzle_diameter->values.front())) != value) {
-            new_printer_preset = bundle.get_similar_printer_preset({}, value);
-        }
-        break;
-    }
-    default:
-        break;
-    }
-    if (new_printer_preset == nullptr) {
-        return dependents;
-    }
-    const Slic3r::PresetWithVendorProfile new_printer = bundle.printers.get_preset_with_vendor_profile(*new_printer_preset);
-    const std::pair<PresetKind, Slic3r::PresetCollection*> updates[] = {{PresetKind::print, &bundle.prints}, {PresetKind::filament, &bundle.filaments}};
-    for (const auto& [kind, presets] : updates) {
-        const bool old_preset_dirty = presets->current_is_dirty();
-        const bool new_preset_compatible = Slic3r::is_compatible_with_printer(presets->get_edited_preset_with_vendor_profile(), new_printer);
-        if (old_preset_dirty && !new_preset_compatible) {
-            dependents.push_back(kind);
+    } else if (kind == PresetKind::printer) {
+        // Before switching the printer to a new one, verify, whether the currently active print and filament
+        // are compatible with the new printer.
+        const Slic3r::Preset& new_printer_preset = *bundle.printers.find_preset(preset_name, true);
+        const Slic3r::PresetWithVendorProfile new_printer_preset_with_vendor_profile = bundle.printers.get_preset_with_vendor_profile(new_printer_preset);
+        const auto* cur_opt2 = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionStrings>("printer_extruder_variant");
+        const auto* to_select_opt2 = new_printer_preset.config.option<Slic3r::ConfigOptionStrings>("printer_extruder_variant");
+        const bool no_transfer_variant = cur_opt2 != nullptr && to_select_opt2 != nullptr && cur_opt2->values != to_select_opt2->values;
+        const std::pair<PresetKind, Slic3r::PresetCollection*> updates[] = {{PresetKind::print, &bundle.prints}, {PresetKind::filament, &bundle.filaments}};
+        for (const auto& [tab_type, presets] : updates) {
+            if (!presets->current_is_dirty()) {
+                continue;
+            }
+            ChangesQuestion& question = questions.emplace_back();
+            question.kind = tab_type;
+            question.dependent = true;
+            question.new_preset_compatible = Slic3r::is_compatible_with_printer(presets->get_edited_preset_with_vendor_profile(),
+                                                                                new_printer_preset_with_vendor_profile);
+            question.can_transfer = true;
+            question.no_transfer_variant = no_transfer_variant;
         }
     }
-    return dependents;
+    return questions;
+}
+
+// UnsavedChangesDialog for a question: nothing is selected while it waits.
+PresetState ask_about_changes(Slic3r::PresetBundle& bundle, const ChangesQuestion& question)
+{
+    Slic3r::PresetCollection& asked_presets = preset_collection(bundle, question.kind);
+    PresetState result = preset_state(bundle);
+    result.asks_unsaved_changes = true;
+    result.changed_kind = question.kind;
+    result.changed_preset = asked_presets.get_edited_preset().name;
+    result.unsaved_changes = detail::preset_changes(question.kind);
+    result.can_transfer = question.can_transfer;
+    result.transfer_drops_variants = question.can_transfer && question.no_transfer_variant && detail::transfer_drops_variants(question.kind);
+    result.cancel_selects = question.dependent && question.new_preset_compatible;
+    result.save_name = detail::save_preset_name(asked_presets.get_selected_preset(), result.save_name_copy_suffix);
+    result.save_can_overwrite = asked_presets.get_edited_preset().can_overwrite();
+    if (result.save_can_overwrite) {
+        result.save_name = asked_presets.get_edited_preset().name;
+        result.save_name_copy_suffix = false;
+    }
+    return result;
 }
 
 }  // namespace
 
-PresetState select_preset(const PresetChoice choice, const std::string& value, const PresetChangeAction action)
+PresetState select_preset(const PresetChoice choice, const std::string& value, const std::vector<PresetChangeAction>& answers)
 {
     const std::lock_guard<std::mutex> engine_lock(engine().mutex);
     if (engine().bundle == nullptr) {
@@ -749,48 +847,13 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
                 return preset_state(bundle);
             }
         }
-        // Tab::select_preset(): a preset with unsaved changes is not left
-        // behind before the user says what happens to them, and neither is
-        // one that depends on it and would change with it
-        // (may_discard_current_dirty_preset() of the dependent collection,
-        // whose dialog moves nothing). Every answer goes to the first question
-        // still open; the dependent presets are asked about first, so the
-        // changes the selected preset moves into the new one are taken last.
-        const PresetKind kind = choice_kind(choice);
-        std::vector<PresetKind> questions = dirty_dependents(bundle, choice, target);
-        if (preset_collection(bundle, kind).current_is_dirty()) {
-            questions.push_back(kind);
-        }
-        PresetChangeAction answer = action;
-        for (const PresetKind asked : questions) {
-            Slic3r::PresetCollection& asked_presets = preset_collection(bundle, asked);
-            if (answer == PresetChangeAction::ask) {
-                PresetState result = preset_state(bundle);
-                result.asks_unsaved_changes = true;
-                result.changed_kind = asked;
-                result.unsaved_changes = detail::preset_changes(asked);
-                result.can_transfer = asked == kind && may_transfer(bundle, choice, target);
-                result.save_name = detail::save_preset_name(asked_presets.get_selected_preset(), result.save_name_copy_suffix);
-                result.save_can_overwrite = asked_presets.get_edited_preset().can_overwrite();
-                if (result.save_can_overwrite) {
-                    result.save_name = asked_presets.get_edited_preset().name;
-                    result.save_name_copy_suffix = false;
-                }
-                return result;
-            }
-            if (asked == kind && answer == PresetChangeAction::transfer) {
-                detail::cache_preset_changes(kind);
-            }
-            // The changes leave with the preset, even when it is selected again.
-            asked_presets.discard_current_changes();
-            answer = PresetChangeAction::ask;
-        }
+        // The preset Tab::select_preset() is given.
+        std::string preset_name = target;
         switch (choice) {
         case PresetChoice::printer:
             if (bundle.printers.find_preset(value, false) == nullptr) {
                 return preset_failure(SceneStatus::profile_not_found, "Unknown printer profile: " + value);
             }
-            select_printer(bundle, value);
             break;
         case PresetChoice::printer_model: {
             // Plater::priv::on_select_preset() for a printer model.
@@ -798,22 +861,23 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
             if (preset == nullptr) {
                 return preset_failure(SceneStatus::profile_not_found, "Unknown printer model: " + value);
             }
-            preset->is_visible = true;
-            select_printer(bundle, preset->name);
+            preset->is_visible = true; // force visible
+            preset_name = preset->name;
             break;
         }
         case PresetChoice::nozzle_diameter: {
-            // Sidebar::priv::switch_diameter()
+            // Sidebar::priv::switch_diameter(): "If the selected diameter is the
+            // same as current nozzle, don't switch profiles".
             const auto* nozzle_diameter = bundle.printers.get_edited_preset().config.option<Slic3r::ConfigOptionFloats>("nozzle_diameter");
             if (nozzle_diameter != nullptr && !nozzle_diameter->values.empty() && diameter_string(float(nozzle_diameter->values.front())) == value) {
-                break;
+                return preset_state(bundle);
             }
             Slic3r::Preset* preset = bundle.get_similar_printer_preset({}, value);
             if (preset == nullptr) {
                 return preset_failure(SceneStatus::profile_not_found, "Configuration incompatible");
             }
-            preset->is_visible = true;
-            select_printer(bundle, preset->name);
+            preset->is_visible = true; // force visible
+            preset_name = preset->name;
             break;
         }
         case PresetChoice::filament:
@@ -822,36 +886,108 @@ PresetState select_preset(const PresetChoice choice, const std::string& value, c
             if (bundle.filaments.find_preset(target, false) == nullptr) {
                 return preset_failure(SceneStatus::profile_not_found, "Unknown filament profile: " + target);
             }
+            break;
+        case PresetChoice::process:
+            if (bundle.prints.find_preset(value, false) == nullptr) {
+                return preset_failure(SceneStatus::profile_not_found, "Unknown process profile: " + value);
+            }
+            break;
+        default:
+            return preset_failure(SceneStatus::profile_not_found, "Unknown preset choice");
+        }
+
+        // Tab::select_preset(): the user says what happens to the unsaved
+        // changes of the edited preset, then of the presets that depend on it.
+        const PresetKind kind = choice_kind(choice);
+        const std::vector<ChangesQuestion> questions = changes_questions(bundle, kind, preset_name);
+        for (std::size_t i = 0; i < questions.size(); ++i) {
+            const PresetChangeAction answer = i < answers.size() ? answers[i] : PresetChangeAction::ask;
+            if (answer == PresetChangeAction::ask) {
+                return ask_about_changes(bundle, questions[i]);
+            }
+            // canceled = old_preset_dirty && !may_discard_current_dirty_preset() && !new_preset_compatible:
+            // a Cancel stops the selection, unless a dependent preset the new one suits was asked about.
+            if (answer == PresetChangeAction::cancel && !(questions[i].dependent && questions[i].new_preset_compatible)) {
+                return preset_state(bundle);
+            }
+        }
+        // may_discard_current_dirty_preset(): the changes a Transfer moves are
+        // kept for the preset each tab selects (cache_config_diff()).
+        bool current_dirty = false;
+        for (std::size_t i = 0; i < questions.size(); ++i) {
+            const ChangesQuestion& question = questions[i];
+            current_dirty = current_dirty || !question.dependent;
+            if (answers[i] == PresetChangeAction::transfer) {
+                detail::cache_preset_changes(question.kind, question.dependent && question.no_transfer_variant);
+            }
+        }
+        // The preset will be switched to a different, compatible preset, or the '-- default --'.
+        std::vector<PresetKind> dependent_tabs;
+        if (kind == PresetKind::print) {
+            dependent_tabs = {PresetKind::filament};
+        } else if (kind == PresetKind::printer) {
+            dependent_tabs = {PresetKind::print, PresetKind::filament};
+        }
+        for (const ChangesQuestion& question : questions) {
+            if (question.dependent && !question.new_preset_compatible) {
+                preset_collection(bundle, question.kind).discard_current_changes();
+            }
+        }
+        if (current_dirty) {
+            preset_collection(bundle, kind).discard_current_changes();
+        }
+
+        switch (choice) {
+        case PresetChoice::printer:
+        case PresetChoice::printer_model:
+        case PresetChoice::nozzle_diameter:
+            select_printer(bundle, preset_name);
+            break;
+        case PresetChoice::filament:
+        case PresetChoice::slot_filament:
+        case PresetChoice::edit_filament:
             if (choice == PresetChoice::slot_filament) {
                 take_default_colour(bundle, 0, target);
             }
             // Tab::select_preset() of the filament tab, and Sidebar::update_presets().
             bundle.filaments.select_preset_by_name(target, false);
+            if (current_dirty) {
+                bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Always, Slic3r::PresetSelectCompatibleType::Always);
+            }
             update_filament_slots(bundle);
             if (choice == PresetChoice::edit_filament) {
                 engine().editing_filament = std::stoi(value);
             }
             break;
         case PresetChoice::process:
-            if (bundle.prints.find_preset(value, false) == nullptr) {
-                return preset_failure(SceneStatus::profile_not_found, "Unknown process profile: " + value);
-            }
+        default:
             // Tab::select_preset() of the process tab.
-            bundle.prints.select_preset_by_name(value, false);
+            bundle.prints.select_preset_by_name(preset_name, false);
             bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Never, Slic3r::PresetSelectCompatibleType::Always);
             break;
-        default:
-            return preset_failure(SceneStatus::profile_not_found, "Unknown preset choice");
         }
         // Tab::select_preset(): the values the change moved go into the preset
-        // that was selected.
+        // that was selected, and on_presets_changed() into the ones the
+        // dependent tabs show.
         detail::reload_tab_after_selection(kind);
+        for (const PresetKind dependent : dependent_tabs) {
+            detail::reload_tab_after_selection(dependent);
+        }
         bundle.export_selections(*engine().config);
         save_config(engine());
         return preset_state(bundle);
     } catch (const std::exception& error) {
         return preset_failure(SceneStatus::profile_not_found, error.what());
     }
+}
+
+PresetState select_preset(const PresetChoice choice, const std::string& value, const PresetChangeAction action)
+{
+    std::vector<PresetChangeAction> answers;
+    if (action != PresetChangeAction::ask) {
+        answers.push_back(action);
+    }
+    return select_preset(choice, value, answers);
 }
 
 PresetState select_bed_type(const std::string& value)

@@ -30,8 +30,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.width
@@ -192,19 +194,37 @@ private fun SettingsAlert(
     )
 }
 
-/** The tooltip of a setting's field (get_formatted_tooltip_text), shown when its label is tapped; null while it loads. */
+/**
+ * The tooltip of a setting's field (get_formatted_tooltip_text), shown when its
+ * label is tapped; null while it loads. A line with a page of OrcaSlicer's wiki
+ * ([wikiUrl], OptionsGroup::get_url()) begins it with the link, which opens the
+ * page, as the desktop label does when it is clicked (OG_CustomCtrl::OnMotion).
+ */
 @Composable
-fun SettingTooltipDialog(label: String, tooltip: List<OrcaText>?, onDismiss: () -> Unit) {
+fun SettingTooltipDialog(label: String, tooltip: List<OrcaText>?, onDismiss: () -> Unit, wikiUrl: String? = null) {
     val colors = OrcaTheme.colors
+    val uriHandler = LocalUriHandler.current
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { OrcaButton(orcaString("OK"), onClick = onDismiss) },
         title = { Text(label, style = OrcaTheme.typography.head16) },
         text = {
-            if (tooltip == null) {
-                CircularProgressIndicator(color = colors.accent)
-            } else {
-                Text(orcaText(tooltip), style = OrcaTheme.typography.body14, modifier = Modifier.verticalScroll(rememberScrollState()))
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                wikiUrl?.let { url ->
+                    Text(
+                        text = url,
+                        color = colors.accent,
+                        style = OrcaTheme.typography.body14.copy(textDecoration = TextDecoration.Underline),
+                        modifier = Modifier
+                            .orcaClickable(role = Role.Button) { runCatching { uriHandler.openUri(url) } }
+                            .padding(bottom = 12.dp),
+                    )
+                }
+                if (tooltip == null) {
+                    CircularProgressIndicator(color = colors.accent)
+                } else {
+                    Text(orcaText(tooltip), style = OrcaTheme.typography.body14)
+                }
             }
         },
         containerColor = colors.window,

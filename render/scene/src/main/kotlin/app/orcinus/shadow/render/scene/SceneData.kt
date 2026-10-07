@@ -2,6 +2,7 @@ package app.orcinus.shadow.render.scene
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import app.orcinus.shadow.core.model.BedLogoKind
 import app.orcinus.shadow.core.model.BuildVolumeFit
 import app.orcinus.shadow.core.model.BuildVolumeShape
 import app.orcinus.shadow.core.model.ColorRgba
@@ -62,6 +63,14 @@ internal const val BED_MODEL_Z = -0.41f + GROUND_Z
 
 internal class TextureImage(val width: Int, val height: Int, val rgba: ByteBuffer)
 
+/**
+ * A picture of a Bambu Lab plate (PartPlateList::BedTextureInfo::TexturePart):
+ * what it shows, the plate type of a plate type's picture, its image and its
+ * rectangle as triangles at the logo height (TexturePart::update_buffer()):
+ * x, y, z, u, v per vertex.
+ */
+internal class SceneBedLogo(val kind: BedLogoKind, val bedType: String, val image: TextureImage, val triangles: FloatBuffer)
+
 /** The plate, loaded from the engine's description and files, ready for the GPU. */
 internal class SceneBed(
     /** Printable area triangles at the logo height: x, y, z, u, v per vertex, as init_model_from_poly() maps the texture. */
@@ -77,6 +86,12 @@ internal class SceneBed(
     /** BuildVolume::type(), and the circle of a circular bed. */
     val shape: BuildVolumeShape = BuildVolumeShape.RECTANGLE,
     val circle: PlateCircle? = null,
+    /** PartPlate::m_shape of the first plate: the printable area's contour, which the height limits stand on. */
+    val printableArea: List<Point2> = emptyList(),
+    /** Bed3D::render_default(): no bed model, so the printable area is drawn grey under the current plate. */
+    val defaultBed: Boolean = false,
+    /** The pictures of a Bambu Lab plate (PartPlate::render_logo()), which take the [texture]'s place. */
+    val logos: List<SceneBedLogo> = emptyList(),
 ) {
     /** Bed3D::update_model_offset(): the model's origin at the plate centre, below the texture. */
     val modelOffset = Vec3(buildVolume.center().x, buildVolume.center().y, BED_MODEL_Z.toDouble())
@@ -434,6 +449,8 @@ internal class MeshCache {
 internal object SceneLoader {
     fun loadBed(plate: PlateDescription, smoothNormals: Boolean = false): SceneBed {
         val geometry = plate.geometry
+        // A picture two plate types share is read once.
+        val logoImages = HashMap<String, TextureImage?>()
         return SceneBed(
             plateTriangles = texturedTriangles(geometry.plateTriangles),
             excludeTriangles = flatPoints(geometry.excludeTriangles, GROUND_Z),
@@ -445,6 +462,20 @@ internal object SceneLoader {
                 .let { Box3(it.min, Vec3(it.max.x, it.max.y, geometry.printableHeight)) },
             shape = geometry.buildVolumeShape,
             circle = geometry.circle,
+            printableArea = geometry.printableArea,
+            defaultBed = geometry.defaultBed,
+            logos = geometry.bedLogos.mapNotNull { logo ->
+                // TexturePart::update_buffer(): the rectangle, mapped as init_model_from_poly() maps it.
+                val corners = listOf(
+                    Point2(logo.x, logo.y),
+                    Point2(logo.x + logo.width, logo.y),
+                    Point2(logo.x + logo.width, logo.y + logo.height),
+                    Point2(logo.x, logo.y + logo.height),
+                )
+                val triangles = listOf(corners[0], corners[1], corners[2], corners[0], corners[2], corners[3])
+                logoImages.getOrPut(logo.texture.value) { decodeTexture(File(logo.texture.value)) }
+                    ?.let { SceneBedLogo(logo.kind, logo.bedType, it, texturedTriangles(triangles)) }
+            },
         )
     }
 

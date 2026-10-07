@@ -144,6 +144,7 @@ private fun NativeSettingsPage.toPage() = SettingsPage(
     label = label.map { it.toText() },
     icon = icon,
     groups = groups.map { group -> SettingsGroup(group.title, group.icon, group.lines.map { it.toLine() }) },
+    modified = modified,
 )
 
 private fun NativeSettingsLine.toLine() = SettingsLine(
@@ -165,6 +166,7 @@ private fun NativeSettingsLine.toLine() = SettingsLine(
             editCustomGcode = option.editCustomGcode,
         )
     },
+    labelPath = labelPath,
 )
 
 private fun NativeSettingState.toState() = SettingState(

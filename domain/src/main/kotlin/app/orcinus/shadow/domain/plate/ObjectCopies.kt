@@ -39,20 +39,38 @@ class SetArrangeSettingsUseCase(
     private val store: AppConfigStore? = null,
     private val applicationScope: CoroutineScope? = null,
 ) {
-    operator fun invoke(settings: ArrangeSettings) {
-        var kept: Pair<ArrangeSettings, Boolean>? = null
-        repository.update { state ->
-            val clamped = settings.copy(distance = settings.distance.coerceIn(0.0, MAX_ARRANGE_DISTANCE))
-            kept = clamped to (state.presets?.sequentialPrint == true)
-            state.withArrangeSettings(clamped)
-        }
-        kept?.let { (saved, sequential) -> save(saved, sequential) }
-    }
+    operator fun invoke(settings: ArrangeSettings) = apply(settings, savesCalibrationRegion = true)
 
-    /** Its Reset: the default options, aligned to the Y axis on an i3 printer. */
+    /**
+     * Its Reset: the default options, aligned to the Y axis on an i3 printer;
+     * "Avoid extrusion calibration region" is on again but stays as the app
+     * configuration kept it.
+     */
     fun reset() {
         val i3 = repository.state.value.presets?.i3Structure == true
-        invoke(ArrangeSettings(alignToYAxis = i3))
+        apply(ArrangeSettings(alignToYAxis = i3), savesCalibrationRegion = false)
+    }
+
+    /**
+     * The window over a printer without the lidar shows no "Avoid extrusion
+     * calibration region" and turns it off in the options in use, which the
+     * app configuration does not keep.
+     */
+    fun withoutCalibrationRegion() = repository.update { state ->
+        val settings = state.currentArrangeSettings
+        if (settings.avoidExtrusionCaliRegion) state.withArrangeSettings(settings.copy(avoidExtrusionCaliRegion = false)) else state
+    }
+
+    private fun apply(settings: ArrangeSettings, savesCalibrationRegion: Boolean) {
+        var kept: Triple<ArrangeSettings, Boolean, Boolean>? = null
+        repository.update { state ->
+            val clamped = settings.copy(distance = settings.distance.coerceIn(0.0, MAX_ARRANGE_DISTANCE))
+            // Its check box writes the option when it changes it.
+            val region = savesCalibrationRegion && clamped.avoidExtrusionCaliRegion != state.currentArrangeSettings.avoidExtrusionCaliRegion
+            kept = Triple(clamped, state.presets?.sequentialPrint == true, region)
+            state.withArrangeSettings(clamped)
+        }
+        kept?.let { (saved, sequential, region) -> save(saved, sequential, region) }
     }
 
     /** GLCanvas3D::load_arrange_settings(): the options the app configuration kept. */
@@ -69,6 +87,7 @@ class SetArrangeSettingsUseCase(
                         distance = distance("min_object_distance_fff") ?: it.distance,
                         enableRotation = flag("enable_rotation_fff") ?: it.enableRotation,
                         allowMultiMaterialsOnSamePlate = flag("allow_multi_materials_on_same_plate") ?: it.allowMultiMaterialsOnSamePlate,
+                        avoidExtrusionCaliRegion = flag("avoid_extrusion_cali_region") ?: it.avoidExtrusionCaliRegion,
                     )
                 },
                 arrangeSettingsSeqPrint = state.arrangeSettingsSeqPrint.let {
@@ -87,7 +106,7 @@ class SetArrangeSettingsUseCase(
      * printing go under keys load_arrange_settings() does not read, as in
      * the desktop app).
      */
-    private fun save(settings: ArrangeSettings, sequential: Boolean) {
+    private fun save(settings: ArrangeSettings, sequential: Boolean, savesCalibrationRegion: Boolean) {
         val store = store ?: return
         val scope = applicationScope ?: return
         val postfix = if (sequential) "_fff_seq_print" else "_fff"
@@ -96,6 +115,9 @@ class SetArrangeSettingsUseCase(
             store.setAppConfigValue("enable_rotation$postfix", if (settings.enableRotation) "1" else "0", SECTION)
             store.setAppConfigValue("allow_multi_materials_on_same_plate", if (settings.allowMultiMaterialsOnSamePlate) "1" else "0", SECTION)
             store.setAppConfigValue("align_to_y_axis", if (settings.alignToYAxis) "1" else "0", SECTION)
+            if (savesCalibrationRegion) {
+                store.setAppConfigValue("avoid_extrusion_cali_region", if (settings.avoidExtrusionCaliRegion) "1" else "0", SECTION)
+            }
         }
     }
 
@@ -111,6 +133,7 @@ class SetArrangeSettingsUseCase(
             "enable_rotation_fff",
             "enable_rotation_seq_print",
             "allow_multi_materials_on_same_plate",
+            "avoid_extrusion_cali_region",
         )
 
         /** float_to_string_decimal_point(): the shortest decimal that reads back. */
@@ -156,7 +179,7 @@ class ClonePlateObjectsUseCase(
                     selectedRange = null,
                     // G-code sliced before no longer applies once more objects print.
                     result = null,
-                )
+                ).joiningPlates(added)
             }
             if (added.isNotEmpty() && arrange) {
                 placePlateObjects(PlateManipulation.ArrangePlate(repository.state.value.currentArrangeSettings))
@@ -215,6 +238,19 @@ class SeparatePlateInstancesUseCase(
                 )
             }
         }
+    }
+
+    /**
+     * "Set as an individual object" of the menu over the copy [id]
+     * (ObjectList::split_instances() of the selection): the copies of its
+     * object the selection holds when it holds that copy and no other
+     * object's, every copy of a whole object becoming an object of its own;
+     * the copy alone otherwise.
+     */
+    fun overCopy(id: PlateInstanceId) {
+        val selected = repository.state.value.selectedInstances
+        val copies = if (id in selected && selected.all { it.mesh == id.mesh }) selected.mapTo(HashSet(), PlateInstanceId::instance) else setOf(id.instance)
+        invoke(id.mesh, copies)
     }
 }
 

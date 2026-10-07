@@ -6,4 +6,5 @@ parcelable ArrangeSettingsParcel {
     boolean enableRotation;
     boolean allowMultiMaterialsOnSamePlate;
     boolean alignToYAxis;
+    boolean avoidExtrusionCaliRegion;
 }

@@ -84,6 +84,8 @@ import app.orcinus.shadow.core.model.PaintingOutcome
 import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
+import app.orcinus.shadow.core.model.PlateJob
+import app.orcinus.shadow.core.model.PlateJobProgress
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateValidation
 import app.orcinus.shadow.core.model.Point2
@@ -936,6 +938,36 @@ class RemoteSlicerEngine(
         plate: List<PlacedModel>,
         profiles: SlicingProfileSelection,
         manipulation: PlateManipulation,
+    ): PlateInspectionOutcome = placeJob(plate, profiles, manipulation, job = 0L, listener = null)
+
+    override suspend fun placeObjects(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        manipulation: PlateManipulation,
+        job: Long,
+        progress: (PlateJobProgress) -> Unit,
+    ): PlateInspectionOutcome {
+        // One-way calls may arrive after the job answered; those are dropped.
+        val running = Any()
+        var open = true
+        val listener = object : IPlacementProgress.Stub() {
+            override fun onProgress(job: Int, percent: Int, name: String) = synchronized(running) {
+                if (open) progress(PlateJobProgress(PlateJob.entries[job], percent, name))
+            }
+        }
+        return try {
+            placeJob(plate, profiles, manipulation, job, listener)
+        } finally {
+            synchronized(running) { open = false }
+        }
+    }
+
+    private suspend fun placeJob(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        manipulation: PlateManipulation,
+        job: Long,
+        listener: IPlacementProgress?,
     ): PlateInspectionOutcome = withContext(Dispatchers.IO) {
         try {
             service().placeObjects(
@@ -947,9 +979,22 @@ class RemoteSlicerEngine(
                 manipulation.parcelInstance(),
                 manipulation.lockedPlates.sorted().toIntArray(),
                 manipulation.plateSettings.map { it.toParcel() }.toTypedArray(),
+                job,
+                listener,
             ).toPlateInspectionOutcome()
         } catch (_: RemoteException) {
             PlateInspectionOutcome.Failure(PROCESS_DIED)
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override fun cancelPlacement(job: Long) {
+        // As cancelLoad(): never starts the engine process, and does not wait.
+        val current = synchronized(lock) { connected?.takeIf { it.isCompleted } } ?: return
+        try {
+            current.getCompleted().cancelPlacement(job)
+        } catch (_: RemoteException) {
+            // The engine process is gone, and the job with it.
         }
     }
 
@@ -1194,8 +1239,10 @@ class RemoteSlicerEngine(
 
     override suspend fun updateSavedPresets() = remote({ }) { updateSavedPresets() }
 
-    override suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction): PresetsOutcome =
-        remote(PresetsOutcome::Failure) { selectPreset(choice.parcelKind(), choice.parcelValue(), action.name).toPresetsOutcome() }
+    override suspend fun selectPreset(choice: PresetChoice, answers: List<PresetChangeAction>): PresetsOutcome =
+        remote(PresetsOutcome::Failure) {
+            selectPreset(choice.parcelKind(), choice.parcelValue(), answers.map(PresetChangeAction::name).toTypedArray()).toPresetsOutcome()
+        }
 
     override suspend fun setupPrinters(): SetupPrintersOutcome =
         remote(SetupPrintersOutcome::Failure) { setupPrinters().toSetupPrintersOutcome() }
@@ -1346,6 +1393,19 @@ class RemoteSlicerEngine(
     override suspend fun deleteFilamentPreset(preset: String, answers: Map<String, Boolean>): PresetCreationOutcome =
         remote(PresetCreationOutcome::Failure) {
             deleteFilamentPreset(preset, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetCreationOutcome()
+        }
+
+    override suspend fun deleteFilament(filamentId: String, answers: Map<String, Boolean>): PresetCreationOutcome =
+        remote(PresetCreationOutcome::Failure) {
+            deleteFilament(filamentId, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetCreationOutcome()
+        }
+
+    override suspend fun filamentPresetSources(filamentId: String): FilamentPresetsOutcome =
+        remote(FilamentPresetsOutcome::Failure) { filamentPresetSources(filamentId).toFilamentPresetsOutcome() }
+
+    override suspend fun addFilamentPreset(filamentId: String, printer: String, preset: String, answers: Map<String, Boolean>): PresetCreationOutcome =
+        remote(PresetCreationOutcome::Failure) {
+            addFilamentPreset(filamentId, printer, preset, answers.keys.toTypedArray(), answers.values.toBooleanArray()).toPresetCreationOutcome()
         }
 
     override suspend fun addFilament(color: String?): PresetsOutcome = remote(PresetsOutcome::Failure) { addFilament(color).toPresetsOutcome() }

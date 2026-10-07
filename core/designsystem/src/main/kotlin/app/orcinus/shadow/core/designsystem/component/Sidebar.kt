@@ -55,6 +55,8 @@ fun OrcaSidebarTitle(
             text = title,
             color = colors.text,
             style = OrcaTheme.typography.body15,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .padding(start = 8.dp)
                 .weight(1f),
@@ -133,6 +135,8 @@ fun OrcaParameterRow(
 /**
  * OrcaSlicer's settings page tabs (Quality, Strength, Support, ...): accent text
  * and underline when selected. The tabs scroll sideways when they do not fit.
+ * A tab of [modified] has the colour of a modified value, selected or not
+ * (Tab::update_changed_tree_ui()).
  */
 @Composable
 fun OrcaUnderlineTabs(
@@ -140,6 +144,7 @@ fun OrcaUnderlineTabs(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    modified: List<Boolean> = emptyList(),
 ) {
     val colors = OrcaTheme.colors
     Column(modifier.fillMaxWidth()) {
@@ -159,7 +164,11 @@ fun OrcaUnderlineTabs(
                 ) {
                     Text(
                         text = title,
-                        color = if (selected) colors.text else colors.textDimmed,
+                        color = when {
+                            modified.getOrElse(index) { false } -> colors.labelModified
+                            selected -> colors.text
+                            else -> colors.textDimmed
+                        },
                         style = if (selected) OrcaTheme.typography.head14 else OrcaTheme.typography.body14,
                         maxLines = 1,
                         modifier = Modifier.padding(vertical = 10.dp),

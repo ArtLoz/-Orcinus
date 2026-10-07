@@ -84,3 +84,4 @@
 # lambda that R8 synthesizes; a rule on implementing classes does not reach it.
 # Keeping the interface method keeps its name in every implementation.
 -keep interface app.orcinus.shadow.slicing.nativebridge.NativeProgressListener { void onProgress(int, java.lang.String); }
+-keep interface app.orcinus.shadow.slicing.nativebridge.NativePlacementProgressListener { void onProgress(int, int, java.lang.String); }

@@ -9,4 +9,5 @@ parcelable SettingsPageParcel {
     OrcaTextParcel[] label;
     String icon;
     SettingsGroupParcel[] groups;
+    boolean modified;
 }

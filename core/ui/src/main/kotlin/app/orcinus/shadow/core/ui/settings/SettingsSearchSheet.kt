@@ -34,6 +34,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SearchResult
@@ -50,7 +51,9 @@ import app.orcinus.shadow.core.ui.orca.orcaText
  * the desktop app's jump-to-option does.
  *
  * [mode] keeps the settings the tabs show in that mode, and [loadCatalog] asks
- * the engine for the settings once the sheet opens.
+ * the engine for the settings once the sheet opens. The search button of a tab
+ * ("Search in preset", Plater::search(false, m_type)) finds the settings of
+ * its [kind] alone, and without a query lists only them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +62,7 @@ fun SettingsSearchSheet(
     loadCatalog: suspend () -> SearchCatalogOutcome,
     onChoose: (SearchOption) -> Unit,
     onDismiss: () -> Unit,
+    kind: PresetKind? = null,
 ) {
     val colors = OrcaTheme.colors
     var query by rememberSaveable { mutableStateOf("") }
@@ -66,7 +70,7 @@ fun SettingsSearchSheet(
     var problem by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         when (val outcome = loadCatalog()) {
-            is SearchCatalogOutcome.Success -> options = outcome.options
+            is SearchCatalogOutcome.Success -> options = outcome.options.filter { kind == null || it.kind == kind }
             is SearchCatalogOutcome.Failure -> problem = outcome.message
         }
     }

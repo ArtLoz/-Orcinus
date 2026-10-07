@@ -835,13 +835,24 @@ abstract class SlicerService<E> : Service()
             instance: Int,
             lockedPlates: IntArray,
             plateSettings: Array<ModelSettingsParcel>,
+            job: Long,
+            progress: IPlacementProgress?,
         ): PlateInspectionParcel = runBlocking {
             engine.placeObjects(
                 plate.toPlacedModels(),
                 profiles.toProfiles(),
                 plateManipulationOf(manipulation, selected, arrangeSettings, instance, lockedPlates, plateSettings.map { it.toModelSettings() }),
-            )
+                job,
+            ) { told ->
+                try {
+                    progress?.onProgress(told.job.ordinal, told.percent, told.name)
+                } catch (_: RemoteException) {
+                    // The app is gone, and its notification with it.
+                }
+            }
         }.toParcel()
+
+        override fun cancelPlacement(job: Long) = engine.cancelPlacement(job)
 
         override fun updateFlushVolumes(
             plate: Array<PlacedModelParcel>,
@@ -1055,8 +1066,8 @@ abstract class SlicerService<E> : Service()
 
         override fun updateSavedPresets() = runBlocking { engine.updateSavedPresets() }
 
-        override fun selectPreset(kind: String, value: String, action: String): PresetsParcel =
-            runBlocking { engine.selectPreset(presetChoiceOf(kind, value), PresetChangeAction.valueOf(action)) }.toParcel()
+        override fun selectPreset(kind: String, value: String, answers: Array<String>): PresetsParcel =
+            runBlocking { engine.selectPreset(presetChoiceOf(kind, value), answers.map(PresetChangeAction::valueOf)) }.toParcel()
 
         override fun setupPrinters(): SetupPrintersParcel = runBlocking { engine.setupPrinters() }.toParcel()
 
@@ -1235,6 +1246,20 @@ abstract class SlicerService<E> : Service()
 
         override fun deleteFilamentPreset(preset: String, answerIds: Array<String>, answers: BooleanArray): PresetCreationParcel =
             runBlocking { engine.deleteFilamentPreset(preset, answersOf(answerIds, answers)) }.toParcel()
+
+        override fun deleteFilament(filamentId: String, answerIds: Array<String>, answers: BooleanArray): PresetCreationParcel =
+            runBlocking { engine.deleteFilament(filamentId, answersOf(answerIds, answers)) }.toParcel()
+
+        override fun filamentPresetSources(filamentId: String): FilamentPresetsParcel =
+            runBlocking { engine.filamentPresetSources(filamentId) }.toParcel()
+
+        override fun addFilamentPreset(
+            filamentId: String,
+            printer: String,
+            preset: String,
+            answerIds: Array<String>,
+            answers: BooleanArray,
+        ): PresetCreationParcel = runBlocking { engine.addFilamentPreset(filamentId, printer, preset, answersOf(answerIds, answers)) }.toParcel()
 
         override fun configExportOptions(kind: String): ConfigExportOptionsParcel =
             runBlocking { engine.configExportOptions(ConfigExportKind.valueOf(kind)) }.toParcel()

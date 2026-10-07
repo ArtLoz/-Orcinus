@@ -69,7 +69,11 @@ import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
 
-/** The row of the tab's pages; the engine toggles the fields of the chosen one. */
+/**
+ * The row of the tab's pages; the engine toggles the fields of the chosen one.
+ * A page with a modified value, or an override on the tab of an object, is
+ * named in the colour of a modified value (Tab::update_changed_tree_ui()).
+ */
 @Composable
 fun SettingsPageTabs(view: SettingsView, page: SettingsPage, onRequest: (SettingsRequest) -> Unit) {
     val pages = view.visiblePages
@@ -77,6 +81,7 @@ fun SettingsPageTabs(view: SettingsView, page: SettingsPage, onRequest: (Setting
         titles = pages.map { orcaText(it.label) },
         selectedIndex = pages.indexOf(page).coerceAtLeast(0),
         onSelect = { onRequest(SettingsRequest.SelectPage(pages[it].title)) },
+        modified = pages.map(SettingsPage::modified),
     )
 }
 
@@ -119,7 +124,7 @@ private fun SettingsLineRow(
     enabled: Boolean,
     changing: Boolean,
     onRequest: (SettingsRequest) -> Unit,
-    onTooltip: (id: String, label: String) -> Unit,
+    onTooltip: (id: String, label: String, wikiUrl: String?) -> Unit,
     onCompatible: (key: String, selected: List<String>) -> Unit,
     onBedShape: () -> Unit,
     onEditGcode: (key: String) -> Unit,
@@ -191,7 +196,7 @@ private fun SettingOptionRow(
     enabled: Boolean,
     changing: Boolean,
     onRequest: (SettingsRequest) -> Unit,
-    onTooltip: (id: String, label: String) -> Unit,
+    onTooltip: (id: String, label: String, wikiUrl: String?) -> Unit,
     onCompatible: (key: String, selected: List<String>) -> Unit,
     onEditGcode: (key: String) -> Unit,
 ) {
@@ -235,7 +240,7 @@ private fun SettingOptionRow(
                 style = OrcaTheme.typography.body14,
                 modifier = Modifier
                     .weight(1f)
-                    .orcaClickable(role = Role.Button, onClickLabel = stringResource(R.string.setting_tooltip)) { onTooltip(state.id, text) }
+                    .orcaClickable(role = Role.Button, onClickLabel = stringResource(R.string.setting_tooltip)) { onTooltip(state.id, text, line.wikiUrl) }
                     .padding(vertical = 6.dp),
             )
             if (!fullWidth) {

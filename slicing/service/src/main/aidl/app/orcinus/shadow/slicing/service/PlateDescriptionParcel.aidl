@@ -18,4 +18,12 @@ parcelable PlateDescriptionParcel {
     @nullable double[] circle;
     /** The mesh of the printer's hotend, the preview's tool marker. */
     @nullable String hotendModel;
+    /** The bed is drawn grey for want of a model (Bed3D::render_default()). */
+    boolean defaultBed;
+    /** A Bambu Lab plate shows the pictures of its plate type, each its BedLogoKind name, plate type, rectangle (x, y, width, height) and PNG. */
+    boolean bedTypeLogo;
+    @nullable String[] logoKinds;
+    @nullable String[] logoBedTypes;
+    @nullable double[] logoRects;
+    @nullable String[] logoTextures;
 }

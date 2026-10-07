@@ -342,14 +342,12 @@ class PresetSettingsTabs(
             val parts = selectedParts().mapNotNull { owner.volumeAt(it.index) }
             ModelSettingsRequest(settings = parts.map { it.settings }, plate = plateSettings, parent = owner.settings)
         }?.takeIf { it.settings.isNotEmpty() } ?: ModelSettingsRequest()
-        // A height range sits on the settings of its object in the same way.
-        PresetKind.LAYER -> selectedLayerRange?.let { range ->
-            ModelSettingsRequest(
-                settings = listOf(range.settings),
-                plate = plateSettings,
-                parent = selectedRangeOwner?.settings ?: ModelSettings(),
-            )
-        } ?: ModelSettingsRequest()
+        // A height range sits on the settings of its object in the same way;
+        // several ranges of it are edited at once (TabPrintLayer's model configs).
+        PresetKind.LAYER -> selectedRangeOwner?.let { owner ->
+            val ranges = selectedRanges().mapNotNull { owner.layerRanges.getOrNull(it.index) }
+            ModelSettingsRequest(settings = ranges.map { it.settings }, plate = plateSettings, parent = owner.settings)
+        }?.takeIf { it.settings.isNotEmpty() } ?: ModelSettingsRequest()
         else -> ModelSettingsRequest()
     }
 
@@ -363,14 +361,16 @@ class PresetSettingsTabs(
             copy(objects = objects.map { answered[it.mesh]?.let(it::withSettings) ?: it })
         }
         kind == PresetKind.LAYER -> {
-            val id = selectedRange
-            val range = selectedLayerRange
-            val answered = settings.firstOrNull()
-            if (id == null || range == null || answered == null) this
+            // The answers come in the order the request carried the ranges.
+            val owner = selectedRangeOwner
+            val answered = selectedRanges().zip(settings)
+            if (owner == null || answered.isEmpty()) this
             else copy(
-                objects = objects.map { plateObject ->
-                    if (plateObject.mesh == id.mesh) plateObject.withLayerRangeAt(id.index, range.copy(settings = answered)) else plateObject
-                },
+                objects = objects.replaced(
+                    answered.fold(owner) { plateObject, (id, values) ->
+                        plateObject.layerRanges.getOrNull(id.index)?.let { plateObject.withLayerRangeAt(id.index, it.copy(settings = values)) } ?: plateObject
+                    },
+                ),
             )
         }
         kind == PresetKind.PART -> {

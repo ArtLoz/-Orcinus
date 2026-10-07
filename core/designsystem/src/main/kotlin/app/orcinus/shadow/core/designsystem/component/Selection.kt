@@ -184,7 +184,9 @@ fun OrcaSwitch(
 
 /**
  * OrcaSlicer's two-state switch board, as "Global | Objects" above the
- * process settings: the selected option is filled with the accent colour.
+ * process settings: the selected option is filled with the accent colour. The
+ * option at [modifiedIndex] takes the modified label colour while it is not
+ * selected (SwitchButton::SetTextColor2()).
  */
 @Composable
 fun OrcaSegmentedSwitch(
@@ -193,6 +195,7 @@ fun OrcaSegmentedSwitch(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    modifiedIndex: Int? = null,
 ) {
     val colors = OrcaTheme.colors
     Row(
@@ -219,6 +222,7 @@ fun OrcaSegmentedSwitch(
                     color = when {
                         !enabled -> colors.textDisabledOnBox
                         selected -> colors.onAccent
+                        index == modifiedIndex -> colors.labelModified
                         else -> colors.textLabel
                     },
                     style = OrcaTheme.typography.body12,

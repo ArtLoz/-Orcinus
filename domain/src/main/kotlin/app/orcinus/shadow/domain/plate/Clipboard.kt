@@ -205,7 +205,7 @@ class PasteFromClipboardUseCase(
                     selectedPart = null,
                     selectedRange = null,
                     result = null,
-                )
+                ).joiningPlates(added)
             }
         }
     }

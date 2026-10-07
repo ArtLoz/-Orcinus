@@ -1,6 +1,7 @@
 #include "orca_engine_adapter.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -1553,6 +1554,218 @@ std::string system_bed_texture(Slic3r::PresetBundle& bundle)
     return printer_model == nullptr || printer_model->value.empty() ? std::string() : bundle.get_texture_for_printer_model(printer_model->value);
 }
 
+// Plater::get_curr_printer_model(): the system model of the selected printer,
+// or of the preset it inherits from.
+const Slic3r::VendorProfile::PrinterModel* selected_printer_model(Slic3r::PresetBundle& bundle)
+{
+    const Slic3r::VendorProfile::PrinterModel* model = Slic3r::PresetUtils::system_printer_model(bundle.printers.get_selected_preset());
+    if (model == nullptr) {
+        if (const Slic3r::Preset* parent = bundle.printers.get_selected_preset_parent(); parent != nullptr) {
+            model = Slic3r::PresetUtils::system_printer_model(*parent);
+        }
+    }
+    return model;
+}
+
+// PartPlateList::BedTextureInfo::TexturePart: a picture of resources/images
+// and its rectangle from the plate's origin.
+struct LogoPart {
+    float x;
+    float y;
+    float w;
+    float h;
+    std::string filename;
+};
+
+// PartPlateList::init_bed_type_info(): the parts of every plate type's
+// picture for a plate of the printable area shape, with the printer model's
+// textures of a double extruder (Plater::get_bed_texture_maps()); a printer
+// with several extruders shows those of the sidebar's plate types alone
+// (m_allow_bed_type_in_double_nozzle, Sidebar::reset_bed_type_combox_choices()).
+std::map<Slic3r::BedType, std::vector<LogoPart>> bed_type_logo_parts(Slic3r::PresetBundle& bundle, const Slic3r::Pointfs& shape)
+{
+    LogoPart pct_part_left{10, 130, 10, 110, "orca_bed_pct_left.svg"};
+    LogoPart st_part1{9, 70, 12.5, 170, "bbl_bed_st_left.svg"};
+    LogoPart st_part2{74, -10, 148, 12, "bbl_bed_st_bottom.svg"};
+    LogoPart pc_part1{10, 130, 10, 110, "bbl_bed_pc_left.svg"};
+    LogoPart pc_part2{74, -10, 148, 12, "bbl_bed_pc_bottom.svg"};
+    LogoPart ep_part1{7.5, 90, 12.5, 150, "bbl_bed_ep_left.svg"};
+    LogoPart ep_part2{74, -10, 148, 12, "bbl_bed_ep_bottom.svg"};
+    LogoPart pei_part1{7.5, 50, 12.5, 190, "bbl_bed_pei_left.svg"};
+    LogoPart pei_part2{74, -10, 148, 12, "bbl_bed_pei_bottom.svg"};
+    LogoPart pte_part1{10, 80, 10, 160, "bbl_bed_pte_left.svg"};
+    LogoPart pte_part2{74, -10, 148, 12, "bbl_bed_pte_bottom.svg"};
+    const Slic3r::VendorProfile::PrinterModel* pm = selected_printer_model(bundle);
+    const std::string bottom_texture_end_name = pm != nullptr ? pm->bottom_texture_end_name : std::string();
+    const std::string use_double_extruder_default_texture = pm != nullptr ? pm->use_double_extruder_default_texture : std::string();
+    const auto rect_of = [](std::string text) {
+        std::array<float, 4> rect = {0, 0, 0, 0};
+        if (text.size() > 0) {
+            std::vector<std::string> items;
+            boost::algorithm::erase_all(text, " ");
+            boost::split(items, text, boost::is_any_of(","));
+            if (items.size() == 4) {
+                for (std::size_t i = 0; i < items.size(); i++) {
+                    rect[i] = std::atof(items[i].c_str());
+                }
+            }
+        }
+        return rect;
+    };
+    const std::array<float, 4> bottom_rect = rect_of(pm != nullptr ? pm->bottom_texture_rect : std::string());
+    const std::array<float, 4> middle_rect = rect_of(pm != nullptr ? pm->middle_texture_rect : std::string());
+    const bool is_single_extruder = bundle.get_printer_extruder_count() == 1;
+    const bool use_double_extruder_texture = !is_single_extruder || use_double_extruder_default_texture == "true";
+    // The middle and the bottom pictures of a double extruder, or those the printer model names.
+    const auto middle = [&middle_rect](const std::string& name) {
+        return middle_rect[2] > 0.f ? LogoPart{middle_rect[0], middle_rect[1], middle_rect[2], middle_rect[3], name} : LogoPart{57, 300, 236.12f, 10.f, name};
+    };
+    const auto bottom = [&](const LogoPart& part, const std::string& plate) {
+        if (bottom_texture_end_name.size() > 0 && bottom_rect[2] > 0.f) {
+            return LogoPart{bottom_rect[0], bottom_rect[1], bottom_rect[2], bottom_rect[3], "bbl_bed_" + plate + "_bottom_" + bottom_texture_end_name + ".svg"};
+        }
+        return part;
+    };
+    if (use_double_extruder_texture) {
+        pte_part1 = middle("bbl_bed_pte_middle.svg");
+        pte_part2 = bottom(LogoPart{45, -14.5, 70, 8, "bbl_bed_pte_left_bottom.svg"}, "pte");
+        pei_part1 = middle("bbl_bed_pei_middle.svg");
+        pei_part2 = bottom(LogoPart{45, -14.5, 70, 8, "bbl_bed_pei_left_bottom.svg"}, "pei");
+        st_part1 = middle("bbl_bed_st_middle.svg");
+        st_part2 = bottom(LogoPart{45, -14.5, 260, 8, "bbl_bed_st_left_bottom.svg"}, "st");
+        ep_part1 = middle("bbl_bed_ep_middle.svg");
+        ep_part2 = bottom(LogoPart{45, -14.5, 260, 8, "bbl_bed_ep_left_bottom.svg"}, "ep");
+        pc_part1 = middle("bbl_bed_pc_middle.svg");
+        pc_part2 = bottom(LogoPart{45, -14.5, 70, 8, "bbl_bed_pc_left_bottom.svg"}, "pc");
+    } else if (bottom_texture_end_name.size() > 0) {
+        st_part2.filename = "bbl_bed_st_bottom_" + bottom_texture_end_name + ".svg";
+        pc_part2.filename = "bbl_bed_pc_bottom_" + bottom_texture_end_name + ".svg";
+        ep_part2.filename = "bbl_bed_ep_bottom_" + bottom_texture_end_name + ".svg";
+        pei_part2.filename = "bbl_bed_pei_bottom_" + bottom_texture_end_name + ".svg";
+        pte_part2.filename = "bbl_bed_pte_bottom_" + bottom_texture_end_name + ".svg";
+    }
+
+    std::map<Slic3r::BedType, std::vector<LogoPart>> parts;
+    parts[Slic3r::btSuperTack] = {st_part1, st_part2};
+    parts[Slic3r::btPC] = {pc_part1, pc_part2};
+    parts[Slic3r::btPCT] = {pct_part_left, pc_part2};
+    parts[Slic3r::btEP] = {ep_part1, ep_part2};
+    parts[Slic3r::btPEI] = {pei_part1, pei_part2};
+    parts[Slic3r::btPTE] = {pte_part1, pte_part2};
+    if (!is_single_extruder) {
+        std::set<Slic3r::BedType> allowed;
+        if (pm != nullptr) {
+            const Slic3r::ConfigOptionDef* bed_type_def = Slic3r::print_config_def.get("curr_bed_type");
+            int index = 0;
+            for (const std::string& item : bed_type_def->enum_labels) {
+                index++;
+                if (std::find(pm->not_support_bed_types.begin(), pm->not_support_bed_types.end(), item) == pm->not_support_bed_types.end()) {
+                    allowed.insert(Slic3r::BedType(index));
+                }
+            }
+        }
+        for (auto it = parts.begin(); it != parts.end();) {
+            it = allowed.count(it->first) == 0 ? parts.erase(it) : std::next(it);
+        }
+    }
+
+    // Standard 256 x 256 for a single extruder, the plate itself for a double one.
+    const Slic3r::BoundingBoxf bed_ext = Slic3r::get_extents(shape);
+    const int bed_width = bed_ext.size()(0);
+    const int bed_height = bed_ext.size()(1);
+    float base_width = 256;
+    float base_height = 256;
+    if (use_double_extruder_texture) {
+        base_width = bed_width;
+        base_height = bed_height;
+    }
+    const float x_rate = bed_width / base_width;
+    const float y_rate = bed_height / base_height;
+    for (auto& [type, type_parts] : parts) {
+        for (LogoPart& part : type_parts) {
+            part.x *= x_rate;
+            part.y *= y_rate;
+            part.w *= x_rate;
+            part.h *= y_rate;
+        }
+    }
+    return parts;
+}
+
+// PartPlateList::calc_extruder_only_area() and init_extruder_only_area_info():
+// on a plate of two extruders, the picture over the strip only the left one
+// reaches and, wider than 5 mm, over the strip of the right one, in Chinese
+// for a Chinese app.
+std::vector<LogoPart> extruder_only_area_parts(
+    Slic3r::PresetBundle& bundle,
+    const Slic3r::DynamicPrintConfig& config,
+    const Slic3r::Pointfs& shape,
+    const bool chinese
+)
+{
+    struct Rect {
+        int x;
+        int y;
+        int w;
+        int h;
+    };
+    const auto convert_to_rect = [](const Slic3r::Pointfs& pts, Rect& rect) {
+        rect.x = pts[0].x();
+        rect.y = pts[0].y();
+        rect.w = pts[1].x() - pts[0].x();
+        rect.h = pts[2].y() - pts[1].y();
+    };
+    if (bundle.get_printer_extruder_count() == 1) {
+        return {};
+    }
+    const auto* areas = config.option<Slic3r::ConfigOptionPointsGroups>("extruder_printable_area");
+    if (areas == nullptr || areas->values.size() != 2 || shape.size() < 3 || areas->values[0].size() < 3 || areas->values[1].size() < 3) {
+        return {};
+    }
+    Rect printable_rect;
+    Rect left_extruder_printable_area;
+    Rect right_extruder_printable_area;
+    convert_to_rect(shape, printable_rect);
+    convert_to_rect(areas->values[0], left_extruder_printable_area);
+    convert_to_rect(areas->values[1], right_extruder_printable_area);
+    Rect left_only_rect;
+    left_only_rect.x = left_extruder_printable_area.x;
+    left_only_rect.y = left_extruder_printable_area.y;
+    left_only_rect.w = printable_rect.w - right_extruder_printable_area.w;
+    left_only_rect.h = left_extruder_printable_area.h;
+    Rect right_only_rect;
+    right_only_rect.x = left_extruder_printable_area.x + left_extruder_printable_area.w;
+    right_only_rect.y = right_extruder_printable_area.y;
+    right_only_rect.w = printable_rect.w - left_extruder_printable_area.w;
+    right_only_rect.h = right_extruder_printable_area.h;
+    if (left_only_rect.w < 0 || right_only_rect.w < 0) {
+        return {};
+    }
+
+    const float base_width = 25.f;
+    const float base_height = 320.f;
+    const float left_x_rate = left_only_rect.w / base_width;
+    const float left_y_rate = left_only_rect.h / base_height;
+    Slic3r::Vec4f base_left = chinese ? Slic3r::Vec4f(-5.5f, -76.f, 12.f, 150.f) : Slic3r::Vec4f(-6.f, -75.f, 12.f, 150.f);
+    base_left[0] = base_left[0] * left_x_rate + left_only_rect.x + left_only_rect.w / 2.f;
+    base_left[1] = base_left[1] * left_y_rate + left_only_rect.y + left_only_rect.h / 2.f;
+    base_left[2] = base_left[2] * left_x_rate;
+    base_left[3] = base_left[3] * left_y_rate;
+    Slic3r::Vec4f base_right = chinese ? Slic3r::Vec4f(-4.5f, -76.f, 12.f, 150.f) : Slic3r::Vec4f(-5.5f, -75.f, 12.f, 150.f);
+    const float right_x_rate = right_only_rect.w / base_width;
+    const float right_y_rate = right_only_rect.h / base_height;
+    base_right[0] = base_right[0] * right_x_rate + right_only_rect.x + right_only_rect.w / 2.f;
+    base_right[1] = base_right[1] * right_y_rate + right_only_rect.y + right_only_rect.h / 2.f;
+    base_right[2] = base_right[2] * right_x_rate;
+    base_right[3] = base_right[3] * right_y_rate;
+    std::vector<LogoPart> parts;
+    parts.push_back(LogoPart{base_left[0], base_left[1], base_left[2], base_left[3], chinese ? "left_extruder_only_area_ch.svg" : "left_extruder_only_area.svg"});
+    if (base_right[2] > 5) {
+        parts.push_back(LogoPart{base_right[0], base_right[1], base_right[2], base_right[3], chinese ? "right_extruder_only_area_ch.svg" : "right_extruder_only_area.svg"});
+    }
+    return parts;
+}
+
 // GCodeViewer::init(): the tool marker is the hotend model of the selected
 // printer's model, or OrcaSlicer's own hotend.
 std::string hotend_model(Slic3r::PresetBundle& bundle)
@@ -2395,6 +2608,44 @@ void add_outline(const Slic3r::Polygon& polygon, std::vector<std::int32_t>& coun
     }
 }
 
+// GLCanvas3D::update_sequential_clearance(): the hull of every object at its
+// first copy, grown by the extruder's clearance and the skirt
+// (m_hull_2d_cache, which the desktop app makes as a drag begins), turned for
+// every copy by its rotation about Z against the first copy's; the drag adds
+// the copies' offsets where they stand.
+void add_copy_hulls(const Slic3r::Model& model, const Slic3r::Print& print, PlateValidation& result)
+{
+    auto [object_skirt_offset, _] = print.object_skirt_offset();
+    float shrink_factor;
+    if (print.is_all_objects_are_short())
+        shrink_factor = scale_(std::max(0.5f * MAX_OUTER_NOZZLE_DIAMETER, object_skirt_offset) - 0.1);
+    else
+        shrink_factor = static_cast<float>(scale_(0.5 * print.config().extruder_clearance_radius.value + object_skirt_offset - 0.1));
+
+    const double mitter_limit = scale_(0.1);
+    for (const Slic3r::ModelObject* model_object : model.objects) {
+        const Slic3r::ModelInstance* model_instance0 = model_object->instances.front();
+        Slic3r::Polygon hull_no_offset = model_object->convex_hull_2d(Slic3r::Geometry::assemble_transform({0.0, 0.0, model_instance0->get_offset().z()},
+            model_instance0->get_rotation(), model_instance0->get_scaling_factor(), model_instance0->get_mirror()));
+        const Slic3r::Polygons tmp = Slic3r::offset(hull_no_offset, shrink_factor, jtRound, mitter_limit);
+        // tmp may be empty due to clipper's bug, see STUDIO-2452
+        const Slic3r::Polygon hull_2d = !tmp.empty() ? tmp.front() : hull_no_offset;
+        const double rotation_z0 = model_instance0->get_rotation().z();
+        for (std::size_t index = 0; index < model_object->instances.size(); ++index) {
+            Slic3r::Geometry::Transformation transformation;
+            transformation.set_rotation(Slic3r::Z, model_object->instances[index]->get_rotation().z() - rotation_z0);
+            const Slic3r::Transform3d& trafo = transformation.get_matrix();
+            result.copy_hull_counts.push_back(std::int32_t(hull_2d.points.size()));
+            for (const Slic3r::Point& p : hull_2d.points) {
+                const Slic3r::Vec3d point = trafo * Slic3r::Vec3d(Slic3r::unscale<double>(p.x()), Slic3r::unscale<double>(p.y()), 0.0);
+                result.copy_hulls.push_back(point.x());
+                result.copy_hulls.push_back(point.y());
+            }
+            result.copy_tops.push_back(model_object->get_instance_max_z(index));
+        }
+    }
+}
+
 }  // namespace
 
 PlateValidation validate_plate(
@@ -2441,6 +2692,10 @@ PlateValidation validate_plate(
         print.is_BBL_printer() = engine().bundle->is_bbl_vendor();
         print.apply(model, config);
         result.read = true;
+        // update_sequential_clearance() works while the plate prints by object alone.
+        if (print.config().print_sequence == Slic3r::PrintSequence::ByObject) {
+            add_copy_hulls(model, print, result);
+        }
         add_plate_notices(*engine().bundle, config, plate_filaments(model, config, {}), result);
         for (const Slic3r::PrintObject* print_object : print.objects()) {
             const auto found = objects.find(print_object->model_object()->id().id);
@@ -2672,9 +2927,10 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
 
         // Bed3D::set_shape(): a custom model replaces the system one; only an
         // existing STL file is used.
+        const std::string system_model = system_bed_model(*engine().bundle, shape);
         std::string model = config.opt_string("bed_custom_model");
         if (model.empty()) {
-            model = system_bed_model(*engine().bundle, shape);
+            model = system_model;
         }
         const std::string model_mesh = (fs::path(output_dir) / "bed_model.mesh").string();
         remove_file(model_mesh);
@@ -2688,14 +2944,20 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
             }
             result.bed_model_mesh = model_mesh;
         }
+        // Bed3D::detect_type() found no system model (Type::Custom), and
+        // render_custom() has no model of the bed's own to draw.
+        result.default_bed = system_model.empty() && result.bed_model_mesh.empty();
 
+        // Tab::select_preset(): a Bambu Lab printer's plate shows its plate
+        // type (PartPlateList::set_render_option()) rather than the texture.
+        result.bed_type_logo = engine().bundle->is_bbl_vendor();
         std::string texture = config.opt_string("bed_custom_texture");
         if (texture.empty()) {
             texture = system_bed_texture(*engine().bundle);
         }
         const std::string texture_png = (fs::path(output_dir) / "bed_texture.png").string();
         remove_file(texture_png);
-        if (file_exists(texture)) {
+        if (!result.bed_type_logo && file_exists(texture)) {
             bool written = false;
             if (boost::algorithm::iends_with(texture, ".svg")) {
                 written = rasterize_svg(texture, texture_png);
@@ -2706,6 +2968,49 @@ PlateDescription describe_plate(const ProfileSelection& profiles, const std::str
             }
             if (written) {
                 result.bed_texture = texture_png;
+            }
+        }
+
+        // PartPlate::render_logo() of a Bambu Lab plate: PartPlateList's
+        // load_bedtype_textures(), load_extruder_only_area_textures() and
+        // load_cali_textures(), each SVG of resources/images rasterized once.
+        std::vector<std::string> old_logos;
+        for (const fs::directory_entry& entry : fs::directory_iterator(output_dir)) {
+            if (boost::algorithm::starts_with(entry.path().filename().string(), "bed_logo_")) {
+                old_logos.push_back(entry.path().string());
+            }
+        }
+        for (const std::string& old_logo : old_logos) {
+            remove_file(old_logo);
+        }
+        if (result.bed_type_logo) {
+            const auto add_logo = [&](const BedLogoKind kind, const std::string& bed_type, const LogoPart& part) {
+                const std::string svg = Slic3r::resources_dir() + "/images/" + part.filename;
+                const std::string png = (fs::path(output_dir) / ("bed_logo_" + fs::path(part.filename).stem().string() + ".png")).string();
+                if (!file_exists(png) && !(file_exists(svg) && rasterize_svg(svg, png))) {
+                    return;
+                }
+                result.logo_kinds.push_back(std::int32_t(kind));
+                result.logo_bed_types.push_back(bed_type);
+                result.logo_rects.insert(result.logo_rects.end(), {part.x, part.y, part.w, part.h});
+                result.logo_textures.push_back(png);
+            };
+            // curr_bed_type's values, in the order of BedType from btPC.
+            const std::vector<std::string>& bed_types = Slic3r::print_config_def.get("curr_bed_type")->enum_values;
+            for (const auto& [type, parts] : bed_type_logo_parts(*engine().bundle, shape)) {
+                const std::size_t index = std::size_t(type) - 1;
+                for (const LogoPart& part : parts) {
+                    add_logo(BedLogoKind::bed_type, index < bed_types.size() ? bed_types[index] : std::string(), part);
+                }
+            }
+            const bool chinese = engine().config->get("language") == "zh_CN";
+            for (const LogoPart& part : extruder_only_area_parts(*engine().bundle, config, shape, chinese)) {
+                add_logo(BedLogoKind::extruder_area, {}, part);
+            }
+            // PartPlateList::init_cali_texture_info(), for the printers Tab::select_preset()
+            // turns the calibration lines on for (Preset::has_cali_lines()).
+            if (engine().bundle->printers.get_edited_preset().has_cali_lines(engine().bundle.get())) {
+                add_logo(BedLogoKind::calibration, {}, LogoPart{18, 2, 224, 16, "bbl_cali_lines.svg"});
             }
         }
 
@@ -2867,25 +3172,55 @@ ModelInspection inspect_model(
     }
 }
 
+namespace {
+
+// The job cancel_placement() named last (Worker::cancel()); 0 for none.
+std::atomic<std::int64_t> canceled_placement{0};
+
+}  // namespace
+
+void cancel_placement(const std::int64_t job)
+{
+    canceled_placement.store(job);
+}
+
+// The Job::Ctl of a job place_objects() runs: update_status() tells its
+// progress, and was_canceled() whether cancel_placement() named it.
+struct PlateJobCtl {
+    const PlateJobProgressFn& progress;
+    std::int64_t job{0};
+
+    void update_status(const PlateJob running, const int percent, const std::string& name = {}) const
+    {
+        if (progress) {
+            progress(running, percent, name);
+        }
+    }
+
+    bool was_canceled() const { return job != 0 && canceled_placement.load() == job; }
+};
+
 // OrientJob with the canvas's default OrientSettings (least support area): the
 // instances of the selected objects, or of every object when none is selected
 // (OrientJob::prepare_selection), turn as orientation::orient() finds and rest
-// on the plate.
-void auto_orient(
+// on the plate. Returns false when the job was cancelled, which finalize()
+// leaves without turning anything.
+bool auto_orient(
     Slic3r::Model& model,
     const Slic3r::DynamicPrintConfig& config,
     const std::vector<bool>& selected,
-    const std::vector<bool>& locked_plates
+    const std::vector<bool>& locked_plates,
+    const PlateJobCtl& ctl
 )
 {
+    // OrientJob::process(): "Orienting..." first.
+    ctl.update_status(PlateJob::orient, 0);
     Slic3r::orientation::OrientParams params;
     Slic3r::orientation::OrientParamsArea params_area;
     // OrientJob::process() copies the area parameters over the defaults the same way.
     std::memcpy(&params, &params_area, sizeof(params));
     params.min_volume = false;
-    // orientation::orient() reports progress and checks for cancellation without testing for callbacks.
-    params.progressind = [](unsigned, std::string) {};
-    params.stopcondition = [] { return false; };
+    params.stopcondition = [&ctl] { return ctl.was_canceled(); };
 
     // OrientJob::prepare_selection(): the copies of the selected objects turn,
     // or every copy when none is selected; a copy on a locked plate stays, and
@@ -2921,10 +3256,21 @@ void auto_orient(
     if (meshes.empty() && !selected_is_locked) {
         meshes.swap(unselected);
     }
+    // "Orienting <object>" as each object starts, out of the objects to turn.
+    const unsigned count = unsigned(meshes.size());
+    params.progressind = [&ctl, count](unsigned st, std::string name) {
+        if (st > 0) {
+            ctl.update_status(PlateJob::orient, int(st / float(count) * 100), name);
+        }
+    };
     Slic3r::orientation::orient(meshes, {}, params);
+    if (ctl.was_canceled()) {
+        return false;
+    }
     for (const Slic3r::orientation::OrientMesh& mesh : meshes) {
         mesh.apply();
     }
+    return true;
 }
 
 // PartPlateList::preprocess_exclude_areas(): the wrapping detection area when
@@ -2975,6 +3321,35 @@ void add_exclude_areas(Slic3r::arrangement::ArrangePolygons& unselected, const S
     }
 }
 
+// ArrangeJob::process() and FillBedJob::process(): on a Bambu Lab printer that
+// scans its first layer, with "Avoid extrusion calibration region", the new
+// extrusion and hand-eye calibration region of every one of MAX_NUM_PLATES
+// beds stays free (PartPlateList::preprocess_nonprefered_areas()).
+void add_nonprefered_areas(Slic3r::arrangement::ArrangePolygons& regions, const Slic3r::DynamicPrintConfig& config, const Slic3r::arrangement::ArrangeParams& params)
+{
+    using namespace Slic3r;
+    if (!engine().bundle->is_bbl_vendor() || !params.avoid_extrusion_cali_region || !config.opt_bool("scan_first_layer")) {
+        return;
+    }
+    const std::vector<BoundingBoxf> nonprefered_regions{BoundingBoxf(Vec2d{18, 0}, Vec2d{240, 15})};
+    for (std::size_t index = 0; index < nonprefered_regions.size(); ++index) {
+        const Polygon ap = scaled(nonprefered_regions[index]).polygon();
+        for (int bed = 0; bed < MAX_NUM_PLATES; ++bed) {
+            arrangement::ArrangePolygon ret;
+            ret.poly.contour = ap;
+            ret.translation = Vec2crd(0, 0);
+            ret.rotation = 0.0f;
+            ret.is_virt_object = true;
+            ret.is_extrusion_cali_object = true;
+            ret.bed_idx = bed;
+            ret.height = 1;
+            ret.name = "NonpreferedRegion" + std::to_string(index);
+            ret.inflation = 0;
+            regions.emplace_back(std::move(ret));
+        }
+    }
+}
+
 // init_arrange_params() with the arrange settings, and the extruder parameters
 // and speed table ArrangeJob::prepare() sets for the arrangement.
 Slic3r::arrangement::ArrangeParams init_arrange_params(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& config, const ArrangeSettings& settings)
@@ -2997,7 +3372,7 @@ Slic3r::arrangement::ArrangeParams init_arrange_params(Slic3r::Model& model, con
     params.nozzle_height = print_config.nozzle_height.value;
     params.align_center = print_config.best_object_pos.value;
     params.allow_multi_materials_on_same_plate = settings.allow_multi_materials_on_same_plate;
-    params.avoid_extrusion_cali_region = true;
+    params.avoid_extrusion_cali_region = settings.avoid_extrusion_cali_region;
     params.is_seq_print = sequential;
     // GLCanvas3D::get_arrange_settings(): 0 means auto spacing, which
     // update_selected_items_inflation() works out for by-object printing.
@@ -3245,18 +3620,24 @@ void add_wipe_towers(
 // locked plates stay where they are; plates are added for what the others do
 // not hold. Returns the number of plates afterwards; the app recycles the
 // empty ones at the end (rebuild_plates_after_arrangement). The wipe towers are
-// kept clear of (prepare_wipe_tower()).
-int arrange_plates(
+// kept clear of (prepare_wipe_tower()). The names of the objects without area
+// join zero_size_objects. Returns nothing when the job was cancelled, which
+// finalize() leaves without moving anything.
+std::optional<int> arrange_plates(
     Slic3r::Model& model,
     const Slic3r::DynamicPrintConfig& config,
     const ArrangeSettings& settings,
     const bool only_on_plate,
     std::vector<bool> locked,
-    const std::vector<ModelSettings>& plate_settings
+    const std::vector<ModelSettings>& plate_settings,
+    const PlateJobCtl& ctl,
+    std::vector<std::string>& zero_size_objects
 )
 {
     using namespace Slic3r;
     using arrangement::ArrangePolygon;
+    // ArrangeJob::process(): "Arranging" first.
+    ctl.update_status(PlateJob::arrange, 0);
     int plates = engine().plate_count;
     const int current = engine().plate_index;
     locked.resize(std::size_t(plates), false);
@@ -3335,9 +3716,13 @@ int arrange_plates(
         add_wipe_towers(unselected, selected, model, config, params, plate_settings, locked, plates);
     }
     add_exclude_areas(unselected, config, only_on_plate ? current + 1 : MAX_NUM_PLATES, 0.0f);
-    // check_unprintable(): nothing without area or above the build height is arranged.
+    // check_unprintable(): nothing without area or above the build height is
+    // arranged, and an object without area is told of.
     for (auto it = selected.begin(); it != selected.end();) {
         if (it->poly.area() < 0.001 || it->height > params.printable_height) {
+            if (it->poly.area() < 0.001) {
+                zero_size_objects.push_back(it->name);
+            }
             unprintable.push_back(*it);
             it = selected.erase(it);
         } else {
@@ -3345,13 +3730,23 @@ int arrange_plates(
         }
     }
 
+    add_nonprefered_areas(unselected, config, params);
     update_arrange_params(params, &config, selected);
     update_selected_items_inflation(selected, &config, params);
     update_unselected_items_inflation(unselected, &config, params);
     update_selected_items_axis_align(selected, &config, params);
     const Points bed = get_shrink_bedpts(&config, params);
     add_exclude_areas(params.excluded_regions, config, 1, scale_(1));
+    params.stopcondition = [&ctl] { return ctl.was_canceled(); };
+    // status_range(): the copies to arrange; the name of the one packed last follows "Arranging" directly.
+    const unsigned status_range = unsigned(selected.size());
+    params.progressind = [&ctl, status_range](unsigned num_finished, std::string name) {
+        ctl.update_status(PlateJob::arrange, int(num_finished * 100 / status_range), name);
+    };
     arrangement::arrange(selected, unselected, bed, params);
+    if (ctl.was_canceled()) {
+        return std::nullopt;
+    }
     std::sort(selected.begin(), selected.end(), [](const ArrangePolygon& a, const ArrangePolygon& b) { return a.itemid < b.itemid; });
 
     // finalize(): the plates each copy goes to, the plates added for them.
@@ -3466,28 +3861,34 @@ std::vector<Slic3r::Vec2f> plate_cells(const Slic3r::DynamicPrintConfig& config,
 // FillBedJob(true) on the current plate: prepare(), process() and
 // finalize(), then ArrangeJob from the menu as finalize() starts it. Copies of
 // the object at object_index are added while the free area of the plate holds
-// more, as many as the arrangement packs onto the plate.
-void fill_bed_with_instances(
+// more, as many as the arrangement packs onto the plate. Returns false when the
+// fill was cancelled, which finalize() leaves without adding anything; the
+// arrangement after it, cancelled, leaves the copies it added unarranged.
+bool fill_bed_with_instances(
     Slic3r::Model& model,
     const Slic3r::DynamicPrintConfig& config,
     const ArrangeSettings& settings,
     std::size_t object_index,
     int selected_instance,
     const std::vector<bool>& locked_plates,
-    const std::vector<ModelSettings>& plate_settings
+    const std::vector<ModelSettings>& plate_settings,
+    const PlateJobCtl& ctl,
+    std::vector<std::string>& zero_size_objects
 )
 {
     using namespace Slic3r;
     using arrangement::ArrangePolygon;
+    // FillBedJob::process(): "Filling" first.
+    ctl.update_status(PlateJob::fill_bed, 0);
     if (object_index >= model.objects.size()) {
-        return;
+        return true;
     }
     arrangement::ArrangeParams params = init_arrange_params(model, config, settings);
     // The selected copy, or the first when the whole object is selected.
     const int sel_id = std::max(selected_instance, 0);
     ModelObject* model_object = model.objects[object_index];
     if (model_object->instances.empty() || sel_id >= int(model_object->instances.size())) {
-        return;
+        return true;
     }
     // PartPlate::get_bounding_box_crd() of the current plate, and bed_stride_x()
     // and bed_stride_y() of the build volume, in scaled coordinates.
@@ -3538,7 +3939,7 @@ void fill_bed_with_instances(
         }
     }
     if (selected.empty()) {
-        return;
+        return true;
     }
     add_exclude_areas(params.excluded_regions, config, 1, scale_(1));
     // PartPlateList::preprocess_exclude_areas() with its default 16 plates.
@@ -3584,10 +3985,18 @@ void fill_bed_with_instances(
     // process()
     update_arrange_params(params, &config, selected);
     const Points shrunk_bed = get_shrink_bedpts(&config, params);
+    add_nonprefered_areas(unselected, config, params);
     update_selected_items_inflation(selected, &config, params);
     update_unselected_items_inflation(unselected, &config, params);
     bool do_stop = false;
-    params.stopcondition = [&do_stop] { return do_stop; };
+    params.stopcondition = [&ctl, &do_stop] { return ctl.was_canceled() || do_stop; };
+    // status_range(): the items to pack, the new copies with them; "Filling <object>" from the first packed.
+    const unsigned status_range = unsigned(selected.size());
+    params.progressind = [&ctl, status_range](unsigned st, std::string name) {
+        if (st > 0) {
+            ctl.update_status(PlateJob::fill_bed, int(st * 100 / status_range), name);
+        }
+    };
     params.on_packed = [&do_stop](const ArrangePolygon& ap) { do_stop = ap.bed_idx > 0 && ap.priority == 0; };
     params.do_final_align = !engine().bundle->is_bbl_vendor();
     if (selected.size() > 100) {
@@ -3606,6 +4015,9 @@ void fill_bed_with_instances(
     } else {
         arrangement::arrange(selected, unselected, shrunk_bed, params);
     }
+    if (ctl.was_canceled()) {
+        return false;
+    }
 
     // finalize(): the items packed onto the plate apply on the current plate,
     // which adds the new copies.
@@ -3613,7 +4025,7 @@ void fill_bed_with_instances(
         return s + int(ap.priority == 0 && ap.bed_idx == 0);
     });
     if (added_cnt <= 0) {
-        return;
+        return true;
     }
     for (ArrangePolygon& ap : selected) {
         if (ap.bed_idx != 0) {
@@ -3631,7 +4043,8 @@ void fill_bed_with_instances(
     for (ModelObject* object : model.objects) {
         object->invalidate_bounding_box();
     }
-    arrange_plates(model, config, settings, true, locked_plates, plate_settings);
+    arrange_plates(model, config, settings, true, locked_plates, plate_settings, ctl, zero_size_objects);
+    return true;
 }
 
 // The instance's lowest point with the transformation, as instance_bounding_box().min.z().
@@ -4391,7 +4804,9 @@ PlateInspection place_objects(
     const ArrangeSettings& arrange_settings,
     int selected_instance,
     const std::vector<bool>& locked_plates,
-    const std::vector<ModelSettings>& plate_settings
+    const std::vector<ModelSettings>& plate_settings,
+    const PlateJobProgressFn& progress,
+    const std::int64_t job
 )
 {
     PlateInspection result;
@@ -4401,6 +4816,7 @@ PlateInspection place_objects(
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
     }
+    const PlateJobCtl ctl{progress, job};
     const auto placed = [](const PlateObject& object) {
         return !object.instances.empty()
                && std::all_of(object.instances.begin(), object.instances.end(),
@@ -4424,17 +4840,24 @@ PlateInspection place_objects(
         }
         keep_models_of(plate);
         result.plate_count = engine().plate_count;
+        // The job's finalize() ignores what a cancelled job found.
+        bool finished = true;
         switch (manipulation) {
         case PlateManipulation::auto_orient:
-            auto_orient(model, config, selected, locked_plates);
+            finished = auto_orient(model, config, selected, locked_plates, ctl);
             break;
         case PlateManipulation::arrange:
-            result.plate_count = arrange_plates(model, config, arrange_settings, false, locked_plates, plate_settings);
+            if (const std::optional<int> plates =
+                    arrange_plates(model, config, arrange_settings, false, locked_plates, plate_settings, ctl, result.zero_size_objects)) {
+                result.plate_count = *plates;
+            } else {
+                finished = false;
+            }
             break;
         case PlateManipulation::update_print_volume_state:
             break;
         case PlateManipulation::arrange_plate:
-            arrange_plates(model, config, arrange_settings, true, locked_plates, plate_settings);
+            finished = arrange_plates(model, config, arrange_settings, true, locked_plates, plate_settings, ctl, result.zero_size_objects).has_value();
             break;
         case PlateManipulation::fill_bed: {
             const auto object = std::find(selected.begin(), selected.end(), true);
@@ -4442,11 +4865,17 @@ PlateInspection place_objects(
                 result.message = "No object is selected";
                 return result;
             }
-            fill_bed_with_instances(model, config, arrange_settings, std::size_t(object - selected.begin()), selected_instance, locked_plates, plate_settings);
+            finished = fill_bed_with_instances(model, config, arrange_settings, std::size_t(object - selected.begin()), selected_instance,
+                locked_plates, plate_settings, ctl, result.zero_size_objects);
             break;
         }
         default:
             result.message = "Unknown manipulation";
+            return result;
+        }
+        if (!finished) {
+            result.canceled = true;
+            result.status = SceneStatus::success;
             return result;
         }
 
@@ -4550,9 +4979,13 @@ Slic3r::Model read_model_file(const std::string& path, detail::SettingsDialogs& 
         return model;
     }
     if (boost::algorithm::iends_with(path, ".3mf")) {
-        // The desktop app reads a 3MF file with its plates and project
-        // settings (read_from_archive), which the app does not load yet.
-        throw Slic3r::RuntimeError("Loading 3MF files is not ported yet");
+        // load_files() reads a 3MF file with its plates and project settings
+        // (detail::read_3mf()); replace_volume_with_stl() reads its objects
+        // with read_from_file(), whose plates are dropped.
+        assert(replacing);
+        Slic3r::PlateDataPtrs plate_data;
+        const Slic3r::ScopeGuard release([&plate_data] { Slic3r::release_PlateData_list(plate_data); });
+        return Slic3r::Model::read_from_file(path, nullptr, nullptr, Slic3r::LoadStrategy::LoadModel, &plate_data);
     }
     bool is_xxx = false;
     Slic3r::Model model = Slic3r::Model::read_from_file(path, nullptr, nullptr, Slic3r::LoadStrategy::LoadModel, nullptr, nullptr, &is_xxx,

@@ -4,6 +4,8 @@ import android.content.Context
 import app.orcinus.shadow.core.model.AppConfigOutcome
 import app.orcinus.shadow.core.model.ArrangeSettings
 import app.orcinus.shadow.core.model.AssemblyAction
+import app.orcinus.shadow.core.model.BedLogo
+import app.orcinus.shadow.core.model.BedLogoKind
 import app.orcinus.shadow.core.model.BedPreview
 import app.orcinus.shadow.core.model.BedShape
 import app.orcinus.shadow.core.model.BedShapeOutcome
@@ -77,6 +79,7 @@ import app.orcinus.shadow.core.model.ConfigExportKind
 import app.orcinus.shadow.core.model.ConfigExportOptionsOutcome
 import app.orcinus.shadow.core.model.ConfigOverwriteAnswer
 import app.orcinus.shadow.core.model.ConfigTransferOutcome
+import app.orcinus.shadow.core.model.CopyClearance
 import app.orcinus.shadow.core.model.CopyPlacement
 import app.orcinus.shadow.core.model.CreateFilamentOptionsOutcome
 import app.orcinus.shadow.core.model.CreateFilamentRequest
@@ -148,6 +151,8 @@ import app.orcinus.shadow.core.model.PlateDescriptionOutcome
 import app.orcinus.shadow.core.model.PlateGeometry
 import app.orcinus.shadow.core.model.PlateInspectionOutcome
 import app.orcinus.shadow.core.model.PlateInstance
+import app.orcinus.shadow.core.model.PlateJob
+import app.orcinus.shadow.core.model.PlateJobProgress
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateValidation
 import app.orcinus.shadow.core.model.PlateValidationMessage
@@ -346,6 +351,21 @@ class NativeSlicerEngine(context: Context) :
                     buildVolumeShape = BuildVolumeShape.entries.getOrElse(plate.buildVolumeType) { BuildVolumeShape.CUSTOM },
                     circle = plate.circle.takeIf { plate.buildVolumeType == BuildVolumeShape.CIRCLE.ordinal }
                         ?.let { PlateCircle(Point2(it[0], it[1]), it[2]) },
+                    defaultBed = plate.defaultBed,
+                    bedTypeLogo = plate.bedTypeLogo,
+                    bedLogos = plate.logoKinds.indices.mapNotNull { index ->
+                        BedLogoKind.entries.getOrNull(plate.logoKinds[index])?.let { kind ->
+                            BedLogo(
+                                kind = kind,
+                                bedType = plate.logoBedTypes[index],
+                                texture = ScenePath(plate.logoTextures[index]),
+                                x = plate.logoRects[index * 4],
+                                y = plate.logoRects[index * 4 + 1],
+                                width = plate.logoRects[index * 4 + 2],
+                                height = plate.logoRects[index * 4 + 3],
+                            )
+                        }
+                    },
                 ),
                 filamentColor = decodeColor(plate.filamentColour),
                 hotendModel = plate.hotendModelMesh.ifBlank { null }?.let(::ScenePath),
@@ -1941,6 +1961,24 @@ class NativeSlicerEngine(context: Context) :
         plate: List<PlacedModel>,
         profiles: SlicingProfileSelection,
         manipulation: PlateManipulation,
+    ): PlateInspectionOutcome = placeJob(plate, profiles, manipulation, job = 0L, progress = null)
+
+    override suspend fun placeObjects(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        manipulation: PlateManipulation,
+        job: Long,
+        progress: (PlateJobProgress) -> Unit,
+    ): PlateInspectionOutcome = placeJob(plate, profiles, manipulation, job, progress)
+
+    override fun cancelPlacement(job: Long) = NativeBindings.cancelPlacement(job)
+
+    private suspend fun placeJob(
+        plate: List<PlacedModel>,
+        profiles: SlicingProfileSelection,
+        manipulation: PlateManipulation,
+        job: Long,
+        progress: ((PlateJobProgress) -> Unit)?,
     ): PlateInspectionOutcome = withContext(Dispatchers.IO) {
         val engineStatus = status()
         if (!engineStatus.ready) {
@@ -1975,12 +2013,20 @@ class NativeSlicerEngine(context: Context) :
             arrangeEnableRotation = arrange.enableRotation,
             arrangeAllowMultiMaterials = arrange.allowMultiMaterialsOnSamePlate,
             arrangeAlignToYAxis = arrange.alignToYAxis,
+            arrangeAvoidExtrusionCaliRegion = arrange.avoidExtrusionCaliRegion,
             selectedInstance = (manipulation as? PlateManipulation.FillBed)?.instance ?: -1,
             lockedPlates = manipulation.lockedPlates.let { locked -> BooleanArray((locked.maxOrNull() ?: -1) + 1) { it in locked } },
             plateSettingKeys = manipulation.plateSettings.flatMap { it.values.keys }.toTypedArray(),
             plateSettingValues = manipulation.plateSettings.flatMap { it.values.values }.toTypedArray(),
             plateSettingCounts = manipulation.plateSettings.map { it.values.size }.toIntArray(),
+            progressListener = progress?.let { tell ->
+                NativePlacementProgressListener { kind, percent, name -> tell(PlateJobProgress(PlateJob.entries[kind], percent, name)) }
+            },
+            job = job,
         )
+        if (result.status == NativeSceneStatus.SUCCESS && result.cancelled) {
+            return@withContext PlateInspectionOutcome.Cancelled
+        }
         if (result.status != NativeSceneStatus.SUCCESS || result.objects.size != plate.size) {
             return@withContext PlateInspectionOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not place the objects" })
         }
@@ -1988,6 +2034,7 @@ class NativeSlicerEngine(context: Context) :
             result.objects.mapIndexed { index, copies -> copies.map { it.toInspection(plate[index].mesh) } },
             plates = result.plates,
             objectOrder = result.objectOrder.toList(),
+            zeroSizeObjects = result.zeroSizeObjects.toList(),
         )
     }
 
@@ -2140,10 +2187,11 @@ class NativeSlicerEngine(context: Context) :
             PresetChangeAction.ASK -> NativePresetChangeAction.ASK
             PresetChangeAction.TRANSFER -> NativePresetChangeAction.TRANSFER
             PresetChangeAction.DISCARD -> NativePresetChangeAction.DISCARD
+            PresetChangeAction.CANCEL -> NativePresetChangeAction.CANCEL
         }
 
-    override suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
-        val selection = action.native
+    override suspend fun selectPreset(choice: PresetChoice, answers: List<PresetChangeAction>): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
+        val selection = answers.map { it.native }.toLongArray()
         when (choice) {
             is PresetChoice.Printer -> NativeBindings.selectPreset(NativePresetChoice.PRINTER, choice.preset.value, selection)
             is PresetChoice.PrinterModel -> NativeBindings.selectPreset(NativePresetChoice.PRINTER_MODEL, choice.model, selection)
@@ -2428,25 +2476,35 @@ class NativeSlicerEngine(context: Context) :
     }
 
     override suspend fun filamentPresets(filamentId: String): FilamentPresetsOutcome = whenReady(FilamentPresetsOutcome::Failure) {
-        val result = NativeBindings.filamentPresets(filamentId)
-        if (result.status != NativeSceneStatus.SUCCESS) {
-            FilamentPresetsOutcome.Failure(result.message.ifBlank { "OrcaSlicer could not list the presets" })
+        NativeBindings.filamentPresets(filamentId).toOutcome()
+    }
+
+    override suspend fun filamentPresetSources(filamentId: String): FilamentPresetsOutcome = whenReady(FilamentPresetsOutcome::Failure) {
+        NativeBindings.filamentPresetSources(filamentId).toOutcome()
+    }
+
+    private fun NativeFilamentPresets.toOutcome(): FilamentPresetsOutcome =
+        if (status != NativeSceneStatus.SUCCESS) {
+            FilamentPresetsOutcome.Failure(message.ifBlank { "OrcaSlicer could not list the presets" })
         } else {
             FilamentPresetsOutcome.Success(
-                FilamentPresetList(
-                    name = result.name,
-                    vendor = result.vendor,
-                    type = result.type,
-                    serial = result.serial,
-                    presets = choices(result.printers, result.presets),
-                ),
+                FilamentPresetList(name = name, vendor = vendor, type = type, serial = serial, presets = choices(printers, presets)),
             )
         }
-    }
 
     override suspend fun deleteFilamentPreset(preset: String, answers: Map<String, Boolean>): PresetCreationOutcome =
         whenReady(PresetCreationOutcome::Failure) {
             NativeBindings.deleteFilamentPreset(preset, answers.answerIds(), answers.answerFlags()).toOutcome()
+        }
+
+    override suspend fun deleteFilament(filamentId: String, answers: Map<String, Boolean>): PresetCreationOutcome =
+        whenReady(PresetCreationOutcome::Failure) {
+            NativeBindings.deleteFilament(filamentId, answers.answerIds(), answers.answerFlags()).toOutcome()
+        }
+
+    override suspend fun addFilamentPreset(filamentId: String, printer: String, preset: String, answers: Map<String, Boolean>): PresetCreationOutcome =
+        whenReady(PresetCreationOutcome::Failure) {
+            NativeBindings.addFilamentPreset(filamentId, printer, preset, answers.answerIds(), answers.answerFlags()).toOutcome()
         }
 
     override suspend fun addFilament(color: String?): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
@@ -2626,6 +2684,9 @@ class NativeSlicerEngine(context: Context) :
             printObjects = result.printObjects.indices.map { PrintedObject(result.printObjects[it], result.printZMin[it]) },
             notices = result.noticeKinds.indices.mapNotNull { index ->
                 PlateNoticeKind.entries.getOrNull(result.noticeKinds[index])?.let { PlateNotice(it, result.noticeTexts[index]) }
+            },
+            copyClearances = outlines(result.copyHullCounts, result.copyHulls).mapIndexed { index, outline ->
+                CopyClearance(outline, result.copyTops.getOrElse(index) { 0.0 })
             },
         )
     }
@@ -2827,6 +2888,9 @@ class NativeSlicerEngine(context: Context) :
                 saveName = saveName,
                 saveNameCopySuffix = saveNameCopySuffix,
                 saveCanOverwrite = saveCanOverwrite,
+                presetName = changedPreset,
+                transferDropsVariants = transferDropsVariants,
+                cancelSelects = cancelSelects,
             )
         }
         return PresetsOutcome.Success(toPresets())
@@ -2843,6 +2907,8 @@ class NativeSlicerEngine(context: Context) :
         printers = printers.map { it.toItem() },
         filaments = filaments.map { it.toItem() },
         processes = processes.map { it.toItem() },
+        tabPrinters = tabPrinters.map { it.toItem() },
+        tabFilaments = tabFilaments.map { it.toItem() },
         filamentColors = filamentColors.toList(),
         filamentTypes = filamentTypes.toList(),
         filamentDisplayTypes = filamentDisplayTypes.toList(),
@@ -2856,6 +2922,10 @@ class NativeSlicerEngine(context: Context) :
         i3Structure = i3Structure,
         sequentialPrint = sequentialPrint,
         minLayerHeights = minLayerHeights.toList(),
+        printerCover = printerCover,
+        nozzleType = nozzleType,
+        extruderCount = extruderCount,
+        pelletPrinter = pelletPrinter,
     )
 
     private fun NativePresetItem.toItem() = PresetListItem(
@@ -2871,6 +2941,7 @@ class NativeSlicerEngine(context: Context) :
         subgroup = subgroup,
         subgroupMsgid = subgroupMsgid,
         selected = selected,
+        color = color,
     )
 
     private fun NativeModelInspection.toOutcome(mesh: ScenePath): ModelInspectionOutcome {

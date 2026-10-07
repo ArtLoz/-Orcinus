@@ -91,6 +91,7 @@ private fun SettingsPage.toParcel() = SettingsPageParcel().also {
             parcel.lines = group.lines.map(SettingsLine::toParcel).toTypedArray()
         }
     }.toTypedArray()
+    it.modified = modified
 }
 
 private fun SettingsPageParcel.toPage() = SettingsPage(
@@ -98,6 +99,7 @@ private fun SettingsPageParcel.toPage() = SettingsPage(
     label = label.toTexts(),
     icon = icon,
     groups = groups.map { group -> SettingsGroup(group.title, group.icon, group.lines.map { it.toLine() }) },
+    modified = modified,
 )
 
 private fun SettingsLine.toParcel() = SettingsLineParcel().also {
@@ -119,6 +121,7 @@ private fun SettingsLine.toParcel() = SettingsLineParcel().also {
     it.separator = separator
     it.widget = widget.name
     it.hasOverride = hasOverride
+    it.labelPath = labelPath
 }
 
 private fun SettingsLineParcel.toLine() = SettingsLine(
@@ -140,6 +143,7 @@ private fun SettingsLineParcel.toLine() = SettingsLine(
             editCustomGcode = it.editCustomGcode,
         )
     },
+    labelPath = labelPath.orEmpty(),
 )
 
 private fun SettingDefinition.toParcel() = SettingDefinitionParcel().also {

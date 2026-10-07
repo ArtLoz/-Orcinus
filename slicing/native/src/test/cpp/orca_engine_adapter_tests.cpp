@@ -1121,7 +1121,9 @@ TEST_CASE("Selecting another preset asks what happens to the unsaved changes", "
     REQUIRE(asked.status == orca::SceneStatus::success);
     CHECK(asked.asks_unsaved_changes);
     CHECK(asked.changed_kind == print);
+    CHECK(asked.changed_preset == standard);
     CHECK(asked.can_transfer);
+    CHECK_FALSE(asked.cancel_selects);
     CHECK(asked.save_name == standard);
     CHECK(asked.save_name_copy_suffix);
     CHECK(asked.selection.process == standard);
@@ -1152,7 +1154,7 @@ TEST_CASE("Selecting another preset asks what happens to the unsaved changes", "
         CHECK(value_of(settings, "layer_height") == "0.16");
     }
 
-    SECTION("another printer the changed process does not suit asks about it first, without moving anything")
+    SECTION("another printer the changed process does not suit asks about it, and a Cancel keeps the printer")
     {
         const std::string a1 = "Bambu Lab A1 0.4 nozzle";
         REQUIRE(orca::select_preset(orca::PresetChoice::process, standard, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
@@ -1164,8 +1166,17 @@ TEST_CASE("Selecting another preset asks what happens to the unsaved changes", "
         REQUIRE(dependent.status == orca::SceneStatus::success);
         REQUIRE(dependent.asks_unsaved_changes);
         CHECK(dependent.changed_kind == print);
-        CHECK_FALSE(dependent.can_transfer);
+        CHECK(dependent.changed_preset == standard);
+        // UnsavedChangesDialog::build(): the printers print the same technology.
+        CHECK(dependent.can_transfer);
+        CHECK_FALSE(dependent.cancel_selects);
         CHECK(dependent.selection.printer == "Creality K2 Plus 0.4 nozzle");
+        // The dialog's Cancel: the printer stays, and so do the changes.
+        const orca::PresetState canceled = orca::select_preset(orca::PresetChoice::printer, a1, orca::PresetChangeAction::cancel);
+        REQUIRE(canceled.status == orca::SceneStatus::success);
+        CHECK_FALSE(canceled.asks_unsaved_changes);
+        CHECK(canceled.selection.printer == "Creality K2 Plus 0.4 nozzle");
+        CHECK(orca::describe_settings(print, quality, {}).dirty);
         // "Don't save": the process leaves its changes behind, and the printer is selected.
         const orca::PresetState selected = orca::select_preset(orca::PresetChoice::printer, a1, orca::PresetChangeAction::discard);
         REQUIRE(selected.status == orca::SceneStatus::success);
@@ -1173,6 +1184,88 @@ TEST_CASE("Selecting another preset asks what happens to the unsaved changes", "
         CHECK(selected.selection.printer == a1);
         REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
         REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    }
+
+    SECTION("another printer asks about the edited printer first, then about every changed preset that depends on it, and moves them")
+    {
+        const auto filament = orca::PresetKind::filament;
+        const auto printer = orca::PresetKind::printer;
+        const std::string pla = "Generic PLA @K2 Plus-all";
+        REQUIRE(orca::select_preset(orca::PresetChoice::filament, pla).status == orca::SceneStatus::success);
+        REQUIRE(orca::change_setting(filament, "Filament", "nozzle_temperature#0", "215", {}).dirty);
+        REQUIRE(orca::change_setting(printer, "Notes", "printer_notes", "edited", {}).dirty);
+
+        // Tab::select_preset(): the printer that is left, without a Transfer.
+        const orca::PresetState own = orca::select_preset(orca::PresetChoice::nozzle_diameter, "0.6");
+        REQUIRE(own.asks_unsaved_changes);
+        CHECK(own.changed_kind == printer);
+        CHECK_FALSE(own.can_transfer);
+        CHECK_FALSE(own.cancel_selects);
+        // Then the process, which the 0.6 mm printer does not suit.
+        const orca::PresetState process = orca::select_preset(orca::PresetChoice::nozzle_diameter, "0.6", orca::PresetChangeAction::discard);
+        REQUIRE(process.asks_unsaved_changes);
+        CHECK(process.changed_kind == print);
+        CHECK(process.can_transfer);
+        CHECK_FALSE(process.cancel_selects);
+        // Then the filament, which it suits: Cancel goes on with the selection.
+        const std::vector<orca::PresetChangeAction> answers = {orca::PresetChangeAction::discard, orca::PresetChangeAction::transfer};
+        const orca::PresetState kept = orca::select_preset(orca::PresetChoice::nozzle_diameter, "0.6", answers);
+        REQUIRE(kept.asks_unsaved_changes);
+        CHECK(kept.changed_kind == filament);
+        CHECK(kept.changed_preset == pla);
+        CHECK(kept.can_transfer);
+        CHECK(kept.cancel_selects);
+        CHECK(kept.selection.printer == "Creality K2 Plus 0.4 nozzle");
+
+        // The changes the Transfers moved are in the presets the printer brings.
+        const orca::PresetState selected = orca::select_preset(orca::PresetChoice::nozzle_diameter, "0.6",
+                                                               {orca::PresetChangeAction::discard, orca::PresetChangeAction::transfer,
+                                                                orca::PresetChangeAction::transfer});
+        INFO(selected.message);
+        REQUIRE(selected.status == orca::SceneStatus::success);
+        CHECK_FALSE(selected.asks_unsaved_changes);
+        CHECK(selected.selection.printer == "Creality K2 Plus 0.6 nozzle");
+        CHECK(selected.selection.process.find("@Creality K2 Plus 0.6 nozzle") != std::string::npos);
+        const orca::PresetSettings moved = orca::describe_settings(print, quality, {});
+        CHECK(moved.dirty);
+        CHECK(value_of(moved, "layer_height") == "0.16");
+        const orca::PresetSettings moved_filament = orca::describe_settings(filament, "Filament", {});
+        CHECK(moved_filament.dirty);
+        CHECK(value_of(moved_filament, "nozzle_temperature#0") == "215");
+        CHECK_FALSE(orca::describe_settings(printer, {}, {}).dirty);
+
+        // Back to the 0.4 mm nozzle, leaving the changes behind.
+        const orca::PresetState back = orca::select_preset(orca::PresetChoice::nozzle_diameter, "0.4",
+                                                           {orca::PresetChangeAction::discard, orca::PresetChangeAction::discard});
+        REQUIRE(back.status == orca::SceneStatus::success);
+        CHECK(back.selection.printer == "Creality K2 Plus 0.4 nozzle");
+        REQUIRE(orca::select_preset(orca::PresetChoice::filament, pla, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+        REQUIRE(orca::select_preset(orca::PresetChoice::process, standard).status == orca::SceneStatus::success);
+    }
+
+    SECTION("another process asks about a changed filament it suits, whose changes a Cancel keeps")
+    {
+        const auto filament = orca::PresetKind::filament;
+        const std::string pla = "Generic PLA @K2 Plus-all";
+        REQUIRE(orca::select_preset(orca::PresetChoice::process, standard, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+        REQUIRE(orca::select_preset(orca::PresetChoice::filament, pla).status == orca::SceneStatus::success);
+        REQUIRE(orca::change_setting(filament, "Filament", "nozzle_temperature#0", "215", {}).dirty);
+
+        const orca::PresetState asked_filament = orca::select_preset(orca::PresetChoice::process, strength);
+        REQUIRE(asked_filament.asks_unsaved_changes);
+        CHECK(asked_filament.changed_kind == filament);
+        CHECK(asked_filament.can_transfer);
+        CHECK(asked_filament.cancel_selects);
+        CHECK_FALSE(asked_filament.transfer_drops_variants);
+
+        const orca::PresetState selected = orca::select_preset(orca::PresetChoice::process, strength, orca::PresetChangeAction::cancel);
+        REQUIRE(selected.status == orca::SceneStatus::success);
+        CHECK_FALSE(selected.asks_unsaved_changes);
+        CHECK(selected.selection.process == strength);
+        const orca::PresetSettings kept = orca::describe_settings(filament, "Filament", {});
+        CHECK(kept.dirty);
+        CHECK(value_of(kept, "nozzle_temperature#0") == "215");
+        REQUIRE(orca::select_preset(orca::PresetChoice::filament, pla, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
     }
 
     SECTION("the Setup Wizard that installs another printer keeps the changes when asked to")
@@ -1192,6 +1285,80 @@ TEST_CASE("Selecting another preset asks what happens to the unsaved changes", "
     // The tests that follow slice with the unchanged preset.
     REQUIRE(orca::select_preset(orca::PresetChoice::process, standard, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
     CHECK_FALSE(orca::describe_settings(print, quality, {}).dirty);
+}
+
+TEST_CASE("The preset lists and the pages of a tab show what was changed", "[Adapter][Settings]")
+{
+    require_engine();
+    const std::string k2_plus = "Creality K2 Plus 0.4 nozzle";
+    const std::string pla = "Generic PLA @K2 Plus-all";
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, k2_plus, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::filament, pla, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+    const auto printer = orca::PresetKind::printer;
+    const auto filament = orca::PresetKind::filament;
+
+    // TabPresetComboBox::update() of the printer tab: every preset by its own
+    // name, the nozzles of a model too, without the sidebar's models.
+    const orca::PresetState presets = orca::describe_presets();
+    REQUIRE(presets.status == orca::SceneStatus::success);
+    const orca::PresetItem* own = find_item(presets.tab_printers, k2_plus);
+    REQUIRE(own != nullptr);
+    CHECK(own->selected);
+    CHECK(own->label == k2_plus);
+    CHECK(own->group == orca::PresetGroup::system);
+    CHECK(own->subgroup.empty());
+    CHECK(find_item(presets.tab_printers, "Creality K2 Plus 0.6 nozzle") != nullptr);
+    CHECK(find_item(presets.tab_printers, "Creality K2 Plus") == nullptr);
+    const orca::PresetItem* own_filament = find_item(presets.tab_filaments, pla);
+    REQUIRE(own_filament != nullptr);
+    CHECK(own_filament->selected);
+    CHECK(own_filament->subgroup.empty());
+
+    // PresetComboBox::get_bmp(): the filament's default colour, the edited one's for the selected filament.
+    REQUIRE(orca::change_setting(filament, "Filament", "default_filament_colour", "#FF0000", {}).dirty);
+    const orca::PresetState coloured = orca::describe_presets();
+    CHECK(find_item(coloured.tab_filaments, pla)->color == "#FF0000");
+    CHECK(find_item(coloured.filaments, pla)->color == "#FF0000");
+    CHECK(find_item(coloured.tab_filaments, pla)->label == "* " + pla);
+    REQUIRE_FALSE(orca::reset_settings(filament, "Filament", {}, {}).dirty);
+
+    // PlaterPresetComboBox::update(): an edited system printer is "* <model>",
+    // which still selects its model.
+    REQUIRE(orca::change_setting(printer, "Notes", "printer_notes", "edited", {}).dirty);
+    const orca::PresetState edited = orca::describe_presets();
+    const orca::PresetItem* model = find_item(edited.printers, "Creality K2 Plus");
+    REQUIRE(model != nullptr);
+    CHECK(model->label == "* Creality K2 Plus");
+    CHECK(model->selected);
+    CHECK(find_item(edited.tab_printers, k2_plus)->label == "* " + k2_plus);
+
+    // Tab::update_changed_tree_ui(): the page the change is on.
+    const orca::PresetSettings settings = orca::describe_settings(printer, "Notes", {});
+    REQUIRE(settings.status == orca::SceneStatus::success);
+    for (const orca::SettingsPage& page : settings.pages) {
+        INFO(page.title);
+        CHECK(page.modified == (page.title == "Notes"));
+    }
+    const orca::PresetSettings reset = orca::reset_settings(printer, "Notes", {}, {});
+    REQUIRE_FALSE(reset.dirty);
+    for (const orca::SettingsPage& page : reset.pages) {
+        CHECK_FALSE(page.modified);
+    }
+    CHECK(find_item(orca::describe_presets().printers, "Creality K2 Plus")->label == "Creality K2 Plus");
+
+    // OptionsGroup::get_url(): the line's page of the wiki.
+    const orca::PresetSettings process = orca::describe_settings(orca::PresetKind::print, "Quality", {});
+    std::string path;
+    for (const orca::SettingsPage& page : process.pages) {
+        for (const orca::SettingsGroup& group : page.groups) {
+            for (const orca::SettingsLine& line : group.lines) {
+                if (!line.options.empty() && line.options.front().id == "layer_height") {
+                    path = line.label_path;
+                }
+            }
+        }
+    }
+    CHECK(path == "quality_settings_layer_height");
 }
 
 TEST_CASE("The settings of an object and of the plate override the process preset", "[Adapter][Settings]")
@@ -1272,6 +1439,11 @@ TEST_CASE("The settings of an object and of the plate override the process prese
         const orca::PresetSettings shown = orca::describe_settings(object, frequent, {}, kept);
         CHECK(setting(shown, "layer_height").value == "0.28");
         CHECK(setting(shown, "layer_height").modified);
+        // Tab::update_changed_tree_ui(): an object's page of an override has the colour of a modified value.
+        for (const orca::SettingsPage& page : shown.pages) {
+            INFO(page.title);
+            CHECK(page.modified == (page.title == frequent || page.title == "Quality"));
+        }
 
         // The undo of a line removes the override, and the preset's value applies again.
         const orca::PresetSettings undone = orca::reset_settings(object, frequent, {"layer_height"}, {}, kept);
@@ -1616,6 +1788,24 @@ TEST_CASE("The project prints on the plate type its printer takes, which the sid
     REQUIRE(orca::select_bed_type("Textured PEI Plate").status == orca::SceneStatus::success);
     REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
     REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+}
+
+TEST_CASE("The sidebar shows the printer's cover, its nozzle type and its extruders", "[Adapter][Presets]")
+{
+    require_engine();
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+
+    // Sidebar::update_printer_thumbnail(), update_presets() and layout_printer().
+    const orca::PresetState k2 = orca::describe_presets();
+    INFO(k2.message);
+    REQUIRE(k2.status == orca::SceneStatus::success);
+    const boost::filesystem::path cover(k2.printer_cover);
+    CHECK(cover.filename().string() == "Creality K2 Plus_cover.png");
+    CHECK(cover.parent_path().filename().string() == "Creality");
+    CHECK(boost::filesystem::exists(cover));
+    CHECK(k2.nozzle_type == "Hardened Steel");
+    CHECK(k2.extruder_count == 1);
+    CHECK_FALSE(k2.pellet_printer);
 }
 
 TEST_CASE("An imported STL is sliced through the same pipeline", "[Adapter]")
@@ -2337,6 +2527,93 @@ TEST_CASE("Arranging the plates keeps clear of the wipe tower", "[Adapter][Scene
     }
 }
 
+TEST_CASE("The jobs that place objects tell their progress and stop when cancelled", "[Adapter][Scene][PlateJobs]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("plate-jobs.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> two = plate_of({}, matrix_of(cube));
+    orca::PlateObject second;
+    second.instances.push_back(orca::ObjectPlacement{matrix_of(cube), true, true});
+    second.instances.front().matrix[12] = 60.0;
+    two.push_back(second);
+
+    SECTION("arranging tells \"Arranging\" first, then the object packed, up to all of them")
+    {
+        std::vector<std::pair<orca::PlateJob, int>> told;
+        const orca::PlateInspection arranged = orca::place_objects(two, {}, k2_plus_profiles(), orca::PlateManipulation::arrange, {}, -1, {}, {},
+            [&told](const orca::PlateJob job, const int percent, const std::string&) { told.emplace_back(job, percent); });
+        INFO(arranged.message);
+        REQUIRE(arranged.status == orca::SceneStatus::success);
+        CHECK_FALSE(arranged.canceled);
+        REQUIRE(told.size() >= 2);
+        CHECK(told.front() == std::make_pair(orca::PlateJob::arrange, 0));
+        CHECK(told.back() == std::make_pair(orca::PlateJob::arrange, 100));
+    }
+    SECTION("a cancelled job answers so and moves nothing; the cancel of another job does not stop it")
+    {
+        orca::cancel_placement(42);
+        const orca::PlateInspection cancelled = orca::place_objects(two, {}, k2_plus_profiles(), orca::PlateManipulation::arrange, {}, -1, {}, {}, nullptr, 42);
+        REQUIRE(cancelled.status == orca::SceneStatus::success);
+        CHECK(cancelled.canceled);
+        CHECK(cancelled.objects.empty());
+        const orca::PlateInspection oriented = orca::place_objects(two, {}, k2_plus_profiles(), orca::PlateManipulation::auto_orient, {}, -1, {}, {}, nullptr, 42);
+        CHECK(oriented.canceled);
+        const orca::PlateInspection other = orca::place_objects(two, {}, k2_plus_profiles(), orca::PlateManipulation::arrange, {}, -1, {}, {}, nullptr, 43);
+        REQUIRE(other.status == orca::SceneStatus::success);
+        CHECK_FALSE(other.canceled);
+        CHECK(other.objects.size() == 2);
+    }
+}
+
+TEST_CASE("Arranging on a Bambu Lab printer that scans its first layer keeps the calibration region free", "[Adapter][Scene][PlateJobs]")
+{
+    require_engine();
+    const orca::PresetState added = orca::apply_setup({"Creality K2 Plus", "Bambu Lab X1 Carbon"}, {"Generic PLA @K2 Plus-all"});
+    INFO(added.message);
+    REQUIRE(added.status == orca::SceneStatus::success);
+    orca::select_plate(0, 1);
+    orca::ProfileSelection x1c;
+    x1c.printer = "Bambu Lab X1 Carbon 0.4 nozzle";
+    x1c.process = "0.20mm Standard @BBL X1C";
+    x1c.filament = "Bambu PLA Basic @BBL X1C";
+    const orca::ModelInspection cube = orca::inspect_model({}, x1c, output_path("calibration-region.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    // A bar 230 mm deep, which the arrangement centres on the 256 mm plate: its
+    // front end stands in the region unless the region stays free. (A bar the
+    // plate holds only over the region goes there all the same: firstfit
+    // tries such an item again with the excluded areas alone.)
+    std::vector<double> bar = matrix_of(cube);
+    bar[5] = 11.5;
+    // PartPlateList::preprocess_nonprefered_areas(): x from 18 to 240 mm, y from 0 to 15 mm.
+    const auto in_region = [](const orca::PlateInspection& arranged) {
+        const orca::ModelInspection& copy = arranged.objects.front().instances.front();
+        INFO(copy.box_center[0] << ", " << copy.box_center[1] << ": " << copy.size_x << " x " << copy.size_y);
+        return copy.box_center[1] - copy.size_y / 2 < 15.0 && copy.box_center[1] + copy.size_y / 2 > 0.0 &&
+               copy.box_center[0] + copy.size_x / 2 > 18.0 && copy.box_center[0] - copy.size_x / 2 < 240.0;
+    };
+
+    orca::ArrangeSettings not_avoiding;
+    not_avoiding.avoid_extrusion_cali_region = false;
+    const orca::PlateInspection anywhere = orca::place_objects(plate_of({}, bar), {}, x1c, orca::PlateManipulation::arrange, not_avoiding);
+    INFO(anywhere.message);
+    REQUIRE(anywhere.status == orca::SceneStatus::success);
+    CHECK(in_region(anywhere));
+
+    const orca::PlateInspection kept_free = orca::place_objects(plate_of({}, bar), {}, x1c, orca::PlateManipulation::arrange, {});
+    REQUIRE(kept_free.status == orca::SceneStatus::success);
+    const orca::ModelInspection& placed = kept_free.objects.front().instances.front();
+    INFO("kept free: " << placed.box_center[0] << ", " << placed.box_center[1] << ": " << placed.size_x << " x " << placed.size_y);
+    const orca::ModelInspection& anywhere_placed = anywhere.objects.front().instances.front();
+    INFO("anywhere: " << anywhere_placed.box_center[0] << ", " << anywhere_placed.box_center[1]);
+    CHECK_FALSE(in_region(kept_free));
+
+    // Back to the printer the other tests work with.
+    REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+}
+
 TEST_CASE("Arranging sorts the objects in the order they were laid out", "[Adapter][Scene][ArrangeOrder]")
 {
     require_engine();
@@ -2486,6 +2763,119 @@ TEST_CASE("The plate is validated after a change as the desktop app's background
     // SequentialPrintClearance::set_polygons(): their union as triangles, x and y of each corner.
     CHECK(!close.clearance_fill.empty());
     CHECK(close.clearance_fill.size() % 6 == 0);
+}
+
+TEST_CASE("A drag of a plate printed by object outlines every copy's clearance", "[Adapter][Scene]")
+{
+    require_engine();
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("hulls.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    std::vector<orca::PlateObject> plate = plate_of({}, matrix_of(cube));
+    // A second copy of the cube, turned by 45 degrees about Z beside the first.
+    std::vector<double> turned = matrix_of(cube);
+    const double c = std::cos(M_PI / 4.0);
+    const double s = std::sin(M_PI / 4.0);
+    for (int column = 0; column < 3; ++column) {
+        const double x = turned[column * 4];
+        const double y = turned[column * 4 + 1];
+        turned[column * 4] = c * x - s * y;
+        turned[column * 4 + 1] = s * x + c * y;
+    }
+    turned[12] += 100.0;
+    plate.front().instances.push_back(orca::ObjectPlacement{turned, true, true});
+
+    // update_sequential_clearance() returns at once while the plate prints by layer.
+    const orca::PlateValidation by_layer = orca::validate_plate(plate, k2_plus_profiles(), {});
+    REQUIRE(by_layer.read);
+    CHECK(by_layer.copy_hull_counts.empty());
+
+    orca::ModelSettings by_object;
+    by_object.keys = {"print_sequence"};
+    by_object.values = {"by object"};
+    const orca::PlateValidation validation = orca::validate_plate(plate, k2_plus_profiles(), by_object);
+    REQUIRE(validation.read);
+    REQUIRE(validation.copy_hull_counts.size() == 2);
+    CHECK(validation.copy_hulls.size() == 2 * std::size_t(validation.copy_hull_counts[0] + validation.copy_hull_counts[1]));
+    REQUIRE(validation.copy_tops.size() == 2);
+    CHECK(validation.copy_tops[0] == Catch::Approx(20.0).margin(0.01));
+    CHECK(validation.copy_tops[1] == Catch::Approx(20.0).margin(0.01));
+    const auto extent_x = [&validation](const std::size_t copy) {
+        const std::size_t first = copy == 0 ? 0 : std::size_t(validation.copy_hull_counts[0]);
+        double min_x = std::numeric_limits<double>::max();
+        double max_x = std::numeric_limits<double>::lowest();
+        for (std::size_t point = first; point < first + std::size_t(validation.copy_hull_counts[copy]); ++point) {
+            min_x = std::min(min_x, validation.copy_hulls[point * 2]);
+            max_x = std::max(max_x, validation.copy_hulls[point * 2]);
+        }
+        return std::make_pair(min_x, max_x);
+    };
+    // The 20 mm cube grown by half the K2 Plus' 64 mm clearance radius, less
+    // 0.1 mm, about the copy's offset.
+    const auto [first_min, first_max] = extent_x(0);
+    CHECK(first_max == Catch::Approx(10.0 + 31.9).margin(0.05));
+    CHECK(first_min == Catch::Approx(-first_max).margin(0.05));
+    // The turned copy's outline is the first one's turned with it: its corner reaches further.
+    const auto [second_min, second_max] = extent_x(1);
+    CHECK(second_max == Catch::Approx(10.0 * std::sqrt(2.0) + 31.9).margin(0.5));
+    CHECK(second_min == Catch::Approx(-second_max).margin(0.5));
+}
+
+TEST_CASE("A Bambu Lab plate shows its plate type, and a bed without a model is grey", "[Adapter][Scene]")
+{
+    require_engine();
+    const std::string directory = (fs::path(device_dir) / "tmp" / "bed-logos").string();
+
+    // Tab::select_preset() of a Bambu Lab printer: its plate type's pictures and
+    // the X1 Carbon's calibration lines, rather than the bed texture.
+    REQUIRE(orca::apply_setup({"Creality K2 Plus", "Bambu Lab X1 Carbon", "Afinia H+1(HS)"}, {"Generic PLA @K2 Plus-all"}).status
+            == orca::SceneStatus::success);
+    orca::ProfileSelection x1c;
+    x1c.printer = "Bambu Lab X1 Carbon 0.4 nozzle";
+    x1c.process = "0.20mm Standard @BBL X1C";
+    x1c.filament = "Bambu PLA Basic @BBL X1C";
+    const orca::PlateDescription bambu = orca::describe_plate(x1c, directory);
+    INFO(bambu.message);
+    REQUIRE(bambu.status == orca::SceneStatus::success);
+    CHECK(bambu.bed_type_logo);
+    CHECK_FALSE(bambu.default_bed);
+    CHECK(bambu.bed_texture.empty());
+    // Six plate types of two parts each, and the calibration lines.
+    REQUIRE(bambu.logo_kinds.size() == 13);
+    REQUIRE(bambu.logo_rects.size() == 4 * bambu.logo_kinds.size());
+    REQUIRE(bambu.logo_textures.size() == bambu.logo_kinds.size());
+    std::vector<std::vector<double>> textured_pei;
+    for (std::size_t logo = 0; logo < bambu.logo_kinds.size(); ++logo) {
+        CHECK(read_file(bambu.logo_textures[logo]).compare(1, 3, "PNG") == 0);
+        const std::vector<double> rect(bambu.logo_rects.begin() + logo * 4, bambu.logo_rects.begin() + logo * 4 + 4);
+        if (bambu.logo_kinds[logo] == std::int32_t(orca::BedLogoKind::bed_type) && bambu.logo_bed_types[logo] == "Textured PEI Plate") {
+            textured_pei.push_back(rect);
+        }
+        if (bambu.logo_kinds[logo] == std::int32_t(orca::BedLogoKind::calibration)) {
+            CHECK(rect == std::vector<double>{18, 2, 224, 16});
+        }
+    }
+    // PartPlateList::init_bed_type_info() of a 256 x 256 mm plate.
+    CHECK(textured_pei == std::vector<std::vector<double>>{{10, 80, 10, 160}, {74, -10, 148, 12}});
+
+    // Bed3D::render_default() of a printer whose profile has no bed model.
+    orca::ProfileSelection afinia;
+    afinia.printer = "Afinia H+1(HS) 0.4 nozzle";
+    afinia.process = "0.16mm Optimal @Afinia H+1(HS)";
+    afinia.filament = "Afinia PLA@HS";
+    const orca::PlateDescription grey = orca::describe_plate(afinia, directory);
+    INFO(grey.message);
+    REQUIRE(grey.status == orca::SceneStatus::success);
+    CHECK(grey.default_bed);
+    CHECK(grey.bed_model_mesh.empty());
+    CHECK_FALSE(grey.bed_type_logo);
+    CHECK(grey.logo_kinds.empty());
+
+    // Back to the printer the other tests work with.
+    REQUIRE(orca::apply_setup({"Creality K2 Plus"}, {"Generic PLA @K2 Plus-all"}).status == orca::SceneStatus::success);
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, "Creality K2 Plus 0.4 nozzle").status == orca::SceneStatus::success);
+    const orca::PlateDescription k2 = orca::describe_plate(k2_plus_profiles(), directory);
+    CHECK_FALSE(k2.default_bed);
+    CHECK_FALSE(k2.bed_type_logo);
 }
 
 TEST_CASE("A code the layer slider puts on a layer runs where that layer starts", "[Adapter][Scene]")
@@ -3331,6 +3721,73 @@ TEST_CASE("A filament of the user's own is created from an installed one", "[Ada
     // The test leaves the profiles as it found them.
     REQUIRE(orca::select_preset(orca::PresetChoice::filament, preset_name).status == orca::SceneStatus::success);
     REQUIRE(orca::delete_preset(orca::PresetKind::filament, {{"delete_preset", true}}).status == orca::SceneStatus::success);
+}
+
+TEST_CASE("A filament of the user's own takes a preset for another printer, and is deleted whole", "[Adapter][Settings]")
+{
+    require_engine();
+    const std::string printer = "Creality K2 Plus 0.4 nozzle";
+    const std::string other_printer = "Creality K2 Plus 0.6 nozzle";
+    REQUIRE(orca::select_preset(orca::PresetChoice::printer, printer, orca::PresetChangeAction::discard).status == orca::SceneStatus::success);
+    const orca::CreateFilamentOptions of_type = orca::create_filament_options("PLA", {});
+    REQUIRE_FALSE(of_type.base_filaments.empty());
+    const orca::CreateFilamentOptions chosen = orca::create_filament_options("PLA", of_type.base_filaments.front());
+    const auto for_printer = std::find_if(chosen.presets.begin(), chosen.presets.end(),
+                                          [&printer](const orca::FilamentPresetChoice& choice) { return choice.printer == printer; });
+    REQUIRE(for_printer != chosen.presets.end());
+    orca::CreateFilamentRequest request;
+    request.vendor = "Creality";
+    request.type = "PLA";
+    request.serial = "Orcinus whole";
+    request.presets = {*for_printer};
+    const orca::PresetCreation created = orca::create_filament(request, {});
+    INFO(created.message);
+    REQUIRE(created.status == orca::SceneStatus::success);
+    const orca::CustomFilaments custom = orca::custom_filaments();
+    const auto filament = std::find_if(custom.filaments.begin(), custom.filaments.end(),
+                                       [&created](const orca::CustomFilament& candidate) { return candidate.name == created.name; });
+    REQUIRE(filament != custom.filaments.end());
+    const std::string id = filament->id;
+
+    // CreatePresetForPrinterDialog: the 0.6 mm nozzle with the PLA presets it suits.
+    const orca::FilamentPresetList sources = orca::filament_preset_sources(id);
+    INFO(sources.message);
+    REQUIRE(sources.status == orca::SceneStatus::success);
+    CHECK(sources.type == "PLA");
+    CHECK(sources.name == created.name);
+    const auto source = std::find_if(sources.presets.begin(), sources.presets.end(),
+                                     [&other_printer](const orca::FilamentPresetChoice& choice) { return choice.printer == other_printer; });
+    REQUIRE(source != sources.presets.end());
+    const orca::PresetCreation added = orca::add_filament_preset(id, other_printer, source->preset, {});
+    INFO(added.message);
+    REQUIRE(added.status == orca::SceneStatus::success);
+    CHECK_FALSE(added.has_question);
+    CHECK(added.name == created.name + " @" + other_printer);
+    const orca::FilamentPresetList listed = orca::filament_presets(id);
+    CHECK(std::any_of(listed.presets.begin(), listed.presets.end(),
+                      [&other_printer](const orca::FilamentPresetChoice& choice) { return choice.printer == other_printer; }));
+    // Again it asks before it writes the preset anew; No leaves it as it is.
+    const orca::PresetCreation again = orca::add_filament_preset(id, other_printer, source->preset, {});
+    CHECK(again.has_question);
+    CHECK(again.question.id == "rewrite_presets");
+    const orca::PresetCreation kept = orca::add_filament_preset(id, other_printer, source->preset, {{"rewrite_presets", false}});
+    CHECK(kept.status == orca::SceneStatus::success);
+    CHECK(kept.name.empty());
+
+    // EditFilamentPresetDialog's "Delete": its question, then every preset of the filament.
+    const orca::PresetCreation asked = orca::delete_filament(id, {});
+    CHECK(asked.has_question);
+    CHECK(asked.question.id == "delete_filament");
+    CHECK(orca::delete_filament(id, {{"delete_filament", false}}).name.empty());
+    CHECK(orca::filament_presets(id).presets.size() == 2);
+    const orca::PresetCreation deleted = orca::delete_filament(id, {{"delete_filament", true}});
+    INFO(deleted.message);
+    REQUIRE(deleted.status == orca::SceneStatus::success);
+    CHECK(deleted.name == id);
+    CHECK(orca::filament_presets(id).presets.empty());
+    const orca::CustomFilaments after = orca::custom_filaments();
+    CHECK(std::none_of(after.filaments.begin(), after.filaments.end(), [&id](const orca::CustomFilament& candidate) { return candidate.id == id; }));
+    CHECK(orca::describe_presets().selection.filament.find("Orcinus whole") == std::string::npos);
 }
 
 TEST_CASE("An import asks before it replaces a preset that is already there", "[Adapter][Settings]")
@@ -5739,6 +6196,25 @@ TEST_CASE("Replace 3D file gives a volume the mesh of another file", "[Adapter][
         // The object of one volume takes the name of the new volume.
         CHECK(object.name == object.volume_name);
     }
+    SECTION("a 3MF file of one volume replaces it as well")
+    {
+        // replace_volume_with_stl() reads the 3MF file's objects with read_from_file().
+        const orca::ImportedModels block =
+            orca::import_model(device_dir + "/data/2x20x10.obj", k2_plus_profiles(), {}, import_prefix("replace-block"), {});
+        INFO(block.message);
+        REQUIRE(block.status == orca::SceneStatus::success);
+        const std::string project = output_path("replace-block.3mf");
+        REQUIRE(orca::save_project(project, {plate_object_of(block.objects.front())}, k2_plus_profiles(), {orca::ProjectPlate()}).status
+                == orca::SceneStatus::success);
+        const orca::ImportedModels replaced = orca::replace_volume(plate, 0, 0, project, k2_plus_profiles(), import_prefix("replaced-3mf"));
+        INFO(replaced.message);
+        REQUIRE(replaced.status == orca::SceneStatus::success);
+        REQUIRE(replaced.objects.size() == 1);
+        REQUIRE(replaced.objects.front().instances.size() == 1);
+        CHECK(replaced.objects.front().instances.front().size_x == Catch::Approx(2.0).margin(1e-4));
+        CHECK(replaced.objects.front().instances.front().size_y == Catch::Approx(20.0).margin(1e-4));
+        CHECK(replaced.objects.front().instances.front().size_z == Catch::Approx(10.0).margin(1e-4));
+    }
     SECTION("a file that cannot be read changes nothing")
     {
         const orca::ImportedModels missing =
@@ -8141,6 +8617,14 @@ TEST_CASE("Text and SVG are embossed on an object, edited, sliced and kept in a 
     REQUIRE(described.status == orca::SceneStatus::success);
     CHECK(described.text == "Hi");
     CHECK(described.style.font_path == font);
+    // publish(): the SVG goes into the project, and the reopened part draws from it.
+    described = orca::describe_emboss(reopened, 0, svg_volume, k2_plus_profiles());
+    REQUIRE(described.status == orca::SceneStatus::success);
+    CHECK(described.kind == orca::EmbossKind::svg);
+    const orca::SvgPreview reopened_svg = orca::preview_svg(reopened, 0, svg_volume, output_path("emboss-reopened.png"), 64, k2_plus_profiles());
+    INFO(reopened_svg.message);
+    REQUIRE(reopened_svg.status == orca::SceneStatus::success);
+    CHECK(reopened_svg.points > 0);
 }
 
 TEST_CASE("The text tool's styles are kept in the app configuration and a style is renamed in the texts", "[Adapter][Emboss]")
@@ -8345,13 +8829,16 @@ TEST_CASE("The SVG window draws its SVG, sizes, mirrors, saves, forgets and bake
     CHECK(boost::filesystem::exists(saved));
     plate = {plate_object_of(result.objects.front())};
     CHECK(orca::preview_svg(plate, 0, volume, png, 64, k2_plus_profiles()).svg_path == saved);
+    // publish(): a save gives the SVG its place in the 3MF, which the part keeps.
+    REQUIRE(orca::save_project(output_path("window.3mf"), plate, k2_plus_profiles(), {orca::ProjectPlate()}).status == orca::SceneStatus::success);
 
-    // "Forget the file path": no reload any more.
+    // "Forget the file path": no reload any more; the name comes from the place in the 3MF.
     result = orca::edit_svg_file(plate, 0, volume, orca::SvgFileEdit::forget_path, "", k2_plus_profiles(), import_prefix("window-forgot"));
     REQUIRE(result.status == orca::SceneStatus::success);
     plate = {plate_object_of(result.objects.front())};
     CHECK(orca::preview_svg(plate, 0, volume, png, 64, k2_plus_profiles()).svg_path.empty());
     CHECK_FALSE(orca::describe_emboss(plate, 0, volume, k2_plus_profiles()).svg_reloadable);
+    CHECK(orca::describe_emboss(plate, 0, volume, k2_plus_profiles()).svg_name == "window-saved");
 
     // "Bake": a part of no SVG.
     result = orca::edit_svg_file(plate, 0, volume, orca::SvgFileEdit::bake, "", k2_plus_profiles(), import_prefix("window-baked"));

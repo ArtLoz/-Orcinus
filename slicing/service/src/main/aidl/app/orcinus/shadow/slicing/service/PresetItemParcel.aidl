@@ -8,4 +8,6 @@ parcelable PresetItemParcel {
     String subgroup;
     boolean subgroupMsgid;
     boolean selected;
+    /** PresetListItem.color */
+    @nullable String color;
 }

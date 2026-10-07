@@ -10,4 +10,6 @@ parcelable SettingsLineParcel {
     boolean separator;
     String widget;
     boolean hasOverride;
+    /** SettingsLine.labelPath */
+    @nullable String labelPath;
 }

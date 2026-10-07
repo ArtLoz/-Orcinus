@@ -14,6 +14,11 @@ import app.orcinus.shadow.core.model.withSettings
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.PlateInstance
+import app.orcinus.shadow.core.model.DialogIcon
+import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.SettingsDialog
+import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.storage.api.SceneFiles
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -475,23 +480,102 @@ class SetPlateSettingsUseCase(private val repository: PlateRepository) {
 fun PlateState.spiralVaseMode(): Boolean =
     plateSettings.plateSettingsChoice().spiralMode ?: (presetValue(PresetKind.PRINT, "spiral_mode") == "1")
 
+/**
+ * PartPlate::get_bed_type() of the current plate as PartPlate::render_logo()
+ * takes it: its own plate type, or for btDefault the project's (curr_bed_type).
+ */
+fun PlateState.currentBedType(): String? =
+    plateSettings.plateSettingsChoice().bedType?.takeIf { it != "Default Plate" } ?: presets?.bedType
+
 /** A value of the edited preset of [kind], as its tab shows it. */
 fun PlateState.presetValue(kind: PresetKind, key: String): String? =
     settingsTabs[kind]?.settings?.settings?.firstOrNull { it.key == key }?.value
 
 /**
  * PartPlate::set_vase_mode_related_object_config(): the objects on the current
- * plate take the settings spiral vase mode needs where the process preset, or
- * the object itself, has others.
+ * plate take the settings spiral vase mode needs.
  */
-private fun PlateState.objectsForSpiralVase(): List<PlateObject> {
-    val applying = VASE_MODE_SETTINGS.filter { (key, value) -> presetValue(PresetKind.PRINT, key) != value }
-    return objects.map { plateObject ->
-        if (plateObject.instances.none { plateOf(it) == currentPlate }) return@map plateObject
-        val own = VASE_MODE_SETTINGS.filter { (key, value) -> plateObject.settings.values[key]?.let { it != value } == true }
-        plateObject.withSettings(ModelSettings(plateObject.settings.values + applying + own))
-    }
+private fun PlateState.objectsForSpiralVase(): List<PlateObject> = objects.map { plateObject ->
+    if (plateObject.instances.none { plateOf(it) == currentPlate }) plateObject else withVaseModeSettings(plateObject)
 }
+
+/**
+ * set_vase_mode_related_object_config() of one object: it takes the settings
+ * spiral vase mode needs where the process preset, or the object itself, has
+ * others.
+ */
+private fun PlateState.withVaseModeSettings(plateObject: PlateObject): PlateObject {
+    val applying = VASE_MODE_SETTINGS.filter { (key, value) -> presetValue(PresetKind.PRINT, key) != value }
+    val own = VASE_MODE_SETTINGS.filter { (key, value) -> plateObject.settings.values[key]?.let { it != value } == true }
+    return plateObject.withSettings(ModelSettings(plateObject.settings.values + applying + own))
+}
+
+/**
+ * PartPlateList::notify_instance_update() of the copy [instance] of the object
+ * with the [mesh] file, which stood as [before] (null for an object just added,
+ * add_object_to_list()'s is_new): a copy that no longer crosses the plate it
+ * stood on joins the first plate it crosses. When that plate's own settings
+ * print in spiral vase mode and the object's own settings are not the mode's
+ * (is_object_config_compatible_with_spiral_vase()), the object takes them
+ * (set_vase_mode_related_object_config()); an object that stood on the plates
+ * before is told so first (show_spiral_mode_settings_dialog(true), which only
+ * informs), a new one is not.
+ */
+internal fun PlateState.joiningPlate(mesh: ScenePath, instance: Int, before: PlateInstance?): PlateState {
+    val plateObject = objects.withMesh(mesh) ?: return this
+    val copy = plateObject.instances.getOrNull(instance) ?: return this
+    val grid = plateGrid ?: return this
+    val height = plate?.geometry?.printableHeight ?: return this
+    val origins = plateOrigins()
+    val stood = before?.let(::plateOf)
+    if (stood != null && grid.intersects(copy.inspection, origins[stood], height)) return this
+    val joined = plateOf(copy) ?: return this
+    val spiral = partPlates().getOrNull(joined)?.settings?.plateSettingsChoice()?.spiralMode == true
+    if (!spiral || plateObject.settings.compatibleWithSpiralVase()) return this
+    val vased = copy(objects = objects.replaced(withVaseModeSettings(plateObject)))
+    return if (before == null) vased else vased.copy(plateNotices = vased.plateNotices + spiralModeSettings(presets?.i3Structure == true))
+}
+
+/** notify_instance_update() of the first copy of every object of [added], each just added. */
+internal fun PlateState.joiningPlates(added: List<PlateObject>): PlateState = added.fold(this) { state, plateObject -> state.joiningPlate(plateObject.mesh, 0, null) }
+
+/**
+ * is_object_config_compatible_with_spiral_vase(): the object's own settings
+ * hold each value spiral vase mode needs. ensure_vertical_shell_thickness is
+ * read as a bool where this version keeps an enum, so it never holds.
+ */
+private fun ModelSettings.compatibleWithSpiralVase(): Boolean {
+    fun holds(key: String, value: (String) -> Boolean) = values[key]?.let(value) == true
+    return holds("wall_loops") { it == "1" } &&
+        holds("top_shell_layers") { it == "0" } &&
+        holds("sparse_infill_density") { it.removeSuffix("%").toDoubleOrNull() == 0.0 } &&
+        holds("enable_support") { it == "0" } &&
+        holds("enforce_support_layers") { it == "0" } &&
+        holds("ensure_vertical_shell_thickness") { it == "1" } &&
+        holds("detect_thin_wall") { it == "0" } &&
+        holds("timelapse_type") { it == "0" }
+}
+
+/**
+ * ConfigManipulation::show_spiral_mode_settings_dialog() of an object's
+ * settings: what spiral vase mode needs, and on an I3 printer that it makes
+ * no timelapse; it only informs.
+ */
+private fun spiralModeSettings(i3: Boolean) = SettingsDialog(
+    id = "spiral_mode",
+    icon = DialogIcon.WARNING,
+    title = emptyList(),
+    text = listOfNotNull(
+        OrcaText(
+            "Spiral mode only works when wall loops is 1, support is disabled, clumping detection by probing is disabled, " +
+                "top shell layers is 0, sparse infill density is 0 and timelapse type is traditional.",
+        ),
+        OrcaText(" But machines with I3 structure will not generate timelapse videos.").takeIf { i3 },
+    ),
+    question = false,
+    yes = null,
+    no = null,
+)
 
 /** The settings of set_vase_mode_related_object_config(), as a project writes them. */
 private val VASE_MODE_SETTINGS = mapOf(

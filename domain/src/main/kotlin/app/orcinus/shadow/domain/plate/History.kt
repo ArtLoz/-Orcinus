@@ -157,6 +157,7 @@ class UndoRedoPlateUseCase(
             selectedPart = target.selectedPart,
             selectedPartGroup = target.selectedPartGroup,
             selectedRange = target.selectedRange,
+            selectedRangeGroup = emptySet(),
             history = history,
             // Plater::priv::undo_redo_to(): the variable layer height is on after
             // the jump as it was when the snapshot was taken, where it is allowed.

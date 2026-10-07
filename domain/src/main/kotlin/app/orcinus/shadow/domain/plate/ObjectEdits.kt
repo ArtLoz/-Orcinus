@@ -20,6 +20,7 @@ import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsRequest
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
+import app.orcinus.shadow.core.model.notificationLevel
 import app.orcinus.shadow.core.model.selectedObjectMeshes
 import app.orcinus.shadow.core.model.withName
 import app.orcinus.shadow.domain.placed
@@ -225,7 +226,8 @@ class AnswerPlateQuestionUseCase(
 /**
  * The first message box of a change of the plate was dismissed, with its
  * "Don't show again" [checked] when it has one: the warnings about a
- * project's modified G-code then set no_warn_when_modified_gcodes.
+ * project's modified G-code then set no_warn_when_modified_gcodes. The
+ * notices the 3D view shows as notifications are no message boxes.
  */
 class DismissPlateNoticeUseCase(
     private val repository: PlateRepository,
@@ -235,8 +237,9 @@ class DismissPlateNoticeUseCase(
     operator fun invoke(checked: Boolean = false) {
         var dismissed: SettingsDialog? = null
         repository.update { state ->
-            dismissed = state.plateNotices.firstOrNull()
-            if (state.plateNotices.isEmpty()) state else state.copy(plateNotices = state.plateNotices.drop(1))
+            val box = state.plateNotices.firstOrNull { it.notificationLevel == null }
+            dismissed = box
+            if (box == null) state else state.copy(plateNotices = state.plateNotices - box)
         }
         val notice = dismissed ?: return
         if (checked && notice.checkbox != null && MODIFIED_GCODE_WARNINGS.any(notice.id::startsWith)) {
@@ -247,14 +250,17 @@ class DismissPlateNoticeUseCase(
             applicationScope.launch { preferences.set(AppConfigKeys.STEP_NOT_UTF8_NO_WARN, "true") }
         }
         // TipsDialog's OK with "Don't show again": set_bool(app_key, true).
-        if (checked && notice.id == AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS) {
-            applicationScope.launch { preferences.set(AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS, "true") }
+        if (checked && notice.id in TIPS_KEYS) {
+            applicationScope.launch { preferences.set(notice.id, "true") }
         }
     }
 
     private companion object {
         val MODIFIED_GCODE_WARNINGS = listOf("modified_gcodes", "customized_presets")
         const val STEP_NOT_UTF8 = "step_not_utf8"
+
+        /** The TipsDialogs, by their app_key, which their dialogs go by. */
+        val TIPS_KEYS = setOf(AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS, AppConfigKeys.DO_NOT_SHOW_OBJECT_PROCESS_TIPS)
     }
 }
 

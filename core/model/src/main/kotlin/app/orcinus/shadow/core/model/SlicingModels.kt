@@ -127,13 +127,18 @@ sealed interface PlateInspectionOutcome {
      * arranging every plate adds plates for what the others do not hold.
      * After arranging, [objectOrder] gives the plate's indexes in the order
      * rebuild_plates_after_arrangement() sorts the objects in; empty when the
-     * order stays.
+     * order stays. [zeroSizeObjects] names the objects without area the
+     * arrangement left out (ArrangeJob::check_unprintable()).
      */
     data class Success(
         val inspections: List<List<ModelInspection>>,
         val plates: Int? = null,
         val objectOrder: List<Int> = emptyList(),
+        val zeroSizeObjects: List<String> = emptyList(),
     ) : PlateInspectionOutcome
+
+    /** The job was cancelled; its finalize() places nothing. */
+    data object Cancelled : PlateInspectionOutcome
 
     data class Failure(val message: String) : PlateInspectionOutcome
 }

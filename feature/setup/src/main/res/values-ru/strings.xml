@@ -13,6 +13,10 @@
     <string name="back">Назад</string>
     <string name="next">Далее</string>
     <string name="finish">Закончить</string>
+    <!-- Страница guide/24 (только принтеры): её Create, Cancel и Confirm. -->
+    <string name="create_printer">Создать</string>
+    <string name="cancel">Отмена</string>
+    <string name="confirm">Принять</string>
     <string name="all">Все</string>
     <string name="clear_all">Очистить</string>
     <string name="printer">Принтер</string>

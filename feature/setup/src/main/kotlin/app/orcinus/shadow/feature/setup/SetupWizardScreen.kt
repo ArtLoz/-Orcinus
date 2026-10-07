@@ -39,6 +39,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -47,12 +48,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +76,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaPageTopBar
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.SetupPrinterModel
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.orca.rememberOrcaWebText
+import app.orcinus.shadow.core.ui.settings.AddFilamentPresetDialog
 import app.orcinus.shadow.core.ui.settings.CreateFilamentDialog
 import app.orcinus.shadow.core.ui.settings.CreatePresetSuccessfulDialog
 import app.orcinus.shadow.core.ui.settings.EditFilamentDialog
@@ -89,35 +89,58 @@ import kotlinx.coroutines.withContext
 /**
  * OrcaSlicer's Setup Wizard with its printer and filament pages, laid out for
  * touch: printer cards by vendor, and filaments filtered with chips. [onClose]
- * runs once the wizard has done its work.
+ * runs once the wizard has done its work, after [onCreatePrinter] when its
+ * "Create" asked for CreatePrinterPresetDialog.
  */
 @Composable
-fun SetupWizardRoute(viewModel: SetupWizardViewModel, onClose: () -> Unit) {
+fun SetupWizardRoute(
+    viewModel: SetupWizardViewModel,
+    onClose: () -> Unit,
+    onCreatePrinter: () -> Unit = {},
+    /** A page covers the wizard, as the filament tab EditFilamentPresetDialog opens does. */
+    covered: Boolean = false,
+    /** EditFilamentPresetDialog's "Edit Preset": the filament tab opens on the preset of the filament. */
+    onEditFilamentPreset: (filamentId: String, preset: String) -> Unit = { _, _ -> },
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.finished) {
-        if (state.finished) onClose()
+        if (state.finished) {
+            if (state.creatingPrinter) onCreatePrinter()
+            onClose()
+        }
     }
     BackHandler(enabled = !state.finished) { viewModel.back() }
-    SetupWizardScreen(state, viewModel)
+    SetupWizardScreen(state, viewModel, covered, onEditFilamentPreset)
 }
 
 @Composable
-private fun SetupWizardScreen(state: SetupUiState, viewModel: SetupWizardViewModel) {
+private fun SetupWizardScreen(
+    state: SetupUiState,
+    viewModel: SetupWizardViewModel,
+    covered: Boolean,
+    onEditFilamentPreset: (filamentId: String, preset: String) -> Unit,
+) {
     val colors = OrcaTheme.colors
+    val webText = rememberOrcaWebText()
     Column(
         Modifier
             .fillMaxSize()
             .background(colors.window),
     ) {
         OrcaPageTopBar(
-            title = stringResource(if (state.page == SetupPage.PRINTERS) R.string.printer_selection else R.string.filament_selection),
+            title = when (state.page) {
+                SetupPage.PRINTERS -> stringResource(R.string.printer_selection)
+                SetupPage.FILAMENTS -> stringResource(R.string.filament_selection)
+                SetupPage.STEALTH -> webText("orca3", "Stealth Mode")
+            },
             backDescription = stringResource(R.string.back),
             onBack = viewModel::back,
         )
         Box(Modifier.weight(1f)) {
             when (state.page) {
                 SetupPage.PRINTERS -> PrinterPageContent(state, viewModel)
-                SetupPage.FILAMENTS -> FilamentPageContent(state.filaments, viewModel)
+                SetupPage.FILAMENTS -> FilamentPageContent(state.filaments, viewModel, covered, onEditFilamentPreset)
+                SetupPage.STEALTH -> StealthPageContent(state.stealthMode, viewModel::setStealthMode)
             }
             if (state.applying) {
                 Progress(stringResource(R.string.installing), scrim = true)
@@ -130,18 +153,36 @@ private fun SetupWizardScreen(state: SetupUiState, viewModel: SetupWizardViewMod
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (state.page == SetupPage.FILAMENTS && state.start != SetupStart.FILAMENTS) {
-                OrcaButton(stringResource(R.string.back), onClick = viewModel::back, style = OrcaButtonStyle.Regular, enabled = !state.applying)
+            val printersOnly = state.start == SetupStart.PRINTERS
+            when {
+                // guide/24's Create.
+                state.page == SetupPage.PRINTERS && printersOnly ->
+                    OrcaButton(stringResource(R.string.create_printer), onClick = viewModel::createPrinter, style = OrcaButtonStyle.Regular, enabled = !state.applying)
+                state.page == SetupPage.STEALTH || (state.page == SetupPage.FILAMENTS && state.start != SetupStart.FILAMENTS) ->
+                    OrcaButton(stringResource(R.string.back), onClick = viewModel::back, style = OrcaButtonStyle.Regular, enabled = !state.applying)
             }
             Spacer(Modifier.weight(1f))
             when (state.page) {
-                SetupPage.PRINTERS -> OrcaButton(stringResource(R.string.next), onClick = viewModel::next, enabled = !state.loadingPrinters)
-                SetupPage.FILAMENTS -> OrcaButton(
-                    stringResource(R.string.finish),
-                    onClick = viewModel::finish,
-                    enabled = !state.filaments.loading && !state.applying,
-                )
+                SetupPage.PRINTERS -> if (printersOnly) {
+                    // guide/24's Cancel and Confirm.
+                    OrcaButton(stringResource(R.string.cancel), onClick = viewModel::back, style = OrcaButtonStyle.Regular, enabled = !state.applying)
+                    OrcaButton(stringResource(R.string.confirm), onClick = viewModel::confirm, enabled = !state.loadingPrinters && !state.applying)
+                } else {
+                    OrcaButton(stringResource(R.string.next), onClick = viewModel::next, enabled = !state.loadingPrinters)
+                }
+                // The whole guide's filament page shows Next, as guide/22 does without the network plug-in.
+                SetupPage.FILAMENTS -> if (state.wholeGuide) {
+                    OrcaButton(stringResource(R.string.next), onClick = viewModel::next, enabled = !state.filaments.loading)
+                } else {
+                    OrcaButton(
+                        stringResource(R.string.finish),
+                        onClick = viewModel::finish,
+                        enabled = !state.filaments.loading && !state.applying,
+                    )
+                }
+                SetupPage.STEALTH -> OrcaButton(stringResource(R.string.finish), onClick = viewModel::finish, enabled = !state.applying)
             }
         }
     }
@@ -307,16 +348,57 @@ private fun Cover(path: String, modifier: Modifier) {
     bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = modifier) } ?: Box(modifier)
 }
 
+/** guide/4orca: what Stealth Mode does, and its check box. */
 @Composable
-private fun FilamentPageContent(page: FilamentPageState, viewModel: SetupWizardViewModel) {
+private fun StealthPageContent(enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val colors = OrcaTheme.colors
+    val webText = rememberOrcaWebText()
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            webText(
+                "orca4",
+                "This disables all cloud features, including Orca Cloud profile syncing. Users who prefer to work entirely offline can enable this option.",
+            ),
+            color = colors.text,
+            style = OrcaTheme.typography.body14,
+        )
+        Text(
+            webText("orca12", "Note: When Stealth Mode is enabled, your user profiles will not be backed up to Orca Cloud."),
+            color = colors.textSide,
+            style = OrcaTheme.typography.body13,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(value = enabled, role = Role.Checkbox, onValueChange = onChange)
+                .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OrcaCheckBox(checked = enabled, onCheckedChange = null)
+            Text(webText("orca5", "Enable Stealth Mode."), color = colors.text, style = OrcaTheme.typography.body14)
+        }
+    }
+}
+
+@Composable
+private fun FilamentPageContent(
+    page: FilamentPageState,
+    viewModel: SetupWizardViewModel,
+    covered: Boolean,
+    onEditFilamentPreset: (filamentId: String, preset: String) -> Unit,
+) {
     if (page.loading) {
         Progress(stringResource(R.string.loading))
         return
     }
     val colors = OrcaTheme.colors
     val listed = remember(page) { page.listedLines }
-    // The "Custom Filaments" of the wizard's filament page.
-    var editing by rememberSaveable { mutableStateOf<String?>(null) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
         item(key = "custom") {
             Column(Modifier.padding(top = 4.dp)) {
@@ -354,7 +436,7 @@ private fun FilamentPageContent(page: FilamentPageState, viewModel: SetupWizardV
                         OrcaIconButton(
                             icon = DesignR.drawable.orca_edit,
                             contentDescription = orcaString("Edit Filament"),
-                            onClick = { editing = filament.id },
+                            onClick = { viewModel.editFilament(filament.id) },
                         )
                     }
                 }
@@ -449,19 +531,15 @@ private fun FilamentPageContent(page: FilamentPageState, viewModel: SetupWizardV
         }
     }
 
-    CustomFilamentDialogs(
-        viewModel = viewModel,
-        editing = editing,
-        onDismissEdit = { editing = null },
-    )
+    CustomFilamentDialogs(viewModel = viewModel, covered = covered, onEditFilamentPreset = onEditFilamentPreset)
 }
 
 /** The dialogs the "Custom Filaments" of the filament page open. */
 @Composable
 private fun CustomFilamentDialogs(
     viewModel: SetupWizardViewModel,
-    editing: String?,
-    onDismissEdit: () -> Unit,
+    covered: Boolean,
+    onEditFilamentPreset: (filamentId: String, preset: String) -> Unit,
 ) {
     // The dialog closes itself once the filament is made, so a question that
     // the user refuses keeps what they have filled in.
@@ -472,15 +550,27 @@ private fun CustomFilamentDialogs(
             onDismiss = viewModel::closeCreateFilament,
         )
     }
-    editing?.let { filamentId ->
+    // Plater::priv::on_modify_filament(): the dialog is there again once the
+    // filament tab it opened a preset on closes (ParamsDialog's EVT_MODIFY_FILAMENT).
+    viewModel.editingFilament?.takeIf { !covered }?.let { filamentId ->
         EditFilamentDialog(
             filamentId = filamentId,
             loadPresets = viewModel::filamentPresets,
-            // The filament tab of the app opens the preset; the wizard closes first.
-            onEditPreset = { onDismissEdit() },
+            onEditPreset = { preset -> onEditFilamentPreset(filamentId, preset) },
             onDeletePreset = viewModel::deleteFilamentPreset,
-            onDismiss = onDismissEdit,
+            onDismiss = viewModel::closeEditFilament,
+            revision = viewModel.filamentPresetsRevision,
+            onAddPreset = viewModel::openAddFilamentPreset,
+            onDeleteFilament = viewModel::deleteFilament,
         )
+        if (viewModel.addingFilamentPreset) {
+            AddFilamentPresetDialog(
+                filamentId = filamentId,
+                loadSources = viewModel::filamentPresetSources,
+                onAdd = viewModel::addFilamentPreset,
+                onDismiss = viewModel::closeAddFilamentPreset,
+            )
+        }
     }
     viewModel.filamentQuestion?.let { question ->
         SettingsQuestionDialog(question, onAnswer = viewModel::answerFilamentQuestion)

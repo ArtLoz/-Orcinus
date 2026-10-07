@@ -404,6 +404,31 @@ class PresetSettingsTabsTest {
     }
 
     @Test
+    fun `the height ranges selected together are described and kept together`() {
+        val ranges = listOf(LayerRange(0.0, 2.0), LayerRange(2.0, 4.0, ModelSettings(mapOf("wall_loops" to "3"))), LayerRange(4.0, 6.0))
+        val owner = CUBE.copy(layerRanges = ranges)
+        val repository = FakeRepository(
+            READY.copy(
+                objects = listOf(owner),
+                selectedInstances = setOf(PlateInstanceId(owner.mesh)),
+                selectedRange = LayerRangeId(owner.mesh, 2),
+                selectedRangeGroup = setOf(LayerRangeId(owner.mesh, 1), LayerRangeId(owner.mesh, 2)),
+            ),
+        )
+        // TabPrintLayer edits the model configs of every selected range.
+        val answered = listOf(ModelSettings(mapOf("wall_loops" to "4")), ModelSettings(mapOf("wall_loops" to "4")))
+        val editor = FakeEditor {
+            PresetSettingsOutcome.Success(STANDARD.copy(kind = PresetKind.LAYER, modelSettings = answered), emptyList())
+        }
+        val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
+
+        tabs.request(PresetKind.LAYER, SettingsRequest.Describe)
+
+        assertEquals(listOf(ranges[1].settings, ranges[2].settings), editor.requests.last().model.settings)
+        assertEquals(listOf(ranges[0].settings) + answered, repository.state.value.objects.single().layerRanges.map { it.settings })
+    }
+
+    @Test
     fun `a request of the Parameter Table stays on its row's item, a question it asks included, whatever is selected`() {
         val other = CUBE.copy(
             instances = listOf(CUBE.instances.first().copy(inspection = CUBE.instances.first().inspection.copy(mesh = ScenePath("/scene/objects/other.mesh")))),
@@ -786,7 +811,7 @@ class PresetSettingsTabsTest {
             return PresetsOutcome.Success(PRESETS.copy(processes = listOf(PresetListItem("process", "* process", PresetGroup.SYSTEM, "", selected = true))))
         }
 
-        override suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction) = PresetsOutcome.Failure("not used")
+        override suspend fun selectPreset(choice: PresetChoice, answers: List<PresetChangeAction>) = PresetsOutcome.Failure("not used")
 
         override suspend fun transferPresetOptions(kind: PresetKind, from: String, to: String, options: List<String>) =
             PresetsOutcome.Failure("not used")

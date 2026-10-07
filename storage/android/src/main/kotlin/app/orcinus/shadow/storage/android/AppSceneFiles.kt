@@ -5,6 +5,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.ThumbnailSize
 import app.orcinus.shadow.storage.api.SceneFiles
 import java.io.File
+import java.io.Reader
 import java.util.UUID
 
 /** Scene geometry in the app's no-backup storage: files/scene/plate, objects, and toolpaths. */
@@ -53,6 +54,8 @@ class AppSceneFiles(context: Context) : SceneFiles {
     }
 
     override fun sizeOf(path: ScenePath): Long = File(path.value).length()
+
+    override fun openPainting(path: ScenePath): Reader? = File(path.value).takeIf(File::isFile)?.bufferedReader()
 
     override fun deleteAllObjectMeshes() {
         objects.listFiles()?.forEach(File::deleteRecursively)

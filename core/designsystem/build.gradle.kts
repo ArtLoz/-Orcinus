@@ -160,10 +160,17 @@ val orcaIconNames = listOf(
     "step_1", "step_2", "step_2_ready", "step_is_ok", "create_success",
     // SlicingProgressNotification's complete icon and the notifications' close button.
     "notification_slicing_complete", "notification_close",
+    // PopNotification's minimize button, and the close button of the error and serious warning blocks.
+    "notification_minimalize", "block_notification_close",
     // DailyTipsPanel's arrows.
     "notification_collapse", "notification_expand", "notification_arrow_left", "notification_arrow_right",
     // ParamsPanel's button of the Parameter Table, and the table's reset icon (ObjectTablePanel::init_bitmap()).
     "table", "lock_normal",
+    // ObjectDataViewModel: the paint and sinking columns of an object, and the volumes' icons by type (get_volume_bitmaps()).
+    "objlist_support_painting", "objlist_color_painting", "objlist_sinking",
+    "menu_add_part", "menu_add_negative", "menu_add_modifier", "menu_support_blocker", "menu_support_enforcer",
+    // Sidebar::update_presets(): the filament section of a pellet printer; ParamsPanel's arrow at the mode switch.
+    "pellets", "tips_arrow",
 )
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).
@@ -180,8 +187,8 @@ val orcaDarkIconNames = listOf(
     "canvas_menu", "canvas_zoom",
     // GLGizmoMeasure: ImGui::ClipboardBtnDarkIcon.
     "copy_menu",
-    // PopNotification::render_close_button(): ImGui::CloseNotifDarkButton.
-    "notification_close",
+    // PopNotification::render_close_button() and render_minimize_button(): ImGui::CloseNotifDarkButton and MinimalizeDarkButton.
+    "notification_close", "notification_minimalize",
 )
 
 /**
@@ -227,6 +234,35 @@ val convertOrcaIcons = tasks.register<ConvertOrcaIcons>("convertOrcaIcons") {
     outputDirectory.set(layout.buildDirectory.dir("generated/orcaIcons/res"))
 }
 
+/**
+ * Copies OrcaSlicer's PNG pictures from the pinned submodule as drawables named
+ * orca_<image>, which OrcaSlicer draws at any scale as they are.
+ */
+abstract class CopyOrcaImages : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val images: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val drawables = outputDirectory.get().asFile.apply { deleteRecursively() }.resolve("drawable-nodpi").apply { mkdirs() }
+        images.files.forEach { image -> image.copyTo(drawables.resolve("orca_${image.nameWithoutExtension.replace('-', '_')}.png"), overwrite = true) }
+    }
+}
+
+// Sidebar::update_printer_thumbnail()'s placeholder and the plate types' pictures (bed_type_thumbnails).
+val orcaImageNames = listOf(
+    "printer_placeholder", "bed_cool", "bed_engineering", "bed_high_templ", "bed_pei", "bed_pei_cool", "bed_cool_supertack",
+)
+
+val copyOrcaImages = tasks.register<CopyOrcaImages>("copyOrcaImages") {
+    images.from(orcaImageNames.map { orcaImages.file("$it.png") })
+    outputDirectory.set(layout.buildDirectory.dir("generated/orcaImages/res"))
+}
+
 android {
     namespace = "app.orcinus.shadow.core.designsystem"
     compileSdk = 37
@@ -248,6 +284,7 @@ android {
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.sources.res?.addGeneratedSourceDirectory(convertOrcaIcons, ConvertOrcaIcons::outputDirectory)
+        variant.sources.res?.addGeneratedSourceDirectory(copyOrcaImages, CopyOrcaImages::outputDirectory)
         variant.sources.kotlin?.addGeneratedSourceDirectory(generateOrcaIconLookup, GenerateOrcaIconLookup::outputDirectory)
     }
 }

@@ -55,8 +55,8 @@ import app.orcinus.shadow.core.designsystem.R as DesignR
 internal class SvgActions(
     /** "SVG" of the menus: over the copy [copy] where [hit] says, or as an object at [bedPoint], once a file is picked. */
     val choose: (copy: Int?, type: VolumeType, hit: SurfaceHit?, bedPoint: Point2?) -> Unit,
-    /** The object list's "Add part" > "SVG", which the canvas places. */
-    val chooseRequested: (EmbossRequest.Add, SurfaceHit?) -> Unit,
+    /** The object list's "Add part" > "SVG", which the canvas places, or its plate menu's as an object at [Point2]. */
+    val chooseRequested: (EmbossRequest.Add, SurfaceHit?, Point2?) -> Unit,
     /** choose_svg_file(): the picker of SVG files. */
     val pickFile: () -> Unit,
     /** "Change file": the picker, for the open SVG. */
@@ -90,7 +90,7 @@ internal class SvgActions(
 ) {
     companion object {
         val NONE = SvgActions(
-            { _, _, _, _ -> }, { _, _ -> }, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+            { _, _, _, _ -> }, { _, _, _ -> }, {}, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
         )
     }
 }

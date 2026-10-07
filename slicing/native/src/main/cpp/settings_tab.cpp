@@ -709,6 +709,42 @@ void Tab::get_sys_and_mod_flags(const std::string& opt_key, bool& sys_page, bool
     modified_page |= (opt->second & osInitValue) == 0;
 }
 
+bool Tab::is_page_modified(const Page& page)
+{
+    if (m_options_list.empty()) {
+        return false;
+    }
+    bool sys_page = true;
+    bool modified_page = false;
+    if (page.title() == "General") {
+        std::initializer_list<const char*> optional_keys{ "extruders_count", "printable_area" };
+        for (auto &opt_key : optional_keys) {
+            get_sys_and_mod_flags(opt_key, sys_page, modified_page);
+        }
+    }
+    if (page.title() == "Dependencies") {
+        if (m_type == Preset::TYPE_PRINTER) {
+            sys_page = m_presets->get_selected_preset_parent() != nullptr;
+            modified_page = false;
+        } else {
+            if (m_type == Preset::TYPE_FILAMENT || m_type == Preset::TYPE_SLA_MATERIAL)
+                get_sys_and_mod_flags("compatible_prints", sys_page, modified_page);
+            get_sys_and_mod_flags("compatible_printers", sys_page, modified_page);
+        }
+    }
+    for (const ConfigOptionsGroupShp& group : page.m_optgroups) {
+        if (!sys_page && modified_page)
+            break;
+        for (const auto &kvp : group->opt_map()) {
+            const std::string &opt_key = kvp.first;
+            get_sys_and_mod_flags(opt_key, sys_page, modified_page);
+        }
+    }
+    // The colour is m_modified_label_clr for (modified_page || m_type >= Preset::TYPE_COUNT)
+    // of a page that is not sys_page, and the text colour otherwise.
+    return !sys_page && (modified_page || m_type >= Preset::TYPE_COUNT);
+}
+
 void Tab::back_to_initial_value(const std::string& opt_id)
 {
     for (const PageShp& page : m_pages) {
@@ -1608,6 +1644,7 @@ PresetSettings Tab::describe()
         described.title = page->title();
         described.label = translate_category(page->title(), m_type, *m_preset_bundle);
         described.icon = page->icon();
+        described.modified = is_page_modified(*page);
         for (const ConfigOptionsGroupShp& group : page->m_optgroups) {
             SettingsGroup& described_group = described.groups.emplace_back();
             described_group.title = group->title;
@@ -1617,6 +1654,7 @@ PresetSettings Tab::describe()
                 described_line.separator = line.is_separator();
                 described_line.label = line.label;
                 described_line.tooltip = line.label_tooltip;
+                described_line.label_path = line.label_path;
                 described_line.widget = line.widget;
                 described_line.has_override = line.near_label_widget;
                 for (const Option& option : line.get_options()) {

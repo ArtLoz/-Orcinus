@@ -145,11 +145,23 @@ object AppConfigKeys {
     /** The "Add Modifier" tip turned off ("Don't show again"); empty while it shows. */
     const val DO_NOT_SHOW_MODIFIER_TIPS = "do_not_show_modifer_tips"
 
+    /** The "Edit Process Settings" tip of ObjectList::switch_to_object_process() turned off; empty while it shows. */
+    const val DO_NOT_SHOW_OBJECT_PROCESS_TIPS = "do_not_show_object_process_tips"
+
+    /**
+     * "Optimize filaments area height for...": the filament count up to which
+     * the sidebar's filament list leaves out its counter (AppConfig's default "10").
+     */
+    const val FILAMENTS_AREA_PREFERRED_COUNT = "filaments_area_preferred_count"
+
     /** The warning about a STEP file whose names are not UTF-8, with "Remember my choice." ticked. */
     const val STEP_NOT_UTF8_NO_WARN = "step_not_utf8_no_warn"
 
     /** "Stealth mode": no online request at all (AppConfig's default "false"). */
     const val STEALTH_MODE = "stealth_mode"
+
+    /** "Show splash screen": the splash screen shows while the app starts (AppConfig's default "true"). */
+    const val SHOW_SPLASH_SCREEN = "show_splash_screen"
 
     /** "Update built-in presets automatically.": the system profiles' updates are checked (AppConfig's default "true"). */
     const val SYNC_SYSTEM_PRESET = "sync_system_preset"
@@ -213,8 +225,11 @@ object AppConfigKeys {
         BACKUP_SWITCH,
         BACKUP_INTERVAL,
         STEALTH_MODE,
+        SHOW_SPLASH_SCREEN,
         SYNC_SYSTEM_PRESET,
         DO_NOT_SHOW_MODIFIER_TIPS,
+        DO_NOT_SHOW_OBJECT_PROCESS_TIPS,
+        FILAMENTS_AREA_PREFERRED_COUNT,
         DEFAULT_PAGE,
         MAX_RECENT_COUNT,
         RECENT_MODELS,
@@ -225,6 +240,9 @@ object AppConfigKeys {
      * when it reads none, kept between 0 and 999 (set_max_recent_count()).
      */
     fun maxRecentCount(value: String?): Int = (value?.trim()?.toLongOrNull() ?: 18L).coerceIn(0L, 999L).toInt()
+
+    /** Sidebar::update_filaments_counter()'s std::stoi() of [FILAMENTS_AREA_PREFERRED_COUNT], whose default is 10. */
+    fun filamentsAreaPreferredCount(value: String?): Int = value?.trim()?.toIntOrNull() ?: 10
 
     /**
      * MainFrame's set_backup_interval(): the seconds between backups while

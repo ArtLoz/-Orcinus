@@ -34,6 +34,7 @@ import app.orcinus.shadow.slicing.service.VolumeDescriptionParcel;
 import app.orcinus.shadow.slicing.service.GcodeLoadParcel;
 import app.orcinus.shadow.slicing.service.InspectionParcel;
 import app.orcinus.shadow.slicing.service.IModelLoadProgress;
+import app.orcinus.shadow.slicing.service.IPlacementProgress;
 import app.orcinus.shadow.slicing.service.ISliceCallback;
 import app.orcinus.shadow.slicing.service.ModelLoadParcel;
 import app.orcinus.shadow.slicing.service.ModelSettingsParcel;
@@ -367,7 +368,8 @@ interface ISlicerService {
     /**
      * manipulation: the PlateManipulation's simple name, with the selected
      * mesh paths for AutoOrient and FillBed, arrangeSettings for Arrange,
-     * ArrangePlate and FillBed, and FillBed's instance, -1 for none.
+     * ArrangePlate and FillBed, and FillBed's instance, -1 for none. The job
+     * numbered job (0 for none) tells progress what it got to.
      */
     PlateInspectionParcel placeObjects(
         in PlacedModelParcel[] plate,
@@ -377,8 +379,12 @@ interface ISlicerService {
         in @nullable ArrangeSettingsParcel arrangeSettings,
         int instance,
         in int[] lockedPlates,
-        in ModelSettingsParcel[] plateSettings
+        in ModelSettingsParcel[] plateSettings,
+        long job,
+        @nullable IPlacementProgress progress
     );
+    /** The Cancel of the job numbered job, which may not have started yet; runs beside it. */
+    oneway void cancelPlacement(long job);
     /** The wipe tower of the plate (GLCanvas3D's wipe tower volume). */
     WipeTowerParcel describeWipeTower(
         in PlacedModelParcel[] plate,
@@ -456,8 +462,11 @@ interface ISlicerService {
     InspectionParcel addObjectPart(in PlacedModelParcel object, String shape, String type, in ProfilesParcel profiles, String meshPath);
 
     PresetsParcel presets();
-    /** kind: the PresetChoice's simple name; value: its preset name, printer model, or nozzle diameter. */
-    PresetsParcel selectPreset(String kind, String value, String action);
+    /**
+     * kind: the PresetChoice's simple name; value: its preset name, printer model, or nozzle diameter;
+     * answers: the PresetChangeAction names of the questions answered so far.
+     */
+    PresetsParcel selectPreset(String kind, String value, in String[] answers);
     /** Sidebar::add_custom_filament(), delete_filament() and the combo box of a slot. */
     /** dirty_presets(), discard_preset_changes() and reset_project_presets(). */
     DirtyPresetsParcel dirtyPresets();
@@ -575,6 +584,12 @@ interface ISlicerService {
     FilamentPresetsParcel filamentPresets(String filamentId);
     /** Its Delete button. */
     PresetCreationParcel deleteFilamentPreset(String preset, in String[] answerIds, in boolean[] answers);
+    /** Its "Delete" button: every preset of the filament. */
+    PresetCreationParcel deleteFilament(String filamentId, in String[] answerIds, in boolean[] answers);
+    /** CreatePresetForPrinterDialog: the printers and the presets each of them can copy. */
+    FilamentPresetsParcel filamentPresetSources(String filamentId);
+    /** Its OK. */
+    PresetCreationParcel addFilamentPreset(String filamentId, String printer, String preset, in String[] answerIds, in boolean[] answers);
     /** ExportConfigsDialog: what it offers for an export kind. */
     ConfigExportOptionsParcel configExportOptions(String kind);
     /** Its OK: the chosen entries are written into the directory. */

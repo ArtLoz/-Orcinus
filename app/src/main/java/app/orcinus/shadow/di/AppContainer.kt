@@ -43,6 +43,8 @@ import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.domain.about.GetLicenseUseCase
 import app.orcinus.shadow.domain.about.GetThirdPartyComponentUseCase
 import app.orcinus.shadow.domain.about.GetThirdPartyComponentsUseCase
+import app.orcinus.shadow.domain.about.NetworkTestUseCase
+import app.orcinus.shadow.domain.about.ProbeAnswer
 import app.orcinus.shadow.domain.about.TroubleshootUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
@@ -155,6 +157,9 @@ import app.orcinus.shadow.domain.plate.RenderThumbnailsUseCase
 import app.orcinus.shadow.domain.plate.ReplaceAllVolumesUseCase
 import app.orcinus.shadow.domain.plate.ReplaceObjectVolumeUseCase
 import app.orcinus.shadow.domain.plate.RequestEmbossUseCase
+import app.orcinus.shadow.domain.plate.CanvasRequestsUseCase
+import app.orcinus.shadow.domain.plate.ObjectListColumnsUseCase
+import app.orcinus.shadow.domain.plate.PickListItemUseCase
 import app.orcinus.shadow.domain.plate.SaveProjectUseCase
 import app.orcinus.shadow.domain.plate.SelectLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.SelectObjectPartUseCase
@@ -199,6 +204,7 @@ import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.RecentSendChoicesUseCase
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import app.orcinus.shadow.feature.about.NoticeViewModel
+import app.orcinus.shadow.feature.about.NetworkTestViewModel
 import app.orcinus.shadow.feature.about.ThirdPartyViewModel
 import app.orcinus.shadow.feature.about.TroubleshootViewModel
 import app.orcinus.shadow.feature.about.navigation.AboutViewModelFactory
@@ -216,6 +222,7 @@ import app.orcinus.shadow.feature.sidebar.SidebarViewModel
 import app.orcinus.shadow.network.printhost.Bonjour
 import app.orcinus.shadow.network.printhost.CrealityHostDiscovery
 import app.orcinus.shadow.network.printhost.FlashforgeDiscovery
+import app.orcinus.shadow.network.printhost.NetworkTestClient
 import app.orcinus.shadow.network.printhost.PrintHostUploader
 import app.orcinus.shadow.network.printhost.ProfileUpdateClient
 import app.orcinus.shadow.render.scene.ThumbnailRenderer
@@ -281,6 +288,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val textFonts = TextFontsUseCase(AndroidSystemFonts(), engine)
     private val textStyles = TextStylesUseCase(engine, textFonts, sceneFiles, plateRepository)
     private val requestEmboss = RequestEmbossUseCase(plateRepository)
+    // The object list's paint columns and activated rows, which the canvas takes.
+    private val canvasRequests = CanvasRequestsUseCase(plateRepository)
     // GLGizmoMeasure: the engine keeps the features of the measured volumes while the tool is open.
     private val measureFeatures = MeasureUseCase(engine, sceneFiles, plateRepository)
     // GLGizmoBrimEars: the engine keeps the first layer of the copy while the tool is open.
@@ -600,7 +609,10 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val renamePlate = RenamePlateUseCase(plateRepository)
     private val plateJobs by lazy { PlateJobsUseCase(plateRepository, selectPlate, placePlateObjects, applicationScope) }
     private val wipeTowerUpdates = WipeTowerUpdates(engine, plateRepository, applicationScope)
-    private val setSettingsScope = SetSettingsScopeUseCase(plateRepository)
+    private val setSettingsScope = SetSettingsScopeUseCase(
+        plateRepository,
+        objectProcessTipsOff = { appPreferences[AppConfigKeys.DO_NOT_SHOW_OBJECT_PROCESS_TIPS].isNotEmpty() },
+    )
     // The object list of the sidebar and the object menu of the 3D view share them.
     private val placePlateObject = PlacePlateObjectUseCase(PlaceModelUseCase(engine), plateRepository, applicationScope)
     private val setPlateObjectAutoDrop = SetPlateObjectAutoDropUseCase(plateRepository, placePlateObject)
@@ -795,6 +807,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
             textFonts = textFonts,
             textStyles = textStyles,
             requestEmboss = requestEmboss,
+            canvasRequests = canvasRequests,
             removeObjectPart = removeObjectPart,
             measureFeatures = measureFeatures,
             brimEarsTool = brimEarsTool,
@@ -848,6 +861,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
 
     /** The Preferences' "Default page" once OrcaSlicer.conf is read: "0" for Home, "1" for Prepare; null before. */
     val defaultPage: Flow<String?> = appPreferences.values.map { values -> if (values.isEmpty()) null else values[AppConfigKeys.DEFAULT_PAGE].orEmpty() }
+
+    /** The Preferences' "Show splash screen" once OrcaSlicer.conf is read (GUI_App::on_init_inner() compares with "true"); null before. */
+    val showSplashScreen: Flow<Boolean?> = appPreferences.values.map { values -> if (values.isEmpty()) null else values[AppConfigKeys.SHOW_SPLASH_SCREEN] == "true" }
 
     /** An item of the Preferences or of a canvas's View menu, written into OrcaSlicer.conf. */
     private val setPreference by lazy { SetPreferenceUseCase(appPreferences, settingsTabs, engine, platePresets, plateRepository, applicationScope) }
@@ -940,6 +956,9 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         addPrimitive = addPrimitive,
         editLayerHeights = editLayerHeights,
         requestEmboss = requestEmboss,
+        pickListItem = PickListItemUseCase(plateRepository),
+        objectColumns = ObjectListColumnsUseCase(sceneFiles, plateRepository, placePlateObject),
+        canvasRequests = canvasRequests,
         preferences = appPreferences,
     )
 
@@ -965,6 +984,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         getSetupFilaments = GetSetupFilamentsUseCase(engine),
         applySetup = applySetup,
         customFilaments = CustomFilamentsUseCase(engine, platePresets),
+        saveStealthMode = { enabled -> setPreference(AppConfigKeys.STEALTH_MODE, enabled.toString()) },
     )
 
     override fun thirdPartyViewModel() = ThirdPartyViewModel(GetThirdPartyComponentsUseCase(noticeCatalog))
@@ -986,4 +1006,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     }
 
     override fun troubleshootViewModel() = TroubleshootViewModel(troubleshoot, appPreferences, setPreference)
+
+    // NetworkTestDialog: Help's "Open Network Test" and the Preferences' "Network test".
+    private val networkTest by lazy {
+        val client = NetworkTestClient()
+        NetworkTestUseCase(appInfo, AppDeviceInformation(applicationContext)) { url ->
+            client.get(url).let { ProbeAnswer(it.status, it.body, it.error, it.ip) }
+        }
+    }
+
+    override fun networkTestViewModel() = NetworkTestViewModel(networkTest)
 }

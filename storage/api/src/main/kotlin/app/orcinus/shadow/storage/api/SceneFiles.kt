@@ -2,6 +2,7 @@ package app.orcinus.shadow.storage.api
 
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.ThumbnailSize
+import java.io.Reader
 
 /**
  * Where the engine writes geometry for the 3D view. The files are derived data:
@@ -37,6 +38,9 @@ interface SceneFiles {
 
     /** The size of a file of the scene in bytes, 0 for one that is gone. */
     fun sizeOf(path: ScenePath): Long = 0
+
+    /** The text of a volume's painting the engine wrote to [path]; null for a file that is gone. */
+    fun openPainting(path: ScenePath): Reader? = null
 
     /** A new file for the toolpaths of a slice. */
     fun newToolpaths(): ScenePath

@@ -1359,6 +1359,13 @@ data class PlateState(
     /** The height range the list has selected, whose own settings the tab edits. */
     val selectedRange: LayerRangeId? = null,
     /**
+     * The height ranges of the object of [selectedRange] the list holds
+     * selected with it (a Ctrl-click on range rows, smLayer), [selectedRange]
+     * among them; they count only while [selectedRange] is one of them
+     * ([selectedRanges]).
+     */
+    val selectedRangeGroup: Set<LayerRangeId> = emptySet(),
+    /**
      * The plates of the project in their order (PartPlateList). The entry of
      * the current one holds what it held when another was current: its
      * settings, layer codes and G-code are the fields of the plate below, and
@@ -1425,6 +1432,24 @@ data class PlateState(
     val layerEditing: Boolean = false,
     /** What the object list asks of the canvas's text or SVG tool; null for nothing. */
     val embossRequest: EmbossRequest? = null,
+    /**
+     * The object list's paint column (ObjectList::list_manipulation()): the
+     * painting tool of that kind opens on the selected object, or closes
+     * while it is open; null for nothing.
+     */
+    val paintingRequest: PaintKind? = null,
+    /**
+     * How many times a row of the object list was activated
+     * (wxEVT_DATAVIEW_ITEM_ACTIVATED), each of which frames the selection in
+     * the 3D view (GLCanvas3D::zoom_to_selection()).
+     */
+    val zoomToSelection: Int = 0,
+    /**
+     * How many times the menus' "Edit Process Settings" switched the settings
+     * to the objects' (ParamsPanel::switch_to_object(true)), each of which
+     * blinks the arrow at the switch.
+     */
+    val objectProcessHints: Int = 0,
     /** The codes the preview's layer slider put on the layers of the current plate (Model::plates_custom_gcodes), by height. */
     val layerGcodes: List<LayerGcode> = emptyList(),
     /**
@@ -1474,6 +1499,24 @@ data class PlateState(
     val problem: PlateProblem? = null,
     /** The preview-only mode of a G-code file or a .gcode.3mf the plate shows; null for a project of the user's. */
     val previewOnly: PreviewOnly? = null,
+    /**
+     * ArrangeJob, OrientJob or FillBedJob while it runs: what its progress
+     * notification shows (NotificationProgressIndicator); null while none runs.
+     */
+    val plateJob: PlateJobProgress? = null,
+    /**
+     * NotificationType::ArrangeOngoing, "Arranging...": the number of the job
+     * whose arrangement pushed it (ArrangeJob::prepare()), until the
+     * arrangement finishes (finalize()) or it is closed or its time is up;
+     * null while none shows.
+     */
+    val arrangeOngoing: Long? = null,
+    /**
+     * ArrangeJob::check_unprintable()'s warnings (BBLPlateInfo): the objects
+     * without area the last arrangement left out, until each is closed or the
+     * next arrangement or orientation starts (bbl_close_plateinfo_notification()).
+     */
+    val zeroSizeObjects: List<String> = emptyList(),
 ) {
     /** The objects the plate has selected a copy of, in its order. */
     fun selectedObjects(): List<PlateObject> {
@@ -1514,6 +1557,18 @@ data class PlateState(
     val selectedRangeOwner: PlateObject? get() = selectedRange?.let { id -> objects.firstOrNull { it.mesh == id.mesh } }
 
     val selectedLayerRange: LayerRange? get() = selectedRange?.let { id -> selectedRangeOwner?.layerRanges?.getOrNull(id.index) }
+
+    /**
+     * The selected height ranges of one object, by their place in it: those of
+     * [selectedRangeGroup] while [selectedRange] is one of them, or
+     * [selectedRange] alone.
+     */
+    fun selectedRanges(): List<LayerRangeId> {
+        val range = selectedRange ?: return emptyList()
+        if (range !in selectedRangeGroup) return listOf(range)
+        val count = selectedRangeOwner?.layerRanges?.size ?: return listOf(range)
+        return selectedRangeGroup.filter { it.mesh == range.mesh && it.index < count }.sortedBy(LayerRangeId::index)
+    }
 
     /** The copy the tools work on; null when none or several are selected. */
     val selectedCopy: PlateInstance?

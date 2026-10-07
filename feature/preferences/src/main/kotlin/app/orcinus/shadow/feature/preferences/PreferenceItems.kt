@@ -4,15 +4,23 @@ import app.orcinus.shadow.core.model.AppConfigKeys
 
 /**
  * An item of PreferencesDialog::create_items(), with OrcaSlicer's msgids: its
- * [title] and the [tooltip] its label shows, the title again when it has none.
+ * [title] and the [tooltip] its label shows, the title again when it has none,
+ * and the page of OrcaSlicer's wiki its label links to (create_item_label()'s
+ * wiki_url), empty for none.
  */
 internal sealed interface PreferenceItem {
     val key: String
     val title: String
     val tooltip: String
+    val wiki: String get() = ""
 
     /** create_item_checkbox(): AppConfig::set_bool(), "true" or "false". */
-    data class Check(override val key: String, override val title: String, override val tooltip: String = "") : PreferenceItem
+    data class Check(
+        override val key: String,
+        override val title: String,
+        override val tooltip: String = "",
+        override val wiki: String = "",
+    ) : PreferenceItem
 
     /**
      * create_item_combobox(): the entry's index, or with [values] the value at
@@ -46,6 +54,7 @@ internal sealed interface PreferenceItem {
         val range: IntRange,
         val unit: String,
         val note: String = "",
+        override val wiki: String = "",
     ) : PreferenceItem
 
     /**
@@ -70,6 +79,9 @@ internal sealed interface PreferenceItem {
 
     /** create_item_button() of "Clear my choice on...": the button empties the remembered choice. */
     data class Clear(override val key: String, override val title: String, override val tooltip: String) : PreferenceItem
+
+    /** create_item_button() that opens a dialog of its own, [key] naming it, with [button] and dots on its button. */
+    data class Open(override val key: String, override val title: String, override val tooltip: String, val button: String) : PreferenceItem
 
     /** create_item_input(): digits only (wxFILTER_DIGITS), written as they are typed. */
     data class Digits(override val key: String, override val title: String, override val tooltip: String) : PreferenceItem
@@ -123,6 +135,7 @@ internal val PREFERENCE_PAGES = listOf(
                         "Set the page opened on startup.",
                         labels = listOf("Home", "Prepare"),
                     ),
+                    PreferenceItem.Check(AppConfigKeys.SHOW_SPLASH_SCREEN, "Show splash screen", "Show the splash screen during startup."),
                 ),
             ),
             PreferenceSection(
@@ -154,6 +167,7 @@ internal val PREFERENCE_PAGES = listOf(
                         AppConfigKeys.ENABLE_STEP_MESH_SETTING,
                         "Show options when importing STEP file",
                         "If enabled, a parameter settings dialog will appear during STEP file import.",
+                        wiki = "import_export#dont-show-again",
                     ),
                     PreferenceItem.Spin(
                         AppConfigKeys.DRC_BITS,
@@ -163,6 +177,7 @@ internal val PREFERENCE_PAGES = listOf(
                             "Lower values produce smaller files but lose more geometric detail; higher values preserve more detail at the cost of larger files.",
                         range = DRC_BITS_MIN..DRC_BITS_MAX,
                         unit = "bits",
+                        wiki = "import_export#drc",
                     ),
                     PreferenceItem.Check(
                         AppConfigKeys.EXPORT_SOURCES_FULL_PATHNAMES,
@@ -332,6 +347,7 @@ internal val PREFERENCE_PAGES = listOf(
                         "This disables all cloud features, including Orca Cloud profile syncing. Users who prefer to work entirely offline " +
                             "can enable this option.\nNote: When Stealth Mode is enabled, your user profiles will not be backed up to Orca Cloud.",
                     ),
+                    PreferenceItem.Open(NETWORK_TEST, "Network test", "", "Test"),
                 ),
             ),
             PreferenceSection(
@@ -346,7 +362,7 @@ internal val PREFERENCE_PAGES = listOf(
             PreferenceSection(
                 "Settings",
                 listOf(
-                    PreferenceItem.Check(AppConfigKeys.DEVELOPER_MODE, "Developer mode"),
+                    PreferenceItem.Check(AppConfigKeys.DEVELOPER_MODE, "Developer mode", wiki = "option_mode#developer+mode"),
                     PreferenceItem.Check(
                         AppConfigKeys.SHOW_UNSUPPORTED_PRESETS,
                         "Show unsupported presets",
@@ -385,4 +401,7 @@ internal val PREFERENCE_PAGES = listOf(
 // DRC.hpp
 private const val DRC_BITS_MIN = 8
 private const val DRC_BITS_MAX = 30
+
+/** The "Network test" item, which opens NetworkTestDialog. */
+internal const val NETWORK_TEST = "network_test"
 

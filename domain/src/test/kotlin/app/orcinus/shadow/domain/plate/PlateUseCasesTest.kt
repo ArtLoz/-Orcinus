@@ -1810,6 +1810,35 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `setting a copy among the selected copies of its object as an object takes them together`() {
+        val copies = List(3) { PlateInstance(INSPECTION.copy(placement = translated(40.0 * it, 0.0, 0.0))) }
+        val selected = setOf(PlateInstanceId(CUBE.mesh, 1), PlateInstanceId(CUBE.mesh, 2))
+        val repository = FakeRepository(readyState(CUBE.copy(instances = copies)).copy(selectedInstances = selected))
+        val inspector = FakeInspector()
+        val separate = SeparatePlateInstancesUseCase(inspector, FakeSceneFiles(), repository, scope)
+
+        separate.overCopy(PlateInstanceId(CUBE.mesh, 2))
+
+        assertEquals(
+            listOf(listOf(translated(40.0, 0.0, 0.0), translated(80.0, 0.0, 0.0))),
+            inspector.copies.single().sources.map { it.instances.map { i -> i.placement } },
+        )
+        assertEquals(listOf(copies[0]), repository.state.value.objects.first().instances)
+        assertEquals(2, repository.state.value.objects.size)
+    }
+
+    @Test
+    fun `setting a copy the selection does not hold as an object takes it alone`() {
+        val copies = List(3) { PlateInstance(INSPECTION.copy(placement = translated(40.0 * it, 0.0, 0.0))) }
+        val repository = FakeRepository(readyState(CUBE.copy(instances = copies)).copy(selectedInstances = setOf(PlateInstanceId(CUBE.mesh, 0))))
+        val inspector = FakeInspector()
+
+        SeparatePlateInstancesUseCase(inspector, FakeSceneFiles(), repository, scope).overCopy(PlateInstanceId(CUBE.mesh, 1))
+
+        assertEquals(listOf(translated(40.0, 0.0, 0.0)), inspector.copies.single().sources.single().instances.map { it.placement })
+    }
+
+    @Test
     fun `an object of one copy is not set apart`() {
         val repository = FakeRepository(readyState(CUBE))
         val inspector = FakeInspector()
@@ -2750,6 +2779,61 @@ class PlateUseCasesTest {
         assertEquals("no profiles", state.problem?.detail)
         assertNull(state.presets)
         assertNull(state.plate)
+    }
+
+    @Test
+    fun `the questions of a preset choice are answered in turn, and Cancel goes on for a dependent preset the new one keeps`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val asked = mutableListOf<List<PresetChangeAction>>()
+        val presets = object : PresetManager by FakePresetManager() {
+            override suspend fun selectPreset(choice: PresetChoice, answers: List<PresetChangeAction>): PresetsOutcome {
+                asked += answers
+                // Tab::select_preset(): the process left behind, then the filament that depends on it.
+                return when (answers.size) {
+                    0 -> PresetsOutcome.UnsavedChanges(PRESETS, PresetKind.PRINT, emptyList(), canTransfer = true, saveName = "process", saveNameCopySuffix = false)
+                    1 -> PresetsOutcome.UnsavedChanges(
+                        PRESETS, PresetKind.FILAMENT, emptyList(), canTransfer = true, saveName = "filament", saveNameCopySuffix = false,
+                        presetName = "filament", cancelSelects = true,
+                    )
+                    else -> PresetsOutcome.Success(PRESETS)
+                }
+            }
+        }
+        val select = SelectPresetUseCase(presets, platePresets(FakeInspector(), repository), NO_FLUSH_UPDATES, settingsTabs(repository), repository, scope)
+
+        select(PresetChoice.Process(ProfileId("other process")))
+        assertEquals(PresetKind.PRINT, repository.state.value.presetChange?.kind)
+        select.resolve(PresetChangeAction.TRANSFER)
+        val dependent = repository.state.value.presetChange
+        assertEquals(PresetKind.FILAMENT, dependent?.kind)
+        assertEquals(listOf(PresetChangeAction.TRANSFER), dependent?.answers)
+        assertEquals("filament", dependent?.presetName)
+        select.cancelPresetChange()
+
+        assertNull(repository.state.value.presetChange)
+        assertEquals(
+            listOf(emptyList(), listOf(PresetChangeAction.TRANSFER), listOf(PresetChangeAction.TRANSFER, PresetChangeAction.CANCEL)),
+            asked,
+        )
+    }
+
+    @Test
+    fun `Cancel of the preset that is left behind selects nothing`() {
+        val repository = FakeRepository(readyState(CUBE))
+        val asked = mutableListOf<List<PresetChangeAction>>()
+        val presets = object : PresetManager by FakePresetManager() {
+            override suspend fun selectPreset(choice: PresetChoice, answers: List<PresetChangeAction>): PresetsOutcome {
+                asked += answers
+                return PresetsOutcome.UnsavedChanges(PRESETS, PresetKind.PRINT, emptyList(), canTransfer = true, saveName = "process", saveNameCopySuffix = false)
+            }
+        }
+        val select = SelectPresetUseCase(presets, platePresets(FakeInspector(), repository), NO_FLUSH_UPDATES, settingsTabs(repository), repository, scope)
+
+        select(PresetChoice.Process(ProfileId("other process")))
+        select.cancelPresetChange()
+
+        assertNull(repository.state.value.presetChange)
+        assertEquals(listOf(emptyList<PresetChangeAction>()), asked)
     }
 
     @Test
@@ -5212,7 +5296,7 @@ class PlateUseCasesTest {
             return presets
         }
 
-        override suspend fun selectPreset(choice: PresetChoice, action: PresetChangeAction): PresetsOutcome {
+        override suspend fun selectPreset(choice: PresetChoice, answers: List<PresetChangeAction>): PresetsOutcome {
             choices += choice
             return selected(choice)
         }

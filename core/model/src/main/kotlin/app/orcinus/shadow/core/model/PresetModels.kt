@@ -30,6 +30,11 @@ data class PresetListItem(
     val selected: Boolean,
     /** The submenu is one of OrcaSlicer's msgids ("Custom", "Unspecified", "Project", "Unsupported"). */
     val subgroupMsgid: Boolean = false,
+    /**
+     * PresetComboBox::get_bmp(preset): the default colour of a filament
+     * ("#RRGGBB"), whose square the entry shows; empty for none.
+     */
+    val color: String = "",
 )
 
 /** The presets OrcaSlicer's sidebar offers, for the selection its app configuration remembers. */
@@ -41,6 +46,12 @@ data class Presets(
     val printers: List<PresetListItem>,
     val filaments: List<PresetListItem>,
     val processes: List<PresetListItem>,
+    /**
+     * TabPresetComboBox::update() of the printer and filament tabs: every
+     * visible preset by its own name, without the sidebar's printer models.
+     */
+    val tabPrinters: List<PresetListItem> = emptyList(),
+    val tabFilaments: List<PresetListItem> = emptyList(),
     /** project_config's filament_colour: the colour of every filament of the plate, "#RRGGBB". */
     val filamentColors: List<String> = emptyList(),
     /** filament_type of every filament of the plate ("PLA", "PETG" ...), in the same order. */
@@ -75,6 +86,14 @@ data class Presets(
     val sequentialPrint: Boolean = false,
     /** The printer's min_layer_height of each extruder, which get_min_layer_height() of the object list reads. */
     val minLayerHeights: List<Double> = emptyList(),
+    /** Sidebar::update_printer_thumbnail(): the cover picture of the printer's model; empty for the placeholder. */
+    val printerCover: String = "",
+    /** label_nozzle_type: the nozzle type of the first extruder ("Hardened Steel" ...), "-" for none known. */
+    val nozzleType: String = "",
+    /** PresetBundle::get_printer_extruder_count() */
+    val extruderCount: Int = 1,
+    /** pellet_modded_printer: the printer prints pellets, which the filament section is titled after. */
+    val pelletPrinter: Boolean = false,
 )
 
 /** A plate type: curr_bed_type's [value] and OrcaSlicer's [label] for it. */
@@ -106,9 +125,10 @@ sealed interface PresetsOutcome {
     data class Success(val presets: Presets) : PresetsOutcome
 
     /**
-     * Nothing was selected: the edited preset of [kind] has unsaved changes.
-     * The app asks what happens to them and selects again with a
-     * [PresetChangeAction].
+     * Nothing was selected: the edited preset of [kind], [presetName], has
+     * unsaved changes. The app asks what happens to them and selects again
+     * with the answers to this question and the ones before it
+     * ([PresetChangeAction]).
      */
     data class UnsavedChanges(
         val presets: Presets,
@@ -120,6 +140,15 @@ sealed interface PresetsOutcome {
         val saveNameCopySuffix: Boolean,
         /** Save keeps the preset's own name, [saveName], without asking one. */
         val saveCanOverwrite: Boolean = false,
+        val presetName: String = "",
+        /**
+         * The preset depends on the printer that is left for one of other
+         * extruder variants: Transfer warns "Use Modified Value" and leaves
+         * the values of the variants behind.
+         */
+        val transferDropsVariants: Boolean = false,
+        /** Cancel goes on with the selection: the preset depends on the selected one, which keeps it. */
+        val cancelSelects: Boolean = false,
     ) : PresetsOutcome
 
     data class Failure(val message: String) : PresetsOutcome

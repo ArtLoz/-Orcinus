@@ -364,7 +364,13 @@ data class SettingsLine(
     /** A filament override: the check box before the label switches it on. */
     val hasOverride: Boolean = false,
     val options: List<SettingsLineOption> = emptyList(),
-)
+    /** Line::label_path: the page of OrcaSlicer's wiki the label links to, "" for none. */
+    val labelPath: String = "",
+) {
+    /** OptionsGroup::get_url(): the wiki page of the line, null without one. */
+    val wikiUrl: String?
+        get() = labelPath.takeIf(String::isNotEmpty)?.let { "https://www.orcaslicer.com/wiki/$it" }
+}
 
 data class SettingsGroup(
     val title: String,
@@ -380,6 +386,13 @@ data class SettingsPage(
     val label: List<OrcaText>,
     val icon: String,
     val groups: List<SettingsGroup>,
+    /**
+     * Tab::update_changed_tree_ui(): the page's name has the colour of a
+     * modified value, as a setting on it differs from the saved preset, or on
+     * the tab of an object, a part, a height range or the plate, as the page
+     * overrides one.
+     */
+    val modified: Boolean = false,
 )
 
 /** A settings tab: the definitions of the settings it can show, by key. */
@@ -1457,6 +1470,12 @@ enum class PresetChangeAction {
 
     /** The changes are lost with the preset they were made in. */
     DISCARD,
+
+    /**
+     * The dialog was closed: the selection stops, unless the question was
+     * about a preset that depends on the selected one and suits the new one.
+     */
+    CANCEL,
 }
 
 /** The unsaved changes a preset selection stopped at (UnsavedChangesDialog). */
@@ -1475,6 +1494,14 @@ data class PendingPresetChange(
      * under its own name, [saveName], without SavePresetDialog.
      */
     val saveCanOverwrite: Boolean = false,
+    /** What the user answered the questions before this one (Tab::select_preset() asks one per changed preset). */
+    val answers: List<PresetChangeAction> = emptyList(),
+    /** The preset with the changes ("You have changed some settings of preset ..."). */
+    val presetName: String = "",
+    /** Transfer warns "Use Modified Value" first: the values of other extruder variants stay behind. */
+    val transferDropsVariants: Boolean = false,
+    /** Cancel goes on with the selection, as the changed preset depends on the selected one and suits the new one. */
+    val cancelSelects: Boolean = false,
 )
 
 /** A request to a settings tab, which runs again with the answers to its questions. */

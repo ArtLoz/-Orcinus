@@ -473,6 +473,21 @@ class RequestEmbossUseCase(private val repository: PlateRepository) {
         if (state.objects.withMesh(mesh) == null) state else state.copy(embossRequest = EmbossRequest.Add(kind, mesh, type))
     }
 
+    /**
+     * "Text" or "SVG" of the plate menu's "Add Primitive" (append_submenu_add_generic()
+     * of ModelVolumeType::INVALID): with nothing selected, an object of its own.
+     */
+    fun addObject(kind: EmbossKind) = repository.update { state ->
+        state.copy(
+            selectedInstances = emptySet(),
+            selectedPart = null,
+            selectedPartGroup = emptySet(),
+            selectedRange = null,
+            selectedConnectors = null,
+            embossRequest = EmbossRequest.Add(kind, null, VolumeType.PART),
+        )
+    }
+
     fun done() = repository.update { state -> if (state.embossRequest == null) state else state.copy(embossRequest = null) }
 }
 

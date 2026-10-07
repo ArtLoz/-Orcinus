@@ -573,6 +573,8 @@ internal fun PreviewScreen(
                     // The toolpaths stand where the current plate does (GCodeProcessor::set_xy_offset).
                     plateOrigins = state.plateOrigins,
                     currentPlate = state.currentPlate,
+                    // PartPlate::render_logo() of a Bambu Lab plate, without the calibration lines (render_cali).
+                    bedType = state.bedType,
                     followCurrentPlate = true,
                     plateNames = state.plateNames.map { it.ifEmpty { untitled } },
                     orbitSpeed = canvas.orbitSpeed,

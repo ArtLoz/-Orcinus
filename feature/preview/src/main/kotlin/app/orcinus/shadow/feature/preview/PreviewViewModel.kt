@@ -56,6 +56,7 @@ import app.orcinus.shadow.domain.plate.ShareGcodeUseCase
 import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.allPlatesStats
+import app.orcinus.shadow.domain.plate.currentBedType
 import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
 import app.orcinus.shadow.domain.plate.PlateSlice
 import app.orcinus.shadow.domain.plate.SaveProjectUseCase
@@ -98,6 +99,8 @@ data class PreviewUiState(
     /** Where every plate stands (PartPlateList), and the one whose G-code the preview shows. */
     val plateOrigins: List<Point2> = listOf(Point2(0.0, 0.0)),
     val currentPlate: Int = 0,
+    /** PartPlate::get_bed_type() of the current plate, whose pictures a Bambu Lab plate shows. */
+    val bedType: String? = null,
     /**
      * Plater::priv::set_current_panel()'s enable_select_plate_toolbar(): the
      * plate bar of several plates, but not of a G-code file nor of an exported
@@ -427,6 +430,7 @@ private fun PlateState.toPreviewUiState(connection: PrinterConnection?) = Previe
         PreviewOnlyKind.EXPORTED_FILE -> (previewOnly?.slicedPlates ?: 0) > 1
     },
     currentPlate = currentPlate,
+    bedType = currentBedType(),
     canSelectPlate = !busy && !slicingAll,
     plateNames = plates.map(PartPlate::name),
     allPlates = allPlatesStats(),

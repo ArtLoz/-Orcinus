@@ -13,6 +13,10 @@
     <string name="back">Back</string>
     <string name="next">Next</string>
     <string name="finish">Finish</string>
+    <!-- guide/24, the printers alone: its Create (no translation of its own), Cancel and Confirm. -->
+    <string name="create_printer">Create</string>
+    <string name="cancel">Cancel</string>
+    <string name="confirm">Confirm</string>
     <string name="all">All</string>
     <string name="clear_all">Clear all</string>
     <string name="printer">Printer</string>
