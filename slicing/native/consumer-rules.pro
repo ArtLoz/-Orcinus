@@ -1,85 +1,11 @@
-# The JNI bridge constructs and calls these classes by name. A class it names
-# must keep its name and its constructor, and so must every class in that
-# constructor's signature: the bridge looks the constructor up by descriptor.
+# The JNI bridge constructs the classes of this package and reads their
+# fields by name: a class it names must keep its name, its constructors and its
+# fields, and so must every class in a constructor's signature, as the bridge
+# looks a constructor up by its descriptor. One rule keeps them all, so a class
+# added to the bridge is not missed: one per class was, and R8 renamed
+# NativeSliceNotice and removed NativePresetBundle from the release build.
+-keep class app.orcinus.shadow.slicing.nativebridge.Native* { <init>(...); <fields>; }
 -keep class app.orcinus.shadow.slicing.nativebridge.NativeBindings { native <methods>; }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSliceResult { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeThumbnailSizes { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePlateDescription { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeWipeTower { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeFlushVolumes { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePainting { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeModelInspection { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePlateInspection { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeFlatteningPlanes { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeVolumeDescription { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeImportedObject { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeImportedModels { <init>(...); }
-# The bridge reads the plate's fields by name.
--keep class app.orcinus.shadow.slicing.nativebridge.NativePlate { <fields>; }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetItem { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetState { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetChange { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSetupPrinterModel { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSetupPrinters { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSetupFilament { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSetupFilaments { <init>(...); }
-# The settings tabs: their definitions, pages, lines, values and message boxes.
--keep class app.orcinus.shadow.slicing.nativebridge.NativeUiText { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingDefinition { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingDefinitions { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingsLineOption { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingsLine { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingsGroup { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingsPage { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingState { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSettingsDialog { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetSettings { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetNameValidation { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeAppConfigValues { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeDirtyPreset { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeDirtyPresets { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeCalibrationPrinter { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeCutObject { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeCutPlane { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeCutParts { <init>(...); }
-# The bridge builds these and also reads them back by field name.
--keep class app.orcinus.shadow.slicing.nativebridge.NativeCalibration { <init>(...); <fields>; }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeProjectPlate { <init>(...); <fields>; }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetNames { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetComparison { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetKindComparison { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSearchOption { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSearchCatalog { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeBedShape { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeGcodePlaceholder { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeGcodePlaceholders { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeGcodePlaceholderInfo { <init>(...); }
-# Physical printers and the configuration files of the File menu.
--keep class app.orcinus.shadow.slicing.nativebridge.NativePrinterConnection { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeConfigTransfer { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeConfigExportOptions { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeCreateFilamentOptions { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeCreatePrinterOptions { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativePresetCreation { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeCustomFilaments { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeFilamentPresets { <init>(...); }
-# The plate's validation, the variable layer height, and the text and SVG tools.
--keep class app.orcinus.shadow.slicing.nativebridge.NativePlateValidation { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeLayerEditing { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeFontFace { <init>(...); }
-# The bridge reads a text style's fields by their names as well as making one.
--keep class app.orcinus.shadow.slicing.nativebridge.NativeTextStyle { <init>(...); <fields>; }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeTextStyles { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeEmbossVolume { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSvgWarning { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeSvgPreview { <init>(...); }
-# The measuring tool.
--keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureFeature { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureItem { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureState { <init>(...); }
--keep class app.orcinus.shadow.slicing.nativebridge.NativeMeasureEdit { <init>(...); }
-# The brim ears tool.
--keep class app.orcinus.shadow.slicing.nativebridge.NativeBrimEars { <init>(...); }
 # The bridge looks onProgress up on the listener object, which is usually a
 # lambda that R8 synthesizes; a rule on implementing classes does not reach it.
 # Keeping the interface method keeps its name in every implementation.
