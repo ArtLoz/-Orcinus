@@ -168,17 +168,17 @@ fun OrcaLayerRangeSlider(
     val higherLength by animateDpAsState(if (dragging == RangeThumb.Higher) HandleDraggedLength else HandleLength, label = "higher handle")
     val lowerLength by animateDpAsState(if (dragging == RangeThumb.Lower) HandleDraggedLength else HandleLength, label = "lower handle")
 
+    // IMSlider::on_mouse_wheel(): a notch moves the selected handle a layer, five with Ctrl or Shift.
+    // Over the track and the pills alone: the room beside the pills leaves the canvas's windows below it a finger.
+    val wheel = Modifier.wheelSteps(layerCount) { steps ->
+        val thumb = if (currentOneLayer) RangeThumb.Higher else currentActive
+        change(thumb, (if (thumb == RangeThumb.Higher) currentHigher else currentLower) + steps)
+    }
     Row(
-        modifier = modifier
-            .semantics {
-                this.contentDescription = contentDescription
-                stateDescription = if (oneLayer) "${higher + 1}" else "${lower + 1}–${higher + 1}"
-            }
-            // IMSlider::on_mouse_wheel(): a notch moves the selected handle a layer, five with Ctrl or Shift.
-            .wheelSteps(layerCount) { steps ->
-                val thumb = if (currentOneLayer) RangeThumb.Higher else currentActive
-                change(thumb, (if (thumb == RangeThumb.Higher) currentHigher else currentLower) + steps)
-            },
+        modifier = modifier.semantics {
+            this.contentDescription = contentDescription
+            stateDescription = if (oneLayer) "${higher + 1}" else "${lower + 1}–${higher + 1}"
+        },
     ) {
         // The pills float beside the track at the heights of their handles.
         BoxWithConstraints(Modifier.fillMaxHeight()) {
@@ -209,6 +209,7 @@ fun OrcaLayerRangeSlider(
                         .clip(CircleShape)
                         .background(if (dragging == thumb) colors.accent else canvasPanelColor())
                         .pointerHoverIcon(PointerIcon.Hand)
+                        .then(wheel)
                         .pointerInput(thumb, layerCount) {
                             // A pill moves its handle by the distance the finger travels.
                             awaitEachGesture {
@@ -249,7 +250,8 @@ fun OrcaLayerRangeSlider(
         Column(
             modifier = Modifier
                 .width(TrackTouchWidth)
-                .fillMaxHeight(),
+                .fillMaxHeight()
+                .then(wheel),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             ControlButton(OrcaGlyphs.ChevronUp, stepUpDescription, enabled = steppedValue < last) { change(stepped, steppedValue + 1) }
