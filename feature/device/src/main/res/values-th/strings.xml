@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">สำหรับเครื่องพิมพ์ BambuLab แท็บนี้จะแสดงหน้าจอตรวจสอบของ BambuLab เอง ซึ่งทำงานผ่านปลั๊กอินเครือข่ายของ BambuLab และแอปนี้ไม่มีปลั๊กอินดังกล่าว</string>
+</resources>

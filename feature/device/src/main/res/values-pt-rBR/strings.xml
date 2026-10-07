@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">Para impressoras BambuLab, esta aba mostra o monitor da própria BambuLab, que funciona com o plug-in de rede da BambuLab; o aplicativo não tem esse plug-in.</string>
+</resources>

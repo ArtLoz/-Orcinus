@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">Modellen slicen</string>
+    <string name="slicing_notification_title">Slicen: %1$s</string>
+    <string name="slicing_notification_preparing">Voorbereiden…</string>
+    <string name="slicing_notification_cancel">Annuleren</string>
+</resources>

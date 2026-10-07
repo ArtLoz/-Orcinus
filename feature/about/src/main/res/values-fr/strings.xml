@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">À propos</string>
+    <string name="back">Retour</string>
+    <string name="app_version">Version %1$s</string>
+    <string name="app_engine">Moteur OrcaSlicer %1$s</string>
+    <string name="app_summary">Un slicer d\'impression 3D pour Android. Il découpe les modèles avec le moteur OrcaSlicer et ses profils d\'imprimantes et de filaments.</string>
+    <string name="app_copyright">© 2026 Contributeurs d\'Orcinus</string>
+    <string name="section_license">Licence</string>
+    <string name="license_notice">Orcinus est un logiciel libre : vous pouvez le redistribuer et/ou le modifier selon les termes de la GNU Affero General Public License version 3, telle que publiée par la Free Software Foundation.\n\nCe programme est distribué dans l\'espoir qu\'il sera utile, mais SANS AUCUNE GARANTIE ; sans même la garantie implicite de QUALITÉ MARCHANDE ou d\'ADÉQUATION À UN USAGE PARTICULIER. Consultez le texte de la licence pour plus de détails.</string>
+    <string name="license_text">Texte de la licence GNU AGPL v3</string>
+    <string name="source_code">Code source</string>
+    <string name="section_credits">Remerciements</string>
+    <string name="credits">Orcinus utilise le moteur OrcaSlicer. OrcaSlicer repose sur Bambu Studio de Bambu Lab, Bambu Studio sur PrusaSlicer de Prusa Research, et PrusaSlicer sur Slic3r d\'Alessandro Ranellucci et de la communauté RepRap.</string>
+    <string name="third_party_title">Composants tiers</string>
+    <string name="third_party_summary">Les bibliothèques, le moteur et la police qui composent l\'application, et leurs licences</string>
+    <string name="disclaimer">Orcinus est un projet indépendant. Il n\'est ni affilié aux développeurs d\'OrcaSlicer, de Bambu Studio ou de PrusaSlicer, ni approuvé par eux. Les noms de ces programmes appartiennent à leurs propriétaires.</string>
+    <string name="loading">Chargement…</string>
+    <string name="notice_missing">Aucune information trouvée</string>
+    <string name="component_version">Version %1$s</string>
+    <string name="license_link_only">Texte complet de la licence : %1$s</string>
+    <string name="troubleshoot_title">Centre de dépannage</string>
+    <string name="troubleshoot_info_needed">Nous avons besoin d\'informations pour diagnostiquer l\'origine du problème. Consultez la page wiki pour un guide détaillé.</string>
+    <string name="troubleshoot_info_pack">Le bouton « Empaqueter » rassemble le fichier de projet et les journaux de la session en cours dans un fichier ZIP.</string>
+    <string name="troubleshoot_info_examples">Des exemples visuels supplémentaires, comme des images ou des enregistrements d\'écran, peuvent être utiles pour signaler le problème.</string>
+    <string name="troubleshoot_report_issue">Signaler un problème</string>
+    <string name="troubleshoot_pack">Empaqueter</string>
+    <string name="troubleshoot_profiles">Profils</string>
+    <string name="troubleshoot_clean_system">Vider le cache des profils système</string>
+    <string name="troubleshoot_clean_system_tip">Vide et reconstruit le cache des profils système au prochain lancement</string>
+    <string name="troubleshoot_clean">Vider</string>
+    <string name="troubleshoot_loaded_profiles">Aperçu des profils chargés</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exporte un aperçu détaillé des profils chargés au format JSON</string>
+    <string name="troubleshoot_active">Actifs</string>
+    <string name="troubleshoot_printers">Imprimantes</string>
+    <string name="troubleshoot_processes">Traitements</string>
+    <string name="troubleshoot_log_level">Niveau de journalisation</string>
+    <string name="troubleshoot_review_project">Sélectionnez « Non » pour fermer la boîte de dialogue et vérifier le projet</string>
+    <string name="troubleshoot_no_project">Aucun fichier de projet dans la session en cours. Seuls les journaux seront inclus dans le paquet</string>
+    <string name="troubleshoot_export_failed">Échec de l\'exportation\nVérifiez les droits d\'écriture ou si le fichier est utilisé par une autre application</string>
+    <string name="troubleshoot_clean_failed">Impossible de supprimer le dossier système...</string>
+    <string name="troubleshoot_clean_next_start">Le cache sera vidé et reconstruit au prochain démarrage de l\'application.</string>
+    <string name="troubleshoot_clean_pending">Sera vidé au prochain démarrage de l\'application</string>
+</resources>

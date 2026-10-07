@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">Zpět</string>
+    <string name="preferences_decrease">Snížit</string>
+    <string name="preferences_increase">Zvýšit</string>
+</resources>

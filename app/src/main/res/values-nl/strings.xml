@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Verbindingen met printers en cloud</string>
+    <string name="network_notification_login">Inloggen bij %1$s: wachten op de browser</string>
+    <string name="network_notification_send">Verzenden naar %1$s</string>
+    <string name="network_notification_uploads">Uploaden naar printers</string>
+</resources>

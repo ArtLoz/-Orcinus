@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">O aplikaci</string>
+    <string name="back">Zpět</string>
+    <string name="app_version">Verze %1$s</string>
+    <string name="app_engine">Jádro OrcaSlicer %1$s</string>
+    <string name="app_summary">Slicer pro 3D tisk na Androidu. Slicuje modely jádrem OrcaSlicer s jeho profily tiskáren a filamentů.</string>
+    <string name="app_copyright">© 2026 Přispěvatelé projektu Orcinus</string>
+    <string name="section_license">Licence</string>
+    <string name="license_notice">Orcinus je svobodný software: můžete jej šířit a/nebo upravovat podle podmínek licence GNU Affero General Public License verze 3, jak ji zveřejnila Free Software Foundation.\n\nTento program je šířen v naději, že bude užitečný, avšak BEZ JAKÉKOLI ZÁRUKY, a to i bez předpokládané záruky PRODEJNOSTI nebo VHODNOSTI PRO URČITÝ ÚČEL. Podrobnosti najdete v textu licence.</string>
+    <string name="license_text">Text licence GNU AGPL v3</string>
+    <string name="source_code">Zdrojový kód</string>
+    <string name="section_credits">Poděkování</string>
+    <string name="credits">Orcinus používá jádro OrcaSlicer. OrcaSlicer vychází z programu Bambu Studio od společnosti Bambu Lab, Bambu Studio z programu PrusaSlicer od společnosti Prusa Research a PrusaSlicer z programu Slic3r, jehož autory jsou Alessandro Ranellucci a komunita RepRap.</string>
+    <string name="third_party_title">Komponenty třetích stran</string>
+    <string name="third_party_summary">Knihovny, jádro a písmo, ze kterých je aplikace sestavena, a jejich licence</string>
+    <string name="disclaimer">Orcinus je nezávislý projekt. Není spojen s vývojáři programů OrcaSlicer, Bambu Studio ani PrusaSlicer a není jimi schválen. Názvy těchto programů patří jejich vlastníkům.</string>
+    <string name="loading">Načítání…</string>
+    <string name="notice_missing">Informace nebyly nalezeny</string>
+    <string name="component_version">Verze %1$s</string>
+    <string name="license_link_only">Úplný text licence: %1$s</string>
+    <string name="troubleshoot_title">Centrum řešení problémů</string>
+    <string name="troubleshoot_info_needed">K diagnostice příčiny problému potřebujeme informace. Podrobný návod najdete na stránce wiki.</string>
+    <string name="troubleshoot_info_pack">Tlačítko „Zabalit“ shromáždí soubor projektu a logy aktuální relace do souboru ZIP.</string>
+    <string name="troubleshoot_info_examples">Při hlášení problému mohou pomoci i další vizuální příklady, například obrázky nebo záznamy obrazovky.</string>
+    <string name="troubleshoot_report_issue">Nahlásit problém</string>
+    <string name="troubleshoot_pack">Zabalit</string>
+    <string name="troubleshoot_profiles">Profily</string>
+    <string name="troubleshoot_clean_system">Vyčistit mezipaměť systémových profilů</string>
+    <string name="troubleshoot_clean_system_tip">Při příštím spuštění vyčistí a znovu sestaví mezipaměť systémových profilů</string>
+    <string name="troubleshoot_clean">Vyčistit</string>
+    <string name="troubleshoot_loaded_profiles">Přehled načtených profilů</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exportuje podrobný přehled načtených profilů ve formátu JSON</string>
+    <string name="troubleshoot_active">Aktivní</string>
+    <string name="troubleshoot_printers">Tiskárny</string>
+    <string name="troubleshoot_processes">Procesy</string>
+    <string name="troubleshoot_log_level">Úroveň logu</string>
+    <string name="troubleshoot_review_project">Zvolte „Ne“, chcete-li zavřít dialog a zkontrolovat projekt</string>
+    <string name="troubleshoot_no_project">V aktuální relaci není žádný soubor projektu. Do balíčku budou zahrnuty pouze logy</string>
+    <string name="troubleshoot_export_failed">Export se nezdařil\nZkontrolujte oprávnění k zápisu, nebo zda soubor nepoužívá jiná aplikace</string>
+    <string name="troubleshoot_clean_failed">Nepodařilo se smazat systémovou složku...</string>
+    <string name="troubleshoot_clean_next_start">Mezipaměť se vyčistí a znovu sestaví při příštím spuštění aplikace.</string>
+    <string name="troubleshoot_clean_pending">Vyčistí se při příštím spuštění aplikace</string>
+</resources>

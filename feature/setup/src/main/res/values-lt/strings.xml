@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Nustatymų vedlys</string>
+    <string name="printer_selection">Spausdintuvo pasirinkimas</string>
+    <string name="custom_filaments">Pasirinktinės gijos</string>
+    <string name="create_new_filament">Sukurti</string>
+    <string name="filament_selection">Gijos pasirinkimas</string>
+    <string name="back">Atgal</string>
+    <string name="next">Pirmyn</string>
+    <string name="finish">Pabaigti</string>
+    <string name="create_printer">Sukurti</string>
+    <string name="cancel">Atšaukti</string>
+    <string name="confirm">Patvirtinti</string>
+    <string name="all">Visi</string>
+    <string name="clear_all">Išvalyti visus</string>
+    <string name="printer">Spausdintuvas</string>
+    <string name="filament_type">Gijos tipas</string>
+    <string name="vendor">Gamintojas</string>
+    <string name="error">Klaida</string>
+    <string name="no_printer_selected">Turi būti pasirinktas bent vienas spausdintuvas.</string>
+    <string name="no_filament_selected">Turi būti pasirinkta bent viena gija.</string>
+    <string name="use_default_filaments">Ar norite naudoti numatytąsias gijas?</string>
+    <string name="yes">Taip</string>
+    <string name="no">Ne</string>
+    <string name="ok">Gerai</string>
+    <string name="search">Paieška</string>
+    <string name="clear_search">Išvalyti paiešką</string>
+    <string name="nozzle">Purkštukas</string>
+    <string name="nozzles">Purkštukas: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Visos</string>
+    <string name="show_checked">Pasirinktos</string>
+    <string name="show_unchecked">Nepasirinktos</string>
+    <string name="loading">Įkeliama…</string>
+    <string name="installing">Diegiami išankstiniai nustatymai…</string>
+    <string name="nothing_found">Nieko nerasta</string>
+    <string name="select_vendor">Pasirinkti visus %1$s modelius</string>
+</resources>

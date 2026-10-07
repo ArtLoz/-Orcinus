@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Assistant de configuration</string>
+    <string name="printer_selection">Sélection de l\'imprimante</string>
+    <string name="custom_filaments">Filaments personnalisés</string>
+    <string name="create_new_filament">Créer</string>
+    <string name="filament_selection">Sélection des filaments</string>
+    <string name="back">Retour</string>
+    <string name="next">Suivant</string>
+    <string name="finish">Terminer</string>
+    <string name="create_printer">Créer</string>
+    <string name="cancel">Annuler</string>
+    <string name="confirm">Confirmer</string>
+    <string name="all">Tous</string>
+    <string name="clear_all">Tout désélectionner</string>
+    <string name="printer">Imprimante</string>
+    <string name="filament_type">Type de filament</string>
+    <string name="vendor">Fabricant</string>
+    <string name="error">Erreur</string>
+    <string name="no_printer_selected">Au moins une imprimante doit être sélectionnée.</string>
+    <string name="no_filament_selected">Au moins un filament doit être sélectionné.</string>
+    <string name="use_default_filaments">Voulez-vous utiliser les filaments par défaut ?</string>
+    <string name="yes">Oui</string>
+    <string name="no">Non</string>
+    <string name="ok">OK</string>
+    <string name="search">Rechercher</string>
+    <string name="clear_search">Effacer la recherche</string>
+    <string name="nozzle">Buse</string>
+    <string name="nozzles">Buse : %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Tous</string>
+    <string name="show_checked">Sélectionnés</string>
+    <string name="show_unchecked">Non sélectionnés</string>
+    <string name="loading">Chargement…</string>
+    <string name="installing">Installation des préréglages…</string>
+    <string name="nothing_found">Aucun résultat</string>
+    <string name="select_vendor">Sélectionner tous les modèles %1$s</string>
+</resources>

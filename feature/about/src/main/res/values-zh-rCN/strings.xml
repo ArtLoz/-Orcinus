@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">关于</string>
+    <string name="back">返回</string>
+    <string name="app_version">版本 %1$s</string>
+    <string name="app_engine">OrcaSlicer 引擎 %1$s</string>
+    <string name="app_summary">适用于 Android 的 3D 打印切片软件。使用 OrcaSlicer 引擎及其打印机和耗材配置文件对模型进行切片。</string>
+    <string name="app_copyright">© 2026 Orcinus 贡献者</string>
+    <string name="section_license">许可证</string>
+    <string name="license_notice">Orcinus 是自由软件：您可以依据自由软件基金会（Free Software Foundation）发布的 GNU Affero General Public License 第 3 版的条款，重新分发和/或修改它。\n\n发布本程序是希望它能派上用场，但不提供任何担保；甚至不提供适销性或特定用途适用性的默示担保。详情请参阅许可证全文。</string>
+    <string name="license_text">GNU AGPL v3 许可证全文</string>
+    <string name="source_code">源代码</string>
+    <string name="section_credits">致谢</string>
+    <string name="credits">Orcinus 使用 OrcaSlicer 引擎。OrcaSlicer 基于 Bambu Lab 的 Bambu Studio，Bambu Studio 基于 Prusa Research 的 PrusaSlicer，而 PrusaSlicer 基于 Alessandro Ranellucci 和 RepRap 社区的 Slic3r。</string>
+    <string name="third_party_title">第三方组件</string>
+    <string name="third_party_summary">构建本应用所用的库、引擎和字体及其许可证</string>
+    <string name="disclaimer">Orcinus 是一个独立项目，与 OrcaSlicer、Bambu Studio 或 PrusaSlicer 的开发者没有关联，也未获得其认可。这些程序的名称归其所有者所有。</string>
+    <string name="loading">正在加载…</string>
+    <string name="notice_missing">未找到许可声明</string>
+    <string name="component_version">版本 %1$s</string>
+    <string name="license_link_only">许可证全文：%1$s</string>
+    <string name="troubleshoot_title">故障排查中心</string>
+    <string name="troubleshoot_info_needed">我们需要一些信息来诊断问题的根源。详细指南请查看 Wiki 页面。</string>
+    <string name="troubleshoot_info_pack">“打包”按钮会将当前会话的项目文件和日志收集到一个 zip 文件中。</string>
+    <string name="troubleshoot_info_examples">报告问题时，附上图片或屏幕录像等直观示例可能会有所帮助。</string>
+    <string name="troubleshoot_report_issue">报告问题</string>
+    <string name="troubleshoot_pack">打包</string>
+    <string name="troubleshoot_profiles">配置文件</string>
+    <string name="troubleshoot_clean_system">清除系统配置文件缓存</string>
+    <string name="troubleshoot_clean_system_tip">下次启动时清除并重建系统配置文件缓存</string>
+    <string name="troubleshoot_clean">清除</string>
+    <string name="troubleshoot_loaded_profiles">已加载配置文件概览</string>
+    <string name="troubleshoot_loaded_profiles_tip">以 JSON 格式导出已加载配置文件的详细概览</string>
+    <string name="troubleshoot_active">已启用</string>
+    <string name="troubleshoot_printers">打印机</string>
+    <string name="troubleshoot_processes">工艺</string>
+    <string name="troubleshoot_log_level">日志级别</string>
+    <string name="troubleshoot_review_project">选择“否”可关闭对话框并检查项目</string>
+    <string name="troubleshoot_no_project">当前会话中没有项目文件。压缩包中将只包含日志</string>
+    <string name="troubleshoot_export_failed">导出失败\n请检查写入权限，或文件是否正被其他应用程序使用</string>
+    <string name="troubleshoot_clean_failed">删除系统文件夹失败...</string>
+    <string name="troubleshoot_clean_next_start">缓存将在应用下次启动时清除并重建。</string>
+    <string name="troubleshoot_clean_pending">将在应用下次启动时清除</string>
+</resources>

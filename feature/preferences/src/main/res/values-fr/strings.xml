@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">Retour</string>
+    <string name="preferences_decrease">Diminuer</string>
+    <string name="preferences_increase">Augmenter</string>
+</resources>

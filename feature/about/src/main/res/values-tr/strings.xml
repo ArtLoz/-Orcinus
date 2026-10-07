@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Hakkında</string>
+    <string name="back">Geri</string>
+    <string name="app_version">Sürüm %1$s</string>
+    <string name="app_engine">OrcaSlicer motoru %1$s</string>
+    <string name="app_summary">Android için bir 3D baskı dilimleyicisi. Modelleri OrcaSlicer motoru ve onun yazıcı ve filament profilleriyle dilimler.</string>
+    <string name="app_copyright">© 2026 Orcinus\'a katkıda bulunanlar</string>
+    <string name="section_license">Lisans</string>
+    <string name="license_notice">Orcinus özgür bir yazılımdır: Free Software Foundation tarafından yayımlanan GNU Affero General Public License sürüm 3 koşulları altında yeniden dağıtabilir ve/veya değiştirebilirsiniz.\n\nBu program faydalı olacağı umuduyla dağıtılmaktadır, ancak HİÇBİR GARANTİ VERİLMEMEKTEDİR; SATILABİLİRLİK veya BELİRLİ BİR AMACA UYGUNLUK için zımni garanti dahi yoktur. Ayrıntılar için lisans metnine bakın.</string>
+    <string name="license_text">GNU AGPL v3 lisans metni</string>
+    <string name="source_code">Kaynak kodu</string>
+    <string name="section_credits">Emeği geçenler</string>
+    <string name="credits">Orcinus, OrcaSlicer motorunu kullanır. OrcaSlicer, Bambu Lab tarafından geliştirilen Bambu Studio\'ya; Bambu Studio, Prusa Research tarafından geliştirilen PrusaSlicer\'a; PrusaSlicer ise Alessandro Ranellucci ve RepRap topluluğu tarafından geliştirilen Slic3r\'a dayanır.</string>
+    <string name="third_party_title">Üçüncü taraf bileşenler</string>
+    <string name="third_party_summary">Uygulamanın dayandığı kütüphaneler, motor ve yazı tipi ile bunların lisansları</string>
+    <string name="disclaimer">Orcinus bağımsız bir projedir. OrcaSlicer, Bambu Studio veya PrusaSlicer geliştiricileriyle bir bağlantısı yoktur ve onlar tarafından onaylanmamıştır. Bu programların adları sahiplerine aittir.</string>
+    <string name="loading">Yükleniyor…</string>
+    <string name="notice_missing">Bilgi bulunamadı</string>
+    <string name="component_version">Sürüm %1$s</string>
+    <string name="license_link_only">Lisansın tam metni: %1$s</string>
+    <string name="troubleshoot_title">Sorun Giderme Merkezi</string>
+    <string name="troubleshoot_info_needed">Sorunun kaynağını teşhis etmek için bilgiye ihtiyacımız var. Ayrıntılı kılavuz için wiki sayfasına bakın.</string>
+    <string name="troubleshoot_info_pack">Paketle düğmesi, proje dosyasını ve geçerli oturumun günlüklerini bir zip dosyasında toplar.</string>
+    <string name="troubleshoot_info_examples">Sorunu bildirirken görüntüler veya ekran kayıtları gibi ek görsel örnekler faydalı olabilir.</string>
+    <string name="troubleshoot_report_issue">Sorun bildir</string>
+    <string name="troubleshoot_pack">Paketle</string>
+    <string name="troubleshoot_profiles">Profiller</string>
+    <string name="troubleshoot_clean_system">Sistem profilleri önbelleğini temizle</string>
+    <string name="troubleshoot_clean_system_tip">Sistem profilleri önbelleğini temizler ve bir sonraki açılışta yeniden oluşturur</string>
+    <string name="troubleshoot_clean">Temizle</string>
+    <string name="troubleshoot_loaded_profiles">Yüklü profillere genel bakış</string>
+    <string name="troubleshoot_loaded_profiles_tip">Yüklü profillere ayrıntılı genel bakışı JSON biçiminde dışa aktarır</string>
+    <string name="troubleshoot_active">Etkin</string>
+    <string name="troubleshoot_printers">Yazıcılar</string>
+    <string name="troubleshoot_processes">İşlemler</string>
+    <string name="troubleshoot_log_level">Günlük düzeyi</string>
+    <string name="troubleshoot_review_project">İletişim kutusunu kapatıp projeyi gözden geçirmek için “Hayır” seçeneğini seçin</string>
+    <string name="troubleshoot_no_project">Geçerli oturumda proje dosyası yok. Pakete yalnızca günlükler eklenecek</string>
+    <string name="troubleshoot_export_failed">Dışa aktarma başarısız oldu\nLütfen yazma izinlerini veya dosyanın başka bir uygulama tarafından kullanılıp kullanılmadığını kontrol edin</string>
+    <string name="troubleshoot_clean_failed">Sistem klasörü silinemedi...</string>
+    <string name="troubleshoot_clean_next_start">Önbellek, uygulamanın bir sonraki açılışında temizlenir ve yeniden oluşturulur.</string>
+    <string name="troubleshoot_clean_pending">Uygulamanın bir sonraki açılışında temizlenecek</string>
+</resources>

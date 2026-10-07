@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">Per le stampanti BambuLab questa scheda mostra il monitor di BambuLab, che funziona tramite il modulo di rete di BambuLab; l\'app non lo include.</string>
+</resources>

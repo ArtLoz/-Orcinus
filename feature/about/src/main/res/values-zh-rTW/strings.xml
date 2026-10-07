@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">關於</string>
+    <string name="back">返回</string>
+    <string name="app_version">版本 %1$s</string>
+    <string name="app_engine">OrcaSlicer 引擎 %1$s</string>
+    <string name="app_summary">適用於 Android 的 3D 列印切片軟體。使用 OrcaSlicer 引擎及其列印設備與線材設定檔對模型進行切片。</string>
+    <string name="app_copyright">© 2026 Orcinus 貢獻者</string>
+    <string name="section_license">授權</string>
+    <string name="license_notice">Orcinus 是自由軟體：您可以依據自由軟體基金會（Free Software Foundation）發布的 GNU Affero General Public License 第 3 版條款，重新散布和/或修改本程式。\n\n散布本程式是希望它能有所助益，但不提供任何擔保；甚至不包含適售性或特定用途適用性的默示擔保。詳情請參閱授權條款全文。</string>
+    <string name="license_text">GNU AGPL v3 授權條款全文</string>
+    <string name="source_code">原始碼</string>
+    <string name="section_credits">致謝</string>
+    <string name="credits">Orcinus 使用 OrcaSlicer 引擎。OrcaSlicer 以 Bambu Lab 的 Bambu Studio 為基礎，Bambu Studio 以 Prusa Research 的 PrusaSlicer 為基礎，而 PrusaSlicer 則以 Alessandro Ranellucci 與 RepRap 社群的 Slic3r 為基礎。</string>
+    <string name="third_party_title">第三方元件</string>
+    <string name="third_party_summary">建置本應用程式所用的程式庫、引擎與字型及其授權條款</string>
+    <string name="disclaimer">Orcinus 是獨立專案，與 OrcaSlicer、Bambu Studio 或 PrusaSlicer 的開發者並無關聯，也未獲得其認可。這些程式的名稱歸其所有者所有。</string>
+    <string name="loading">載入中…</string>
+    <string name="notice_missing">找不到授權聲明</string>
+    <string name="component_version">版本 %1$s</string>
+    <string name="license_link_only">授權條款全文：%1$s</string>
+    <string name="troubleshoot_title">疑難排解中心</string>
+    <string name="troubleshoot_info_needed">我們需要一些資訊來診斷問題的原因。詳細指南請參閱 Wiki 頁面。</string>
+    <string name="troubleshoot_info_pack">「打包」按鈕會將目前工作階段的專案檔案和日誌收集到一個 zip 檔案中。</string>
+    <string name="troubleshoot_info_examples">回報問題時，附上圖片或螢幕錄影等直觀範例可能會有所幫助。</string>
+    <string name="troubleshoot_report_issue">回報問題</string>
+    <string name="troubleshoot_pack">打包</string>
+    <string name="troubleshoot_profiles">設定檔</string>
+    <string name="troubleshoot_clean_system">清除系統設定檔快取</string>
+    <string name="troubleshoot_clean_system_tip">下次啟動時清除並重建系統設定檔快取</string>
+    <string name="troubleshoot_clean">清除</string>
+    <string name="troubleshoot_loaded_profiles">已載入設定檔概覽</string>
+    <string name="troubleshoot_loaded_profiles_tip">以 JSON 格式匯出已載入設定檔的詳細概覽</string>
+    <string name="troubleshoot_active">已啟用</string>
+    <string name="troubleshoot_printers">列印設備</string>
+    <string name="troubleshoot_processes">列印參數</string>
+    <string name="troubleshoot_log_level">日誌級別</string>
+    <string name="troubleshoot_review_project">選擇「否」可關閉對話框並檢查專案</string>
+    <string name="troubleshoot_no_project">目前工作階段中沒有專案檔案。壓縮檔中將只包含日誌</string>
+    <string name="troubleshoot_export_failed">匯出失敗\n請檢查寫入權限，或檔案是否正被其他應用程式使用</string>
+    <string name="troubleshoot_clean_failed">刪除系統資料夾失敗...</string>
+    <string name="troubleshoot_clean_next_start">快取將在應用程式下次啟動時清除並重建。</string>
+    <string name="troubleshoot_clean_pending">將在應用程式下次啟動時清除</string>
+</resources>

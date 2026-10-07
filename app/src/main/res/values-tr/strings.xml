@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Yazıcılar ve bulut bağlantıları</string>
+    <string name="network_notification_login">%1$s hizmetinde oturum açılıyor: tarayıcı bekleniyor</string>
+    <string name="network_notification_send">%1$s yazıcısına gönderiliyor</string>
+    <string name="network_notification_uploads">Yazıcılara yükleniyor</string>
+</resources>

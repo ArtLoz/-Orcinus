@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Zurück</string>
+    <string name="object_table_row_settings">Einstellungen des ausgewählten Objekts oder Teils</string>
+    <string name="object_table_pick_cell">Tippen Sie auf eine Zelle, um hier die Einstellungen ihres Objekts oder Teils zu sehen.</string>
+    <string name="object_table_sort">Nach %1$s sortieren</string>
+</resources>

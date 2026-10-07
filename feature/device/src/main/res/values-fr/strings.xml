@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">Pour les imprimantes BambuLab, cet onglet affiche le moniteur propre à BambuLab, qui fonctionne avec le plug-in réseau de BambuLab ; l\'application n\'en dispose pas.</string>
+</resources>

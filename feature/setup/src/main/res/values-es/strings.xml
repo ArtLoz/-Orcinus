@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Asistente de configuración</string>
+    <string name="printer_selection">Selección de impresora</string>
+    <string name="custom_filaments">Filamentos personalizados</string>
+    <string name="create_new_filament">Crear</string>
+    <string name="filament_selection">Selección de filamento</string>
+    <string name="back">Volver</string>
+    <string name="next">Siguiente</string>
+    <string name="finish">Finalizar</string>
+    <string name="create_printer">Crear</string>
+    <string name="cancel">Cancelar</string>
+    <string name="confirm">Confirmar</string>
+    <string name="all">Todo</string>
+    <string name="clear_all">Limpiar todo</string>
+    <string name="printer">Impresora</string>
+    <string name="filament_type">Tipo de filamento</string>
+    <string name="vendor">Fabricante</string>
+    <string name="error">Error</string>
+    <string name="no_printer_selected">Se debe seleccionar al menos una impresora.</string>
+    <string name="no_filament_selected">Se debe seleccionar al menos un filamento.</string>
+    <string name="use_default_filaments">¿Desea usar los filamentos por defecto?</string>
+    <string name="yes">Sí</string>
+    <string name="no">No</string>
+    <string name="ok">OK</string>
+    <string name="search">Buscar</string>
+    <string name="clear_search">Borrar búsqueda</string>
+    <string name="nozzle">Boquilla</string>
+    <string name="nozzles">Boquilla: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Todos</string>
+    <string name="show_checked">Seleccionados</string>
+    <string name="show_unchecked">No seleccionados</string>
+    <string name="loading">Cargando…</string>
+    <string name="installing">Instalando perfiles…</string>
+    <string name="nothing_found">No se encontró nada</string>
+    <string name="select_vendor">Seleccionar todos los modelos de %1$s</string>
+</resources>

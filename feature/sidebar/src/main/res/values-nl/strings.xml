@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">Printer</string>
+    <string name="section_filament">Filament</string>
+    <string name="section_process">Proces</string>
+    <string name="section_objects">Objecten</string>
+    <string name="object_instance_name">Instantie %1$d</string>
+    <string name="object_instances">Instanties</string>
+    <string name="object_list_expand">Uitklappen</string>
+    <string name="object_list_collapse">Inklappen</string>
+    <string name="object_menu_add_range_after">Bereik erna toevoegen</string>
+    <string name="object_menu_edit_range">Hoogtes bewerken</string>
+    <string name="object_layer_range">Bereik %1$.2f-%2$.2f (mm)</string>
+    <string name="object_range_bottom">Onderkant</string>
+    <string name="object_range_top">Bovenkant</string>
+    <string name="object_range_unit">mm</string>
+    <string name="object_range_apply">Toepassen</string>
+    <string name="collapse_sidebar">Zijbalk inklappen</string>
+    <string name="expand_sidebar">Zijbalk uitklappen</string>
+    <string name="nozzle_diameter">Mondstukdiameter</string>
+    <string name="select_printers">Printers selecteren</string>
+    <string name="select_filaments">Filamenten selecteren</string>
+    <string name="millimeters">%1$s mm</string>
+    <string name="engine_starting">OrcaSlicer-engine starten…</string>
+    <string name="engine_ready">Engine %1$s</string>
+    <string name="engine_unavailable">De OrcaSlicer-engine is niet beschikbaar</string>
+    <string name="about">Over</string>
+    <string name="troubleshoot">Probleemoplossingscentrum</string>
+</resources>

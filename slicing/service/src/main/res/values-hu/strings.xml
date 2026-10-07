@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">Modellek szeletelése</string>
+    <string name="slicing_notification_title">Szeletelés: %1$s</string>
+    <string name="slicing_notification_preparing">Előkészítés…</string>
+    <string name="slicing_notification_cancel">Mégse</string>
+</resources>

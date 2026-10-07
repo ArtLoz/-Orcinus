@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">設定精靈</string>
+    <string name="printer_selection">選擇列印設備</string>
+    <string name="custom_filaments">自訂線材</string>
+    <string name="create_new_filament">建立</string>
+    <string name="filament_selection">選擇線材</string>
+    <string name="back">上一步</string>
+    <string name="next">下一步</string>
+    <string name="finish">結束</string>
+    <string name="create_printer">建立</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">確定</string>
+    <string name="all">全部</string>
+    <string name="clear_all">清空</string>
+    <string name="printer">列印設備</string>
+    <string name="filament_type">線材類型</string>
+    <string name="vendor">供應商</string>
+    <string name="error">錯誤</string>
+    <string name="no_printer_selected">至少需要選擇一款列印設備。</string>
+    <string name="no_filament_selected">至少要選擇一款線材。</string>
+    <string name="use_default_filaments">您希望使用預設的線材清單嗎？</string>
+    <string name="yes">是</string>
+    <string name="no">否</string>
+    <string name="ok">確定</string>
+    <string name="search">搜尋</string>
+    <string name="clear_search">清除搜尋</string>
+    <string name="nozzle">噴嘴</string>
+    <string name="nozzles">噴嘴：%1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">全部</string>
+    <string name="show_checked">已選取</string>
+    <string name="show_unchecked">未選取</string>
+    <string name="loading">載入中…</string>
+    <string name="installing">正在安裝預設…</string>
+    <string name="nothing_found">找不到結果</string>
+    <string name="select_vendor">選擇所有 %1$s 型號</string>
+</resources>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Over</string>
+    <string name="back">Terug</string>
+    <string name="app_version">Versie %1$s</string>
+    <string name="app_engine">OrcaSlicer-engine %1$s</string>
+    <string name="app_summary">Een slicer voor 3D-printen op Android. De app slicet modellen met de OrcaSlicer-engine en de bijbehorende printer- en filamentprofielen.</string>
+    <string name="app_copyright">© 2026 Orcinus-bijdragers</string>
+    <string name="section_license">Licentie</string>
+    <string name="license_notice">Orcinus is vrije software: u mag het herdistribueren en/of wijzigen onder de voorwaarden van de GNU Affero General Public License versie 3, zoals gepubliceerd door de Free Software Foundation.\n\nDit programma wordt verspreid in de hoop dat het nuttig zal zijn, maar ZONDER ENIGE GARANTIE; zelfs zonder de impliciete garantie van VERKOOPBAARHEID of GESCHIKTHEID VOOR EEN BEPAALD DOEL. Zie de licentietekst voor meer details.</string>
+    <string name="license_text">Licentietekst van GNU AGPL v3</string>
+    <string name="source_code">Broncode</string>
+    <string name="section_credits">Dankbetuigingen</string>
+    <string name="credits">Orcinus gebruikt de OrcaSlicer-engine. OrcaSlicer is gebaseerd op Bambu Studio van Bambu Lab, Bambu Studio op PrusaSlicer van Prusa Research, en PrusaSlicer op Slic3r van Alessandro Ranellucci en de RepRap-gemeenschap.</string>
+    <string name="third_party_title">Componenten van derden</string>
+    <string name="third_party_summary">De bibliotheken, de engine en het lettertype waaruit de app is opgebouwd, en hun licenties</string>
+    <string name="disclaimer">Orcinus is een onafhankelijk project. Het is niet verbonden aan of goedgekeurd door de ontwikkelaars van OrcaSlicer, Bambu Studio of PrusaSlicer. De namen van deze programma\'s zijn eigendom van hun eigenaars.</string>
+    <string name="loading">Laden…</string>
+    <string name="notice_missing">Geen kennisgeving gevonden</string>
+    <string name="component_version">Versie %1$s</string>
+    <string name="license_link_only">Volledige licentietekst: %1$s</string>
+    <string name="troubleshoot_title">Probleemoplossingscentrum</string>
+    <string name="troubleshoot_info_needed">We hebben informatie nodig om de oorzaak van het probleem te achterhalen. Raadpleeg de wikipagina voor een uitgebreide handleiding.</string>
+    <string name="troubleshoot_info_pack">De knop “Inpakken” verzamelt het projectbestand en de logbestanden van de huidige sessie in een zip-bestand.</string>
+    <string name="troubleshoot_info_examples">Extra visuele voorbeelden, zoals afbeeldingen of schermopnamen, kunnen nuttig zijn bij het melden van het probleem.</string>
+    <string name="troubleshoot_report_issue">Probleem melden</string>
+    <string name="troubleshoot_pack">Inpakken</string>
+    <string name="troubleshoot_profiles">Profielen</string>
+    <string name="troubleshoot_clean_system">Cache van systeemprofielen wissen</string>
+    <string name="troubleshoot_clean_system_tip">Wist de cache van systeemprofielen en bouwt deze bij de volgende start opnieuw op</string>
+    <string name="troubleshoot_clean">Wissen</string>
+    <string name="troubleshoot_loaded_profiles">Overzicht van geladen profielen</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exporteert een gedetailleerd overzicht van de geladen profielen in JSON-formaat</string>
+    <string name="troubleshoot_active">Actief</string>
+    <string name="troubleshoot_printers">Printers</string>
+    <string name="troubleshoot_processes">Processen</string>
+    <string name="troubleshoot_log_level">Logniveau</string>
+    <string name="troubleshoot_review_project">Selecteer NEE om het venster te sluiten en het project te controleren</string>
+    <string name="troubleshoot_no_project">Geen projectbestand in de huidige sessie. Alleen de logbestanden worden in het pakket opgenomen</string>
+    <string name="troubleshoot_export_failed">Exporteren mislukt\nControleer de schrijfrechten en of het bestand door een andere toepassing wordt gebruikt</string>
+    <string name="troubleshoot_clean_failed">Kan de systeemmap niet verwijderen...</string>
+    <string name="troubleshoot_clean_next_start">De cache wordt gewist en opnieuw opgebouwd wanneer de app de volgende keer start.</string>
+    <string name="troubleshoot_clean_pending">Wordt gewist bij de volgende start van de app</string>
+</resources>

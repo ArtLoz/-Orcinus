@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Beállítás varázsló</string>
+    <string name="printer_selection">Nyomtató kiválasztása</string>
+    <string name="custom_filaments">Egyéni filamentek</string>
+    <string name="create_new_filament">Létrehoz</string>
+    <string name="filament_selection">Filament kiválasztása</string>
+    <string name="back">Vissza</string>
+    <string name="next">Következő</string>
+    <string name="finish">Kész</string>
+    <string name="create_printer">Létrehoz</string>
+    <string name="cancel">Mégse</string>
+    <string name="confirm">Megerősítés</string>
+    <string name="all">Összes</string>
+    <string name="clear_all">Kijelölések törlése</string>
+    <string name="printer">Nyomtató</string>
+    <string name="filament_type">Filament típusa</string>
+    <string name="vendor">Gyártó</string>
+    <string name="error">Hiba</string>
+    <string name="no_printer_selected">Legalább egy nyomtatót ki kell választani.</string>
+    <string name="no_filament_selected">Legalább egy filamentet ki kell választani.</string>
+    <string name="use_default_filaments">Szeretnéd az alapértelmezett filamenteket használni?</string>
+    <string name="yes">Igen</string>
+    <string name="no">Nem</string>
+    <string name="ok">OK</string>
+    <string name="search">Keresés</string>
+    <string name="clear_search">Keresés törlése</string>
+    <string name="nozzle">Fúvóka</string>
+    <string name="nozzles">Fúvóka: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Összes</string>
+    <string name="show_checked">Kiválasztott</string>
+    <string name="show_unchecked">Nem kiválasztott</string>
+    <string name="loading">Betöltés…</string>
+    <string name="installing">Beállítások telepítése…</string>
+    <string name="nothing_found">Nincs találat</string>
+    <string name="select_vendor">Az összes %1$s modell kiválasztása</string>
+</resources>

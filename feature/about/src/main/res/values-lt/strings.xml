@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Apie programą</string>
+    <string name="back">Atgal</string>
+    <string name="app_version">Versija %1$s</string>
+    <string name="app_engine">OrcaSlicer variklis %1$s</string>
+    <string name="app_summary">3D spausdinimo sluoksniavimo programa Android įrenginiams. Ji sluoksniuoja modelius OrcaSlicer varikliu, naudodama jo spausdintuvų ir gijų profilius.</string>
+    <string name="app_copyright">© 2026 Orcinus projekto dalyviai</string>
+    <string name="section_license">Licencija</string>
+    <string name="license_notice">Orcinus yra laisva programinė įranga: galite ją platinti ir (arba) keisti pagal Free Software Foundation paskelbtos GNU Affero General Public License 3 versijos sąlygas.\n\nŠi programa platinama tikintis, kad ji bus naudinga, tačiau BE JOKIOS GARANTIJOS, netgi be numanomos PERKAMUMO ar TINKAMUMO KONKREČIAM TIKSLUI garantijos. Daugiau informacijos rasite licencijos tekste.</string>
+    <string name="license_text">GNU AGPL v3 licencijos tekstas</string>
+    <string name="source_code">Pirminis kodas</string>
+    <string name="section_credits">Padėkos</string>
+    <string name="credits">Orcinus naudoja OrcaSlicer variklį. OrcaSlicer sukurta remiantis Bambu Lab programa Bambu Studio, Bambu Studio – Prusa Research programa PrusaSlicer, o PrusaSlicer – programa Slic3r, kurią sukūrė Alessandro Ranellucci ir RepRap bendruomenė.</string>
+    <string name="third_party_title">Trečiųjų šalių komponentai</string>
+    <string name="third_party_summary">Bibliotekos, variklis ir šriftas, iš kurių sukurta programa, ir jų licencijos</string>
+    <string name="disclaimer">Orcinus yra nepriklausomas projektas. Jis nesusijęs su OrcaSlicer, Bambu Studio ar PrusaSlicer kūrėjais ir jų neremiamas. Šių programų pavadinimai priklauso jų savininkams.</string>
+    <string name="loading">Įkeliama…</string>
+    <string name="notice_missing">Informacijos nerasta</string>
+    <string name="component_version">Versija %1$s</string>
+    <string name="license_link_only">Visas licencijos tekstas: %1$s</string>
+    <string name="troubleshoot_title">Trikčių šalinimo centras</string>
+    <string name="troubleshoot_info_needed">Problemos priežasčiai nustatyti mums reikia informacijos. Išsamų vadovą rasite wiki puslapyje.</string>
+    <string name="troubleshoot_info_pack">Mygtukas „Supakuoti“ surenka projekto failą ir dabartinės sesijos žurnalus į ZIP failą.</string>
+    <string name="troubleshoot_info_examples">Pranešant apie problemą gali praversti papildomi vaizdiniai pavyzdžiai, pavyzdžiui, paveikslėliai ar ekrano įrašai.</string>
+    <string name="troubleshoot_report_issue">Pranešti apie problemą</string>
+    <string name="troubleshoot_pack">Supakuoti</string>
+    <string name="troubleshoot_profiles">Profiliai</string>
+    <string name="troubleshoot_clean_system">Išvalyti sistemos profilių talpyklą</string>
+    <string name="troubleshoot_clean_system_tip">Kitą kartą paleidus išvalo ir iš naujo sukuria sistemos profilių talpyklą</string>
+    <string name="troubleshoot_clean">Išvalyti</string>
+    <string name="troubleshoot_loaded_profiles">Įkeltų profilių apžvalga</string>
+    <string name="troubleshoot_loaded_profiles_tip">Eksportuoja išsamią įkeltų profilių apžvalgą JSON formatu</string>
+    <string name="troubleshoot_active">Aktyvūs</string>
+    <string name="troubleshoot_printers">Spausdintuvai</string>
+    <string name="troubleshoot_processes">Procesai</string>
+    <string name="troubleshoot_log_level">Žurnalų lygmuo</string>
+    <string name="troubleshoot_review_project">Pasirinkite „Ne“, kad uždarytumėte langą ir peržiūrėtumėte projektą</string>
+    <string name="troubleshoot_no_project">Dabartinėje sesijoje nėra projekto failo. Į paketą bus įtraukti tik žurnalai</string>
+    <string name="troubleshoot_export_failed">Eksportuoti nepavyko\nPatikrinkite rašymo teises ir ar failo nenaudoja kita programa</string>
+    <string name="troubleshoot_clean_failed">Nepavyko ištrinti sistemos aplanko...</string>
+    <string name="troubleshoot_clean_next_start">Talpykla bus išvalyta ir iš naujo sukurta kitą kartą paleidus programą.</string>
+    <string name="troubleshoot_clean_pending">Bus išvalyta kitą kartą paleidus programą</string>
+</resources>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">Impressora</string>
+    <string name="section_filament">Filamento</string>
+    <string name="section_process">Processo</string>
+    <string name="section_objects">Objetos</string>
+    <string name="object_instance_name">Instância %1$d</string>
+    <string name="object_instances">Instâncias</string>
+    <string name="object_list_expand">Expandir</string>
+    <string name="object_list_collapse">Recolher</string>
+    <string name="object_menu_add_range_after">Adicionar intervalo depois</string>
+    <string name="object_menu_edit_range">Editar alturas</string>
+    <string name="object_layer_range">Intervalo %1$.2f-%2$.2f (mm)</string>
+    <string name="object_range_bottom">Inferior</string>
+    <string name="object_range_top">Superior</string>
+    <string name="object_range_unit">mm</string>
+    <string name="object_range_apply">Aplicar</string>
+    <string name="collapse_sidebar">Recolher barra lateral</string>
+    <string name="expand_sidebar">Expandir barra lateral</string>
+    <string name="nozzle_diameter">Diâmetro do bico</string>
+    <string name="select_printers">Selecionar impressoras</string>
+    <string name="select_filaments">Selecionar filamentos</string>
+    <string name="millimeters">%1$s mm</string>
+    <string name="engine_starting">Iniciando o motor do OrcaSlicer…</string>
+    <string name="engine_ready">Motor %1$s</string>
+    <string name="engine_unavailable">O motor do OrcaSlicer não está disponível</string>
+    <string name="about">Sobre</string>
+    <string name="troubleshoot">Central de solução de problemas</string>
+</resources>

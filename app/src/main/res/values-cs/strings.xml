@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Připojení k tiskárnám a cloudu</string>
+    <string name="network_notification_login">Přihlašování do %1$s: čekání na prohlížeč</string>
+    <string name="network_notification_send">Odesílání do %1$s</string>
+    <string name="network_notification_uploads">Nahrávání do tiskáren</string>
+</resources>

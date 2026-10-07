@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">Model dilimleme</string>
+    <string name="slicing_notification_title">Dilimleniyor: %1$s</string>
+    <string name="slicing_notification_preparing">Hazırlanıyor…</string>
+    <string name="slicing_notification_cancel">İptal</string>
+</resources>

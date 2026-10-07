@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Geri</string>
+    <string name="object_table_row_settings">Seçili nesnenin veya parçanın ayarları</string>
+    <string name="object_table_pick_cell">Nesnesinin veya parçasının ayarlarını burada görmek için bir hücreye dokunun.</string>
+    <string name="object_table_sort">Sırala: %1$s</string>
+</resources>

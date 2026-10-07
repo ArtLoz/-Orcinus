@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">กลับ</string>
+    <string name="object_table_row_settings">การตั้งค่าของวัตถุหรือชิ้นส่วนที่เลือก</string>
+    <string name="object_table_pick_cell">แตะเซลล์เพื่อดูการตั้งค่าของวัตถุหรือชิ้นส่วนของเซลล์นั้นที่นี่</string>
+    <string name="object_table_sort">เรียงตาม %1$s</string>
+</resources>

@@ -97,6 +97,14 @@ android {
         buildConfig = true
     }
 
+    // The language chosen in the app may differ from the system's, so every
+    // language's strings ship in the base APK rather than in per-language splits.
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
+
 }
 
 aboutLibraries {

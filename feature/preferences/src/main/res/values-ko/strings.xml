@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">뒤로</string>
+    <string name="preferences_decrease">감소</string>
+    <string name="preferences_increase">증가</string>
+</resources>

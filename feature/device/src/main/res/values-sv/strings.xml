@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">För BambuLab-skrivare visar den här fliken BambuLabs egen monitor, som körs via BambuLabs nätverksplugin; den finns inte i appen.</string>
+</resources>

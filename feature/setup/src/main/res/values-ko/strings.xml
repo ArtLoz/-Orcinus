@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">설정 마법사</string>
+    <string name="printer_selection">프린터 선택</string>
+    <string name="custom_filaments">사용자 정의 필라멘트</string>
+    <string name="create_new_filament">생성</string>
+    <string name="filament_selection">필라멘트 선택</string>
+    <string name="back">뒤로</string>
+    <string name="next">다음</string>
+    <string name="finish">완료</string>
+    <string name="create_printer">생성</string>
+    <string name="cancel">취소</string>
+    <string name="confirm">수락</string>
+    <string name="all">전체</string>
+    <string name="clear_all">전체 해제</string>
+    <string name="printer">프린터</string>
+    <string name="filament_type">필라멘트 종류</string>
+    <string name="vendor">공급업체</string>
+    <string name="error">오류</string>
+    <string name="no_printer_selected">하나 이상의 프린터를 선택해야 합니다.</string>
+    <string name="no_filament_selected">하나 이상의 필라멘트를 선택해야 합니다.</string>
+    <string name="use_default_filaments">기본 필라멘트를 사용하시겠습니까?</string>
+    <string name="yes">예</string>
+    <string name="no">아니오</string>
+    <string name="ok">확인</string>
+    <string name="search">검색</string>
+    <string name="clear_search">검색어 지우기</string>
+    <string name="nozzle">노즐</string>
+    <string name="nozzles">노즐: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">전체</string>
+    <string name="show_checked">선택됨</string>
+    <string name="show_unchecked">선택 안 됨</string>
+    <string name="loading">로딩 중…</string>
+    <string name="installing">사전 설정 설치 중…</string>
+    <string name="nothing_found">검색 결과가 없습니다</string>
+    <string name="select_vendor">%1$s의 모든 모델 선택</string>
+</resources>

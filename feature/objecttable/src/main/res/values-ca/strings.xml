@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Enrere</string>
+    <string name="object_table_row_settings">Configuració de l\'objecte o la peça seleccionats</string>
+    <string name="object_table_pick_cell">Toqueu una cel·la per veure aquí la configuració del seu objecte o peça.</string>
+    <string name="object_table_sort">Ordenar per %1$s</string>
+</resources>

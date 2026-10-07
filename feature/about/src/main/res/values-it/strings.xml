@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Informazioni</string>
+    <string name="back">Indietro</string>
+    <string name="app_version">Versione %1$s</string>
+    <string name="app_engine">Motore di OrcaSlicer %1$s</string>
+    <string name="app_summary">Uno slicer per la stampa 3D su Android. Elabora i modelli con il motore di OrcaSlicer e i suoi profili di stampanti e filamenti.</string>
+    <string name="app_copyright">© 2026 Collaboratori di Orcinus</string>
+    <string name="section_license">Licenza</string>
+    <string name="license_notice">Orcinus è software libero: puoi ridistribuirlo e/o modificarlo secondo i termini della GNU Affero General Public License versione 3, come pubblicata dalla Free Software Foundation.\n\nQuesto programma è distribuito nella speranza che sia utile, ma SENZA ALCUNA GARANZIA, nemmeno la garanzia implicita di COMMERCIABILITÀ o di IDONEITÀ PER UNO SCOPO PARTICOLARE. Per maggiori dettagli consulta il testo della licenza.</string>
+    <string name="license_text">Testo della licenza GNU AGPL v3</string>
+    <string name="source_code">Codice sorgente</string>
+    <string name="section_credits">Riconoscimenti</string>
+    <string name="credits">Orcinus utilizza il motore di OrcaSlicer. OrcaSlicer si basa su Bambu Studio di Bambu Lab, Bambu Studio su PrusaSlicer di Prusa Research e PrusaSlicer su Slic3r di Alessandro Ranellucci e della comunità RepRap.</string>
+    <string name="third_party_title">Componenti di terze parti</string>
+    <string name="third_party_summary">Le librerie, il motore e il carattere con cui è realizzata l\'app, e le relative licenze</string>
+    <string name="disclaimer">Orcinus è un progetto indipendente. Non è affiliato agli sviluppatori di OrcaSlicer, Bambu Studio o PrusaSlicer né approvato da loro. I nomi di questi programmi appartengono ai rispettivi proprietari.</string>
+    <string name="loading">Caricamento…</string>
+    <string name="notice_missing">Nessuna informazione trovata</string>
+    <string name="component_version">Versione %1$s</string>
+    <string name="license_link_only">Testo completo della licenza: %1$s</string>
+    <string name="troubleshoot_title">Centro risoluzione problemi</string>
+    <string name="troubleshoot_info_needed">Ci servono informazioni per diagnosticare l\'origine del problema. Consulta la pagina wiki per una guida dettagliata.</string>
+    <string name="troubleshoot_info_pack">Il pulsante «Impacchetta» raccoglie il file di progetto e i registri della sessione corrente in un file ZIP.</string>
+    <string name="troubleshoot_info_examples">Eventuali esempi visivi aggiuntivi, come immagini o registrazioni dello schermo, possono essere utili per segnalare il problema.</string>
+    <string name="troubleshoot_report_issue">Segnala un problema</string>
+    <string name="troubleshoot_pack">Impacchetta</string>
+    <string name="troubleshoot_profiles">Profili</string>
+    <string name="troubleshoot_clean_system">Svuota la cache dei profili di sistema</string>
+    <string name="troubleshoot_clean_system_tip">Svuota e ricostruisce la cache dei profili di sistema al prossimo avvio</string>
+    <string name="troubleshoot_clean">Svuota</string>
+    <string name="troubleshoot_loaded_profiles">Panoramica dei profili caricati</string>
+    <string name="troubleshoot_loaded_profiles_tip">Esporta una panoramica dettagliata dei profili caricati in formato JSON</string>
+    <string name="troubleshoot_active">Attivi</string>
+    <string name="troubleshoot_printers">Stampanti</string>
+    <string name="troubleshoot_processes">Processi</string>
+    <string name="troubleshoot_log_level">Livello registro</string>
+    <string name="troubleshoot_review_project">Seleziona «No» per chiudere la finestra e rivedere il progetto</string>
+    <string name="troubleshoot_no_project">Nessun file di progetto nella sessione corrente. Nel pacchetto verranno inclusi solo i registri</string>
+    <string name="troubleshoot_export_failed">Esportazione non riuscita\nControlla i permessi di scrittura o se il file è in uso da parte di un\'altra applicazione</string>
+    <string name="troubleshoot_clean_failed">Impossibile eliminare la cartella di sistema...</string>
+    <string name="troubleshoot_clean_next_start">La cache verrà svuotata e ricostruita al prossimo avvio dell\'app.</string>
+    <string name="troubleshoot_clean_pending">Verrà svuotata al prossimo avvio dell\'app</string>
+</resources>

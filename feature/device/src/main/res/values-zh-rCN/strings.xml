@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">对于 BambuLab 打印机，此标签页显示 BambuLab 自己的监控界面，它依赖 BambuLab 的网络插件运行，而本应用没有该插件。</string>
+</resources>

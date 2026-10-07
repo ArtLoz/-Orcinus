@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">Slicování modelů</string>
+    <string name="slicing_notification_title">Slicování: %1$s</string>
+    <string name="slicing_notification_preparing">Příprava…</string>
+    <string name="slicing_notification_cancel">Zrušit</string>
+</resources>

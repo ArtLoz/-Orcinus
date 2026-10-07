@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Assistente de Configuração</string>
+    <string name="printer_selection">Seleção de Impressora</string>
+    <string name="custom_filaments">Filamentos Personalizados</string>
+    <string name="create_new_filament">Criar</string>
+    <string name="filament_selection">Seleção de Filamento</string>
+    <string name="back">Voltar</string>
+    <string name="next">Próximo</string>
+    <string name="finish">Terminar</string>
+    <string name="create_printer">Criar</string>
+    <string name="cancel">Cancelar</string>
+    <string name="confirm">Confirmar</string>
+    <string name="all">Tudo</string>
+    <string name="clear_all">Limpar tudo</string>
+    <string name="printer">Impressora</string>
+    <string name="filament_type">Tipo de Filamento</string>
+    <string name="vendor">Fabricante</string>
+    <string name="error">Erro</string>
+    <string name="no_printer_selected">Pelo menos uma impressora deve ser selecionada.</string>
+    <string name="no_filament_selected">Pelo menos um filamento deve ser selecionado.</string>
+    <string name="use_default_filaments">Você deseja usar os filamentos padrão?</string>
+    <string name="yes">Sim</string>
+    <string name="no">Não</string>
+    <string name="ok">OK</string>
+    <string name="search">Buscar</string>
+    <string name="clear_search">Limpar busca</string>
+    <string name="nozzle">Bico</string>
+    <string name="nozzles">Bico: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Todos</string>
+    <string name="show_checked">Selecionados</string>
+    <string name="show_unchecked">Não selecionados</string>
+    <string name="loading">Carregando…</string>
+    <string name="installing">Instalando predefinições…</string>
+    <string name="nothing_found">Nada encontrado</string>
+    <string name="select_vendor">Selecionar todos os modelos %1$s</string>
+</resources>

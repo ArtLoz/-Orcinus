@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Installatiewizard</string>
+    <string name="printer_selection">Printerselectie</string>
+    <string name="custom_filaments">Aangepaste filamenten</string>
+    <string name="create_new_filament">Creëren</string>
+    <string name="filament_selection">Filamentselectie</string>
+    <string name="back">Terug</string>
+    <string name="next">Volgende</string>
+    <string name="finish">Voltooien</string>
+    <string name="create_printer">Creëren</string>
+    <string name="cancel">Annuleren</string>
+    <string name="confirm">Bevestigen</string>
+    <string name="all">Alle</string>
+    <string name="clear_all">Alles wissen</string>
+    <string name="printer">Printer</string>
+    <string name="filament_type">Filamenttype</string>
+    <string name="vendor">Leverancier</string>
+    <string name="error">Fout</string>
+    <string name="no_printer_selected">Er moet ten minste één printer worden geselecteerd.</string>
+    <string name="no_filament_selected">Er moet ten minste één filament worden geselecteerd.</string>
+    <string name="use_default_filaments">Wilt u de standaardfilamenten gebruiken?</string>
+    <string name="yes">Ja</string>
+    <string name="no">Nee</string>
+    <string name="ok">OK</string>
+    <string name="search">Zoeken</string>
+    <string name="clear_search">Zoekopdracht wissen</string>
+    <string name="nozzle">Mondstuk</string>
+    <string name="nozzles">Mondstuk: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Alle</string>
+    <string name="show_checked">Geselecteerd</string>
+    <string name="show_unchecked">Niet geselecteerd</string>
+    <string name="loading">Laden…</string>
+    <string name="installing">Voorinstellingen installeren…</string>
+    <string name="nothing_found">Niets gevonden</string>
+    <string name="select_vendor">Alle modellen van %1$s selecteren</string>
+</resources>

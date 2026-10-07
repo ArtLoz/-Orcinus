@@ -81,7 +81,7 @@
     <string name="role_internal_bridge">Внутренний мост</string>
     <string name="role_brim">Кайма</string>
     <string name="role_support_transition">Переходный слой</string>
-    <string name="role_multiple">Множитель</string>
+    <string name="role_multiple">Смешанные</string>
 
     <string name="option_travel">Перемещения</string>
     <string name="option_wipe">Очистка</string>

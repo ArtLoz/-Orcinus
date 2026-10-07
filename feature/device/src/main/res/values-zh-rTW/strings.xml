@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">對於 BambuLab 列印設備，此分頁會顯示 BambuLab 自己的監控介面，它需透過 BambuLab 的網路外掛程式運作，而本應用程式沒有此外掛程式。</string>
+</resources>

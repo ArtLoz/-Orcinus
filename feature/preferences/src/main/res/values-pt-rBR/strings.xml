@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">Voltar</string>
+    <string name="preferences_decrease">Diminuir</string>
+    <string name="preferences_increase">Aumentar</string>
+</resources>

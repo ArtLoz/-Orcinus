@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Máy in và kết nối cloud</string>
+    <string name="network_notification_login">Đang đăng nhập vào %1$s: đang chờ trình duyệt</string>
+    <string name="network_notification_send">Đang gửi đến %1$s</string>
+    <string name="network_notification_uploads">Đang tải lên máy in</string>
+</resources>

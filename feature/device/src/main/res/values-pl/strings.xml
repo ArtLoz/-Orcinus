@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">W przypadku drukarek BambuLab ta karta pokazuje własny monitor BambuLab, który działa na wtyczce sieciowej BambuLab; aplikacja jej nie ma.</string>
+</resources>

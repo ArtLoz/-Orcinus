@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">返回</string>
+    <string name="object_table_row_settings">所選物件或零件的設定</string>
+    <string name="object_table_pick_cell">輕觸儲存格即可在此查看其物件或零件的設定。</string>
+    <string name="object_table_sort">依%1$s排序</string>
+</resources>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">Skrivare</string>
+    <string name="section_filament">Filament</string>
+    <string name="section_process">Process</string>
+    <string name="section_objects">Objekt</string>
+    <string name="object_instance_name">Instans %1$d</string>
+    <string name="object_instances">Instanser</string>
+    <string name="object_list_expand">Utöka</string>
+    <string name="object_list_collapse">Komprimera</string>
+    <string name="object_menu_add_range_after">Lägg till intervall efter</string>
+    <string name="object_menu_edit_range">Redigera höjder</string>
+    <string name="object_layer_range">Intervall %1$.2f-%2$.2f (mm)</string>
+    <string name="object_range_bottom">Botten</string>
+    <string name="object_range_top">Topp</string>
+    <string name="object_range_unit">mm</string>
+    <string name="object_range_apply">Applicera</string>
+    <string name="collapse_sidebar">Komprimera sidopanelen</string>
+    <string name="expand_sidebar">Utöka sidopanelen</string>
+    <string name="nozzle_diameter">Nozzeldiameter</string>
+    <string name="select_printers">Välj skrivare</string>
+    <string name="select_filaments">Välj filament</string>
+    <string name="millimeters">%1$s mm</string>
+    <string name="engine_starting">Startar OrcaSlicer-motorn…</string>
+    <string name="engine_ready">Motor %1$s</string>
+    <string name="engine_unavailable">OrcaSlicer-motorn är inte tillgänglig</string>
+    <string name="about">Om</string>
+    <string name="troubleshoot">Felsökningscenter</string>
+</resources>

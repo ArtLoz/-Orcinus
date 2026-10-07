@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Tillbaka</string>
+    <string name="object_table_row_settings">Inställningar för det valda objektet eller den valda delen</string>
+    <string name="object_table_pick_cell">Tryck på en cell för att se inställningarna för dess objekt eller del här.</string>
+    <string name="object_table_sort">Sortera efter %1$s</string>
+</resources>

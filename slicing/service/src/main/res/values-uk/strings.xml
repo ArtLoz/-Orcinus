@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">Нарізка моделей</string>
+    <string name="slicing_notification_title">Нарізка: %1$s</string>
+    <string name="slicing_notification_preparing">Підготовка…</string>
+    <string name="slicing_notification_cancel">Скасувати</string>
+</resources>

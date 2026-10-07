@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">เครื่องพิมพ์</string>
+    <string name="section_filament">เส้นพลาสติก</string>
+    <string name="section_process">กระบวนการ</string>
+    <string name="section_objects">วัตถุ</string>
+    <string name="object_instance_name">อินสแตนซ์ %1$d</string>
+    <string name="object_instances">อินสแตนซ์</string>
+    <string name="object_list_expand">ขยาย</string>
+    <string name="object_list_collapse">ยุบ</string>
+    <string name="object_menu_add_range_after">เพิ่มช่วงต่อจากนี้</string>
+    <string name="object_menu_edit_range">แก้ไขความสูง</string>
+    <string name="object_layer_range">ช่วง %1$.2f-%2$.2f (มม.)</string>
+    <string name="object_range_bottom">ล่าง</string>
+    <string name="object_range_top">บน</string>
+    <string name="object_range_unit">มม.</string>
+    <string name="object_range_apply">ใช้</string>
+    <string name="collapse_sidebar">ยุบแถบด้านข้าง</string>
+    <string name="expand_sidebar">ขยายแถบด้านข้าง</string>
+    <string name="nozzle_diameter">เส้นผ่านศูนย์กลางหัวฉีด</string>
+    <string name="select_printers">เลือกเครื่องพิมพ์</string>
+    <string name="select_filaments">เลือกเส้นพลาสติก</string>
+    <string name="millimeters">%1$s มม.</string>
+    <string name="engine_starting">กำลังเริ่มเอนจิน OrcaSlicer…</string>
+    <string name="engine_ready">เอนจิน %1$s</string>
+    <string name="engine_unavailable">เอนจิน OrcaSlicer ไม่พร้อมใช้งาน</string>
+    <string name="about">เกี่ยวกับ</string>
+    <string name="troubleshoot">ศูนย์แก้ไขปัญหา</string>
+</resources>

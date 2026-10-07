@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">U tiskáren BambuLab tato karta zobrazuje vlastní monitor BambuLab, který běží na síťovém plug-inu BambuLab; aplikace jej nemá.</string>
+</resources>

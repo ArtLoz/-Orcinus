@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Atgal</string>
+    <string name="object_table_row_settings">Pasirinkto objekto ar dalies nustatymai</string>
+    <string name="object_table_pick_cell">Bakstelėkite langelį, kad čia matytumėte jo objekto ar dalies nustatymus.</string>
+    <string name="object_table_sort">Rikiuoti pagal: %1$s</string>
+</resources>

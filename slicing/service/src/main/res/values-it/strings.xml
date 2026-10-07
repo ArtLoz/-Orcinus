@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">Elaborazione dei modelli</string>
+    <string name="slicing_notification_title">Elaborazione: %1$s</string>
+    <string name="slicing_notification_preparing">Preparazione…</string>
+    <string name="slicing_notification_cancel">Annulla</string>
+</resources>

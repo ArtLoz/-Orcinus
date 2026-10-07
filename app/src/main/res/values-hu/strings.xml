@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Nyomtatók és felhőkapcsolatok</string>
+    <string name="network_notification_login">Bejelentkezés a(z) %1$s szolgáltatásba: várakozás a böngészőre</string>
+    <string name="network_notification_send">Küldés a(z) %1$s nyomtatóra</string>
+    <string name="network_notification_uploads">Feltöltés nyomtatókra</string>
+</resources>

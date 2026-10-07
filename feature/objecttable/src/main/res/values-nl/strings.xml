@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Terug</string>
+    <string name="object_table_row_settings">Instellingen van het geselecteerde object of onderdeel</string>
+    <string name="object_table_pick_cell">Tik op een cel om hier de instellingen van het bijbehorende object of onderdeel te zien.</string>
+    <string name="object_table_sort">Sorteren op %1$s</string>
+</resources>

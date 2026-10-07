@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Про програму</string>
+    <string name="back">Назад</string>
+    <string name="app_version">Версія %1$s</string>
+    <string name="app_engine">Рушій OrcaSlicer %1$s</string>
+    <string name="app_summary">Слайсер для 3D-друку на Android. Нарізає моделі рушієм OrcaSlicer з його профілями принтерів і філаментів.</string>
+    <string name="app_copyright">© 2026 Учасники проєкту Orcinus</string>
+    <string name="section_license">Ліцензія</string>
+    <string name="license_notice">Orcinus — вільна програма: ви можете поширювати та/або змінювати її на умовах GNU Affero General Public License версії 3, опублікованої Free Software Foundation.\n\nЦя програма поширюється в надії, що вона буде корисною, але БЕЗ БУДЬ-ЯКИХ ГАРАНТІЙ, навіть без неявної гарантії ПРИДАТНОСТІ ДО ПРОДАЖУ або ПРИДАТНОСТІ ДЛЯ ПЕВНОЇ МЕТИ. Докладніше — у тексті ліцензії.</string>
+    <string name="license_text">Текст ліцензії GNU AGPL v3</string>
+    <string name="source_code">Вихідний код</string>
+    <string name="section_credits">Подяки</string>
+    <string name="credits">Orcinus використовує рушій OrcaSlicer. OrcaSlicer заснований на Bambu Studio від Bambu Lab, Bambu Studio — на PrusaSlicer від Prusa Research, а PrusaSlicer — на Slic3r від Алессандро Ранеллуччі та спільноти RepRap.</string>
+    <string name="third_party_title">Сторонні компоненти</string>
+    <string name="third_party_summary">Бібліотеки, рушій і шрифт, з яких зібрано програму, та їхні ліцензії</string>
+    <string name="disclaimer">Orcinus — незалежний проєкт. Він не пов\'язаний з розробниками OrcaSlicer, Bambu Studio чи PrusaSlicer і не схвалений ними. Назви цих програм належать їхнім власникам.</string>
+    <string name="loading">Завантаження…</string>
+    <string name="notice_missing">Відомостей не знайдено</string>
+    <string name="component_version">Версія %1$s</string>
+    <string name="license_link_only">Повний текст ліцензії: %1$s</string>
+    <string name="troubleshoot_title">Центр усунення несправностей</string>
+    <string name="troubleshoot_info_needed">Для діагностики причини проблеми потрібна інформація. Докладний посібник — на сторінці вікі.</string>
+    <string name="troubleshoot_info_pack">Кнопка «Упакувати» збирає файл проєкту та журнали поточного сеансу в ZIP-архів.</string>
+    <string name="troubleshoot_info_examples">Повідомляючи про проблему, корисно додати наочні приклади, як-от зображення чи записи екрана.</string>
+    <string name="troubleshoot_report_issue">Повідомити про проблему</string>
+    <string name="troubleshoot_pack">Упакувати</string>
+    <string name="troubleshoot_profiles">Профілі</string>
+    <string name="troubleshoot_clean_system">Очистити кеш системних профілів</string>
+    <string name="troubleshoot_clean_system_tip">Очищає та перебудовує кеш системних профілів під час наступного запуску</string>
+    <string name="troubleshoot_clean">Очистити</string>
+    <string name="troubleshoot_loaded_profiles">Огляд завантажених профілів</string>
+    <string name="troubleshoot_loaded_profiles_tip">Експортує докладний огляд завантажених профілів у форматі JSON</string>
+    <string name="troubleshoot_active">Активні</string>
+    <string name="troubleshoot_printers">Принтери</string>
+    <string name="troubleshoot_processes">Процеси</string>
+    <string name="troubleshoot_log_level">Рівень журналювання</string>
+    <string name="troubleshoot_review_project">Виберіть «Ні», щоб закрити вікно й переглянути проєкт</string>
+    <string name="troubleshoot_no_project">У поточному сеансі немає файлу проєкту. До архіву ввійдуть лише журнали</string>
+    <string name="troubleshoot_export_failed">Не вдалося експортувати\nПеревірте права на запис і чи не використовує файл інша програма</string>
+    <string name="troubleshoot_clean_failed">Не вдалося видалити системну папку...</string>
+    <string name="troubleshoot_clean_next_start">Кеш буде очищено й перебудовано під час наступного запуску програми.</string>
+    <string name="troubleshoot_clean_pending">Буде очищено під час наступного запуску програми</string>
+</resources>

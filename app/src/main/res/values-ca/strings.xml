@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Connexions amb impressores i el núvol</string>
+    <string name="network_notification_login">Iniciant la sessió a %1$s: esperant el navegador</string>
+    <string name="network_notification_send">Enviant a %1$s</string>
+    <string name="network_notification_uploads">Pujant a les impressores</string>
+</resources>

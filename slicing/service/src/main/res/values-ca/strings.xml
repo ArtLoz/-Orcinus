@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">Laminat de models</string>
+    <string name="slicing_notification_title">Laminant: %1$s</string>
+    <string name="slicing_notification_preparing">Preparant…</string>
+    <string name="slicing_notification_cancel">Cancel·lar</string>
+</resources>

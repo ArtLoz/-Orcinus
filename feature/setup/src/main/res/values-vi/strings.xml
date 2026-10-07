@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Trình hướng dẫn thiết lập</string>
+    <string name="printer_selection">Chọn máy in</string>
+    <string name="custom_filaments">Filament tùy chỉnh</string>
+    <string name="create_new_filament">Tạo</string>
+    <string name="filament_selection">Chọn filament</string>
+    <string name="back">Quay lại</string>
+    <string name="next">Tiếp theo</string>
+    <string name="finish">Hoàn thành</string>
+    <string name="create_printer">Tạo</string>
+    <string name="cancel">Hủy</string>
+    <string name="confirm">Xác nhận</string>
+    <string name="all">Tất cả</string>
+    <string name="clear_all">Bỏ chọn tất cả</string>
+    <string name="printer">Máy in</string>
+    <string name="filament_type">Loại filament</string>
+    <string name="vendor">Nhà cung cấp</string>
+    <string name="error">Lỗi</string>
+    <string name="no_printer_selected">Phải chọn ít nhất một máy in.</string>
+    <string name="no_filament_selected">Phải chọn ít nhất một filament.</string>
+    <string name="use_default_filaments">Bạn có muốn dùng các filament mặc định không?</string>
+    <string name="yes">Có</string>
+    <string name="no">Không</string>
+    <string name="ok">OK</string>
+    <string name="search">Tìm kiếm</string>
+    <string name="clear_search">Xóa tìm kiếm</string>
+    <string name="nozzle">Đầu phun</string>
+    <string name="nozzles">Đầu phun: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Tất cả</string>
+    <string name="show_checked">Đã chọn</string>
+    <string name="show_unchecked">Chưa chọn</string>
+    <string name="loading">Đang tải…</string>
+    <string name="installing">Đang cài đặt preset…</string>
+    <string name="nothing_found">Không tìm thấy kết quả</string>
+    <string name="select_vendor">Chọn tất cả model %1$s</string>
+</resources>

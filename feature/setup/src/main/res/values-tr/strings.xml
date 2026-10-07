@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Kurulum sihirbazı</string>
+    <string name="printer_selection">Yazıcı Seçimi</string>
+    <string name="custom_filaments">Özel Filamentler</string>
+    <string name="create_new_filament">Oluştur</string>
+    <string name="filament_selection">Filament Seçimi</string>
+    <string name="back">Geri</string>
+    <string name="next">İleri</string>
+    <string name="finish">Bitir</string>
+    <string name="create_printer">Oluştur</string>
+    <string name="cancel">İptal Et</string>
+    <string name="confirm">Onayla</string>
+    <string name="all">Hepsi</string>
+    <string name="clear_all">Hepsini temizle</string>
+    <string name="printer">Yazıcı</string>
+    <string name="filament_type">Filament türü</string>
+    <string name="vendor">Üretici</string>
+    <string name="error">Hata</string>
+    <string name="no_printer_selected">En az bir yazıcı seçilmelidir.</string>
+    <string name="no_filament_selected">En az bir filament seçilmelidir.</string>
+    <string name="use_default_filaments">Varsayılan filamentleri kullanmak ister misiniz?</string>
+    <string name="yes">Evet</string>
+    <string name="no">Hayır</string>
+    <string name="ok">Tamam</string>
+    <string name="search">Ara</string>
+    <string name="clear_search">Aramayı temizle</string>
+    <string name="nozzle">Nozul</string>
+    <string name="nozzles">Nozul: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Hepsi</string>
+    <string name="show_checked">Seçili</string>
+    <string name="show_unchecked">Seçilmemiş</string>
+    <string name="loading">Yükleniyor…</string>
+    <string name="installing">Ön ayarlar yükleniyor…</string>
+    <string name="nothing_found">Sonuç bulunamadı</string>
+    <string name="select_vendor">Tüm %1$s modellerini seç</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">뒤로</string>
+    <string name="object_table_row_settings">선택한 객체 또는 부품의 설정</string>
+    <string name="object_table_pick_cell">셀을 탭하면 해당 객체 또는 부품의 설정이 여기에 표시됩니다.</string>
+    <string name="object_table_sort">%1$s 기준으로 정렬</string>
+</resources>

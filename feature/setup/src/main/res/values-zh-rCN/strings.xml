@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">配置向导</string>
+    <string name="printer_selection">选择打印机</string>
+    <string name="custom_filaments">自建材料</string>
+    <string name="create_new_filament">新建</string>
+    <string name="filament_selection">选择材料</string>
+    <string name="back">上一步</string>
+    <string name="next">下一步</string>
+    <string name="finish">结束</string>
+    <string name="create_printer">创建</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确定</string>
+    <string name="all">全部</string>
+    <string name="clear_all">清空</string>
+    <string name="printer">打印机</string>
+    <string name="filament_type">材料类型</string>
+    <string name="vendor">供应商</string>
+    <string name="error">错误</string>
+    <string name="no_printer_selected">至少需要选择一款打印机。</string>
+    <string name="no_filament_selected">至少要选择一款材料。</string>
+    <string name="use_default_filaments">您希望使用默认的材料列表吗？</string>
+    <string name="yes">是</string>
+    <string name="no">否</string>
+    <string name="ok">确定</string>
+    <string name="search">搜索</string>
+    <string name="clear_search">清除搜索</string>
+    <string name="nozzle">喷嘴</string>
+    <string name="nozzles">喷嘴：%1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">全部</string>
+    <string name="show_checked">已选择</string>
+    <string name="show_unchecked">未选择</string>
+    <string name="loading">正在加载…</string>
+    <string name="installing">正在安装预设…</string>
+    <string name="nothing_found">未找到结果</string>
+    <string name="select_vendor">选择所有 %1$s 型号</string>
+</resources>

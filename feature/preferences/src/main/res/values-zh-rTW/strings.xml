@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">返回</string>
+    <string name="preferences_decrease">減少</string>
+    <string name="preferences_increase">增加</string>
+</resources>

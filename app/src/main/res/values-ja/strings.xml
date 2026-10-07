@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">プリンターとクラウドの接続</string>
+    <string name="network_notification_login">%1$sにログイン中: ブラウザでの操作を待っています</string>
+    <string name="network_notification_send">%1$sに送信中</string>
+    <string name="network_notification_uploads">プリンターにアップロード中</string>
+</resources>

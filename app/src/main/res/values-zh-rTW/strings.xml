@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">列印設備與雲端連線</string>
+    <string name="network_notification_login">正在登入 %1$s：等待瀏覽器</string>
+    <string name="network_notification_send">正在傳送到 %1$s</string>
+    <string name="network_notification_uploads">正在上傳到列印設備</string>
+</resources>

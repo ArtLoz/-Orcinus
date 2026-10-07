@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Assistent per a la instal·lació</string>
+    <string name="printer_selection">Selecció d\'impressora</string>
+    <string name="custom_filaments">Filaments personalitzats</string>
+    <string name="create_new_filament">Crear</string>
+    <string name="filament_selection">Selecció de filament</string>
+    <string name="back">Enrere</string>
+    <string name="next">Següent</string>
+    <string name="finish">Finalitzar</string>
+    <string name="create_printer">Crear</string>
+    <string name="cancel">Cancel·lar</string>
+    <string name="confirm">Confirmar</string>
+    <string name="all">Tots</string>
+    <string name="clear_all">Netejar tot</string>
+    <string name="printer">Impressora</string>
+    <string name="filament_type">Tipus de filament</string>
+    <string name="vendor">Fabricant</string>
+    <string name="error">Error</string>
+    <string name="no_printer_selected">S\'ha de seleccionar almenys una impressora.</string>
+    <string name="no_filament_selected">S\'ha de seleccionar almenys un filament.</string>
+    <string name="use_default_filaments">Voleu utilitzar els filaments per defecte?</string>
+    <string name="yes">Sí</string>
+    <string name="no">No</string>
+    <string name="ok">D\'acord</string>
+    <string name="search">Cercar</string>
+    <string name="clear_search">Esborrar la cerca</string>
+    <string name="nozzle">Broquet</string>
+    <string name="nozzles">Broquet: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Tots</string>
+    <string name="show_checked">Seleccionats</string>
+    <string name="show_unchecked">No seleccionats</string>
+    <string name="loading">Carregant…</string>
+    <string name="installing">Instal·lant perfils…</string>
+    <string name="nothing_found">No s\'ha trobat res</string>
+    <string name="select_vendor">Seleccionar tots els models de %1$s</string>
+</resources>

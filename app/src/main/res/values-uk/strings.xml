@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Зв\'язок із принтерами та хмарою</string>
+    <string name="network_notification_login">Вхід до %1$s: очікування браузера</string>
+    <string name="network_notification_send">Надсилання на %1$s</string>
+    <string name="network_notification_uploads">Надсилання на принтери</string>
+</resources>

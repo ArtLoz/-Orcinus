@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Atrás</string>
+    <string name="object_table_row_settings">Ajustes del objeto o la pieza seleccionados</string>
+    <string name="object_table_pick_cell">Toque una celda para ver aquí los ajustes de su objeto o pieza.</string>
+    <string name="object_table_sort">Ordenar por %1$s</string>
+</resources>

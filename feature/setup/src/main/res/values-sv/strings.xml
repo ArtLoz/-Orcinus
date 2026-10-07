@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Installationsguide</string>
+    <string name="printer_selection">Val av skrivare</string>
+    <string name="custom_filaments">Anpassade filament</string>
+    <string name="create_new_filament">Skapa</string>
+    <string name="filament_selection">Val av filament</string>
+    <string name="back">Tillbaka</string>
+    <string name="next">Nästa</string>
+    <string name="finish">Slutför</string>
+    <string name="create_printer">Skapa</string>
+    <string name="cancel">Avbryt</string>
+    <string name="confirm">Bekräfta</string>
+    <string name="all">Alla</string>
+    <string name="clear_all">Rensa alla</string>
+    <string name="printer">Skrivare</string>
+    <string name="filament_type">Filamenttyp</string>
+    <string name="vendor">Leverantör</string>
+    <string name="error">Fel</string>
+    <string name="no_printer_selected">Minst en skrivare måste väljas.</string>
+    <string name="no_filament_selected">Minst ett filament måste väljas.</string>
+    <string name="use_default_filaments">Vill du använda standardfilamenten?</string>
+    <string name="yes">Ja</string>
+    <string name="no">Nej</string>
+    <string name="ok">OK</string>
+    <string name="search">Sök</string>
+    <string name="clear_search">Rensa sökningen</string>
+    <string name="nozzle">Nozzel</string>
+    <string name="nozzles">Nozzel: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Alla</string>
+    <string name="show_checked">Valda</string>
+    <string name="show_unchecked">Ej valda</string>
+    <string name="loading">Laddar…</string>
+    <string name="installing">Installerar förinställningar…</string>
+    <string name="nothing_found">Inget hittades</string>
+    <string name="select_vendor">Välj alla modeller från %1$s</string>
+</resources>

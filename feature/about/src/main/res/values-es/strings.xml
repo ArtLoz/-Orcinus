@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Acerca de</string>
+    <string name="back">Atrás</string>
+    <string name="app_version">Versión %1$s</string>
+    <string name="app_engine">Motor de OrcaSlicer %1$s</string>
+    <string name="app_summary">Un laminador para impresión 3D en Android. Lamina los modelos con el motor de OrcaSlicer y sus perfiles de impresoras y filamentos.</string>
+    <string name="app_copyright">© 2026 Colaboradores de Orcinus</string>
+    <string name="section_license">Licencia</string>
+    <string name="license_notice">Orcinus es software libre: puede redistribuirlo y/o modificarlo según los términos de la GNU Affero General Public License versión 3, publicada por la Free Software Foundation.\n\nEste programa se distribuye con la esperanza de que sea útil, pero SIN NINGUNA GARANTÍA; ni siquiera la garantía implícita de COMERCIABILIDAD o IDONEIDAD PARA UN PROPÓSITO PARTICULAR. Consulte el texto de la licencia para más detalles.</string>
+    <string name="license_text">Texto de la licencia GNU AGPL v3</string>
+    <string name="source_code">Código fuente</string>
+    <string name="section_credits">Créditos</string>
+    <string name="credits">Orcinus usa el motor de OrcaSlicer. OrcaSlicer se basa en Bambu Studio de Bambu Lab; Bambu Studio, en PrusaSlicer de Prusa Research, y PrusaSlicer, en Slic3r de Alessandro Ranellucci y la comunidad RepRap.</string>
+    <string name="third_party_title">Componentes de terceros</string>
+    <string name="third_party_summary">Las bibliotecas, el motor y la fuente con los que está hecha la aplicación, y sus licencias</string>
+    <string name="disclaimer">Orcinus es un proyecto independiente. No está afiliado a los desarrolladores de OrcaSlicer, Bambu Studio o PrusaSlicer ni cuenta con su respaldo. Los nombres de estos programas pertenecen a sus propietarios.</string>
+    <string name="loading">Cargando…</string>
+    <string name="notice_missing">No se encontró información</string>
+    <string name="component_version">Versión %1$s</string>
+    <string name="license_link_only">Texto completo de la licencia: %1$s</string>
+    <string name="troubleshoot_title">Centro de resolución de problemas</string>
+    <string name="troubleshoot_info_needed">Necesitamos información para diagnosticar el origen del problema. Consulte la página wiki para ver una guía detallada.</string>
+    <string name="troubleshoot_info_pack">El botón «Empaquetar» reúne el archivo del proyecto y los registros de la sesión actual en un archivo ZIP.</string>
+    <string name="troubleshoot_info_examples">Cualquier ejemplo visual adicional, como imágenes o grabaciones de pantalla, puede ser útil al informar del problema.</string>
+    <string name="troubleshoot_report_issue">Informar de un problema</string>
+    <string name="troubleshoot_pack">Empaquetar</string>
+    <string name="troubleshoot_profiles">Perfiles</string>
+    <string name="troubleshoot_clean_system">Limpiar la caché de perfiles del sistema</string>
+    <string name="troubleshoot_clean_system_tip">Limpia y reconstruye la caché de perfiles del sistema en el próximo inicio</string>
+    <string name="troubleshoot_clean">Limpiar</string>
+    <string name="troubleshoot_loaded_profiles">Resumen de perfiles cargados</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exporta un resumen detallado de los perfiles cargados en formato JSON</string>
+    <string name="troubleshoot_active">Activos</string>
+    <string name="troubleshoot_printers">Impresoras</string>
+    <string name="troubleshoot_processes">Procesos</string>
+    <string name="troubleshoot_log_level">Nivel de registro</string>
+    <string name="troubleshoot_review_project">Seleccione «No» para cerrar el diálogo y revisar el proyecto</string>
+    <string name="troubleshoot_no_project">No hay ningún archivo de proyecto en la sesión actual. Solo se incluirán los registros en el paquete</string>
+    <string name="troubleshoot_export_failed">Error al exportar\nCompruebe los permisos de escritura o si el archivo está en uso por otra aplicación</string>
+    <string name="troubleshoot_clean_failed">No se pudo eliminar la carpeta del sistema...</string>
+    <string name="troubleshoot_clean_next_start">La caché se limpiará y reconstruirá la próxima vez que se inicie la aplicación.</string>
+    <string name="troubleshoot_clean_pending">Se limpiará la próxima vez que se inicie la aplicación</string>
+</resources>

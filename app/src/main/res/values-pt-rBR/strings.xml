@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Conexões com impressoras e nuvem</string>
+    <string name="network_notification_login">Entrando em %1$s: aguardando o navegador</string>
+    <string name="network_notification_send">Enviando para %1$s</string>
+    <string name="network_notification_uploads">Enviando para impressoras</string>
+</resources>

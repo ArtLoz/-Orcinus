@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">このアプリについて</string>
+    <string name="back">戻る</string>
+    <string name="app_version">バージョン %1$s</string>
+    <string name="app_engine">OrcaSlicerエンジン %1$s</string>
+    <string name="app_summary">Android向けの3Dプリント用スライサーです。OrcaSlicerエンジンと、そのプリンターおよびフィラメントのプロファイルでモデルをスライスします。</string>
+    <string name="app_copyright">© 2026 Orcinus コントリビューター</string>
+    <string name="section_license">ライセンス</string>
+    <string name="license_notice">Orcinusはフリーソフトウェアです。Free Software Foundationが公表したGNU Affero General Public Licenseバージョン3の条件の下で、再頒布または改変（あるいはその両方）を行うことができます。\n\nこのプログラムは有用であることを願って頒布されますが、まったくの無保証です。商品性や特定目的への適合性についての暗黙の保証もありません。詳しくはライセンス本文をご覧ください。</string>
+    <string name="license_text">GNU AGPL v3 ライセンス本文</string>
+    <string name="source_code">ソースコード</string>
+    <string name="section_credits">クレジット</string>
+    <string name="credits">OrcinusはOrcaSlicerエンジンを使用しています。OrcaSlicerはBambu LabのBambu Studioを、Bambu StudioはPrusa ResearchのPrusaSlicerを、PrusaSlicerはAlessandro RanellucciとRepRapコミュニティのSlic3rをベースにしています。</string>
+    <string name="third_party_title">サードパーティ製コンポーネント</string>
+    <string name="third_party_summary">このアプリを構成するライブラリ、エンジン、フォントと、それぞれのライセンス</string>
+    <string name="disclaimer">Orcinusは独立したプロジェクトです。OrcaSlicer、Bambu Studio、PrusaSlicerの開発者とは提携しておらず、承認も受けていません。これらのプログラムの名称は各所有者に帰属します。</string>
+    <string name="loading">読み込み中…</string>
+    <string name="notice_missing">ライセンス表示が見つかりません</string>
+    <string name="component_version">バージョン %1$s</string>
+    <string name="license_link_only">ライセンス全文: %1$s</string>
+    <string name="troubleshoot_title">トラブルシューティングセンター</string>
+    <string name="troubleshoot_info_needed">問題の原因を診断するための情報が必要です。詳しい手順はWikiページをご覧ください。</string>
+    <string name="troubleshoot_info_pack">「パック」ボタンを押すと、現在のセッションのプロジェクトファイルとログをzipファイルにまとめます。</string>
+    <string name="troubleshoot_info_examples">問題を報告する際は、画像や画面録画などの視覚的な例を添えると役立つ場合があります。</string>
+    <string name="troubleshoot_report_issue">問題を報告</string>
+    <string name="troubleshoot_pack">パック</string>
+    <string name="troubleshoot_profiles">プロファイル</string>
+    <string name="troubleshoot_clean_system">システムプロファイルのキャッシュをクリア</string>
+    <string name="troubleshoot_clean_system_tip">次回起動時にシステムプロファイルのキャッシュをクリアして再構築します</string>
+    <string name="troubleshoot_clean">クリア</string>
+    <string name="troubleshoot_loaded_profiles">読み込まれたプロファイルの概要</string>
+    <string name="troubleshoot_loaded_profiles_tip">読み込まれたプロファイルの詳細な概要をJSON形式でエクスポートします</string>
+    <string name="troubleshoot_active">有効</string>
+    <string name="troubleshoot_printers">プリンター</string>
+    <string name="troubleshoot_processes">プロセス</string>
+    <string name="troubleshoot_log_level">ログレベル</string>
+    <string name="troubleshoot_review_project">「いいえ」を選択するとダイアログを閉じて、プロジェクトを確認できます</string>
+    <string name="troubleshoot_no_project">現在のセッションにはプロジェクトファイルがありません。パッケージにはログのみが含まれます</string>
+    <string name="troubleshoot_export_failed">エクスポートに失敗しました\n書き込み権限があるか、ファイルが他のアプリケーションで使用中でないかを確認してください</string>
+    <string name="troubleshoot_clean_failed">システムフォルダを削除できませんでした...</string>
+    <string name="troubleshoot_clean_next_start">キャッシュはアプリの次回起動時にクリアされ、再構築されます。</string>
+    <string name="troubleshoot_clean_pending">アプリの次回起動時にクリアされます</string>
+</resources>

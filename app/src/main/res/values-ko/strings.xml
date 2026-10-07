@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">프린터 및 클라우드 연결</string>
+    <string name="network_notification_login">%1$s에 로그인 중: 브라우저 대기 중</string>
+    <string name="network_notification_send">%1$s에 전송 중</string>
+    <string name="network_notification_uploads">프린터에 업로드 중</string>
+</resources>

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">BambuLabのプリンターの場合、このタブにはBambuLab独自のモニターが表示されます。このモニターはBambuLabのネットワークプラグインで動作しますが、このアプリにはそのプラグインがありません。</string>
+</resources>

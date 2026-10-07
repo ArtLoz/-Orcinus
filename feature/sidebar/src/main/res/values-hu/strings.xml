@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">Nyomtató</string>
+    <string name="section_filament">Filament</string>
+    <string name="section_process">Folyamat</string>
+    <string name="section_objects">Objektumok</string>
+    <string name="object_instance_name">%1$d. példány</string>
+    <string name="object_instances">Példányok</string>
+    <string name="object_list_expand">Kibontás</string>
+    <string name="object_list_collapse">Összecsukás</string>
+    <string name="object_menu_add_range_after">Tartomány hozzáadása utána</string>
+    <string name="object_menu_edit_range">Magasságok szerkesztése</string>
+    <string name="object_layer_range">Tartomány %1$.2f-%2$.2f (mm)</string>
+    <string name="object_range_bottom">Alsó</string>
+    <string name="object_range_top">Felső</string>
+    <string name="object_range_unit">mm</string>
+    <string name="object_range_apply">Alkalmaz</string>
+    <string name="collapse_sidebar">Az oldalsáv összecsukása</string>
+    <string name="expand_sidebar">Az oldalsáv kibontása</string>
+    <string name="nozzle_diameter">Fúvóka átmérője</string>
+    <string name="select_printers">Nyomtatók kiválasztása</string>
+    <string name="select_filaments">Filamentek kiválasztása</string>
+    <string name="millimeters">%1$s mm</string>
+    <string name="engine_starting">Az OrcaSlicer motor indítása…</string>
+    <string name="engine_ready">Motor %1$s</string>
+    <string name="engine_unavailable">Az OrcaSlicer motor nem érhető el</string>
+    <string name="about">Névjegy</string>
+    <string name="troubleshoot">Hibaelhárítási központ</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">模型切片</string>
+    <string name="slicing_notification_title">正在切片：%1$s</string>
+    <string name="slicing_notification_preparing">正在准备…</string>
+    <string name="slicing_notification_cancel">取消</string>
+</resources>

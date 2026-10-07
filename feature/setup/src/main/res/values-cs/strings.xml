@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Průvodce nastavením</string>
+    <string name="printer_selection">Výběr tiskárny</string>
+    <string name="custom_filaments">Vlastní filamenty</string>
+    <string name="create_new_filament">Vytvořit</string>
+    <string name="filament_selection">Výběr filamentu</string>
+    <string name="back">Zpět</string>
+    <string name="next">Další</string>
+    <string name="finish">Dokončit</string>
+    <string name="create_printer">Vytvořit</string>
+    <string name="cancel">Zrušit</string>
+    <string name="confirm">Potvrdit</string>
+    <string name="all">Všechny</string>
+    <string name="clear_all">Vymazat vše</string>
+    <string name="printer">Tiskárna</string>
+    <string name="filament_type">Typ filamentu</string>
+    <string name="vendor">Dodavatel</string>
+    <string name="error">Chyba</string>
+    <string name="no_printer_selected">Musí být vybrána alespoň jedna tiskárna.</string>
+    <string name="no_filament_selected">Musí být vybrán alespoň jeden filament.</string>
+    <string name="use_default_filaments">Chcete použít výchozí filamenty?</string>
+    <string name="yes">Ano</string>
+    <string name="no">Ne</string>
+    <string name="ok">OK</string>
+    <string name="search">Hledat</string>
+    <string name="clear_search">Vymazat hledání</string>
+    <string name="nozzle">Tryska</string>
+    <string name="nozzles">Tryska: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Všechny</string>
+    <string name="show_checked">Vybrané</string>
+    <string name="show_unchecked">Nevybrané</string>
+    <string name="loading">Načítání…</string>
+    <string name="installing">Instalace předvoleb…</string>
+    <string name="nothing_found">Nic nenalezeno</string>
+    <string name="select_vendor">Vybrat všechny modely %1$s</string>
+</resources>

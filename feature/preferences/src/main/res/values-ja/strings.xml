@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">戻る</string>
+    <string name="preferences_decrease">減らす</string>
+    <string name="preferences_increase">増やす</string>
+</resources>

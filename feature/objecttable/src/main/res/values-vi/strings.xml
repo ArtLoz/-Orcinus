@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Quay lại</string>
+    <string name="object_table_row_settings">Cài đặt của đối tượng hoặc phần đã chọn</string>
+    <string name="object_table_pick_cell">Nhấn vào một ô để xem tại đây cài đặt của đối tượng hoặc phần tương ứng.</string>
+    <string name="object_table_sort">Sắp xếp theo %1$s</string>
+</resources>

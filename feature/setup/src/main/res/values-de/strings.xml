@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Einrichtungsassistent</string>
+    <string name="printer_selection">Druckerauswahl</string>
+    <string name="custom_filaments">Benutzerdefinierte Filamente</string>
+    <string name="create_new_filament">Erstellen</string>
+    <string name="filament_selection">Filamentauswahl</string>
+    <string name="back">Zurück</string>
+    <string name="next">Weiter</string>
+    <string name="finish">Fertig</string>
+    <string name="create_printer">Erstellen</string>
+    <string name="cancel">Abbrechen</string>
+    <string name="confirm">Bestätigen</string>
+    <string name="all">Alle</string>
+    <string name="clear_all">Alle abwählen</string>
+    <string name="printer">Drucker</string>
+    <string name="filament_type">Filamenttyp</string>
+    <string name="vendor">Hersteller</string>
+    <string name="error">Fehler</string>
+    <string name="no_printer_selected">Es muss mindestens ein Drucker ausgewählt sein.</string>
+    <string name="no_filament_selected">Es muss mindestens ein Filament ausgewählt sein.</string>
+    <string name="use_default_filaments">Möchten Sie die Standardfilamente verwenden?</string>
+    <string name="yes">Ja</string>
+    <string name="no">Nein</string>
+    <string name="ok">OK</string>
+    <string name="search">Suche</string>
+    <string name="clear_search">Suche löschen</string>
+    <string name="nozzle">Düse</string>
+    <string name="nozzles">Düse: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Alle</string>
+    <string name="show_checked">Ausgewählt</string>
+    <string name="show_unchecked">Nicht ausgewählt</string>
+    <string name="loading">Wird geladen…</string>
+    <string name="installing">Profile werden installiert…</string>
+    <string name="nothing_found">Nichts gefunden</string>
+    <string name="select_vendor">Alle Modelle von %1$s auswählen</string>
+</resources>

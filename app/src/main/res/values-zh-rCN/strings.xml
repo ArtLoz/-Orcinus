@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">打印机和云连接</string>
+    <string name="network_notification_login">正在登录 %1$s：等待浏览器</string>
+    <string name="network_notification_send">正在发送到 %1$s</string>
+    <string name="network_notification_uploads">正在上传到打印机</string>
+</resources>

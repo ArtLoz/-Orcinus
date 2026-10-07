@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">Wstecz</string>
+    <string name="preferences_decrease">Zmniejsz</string>
+    <string name="preferences_increase">Zwiększ</string>
+</resources>

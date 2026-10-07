@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Névjegy</string>
+    <string name="back">Vissza</string>
+    <string name="app_version">%1$s verzió</string>
+    <string name="app_engine">OrcaSlicer motor %1$s</string>
+    <string name="app_summary">3D nyomtatási szeletelő Androidra. A modelleket az OrcaSlicer motorral szeleteli, annak nyomtató- és filamentprofiljaival.</string>
+    <string name="app_copyright">© 2026 Az Orcinus közreműködői</string>
+    <string name="section_license">Licenc</string>
+    <string name="license_notice">Az Orcinus szabad szoftver: a Free Software Foundation által kiadott GNU Affero General Public License 3. verziójának feltételei szerint terjesztheted és/vagy módosíthatod.\n\nEzt a programot abban a reményben terjesztjük, hogy hasznos lesz, de BÁRMIFÉLE GARANCIA NÉLKÜL; még az ELADHATÓSÁGRA vagy az ADOTT CÉLRA VALÓ ALKALMASSÁGRA vonatkozó hallgatólagos garanciát is kizárva. További részletek a licenc szövegében.</string>
+    <string name="license_text">A GNU AGPL v3 licenc szövege</string>
+    <string name="source_code">Forráskód</string>
+    <string name="section_credits">Köszönetnyilvánítás</string>
+    <string name="credits">Az Orcinus az OrcaSlicer motorját használja. Az OrcaSlicer a Bambu Lab Bambu Studio programján alapul, a Bambu Studio a Prusa Research PrusaSlicer programján, a PrusaSlicer pedig Alessandro Ranellucci és a RepRap közösség Slic3r programján.</string>
+    <string name="third_party_title">Harmadik féltől származó összetevők</string>
+    <string name="third_party_summary">Az alkalmazás alapjául szolgáló könyvtárak, motor és betűtípus, valamint ezek licencei</string>
+    <string name="disclaimer">Az Orcinus független projekt. Nem áll kapcsolatban az OrcaSlicer, a Bambu Studio vagy a PrusaSlicer fejlesztőivel, és ők nem is támogatják. Ezeknek a programoknak a neve a tulajdonosaiké.</string>
+    <string name="loading">Betöltés…</string>
+    <string name="notice_missing">Nem találhatók adatok</string>
+    <string name="component_version">%1$s verzió</string>
+    <string name="license_link_only">A licenc teljes szövege: %1$s</string>
+    <string name="troubleshoot_title">Hibaelhárítási központ</string>
+    <string name="troubleshoot_info_needed">A probléma okának felderítéséhez információra van szükségünk. Részletes útmutatót a wikioldalon találsz.</string>
+    <string name="troubleshoot_info_pack">A Csomagolás gomb a projektfájlt és az aktuális munkamenet naplóit egy zip-fájlba gyűjti.</string>
+    <string name="troubleshoot_info_examples">A probléma bejelentésekor hasznosak lehetnek további szemléltető példák, például képek vagy képernyőfelvételek.</string>
+    <string name="troubleshoot_report_issue">Probléma bejelentése</string>
+    <string name="troubleshoot_pack">Csomagolás</string>
+    <string name="troubleshoot_profiles">Profilok</string>
+    <string name="troubleshoot_clean_system">Rendszerprofilok gyorsítótárának törlése</string>
+    <string name="troubleshoot_clean_system_tip">A következő indításkor törli és újraépíti a rendszerprofilok gyorsítótárát</string>
+    <string name="troubleshoot_clean">Törlés</string>
+    <string name="troubleshoot_loaded_profiles">Betöltött profilok áttekintése</string>
+    <string name="troubleshoot_loaded_profiles_tip">A betöltött profilok részletes áttekintését exportálja JSON formátumban</string>
+    <string name="troubleshoot_active">Aktív</string>
+    <string name="troubleshoot_printers">Nyomtatók</string>
+    <string name="troubleshoot_processes">Folyamatok</string>
+    <string name="troubleshoot_log_level">Naplózási szint</string>
+    <string name="troubleshoot_review_project">Válaszd a „Nem” lehetőséget a párbeszédablak bezárásához és a projekt átnézéséhez</string>
+    <string name="troubleshoot_no_project">Az aktuális munkamenetben nincs projektfájl. A csomagba csak a naplók kerülnek</string>
+    <string name="troubleshoot_export_failed">Az exportálás sikertelen\nEllenőrizd az írási jogosultságokat, és hogy a fájlt nem használja-e egy másik alkalmazás</string>
+    <string name="troubleshoot_clean_failed">Nem sikerült törölni a rendszermappát...</string>
+    <string name="troubleshoot_clean_next_start">A gyorsítótár az alkalmazás következő indításakor törlődik és újraépül.</string>
+    <string name="troubleshoot_clean_pending">Az alkalmazás következő indításakor törlődik</string>
+</resources>

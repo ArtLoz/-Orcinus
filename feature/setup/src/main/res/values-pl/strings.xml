@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Kreator konfiguracji</string>
+    <string name="printer_selection">Wybór drukarki</string>
+    <string name="custom_filaments">Niestandardowe filamenty</string>
+    <string name="create_new_filament">Utwórz</string>
+    <string name="filament_selection">Wybór filamentu</string>
+    <string name="back">Wstecz</string>
+    <string name="next">Dalej</string>
+    <string name="finish">Zakończ</string>
+    <string name="create_printer">Utwórz</string>
+    <string name="cancel">Anuluj</string>
+    <string name="confirm">Potwierdź</string>
+    <string name="all">Wszystkie</string>
+    <string name="clear_all">Wyczyść wszystko</string>
+    <string name="printer">Drukarka</string>
+    <string name="filament_type">Typ filamentu</string>
+    <string name="vendor">Dostawca</string>
+    <string name="error">Błąd</string>
+    <string name="no_printer_selected">Przynajmniej jedna drukarka musi być wybrana.</string>
+    <string name="no_filament_selected">Przynajmniej jeden filament musi być wybrany.</string>
+    <string name="use_default_filaments">Czy chcesz użyć domyślnych filamentów?</string>
+    <string name="yes">Tak</string>
+    <string name="no">Nie</string>
+    <string name="ok">OK</string>
+    <string name="search">Szukaj</string>
+    <string name="clear_search">Wyczyść wyszukiwanie</string>
+    <string name="nozzle">Dysza</string>
+    <string name="nozzles">Dysza: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Wszystkie</string>
+    <string name="show_checked">Wybrane</string>
+    <string name="show_unchecked">Niewybrane</string>
+    <string name="loading">Wczytywanie…</string>
+    <string name="installing">Instalowanie profili…</string>
+    <string name="nothing_found">Nic nie znaleziono</string>
+    <string name="select_vendor">Zaznacz wszystkie modele %1$s</string>
+</resources>

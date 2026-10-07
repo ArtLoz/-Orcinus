@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">Drukarka</string>
+    <string name="section_filament">Filament</string>
+    <string name="section_process">Proces</string>
+    <string name="section_objects">Obiekty</string>
+    <string name="object_instance_name">Instancja %1$d</string>
+    <string name="object_instances">Instancje</string>
+    <string name="object_list_expand">Rozwiń</string>
+    <string name="object_list_collapse">Zwiń</string>
+    <string name="object_menu_add_range_after">Dodaj zakres po</string>
+    <string name="object_menu_edit_range">Edytuj wysokości</string>
+    <string name="object_layer_range">Zakres %1$.2f-%2$.2f (mm)</string>
+    <string name="object_range_bottom">Dół</string>
+    <string name="object_range_top">Góra</string>
+    <string name="object_range_unit">mm</string>
+    <string name="object_range_apply">Zastosuj</string>
+    <string name="collapse_sidebar">Zwiń pasek boczny</string>
+    <string name="expand_sidebar">Rozwiń pasek boczny</string>
+    <string name="nozzle_diameter">Średnica dyszy</string>
+    <string name="select_printers">Wybierz drukarki</string>
+    <string name="select_filaments">Wybierz filamenty</string>
+    <string name="millimeters">%1$s mm</string>
+    <string name="engine_starting">Uruchamianie silnika OrcaSlicer…</string>
+    <string name="engine_ready">Silnik %1$s</string>
+    <string name="engine_unavailable">Silnik OrcaSlicer jest niedostępny</string>
+    <string name="about">O programie</string>
+    <string name="troubleshoot">Centrum rozwiązywania problemów</string>
+</resources>

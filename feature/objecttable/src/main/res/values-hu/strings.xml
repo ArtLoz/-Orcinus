@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Vissza</string>
+    <string name="object_table_row_settings">A kijelölt objektum vagy tárgy beállításai</string>
+    <string name="object_table_pick_cell">Koppints egy cellára, hogy itt lásd a hozzá tartozó objektum vagy tárgy beállításait.</string>
+    <string name="object_table_sort">Rendezés: %1$s</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Anslutningar till skrivare och moln</string>
+    <string name="network_notification_login">Loggar in på %1$s: väntar på webbläsaren</string>
+    <string name="network_notification_send">Skickar till %1$s</string>
+    <string name="network_notification_uploads">Laddar upp till skrivare</string>
+</resources>

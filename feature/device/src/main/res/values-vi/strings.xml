@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">Với máy in BambuLab, tab này hiển thị trình giám sát riêng của BambuLab, chạy trên plug-in mạng của BambuLab; ứng dụng không có plug-in này.</string>
+</resources>

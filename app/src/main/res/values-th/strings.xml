@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">เครื่องพิมพ์และการเชื่อมต่อคลาวด์</string>
+    <string name="network_notification_login">กำลังเข้าสู่ระบบ %1$s: กำลังรอเบราว์เซอร์</string>
+    <string name="network_notification_send">กำลังส่งไปยัง %1$s</string>
+    <string name="network_notification_uploads">กำลังอัปโหลดไปยังเครื่องพิมพ์</string>
+</resources>

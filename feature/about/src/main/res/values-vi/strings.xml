@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Giới thiệu</string>
+    <string name="back">Quay lại</string>
+    <string name="app_version">Phiên bản %1$s</string>
+    <string name="app_engine">Engine OrcaSlicer %1$s</string>
+    <string name="app_summary">Phần mềm slicer in 3D cho Android. Ứng dụng slice model bằng engine OrcaSlicer cùng các hồ sơ máy in và filament của OrcaSlicer.</string>
+    <string name="app_copyright">© 2026 Những người đóng góp cho Orcinus</string>
+    <string name="section_license">Giấy phép</string>
+    <string name="license_notice">Orcinus là phần mềm tự do: bạn có thể phân phối lại và/hoặc sửa đổi nó theo các điều khoản của GNU Affero General Public License phiên bản 3 do Free Software Foundation công bố.\n\nChương trình này được phân phối với hy vọng rằng nó sẽ hữu ích, nhưng KHÔNG CÓ BẤT KỲ BẢO ĐẢM NÀO; thậm chí không có bảo đảm ngụ ý về KHẢ NĂNG THƯƠNG MẠI hay SỰ PHÙ HỢP CHO MỘT MỤC ĐÍCH CỤ THỂ. Xem văn bản giấy phép để biết thêm chi tiết.</string>
+    <string name="license_text">Văn bản giấy phép GNU AGPL v3</string>
+    <string name="source_code">Mã nguồn</string>
+    <string name="section_credits">Ghi công</string>
+    <string name="credits">Orcinus sử dụng engine OrcaSlicer. OrcaSlicer dựa trên Bambu Studio của Bambu Lab, Bambu Studio dựa trên PrusaSlicer của Prusa Research, còn PrusaSlicer dựa trên Slic3r của Alessandro Ranellucci và cộng đồng RepRap.</string>
+    <string name="third_party_title">Thành phần bên thứ ba</string>
+    <string name="third_party_summary">Các thư viện, engine và phông chữ tạo nên ứng dụng, cùng giấy phép của chúng</string>
+    <string name="disclaimer">Orcinus là một dự án độc lập. Dự án không liên kết với các nhà phát triển OrcaSlicer, Bambu Studio hay PrusaSlicer và cũng không được họ xác nhận. Tên của các chương trình này thuộc về chủ sở hữu của chúng.</string>
+    <string name="loading">Đang tải…</string>
+    <string name="notice_missing">Không tìm thấy thông tin</string>
+    <string name="component_version">Phiên bản %1$s</string>
+    <string name="license_link_only">Toàn văn giấy phép: %1$s</string>
+    <string name="troubleshoot_title">Trung tâm khắc phục sự cố</string>
+    <string name="troubleshoot_info_needed">Chúng tôi cần thông tin để chẩn đoán nguyên nhân sự cố. Xem trang wiki để có hướng dẫn chi tiết.</string>
+    <string name="troubleshoot_info_pack">Nút Đóng gói thu thập file dự án và log của phiên hiện tại vào một file zip.</string>
+    <string name="troubleshoot_info_examples">Khi báo cáo sự cố, các ví dụ trực quan bổ sung như hình ảnh hoặc video quay màn hình có thể hữu ích.</string>
+    <string name="troubleshoot_report_issue">Báo cáo sự cố</string>
+    <string name="troubleshoot_pack">Đóng gói</string>
+    <string name="troubleshoot_profiles">Hồ sơ</string>
+    <string name="troubleshoot_clean_system">Xóa bộ nhớ đệm hồ sơ hệ thống</string>
+    <string name="troubleshoot_clean_system_tip">Xóa và tạo lại bộ nhớ đệm hồ sơ hệ thống ở lần khởi động tiếp theo</string>
+    <string name="troubleshoot_clean">Xóa</string>
+    <string name="troubleshoot_loaded_profiles">Tổng quan các hồ sơ đã tải</string>
+    <string name="troubleshoot_loaded_profiles_tip">Xuất tổng quan chi tiết về các hồ sơ đã tải ở định dạng JSON</string>
+    <string name="troubleshoot_active">Hoạt động</string>
+    <string name="troubleshoot_printers">Máy in</string>
+    <string name="troubleshoot_processes">Quy trình</string>
+    <string name="troubleshoot_log_level">Mức log</string>
+    <string name="troubleshoot_review_project">Chọn “Không” để đóng hộp thoại và xem lại dự án</string>
+    <string name="troubleshoot_no_project">Phiên hiện tại không có file dự án. Gói sẽ chỉ gồm các log</string>
+    <string name="troubleshoot_export_failed">Xuất thất bại\nVui lòng kiểm tra quyền ghi hoặc file có đang được ứng dụng khác sử dụng không</string>
+    <string name="troubleshoot_clean_failed">Không thể xóa thư mục hệ thống...</string>
+    <string name="troubleshoot_clean_next_start">Bộ nhớ đệm sẽ được xóa và tạo lại ở lần khởi động ứng dụng tiếp theo.</string>
+    <string name="troubleshoot_clean_pending">Sẽ được xóa ở lần khởi động ứng dụng tiếp theo</string>
+</resources>

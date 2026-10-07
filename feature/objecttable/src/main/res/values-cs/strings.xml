@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Zpět</string>
+    <string name="object_table_row_settings">Nastavení vybraného objektu nebo části</string>
+    <string name="object_table_pick_cell">Klepnutím na buňku zde zobrazíte nastavení jejího objektu nebo části.</string>
+    <string name="object_table_sort">Seřadit podle: %1$s</string>
+</resources>

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">En las impresoras BambuLab, esta pestaña muestra el monitor propio de BambuLab, que funciona con el plugin de red de BambuLab; la aplicación no lo tiene.</string>
+</resources>

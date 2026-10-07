@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Voltar</string>
+    <string name="object_table_row_settings">Configurações do objeto ou da peça selecionados</string>
+    <string name="object_table_pick_cell">Toque em uma célula para ver aqui as configurações do objeto ou da peça dela.</string>
+    <string name="object_table_sort">Ordenar por %1$s</string>
+</resources>

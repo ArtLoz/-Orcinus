@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">打印机</string>
+    <string name="section_filament">耗材丝</string>
+    <string name="section_process">工艺</string>
+    <string name="section_objects">对象</string>
+    <string name="object_instance_name">实例 %1$d</string>
+    <string name="object_instances">实例</string>
+    <string name="object_list_expand">展开</string>
+    <string name="object_list_collapse">收起</string>
+    <string name="object_menu_add_range_after">在其后添加范围</string>
+    <string name="object_menu_edit_range">编辑高度</string>
+    <string name="object_layer_range">范围 %1$.2f-%2$.2f (mm)</string>
+    <string name="object_range_bottom">底部</string>
+    <string name="object_range_top">顶部</string>
+    <string name="object_range_unit">mm</string>
+    <string name="object_range_apply">应用</string>
+    <string name="collapse_sidebar">折叠边栏</string>
+    <string name="expand_sidebar">展开侧边栏</string>
+    <string name="nozzle_diameter">喷嘴直径</string>
+    <string name="select_printers">选择打印机</string>
+    <string name="select_filaments">选择耗材</string>
+    <string name="millimeters">%1$s mm</string>
+    <string name="engine_starting">正在启动 OrcaSlicer 引擎…</string>
+    <string name="engine_ready">引擎 %1$s</string>
+    <string name="engine_unavailable">OrcaSlicer 引擎不可用</string>
+    <string name="about">关于</string>
+    <string name="troubleshoot">故障排查中心</string>
+</resources>

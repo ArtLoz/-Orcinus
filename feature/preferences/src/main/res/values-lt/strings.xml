@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">Atgal</string>
+    <string name="preferences_decrease">Sumažinti</string>
+    <string name="preferences_increase">Padidinti</string>
+</resources>

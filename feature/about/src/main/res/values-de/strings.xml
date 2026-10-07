@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Über</string>
+    <string name="back">Zurück</string>
+    <string name="app_version">Version %1$s</string>
+    <string name="app_engine">OrcaSlicer-Engine %1$s</string>
+    <string name="app_summary">Ein Slicer für den 3D-Druck auf Android. Das Slicing übernimmt die OrcaSlicer-Engine mit ihren Drucker- und Filamentprofilen.</string>
+    <string name="app_copyright">© 2026 Orcinus-Mitwirkende</string>
+    <string name="section_license">Lizenz</string>
+    <string name="license_notice">Orcinus ist freie Software: Sie können es unter den Bedingungen der GNU Affero General Public License, Version 3, wie von der Free Software Foundation veröffentlicht, weitergeben und/oder verändern.\n\nDieses Programm wird in der Hoffnung verbreitet, dass es nützlich ist, aber OHNE JEDE GEWÄHRLEISTUNG, sogar ohne die implizite Gewährleistung der MARKTGÄNGIGKEIT oder der EIGNUNG FÜR EINEN BESTIMMTEN ZWECK. Weitere Einzelheiten finden Sie im Lizenztext.</string>
+    <string name="license_text">Lizenztext der GNU AGPL v3</string>
+    <string name="source_code">Quellcode</string>
+    <string name="section_credits">Danksagungen</string>
+    <string name="credits">Orcinus verwendet die OrcaSlicer-Engine. OrcaSlicer basiert auf Bambu Studio von Bambu Lab, Bambu Studio auf PrusaSlicer von Prusa Research und PrusaSlicer auf Slic3r von Alessandro Ranellucci und der RepRap-Community.</string>
+    <string name="third_party_title">Komponenten von Drittanbietern</string>
+    <string name="third_party_summary">Die Bibliotheken, die Engine und die Schriftart, aus denen die App besteht, und ihre Lizenzen</string>
+    <string name="disclaimer">Orcinus ist ein unabhängiges Projekt. Es ist weder mit den Entwicklern von OrcaSlicer, Bambu Studio oder PrusaSlicer verbunden noch wird es von ihnen unterstützt. Die Namen dieser Programme gehören ihren Inhabern.</string>
+    <string name="loading">Wird geladen…</string>
+    <string name="notice_missing">Keine Angaben gefunden</string>
+    <string name="component_version">Version %1$s</string>
+    <string name="license_link_only">Vollständiger Lizenztext: %1$s</string>
+    <string name="troubleshoot_title">Fehlerbehebungszentrum</string>
+    <string name="troubleshoot_info_needed">Wir benötigen Informationen, um die Ursache des Problems zu ermitteln. Eine ausführliche Anleitung finden Sie auf der Wiki-Seite.</string>
+    <string name="troubleshoot_info_pack">Die Schaltfläche „Packen“ fasst die Projektdatei und die Protokolle der aktuellen Sitzung in einer ZIP-Datei zusammen.</string>
+    <string name="troubleshoot_info_examples">Zusätzliche visuelle Beispiele wie Bilder oder Bildschirmaufnahmen können beim Melden des Problems hilfreich sein.</string>
+    <string name="troubleshoot_report_issue">Problem melden</string>
+    <string name="troubleshoot_pack">Packen</string>
+    <string name="troubleshoot_profiles">Profile</string>
+    <string name="troubleshoot_clean_system">Cache der Systemprofile leeren</string>
+    <string name="troubleshoot_clean_system_tip">Leert den Cache der Systemprofile und baut ihn beim nächsten Start neu auf</string>
+    <string name="troubleshoot_clean">Leeren</string>
+    <string name="troubleshoot_loaded_profiles">Übersicht der geladenen Profile</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exportiert eine detaillierte Übersicht der geladenen Profile im JSON-Format</string>
+    <string name="troubleshoot_active">Aktiv</string>
+    <string name="troubleshoot_printers">Drucker</string>
+    <string name="troubleshoot_processes">Prozesse</string>
+    <string name="troubleshoot_log_level">Protokollstufe</string>
+    <string name="troubleshoot_review_project">Wählen Sie „Nein“, um den Dialog zu schließen und das Projekt zu prüfen</string>
+    <string name="troubleshoot_no_project">Keine Projektdatei in der aktuellen Sitzung. Das Paket enthält nur die Protokolle</string>
+    <string name="troubleshoot_export_failed">Export fehlgeschlagen\nBitte prüfen Sie die Schreibrechte oder ob die Datei von einer anderen Anwendung verwendet wird</string>
+    <string name="troubleshoot_clean_failed">Systemordner konnte nicht gelöscht werden...</string>
+    <string name="troubleshoot_clean_next_start">Der Cache wird beim nächsten Start der App geleert und neu aufgebaut.</string>
+    <string name="troubleshoot_clean_pending">Wird beim nächsten Start der App geleert</string>
+</resources>

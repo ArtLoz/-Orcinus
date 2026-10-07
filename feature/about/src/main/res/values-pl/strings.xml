@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">O programie</string>
+    <string name="back">Wstecz</string>
+    <string name="app_version">Wersja %1$s</string>
+    <string name="app_engine">Silnik OrcaSlicer %1$s</string>
+    <string name="app_summary">Slicer do druku 3D na Androida. Tnie modele silnikiem OrcaSlicer, korzystając z jego profili drukarek i filamentów.</string>
+    <string name="app_copyright">© 2026 Współtwórcy Orcinus</string>
+    <string name="section_license">Licencja</string>
+    <string name="license_notice">Orcinus jest wolnym oprogramowaniem: możesz go rozpowszechniać i/lub modyfikować na warunkach licencji GNU Affero General Public License w wersji 3, opublikowanej przez Free Software Foundation.\n\nTen program jest rozpowszechniany w nadziei, że będzie użyteczny, ale BEZ JAKIEJKOLWIEK GWARANCJI, nawet bez domyślnej gwarancji PRZYDATNOŚCI HANDLOWEJ lub PRZYDATNOŚCI DO OKREŚLONEGO CELU. Więcej szczegółów znajdziesz w tekście licencji.</string>
+    <string name="license_text">Tekst licencji GNU AGPL v3</string>
+    <string name="source_code">Kod źródłowy</string>
+    <string name="section_credits">Podziękowania</string>
+    <string name="credits">Orcinus korzysta z silnika OrcaSlicer. OrcaSlicer jest oparty na Bambu Studio firmy Bambu Lab, Bambu Studio na PrusaSlicer firmy Prusa Research, a PrusaSlicer na Slic3r, którego autorami są Alessandro Ranellucci i społeczność RepRap.</string>
+    <string name="third_party_title">Komponenty zewnętrzne</string>
+    <string name="third_party_summary">Biblioteki, silnik i czcionka, z których zbudowano aplikację, oraz ich licencje</string>
+    <string name="disclaimer">Orcinus jest niezależnym projektem. Nie jest powiązany z twórcami programów OrcaSlicer, Bambu Studio ani PrusaSlicer ani przez nich wspierany. Nazwy tych programów należą do ich właścicieli.</string>
+    <string name="loading">Wczytywanie…</string>
+    <string name="notice_missing">Nie znaleziono informacji</string>
+    <string name="component_version">Wersja %1$s</string>
+    <string name="license_link_only">Pełny tekst licencji: %1$s</string>
+    <string name="troubleshoot_title">Centrum rozwiązywania problemów</string>
+    <string name="troubleshoot_info_needed">Do zdiagnozowania źródła problemu potrzebujemy informacji. Szczegółowy poradnik znajdziesz na stronie wiki.</string>
+    <string name="troubleshoot_info_pack">Przycisk „Spakuj” zbiera plik projektu i logi bieżącej sesji w pliku ZIP.</string>
+    <string name="troubleshoot_info_examples">Zgłaszając problem, warto dołączyć dodatkowe przykłady wizualne, takie jak zdjęcia lub nagrania ekranu.</string>
+    <string name="troubleshoot_report_issue">Zgłoś problem</string>
+    <string name="troubleshoot_pack">Spakuj</string>
+    <string name="troubleshoot_profiles">Profile</string>
+    <string name="troubleshoot_clean_system">Wyczyść pamięć podręczną profili systemowych</string>
+    <string name="troubleshoot_clean_system_tip">Czyści i odbudowuje pamięć podręczną profili systemowych przy następnym uruchomieniu</string>
+    <string name="troubleshoot_clean">Wyczyść</string>
+    <string name="troubleshoot_loaded_profiles">Przegląd wczytanych profili</string>
+    <string name="troubleshoot_loaded_profiles_tip">Eksportuje szczegółowy przegląd wczytanych profili w formacie JSON</string>
+    <string name="troubleshoot_active">Aktywne</string>
+    <string name="troubleshoot_printers">Drukarki</string>
+    <string name="troubleshoot_processes">Procesy</string>
+    <string name="troubleshoot_log_level">Poziom logowania</string>
+    <string name="troubleshoot_review_project">Wybierz „Nie”, aby zamknąć okno i przejrzeć projekt</string>
+    <string name="troubleshoot_no_project">W bieżącej sesji nie ma pliku projektu. Do paczki zostaną dołączone tylko logi</string>
+    <string name="troubleshoot_export_failed">Eksport nie powiódł się\nSprawdź uprawnienia do zapisu i czy plik nie jest używany przez inną aplikację</string>
+    <string name="troubleshoot_clean_failed">Nie udało się usunąć folderu systemowego...</string>
+    <string name="troubleshoot_clean_next_start">Pamięć podręczna zostanie wyczyszczona i odbudowana przy następnym uruchomieniu aplikacji.</string>
+    <string name="troubleshoot_clean_pending">Zostanie wyczyszczona przy następnym uruchomieniu aplikacji</string>
+</resources>

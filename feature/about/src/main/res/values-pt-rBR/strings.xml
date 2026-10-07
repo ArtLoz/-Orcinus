@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Sobre</string>
+    <string name="back">Voltar</string>
+    <string name="app_version">Versão %1$s</string>
+    <string name="app_engine">Motor do OrcaSlicer %1$s</string>
+    <string name="app_summary">Um fatiador de impressão 3D para Android. Ele fatia modelos com o motor do OrcaSlicer e seus perfis de impressoras e filamentos.</string>
+    <string name="app_copyright">© 2026 Colaboradores do Orcinus</string>
+    <string name="section_license">Licença</string>
+    <string name="license_notice">O Orcinus é software livre: você pode redistribuí-lo e/ou modificá-lo sob os termos da GNU Affero General Public License versão 3, conforme publicada pela Free Software Foundation.\n\nEste programa é distribuído na esperança de que seja útil, mas SEM NENHUMA GARANTIA; sem mesmo a garantia implícita de COMERCIABILIDADE ou ADEQUAÇÃO A UM PROPÓSITO ESPECÍFICO. Veja o texto da licença para mais detalhes.</string>
+    <string name="license_text">Texto da licença GNU AGPL v3</string>
+    <string name="source_code">Código-fonte</string>
+    <string name="section_credits">Créditos</string>
+    <string name="credits">O Orcinus usa o motor do OrcaSlicer. O OrcaSlicer é baseado no Bambu Studio, da Bambu Lab; o Bambu Studio, no PrusaSlicer, da Prusa Research; e o PrusaSlicer, no Slic3r, de Alessandro Ranellucci e da comunidade RepRap.</string>
+    <string name="third_party_title">Componentes de terceiros</string>
+    <string name="third_party_summary">As bibliotecas, o motor e a fonte usados para construir o aplicativo, e suas licenças</string>
+    <string name="disclaimer">O Orcinus é um projeto independente. Ele não é afiliado aos desenvolvedores do OrcaSlicer, Bambu Studio ou PrusaSlicer nem endossado por eles. Os nomes desses programas pertencem aos seus proprietários.</string>
+    <string name="loading">Carregando…</string>
+    <string name="notice_missing">Nenhum aviso encontrado</string>
+    <string name="component_version">Versão %1$s</string>
+    <string name="license_link_only">Texto completo da licença: %1$s</string>
+    <string name="troubleshoot_title">Central de solução de problemas</string>
+    <string name="troubleshoot_info_needed">Precisamos de informações para diagnosticar a origem do problema. Consulte a página da wiki para ver um guia detalhado.</string>
+    <string name="troubleshoot_info_pack">O botão “Empacotar” reúne o arquivo do projeto e os logs da sessão atual em um arquivo ZIP.</string>
+    <string name="troubleshoot_info_examples">Exemplos visuais adicionais, como imagens ou gravações de tela, podem ser úteis ao relatar o problema.</string>
+    <string name="troubleshoot_report_issue">Relatar problema</string>
+    <string name="troubleshoot_pack">Empacotar</string>
+    <string name="troubleshoot_profiles">Perfis</string>
+    <string name="troubleshoot_clean_system">Limpar o cache de perfis do sistema</string>
+    <string name="troubleshoot_clean_system_tip">Limpa e reconstrói o cache de perfis do sistema na próxima inicialização</string>
+    <string name="troubleshoot_clean">Limpar</string>
+    <string name="troubleshoot_loaded_profiles">Visão geral dos perfis carregados</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exporta uma visão geral detalhada dos perfis carregados em formato JSON</string>
+    <string name="troubleshoot_active">Ativos</string>
+    <string name="troubleshoot_printers">Impressoras</string>
+    <string name="troubleshoot_processes">Processos</string>
+    <string name="troubleshoot_log_level">Nível de log</string>
+    <string name="troubleshoot_review_project">Selecione NÃO para fechar a janela e revisar o projeto</string>
+    <string name="troubleshoot_no_project">Não há arquivo de projeto na sessão atual. Somente os logs serão incluídos no pacote</string>
+    <string name="troubleshoot_export_failed">Falha na exportação\nVerifique as permissões de gravação ou se o arquivo está em uso por outro aplicativo</string>
+    <string name="troubleshoot_clean_failed">Falha ao excluir a pasta do sistema...</string>
+    <string name="troubleshoot_clean_next_start">O cache será limpo e reconstruído na próxima vez que o aplicativo for iniciado.</string>
+    <string name="troubleshoot_clean_pending">Será limpo na próxima inicialização do aplicativo</string>
+</resources>

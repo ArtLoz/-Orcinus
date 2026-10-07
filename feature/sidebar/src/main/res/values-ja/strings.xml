@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">プリンター</string>
+    <string name="section_filament">フィラメント</string>
+    <string name="section_process">プロセス</string>
+    <string name="section_objects">オブジェクト</string>
+    <string name="object_instance_name">インスタンス %1$d</string>
+    <string name="object_instances">インスタンス</string>
+    <string name="object_list_expand">展開</string>
+    <string name="object_list_collapse">折りたたむ</string>
+    <string name="object_menu_add_range_after">この後に範囲を追加</string>
+    <string name="object_menu_edit_range">高さを編集</string>
+    <string name="object_layer_range">範囲 %1$.2f-%2$.2f (mm)</string>
+    <string name="object_range_bottom">下端</string>
+    <string name="object_range_top">上端</string>
+    <string name="object_range_unit">mm</string>
+    <string name="object_range_apply">適用</string>
+    <string name="collapse_sidebar">サイドバーを折りたたむ</string>
+    <string name="expand_sidebar">サイドバーを展開</string>
+    <string name="nozzle_diameter">ノズル直径</string>
+    <string name="select_printers">プリンターを選択</string>
+    <string name="select_filaments">フィラメントを選択</string>
+    <string name="millimeters">%1$s mm</string>
+    <string name="engine_starting">OrcaSlicerエンジンを起動中…</string>
+    <string name="engine_ready">エンジン %1$s</string>
+    <string name="engine_unavailable">OrcaSlicerエンジンを利用できません</string>
+    <string name="about">このアプリについて</string>
+    <string name="troubleshoot">トラブルシューティングセンター</string>
+</resources>

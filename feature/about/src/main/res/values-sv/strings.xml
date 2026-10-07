@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Om</string>
+    <string name="back">Tillbaka</string>
+    <string name="app_version">Version %1$s</string>
+    <string name="app_engine">OrcaSlicer-motor %1$s</string>
+    <string name="app_summary">En slicer för 3D-utskrift på Android. Den bereder modeller med OrcaSlicer-motorn och dess skrivar- och filamentprofiler.</string>
+    <string name="app_copyright">© 2026 Orcinus-bidragsgivare</string>
+    <string name="section_license">Licens</string>
+    <string name="license_notice">Orcinus är fri programvara: du kan distribuera och/eller ändra den enligt villkoren i GNU Affero General Public License version 3, som publicerad av Free Software Foundation.\n\nDetta program distribueras i hopp om att det ska vara användbart, men UTAN NÅGON GARANTI; även utan underförstådd garanti om SÄLJBARHET eller LÄMPLIGHET FÖR ETT VISST ÄNDAMÅL. Se licenstexten för mer information.</string>
+    <string name="license_text">Licenstext för GNU AGPL v3</string>
+    <string name="source_code">Källkod</string>
+    <string name="section_credits">Tack</string>
+    <string name="credits">Orcinus använder OrcaSlicer-motorn. OrcaSlicer bygger på Bambu Studio från Bambu Lab, Bambu Studio på PrusaSlicer från Prusa Research och PrusaSlicer på Slic3r av Alessandro Ranellucci och RepRap-gemenskapen.</string>
+    <string name="third_party_title">Komponenter från tredje part</string>
+    <string name="third_party_summary">Biblioteken, motorn och typsnittet som appen är byggd av, och deras licenser</string>
+    <string name="disclaimer">Orcinus är ett oberoende projekt. Det är inte knutet till eller godkänt av utvecklarna av OrcaSlicer, Bambu Studio eller PrusaSlicer. Namnen på dessa program tillhör sina ägare.</string>
+    <string name="loading">Laddar…</string>
+    <string name="notice_missing">Ingen information hittades</string>
+    <string name="component_version">Version %1$s</string>
+    <string name="license_link_only">Fullständig licenstext: %1$s</string>
+    <string name="troubleshoot_title">Felsökningscenter</string>
+    <string name="troubleshoot_info_needed">Vi behöver information för att hitta orsaken till problemet. Se wikisidan för en detaljerad guide.</string>
+    <string name="troubleshoot_info_pack">Knappen ”Packa” samlar projektfilen och loggarna från den aktuella sessionen i en zip-fil.</string>
+    <string name="troubleshoot_info_examples">Ytterligare visuella exempel, som bilder eller skärminspelningar, kan vara till hjälp när du rapporterar problemet.</string>
+    <string name="troubleshoot_report_issue">Rapportera problem</string>
+    <string name="troubleshoot_pack">Packa</string>
+    <string name="troubleshoot_profiles">Profiler</string>
+    <string name="troubleshoot_clean_system">Rensa cachen för systemprofiler</string>
+    <string name="troubleshoot_clean_system_tip">Rensar och återskapar cachen för systemprofiler vid nästa start</string>
+    <string name="troubleshoot_clean">Rensa</string>
+    <string name="troubleshoot_loaded_profiles">Översikt över inlästa profiler</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exporterar en detaljerad översikt över inlästa profiler i JSON-format</string>
+    <string name="troubleshoot_active">Aktiva</string>
+    <string name="troubleshoot_printers">Skrivare</string>
+    <string name="troubleshoot_processes">Processer</string>
+    <string name="troubleshoot_log_level">Loggnivå</string>
+    <string name="troubleshoot_review_project">Välj NEJ för att stänga dialogrutan och granska projektet</string>
+    <string name="troubleshoot_no_project">Ingen projektfil i den aktuella sessionen. Endast loggarna tas med i paketet</string>
+    <string name="troubleshoot_export_failed">Exporten misslyckades\nKontrollera skrivbehörigheten eller om filen används av ett annat program</string>
+    <string name="troubleshoot_clean_failed">Det gick inte att ta bort systemmappen...</string>
+    <string name="troubleshoot_clean_next_start">Cachen rensas och återskapas nästa gång appen startar.</string>
+    <string name="troubleshoot_clean_pending">Rensas nästa gång appen startar</string>
+</resources>

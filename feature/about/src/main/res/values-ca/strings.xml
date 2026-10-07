@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">Quant a</string>
+    <string name="back">Enrere</string>
+    <string name="app_version">Versió %1$s</string>
+    <string name="app_engine">Motor d\'OrcaSlicer %1$s</string>
+    <string name="app_summary">Un laminador per a impressió 3D per a Android. Lamina models amb el motor d\'OrcaSlicer i els seus perfils d\'impressores i filaments.</string>
+    <string name="app_copyright">© 2026 Col·laboradors d\'Orcinus</string>
+    <string name="section_license">Llicència</string>
+    <string name="license_notice">Orcinus és programari lliure: el podeu redistribuir i/o modificar d\'acord amb els termes de la GNU Affero General Public License versió 3, tal com la publica la Free Software Foundation.\n\nAquest programa es distribueix amb l\'esperança que sigui útil, però SENSE CAP GARANTIA; ni tan sols la garantia implícita de COMERCIALITZACIÓ o ADEQUACIÓ A UN PROPÒSIT PARTICULAR. Vegeu el text de la llicència per a més detalls.</string>
+    <string name="license_text">Text de la llicència GNU AGPL v3</string>
+    <string name="source_code">Codi font</string>
+    <string name="section_credits">Crèdits</string>
+    <string name="credits">Orcinus utilitza el motor d\'OrcaSlicer. OrcaSlicer es basa en Bambu Studio, de Bambu Lab; Bambu Studio, en PrusaSlicer, de Prusa Research; i PrusaSlicer, en Slic3r, d\'Alessandro Ranellucci i la comunitat RepRap.</string>
+    <string name="third_party_title">Components de tercers</string>
+    <string name="third_party_summary">Les biblioteques, el motor i el tipus de lletra amb què es construeix l\'aplicació, i les seves llicències</string>
+    <string name="disclaimer">Orcinus és un projecte independent. No està afiliat als desenvolupadors d\'OrcaSlicer, Bambu Studio o PrusaSlicer ni avalat per ells. Els noms d\'aquests programes pertanyen als seus propietaris.</string>
+    <string name="loading">Carregant…</string>
+    <string name="notice_missing">No s\'ha trobat cap avís</string>
+    <string name="component_version">Versió %1$s</string>
+    <string name="license_link_only">Text complet de la llicència: %1$s</string>
+    <string name="troubleshoot_title">Centre de resolució de problemes</string>
+    <string name="troubleshoot_info_needed">Necessitem informació per diagnosticar l\'origen del problema. Consulteu la pàgina de la wiki per a una guia detallada.</string>
+    <string name="troubleshoot_info_pack">El botó «Empaquetar» recull el fitxer del projecte i els registres de la sessió actual en un fitxer ZIP.</string>
+    <string name="troubleshoot_info_examples">Qualsevol exemple visual addicional, com ara imatges o enregistraments de pantalla, pot ser útil per informar del problema.</string>
+    <string name="troubleshoot_report_issue">Informar d\'un problema</string>
+    <string name="troubleshoot_pack">Empaquetar</string>
+    <string name="troubleshoot_profiles">Perfils</string>
+    <string name="troubleshoot_clean_system">Netejar la memòria cau dels perfils del sistema</string>
+    <string name="troubleshoot_clean_system_tip">Neteja i reconstrueix la memòria cau dels perfils del sistema en el proper inici</string>
+    <string name="troubleshoot_clean">Netejar</string>
+    <string name="troubleshoot_loaded_profiles">Resum dels perfils carregats</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exporta un resum detallat dels perfils carregats en format JSON</string>
+    <string name="troubleshoot_active">Actius</string>
+    <string name="troubleshoot_printers">Impressores</string>
+    <string name="troubleshoot_processes">Processos</string>
+    <string name="troubleshoot_log_level">Nivell d\'enregistrament</string>
+    <string name="troubleshoot_review_project">Seleccioneu NO per tancar el diàleg i revisar el projecte</string>
+    <string name="troubleshoot_no_project">No hi ha cap fitxer de projecte a la sessió actual. Només s\'inclouran els registres al paquet</string>
+    <string name="troubleshoot_export_failed">L\'exportació ha fallat\nComproveu els permisos d\'escriptura o si una altra aplicació està fent servir el fitxer</string>
+    <string name="troubleshoot_clean_failed">No s\'ha pogut suprimir la carpeta del sistema...</string>
+    <string name="troubleshoot_clean_next_start">La memòria cau es netejarà i es reconstruirà la propera vegada que s\'iniciï l\'aplicació.</string>
+    <string name="troubleshoot_clean_pending">Es netejarà en el proper inici de l\'aplicació</string>
+</resources>

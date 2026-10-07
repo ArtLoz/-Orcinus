@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">วิซาร์ดการตั้งค่า</string>
+    <string name="printer_selection">การเลือกเครื่องพิมพ์</string>
+    <string name="custom_filaments">เส้นพลาสติกแบบกำหนดเอง</string>
+    <string name="create_new_filament">สร้าง</string>
+    <string name="filament_selection">การเลือกเส้นพลาสติก</string>
+    <string name="back">กลับ</string>
+    <string name="next">ถัดไป</string>
+    <string name="finish">เสร็จ</string>
+    <string name="create_printer">สร้าง</string>
+    <string name="cancel">ยกเลิก</string>
+    <string name="confirm">ยืนยัน</string>
+    <string name="all">ทั้งหมด</string>
+    <string name="clear_all">ล้างทั้งหมด</string>
+    <string name="printer">เครื่องพิมพ์</string>
+    <string name="filament_type">ชนิดเส้นพลาสติก</string>
+    <string name="vendor">ผู้ผลิต</string>
+    <string name="error">ข้อผิดพลาด</string>
+    <string name="no_printer_selected">ต้องเลือกเครื่องพิมพ์อย่างน้อยหนึ่งเครื่อง</string>
+    <string name="no_filament_selected">ต้องเลือกเส้นพลาสติกอย่างน้อยหนึ่งรายการ</string>
+    <string name="use_default_filaments">คุณต้องการใช้เส้นพลาสติกเริ่มต้นหรือไม่</string>
+    <string name="yes">ใช่</string>
+    <string name="no">ไม่</string>
+    <string name="ok">ตกลง</string>
+    <string name="search">ค้นหา</string>
+    <string name="clear_search">ล้างการค้นหา</string>
+    <string name="nozzle">หัวฉีด</string>
+    <string name="nozzles">หัวฉีด: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">ทั้งหมด</string>
+    <string name="show_checked">ที่เลือก</string>
+    <string name="show_unchecked">ที่ไม่ได้เลือก</string>
+    <string name="loading">กำลังโหลด…</string>
+    <string name="installing">กำลังติดตั้งพรีเซ็ต…</string>
+    <string name="nothing_found">ไม่พบผลลัพธ์</string>
+    <string name="select_vendor">เลือกทุกรุ่นของ %1$s</string>
+</resources>

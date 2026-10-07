@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">Per a les impressores BambuLab, aquesta pestanya mostra el monitor propi de BambuLab, que funciona amb el connector de xarxa de BambuLab; l\'aplicació no té aquest connector.</string>
+</resources>

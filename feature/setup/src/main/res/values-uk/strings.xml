@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_wizard">Майстер налаштувань</string>
+    <string name="printer_selection">Вибір принтера</string>
+    <string name="custom_filaments">Власні філаменти</string>
+    <string name="create_new_filament">Створити</string>
+    <string name="filament_selection">Вибір філаменту</string>
+    <string name="back">Назад</string>
+    <string name="next">Далі</string>
+    <string name="finish">Завершити</string>
+    <string name="create_printer">Створити</string>
+    <string name="cancel">Скасувати</string>
+    <string name="confirm">Підтвердити</string>
+    <string name="all">Всі</string>
+    <string name="clear_all">Очистити все</string>
+    <string name="printer">Принтер</string>
+    <string name="filament_type">Тип філаменту</string>
+    <string name="vendor">Виробник</string>
+    <string name="error">Помилка</string>
+    <string name="no_printer_selected">Потрібно вибрати хоча б один принтер.</string>
+    <string name="no_filament_selected">Потрібно вибрати хоча б один філамент.</string>
+    <string name="use_default_filaments">Використати філаменти за замовчуванням?</string>
+    <string name="yes">Так</string>
+    <string name="no">Ні</string>
+    <string name="ok">OK</string>
+    <string name="search">Пошук</string>
+    <string name="clear_search">Очистити пошук</string>
+    <string name="nozzle">Сопло</string>
+    <string name="nozzles">Сопло: %1$s</string>
+    <string name="selected_count">%1$d / %2$d</string>
+    <string name="selected_count_filtered">%1$d / %2$d [%3$d]</string>
+    <string name="show_all">Всі</string>
+    <string name="show_checked">Вибрані</string>
+    <string name="show_unchecked">Невибрані</string>
+    <string name="loading">Завантаження…</string>
+    <string name="installing">Встановлення профілів…</string>
+    <string name="nothing_found">Нічого не знайдено</string>
+    <string name="select_vendor">Вибрати всі моделі %1$s</string>
+</resources>

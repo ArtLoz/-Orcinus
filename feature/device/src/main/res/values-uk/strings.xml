@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">Для принтерів BambuLab ця вкладка показує власний монітор BambuLab, який працює через мережевий плагін BambuLab; у програмі його немає.</string>
+</resources>

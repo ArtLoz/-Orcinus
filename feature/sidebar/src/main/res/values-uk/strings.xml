@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">Принтер</string>
+    <string name="section_filament">Філамент</string>
+    <string name="section_process">Процес</string>
+    <string name="section_objects">Об\'єкти</string>
+    <string name="object_instance_name">Копія %1$d</string>
+    <string name="object_instances">Копії</string>
+    <string name="object_list_expand">Розгорнути</string>
+    <string name="object_list_collapse">Згорнути</string>
+    <string name="object_menu_add_range_after">Додати діапазон після</string>
+    <string name="object_menu_edit_range">Змінити висоти</string>
+    <string name="object_layer_range">Діапазон %1$.2f-%2$.2f (мм)</string>
+    <string name="object_range_bottom">Низ</string>
+    <string name="object_range_top">Верх</string>
+    <string name="object_range_unit">мм</string>
+    <string name="object_range_apply">Застосувати</string>
+    <string name="collapse_sidebar">Згорнути бічну панель</string>
+    <string name="expand_sidebar">Розгорнути бічну панель</string>
+    <string name="nozzle_diameter">Діаметр сопла</string>
+    <string name="select_printers">Вибрати принтери</string>
+    <string name="select_filaments">Вибрати філаменти</string>
+    <string name="millimeters">%1$s мм</string>
+    <string name="engine_starting">Запуск рушія OrcaSlicer…</string>
+    <string name="engine_ready">Рушій %1$s</string>
+    <string name="engine_unavailable">Рушій OrcaSlicer недоступний</string>
+    <string name="about">Про програму</string>
+    <string name="troubleshoot">Центр усунення несправностей</string>
+</resources>

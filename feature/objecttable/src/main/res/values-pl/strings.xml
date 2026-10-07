@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Wstecz</string>
+    <string name="object_table_row_settings">Ustawienia wybranego obiektu lub części</string>
+    <string name="object_table_pick_cell">Dotknij komórki, aby zobaczyć tutaj ustawienia jej obiektu lub części.</string>
+    <string name="object_table_sort">Sortuj według: %1$s</string>
+</resources>

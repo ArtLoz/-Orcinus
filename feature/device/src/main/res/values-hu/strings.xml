@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">BambuLab nyomtatóknál ez a lap a BambuLab saját monitorát mutatja, amely a BambuLab hálózati bővítményén fut; ez a bővítmény nincs meg az alkalmazásban.</string>
+</resources>

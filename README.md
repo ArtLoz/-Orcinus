@@ -87,8 +87,8 @@ profiles, and an automated comparison checks this on every engine change.
   running after you leave the screen.
 
 ### Everywhere
-- **OrcaSlicer's 22 languages** (the app's own texts are in English and
-  Russian), light and dark themes, and layouts for phones and tablets.
+- **Fully translated into OrcaSlicer's 22 languages**, with light and dark
+  themes and layouts for phones and tablets.
 - **Projects:** autosave and recovery after a crash, recent projects, and
   OrcaSlicer's project info.
 - **Private by design:** no accounts, analytics, or ads. Orcinus goes online

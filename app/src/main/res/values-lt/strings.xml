@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="network_notification_channel">Spausdintuvų ir debesies ryšiai</string>
+    <string name="network_notification_login">Prisijungiama prie %1$s: laukiama naršyklės</string>
+    <string name="network_notification_send">Siunčiama į %1$s</string>
+    <string name="network_notification_uploads">Įkeliama į spausdintuvus</string>
+</resources>

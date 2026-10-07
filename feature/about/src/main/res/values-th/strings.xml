@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">เกี่ยวกับ</string>
+    <string name="back">กลับ</string>
+    <string name="app_version">เวอร์ชัน %1$s</string>
+    <string name="app_engine">เอนจิน OrcaSlicer %1$s</string>
+    <string name="app_summary">สไลเซอร์สำหรับการพิมพ์ 3 มิติบน Android สไลซ์โมเดลด้วยเอนจิน OrcaSlicer พร้อมโปรไฟล์เครื่องพิมพ์และเส้นพลาสติกของ OrcaSlicer</string>
+    <string name="app_copyright">© 2026 ผู้ร่วมพัฒนา Orcinus</string>
+    <string name="section_license">ใบอนุญาต</string>
+    <string name="license_notice">Orcinus เป็นซอฟต์แวร์เสรี คุณสามารถแจกจ่ายต่อและ/หรือแก้ไขได้ภายใต้เงื่อนไขของ GNU Affero General Public License เวอร์ชัน 3 ที่เผยแพร่โดย Free Software Foundation\n\nโปรแกรมนี้เผยแพร่ด้วยความหวังว่าจะเป็นประโยชน์ แต่ไม่มีการรับประกันใด ๆ ทั้งสิ้น แม้แต่การรับประกันโดยนัยถึงความสามารถในการจำหน่ายหรือความเหมาะสมสำหรับวัตถุประสงค์เฉพาะ ดูรายละเอียดเพิ่มเติมได้ในข้อความใบอนุญาต</string>
+    <string name="license_text">ข้อความใบอนุญาต GNU AGPL v3</string>
+    <string name="source_code">ซอร์สโค้ด</string>
+    <string name="section_credits">เครดิต</string>
+    <string name="credits">Orcinus ใช้เอนจิน OrcaSlicer ซึ่งพัฒนาต่อจาก Bambu Studio ของ Bambu Lab ส่วน Bambu Studio พัฒนาต่อจาก PrusaSlicer ของ Prusa Research และ PrusaSlicer พัฒนาต่อจาก Slic3r ของ Alessandro Ranellucci และชุมชน RepRap</string>
+    <string name="third_party_title">ส่วนประกอบจากบุคคลที่สาม</string>
+    <string name="third_party_summary">ไลบรารี เอนจิน และฟอนต์ที่ใช้สร้างแอป รวมถึงใบอนุญาตของแต่ละรายการ</string>
+    <string name="disclaimer">Orcinus เป็นโครงการอิสระ ไม่มีส่วนเกี่ยวข้องกับผู้พัฒนา OrcaSlicer, Bambu Studio หรือ PrusaSlicer และไม่ได้รับการรับรองจากผู้พัฒนาเหล่านั้น ชื่อของโปรแกรมเหล่านี้เป็นของเจ้าของแต่ละราย</string>
+    <string name="loading">กำลังโหลด…</string>
+    <string name="notice_missing">ไม่พบข้อมูล</string>
+    <string name="component_version">เวอร์ชัน %1$s</string>
+    <string name="license_link_only">ข้อความใบอนุญาตฉบับเต็ม: %1$s</string>
+    <string name="troubleshoot_title">ศูนย์แก้ไขปัญหา</string>
+    <string name="troubleshoot_info_needed">เราต้องการข้อมูลเพื่อวินิจฉัยสาเหตุของปัญหา ดูคู่มือโดยละเอียดได้ที่หน้าวิกิ</string>
+    <string name="troubleshoot_info_pack">ปุ่ม “แพ็ก” จะรวบรวมไฟล์โครงการและบันทึกของเซสชันปัจจุบันไว้ในไฟล์ zip</string>
+    <string name="troubleshoot_info_examples">ตัวอย่างภาพเพิ่มเติม เช่น รูปภาพหรือการบันทึกหน้าจอ อาจเป็นประโยชน์เมื่อรายงานปัญหา</string>
+    <string name="troubleshoot_report_issue">รายงานปัญหา</string>
+    <string name="troubleshoot_pack">แพ็ก</string>
+    <string name="troubleshoot_profiles">โปรไฟล์</string>
+    <string name="troubleshoot_clean_system">ล้างแคชโปรไฟล์ระบบ</string>
+    <string name="troubleshoot_clean_system_tip">ล้างแคชโปรไฟล์ระบบและสร้างใหม่เมื่อเปิดครั้งถัดไป</string>
+    <string name="troubleshoot_clean">ล้าง</string>
+    <string name="troubleshoot_loaded_profiles">ภาพรวมโปรไฟล์ที่โหลด</string>
+    <string name="troubleshoot_loaded_profiles_tip">ส่งออกภาพรวมโดยละเอียดของโปรไฟล์ที่โหลดในรูปแบบ JSON</string>
+    <string name="troubleshoot_active">ใช้งานอยู่</string>
+    <string name="troubleshoot_printers">เครื่องพิมพ์</string>
+    <string name="troubleshoot_processes">กระบวนการ</string>
+    <string name="troubleshoot_log_level">ระดับบันทึก</string>
+    <string name="troubleshoot_review_project">เลือก “ไม่” เพื่อปิดกล่องโต้ตอบและตรวจทานโครงการ</string>
+    <string name="troubleshoot_no_project">ไม่มีไฟล์โครงการในเซสชันปัจจุบัน แพ็กเกจจะมีเฉพาะบันทึกเท่านั้น</string>
+    <string name="troubleshoot_export_failed">ส่งออกไม่สำเร็จ\nโปรดตรวจสอบสิทธิ์การเขียน หรือดูว่าไฟล์กำลังถูกใช้งานโดยแอปพลิเคชันอื่นหรือไม่</string>
+    <string name="troubleshoot_clean_failed">ไม่สามารถลบโฟลเดอร์ระบบได้...</string>
+    <string name="troubleshoot_clean_next_start">แคชจะถูกล้างและสร้างใหม่เมื่อเปิดแอปครั้งถัดไป</string>
+    <string name="troubleshoot_clean_pending">จะถูกล้างเมื่อเปิดแอปครั้งถัดไป</string>
+</resources>

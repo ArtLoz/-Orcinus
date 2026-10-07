@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_bambu_monitor">Voor BambuLab-printers toont dit tabblad de eigen monitor van BambuLab, die via de netwerkplug-in van BambuLab werkt; de app heeft die plug-in niet.</string>
+</resources>

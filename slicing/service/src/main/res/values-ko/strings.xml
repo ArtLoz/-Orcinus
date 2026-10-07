@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="slicing_notification_channel">모델 슬라이싱</string>
+    <string name="slicing_notification_title">슬라이싱: %1$s</string>
+    <string name="slicing_notification_preparing">준비 중…</string>
+    <string name="slicing_notification_cancel">취소</string>
+</resources>

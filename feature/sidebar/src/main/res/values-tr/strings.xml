@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="section_printer">Yazıcı</string>
+    <string name="section_filament">Filament</string>
+    <string name="section_process">İşlem</string>
+    <string name="section_objects">Nesneler</string>
+    <string name="object_instance_name">Örnek %1$d</string>
+    <string name="object_instances">Örnekler</string>
+    <string name="object_list_expand">Genişlet</string>
+    <string name="object_list_collapse">Daralt</string>
+    <string name="object_menu_add_range_after">Sonrasına aralık ekle</string>
+    <string name="object_menu_edit_range">Yükseklikleri düzenle</string>
+    <string name="object_layer_range">Aralık %1$.2f-%2$.2f (mm)</string>
+    <string name="object_range_bottom">Alt</string>
+    <string name="object_range_top">Üst</string>
+    <string name="object_range_unit">mm</string>
+    <string name="object_range_apply">Uygula</string>
+    <string name="collapse_sidebar">Kenar çubuğunu daralt</string>
+    <string name="expand_sidebar">Kenar çubuğunu genişlet</string>
+    <string name="nozzle_diameter">Nozul Çapı</string>
+    <string name="select_printers">Yazıcıları seçin</string>
+    <string name="select_filaments">Filamentleri seçin</string>
+    <string name="millimeters">%1$s mm</string>
+    <string name="engine_starting">OrcaSlicer motoru başlatılıyor…</string>
+    <string name="engine_ready">Motor %1$s</string>
+    <string name="engine_unavailable">OrcaSlicer motoru kullanılamıyor</string>
+    <string name="about">Hakkında</string>
+    <string name="troubleshoot">Sorun Giderme Merkezi</string>
+</resources>

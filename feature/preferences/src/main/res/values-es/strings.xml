@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_back">Atrás</string>
+    <string name="preferences_decrease">Disminuir</string>
+    <string name="preferences_increase">Aumentar</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="object_table_back">Назад</string>
+    <string name="object_table_row_settings">Налаштування вибраного об\'єкта або частини</string>
+    <string name="object_table_pick_cell">Торкніться клітинки, щоб побачити тут налаштування її об\'єкта або частини.</string>
+    <string name="object_table_sort">Сортувати за: %1$s</string>
+</resources>
