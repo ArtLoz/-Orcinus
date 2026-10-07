@@ -40,6 +40,7 @@ import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.PresetChange
@@ -354,13 +355,23 @@ private fun TreeRow(text: String, level: Int, icon: Int?, checked: Boolean, onCh
     }
 }
 
-/** One setting the presets differ in: its name, and the value each preset holds. */
+/**
+ * One setting the presets differ in: its name, and the value each preset holds.
+ * A value too long for its column is cut short (DiffViewCtrl::Append()), and
+ * the row opens FullCompareDialog on it (DiffViewCtrl::context_menu()).
+ */
 @Composable
 private fun ComparedValueRow(change: PresetChange, checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?) {
     val colors = OrcaTheme.colors
+    val label = orcaText(change.label)
+    val left = orcaText(change.oldValue)
+    val right = orcaText(change.newValue)
+    val long = FullCompare.isLong(left, right)
+    var comparing by rememberSaveable { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (long) Modifier.orcaClickable(role = Role.Button, onClickLabel = stringResource(R.string.full_compare)) { comparing = true } else Modifier)
             .padding(start = 36.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -372,17 +383,17 @@ private fun ComparedValueRow(change: PresetChange, checked: Boolean, onCheckedCh
                 .weight(1f)
                 .padding(vertical = 6.dp),
         ) {
-            Text(orcaText(change.label), color = colors.text, style = OrcaTheme.typography.body13)
+            Text(label, color = colors.text, style = OrcaTheme.typography.body13)
             Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // The "Left Preset Value" and "Right Preset Value" columns.
                 Text(
-                    text = orcaText(change.oldValue),
+                    text = FullCompare.shortValue(left),
                     color = colors.textLabel,
                     style = OrcaTheme.typography.body12,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = orcaText(change.newValue),
+                    text = FullCompare.shortValue(right),
                     color = colors.labelModified,
                     style = OrcaTheme.typography.body12,
                     modifier = Modifier.weight(1f),
@@ -391,6 +402,9 @@ private fun ComparedValueRow(change: PresetChange, checked: Boolean, onCheckedCh
         }
     }
     HorizontalDivider(color = colors.separator, thickness = 1.dp)
+    if (comparing) {
+        FullCompareDialog(label, left, right, orcaString("Left Preset Value"), orcaString("Right Preset Value"), onDismiss = { comparing = false })
+    }
 }
 
 /** The lines the dialog says what it can and cannot compare in (m_top_info_line). */

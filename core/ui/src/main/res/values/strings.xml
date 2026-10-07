@@ -50,6 +50,8 @@
     <string name="preset_compare">Compare presets</string>
     <!-- DiffPresetDialog: кнопка между профилями; подпись у Orca закомментирована. -->
     <string name="preset_compare_copy">Select the same preset on the right</string>
+    <!-- DiffViewCtrl::context_menu(): a row whose value is cut short opens FullCompareDialog; the desktop app's right click is a tap here. -->
+    <string name="full_compare">Show the full values</string>
     <!-- EditFilamentPresetDialog: у материала не осталось ни одного профиля. -->
     <string name="filament_no_presets">This filament has no presets</string>
     <!-- ExportConfigsDialog: у выбранного вида экспорта нет ни одного пользовательского профиля. -->

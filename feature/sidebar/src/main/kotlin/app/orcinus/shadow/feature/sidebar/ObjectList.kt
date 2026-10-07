@@ -328,10 +328,8 @@ internal fun LazyListScope.objectListItems(
     state.plates.forEach { plate ->
         val index = plate.index
         item(key = "objects:plate:$index") {
-            // ObjectDataViewModel::AddPlate(): "Plate N", and the plate's name after it.
-            val name = "${orcaString("Plate")} ${index + 1}" + if (plate.name.isEmpty()) "" else " (${plate.name})"
             ObjectListRow(
-                name = name,
+                name = plate.itemName(),
                 icon = DesignR.drawable.orca_plate_settings,
                 selected = index == state.currentPlate && state.selectedInstances.isEmpty(),
                 hasSettings = plate.overrides.categories(plateDefinitions).isNotEmpty(),
@@ -943,7 +941,7 @@ private fun ObjectListActions.menuOf(
  * can_add_volumes_to_object(): an object with parts lists its volumes; a part
  * of a cut only while more than its own solid mesh is left besides the connectors.
  */
-private fun PlateObject.listsVolumes(): Boolean {
+internal fun PlateObject.listsVolumes(): Boolean {
     if (parts.isEmpty()) return false
     if (!isCut) return true
     val listed = (0..parts.size).mapNotNull { volumeAt(it) }.filterNot { it.cutInfo.connector }
@@ -960,9 +958,8 @@ private fun LazyListScope.settingsRow(
     val categories = settings.categories(definitions)
     if (categories.isEmpty()) return
     item(key = "objects:$key:settings") {
-        val name = categories.map { orcaString(it) }.joinToString("; ")
         ObjectListRow(
-            name = name,
+            name = settingsItemName(categories),
             icon = DesignR.drawable.orca_cog,
             selected = false,
             hasSettings = false,
@@ -973,13 +970,21 @@ private fun LazyListScope.settingsRow(
     }
 }
 
+/** ObjectDataViewModel::AddPlate(): "Plate N", and the plate's name after it. */
+@Composable
+internal fun ObjectListPlate.itemName(): String = "${orcaString("Plate")} ${index + 1}" + if (name.isEmpty()) "" else " ($name)"
+
+/** ObjectDataViewModelNode::update_settings_digest(): the pages of the item's settings, joined with "; ". */
+@Composable
+internal fun settingsItemName(categories: List<String>): String = categories.map { orcaString(it) }.joinToString("; ")
+
 /**
  * SettingsFactory::get_bundle(): what an item's overrides are named after in
  * the list. Only the settings the tabs hold fall into a category, so an item
  * that overrides nothing else — the filament it prints with, which has a column
  * of its own — has no settings row and no mark on its row.
  */
-private fun ModelSettings.categories(definitions: Map<String, SettingDefinition>): List<String> =
+internal fun ModelSettings.categories(definitions: Map<String, SettingDefinition>): List<String> =
     values.keys.mapNotNull { definitions[it]?.category?.takeIf(String::isNotEmpty) }.distinct()
 
 /**

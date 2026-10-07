@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -2306,6 +2307,10 @@ internal fun PlateSidebarContent(
     var editingRange by remember { mutableStateOf<LayerRangeId?>(null) }
     // The drag of a row of the object list onto another, which its rows share.
     val rowDrag = remember { ObjectListDrag() }
+    // The search bar above the object list, and the rows it goes through while it is open.
+    val listState = rememberLazyListState()
+    val objectSearch = rememberObjectListSearch(listState)
+    val searchedRows = objectSearchRows(state, objectSearch)
     // Plater::set_number_of_copies() and ObjectList::rename_item() ask first.
     var askingCopies by remember { mutableStateOf<ScenePath?>(null) }
     var cloning by remember { mutableStateOf<ScenePath?>(null) }
@@ -2337,6 +2342,7 @@ internal fun PlateSidebarContent(
         Modifier
             .fillMaxSize()
             .background(OrcaTheme.colors.window),
+        state = listState,
     ) {
         item(key = "project") {
             ProjectTitle(state.projectName, state.projectDirty, state.canSaveProject, project, state.canExportSliced, state.canExportAllSliced, state.canExportModel)
@@ -2573,7 +2579,8 @@ internal fun PlateSidebarContent(
                 )
             }
         }
-        objectListItems(
+        objectSearchItems(objectSearch, searchedRows, onChoose = objectList::jumpTo)
+        if (!objectSearch.active) objectListItems(
             state = state,
             enabled = enabled,
             drag = rowDrag,

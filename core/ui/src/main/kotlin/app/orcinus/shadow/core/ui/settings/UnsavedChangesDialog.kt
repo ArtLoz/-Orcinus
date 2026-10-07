@@ -17,10 +17,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
+import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PendingPresetChange
@@ -30,6 +33,7 @@ import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.PresetNameOutcome
 import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.Presets
+import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.core.ui.orca.orcaText
 
@@ -146,13 +150,23 @@ fun UnsavedChangesDialog(
     }
 }
 
-/** One changed value: where its setting sits, and the value before and after. */
+/**
+ * One changed value: where its setting sits, and the value before and after.
+ * A value too long for the row is cut short (DiffViewCtrl::Append()), and the
+ * row opens FullCompareDialog on it, as the desktop tree's right click does.
+ */
 @Composable
 internal fun PresetChangeRow(change: PresetChange) {
     val colors = OrcaTheme.colors
+    val label = orcaText(change.label)
+    val oldValue = orcaText(change.oldValue)
+    val newValue = orcaText(change.newValue)
+    val long = FullCompare.isLong(oldValue, newValue)
+    var comparing by rememberSaveable { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxWidth()
+            .then(if (long) Modifier.orcaClickable(role = Role.Button, onClickLabel = stringResource(R.string.full_compare)) { comparing = true } else Modifier)
             .padding(vertical = 6.dp),
     ) {
         Text(
@@ -160,12 +174,16 @@ internal fun PresetChangeRow(change: PresetChange) {
             color = colors.textSide,
             style = OrcaTheme.typography.body12,
         )
-        Text(orcaText(change.label), color = colors.text, style = OrcaTheme.typography.body14)
+        Text(label, color = colors.text, style = OrcaTheme.typography.body14)
         Text(
-            text = orcaText(change.oldValue) + "  →  " + orcaText(change.newValue),
+            text = FullCompare.shortValue(oldValue) + "  →  " + FullCompare.shortValue(newValue),
             color = colors.labelModified,
             style = OrcaTheme.typography.body13,
         )
         HorizontalDivider(color = colors.separator, thickness = 1.dp, modifier = Modifier.padding(top = 6.dp))
+    }
+    if (comparing) {
+        // The headers of UnsavedChangesDialog's value columns.
+        FullCompareDialog(label, oldValue, newValue, orcaString("Old Value"), orcaString("New Value"), onDismiss = { comparing = false })
     }
 }
