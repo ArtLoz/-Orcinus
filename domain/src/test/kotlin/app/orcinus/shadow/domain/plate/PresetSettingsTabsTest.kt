@@ -113,7 +113,9 @@ class PresetSettingsTabsTest {
         assertEquals(STANDARD, tab.settings)
         assertEquals(STRENGTH, tab.page)
         assertFalse(tab.changing)
-        assertEquals(listOf<SettingsRequest>(SettingsRequest.Describe), editor.requests.map { it.request })
+        // The printer's tab too, whose values the 3D view reads.
+        assertEquals(listOf(PresetKind.PRINT, PresetKind.PRINTER), editor.requests.map { it.kind })
+        assertEquals(listOf<SettingsRequest>(SettingsRequest.Describe, SettingsRequest.Describe), editor.requests.map { it.request })
     }
 
     @Test
@@ -570,23 +572,26 @@ class PresetSettingsTabsTest {
 
         tabs.request(PresetKind.FILAMENT, SettingsRequest.SetMode(SettingsMode.SIMPLE))
 
-        assertEquals(listOf(PresetKind.FILAMENT, PresetKind.PRINT), editor.requests.map { it.kind })
+        assertEquals(listOf(PresetKind.FILAMENT, PresetKind.PRINT, PresetKind.PRINTER), editor.requests.map { it.kind })
     }
 
     @Test
-    fun `only the tabs the app has opened are described again`() {
+    fun `the process and printer tabs and the tabs the app has opened are described again`() {
         val repository = FakeRepository(READY)
         val editor = FakeEditor()
         val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
 
         runSuspend { tabs.refresh() }
 
-        assertEquals(listOf(PresetKind.PRINT), editor.requests.map { it.kind })
+        assertEquals(listOf(PresetKind.PRINT, PresetKind.PRINTER), editor.requests.map { it.kind })
 
         tabs.request(PresetKind.FILAMENT, SettingsRequest.Describe)
         runSuspend { tabs.refresh() }
 
-        assertEquals(listOf(PresetKind.PRINT, PresetKind.FILAMENT, PresetKind.PRINT, PresetKind.FILAMENT), editor.requests.map { it.kind })
+        assertEquals(
+            listOf(PresetKind.PRINT, PresetKind.PRINTER, PresetKind.FILAMENT, PresetKind.PRINT, PresetKind.PRINTER, PresetKind.FILAMENT),
+            editor.requests.map { it.kind },
+        )
     }
 
     @Test
@@ -612,7 +617,7 @@ class PresetSettingsTabsTest {
         assertEquals(STANDARD, tab().settings)
         // Nothing else runs while the question waits.
         tabs.request(PresetKind.PRINT, SettingsRequest.Change("wall_loops", "3"))
-        assertEquals(2, editor.requests.size)
+        assertEquals(3, editor.requests.size)
 
         tabs.answer(PresetKind.PRINT, yes = true)
 

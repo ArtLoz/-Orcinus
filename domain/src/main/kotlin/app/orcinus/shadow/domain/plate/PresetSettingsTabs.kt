@@ -177,12 +177,14 @@ class PresetSettingsTabs(
     }
 
     /**
-     * The process tab, which the sidebar always shows, and the tabs of the
-     * filament and the printer once their page has opened one.
+     * The process tab, which the sidebar always shows; the printer's, whose
+     * values the 3D view reads whether or not its page is open (the clearance
+     * heights PartPlateList::set_shapes() takes, scan_first_layer,
+     * printer_structure); and the filament's once its page has opened it.
      */
     private fun openTabs(): List<PresetKind> =
-        listOf(PresetKind.PRINT) + repository.state.value.settingsTabs.values
-            .filter { it.kind != PresetKind.PRINT && it.settings != null }
+        listOf(PresetKind.PRINT, PresetKind.PRINTER) + repository.state.value.settingsTabs.values
+            .filter { it.kind != PresetKind.PRINT && it.kind != PresetKind.PRINTER && it.settings != null }
             .filter { it.kind != PresetKind.OBJECT || repository.state.value.selectedInstances.isNotEmpty() }
             .map { it.kind }
 
