@@ -1,1 +1,1 @@
-First preview: slice STL models and a calibration cube with the OrcaSlicer engine, in the background with progress and cancellation.
+First release: the OrcaSlicer 2.4.2 engine on Android. Prepare, slice, preview, and send prints from a phone or a tablet, in 22 languages.

@@ -1,15 +1,35 @@
-Orcinus turns 3D models into G-code for your 3D printer directly on your Android phone or tablet, without a computer.
+Orcinus is a complete 3D-printing slicer for Android. It runs the OrcaSlicer 2.4.2 slicing engine natively on your phone or tablet, so you can prepare a model, slice it, check the toolpaths, and send the G-code to your printer without a computer or a cloud service.
 
-It is built on the open-source OrcaSlicer slicing engine, compiled for Android, so G-code sliced on the phone closely matches desktop OrcaSlicer with the same profiles.
+The same engine as on the desktop
+Orcinus does not reimplement slicing. It compiles OrcaSlicer's own C++ engine and the system profiles of all 66 printer vendors for Android. With the same profiles, a model sliced on the phone gives the G-code desktop OrcaSlicer 2.4.2 gives: the same layers, filament use, and print time.
 
-Early preview:
-• Import an STL model or add a 20 mm calibration cube
-• Slice with OrcaSlicer's profiles (Creality K2 Plus in this preview, more printers to come)
-• Slicing continues in the background, with progress and a cancel button in a notification
-• See the estimated print time, filament use, and layer count
-• A workspace laid out like desktop OrcaSlicer, following the system light or dark theme
+Prepare
+• Open STL, OBJ, 3MF projects, STEP, AMF, SVG, and ZIP archives from the file picker, "Open with", or "Share"
+• Multiple plates, arrange, auto-orient, move, rotate, scale, lay on face, cut with connectors, mesh booleans, text and SVG embossing, measure, brim ears, and simplify
+• Paint supports, seams, fuzzy skin, and multi-material colours
+• Per-object settings, modifiers, height ranges, and variable layer height
 
-Private by design: no accounts, analytics, or ads, and no data collected. Orcinus goes online only to check for printer profile updates, which can be turned off, and to send G-code to the printers you add.
+Slice and preview
+• Slicing runs in the background, with progress and Cancel in a notification
+• G-code preview with layer and move sliders and 16 legend views: line type, speed, flow, layer time, temperature, and more
+• OrcaSlicer's warnings, each with a jump to the object or setting at fault
+• Save G-code or a sliced .gcode.3mf, share it, or open existing G-code files
+
+Printers and settings
+• OrcaSlicer's setup wizard with the profiles of 66 vendors, and online profile updates
+• Every page and option of the printer, filament, and process settings, with search and preset comparison
+• Calibration: temperature, flow ratio, pressure advance, retraction, max flow rate, VFA, input shaping, and cornering
+
+Print
+• Send to OctoPrint, Klipper (Moonraker), PrusaLink, PrusaConnect, Duet, Repetier, CrealityPrint, Flashforge, Elegoo Link, and other print hosts
+• Find printers on the local network
+
+Made for every screen
+• On a phone, touch-first controls
+• On a tablet or a foldable, OrcaSlicer's desktop layout: the sidebar beside the canvas, keyboard shortcuts, and mouse control, in split screen and in resizable windows too
+• Translated into OrcaSlicer's 22 languages, with light and dark themes
+
+Private by design: no accounts, analytics, or ads, and no data collected. Orcinus goes online only to check for profile updates (which can be turned off), to reach the printers you add, and to run the network test when you start it.
 
 Free and open source under the GNU AGPL v3.0. The source code is linked from the app's About page.
 

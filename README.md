@@ -17,7 +17,7 @@ No computer, no cloud, and the same G-code as desktop OrcaSlicer.
 
 **English** · [Русский](README.ru.md)
 
-[Features](#features) · [How it works](#how-it-works) · [Verification](#verified-against-desktop-orcaslicer) · [Building](#building-from-source) · [Contributing](#contributing)
+[Screenshots](#screenshots) · [Features](#features) · [How it works](#how-it-works) · [Verification](#verified-against-desktop-orcaslicer) · [Building](#building-from-source) · [Contributing](#contributing)
 
 </div>
 
@@ -38,6 +38,19 @@ profiles, and an automated comparison checks this on every engine change.
 > **Status: pre-release (0.1.0).** OrcaSlicer 2.4.2's FFF workflow is ported
 > and verified on a device. The app is not yet published on Google Play; build
 > it from source as described [below](#building-from-source).
+
+## Screenshots
+
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/tenInchScreenshots/1-prepare.png" alt="Prepare on a tablet: the sidebar with the printer, filament, and process beside the 3D view" width="49%">
+  <img src="fastlane/metadata/android/en-US/images/tenInchScreenshots/3-layers.png" alt="Preview on a tablet: the sliced layers with the line type legend and the G-code window" width="49%">
+</p>
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1-prepare.png" alt="Prepare on a phone" width="24%">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3-layers.png" alt="The sliced layers on a phone" width="24%">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4-legend.png" alt="The legend with the time and filament of each line type" width="24%">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5-sidebar.png" alt="The sidebar with the printer, filament, and process" width="24%">
+</p>
 
 ## Features
 
@@ -88,7 +101,11 @@ profiles, and an automated comparison checks this on every engine change.
 
 ### Everywhere
 - **Fully translated into OrcaSlicer's 22 languages**, with light and dark
-  themes and layouts for phones and tablets.
+  themes.
+- **Phones, tablets, and foldables:** touch-first controls on a phone;
+  OrcaSlicer's desktop layout on a tablet, with its keyboard shortcuts and
+  mouse controls; split screen, resizable windows, and a foldable's book and
+  tabletop postures.
 - **Projects:** autosave and recovery after a crash, recent projects, and
   OrcaSlicer's project info.
 - **Private by design:** no accounts, analytics, or ads. Orcinus goes online
