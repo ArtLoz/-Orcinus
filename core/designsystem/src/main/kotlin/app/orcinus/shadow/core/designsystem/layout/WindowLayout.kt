@@ -2,6 +2,7 @@ package app.orcinus.shadow.core.designsystem.layout
 
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.window.core.layout.WindowSizeClass
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -53,12 +54,21 @@ fun currentOrcaWindowTall(): Boolean =
 /**
  * The width of the docked sidebar: wider on a large window (from 1200 dp), as
  * OrcaSlicer's sidebar is at least 39 em (Sidebar::Sidebar(), msw_rescale()),
- * so the names of the presets and of the plate type fit.
+ * so the names of the presets and of the plate type fit. A foldable held half
+ * open like a book gives the sidebar the page left of the fold and the canvas
+ * the other page, so the fold runs between them rather than through the canvas.
  */
 @Composable
-internal fun currentOrcaSidebarWidth(): Dp =
-    if (currentWindowAdaptiveInfoV2().windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_LARGE_LOWER_BOUND)) {
+internal fun currentOrcaSidebarWidth(): Dp {
+    val info = currentWindowAdaptiveInfoV2()
+    val fold = info.windowPosture.hingeList.firstOrNull { it.isVertical && (!it.isFlat || it.isSeparating) }
+    if (fold != null) {
+        val page = with(LocalDensity.current) { fold.bounds.left.toDp() }
+        if (page >= OrcaTheme.dimensions.sidebarWidth) return page
+    }
+    return if (info.windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_LARGE_LOWER_BOUND)) {
         OrcaTheme.dimensions.sidebarWidthLarge
     } else {
         OrcaTheme.dimensions.sidebarWidth
     }
+}
