@@ -1,13 +1,16 @@
 package app.orcinus.shadow.feature.preview
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -35,7 +41,8 @@ import app.orcinus.shadow.core.model.FilamentAmount
 import app.orcinus.shadow.core.model.FilamentUsage
 import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.ui.orca.orcaString
-import app.orcinus.shadow.domain.plate.AllPlatesSliceState
+import app.orcinus.shadow.domain.plate.PlateSlice
+import app.orcinus.shadow.domain.plate.PlateSliceState
 import app.orcinus.shadow.domain.plate.AllPlatesStats
 
 /**
@@ -50,8 +57,8 @@ import app.orcinus.shadow.domain.plate.AllPlatesStats
 internal fun AllPlatesItem(stats: AllPlatesStats, enabled: Boolean, onClick: () -> Unit) {
     val colors = OrcaTheme.colors
     val (top, bottom) = when (stats.state) {
-        AllPlatesSliceState.SLICED -> orcaString("All Plates") to orcaString("Stats")
-        AllPlatesSliceState.FAILED -> orcaString("Failed") to "${stats.sliced} / ${stats.total}"
+        PlateSliceState.SLICED -> orcaString("All Plates") to orcaString("Stats")
+        PlateSliceState.FAILED -> orcaString("Failed") to "${stats.sliced} / ${stats.total}"
         else -> (stats.slicingPlate?.let { orcaString("Slicing") + ": " + it } ?: orcaString("Slice all")) to "${stats.sliced} / ${stats.total}"
     }
     Column(
@@ -65,15 +72,15 @@ internal fun AllPlatesItem(stats: AllPlatesStats, enabled: Boolean, onClick: () 
             .border(1.dp, if (stats.selected) colors.accent else Color.Transparent, OrcaTheme.shapes.control)
             .semantics { selected = stats.selected }
             // A plate that cannot be sliced keeps the item from slicing them all.
-            .clickable(enabled = enabled && stats.state != AllPlatesSliceState.FAILED, role = Role.Tab, onClick = onClick)
+            .clickable(enabled = enabled && stats.state != PlateSliceState.FAILED, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         Text(top, color = colors.onCanvasPanel, style = OrcaTheme.typography.body10, maxLines = 1)
         Text(bottom, color = colors.onCanvasPanel, style = OrcaTheme.typography.body10, maxLines = 1)
-        if (stats.state != AllPlatesSliceState.SLICED) {
-            val bar = if (stats.state == AllPlatesSliceState.FAILED) colors.alert else colors.accent
-            val done = if (stats.state == AllPlatesSliceState.FAILED) 1f else stats.progress.coerceIn(0f, 1f)
+        if (stats.state != PlateSliceState.SLICED) {
+            val bar = if (stats.state == PlateSliceState.FAILED) colors.alert else colors.accent
+            val done = if (stats.state == PlateSliceState.FAILED) 1f else stats.progress.coerceIn(0f, 1f)
             Box(
                 Modifier
                     .padding(top = 2.dp)
@@ -94,6 +101,53 @@ internal fun AllPlatesItem(stats: AllPlatesStats, enabled: Boolean, onClick: () 
 }
 
 /**
+ * GLCanvas3D::_render_imgui_select_plate_toolbar()'s marks of a plate's slice
+ * state, which OrcaSlicer draws over the plate's thumbnail and the app under
+ * its number: dimmed while it is not sliced, the dimming lifting from the top
+ * as its slice goes on, a dark red veil with the red "!" when it failed, and
+ * plain once it is sliced. The "!" stands in the corner, clear of the number.
+ */
+@Composable
+internal fun BoxScope.PlateSliceMark(slice: PlateSlice) {
+    val dark = OrcaTheme.colors.isDark
+    // plate_bg and plate_dim
+    val background = if (dark) Color(255, 255, 255, 10) else Color(0, 0, 0, 10)
+    val dim = if (dark) Color(30, 30, 30, 100) else Color(0, 0, 0, 50)
+    val area = Modifier
+        .matchParentSize()
+        .clip(OrcaTheme.shapes.control)
+    when (slice.state) {
+        PlateSliceState.UNSLICED -> Box(area.background(dim))
+        PlateSliceState.SLICING -> Box(area.background(background)) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(1f - slice.progress.coerceIn(0f, 1f))
+                    .background(dim),
+            )
+        }
+        PlateSliceState.FAILED -> {
+            Box(area.background(Color(64, 1, 1, 64)))
+            val mark = if (dark) Color(60, 44, 48) else Color(202, 186, 186)
+            Canvas(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(2.dp)
+                    .size(14.dp),
+            ) {
+                // The circle is 28 of the exclamation mark's units across.
+                val unit = size.minDimension / 28f
+                drawCircle(Color(225, 74, 74))
+                drawRoundRect(mark, topLeft = center + Offset(-2f * unit, -10f * unit), size = Size(4f * unit, 14f * unit), cornerRadius = CornerRadius(2f * unit))
+                drawCircle(mark, radius = 2f * unit, center = center + Offset(0f, 8f * unit))
+            }
+        }
+        PlateSliceState.SLICED -> Box(area.background(background))
+    }
+}
+
+/**
  * GCodeViewer::render_all_plates_stats(), which the preview shows instead of
  * the plate once the all plates stats item is picked and every plate with
  * objects is sliced: what the plates use of every filament they print with
@@ -107,6 +161,8 @@ internal fun AllPlatesStatsPanel(
     filamentColors: List<Color>,
     imperial: Boolean,
     modifier: Modifier = Modifier,
+    /** The viewer's time mode is the stealth one, whose time of every plate is summed. */
+    stealth: Boolean = false,
 ) {
     val colors = OrcaTheme.colors
     // The filaments of every plate, in order, each summed over the plates.
@@ -171,7 +227,7 @@ internal fun AllPlatesStatsPanel(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
             )
-            val time = statistics.sumOf(SliceStatistics::estimatedPrintTimeSeconds).toFloat()
+            val time = statistics.sumOf { if (stealth) it.stealthPrintTimeSeconds else it.estimatedPrintTimeSeconds }.toFloat()
             SummaryLine(orcaString("Total time") + ":", LegendFormat.shortTime(time))
             SummaryLine(orcaString("Total cost") + ":", LegendFormat.cost(statistics.sumOf(SliceStatistics::cost)))
         }

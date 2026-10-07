@@ -747,19 +747,24 @@ data class PlateSliceResult(
 enum class PlateProblemKind {
     ENGINE_UNAVAILABLE,
     IMPORT_FAILED,
-    SLICE_FAILED,
+
+    /**
+     * NotificationManager::push_slicing_error_notification(): the slice stopped
+     * at a Slic3r::SlicingError, whose text is the detail; "Jump to" selects
+     * the objects it names.
+     */
+    SLICING_ERROR,
     ENGINE_CRASHED,
-    SLICE_CANCELLED,
     PLACEMENT_FAILED,
     PRESETS_FAILED,
 
     /** "Export as one STL/DRC" could not write the file. */
     EXPORT_FAILED,
 
-    /** Plater::export_stl() wrote the positive volumes alone: the notification OrcaSlicer shows. */
+    /** Plater::export_stl() wrote the positive volumes alone: its push_plater_error_notification(). */
     EXPORT_WITHOUT_NEGATIVE_VOLUMES,
 
-    /** GLGizmoMeshBoolean's warning: the operation gave no mesh. */
+    /** GLGizmoMeshBoolean's push_plater_warning_notification(): the operation gave no mesh. */
     MESH_BOOLEAN_FAILED,
 
     /** The warnings of ArrangeJob and OrientJob on a locked plate (prepare_partplate()). */
@@ -778,12 +783,28 @@ enum class PlateProblemKind {
 val PlateProblemKind.warning: Boolean
     get() = this == PlateProblemKind.PLATE_LOCKED_ARRANGE || this == PlateProblemKind.PLATE_LOCKED_ORIENT ||
         this == PlateProblemKind.SELECTION_LOCKED_ARRANGE || this == PlateProblemKind.SELECTION_LOCKED_ORIENT ||
-        this == PlateProblemKind.NO_ARRANGEABLE_OBJECTS
+        this == PlateProblemKind.NO_ARRANGEABLE_OBJECTS || this == PlateProblemKind.MESH_BOOLEAN_FAILED
+
+/** The kinds OrcaSlicer shows as errors (ErrorNotificationLevel), "Error:" above their text. */
+val PlateProblemKind.error: Boolean
+    get() = this == PlateProblemKind.SLICING_ERROR || this == PlateProblemKind.EXPORT_WITHOUT_NEGATIVE_VOLUMES
+
+/**
+ * NotificationManager::set_in_preview(): the plater warnings (MESH_BOOLEAN_FAILED)
+ * and the plates' information (BBLPlateInfo of arranging and orienting) hide
+ * while the preview shows; the other notifications stay.
+ */
+val PlateProblemKind.shownInPreview: Boolean
+    get() = this != PlateProblemKind.MESH_BOOLEAN_FAILED && this != PlateProblemKind.PLATE_LOCKED_ARRANGE &&
+        this != PlateProblemKind.PLATE_LOCKED_ORIENT && this != PlateProblemKind.SELECTION_LOCKED_ARRANGE &&
+        this != PlateProblemKind.SELECTION_LOCKED_ORIENT && this != PlateProblemKind.NO_ARRANGEABLE_OBJECTS
 
 data class PlateProblem(
     val kind: PlateProblemKind,
     /** Technical detail from the engine or the importer, when there is one. */
     val detail: String? = null,
+    /** The objects a [PlateProblemKind.SLICING_ERROR] names, which its "Jump to" selects. */
+    val objects: List<ScenePath> = emptyList(),
 )
 
 /**
@@ -1434,6 +1455,8 @@ data class PlateState(
      * completed state ("Slice ok.") follows.
      */
     val slicesCompleted: Int = 0,
+    /** How many slices were cancelled, which its cancelled state ("Slicing Canceled") follows. */
+    val slicesCancelled: Int = 0,
     /** What the slice button slices, as its drop-down chose (MainFrame::m_slice_select). */
     val sliceMode: SliceMode = SliceMode.PLATE,
     /**

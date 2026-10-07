@@ -64,5 +64,4 @@
     <string name="slicing_progress">Slicing: %1$d%%</string>
     <string name="slicing_cancelling">Canceling…</string>
     <string name="cancel">Cancel</string>
-    <string name="dismiss">Close</string>
 </resources>

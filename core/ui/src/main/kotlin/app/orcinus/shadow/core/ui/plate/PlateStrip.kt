@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -65,6 +66,8 @@ fun PlateStrip(
     locked: Set<Int> = emptySet(),
     /** An item before the plates, such as the preview's all plates stats item. */
     leading: (@Composable () -> Unit)? = null,
+    /** What the plate at an index shows under its number, such as the preview's slice state of the plate. */
+    itemBackground: (@Composable BoxScope.(index: Int) -> Unit)? = null,
     /** The actions of the plate at an index; [dismiss] closes them. */
     actions: (@Composable ColumnScope.(index: Int, dismiss: () -> Unit) -> Unit)? = null,
 ) {
@@ -93,6 +96,7 @@ fun PlateStrip(
                         onLongClick = actions?.let { { menu = index } },
                     ),
             ) {
+                itemBackground?.invoke(this, index)
                 Text(
                     // GLTexture::generate_from_text_string() for PartPlateList::m_idx_textures.
                     text = if (index < 9) "0${index + 1}" else "${index + 1}",

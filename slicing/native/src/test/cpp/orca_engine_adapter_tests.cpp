@@ -1682,6 +1682,49 @@ TEST_CASE("Cancelling the active job stops slicing without output", "[Adapter]")
     CHECK_FALSE(fs::exists(output + ".part"));
 }
 
+TEST_CASE("A slicing error names the objects it stopped at", "[Adapter][SlicingError]")
+{
+    require_engine();
+    // A pyramid standing on its tip, 10 mm wide at 30 mm: its first layer has
+    // nothing to print (GCode::collect_layers_to_print() throws SlicingErrors).
+    const double v[5][3] = {{0, 0, 0}, {-5, -5, 30}, {5, -5, 30}, {5, 5, 30}, {-5, 5, 30}};
+    const int f[6][3] = {{0, 2, 1}, {0, 3, 2}, {0, 4, 3}, {0, 1, 4}, {1, 2, 3}, {1, 3, 4}};
+    std::ostringstream stl;
+    stl << "solid tip\n";
+    for (const auto& face : f) {
+        stl << "facet normal 0 0 0\nouter loop\n";
+        for (const int index : face) {
+            stl << "vertex " << v[index][0] << ' ' << v[index][1] << ' ' << v[index][2] << '\n';
+        }
+        stl << "endloop\nendfacet\n";
+    }
+    stl << "endsolid tip\n";
+    const std::string tip_path = output_path("tip.stl");
+    std::ofstream(tip_path) << stl.str();
+
+    const orca::ModelInspection cube = orca::inspect_model({}, k2_plus_profiles(), output_path("tip-cube.mesh"), {});
+    const orca::ModelInspection tip = orca::inspect_model(tip_path, k2_plus_profiles(), output_path("tip.mesh"), {});
+    REQUIRE(cube.status == orca::SceneStatus::success);
+    REQUIRE(tip.status == orca::SceneStatus::success);
+    std::vector<double> left = matrix_of(cube);
+    std::vector<double> right = matrix_of(tip);
+    left[12] = 100.0;
+    right[12] = 250.0;
+    std::vector<orca::PlateObject> plate = plate_of({}, left);
+    plate.push_back(plate_of(tip_path, right).front());
+    const std::string output = output_path("tip.gcode");
+
+    const orca::SliceResult result = orca::slice("tip", plate, output, {}, k2_plus_profiles(), {}, {});
+
+    INFO(result.message);
+    CHECK(result.status == orca::SliceStatus::slicing_error);
+    CHECK(result.message.find("empty first layer") != std::string::npos);
+    // The pyramid is the plate's second object; the cube's first layer prints.
+    CHECK(result.error_objects == std::vector<std::int32_t>{1});
+    CHECK_FALSE(fs::exists(output));
+    CHECK_FALSE(fs::exists(output + ".part"));
+}
+
 TEST_CASE("The K2 Plus plate is described as OrcaSlicer draws it", "[Adapter][Scene]")
 {
     require_engine();
@@ -7131,6 +7174,26 @@ TEST_CASE("A sliced plate's 3MF file carries its G-code, its slice info and its 
     mz_zip_reader_end(&zip_archive);
     CHECK(upload_entries.count("Metadata/plate_1.gcode") == 1);
     CHECK(std::none_of(upload_entries.begin(), upload_entries.end(), [](const std::string& entry) { return entry.rfind("3D/Objects/", 0) == 0; }));
+
+    // "Print all" (send_gcode(PLATE_ALL_IDX)): every sliced plate's G-code, the model's files still left out.
+    const std::string upload_all = output_path("upload-all.gcode.3mf");
+    const orca::ProjectSave uploaded_all =
+        orca::save_project(upload_all, plate_of({}), k2_plus_profiles(), {plate, plate}, {}, 0, orca::SlicedPlates::upload_all);
+    INFO(uploaded_all.message);
+    REQUIRE(uploaded_all.status == orca::SceneStatus::success);
+    std::set<std::string> upload_all_entries;
+    mz_zip_zero_struct(&zip_archive);
+    REQUIRE(mz_zip_reader_init_file(&zip_archive, upload_all.c_str(), 0) == MZ_TRUE);
+    for (mz_uint index = 0; index < mz_zip_reader_get_num_files(&zip_archive); ++index) {
+        mz_zip_archive_file_stat file_stat;
+        if (mz_zip_reader_file_stat(&zip_archive, index, &file_stat) == MZ_TRUE) {
+            upload_all_entries.insert(file_stat.m_filename);
+        }
+    }
+    mz_zip_reader_end(&zip_archive);
+    CHECK(upload_all_entries.count("Metadata/plate_1.gcode") == 1);
+    CHECK(upload_all_entries.count("Metadata/plate_2.gcode") == 1);
+    CHECK(std::none_of(upload_all_entries.begin(), upload_all_entries.end(), [](const std::string& entry) { return entry.rfind("3D/Objects/", 0) == 0; }));
 }
 
 TEST_CASE("The current plate places, judges and slices objects from its own origin", "[Adapter][Plates]")

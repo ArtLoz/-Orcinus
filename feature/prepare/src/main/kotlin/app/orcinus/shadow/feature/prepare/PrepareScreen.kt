@@ -70,7 +70,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
@@ -142,7 +141,6 @@ import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
-import app.orcinus.shadow.core.model.PlateNoticeKind
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSettingsChoice
 import app.orcinus.shadow.core.model.PlateSlicing
@@ -161,7 +159,6 @@ import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.volumeAt
-import app.orcinus.shadow.core.model.warning
 import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
@@ -175,6 +172,7 @@ import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.MenuFilament
 import app.orcinus.shadow.core.ui.plate.NumberOfInstancesDialog
+import app.orcinus.shadow.core.ui.plate.ObjectClashedNotification
 import app.orcinus.shadow.core.ui.plate.ObjectMenuActions
 import app.orcinus.shadow.core.ui.plate.ObjectMenuItems
 import app.orcinus.shadow.core.ui.plate.PartMenuActions
@@ -183,8 +181,11 @@ import app.orcinus.shadow.core.ui.plate.PartShapeSheet
 import app.orcinus.shadow.core.ui.plate.PlateIconActions
 import app.orcinus.shadow.core.ui.plate.PlateMenuItems
 import app.orcinus.shadow.core.ui.plate.PlateNameDialog
+import app.orcinus.shadow.core.ui.plate.PlateNoticeNotification
+import app.orcinus.shadow.core.ui.plate.PlateProblemNotification
 import app.orcinus.shadow.core.ui.plate.PlateSettingsSheet
 import app.orcinus.shadow.core.ui.plate.PlateStrip
+import app.orcinus.shadow.core.ui.plate.PlaterWarningNotification
 import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateAvailableNotification
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateFinishedNotification
@@ -194,10 +195,12 @@ import app.orcinus.shadow.core.ui.plate.SelectionMenuItems
 import app.orcinus.shadow.core.ui.plate.SeqPrintInfoNotification
 import app.orcinus.shadow.core.ui.plate.SimplifySuggestionNotification
 import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.ui.plate.SliceCancelledNotification
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
 import app.orcinus.shadow.core.ui.plate.SliceNoticeNotification
 import app.orcinus.shadow.core.ui.plate.SlicingNotification
 import app.orcinus.shadow.core.ui.plate.UpdatedItemsInfoNotification
+import app.orcinus.shadow.core.ui.plate.ValidationNotification
 import app.orcinus.shadow.core.ui.plate.VolumesMenuActions
 import app.orcinus.shadow.core.ui.plate.VolumesMenuItems
 import app.orcinus.shadow.core.ui.plate.exportFileName
@@ -206,7 +209,6 @@ import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.plate.partMenuState
 import app.orcinus.shadow.core.ui.plate.volumeName
 import app.orcinus.shadow.core.ui.plate.volumesMenuState
-import app.orcinus.shadow.core.ui.title
 import app.orcinus.shadow.render.scene.AssemblyView
 import app.orcinus.shadow.render.scene.BrimEarState
 import app.orcinus.shadow.render.scene.BrimEarView
@@ -545,6 +547,7 @@ internal fun PrepareRoute(
             closeSimplifySuggestion = viewModel::dismissSimplifySuggestion,
             profileUpdates = viewModel::closeProfileUpdates,
             closeProfileUpdateInstalled = viewModel::dismissProfileUpdateInstalled,
+            jumpToObjects = viewModel::jumpToObjects,
         ),
         onRepairObject = viewModel::repairSelected,
         onJumpTo = viewModel::jumpTo,
@@ -1869,23 +1872,13 @@ private fun Notifications(
     showHints: Boolean = false,
     onShowHints: (Boolean) -> Unit = {},
 ) {
-    // Plater::priv::process_validation_warning() and push_validate_error_notification().
-    state.validationWarning?.let { ValidationNotification(it, OrcaNotificationLevel.Warning, orcaString("WARNING:"), onJumpTo) }
-    state.validationError?.let { ValidationNotification(it, OrcaNotificationLevel.Error, orcaString("Error:"), onJumpTo) }
-    if (state.clashedObjects.isNotEmpty()) {
-        // GLCanvas3D::EWarning::ObjectClashed, push_plater_error_notification()
-        // of construct_error_string(): the objects by name.
-        OrcaNotification(level = OrcaNotificationLevel.Error) {
-            OrcaNotificationText(orcaString("Error:"), emphasized = true)
-            OrcaNotificationText(
-                (
-                    orcaString("Following objects are laid over the boundary of plate or exceeds the height limit:\n") +
-                        state.clashedObjects.map { it.displayName() }.joinToString("") { it + "\n" } +
-                        orcaString("Please solve the problem by moving it totally on or off the plate, and confirming that the height is within the build volume.\n")
-                    ).trimEnd(),
-            )
-        }
+    state.validationWarning?.let { notice ->
+        ValidationNotification(OrcaNotificationLevel.Warning, orcaString("WARNING:"), notice.text, notice.targetObject?.displayName(), notice.option) { onJumpTo(notice) }
     }
+    state.validationError?.let { notice ->
+        ValidationNotification(OrcaNotificationLevel.Error, orcaString("Error:"), notice.text, notice.targetObject?.displayName(), notice.option) { onJumpTo(notice) }
+    }
+    if (state.clashedObjects.isNotEmpty()) ObjectClashedNotification(state.clashedObjects.map { it.displayName() })
     // Plater::priv::on_slicing_update() and GLCanvas3D::_update_slice_error_status()
     // of the current plate's G-code.
     state.sliceNotices.forEach { view ->
@@ -1941,39 +1934,15 @@ private fun Notifications(
             )
         }
     }
-    val uriHandler = LocalUriHandler.current
-    val wikiRegion = if (LocalConfiguration.current.locales[0].language == "zh") "zh" else "en"
-    state.plateNotices.forEach { notice ->
-        PlaterWarningNotification(notice.text) {
-            // "Click Wiki for help." of BBLMixUsePLAAndPETG: the dual-nozzle PLA and PETG guide.
-            if (notice.kind == PlateNoticeKind.MIX_PLA_PETG) {
-                OrcaNotificationLink(orcaString("Click Wiki for help."), onClick = {
-                    uriHandler.openUri("https://wiki.bambulab.com/$wikiRegion/filament-acc/filament/pla-and-petg-dual-extrusion")
-                })
-            }
-        }
-    }
+    state.plateNotices.forEach { PlateNoticeNotification(it) }
     state.problem?.let { problem ->
-        OrcaNotification(
-            level = if (problem.kind.warning) OrcaNotificationLevel.Warning else OrcaNotificationLevel.Regular,
-            action = {
-                Text(
-                    text = stringResource(R.string.dismiss),
-                    color = OrcaTheme.colors.accent,
-                    style = OrcaTheme.typography.body13,
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .clickable(role = Role.Button, onClick = onDismissProblem),
-                )
-            },
-        ) {
-            OrcaNotificationText(problem.title(), emphasized = true)
-            problem.detail?.takeIf { it.isNotBlank() }?.let { OrcaNotificationText(it) }
-        }
+        val named = problem.objects.mapNotNull { mesh -> state.sceneObjects.firstOrNull { it.mesh == mesh } }
+        PlateProblemNotification(problem, named.map { it.displayName() }, onJumpTo = { actions.jumpToObjects(problem.objects) }, onClose = onDismissProblem)
     }
     val slicing = state.slicing
     UpdatedItemsInfoNotification(state.cutPartsLoaded, state.cutPartsLoads)
     SliceCompletedNotification(state.slicesCompleted, sliceRunning = slicing != null) { DailyTipsPanel(showHints, onShowHints) }
+    SliceCancelledNotification(state.slicesCancelled, sliceRunning = slicing != null) { DailyTipsPanel(showHints, onShowHints) }
     if (slicing != null) {
         val fraction = slicing.progress?.fraction ?: 0f
         SlicingNotification(
@@ -1995,10 +1964,6 @@ private fun Notifications(
     }
 }
 
-/**
- * A message of the plate's validation: "Error:" or "WARNING:" over its text,
- * and "Jump to" with the name of the object it is about and its setting.
- */
 /** What the buttons and links of the 3D editor's notifications do (NotificationManager). */
 internal class NotificationActions(
     /** The close button of the advice to arrange a plate printed by object. */
@@ -2012,34 +1977,11 @@ internal class NotificationActions(
     val profileUpdates: (detail: Boolean) -> Unit = {},
     /** The close button of a forced update's "Configuration package: ... updated to ...". */
     val closeProfileUpdateInstalled: (ProfileUpdate) -> Unit = {},
+    /** "Jump to" of a slicing error: the objects it names. */
+    val jumpToObjects: (List<ScenePath>) -> Unit = {},
 ) {
     companion object {
         val NONE = NotificationActions()
-    }
-}
-
-/** NotificationManager::push_plater_warning_notification(): "Warning:" above [text], and the notification's own link. */
-@Composable
-private fun PlaterWarningNotification(text: String, link: @Composable () -> Unit = {}) {
-    OrcaNotification(level = OrcaNotificationLevel.Warning) {
-        OrcaNotificationText(orcaString("Warning:"), emphasized = true)
-        OrcaNotificationText(text.trimEnd())
-        link()
-    }
-}
-
-@Composable
-private fun ValidationNotification(notice: ValidationNotice, level: OrcaNotificationLevel, title: String, onJumpTo: (ValidationNotice) -> Unit) {
-    val name = notice.targetObject?.displayName()
-    val link = if (name != null || notice.option.isNotEmpty()) {
-        orcaString("Jump to") + (name?.let { " [$it]" }.orEmpty()) + notice.option.takeIf { it.isNotEmpty() }?.let { " ($it)" }.orEmpty()
-    } else {
-        null
-    }
-    OrcaNotification(level = level) {
-        OrcaNotificationText(title, emphasized = true)
-        OrcaNotificationText(notice.text.trimEnd())
-        link?.let { OrcaNotificationLink(it, onClick = { onJumpTo(notice) }) }
     }
 }
 

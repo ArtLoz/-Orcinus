@@ -2093,6 +2093,22 @@ bool has_post_process_scripts(const Slic3r::DynamicPrintConfig& config)
     return false;
 }
 
+// SlicingProcessCompletedEvent::format_error_message() of SlicingErrors: the
+// text of the last error; and Plater::priv::on_process_completed()'s objects of
+// the print objects the errors name (an error of none, id 0, names no object).
+SliceResult slicing_error(const Slic3r::Print& print, const Slic3r::Model& model, const std::vector<Slic3r::SlicingError>& errors)
+{
+    SliceResult result = failure(SliceStatus::slicing_error, errors.empty() ? std::string() : std::string(errors.back().what()));
+    for (const Slic3r::SlicingError& error : errors) {
+        if (const Slic3r::PrintObject* print_object = print.get_object(Slic3r::ObjectID(error.objectId())); print_object != nullptr) {
+            if (const std::int32_t object = plate_copy_of(model, print_object->model_object()->id(), {}).first; object >= 0) {
+                result.error_objects.push_back(object);
+            }
+        }
+    }
+    return result;
+}
+
 }  // namespace
 
 SliceResult slice(
@@ -2217,13 +2233,20 @@ SliceResult slice(
             return failure(SliceStatus::cancelled, {});
         }
 
-        print.process();
-
         Slic3r::GCodeProcessorResult gcode_result;
-        // The desktop app renders the thumbnails while the G-code is exported;
-        // the app rendered them before, and they are read as they are asked for.
-        print.export_gcode(temporary_path, &gcode_result,
-                           [&thumbnails](const Slic3r::ThumbnailsParams& params) { return load_thumbnails(thumbnails, params); });
+        try {
+            print.process();
+            // The desktop app renders the thumbnails while the G-code is exported;
+            // the app rendered them before, and they are read as they are asked for.
+            print.export_gcode(temporary_path, &gcode_result,
+                               [&thumbnails](const Slic3r::ThumbnailsParams& params) { return load_thumbnails(thumbnails, params); });
+        } catch (const Slic3r::SlicingError& error) {
+            remove_file(temporary_path);
+            return slicing_error(print, model, {error});
+        } catch (const Slic3r::SlicingErrors& errors) {
+            remove_file(temporary_path);
+            return slicing_error(print, model, errors.errors_);
+        }
         boost::system::error_code rename_error;
         fs::rename(temporary_path, output_path, rename_error);
         if (rename_error) {
@@ -2242,6 +2265,8 @@ SliceResult slice(
         result.has_template = !print.config().template_custom_gcode.value.empty();
         result.layer_count = printed_layer_count(print);
         result.estimated_print_time_seconds = std::llround(print_time);
+        result.stealth_print_time_seconds =
+            std::llround(gcode_result.print_statistics.modes[static_cast<std::size_t>(TimeMode::Stealth)].time);
         result.filament_micrometers = std::llround(print.print_statistics().total_used_filament * 1'000.0);
         result.total_cost = print.print_statistics().total_cost;
         // Plater::export_gcode(): BackgroundSlicingProcess::output_filepath_for_project()
@@ -2286,17 +2311,12 @@ SliceResult slice(
     } catch (const Slic3r::CanceledException&) {
         remove_file(temporary_path);
         return failure(SliceStatus::cancelled, {});
-    } catch (const Slic3r::SlicingErrors& errors) {
-        // BackgroundSlicingProcess: the messages are in the individual errors, not in what().
+    } catch (const std::bad_alloc& error) {
+        // SlicingProcessCompletedEvent::format_error_message()
         remove_file(temporary_path);
-        std::string message;
-        for (const Slic3r::SlicingError& error : errors.errors_) {
-            if (!message.empty()) {
-                message.push_back(char(10));
-            }
-            message += error.what();
-        }
-        return failure(SliceStatus::slicing_failed, message.empty() ? errors.what() : message);
+        return failure(SliceStatus::slicing_failed,
+                       Slic3r::I18N::translate("A error occurred. Maybe memory of system is not enough or it's a bug of the program") +
+                           std::string("\n") + error.what());
     } catch (const std::exception& error) {
         remove_file(temporary_path);
         return failure(SliceStatus::slicing_failed, error.what());

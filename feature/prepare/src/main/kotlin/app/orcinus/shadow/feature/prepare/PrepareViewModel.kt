@@ -873,6 +873,9 @@ class PrepareViewModel(
         viewModelScope.launch { find(notice.option)?.let { settingJumps.trySend(it) } }
     }
 
+    /** "Jump to" of a slicing error (push_slicing_error_notification()): the objects it names are selected. */
+    fun jumpToObjects(meshes: List<ScenePath>) = selectPlateObject.objects(meshes)
+
     /** Clearing the selection closes the gizmo, as GLGizmosManager does when it is no longer activable. */
     fun selectObject(index: Int?) {
         // The wipe tower is no object of the plate: picking it takes the

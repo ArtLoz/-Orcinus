@@ -32,6 +32,14 @@ import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.plateOrigins
 import app.orcinus.shadow.core.model.SentFilament
+import app.orcinus.shadow.core.model.BuildVolumeFit
+import app.orcinus.shadow.core.model.PlateNotice
+import app.orcinus.shadow.core.model.PlateProblem
+import app.orcinus.shadow.core.model.PrinterConnection
+import app.orcinus.shadow.core.model.PrintHostType
+import app.orcinus.shadow.core.model.allSliceResultsReady
+import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.shownInPreview
 import app.orcinus.shadow.domain.plate.AllPlatesStats
 import app.orcinus.shadow.domain.plate.CancelPlateSlicingUseCase
 import app.orcinus.shadow.domain.plate.DismissPlateProblemUseCase
@@ -48,6 +56,10 @@ import app.orcinus.shadow.domain.plate.ShareGcodeUseCase
 import app.orcinus.shadow.domain.plate.ShowAllPlatesStatsUseCase
 import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.allPlatesStats
+import app.orcinus.shadow.domain.plate.FindValidationSettingUseCase
+import app.orcinus.shadow.domain.plate.PlateSlice
+import app.orcinus.shadow.domain.plate.SaveProjectUseCase
+import app.orcinus.shadow.domain.plate.plateSlices
 import app.orcinus.shadow.domain.preferences.AppPreferences
 import app.orcinus.shadow.domain.preferences.RecentSendChoicesUseCase
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
@@ -55,7 +67,13 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
 
 data class PreviewUiState(
     /** The printer's plate for the 3D view; null until the engine described it. */
@@ -108,10 +126,58 @@ data class PreviewUiState(
     val previewOnly: PreviewOnlyKind? = null,
     /** The file whose G-code load_gcode() or load_gcode_files() reads while the preview waits for it (wxBusyCursor). */
     val gcodeLoading: String? = null,
+    /** IMToolbarItem::SliceState of every plate of the plate bar. */
+    val plateSlices: List<PlateSlice> = emptyList(),
+    /**
+     * The notifications NotificationManager keeps while the preview shows
+     * (set_in_preview()): the validation error, the objects laid over the
+     * plate's boundary, the warnings of the plate's filaments and the plate's
+     * problem; the plater warnings, the validation warning, the plates'
+     * information and the objects' hide.
+     */
+    val validationError: PreviewValidationError? = null,
+    val clashedObjects: List<PlateObject> = emptyList(),
+    val plateNotices: List<PlateNotice> = emptyList(),
+    val problem: PlateProblem? = null,
+    /** The objects of [problem] still on the plate, which its "Jump to" names. */
+    val problemObjects: List<PlateObject> = emptyList(),
+    /** PlateState.slicesCancelled, which "Slicing Canceled" follows. */
+    val slicesCancelled: Int = 0,
+    /**
+     * PartPlate::is_slice_result_ready_for_export(): the G-code may be printed
+     * and the plate has a printable copy inside it, which "Export plate sliced
+     * file" needs.
+     */
+    val readyForExport: Boolean = false,
+    /** MainFrame::can_send_gcode(): the printer preset names a host, or the plate has no object. */
+    val canSendGcode: Boolean = false,
+    /**
+     * Sidebar::update_all_preset_comboboxes(): a printer that takes the sliced
+     * plate as a .gcode.3mf (use_3mf) and has no host exports the plate's
+     * sliced file by default instead of its G-code.
+     */
+    val exportsSlicedFile: Boolean = false,
+    /** PresetBundle::is_bbl_vendor(): a Bambu Lab printer, whose print button prints the plate (ePrintPlate). */
+    val bambuVendor: Boolean = false,
+    /**
+     * The print button's "Print all" of a Bambu Lab printer sent to a host of
+     * its own (bbl_use_printhost): SimplyPrint alone takes every plate.
+     */
+    val printAllSupported: Boolean = false,
+    /** PartPlateList::is_all_slice_results_ready_for_print(), which "Print all" needs. */
+    val allReadyForPrint: Boolean = false,
 ) {
     /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
     val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
 }
+
+/** A message of the plate's validation, with the copy it is about and the setting its "Jump to" opens. */
+data class PreviewValidationError(
+    val text: String,
+    val target: PlateInstanceId?,
+    val targetObject: PlateObject?,
+    val option: String,
+)
 
 class PreviewViewModel(
     observePlate: ObservePlateUseCase,
@@ -136,6 +202,10 @@ class PreviewViewModel(
     private val dismissPlateProblem: DismissPlateProblemUseCase? = null,
     /** "Simplify model" of the advice to simplify an object. */
     private val openSimplify: OpenSimplifyUseCase? = null,
+    /** The setting a validation error's "Jump to" opens. */
+    private val findValidationSetting: FindValidationSettingUseCase? = null,
+    /** "Export plate sliced file" of the print button (Plater::export_gcode_3mf()). */
+    private val saveProject: SaveProjectUseCase? = null,
 ) : ViewModel() {
     private val plate = observePlate()
 
@@ -154,9 +224,45 @@ class PreviewViewModel(
     fun jumpTo(mesh: ScenePath, instance: Int) {
         selectPlateObject?.invoke(PlateInstanceId(mesh, instance))
     }
-    val state: StateFlow<PreviewUiState> = observePlate()
-        .map(PlateState::toPreviewUiState)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toPreviewUiState())
+
+    /** push_slicing_error_notification()'s "Jump to": the objects the error names; the 3D editor opens on them. */
+    fun jumpToObjects(meshes: List<ScenePath>) {
+        selectPlateObject?.objects(meshes)
+    }
+
+    /** The setting a validation error's "Jump to" opens, for the page to show. */
+    private val settingJumps = Channel<SearchOption>(Channel.CONFLATED)
+    val settingToOpen: Flow<SearchOption> = settingJumps.receiveAsFlow()
+
+    /**
+     * push_validate_error_notification()'s "Jump to": the object or the copy
+     * the error is about is selected, and the setting it names opens on its
+     * tab (Sidebar::jump_to_option()); one that names none opens the 3D editor
+     * ([onEditor]).
+     */
+    fun jumpToValidation(error: PreviewValidationError, onEditor: () -> Unit) {
+        error.target?.let { selectPlateObject?.invoke(it) }
+        if (error.option.isEmpty()) return onEditor()
+        val find = findValidationSetting ?: return
+        viewModelScope.launch { find(error.option)?.let { settingJumps.trySend(it) } }
+    }
+
+    /**
+     * The printer's connection as the print button reads it, read again when
+     * the presets change or the connection is saved; null until it is read.
+     */
+    private val connection = MutableStateFlow<PrinterConnection?>(null)
+
+    init {
+        viewModelScope.launch {
+            plate.map { it.presets to it.connectionSaves }.distinctUntilChanged().collect {
+                connection.value = (printerConnection() as? PrinterConnectionOutcome.Success)?.connection
+            }
+        }
+    }
+
+    val state: StateFlow<PreviewUiState> = combine(observePlate(), connection) { plateState, printer -> plateState.toPreviewUiState(printer) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), observePlate().value.toPreviewUiState(null))
 
     /** The slice button: the plate or all plates, as its drop-down chose. */
     fun slice() = sliceAction()
@@ -257,9 +363,21 @@ class PreviewViewModel(
 
     suspend fun exportGcode(document: ExternalDocumentReference): Boolean = exportGcode.invoke(document)
 
+    /** "Export plate sliced file": the name it offers, the template's error that stops it, and the export of the current plate. */
+    fun slicedName(): String = saveProject?.slicedName() ?: "plate.gcode.3mf"
+
+    fun slicedNameError(): String? = saveProject?.slicedNameError()
+
+    suspend fun exportSliced(document: ExternalDocumentReference): Boolean = saveProject?.exportSliced(document, all = false) == true
+
     /** The name the exported document goes by, which the export's notification shows. */
     fun dismissExportFinished() {
         dismissPlateProblem?.exportFinished()
+    }
+
+    /** The close button of the plate's problem. */
+    fun dismissProblem() {
+        dismissPlateProblem?.invoke()
     }
 
     fun dismissSimplifySuggestion(mesh: ScenePath) {
@@ -289,7 +407,7 @@ class PreviewViewModel(
     }
 }
 
-private fun PlateState.toPreviewUiState() = PreviewUiState(
+private fun PlateState.toPreviewUiState(connection: PrinterConnection?) = PreviewUiState(
     plate = plate,
     result = result,
     canSlice = canSlice,
@@ -303,7 +421,7 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     slicingCancelling = slicing?.cancelling == true,
     slicesCompleted = slicesCompleted,
     plateOrigins = plateOrigins(),
-    plateBar = plates.size > 1 && when (previewOnly?.kind) {
+    plateBar = when (previewOnly?.kind) {
         null -> true
         PreviewOnlyKind.GCODE -> false
         PreviewOnlyKind.EXPORTED_FILE -> (previewOnly?.slicedPlates ?: 0) > 1
@@ -320,4 +438,32 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     profileUpdatesInstalled = profileUpdatesInstalled,
     previewOnly = previewOnly?.kind,
     gcodeLoading = previewOnly?.fileName?.takeIf { importing && result?.toolpaths == null },
+    plateSlices = plateSlices(),
+    validationError = validation?.error?.let { error ->
+        val target = objects.getOrNull(error.objectIndex)
+        PreviewValidationError(error.text, target?.let { PlateInstanceId(it.mesh, error.instanceIndex.coerceAtLeast(0)) }, target, error.option)
+    },
+    clashedObjects = objects.filter { plateObject -> plateObject.instances.any { it.printable && it.inspection.fit == BuildVolumeFit.PARTLY_OUTSIDE } },
+    plateNotices = validation?.notices.orEmpty(),
+    problem = problem?.takeIf { it.kind.shownInPreview },
+    problemObjects = problem?.objects.orEmpty().mapNotNull { mesh -> objects.firstOrNull { it.mesh == mesh } },
+    slicesCancelled = slicesCancelled,
+    readyForExport = result?.printReady == true && copies().any { it.printable && it.inspection.fit == BuildVolumeFit.INSIDE },
+    canSendGcode = objects.isEmpty() || !connection?.settings?.values?.get(PRINT_HOST).isNullOrEmpty(),
+    // ...without the host's page (PrintHost::get_print_host_webui()), unless it prints over Bambu Lab's network.
+    exportsSlicedFile = connection?.use3mf == true && !useBblNetwork(connection) &&
+        listOf(PRINT_HOST_WEBUI, PRINT_HOST).all { connection.settings.values[it].isNullOrEmpty() },
+    bambuVendor = presets?.plateBedTypeSelectable == true,
+    printAllSupported = presets?.plateBedTypeSelectable == true && connection != null && !useBblNetwork(connection) &&
+        connection.settings.values[HOST_TYPE] == PrintHostType.SIMPLYPRINT.key,
+    allReadyForPrint = allSliceResultsReady(),
 )
+
+/** PresetBundle::use_bbl_network(): a Bambu Lab printer that is not sent to a host of its own (bbl_use_printhost). */
+private fun PlateState.useBblNetwork(connection: PrinterConnection): Boolean =
+    presets?.plateBedTypeSelectable == true && connection.settings.values[BBL_USE_PRINTHOST] != "1"
+
+private const val PRINT_HOST = "print_host"
+private const val PRINT_HOST_WEBUI = "print_host_webui"
+private const val HOST_TYPE = "host_type"
+private const val BBL_USE_PRINTHOST = "bbl_use_printhost"

@@ -32,9 +32,7 @@
 
     <string name="problem_engine_unavailable">Ядро OrcaSlicer недоступно</string>
     <string name="problem_import_failed">Не удалось открыть модель</string>
-    <string name="problem_slice_failed">Нарезка не удалась</string>
     <string name="problem_engine_crashed">Ядро OrcaSlicer аварийно завершилось. Нарезку можно запустить снова.</string>
-    <string name="problem_slice_cancelled">Нарезка отменена</string>
     <string name="problem_placement_failed">Не удалось переместить модель</string>
     <string name="problem_presets_failed">Не удалось выбрать профиль</string>
     <string name="problem_export_failed">Не удалось экспортировать модель</string>

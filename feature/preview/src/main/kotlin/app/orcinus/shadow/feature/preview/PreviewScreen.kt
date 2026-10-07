@@ -26,6 +26,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -49,6 +50,9 @@ import app.orcinus.shadow.core.designsystem.component.OrcaCanvas
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaInfoItem
 import app.orcinus.shadow.core.designsystem.component.OrcaInfoPanel
+import app.orcinus.shadow.core.designsystem.component.OrcaSplitButton
+import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
+import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
@@ -70,6 +74,7 @@ import app.orcinus.shadow.core.model.PhysicalPrinter
 import app.orcinus.shadow.core.model.PreviewOnlyKind
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.ProfileUpdate
+import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
@@ -99,15 +104,20 @@ import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
 import app.orcinus.shadow.core.ui.plate.NameErrorDialog
+import app.orcinus.shadow.core.ui.plate.ObjectClashedNotification
+import app.orcinus.shadow.core.ui.plate.PlateNoticeNotification
+import app.orcinus.shadow.core.ui.plate.PlateProblemNotification
 import app.orcinus.shadow.core.ui.plate.PlateStrip
 import app.orcinus.shadow.core.ui.plate.PostProcessSkippedNotification
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateAvailableNotification
 import app.orcinus.shadow.core.ui.plate.ProfileUpdateFinishedNotification
 import app.orcinus.shadow.core.ui.plate.SimplifySuggestionNotification
 import app.orcinus.shadow.core.ui.plate.SliceButton
+import app.orcinus.shadow.core.ui.plate.SliceCancelledNotification
 import app.orcinus.shadow.core.ui.plate.SliceCompletedNotification
 import app.orcinus.shadow.core.ui.plate.SliceNoticeNotification
 import app.orcinus.shadow.core.ui.plate.SlicingNotification
+import app.orcinus.shadow.core.ui.plate.ValidationNotification
 import app.orcinus.shadow.core.ui.plate.navigatorFaceLabels
 import app.orcinus.shadow.core.ui.printTime
 import app.orcinus.shadow.core.ui.settings.PrintHostJobsReport
@@ -117,11 +127,12 @@ import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
 import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import app.orcinus.shadow.core.ui.settings.openInBrowser
 import app.orcinus.shadow.core.ui.shareDocument
-import app.orcinus.shadow.domain.plate.AllPlatesSliceState
+import app.orcinus.shadow.domain.plate.PlateSliceState
 import app.orcinus.shadow.render.gcode.GcodeLines
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.gcode.ToolpathsMemory
 import app.orcinus.shadow.render.gcode.ToolpathsMoveType
+import app.orcinus.shadow.render.gcode.ToolpathsTimeMode
 import app.orcinus.shadow.render.scene.PlateGraphics
 import app.orcinus.shadow.render.scene.PlateNavigator
 import app.orcinus.shadow.render.scene.PlateShells
@@ -141,9 +152,12 @@ internal fun PreviewRoute(
     onSliceRequested: () -> Unit,
     onOpenDevice: () -> Unit = {},
     onOpenPrepare: () -> Unit = {},
+    /** The page of a setting a validation error's "Jump to" opens. */
+    onOpenSetting: (SearchOption) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val canvas by viewModel.canvas.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel) { viewModel.settingToOpen.collect(onOpenSetting) }
     PreviewScreen(
         state = state,
         layout = currentOrcaWindowLayout(),
@@ -154,6 +168,15 @@ internal fun PreviewRoute(
             viewModel.jumpTo(mesh, instance)
             onOpenPrepare()
         },
+        notifications = PreviewNotificationActions(
+            jumpToObjects = { meshes ->
+                viewModel.jumpToObjects(meshes)
+                onOpenPrepare()
+            },
+            jumpToValidation = { error -> viewModel.jumpToValidation(error, onEditor = onOpenPrepare) },
+            closeProblem = viewModel::dismissProblem,
+        ),
+        slicedExport = SlicedExport(name = viewModel::slicedName, nameError = viewModel::slicedNameError, export = viewModel::exportSliced),
         onSimplifySuggested = { mesh ->
             viewModel.simplifySuggested(mesh)
             onOpenPrepare()
@@ -240,6 +263,31 @@ internal class PrinterActions(
     }
 }
 
+/** What the links and the close buttons of the notifications NotificationManager keeps on the preview do. */
+internal class PreviewNotificationActions(
+    /** "Jump to" of a slicing error: the objects it names, on the 3D editor. */
+    val jumpToObjects: (List<ScenePath>) -> Unit = {},
+    /** "Jump to" of a validation error: its copy, and the setting it names. */
+    val jumpToValidation: (PreviewValidationError) -> Unit = {},
+    /** The close button of the plate's problem. */
+    val closeProblem: () -> Unit = {},
+) {
+    companion object {
+        val NONE = PreviewNotificationActions()
+    }
+}
+
+/** "Export plate sliced file" (Plater::export_gcode_3mf()): the name it offers, the template's error that stops it, and the export. */
+internal class SlicedExport(
+    val name: () -> String,
+    val nameError: () -> String?,
+    val export: suspend (ExternalDocumentReference) -> Boolean,
+) {
+    companion object {
+        val NONE = SlicedExport(name = { "plate.gcode.3mf" }, nameError = { null }, export = { false })
+    }
+}
+
 /**
  * What the preview keeps from one G-code to the next, as the desktop app's one
  * GCodeViewer does while it runs.
@@ -290,6 +338,8 @@ internal fun PreviewScreen(
     canvas: CanvasPreferences = CanvasPreferences(),
     /** An item of the canvas's View menu, which OrcaSlicer.conf keeps. */
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
+    notifications: PreviewNotificationActions = PreviewNotificationActions.NONE,
+    slicedExport: SlicedExport = SlicedExport.NONE,
 ) {
     val result = state.result
     val viewCamera = rememberPlateViewCamera()
@@ -308,8 +358,18 @@ internal fun PreviewScreen(
     var warningsShown by remember { mutableStateOf(false) }
     val stepWarnings = result?.notices.orEmpty().filter { it.stepWarning }
     val beginExport = { if (stepWarnings.isNotEmpty()) warningsShown = true }
-    // PartPlate::is_slice_result_ready_for_print(): exporting, sending and printing wait for it.
-    val printReady = result?.printReady == true
+    // MainFrame::get_enable_print_status(): exporting, sending and uploading the
+    // G-code need a valid slice of the current plate, exporting its sliced file
+    // one that is ready for export; none while all plates are selected.
+    val allPlatesSelected = state.allPlates?.selected == true
+    val sliceValid = result != null && !allPlatesSelected
+    val slicedFileReady = state.readyForExport && !allPlatesSelected
+    // "Print" (eSendGcode) uploads to the printer's host, which it needs; a Bambu
+    // Lab printer's "Print plate" (ePrintPlate) wants a slice ready for print.
+    val printPlateEnabled = if (state.bambuVendor) result?.printReady == true && !allPlatesSelected else sliceValid && state.canSendGcode
+    // MainFrame's m_print_select between "Print plate" and "Print all", and what the sheet sends.
+    var printSelectAll by rememberSaveable { mutableStateOf(false) }
+    var sendingAll by rememberSaveable { mutableStateOf(false) }
     // Plater::export_gcode() and Plater::send_gcode(): a template that could
     // not name the file shows its error, and nothing is saved or sent.
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -329,6 +389,10 @@ internal fun PreviewScreen(
                 if (!onExportGcode(document)) saved = false
             }
         }
+    }
+    // Plater::export_gcode_3mf()'s file dialog for the current plate, whose message boxes the export shows itself.
+    val slicedPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(SLICED_FILE_MIME_TYPE)) { uri ->
+        uri?.let { scope.launch { slicedExport.export(ExternalDocumentReference(it.toString())) } }
     }
     val inspection = LocalInspectionMode.current
     val toolpaths = result?.toolpaths
@@ -360,7 +424,7 @@ internal fun PreviewScreen(
     // GLCanvas3D::_render_imgui_select_plate_toolbar(): the statistics of all
     // plates show instead of the plate once they are all sliced.
     val allPlates = state.allPlates
-    val allPlatesShown = allPlates != null && allPlates.selected && allPlates.state == AllPlatesSliceState.SLICED
+    val allPlatesShown = allPlates != null && allPlates.selected && allPlates.state == PlateSliceState.SLICED
     val peek = if (shown != null && view != null && !allPlatesShown) SheetPeekHeight + navigationBar else 0.dp
 
     BottomSheetScaffold(
@@ -393,21 +457,62 @@ internal fun PreviewScreen(
                     )
                 } else {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        // Export G-code of the desktop app's File menu.
-                        OrcaButton(
-                            text = stringResource(UiR.string.gcode_save),
-                            onClick = { gcodeNameError()?.let { nameError = it } ?: gcodePicker.launch(gcodeName()) },
-                            enabled = printReady,
-                            modifier = Modifier.weight(1f),
-                        )
-                        OrcaButton(
-                            text = stringResource(UiR.string.printer_host_send),
-                            onClick = send,
-                            enabled = printReady,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(start = 8.dp),
-                        )
+                        // The print button's exports: "Export G-code file", or "Export plate sliced file"
+                        // by default for a printer that takes a .gcode.3mf and has no host.
+                        if (state.exportsSlicedFile) {
+                            OrcaButton(
+                                text = orcaString("Export plate sliced file"),
+                                onClick = { slicedExport.nameError()?.let { nameError = it } ?: slicedPicker.launch(slicedExport.name()) },
+                                enabled = slicedFileReady,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            OrcaButton(
+                                text = stringResource(UiR.string.gcode_save),
+                                onClick = { gcodeNameError()?.let { nameError = it } ?: gcodePicker.launch(gcodeName()) },
+                                enabled = sliceValid,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        if (state.printAllSupported) {
+                            // A Bambu Lab printer sent to SimplyPrint: "Print plate" or "Print all", as the drop-down chose.
+                            OrcaSplitButton(
+                                text = orcaString(if (printSelectAll) "Print all" else "Print plate"),
+                                onClick = {
+                                    sendingAll = printSelectAll
+                                    send()
+                                },
+                                menuDescription = orcaString("Print plate") + ", " + orcaString("Print all"),
+                                enabled = if (printSelectAll) state.allReadyForPrint else printPlateEnabled,
+                                menu = { dismiss ->
+                                    listOf(false, true).forEach { all ->
+                                        OrcaMenuCheckItem(
+                                            text = orcaString(if (all) "Print all" else "Print plate"),
+                                            checked = all == printSelectAll,
+                                            onClick = {
+                                                dismiss()
+                                                printSelectAll = all
+                                            },
+                                        )
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 8.dp),
+                            )
+                        } else {
+                            OrcaButton(
+                                text = stringResource(UiR.string.printer_host_send),
+                                onClick = {
+                                    sendingAll = false
+                                    send()
+                                },
+                                enabled = printPlateEnabled,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 8.dp),
+                            )
+                        }
                         if (uploadJobs.isNotEmpty()) {
                             PrintHostQueueButton(uploadJobs, onClick = { queueShown = true }, modifier = Modifier.padding(start = 4.dp))
                         }
@@ -416,7 +521,7 @@ internal fun PreviewScreen(
                             icon = DesignR.drawable.app_share,
                             contentDescription = stringResource(UiR.string.share),
                             onClick = { scope.launch { onShareGcode()?.let { context.shareDocument(it, GCODE_MIME_TYPE) } } },
-                            enabled = printReady,
+                            enabled = sliceValid,
                             modifier = Modifier.padding(start = 4.dp),
                         )
                     }
@@ -519,6 +624,7 @@ internal fun PreviewScreen(
                     imperial = canvas.imperialUnits,
                     filamentColors = state.filamentColors.map { value -> parseFilamentColor(value)?.let { Color(it.red, it.green, it.blue, it.alpha) } ?: OrcaTheme.colors.accent },
                     modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+                    stealth = view?.timeMode == ToolpathsTimeMode.Stealth,
                 )
             }
             // The notifications of the preview's canvas, under the plate bar, beside the
@@ -537,6 +643,7 @@ internal fun PreviewScreen(
                 val progress = state.slicingProgress
                 val job = state.slicingJob
                 SliceCompletedNotification(state.slicesCompleted, sliceRunning = progress != null && job != null) { DailyTipsPanel(showHints, keepHints) }
+                SliceCancelledNotification(state.slicesCancelled, sliceRunning = progress != null && job != null) { DailyTipsPanel(showHints, keepHints) }
                 if (progress != null && job != null) {
                     SlicingNotification(
                         job = job,
@@ -567,7 +674,20 @@ internal fun PreviewScreen(
                 state.profileUpdatesInstalled.forEach { update ->
                     ProfileUpdateFinishedNotification(update.vendor, update.version, onClose = { onCloseProfileUpdateInstalled(update) })
                 }
-                // The slicing notifications stay on the preview (NotificationManager::set_in_preview()).
+                // The notifications that stay on the preview (NotificationManager::set_in_preview()):
+                // the validation error, the objects laid over the plate, the slicing notifications,
+                // the warnings of the plate's filaments and the plate's problem.
+                state.validationError?.let { error ->
+                    ValidationNotification(
+                        OrcaNotificationLevel.Error,
+                        orcaString("Error:"),
+                        error.text,
+                        error.targetObject?.displayName(),
+                        error.option,
+                        onJumpTo = { notifications.jumpToValidation(error) },
+                    )
+                }
+                if (state.clashedObjects.isNotEmpty()) ObjectClashedNotification(state.clashedObjects.map { it.displayName() })
                 state.result?.let { sliced ->
                     sliced.notices.forEach { notice ->
                         val target: PlateObject? = sliced.objects.getOrNull(notice.objectIndex)
@@ -579,8 +699,17 @@ internal fun PreviewScreen(
                     }
                     if (sliced.postProcessSkipped) PostProcessSkippedNotification()
                 }
+                state.plateNotices.forEach { PlateNoticeNotification(it) }
+                state.problem?.let { problem ->
+                    PlateProblemNotification(
+                        problem,
+                        state.problemObjects.map { it.displayName() },
+                        onJumpTo = { notifications.jumpToObjects(problem.objects) },
+                        onClose = notifications.closeProblem,
+                    )
+                }
             }
-            // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), once there are several.
+            // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), with how far each plate is sliced.
             if (state.plateBar) {
                 PlateStrip(
                     count = state.plateOrigins.size,
@@ -595,6 +724,7 @@ internal fun PreviewScreen(
                     leading = allPlates?.let { stats ->
                         { AllPlatesItem(stats, enabled = state.canSliceAll, onClick = onShowAllPlates) }
                     },
+                    itemBackground = { index -> state.plateSlices.getOrNull(index)?.let { PlateSliceMark(it) } },
                 )
             }
             val controls = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -675,8 +805,11 @@ internal fun PreviewScreen(
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         OrcaButton(
                             text = stringResource(UiR.string.printer_host_send),
-                            onClick = send,
-                            enabled = printReady,
+                            onClick = {
+                                sendingAll = false
+                                send()
+                            },
+                            enabled = printPlateEnabled,
                             modifier = Modifier.weight(1f),
                         )
                         if (uploadJobs.isNotEmpty()) {
@@ -710,8 +843,9 @@ internal fun PreviewScreen(
             onSend = { printer, startPrint, options ->
                 sending = false
                 beginExport()
-                // send_gcode_legacy(): a .gcode.3mf names the plate it carries, 1-based.
-                printers.send(printer, startPrint, if (options.use3mf) options.copy(plateIndex = state.currentPlate + 1) else options)
+                // send_gcode_legacy(): a .gcode.3mf names the plate it carries, 1-based, the
+                // current one for "Print all" too, whose file carries every plate.
+                printers.send(printer, startPrint, if (options.use3mf) options.copy(plateIndex = state.currentPlate + 1, allPlates = sendingAll) else options)
             },
             onDismiss = { sending = false },
             loadSlots = printers.slots,
@@ -772,6 +906,9 @@ private fun SlicedInfo(result: PlateSliceResult, modifier: Modifier = Modifier) 
 
 /** The type a G-code file is offered under, as OrcaSlicer writes .gcode. */
 private const val GCODE_MIME_TYPE = "text/x-gcode"
+
+/** The type a plate's sliced file (.gcode.3mf) is offered under, a 3MF project's. */
+private const val SLICED_FILE_MIME_TYPE = "model/3mf"
 
 private val PreviewResult = PlateSliceResult(
     jobId = SliceJobId("preview"),

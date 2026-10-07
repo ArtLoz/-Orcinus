@@ -25,10 +25,13 @@ import app.orcinus.shadow.core.model.listPlateOf
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
+import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.Point2
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SliceJobId
+import app.orcinus.shadow.core.model.SliceProgress
+import app.orcinus.shadow.core.model.SliceStage
 import app.orcinus.shadow.core.model.SliceStatistics
 import app.orcinus.shadow.core.model.Transform3
 import app.orcinus.shadow.core.model.Vector3
@@ -222,21 +225,38 @@ class PlatesTest {
     }
 
     @Test
-    fun `the all plates item counts the sliced plates, and shows their statistics once all of them are`() {
+    fun `the plate bar shows how far each plate is sliced, and the all plates item counts the plates that may be printed`() {
         val first = cubeAt(175.0, 175.0)
         val second = cubeAt(595.0, 175.0, "second")
-        fun sliced(id: String) = PlateSliceResult(SliceJobId(id), emptyList(), OutputPath("/gcode/$id.gcode"), SliceStatistics(10, 60, 100.0))
+        fun sliced(id: String, printReady: Boolean = true) =
+            PlateSliceResult(SliceJobId(id), emptyList(), OutputPath("/gcode/$id.gcode"), SliceStatistics(10, 60, 100.0), printReady = printReady)
         val half = state(listOf(first, second), plates = 2, current = 0).copy(result = sliced("first"))
-        assertEquals(AllPlatesSliceState.SLICING, half.allPlatesStats()?.state)
+        assertEquals(listOf(PlateSliceState.SLICED, PlateSliceState.UNSLICED), half.plateSlices().map(PlateSlice::state))
+        assertEquals(PlateSliceState.SLICING, half.allPlatesStats()?.state)
         assertEquals(1, half.allPlatesStats()?.sliced)
 
         val all = half.copy(plates = listOf(PartPlate(), PartPlate(result = sliced("second"))))
-        assertEquals(AllPlatesSliceState.SLICED, all.allPlatesStats()?.state)
+        assertEquals(PlateSliceState.SLICED, all.allPlatesStats()?.state)
         assertEquals(2, all.allPlatesStats()?.statistics?.size)
 
-        // A cube over the second plate's edge keeps it from being sliced.
-        val over = state(listOf(first, cubeAt(420.0 + 345.0, 175.0, "over")), plates = 2, current = 0)
-        assertEquals(AllPlatesSliceState.FAILED, over.allPlatesStats()?.state)
+        // G-code that may not be printed fails its plate and the item, which is then not selected.
+        val unprintable = all.copy(result = sliced("first", printReady = false), allPlatesStats = true)
+        assertEquals(PlateSliceState.FAILED, unprintable.plateSlices()[0].state)
+        assertEquals(PlateSliceState.FAILED, unprintable.allPlatesStats()?.state)
+        assertFalse(unprintable.allPlatesStats()!!.selected)
+
+        // A cube over the second plate's edge keeps it from being sliced while a printable cube stands inside it...
+        val over = state(listOf(first, second, cubeAt(420.0 + 345.0, 175.0, "over")), plates = 2, current = 0)
+        assertEquals(PlateSliceState.FAILED, over.plateSlices()[1].state)
+        assertEquals(PlateSliceState.FAILED, over.allPlatesStats()?.state)
+        // ...and a plate with nothing printable inside it has nothing to fail.
+        val alone = state(listOf(first, cubeAt(420.0 + 345.0, 175.0, "over")), plates = 2, current = 0)
+        assertEquals(PlateSliceState.UNSLICED, alone.plateSlices()[1].state)
+
+        // The current plate's slice rises with its progress.
+        val job = SliceJobId("job")
+        val slicing = state(listOf(first, second), plates = 2, current = 1).copy(slicing = PlateSlicing(job, SliceProgress(job, 0.4f, SliceStage.SLICING)))
+        assertEquals(PlateSlice(PlateSliceState.SLICING, 0.4f), slicing.plateSlices()[1])
         // With objects on one plate alone there is no item.
         assertNull(state(listOf(first), plates = 2, current = 0).allPlatesStats())
     }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -25,7 +26,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -220,30 +220,30 @@ fun OrcaLegendItem(
 }
 
 /**
- * A colour range as a gradient from its lowest to its highest value, with the
- * values at both ends and in the middle.
+ * A colour range step by step, as the desktop legend lists it: each step's
+ * colour beside its value, in the given order. The swatches stand one on
+ * another as a bar.
  */
 @Composable
-fun OrcaColorScale(
-    colors: List<Color>,
-    lowest: String,
-    middle: String?,
-    highest: String,
-    modifier: Modifier = Modifier,
-) {
+fun OrcaColorSteps(steps: List<Pair<Color, String>>, modifier: Modifier = Modifier) {
     Column(modifier.padding(horizontal = SheetPadding, vertical = 8.dp)) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(14.dp)
-                .clip(CircleShape)
-                .background(if (colors.size > 1) Brush.horizontalGradient(colors) else Brush.horizontalGradient(listOf(colors.firstOrNull() ?: Color.Gray, colors.firstOrNull() ?: Color.Gray))),
-        )
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-            Text(lowest, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body12, modifier = Modifier.weight(1f))
-            if (middle != null) Text(middle, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body12)
-            Spacer(Modifier.weight(1f))
-            Text(highest, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body12)
+        steps.forEachIndexed { index, (color, value) ->
+            val shape = RoundedCornerShape(
+                topStart = if (index == 0) 3.dp else 0.dp,
+                topEnd = if (index == 0) 3.dp else 0.dp,
+                bottomStart = if (index == steps.lastIndex) 3.dp else 0.dp,
+                bottomEnd = if (index == steps.lastIndex) 3.dp else 0.dp,
+            )
+            Row(Modifier.height(22.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .width(16.dp)
+                        .fillMaxHeight()
+                        .clip(shape)
+                        .background(color),
+                )
+                Text(value, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body13, modifier = Modifier.padding(start = 12.dp))
+            }
         }
     }
 }

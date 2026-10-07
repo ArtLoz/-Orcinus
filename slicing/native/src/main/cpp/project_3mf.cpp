@@ -946,7 +946,7 @@ ProjectSave save_project(
                 plate_data_item->pick_file = "valid_pick";
             }
             const ProjectPlate& own = plates[index];
-            const bool exported = sliced == SlicedPlates::all ||
+            const bool exported = sliced == SlicedPlates::all || sliced == SlicedPlates::upload_all ||
                                   ((sliced == SlicedPlates::current || sliced == SlicedPlates::upload) && int(index) == current_plate);
             if (exported && !own.slice_info_path.empty() && !own.gcode_path.empty()) {
                 Slic3r::PlateBBoxData first_layer;
@@ -978,7 +978,7 @@ ProjectSave save_project(
         if (sliced == SlicedPlates::generic) {
             // Plater::export_core_3mf()
             save_strategy = Slic3r::SaveStrategy::Silence;
-        } else if (sliced == SlicedPlates::upload) {
+        } else if (sliced == SlicedPlates::upload || sliced == SlicedPlates::upload_all) {
             // Plater::send_gcode()
             save_strategy = Slic3r::SaveStrategy::Silence | Slic3r::SaveStrategy::SkipModel | Slic3r::SaveStrategy::WithGcode |
                             Slic3r::SaveStrategy::SkipAuxiliary;
@@ -995,8 +995,9 @@ ProjectSave save_project(
         store_params.model = &model;
         store_params.plate_data_list = plate_data_list;
         // PLATE_CURRENT_IDX, the plate exported, or PLATE_ALL_IDX.
-        store_params.export_plate_idx =
-            sliced == SlicedPlates::current || sliced == SlicedPlates::upload ? current_plate : sliced == SlicedPlates::all ? -2 : -1;
+        store_params.export_plate_idx = sliced == SlicedPlates::current || sliced == SlicedPlates::upload ? current_plate
+                                         : sliced == SlicedPlates::all || sliced == SlicedPlates::upload_all ? -2
+                                                                                                             : -1;
         store_params.project_presets = project_presets;
         store_params.config = &cfg;
         store_params.thumbnail_data = thumbnails;

@@ -78,8 +78,15 @@ enum class ToolpathsMoveType {
 /** Filament in metres and grams. */
 data class FilamentUsage(val meters: Double, val grams: Double)
 
-/** Count, normal-mode time in seconds, and distance in millimetres of the moves of one type. */
-data class MoveStatistics(val count: Int, val time: Float, val distance: Float)
+/**
+ * Count, time in seconds and distance in millimetres of the moves of one type
+ * (m_move_type_counts, m_move_type_times, m_move_type_distances): the time of
+ * the normal mode, and of the stealth mode, 0 without one.
+ */
+data class MoveStatistics(val count: Int, val time: Float, val distance: Float, val stealthTime: Float = 0f) {
+    /** m_move_type_times[..][time mode]. */
+    fun timeIn(mode: ToolpathsTimeMode): Float = if (mode == ToolpathsTimeMode.Stealth) stealthTime else time
+}
 
 /**
  * The legend's figures from the slice (GCodeProcessorResult::print_statistics,

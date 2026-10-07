@@ -1390,11 +1390,13 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
                                          static_cast<jint>(notice.object_index), static_cast<jint>(notice.instance_index),
                                          notice.step_warning ? JNI_TRUE : JNI_FALSE);
         });
+    const jintArray error_objects = env->NewIntArray(static_cast<jsize>(result.error_objects.size()));
+    env->SetIntArrayRegion(error_objects, 0, static_cast<jsize>(result.error_objects.size()), result.error_objects.data());
     const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeSliceResult");
     const jmethodID constructor = env->GetMethodID(
         result_class, "<init>",
         "(JLjava/lang/String;JJJZZZZZD[I[DZLjava/lang/String;Ljava/lang/String;[Lapp/orcinus/shadow/slicing/nativebridge/NativeSliceNotice;ZZZ"
-        "ZDZZ[D[J[I[Ljava/lang/String;[Ljava/lang/String;)V");
+        "ZDZZ[D[J[I[Ljava/lang/String;[Ljava/lang/String;J[I)V");
     return env->NewObject(
         result_class,
         constructor,
@@ -1426,7 +1428,9 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_slice(
         code_type_array,
         code_extruder_array,
         to_java(env, code_colors),
-        to_java(env, code_extras)
+        to_java(env, code_extras),
+        static_cast<jlong>(result.stealth_print_time_seconds),
+        error_objects
     );
 }
 

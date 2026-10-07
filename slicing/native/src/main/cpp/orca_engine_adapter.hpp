@@ -67,6 +67,10 @@ enum class SliceStatus : std::int64_t {
     model_read_failed = 6,
     engine_not_ready = 7,
     invalid_print = 8,
+    // Slic3r::SlicingError: the slice stopped at what it cannot print, which
+    // the notification center shows; the other failures are critical errors
+    // (SlicingProcessCompletedEvent::critical_error()).
+    slicing_error = 9,
 };
 
 // What a print used of one of the plate's filaments, as
@@ -142,6 +146,9 @@ struct SliceResult {
     std::string message;
     std::int64_t layer_count{0};
     std::int64_t estimated_print_time_seconds{0};
+    // PrintEstimatedStatistics::modes of the stealth mode, which the preview
+    // shows instead while its time mode is the stealth one; 0 for a printer without it.
+    std::int64_t stealth_print_time_seconds{0};
     std::int64_t filament_micrometers{0};
     // PrintStatistics::total_cost.
     double total_cost{0.0};
@@ -194,6 +201,10 @@ struct SliceResult {
     // pattern's took them (pattern_gcodes_set), which the project keeps.
     bool pattern_gcodes_set{false};
     std::vector<LayerGcode> plate_gcodes;
+    // Plater::priv::on_process_completed() of a SliceStatus::slicing_error:
+    // the plate's objects (by index) the errors were thrown for, which
+    // push_slicing_error_notification()'s "Jump to" names and selects.
+    std::vector<std::int32_t> error_objects;
 };
 
 // What Print::output_filename() names the G-code after: the project's name once
@@ -2044,6 +2055,8 @@ enum class SlicedPlates : std::int64_t {
     // Plater::send_gcode(): the current plate's G-code for a printer that takes
     // a .gcode.3mf (use_3mf), without the model and the auxiliary files.
     upload = 4,
+    // ...and every sliced plate's, for "Print all" (send_gcode(PLATE_ALL_IDX)).
+    upload_all = 5,
 };
 
 struct ImportedModels {

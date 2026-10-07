@@ -3,6 +3,7 @@ package app.orcinus.shadow.feature.preview.navigation
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
+import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.feature.preview.PreviewRoute
 import app.orcinus.shadow.feature.preview.PreviewViewModel
 import kotlinx.serialization.Serializable
@@ -22,6 +23,8 @@ fun EntryProviderScope<NavKey>.previewEntry(
     onOpenDevice: () -> Unit = {},
     /** select_tab(MainFrame::tp3DEditor) of a slicing notification's "Jump to". */
     onOpenPrepare: () -> Unit = {},
+    /** Sidebar::jump_to_option() of a validation error's "Jump to": the page of the setting it names. */
+    onOpenSetting: (SearchOption) -> Unit = {},
 ) {
     entry<PreviewNavKey> {
         PreviewRoute(
@@ -29,6 +32,7 @@ fun EntryProviderScope<NavKey>.previewEntry(
             onSliceRequested = onSliceRequested,
             onOpenDevice = onOpenDevice,
             onOpenPrepare = onOpenPrepare,
+            onOpenSetting = onOpenSetting,
         )
     }
 }

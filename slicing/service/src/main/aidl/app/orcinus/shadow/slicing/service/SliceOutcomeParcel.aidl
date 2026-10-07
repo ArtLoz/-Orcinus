@@ -51,4 +51,8 @@ parcelable SliceOutcomeParcel {
     @nullable int[] patternGcodeExtruders;
     @nullable String[] patternGcodeColors;
     @nullable String[] patternGcodeExtras;
+    /** SliceStatistics.stealthPrintTimeSeconds of a success. */
+    long stealthPrintTimeSeconds;
+    /** SliceOutcome.Failure.objectIndices. */
+    @nullable int[] objectIndices;
 }

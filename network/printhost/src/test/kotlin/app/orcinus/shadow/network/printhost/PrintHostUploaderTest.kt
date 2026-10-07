@@ -17,6 +17,7 @@ import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonArray
@@ -202,16 +203,30 @@ class PrintHostUploaderTest {
         )
 
         val outcome = runSuspend {
-            PrintHostUploader(FakeHttpClient(Result.success("{}")), socket).printerSlots(printer("crealityprint", "k2", ""))
+            PrintHostUploader(FakeHttpClient(Result.success("{}"), info = """{"model": "F008"}"""), socket).printerSlots(printer("crealityprint", "k2", ""))
         }
 
-        val slots = (outcome as PrinterSlotsOutcome.Success).slots
+        val found = outcome as PrinterSlotsOutcome.Success
+        val slots = found.slots
+        // A K2 Plus, which prints from its boxes (supports_multi_color_print()).
+        assertTrue(found.multiColor)
+        assertEquals("K2 Plus", found.modelName)
         // The inactive box 2 is left out; Creality's "#0RRGGBB" becomes "#RRGGBB".
         assertEquals(listOf("T0A", "T1A", "T1B"), slots.map(PrinterSlot::toolId))
         assertEquals("#112233", slots[1].color)
         assertEquals("Ext - PLA", slots[0].label)
         assertEquals("1B - PETG", slots[2].label)
         assertTrue(socket.exchanges.single().messages.single().contains("boxsInfo"))
+
+        // A printer of another platform maps nothing, and its boxes are not asked for.
+        val k1 = FakeWebSocket(answer = "{}")
+        val other = runSuspend {
+            PrintHostUploader(FakeHttpClient(Result.success("{}"), info = """{"model": "K1C"}"""), k1).printerSlots(printer("crealityprint", "k1", ""))
+        } as PrinterSlotsOutcome.Success
+        assertFalse(other.multiColor)
+        assertEquals("unknown (K1C)", other.modelName)
+        assertTrue(other.slots.isEmpty())
+        assertTrue(k1.exchanges.isEmpty())
     }
 
     @Test

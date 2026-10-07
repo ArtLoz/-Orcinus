@@ -3096,6 +3096,7 @@ class NativeSlicerEngine(context: Context) :
                     filamentMillimeters = result.filamentMicrometers / 1_000.0,
                     cost = result.totalCost,
                     filaments = filamentUsagesOf(result.filaments, result.filamentAmounts),
+                    stealthPrintTimeSeconds = result.stealthPrintTimeSeconds,
                 ),
                 toolpaths = request.toolpaths?.takeIf { result.toolpathsWritten },
                 wipeTower = request.wipeTower?.takeIf { result.wipeTowerWritten },
@@ -3150,6 +3151,9 @@ class NativeSlicerEngine(context: Context) :
             NativeSliceResult.ENGINE_NOT_READY ->
                 failure(request, SliceFailureCode.ENGINE_UNAVAILABLE, result.message, recoverable = false)
 
+            NativeSliceResult.SLICING_ERROR ->
+                failure(request, SliceFailureCode.SLICING_ERROR, result.message, recoverable = true, objectIndices = result.errorObjects.toList())
+
             else -> failure(request, SliceFailureCode.SLICING_FAILED, result.message, recoverable = false)
         }
 
@@ -3158,11 +3162,13 @@ class NativeSlicerEngine(context: Context) :
         code: SliceFailureCode,
         message: String,
         recoverable: Boolean,
+        objectIndices: List<Int> = emptyList(),
     ) = SliceOutcome.Failure(
         jobId = request.jobId,
         code = code,
         message = message.ifBlank { code.name },
         recoverable = recoverable,
+        objectIndices = objectIndices,
     )
 
     companion object {

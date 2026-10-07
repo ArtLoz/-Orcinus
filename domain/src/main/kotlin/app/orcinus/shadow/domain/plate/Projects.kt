@@ -168,15 +168,16 @@ class SaveProjectUseCase(
 
     /**
      * Plater::send_gcode() for a printer that takes a .gcode.3mf (use_3mf):
-     * the current plate's G-code into [file], without the model and the
-     * auxiliary files; false when it could not be written.
+     * the current plate's G-code into [file], or every sliced plate's when
+     * [all] (PLATE_ALL_IDX), without the model and the auxiliary files; false
+     * when it could not be written.
      */
-    suspend fun writeForUpload(file: ScenePath): Boolean {
+    suspend fun writeForUpload(file: ScenePath, all: Boolean = false): Boolean {
         val state = repository.state.value
-        if (state.result == null) return false
+        if (if (all) !state.allSliceResultsReady() else state.result == null) return false
         val prefix = sceneFiles.newImportPrefix()
         try {
-            return write(state, file, prefix, SlicedPlates.UPLOAD)
+            return write(state, file, prefix, if (all) SlicedPlates.UPLOAD_ALL else SlicedPlates.UPLOAD)
         } finally {
             sceneFiles.deleteImport(prefix)
         }

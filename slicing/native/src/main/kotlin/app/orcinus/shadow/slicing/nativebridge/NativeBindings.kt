@@ -48,6 +48,10 @@ internal class NativeSliceResult(
     @JvmField val patternGcodeExtruders: IntArray,
     @JvmField val patternGcodeColors: Array<String>,
     @JvmField val patternGcodeExtras: Array<String>,
+    /** The print's time in the stealth mode, 0 for a printer without it. */
+    @JvmField val stealthPrintTimeSeconds: Long,
+    /** The plate's objects, by index, a [SLICING_ERROR] names. */
+    @JvmField val errorObjects: IntArray,
 ) {
     companion object {
         const val SUCCESS = 0L
@@ -59,6 +63,7 @@ internal class NativeSliceResult(
         const val MODEL_READ_FAILED = 6L
         const val ENGINE_NOT_READY = 7L
         const val INVALID_PRINT = 8L
+        const val SLICING_ERROR = 9L
     }
 }
 

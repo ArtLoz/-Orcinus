@@ -113,6 +113,7 @@ import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateManipulation
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateProject
 import app.orcinus.shadow.core.model.PlateRequest
@@ -838,6 +839,27 @@ class PlateUseCasesTest {
         assertEquals(PlateProblemKind.ENGINE_CRASHED, repository.state.value.problem?.kind)
         assertNull(repository.state.value.result)
         assertNull(files.keptToolpaths)
+    }
+
+    @Test
+    fun `a slicing error names its objects, a critical error is a message box, and a cancel is counted`() {
+        val other = CUBE.withInspection(INSPECTION.copy(mesh = ScenePath("/scene/objects/other.mesh")))
+        val repository = FakeRepository(readyState(CUBE, other))
+        var outcome: (SliceRequest) -> SliceOutcome = { SliceOutcome.Failure(it.jobId, SliceFailureCode.SLICING_ERROR, "empty first layer", true, listOf(1)) }
+        val engine = FakeEngine(outcome = { outcome(it) })
+
+        slicePlate(engine, repository)()
+        assertEquals(PlateProblem(PlateProblemKind.SLICING_ERROR, "empty first layer", listOf(other.mesh)), repository.state.value.problem)
+
+        outcome = { SliceOutcome.Failure(it.jobId, SliceFailureCode.SLICING_FAILED, "bad config", false) }
+        slicePlate(engine, repository)()
+        assertNull(repository.state.value.problem)
+        assertEquals("bad config", repository.state.value.plateNotices.single().text.single().args.single())
+
+        outcome = { SliceOutcome.Cancelled(it.jobId) }
+        slicePlate(engine, repository)()
+        assertEquals(1, repository.state.value.slicesCancelled)
+        assertNull(repository.state.value.problem)
     }
 
     @Test

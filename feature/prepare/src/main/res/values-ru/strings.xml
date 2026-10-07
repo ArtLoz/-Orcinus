@@ -64,5 +64,4 @@
     <string name="slicing_progress">Нарезка: %1$d%%</string>
     <string name="slicing_cancelling">Отмена…</string>
     <string name="cancel">Отмена</string>
-    <string name="dismiss">Закрыть</string>
 </resources>

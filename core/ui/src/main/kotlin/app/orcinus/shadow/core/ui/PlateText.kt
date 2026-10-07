@@ -36,9 +36,9 @@ fun filamentLength(millimeters: Double): String =
 fun PlateProblem.title(): String = when (kind) {
     PlateProblemKind.ENGINE_UNAVAILABLE -> stringResource(R.string.problem_engine_unavailable)
     PlateProblemKind.IMPORT_FAILED -> stringResource(R.string.problem_import_failed)
-    PlateProblemKind.SLICE_FAILED -> stringResource(R.string.problem_slice_failed)
+    // The error's own text, which the engine translated.
+    PlateProblemKind.SLICING_ERROR -> detail.orEmpty()
     PlateProblemKind.ENGINE_CRASHED -> stringResource(R.string.problem_engine_crashed)
-    PlateProblemKind.SLICE_CANCELLED -> stringResource(R.string.problem_slice_cancelled)
     PlateProblemKind.PLACEMENT_FAILED -> stringResource(R.string.problem_placement_failed)
     PlateProblemKind.PRESETS_FAILED -> stringResource(R.string.problem_presets_failed)
     PlateProblemKind.EXPORT_FAILED -> stringResource(R.string.problem_export_failed)

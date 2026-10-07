@@ -652,6 +652,7 @@ private fun Workspace(
                     onSliceRequested = onSliceRequested,
                     onOpenDevice = { showTab(DeviceNavKey) },
                     onOpenPrepare = { showTab(PrepareNavKey) },
+                    onOpenSetting = onOpenSetting,
                 )
                 deviceEntry(createViewModel = container::deviceViewModel)
                 projectEntry(createViewModel = container::projectViewModel)

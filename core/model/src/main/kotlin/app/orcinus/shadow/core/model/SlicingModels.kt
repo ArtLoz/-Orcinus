@@ -450,6 +450,9 @@ enum class SlicedPlates {
 
     /** Plater::send_gcode(): the current plate's G-code alone, for a printer that takes a .gcode.3mf. */
     UPLOAD,
+
+    /** ...and every sliced plate's, for "Print all" (send_gcode(PLATE_ALL_IDX)). */
+    UPLOAD_ALL,
 }
 
 /** A mesh file the engine wrote, and the object it is named after (ModelObject::name). */
@@ -767,6 +770,8 @@ data class SliceStatistics(
     val cost: Double = 0.0,
     /** The filaments the plate prints with (PartPlate::get_extruders) and what the print used of each. */
     val filaments: List<FilamentUsage> = emptyList(),
+    /** The print's time in the stealth mode (PrintEstimatedStatistics::modes); 0 for a printer without it. */
+    val stealthPrintTimeSeconds: Long = 0,
 ) {
     init {
         require(layerCount >= 0) { "Layer count must not be negative" }
@@ -820,6 +825,13 @@ enum class SliceFailureCode {
     SLICING_FAILED,
     /** The engine process terminated during the job, for example a native crash. */
     ENGINE_CRASHED,
+
+    /**
+     * Slic3r::SlicingError: the slice stopped at what it cannot print, which
+     * the notification center shows; every other failure is a critical error
+     * (SlicingProcessCompletedEvent::critical_error()).
+     */
+    SLICING_ERROR,
 }
 
 /** NotificationManager's SlicingWarning, SlicingSeriousWarning and SlicingError. */
@@ -883,6 +895,8 @@ sealed interface SliceOutcome {
         val code: SliceFailureCode,
         val message: String,
         val recoverable: Boolean,
+        /** The objects of the plate, by index among the sliced ones, a [SliceFailureCode.SLICING_ERROR] names. */
+        val objectIndices: List<Int> = emptyList(),
     ) : SliceOutcome
 
     data class Cancelled(

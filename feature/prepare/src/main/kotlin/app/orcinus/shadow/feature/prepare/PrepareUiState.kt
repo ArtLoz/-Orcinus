@@ -390,6 +390,8 @@ data class PrepareUiState(
     val slicing: PlateSlicing?,
     /** PlateState.slicesCompleted, which "Slice ok." follows. */
     val slicesCompleted: Int = 0,
+    /** PlateState.slicesCancelled, which "Slicing Canceled" follows. */
+    val slicesCancelled: Int = 0,
     val problem: PlateProblem?,
     val canEditPlate: Boolean,
     val canSlice: Boolean,
@@ -1398,6 +1400,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
             .map(SceneCopy::plateObject).distinct(),
         slicing = slicing,
         slicesCompleted = slicesCompleted,
+        slicesCancelled = slicesCancelled,
         problem = problem,
         // Objects are loaded and placed by the engine.
         canEditPlate = canEditPlate,

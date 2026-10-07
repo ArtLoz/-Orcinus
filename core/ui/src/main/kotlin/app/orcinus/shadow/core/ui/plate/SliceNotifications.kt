@@ -50,18 +50,39 @@ import kotlinx.coroutines.delay
  * under it can be read.
  */
 @Composable
-fun SliceCompletedNotification(completions: Int, sliceRunning: Boolean = false, tips: (@Composable () -> Unit)? = null) {
-    var announced by remember { mutableIntStateOf(completions) }
+fun SliceCompletedNotification(completions: Int, sliceRunning: Boolean = false, tips: (@Composable () -> Unit)? = null) =
+    SliceEndedNotification(completions, sliceRunning, tips) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(painterResource(DesignR.drawable.orca_notification_slicing_complete), contentDescription = null, modifier = Modifier.size(24.dp))
+            Row(Modifier.padding(start = 6.dp)) { OrcaNotificationText(orcaString("Slice ok."), emphasized = true) }
+        }
+    }
+
+/**
+ * SlicingProgressNotification's cancelled state (set_slicing_progress_canceled()):
+ * "Slicing Canceled" in bold for three seconds after every slice that was
+ * cancelled ([cancellations] counts them), as the completed state shows.
+ */
+@Composable
+fun SliceCancelledNotification(cancellations: Int, sliceRunning: Boolean = false, tips: (@Composable () -> Unit)? = null) =
+    SliceEndedNotification(cancellations, sliceRunning, tips) {
+        OrcaNotificationText(orcaString("Slicing Canceled"), emphasized = true)
+    }
+
+/** The completed and the cancelled state of SlicingProgressNotification, after every slice that ended so ([count]). */
+@Composable
+private fun SliceEndedNotification(count: Int, sliceRunning: Boolean, tips: (@Composable () -> Unit)?, content: @Composable () -> Unit) {
+    var announced by remember { mutableIntStateOf(count) }
     var shown by remember { mutableStateOf(false) }
     var touches by remember { mutableIntStateOf(0) }
-    LaunchedEffect(completions) {
-        if (completions == announced) return@LaunchedEffect
-        announced = completions
+    LaunchedEffect(count) {
+        if (count == announced) return@LaunchedEffect
+        announced = count
         shown = true
     }
     LaunchedEffect(shown, touches) {
         if (!shown) return@LaunchedEffect
-        delay(SLICE_COMPLETED_MILLIS)
+        delay(SLICE_ENDED_MILLIS)
         shown = false
     }
     if (!shown || sliceRunning) return
@@ -72,11 +93,8 @@ fun SliceCompletedNotification(completions: Int, sliceRunning: Boolean = false, 
         }
     }
     OrcaNotification(modifier = touched, action = { CloseButton { shown = false } }) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(DesignR.drawable.orca_notification_slicing_complete), contentDescription = null, modifier = Modifier.size(24.dp))
-            Row(Modifier.padding(start = 6.dp)) { OrcaNotificationText(orcaString("Slice ok."), emphasized = true) }
-        }
-        // The daily tips stay under the completed state.
+        content()
+        // The daily tips stay under the completed and the cancelled state.
         tips?.invoke()
     }
 }
@@ -219,11 +237,12 @@ fun ProfileUpdateFinishedNotification(vendor: String, version: String, onClose: 
 
 /** PopNotification::render_close_button(): its icon's own colours, the box and the cross. */
 @Composable
-private fun RowScope.CloseButton(onClick: () -> Unit) {
+internal fun RowScope.CloseButton(onClick: () -> Unit) {
     OrcaIconButton(icon = DesignR.drawable.orca_notification_close, contentDescription = orcaString("Close"), onClick = onClick, tint = Color.Unspecified)
 }
 
-private const val SLICE_COMPLETED_MILLIS = 3_000L
+/** SlicingProgressNotification::get_duration() of the completed and the cancelled state. */
+private const val SLICE_ENDED_MILLIS = 3_000L
 
 /** push_updated_item_info_notification()'s 10 seconds. */
 private const val UPDATED_ITEMS_INFO_MILLIS = 10_000L

@@ -148,7 +148,7 @@ private fun LegendSheetPreview() = OrcinusTheme {
             OrcaLegendItem(Color(0xFF383ED9), "Перемещения", "29s · 4.0%", 0.04f, "4.57m", "786", visible = false, onToggle = {})
         }
         OrcaLegendSection("Скорость (мм/с)") {
-            OrcaColorScale(listOf(Color(0xFF0B2C7A), Color(0xFF1FA84F), Color(0xFFFFE64D), Color(0xFFD6301B)), "10", "255", "500")
+            OrcaColorSteps(listOf(Color(0xFFD6301B) to "500", Color(0xFFFFE64D) to "255", Color(0xFF1FA84F) to "130", Color(0xFF0B2C7A) to "10"))
         }
         OrcaLegendSection("Общая оценка") {
             OrcaLegendValue("Общий расход:", "1.21 m · 3.64g")

@@ -829,6 +829,8 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         selectPlateObject = selectPlateObject,
         dismissPlateProblem = dismissPlateProblem,
         openSimplify = openSimplify,
+        findValidationSetting = FindValidationSettingUseCase(settingsTabs),
+        saveProject = saveProject,
     )
 
     fun deviceViewModel() = DeviceViewModel(observePlate, devicePage, appPreferences)

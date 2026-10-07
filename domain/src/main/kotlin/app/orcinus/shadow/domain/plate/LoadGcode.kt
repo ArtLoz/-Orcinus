@@ -8,8 +8,6 @@ import app.orcinus.shadow.core.model.ModelImportOutcome
 import app.orcinus.shadow.core.model.ModelPath
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
-import app.orcinus.shadow.core.model.PlateProblem
-import app.orcinus.shadow.core.model.PlateProblemKind
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PreviewOnly
@@ -114,10 +112,10 @@ class LoadGcodeUseCase(
             for ((index, gcode) in plates.withIndex()) {
                 if (gcode == null) continue
                 when (val outcome = process(gcode, index, plates.size, applyBedType = false)) {
-                    // export_gcode_from_previous_file()'s error, which the slicing errors show.
-                    is GcodeLoadOutcome.Failure -> repository.update {
-                        it.copy(problem = PlateProblem(PlateProblemKind.SLICE_FAILED, "Failed to process the G-code file ${gcode.value} from previous 3mf\n${outcome.message}"))
-                    }
+                    // export_gcode_from_previous_file()'s RuntimeError, a critical error of the
+                    // background process: show_error() (Plater::priv::on_process_completed()).
+                    is GcodeLoadOutcome.Failure ->
+                        notice(errorDialog("Failed to process the G-code file ${gcode.value} from previous 3mf\n${outcome.message}"))
                     is GcodeLoadOutcome.Success -> if (outcome.valid) {
                         val result = outcome.toResult(gcode, exportedName(fileName, index, plates.size))
                         // The codes on the plate's layers are the ones its G-code was sliced with.

@@ -1979,6 +1979,16 @@ class SelectPlateObjectUseCase(private val repository: PlateRepository) {
     }
 
     /**
+     * ObjectList::select_items() of the items of the objects with the [meshes]
+     * files, as a slicing error's "Jump to" selects them: those still on the
+     * plate alone, each by its first copy.
+     */
+    fun objects(meshes: List<ScenePath>) = repository.update { state ->
+        val selected = meshes.filter { state.objects.withMesh(it)?.instances?.isNotEmpty() == true }.mapTo(LinkedHashSet()) { PlateInstanceId(it, 0) }
+        if (selected.isEmpty()) state else state.copy(selectedInstances = selected, selectedPart = null, selectedRange = null, selectedConnectors = null)
+    }
+
+    /**
      * ObjectList::fix_cut_selection() while the scale gizmo is open: the first
      * copy of a part of a cut in the selection takes the same copy of every
      * part of that cut (CutObjectBase::has_same_id()) in place of the rest.
@@ -2588,7 +2598,7 @@ class SendGcodeUseCase(
                 }
             }
             val file = files.newUpload(".gcode.3mf")
-            if (saveProject.writeForUpload(ScenePath(file.value))) {
+            if (saveProject.writeForUpload(ScenePath(file.value), all = options.allPlates)) {
                 Result.success(file)
             } else {
                 files.delete(file)
@@ -3419,16 +3429,27 @@ class SlicePlateUseCase(
                 sliderSpiralVase = outcome.layerGcodeRules.spiralVase,
             )
 
-            is SliceOutcome.Failure -> copy(
-                slicing = null,
-                problem = PlateProblem(
-                    kind = if (outcome.code == SliceFailureCode.ENGINE_CRASHED) PlateProblemKind.ENGINE_CRASHED else PlateProblemKind.SLICE_FAILED,
-                    detail = outcome.message,
-                ),
-            )
+            // Plater::priv::on_process_completed(): a SlicingError becomes a notification
+            // with "Jump to" the objects it names, a critical error show_error()'s
+            // message box; the engine's crash is the app's own.
+            is SliceOutcome.Failure -> when (outcome.code) {
+                SliceFailureCode.SLICING_ERROR -> copy(
+                    slicing = null,
+                    problem = PlateProblem(PlateProblemKind.SLICING_ERROR, outcome.message, outcome.objectIndices.mapNotNull { objects.getOrNull(it)?.mesh }),
+                )
+                SliceFailureCode.ENGINE_CRASHED -> copy(slicing = null, problem = PlateProblem(PlateProblemKind.ENGINE_CRASHED, outcome.message))
+                else -> copy(slicing = null, plateNotices = plateNotices + criticalError(outcome.message))
+            }
 
-            is SliceOutcome.Cancelled -> copy(slicing = null, problem = PlateProblem(PlateProblemKind.SLICE_CANCELLED))
+            // NotificationManager::set_slicing_progress_canceled(_u8L("Slicing Canceled"))
+            is SliceOutcome.Cancelled -> copy(slicing = null, slicesCancelled = slicesCancelled + 1)
         }
+    }
+
+    private companion object {
+        /** show_error() of a critical error: its message alone. */
+        fun criticalError(message: String) =
+            SettingsDialog("slicing_error", DialogIcon.ERROR, emptyList(), listOf(OrcaText("%s", listOf(message))), question = false, yes = null, no = null)
     }
 }
 

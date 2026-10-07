@@ -14,6 +14,7 @@ import app.orcinus.shadow.core.model.PrintHostUploadOutcome
 import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.PrinterSlot
+import app.orcinus.shadow.core.model.CREALITY_MULTI_COLOR_MODELS
 import app.orcinus.shadow.core.model.PrinterSlotsOutcome
 import java.io.File
 import java.net.URLEncoder
@@ -392,25 +393,29 @@ class PrintHostUploader(
     }
 
     /**
-     * CrealityPrint::query_boxes_info(): the slots of the printer's material
-     * boxes and what is loaded in each. An inactive CFS box is left out; the
-     * spool holder always prints.
+     * CrealityPrintHostSendDialog::init(): the printer's model, which
+     * query_model() tests the printer for, and for a printer of the K2
+     * platform the slots of its material boxes and what is loaded in each
+     * (query_boxes_info()). An inactive CFS box is left out; the spool holder
+     * always prints. Boxes the printer does not report leave no slots, as the
+     * dialog then maps nothing.
      */
     suspend fun printerSlots(printer: PhysicalPrinter): PrinterSlotsOutcome {
         if (printer.hostType != PrintHostType.CREALITY_PRINT) return PrinterSlotsOutcome.Success(emptyList())
+        val model = (crealityTest(printer) as? PrintHostTestOutcome.Success)?.description.orEmpty()
+        if (model !in CREALITY_MULTI_COLOR_MODELS) return PrinterSlotsOutcome.Success(emptyList(), model)
         val query = buildJsonObject {
             put("method", "get")
             putJsonObject("params") { put("boxsInfo", 1) }
         }.toString()
-        val answer = webSocket.exchange(crealitySocket(printer.host), listOf(query), expect = "boxsInfo")
-            .getOrElse { return PrinterSlotsOutcome.Failure(it.message ?: "The printer did not answer") }
-            ?: return PrinterSlotsOutcome.Failure("The printer did not report its material boxes")
+        val answer = webSocket.exchange(crealitySocket(printer.host), listOf(query), expect = "boxsInfo").getOrNull()
+            ?: return PrinterSlotsOutcome.Success(emptyList(), model)
         return try {
-            PrinterSlotsOutcome.Success(parseSlots(answer))
-        } catch (error: SerializationException) {
-            PrinterSlotsOutcome.Failure(error.message ?: "The printer's answer could not be read")
-        } catch (error: IllegalArgumentException) {
-            PrinterSlotsOutcome.Failure(error.message ?: "The printer's answer could not be read")
+            PrinterSlotsOutcome.Success(parseSlots(answer), model)
+        } catch (_: SerializationException) {
+            PrinterSlotsOutcome.Success(emptyList(), model)
+        } catch (_: IllegalArgumentException) {
+            PrinterSlotsOutcome.Success(emptyList(), model)
         }
     }
 
@@ -431,7 +436,7 @@ class PrintHostUploader(
         val http = httpFor(printer)
         val tested = crealityTest(printer)
         if (tested is PrintHostTestOutcome.Failure) return tested.asUpload()
-        val multiColor = (tested as PrintHostTestOutcome.Success).description in MULTI_COLOR_MODELS
+        val multiColor = (tested as PrintHostTestOutcome.Success).description in CREALITY_MULTI_COLOR_MODELS
         // safe_filename(): the printer stores no spaces.
         val stored = fileNameOf(name).replace(' ', '_')
         val upload = http.postMultipart(
@@ -957,9 +962,6 @@ class PrintHostUploader(
 
         /** Moonraker's storage root for G-code, as the desktop app uploads into. */
         const val MOONRAKER_ROOT = "gcodes"
-
-        /** supports_multi_color_print(): the printers of the K2 platform, which print from CFS boxes. */
-        val MULTI_COLOR_MODELS = setOf("F008", "F012", "F021", "F022")
 
         /** The port Creality's firmware answers the slicer on. */
         const val CREALITY_SOCKET_PORT = 9999

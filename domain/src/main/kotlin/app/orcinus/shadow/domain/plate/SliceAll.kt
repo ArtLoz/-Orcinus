@@ -7,7 +7,9 @@ import app.orcinus.shadow.core.model.partPlates
 import app.orcinus.shadow.core.model.plateGrid
 import app.orcinus.shadow.core.model.plateOf
 import app.orcinus.shadow.core.model.plateOrigins
+import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SliceOutcome
@@ -131,14 +133,59 @@ class ShowAllPlatesStatsUseCase(
     }
 }
 
-/** IMToolbarItem::SliceState of the all plates stats item. */
-enum class AllPlatesSliceState {
+/** IMToolbarItem::SliceState of an item of the preview's plate bar. */
+enum class PlateSliceState {
     UNSLICED,
     SLICING,
     SLICED,
 
-    /** A plate cannot be sliced (SLICE_FAILED): an object is laid over its boundary. */
+    /**
+     * SLICE_FAILED: a plate's G-code may not be printed, or a plate with a
+     * printable copy cannot be sliced (an object laid over its boundary, its
+     * print not valid); the all plates stats item, when a plate's is.
+     */
     FAILED,
+}
+
+/** A plate of the preview's plate bar (IMToolbarItem): its slice state, and how far its slice has got, 0 to 1. */
+data class PlateSlice(val state: PlateSliceState, val progress: Float = 0f)
+
+/**
+ * GLCanvas3D::_render_imgui_select_plate_toolbar()'s slice state of every
+ * plate: sliced when its G-code still applies and may be printed
+ * (is_slice_result_ready_for_print()), failed when it may not, or when the
+ * plate has a printable copy inside it but cannot be sliced (has_printable_instances()
+ * and not can_slice()); slicing while its slice runs, unsliced otherwise.
+ */
+fun PlateState.plateSlices(): List<PlateSlice> = plateSlices(sliceResults())
+
+private fun PlateState.plateSlices(results: List<PlateSliceResult?>): List<PlateSlice> {
+    val grid = plateGrid
+    val height = plate?.geometry?.printableHeight
+    val origins = plateOrigins()
+    val copies = copies()
+    val plateOfCopies = copies.map { plateOf(it) }
+    return plates.indices.map { index ->
+        val onPlate = copies.filterIndexed { at, _ -> plateOfCopies[at] == index }
+        val inside = { copy: PlateInstance -> grid == null || height == null || grid.contains(copy.inspection, origins[index], height) }
+        // PartPlate::can_slice(): no copy laid over the plate's boundary (m_ready_for_slice), nor the current plate's print invalid.
+        val sliceable = onPlate.all(inside) && (index != currentPlate || validation?.error == null)
+        val result = results[index]
+        when {
+            result != null -> PlateSlice(if (result.printReady) PlateSliceState.SLICED else PlateSliceState.FAILED)
+            onPlate.any { it.printable && inside(it) } && !sliceable -> PlateSlice(PlateSliceState.FAILED)
+            index == currentPlate && slicing != null -> PlateSlice(PlateSliceState.SLICING, slicing?.progress?.fraction ?: 0f)
+            else -> PlateSlice(PlateSliceState.UNSLICED)
+        }
+    }
+}
+
+/** PartPlate::is_slice_result_valid(): the current plate's G-code, and another plate's while what it was sliced from stays. */
+private fun PlateState.sliceResults(): List<PlateSliceResult?> {
+    val basis = sliceBasis()
+    return partPlates().mapIndexed { index, plate ->
+        if (index == currentPlate) result else plate.result?.takeIf { plate.basis == null || plate.basis == basis }
+    }
 }
 
 /**
@@ -148,7 +195,7 @@ enum class AllPlatesSliceState {
  * each was sliced into, for GCodeViewer::render_all_plates_stats().
  */
 data class AllPlatesStats(
-    val state: AllPlatesSliceState,
+    val state: PlateSliceState,
     val sliced: Int,
     val total: Int,
     /** The plate being sliced, from 1, while slicing runs. */
@@ -160,36 +207,32 @@ data class AllPlatesStats(
     val statistics: List<SliceStatistics>,
 )
 
-/** The all plates stats item of the plates; null while there is no item. */
+/**
+ * The all plates stats item of the plates; null while there is no item. A
+ * plate counts as sliced once its G-code may be printed; a plate of the bar
+ * that failed fails the item, which is then not selected.
+ */
 fun PlateState.allPlatesStats(): AllPlatesStats? {
-    val grid = plateGrid ?: return null
-    val height = plate?.geometry?.printableHeight ?: return null
+    if (plateGrid == null || plate == null) return null
     val nonempty = nonemptyPlates()
     if (nonempty.size <= 1) return null
-    val basis = sliceBasis()
-    // PartPlate::is_slice_result_valid(): the current plate's G-code, and another plate's while what it was sliced from stays.
-    val results = partPlates().mapIndexed { index, plate ->
-        if (index == currentPlate) result else plate.result?.takeIf { plate.basis == null || plate.basis == basis }
-    }
-    val origins = plateOrigins()
-    // SLICE_FAILED: no G-code, and a copy on the plate is not inside it whole (PartPlate::can_slice()).
-    val failed = nonempty.any { index ->
-        results[index] == null && copies().any { plateOf(it) == index && !grid.contains(it.inspection, origins[index], height) }
-    }
-    val sliced = nonempty.count { results[it] != null }
+    val results = sliceResults()
+    val slices = plateSlices(results)
+    val sliced = nonempty.count { slices[it].state == PlateSliceState.SLICED }
+    val failed = slices.any { it.state == PlateSliceState.FAILED }
     val running = slicing?.let { job -> currentPlate.takeIf { it in nonempty }?.let { job.progress?.fraction ?: 0f } }
     return AllPlatesStats(
         state = when {
-            failed -> AllPlatesSliceState.FAILED
-            sliced == 0 -> AllPlatesSliceState.UNSLICED
-            sliced == nonempty.size -> AllPlatesSliceState.SLICED
-            else -> AllPlatesSliceState.SLICING
+            failed -> PlateSliceState.FAILED
+            sliced == 0 -> PlateSliceState.UNSLICED
+            sliced == nonempty.size -> PlateSliceState.SLICED
+            else -> PlateSliceState.SLICING
         },
         sliced = sliced,
         total = nonempty.size,
         slicingPlate = if (slicing != null) currentPlate + 1 else null,
         progress = (sliced + (running ?: 0f)) / nonempty.size,
-        selected = allPlatesStats,
+        selected = allPlatesStats && !failed,
         statistics = if (sliced == nonempty.size) nonempty.mapNotNull { results[it]?.statistics } else emptyList(),
     )
 }

@@ -24,7 +24,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaChoiceChips
-import app.orcinus.shadow.core.designsystem.component.OrcaColorScale
+import app.orcinus.shadow.core.designsystem.component.OrcaColorSteps
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaLegendItem
 import app.orcinus.shadow.core.designsystem.component.OrcaLegendSection
@@ -51,8 +51,8 @@ import app.orcinus.shadow.render.gcode.ToolpathsViewType
 
 /** The view types, in the order of OrcaSlicer's legend (GCodeViewer::update_by_mode()). */
 internal val LegendViewTypes = listOf(
-    ToolpathsViewType.FeatureType,
     ToolpathsViewType.Summary,
+    ToolpathsViewType.FeatureType,
     ToolpathsViewType.ColorPrint,
     ToolpathsViewType.Speed,
     ToolpathsViewType.ActualSpeed,
@@ -137,7 +137,7 @@ internal fun ToolpathsSheet(
         }
         when (view.viewType) {
             ToolpathsViewType.FeatureType -> FeatureTypes(view, statistics, totalTime, imperial, onRoleVisibleChange, onOptionVisibleChange)
-            ToolpathsViewType.Summary -> Summary(statistics, imperial)
+            ToolpathsViewType.Summary -> Summary(statistics, view.timeMode, imperial)
             ToolpathsViewType.ColorPrint -> ColorPrint(view, statistics, imperial)
             ToolpathsViewType.Tool -> Unit
             else -> ColorRange(view, onOptionVisibleChange)
@@ -207,9 +207,9 @@ private fun FeatureTypes(
                     onToggle = { onOptionVisibleChange(option.option, !option.visible) },
                 )
             } else {
-                // append_option_item()'s option_stats().
+                // append_option_item()'s option_stats(), in the time mode shown.
                 val moves = moveTypeOf(option.option)?.let(statistics.moves::get)
-                val seconds = if (option.option == ToolpathsOption.ToolChanges) statistics.totalToolChangeTime else moves?.time ?: 0f
+                val seconds = if (option.option == ToolpathsOption.ToolChanges) statistics.totalToolChangeTime else moves?.timeIn(view.timeMode) ?: 0f
                 val distance = when (option.option) {
                     ToolpathsOption.Seams -> if (statistics.totalSeamDistance > 0f) statistics.totalSeamDistance else moves?.distance ?: 0f
                     ToolpathsOption.Wipes, ToolpathsOption.Retractions, ToolpathsOption.Unretractions -> moves?.distance ?: 0f
@@ -250,15 +250,10 @@ private fun ColorRange(view: ToolpathsView, onOptionVisibleChange: (ToolpathsOpt
         else -> "" to 0
     }
     OrcaLegendSection(title) {
-        // The range runs highest first; the scale reads from the lowest.
-        val ascending = view.range.reversed()
-        if (ascending.isNotEmpty()) {
-            OrcaColorScale(
-                colors = ascending.map { rgb(it.color) },
-                lowest = LegendFormat.decimal(ascending.first().value, decimals),
-                middle = if (ascending.size > 2) LegendFormat.decimal(ascending[ascending.size / 2].value, decimals) else null,
-                highest = LegendFormat.decimal(ascending.last().value, decimals),
-            )
+        // append_range(): a swatch and its value for every step of the palette,
+        // the highest first, the values of ColorRange::get_values().
+        if (view.range.isNotEmpty()) {
+            OrcaColorSteps(view.range.map { rgb(it.color) to LegendFormat.decimal(it.value, decimals) })
         }
     }
     if (view.viewType in listOf(ToolpathsViewType.Speed, ToolpathsViewType.ActualSpeed, ToolpathsViewType.Acceleration, ToolpathsViewType.Jerk)) {
@@ -271,15 +266,16 @@ private fun ColorRange(view: ToolpathsView, onOptionVisibleChange: (ToolpathsOpt
     }
 }
 
+/** render_legend()'s Summary, its total time that of the time mode shown (time_mode.time). */
 @Composable
-private fun Summary(statistics: ToolpathsStatistics, imperial: Boolean) {
+private fun Summary(statistics: ToolpathsStatistics, timeMode: ToolpathsTimeMode, imperial: Boolean) {
     OrcaLegendSection(viewTypeName(ToolpathsViewType.Summary)) {
         OrcaLegendValue(
             stringResource(R.string.total),
             "${LegendFormat.spacedMeters(statistics.totalUsedFilament / 1_000.0, imperial)} / ${LegendFormat.compactWeight(statistics.totalWeight, imperial)}",
         )
         OrcaLegendValue(stringResource(R.string.cost), LegendFormat.cost(statistics.totalCost))
-        OrcaLegendValue(stringResource(R.string.total_time), LegendFormat.shortTime(statistics.time))
+        OrcaLegendValue(stringResource(R.string.total_time), LegendFormat.shortTime(statistics.timeIn(timeMode)))
     }
 }
 

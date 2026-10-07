@@ -317,7 +317,7 @@ private fun NativeToolpathsStatistics.toStatistics(): ToolpathsStatistics {
         totalToolChangeTime = totalToolChangeTime,
         moves = ToolpathsMoveType.entries
             .filter { it.ordinal < moveCounts.size }
-            .associateWith { MoveStatistics(moveCounts[it.ordinal], moveTimes[it.ordinal * 2], moveDistances[it.ordinal]) },
+            .associateWith { MoveStatistics(moveCounts[it.ordinal], moveTimes[it.ordinal * 2], moveDistances[it.ordinal], moveTimes[it.ordinal * 2 + 1]) },
         filamentPerExtruder = extruders.indices.filter { (it + 1) * 8 <= extruderFilament.size }.associate { index ->
             fun column(at: Int) = if (extruderListed[index] and (1 shl at) != 0) usage(index * 8 + at * 2, extruderFilament) else null
             extruders[index] to ExtruderFilament(column(0), column(1), column(2), column(3))

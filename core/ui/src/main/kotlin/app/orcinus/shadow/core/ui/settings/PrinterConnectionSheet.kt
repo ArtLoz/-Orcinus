@@ -807,6 +807,8 @@ fun SendToPrinterSheet(
                     printer = host,
                     filaments = filaments,
                     loadSlots = loadSlots,
+                    loadRecent = loadRecent,
+                    keepRecent = keepRecent,
                     onBack = { mapping = false },
                     onSend = { options -> onSend(host, startPrint && host.canStartPrint, uploading(options)) },
                 )
@@ -1047,6 +1049,9 @@ private const val RECENT_STORAGE_KEY = "printhost_storage"
 /** Repetier's default model group, which the dialog calls "Default". */
 private const val REPETIER_DEFAULT_GROUP = "#"
 
+/** CrealityPrintHostSendDialog::CONFIG_KEY_ENABLESELFTEST, which "recent" keeps. */
+private const val ENABLE_SELF_TEST_KEY = "crealityprint_enable_self_test"
+
 /** The keys ElegooPrintHostSendDialog::init() reads. */
 private val ELEGOO_KEYS = listOf(
     ElegooOptions.UPLOAD_AND_PRINT_KEY,
@@ -1056,30 +1061,40 @@ private val ELEGOO_KEYS = listOf(
 )
 
 /**
- * CrealityPrintHostSendDialog: the printer's material boxes are read, and every
- * filament of the plate is fed from the slot the desktop dialog would choose
- * (the same type and colour in a CFS box first), which the user may change,
- * with the switch that has the printer calibrate first (enableSelfTest). A
- * filament fed from the spool holder prints alone, so the other rows lock.
- * When the printer does not report its boxes, the print is sent without a
- * mapping, as the desktop dialog does. OrcaSlicer's Russian catalogue has no
- * words for the dialog's three labels, so they are the app's own: shown in
- * English among the Russian sheet, the calibration switch went unnoticed.
+ * CrealityPrintHostSendDialog::init(): the printer is asked what it is. A
+ * printer of the K2 platform (supports_multi_color_print()) adds the group
+ * named after its model: the switch that has it calibrate first
+ * (enableSelfTest), which OrcaSlicer.conf keeps in "recent" as it changes, and
+ * every filament of the plate fed from the slot the desktop dialog would
+ * choose (the same type and colour in a CFS box first), which the user may
+ * change. A filament fed from the spool holder prints alone, so the other rows
+ * lock. When the printer does not report its boxes, the print is sent without
+ * a mapping; another printer is sent to at once, as the dialog has nothing
+ * more to ask. OrcaSlicer's Russian catalogue has no words for the group's
+ * three labels, so they are the app's own: shown in English among the Russian
+ * sheet, the calibration switch went unnoticed.
  */
 @Composable
 private fun SlotMapping(
     printer: PhysicalPrinter,
     filaments: List<SentFilament>,
     loadSlots: suspend (PhysicalPrinter) -> PrinterSlotsOutcome,
+    loadRecent: suspend (List<String>) -> Map<String, String>,
+    keepRecent: (Map<String, String>) -> Unit,
     onBack: () -> Unit,
     onSend: (PrintOptions) -> Unit,
 ) {
     val colors = OrcaTheme.colors
     var outcome by remember(printer) { mutableStateOf<PrinterSlotsOutcome?>(null) }
-    var selfTest by rememberSaveable { mutableStateOf(false) }
+    var selfTest by remember { mutableStateOf(false) }
     var chosen by remember(printer) { mutableStateOf<List<Int>>(emptyList()) }
     LaunchedEffect(printer) {
         val answer = loadSlots(printer)
+        if (answer is PrinterSlotsOutcome.Success && !answer.multiColor) {
+            onSend(PrintOptions())
+            return@LaunchedEffect
+        }
+        loadRecent(listOf(ENABLE_SELF_TEST_KEY))[ENABLE_SELF_TEST_KEY]?.toIntOrNull()?.let { selfTest = it != 0 }
         outcome = answer
         if (answer is PrinterSlotsOutcome.Success) {
             chosen = filaments.mapIndexed { index, filament -> defaultSlotFor(index, filament.color, filament.type, answer.slots) }
@@ -1090,20 +1105,30 @@ private fun SlotMapping(
     val spoolHolderRow = chosen.indexOfFirst { slots.getOrNull(it)?.isSpoolHolder == true }
 
     Column(Modifier.padding(horizontal = 16.dp)) {
-        Text(
-            text = stringResource(R.string.printer_host_printer, printer.name),
-            color = colors.text,
-            style = OrcaTheme.typography.body14,
-            modifier = Modifier.padding(vertical = 4.dp),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+        (outcome as? PrinterSlotsOutcome.Success)?.let { found ->
             Text(
-                text = stringResource(R.string.printer_host_self_test),
+                text = stringResource(R.string.printer_host_printer, found.modelName),
                 color = colors.text,
                 style = OrcaTheme.typography.body14,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.padding(vertical = 4.dp),
             )
-            OrcaSwitch(checked = selfTest, onCheckedChange = { selfTest = it })
+        }
+        if (outcome != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                Text(
+                    text = stringResource(R.string.printer_host_self_test),
+                    color = colors.text,
+                    style = OrcaTheme.typography.body14,
+                    modifier = Modifier.weight(1f),
+                )
+                OrcaSwitch(
+                    checked = selfTest,
+                    onCheckedChange = {
+                        selfTest = it
+                        keepRecent(mapOf(ENABLE_SELF_TEST_KEY to if (it) "1" else "0"))
+                    },
+                )
+            }
         }
         when (val answer = outcome) {
             null -> CircularProgressIndicator(color = colors.accent, modifier = Modifier.padding(16.dp))

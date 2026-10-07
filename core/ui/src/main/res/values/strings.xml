@@ -32,9 +32,7 @@
 
     <string name="problem_engine_unavailable">The OrcaSlicer engine is unavailable</string>
     <string name="problem_import_failed">The model could not be opened</string>
-    <string name="problem_slice_failed">Slicing failed</string>
     <string name="problem_engine_crashed">The OrcaSlicer engine crashed. Slicing can be started again.</string>
-    <string name="problem_slice_cancelled">Slicing Canceled</string>
     <string name="problem_placement_failed">The model could not be moved</string>
     <string name="problem_presets_failed">The preset could not be selected</string>
     <string name="problem_export_failed">The model could not be exported</string>

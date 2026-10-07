@@ -601,6 +601,7 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.sliceInfoPath = sliceInfo?.value
             it.layerCount = statistics.layerCount
             it.estimatedPrintTimeSeconds = statistics.estimatedPrintTimeSeconds
+            it.stealthPrintTimeSeconds = statistics.stealthPrintTimeSeconds
             it.filamentMillimeters = statistics.filamentMillimeters
             it.cost = statistics.cost
             it.filaments = statistics.filaments.map(FilamentUsage::filament).toIntArray()
@@ -640,6 +641,7 @@ internal fun SliceOutcome.toParcel() = SliceOutcomeParcel().also {
             it.failureCode = code.name
             it.message = message
             it.recoverable = recoverable
+            it.objectIndices = objectIndices.toIntArray()
         }
 
         is SliceOutcome.Cancelled -> it.kind = SliceOutcomeParcel.CANCELLED
@@ -658,6 +660,7 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
                 filamentMillimeters,
                 cost,
                 filamentUsagesOf(filaments ?: IntArray(0), filamentAmounts ?: DoubleArray(0)),
+                stealthPrintTimeSeconds,
             ),
             toolpaths = toolpathsPath?.let(::ScenePath),
             wipeTower = wipeTowerPath?.let(::ScenePath),
@@ -684,6 +687,7 @@ internal fun SliceOutcomeParcel.toSliceOutcome(): SliceOutcome {
             code = SliceFailureCode.valueOf(checkNotNull(failureCode)),
             message = message.orEmpty(),
             recoverable = recoverable,
+            objectIndices = objectIndices?.toList().orEmpty(),
         )
 
         SliceOutcomeParcel.CANCELLED -> SliceOutcome.Cancelled(id)

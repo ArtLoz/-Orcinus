@@ -1003,10 +1003,23 @@ private fun sameColor(first: String, second: String): Boolean =
     first.removePrefix("#").take(6).equals(second.removePrefix("#").take(6), ignoreCase = true)
 
 sealed interface PrinterSlotsOutcome {
-    data class Success(val slots: List<PrinterSlot>) : PrinterSlotsOutcome
+    /**
+     * The printer's [model] as its info names it (CrealityPrint::m_model,
+     * "F008"; empty when it did not answer) and the slots of its material boxes.
+     */
+    data class Success(val slots: List<PrinterSlot>, val model: String = "") : PrinterSlotsOutcome {
+        /** CrealityPrint::supports_multi_color_print(): a printer of the K2 platform, with material boxes. */
+        val multiColor: Boolean get() = model in CREALITY_MULTI_COLOR_MODELS
+
+        /** CrealityPrint::model_name(). */
+        val modelName: String get() = if (model.isEmpty()) "unreachable" else CREALITY_MULTI_COLOR_MODELS[model] ?: "unknown ($model)"
+    }
 
     data class Failure(val message: String) : PrinterSlotsOutcome
 }
+
+/** The printers of CrealityPrint::supports_multi_color_print() by their model, as model_name() names them. */
+val CREALITY_MULTI_COLOR_MODELS = mapOf("F008" to "K2 Plus", "F012" to "K2 Pro", "F021" to "K2", "F022" to "SPARKX i7")
 
 /**
  * What the send dialog adds for a printer with material boxes
@@ -1038,6 +1051,8 @@ data class PrintOptions(
     /** use_3mf: the plate goes as a .gcode.3mf (Plater::send_gcode()), which [plateIndex] (1-based) names the plate of. */
     val use3mf: Boolean = false,
     val plateIndex: Int = 0,
+    /** "Print all" (send_gcode_legacy(PLATE_ALL_IDX)): the .gcode.3mf carries every sliced plate. */
+    val allPlates: Boolean = false,
 )
 
 /** The storages PrintHostSendDialog offers (PrintHost::get_storage()): their paths and their names. */
