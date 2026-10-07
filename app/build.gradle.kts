@@ -30,7 +30,7 @@ val publicSourceUrl: Provider<String> = providers.gradleProperty("orcinus.source
 /**
  * Release signing: keystore.properties in the repository root (never committed)
  * or ORCINUS_* environment variables for CI. Without them the release build is
- * unsigned. See docs/publishing.md.
+ * unsigned.
  */
 val keystoreProperties: Provider<Properties> = providers
     .fileContents(rootProject.layout.projectDirectory.file("keystore.properties"))

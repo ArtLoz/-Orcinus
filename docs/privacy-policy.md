@@ -1,6 +1,6 @@
 # Orcinus Privacy Policy
 
-Effective date: 6 October 2026
+Effective date: 7 October 2026
 
 Orcinus is a 3D printing slicer that slices on your device. This policy
 describes what the app does with data.
@@ -30,6 +30,10 @@ only for the features below.
   kept in the app's private storage.
 - **Finding printers.** The Browse button looks for printers on your local
   network; these requests do not leave it.
+- **Network test.** When you run "Open Network Test" in Help, the app opens
+  `https://github.com/OrcaSlicer/OrcaSlicer` and `http://www.bing.com` to
+  check the connection, as OrcaSlicer's own network test does. Nothing else is
+  sent.
 
 ## Data that stays on your device
 
@@ -70,7 +74,7 @@ source repository: https://github.com/ArtLoz/-Orcinus/issues.
 
 # Политика конфиденциальности Orcinus
 
-Действует с 6 октября 2026 года
+Действует с 7 октября 2026 года
 
 Orcinus — слайсер для 3D-печати, который нарезает модели на устройстве. Здесь
 описано, что приложение делает с данными.
@@ -102,6 +106,10 @@ Orcinus — слайсер для 3D-печати, который нарезае
   приложения.
 - **Поиск принтеров.** Кнопка обзора ищет принтеры в локальной сети; эти
   запросы её не покидают.
+- **Проверка сети.** Когда вы запускаете проверку сети в разделе «Помощь»,
+  приложение открывает `https://github.com/OrcaSlicer/OrcaSlicer` и
+  `http://www.bing.com`, чтобы проверить подключение, как это делает проверка
+  сети OrcaSlicer. Больше ничего не отправляется.
 
 ## Данные, которые остаются на устройстве
 

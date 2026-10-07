@@ -3,8 +3,8 @@
 
     python scripts/render-branding.py
 
-Writes fastlane/metadata/android/en-US/images/icon.png (512 x 512, the 32-bit PNG
-Google Play asks for) and featureGraphic.png (1024 x 500). The launcher icon
+Writes store/graphics/icon-512.png (512 x 512, the 32-bit PNG Google Play asks
+for) and feature-graphic-1024x500.png (1024 x 500). The launcher icon
 itself is a vector drawable, app/src/main/res/drawable/ic_launcher_foreground.xml,
 drawn from the same shapes as branding/icon.svg.
 """
@@ -22,7 +22,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 BRANDING = REPO / "branding"
-IMAGES = REPO / "fastlane" / "metadata" / "android" / "en-US" / "images"
+IMAGES = REPO / "store" / "graphics"
 
 BROWSERS = [
     os.environ.get("CHROME"),
@@ -108,8 +108,8 @@ def add_alpha(path: Path) -> None:
 
 def main() -> None:
     IMAGES.mkdir(parents=True, exist_ok=True)
-    icon = IMAGES / "icon.png"
-    feature_graphic = IMAGES / "featureGraphic.png"
+    icon = IMAGES / "icon-512.png"
+    feature_graphic = IMAGES / "feature-graphic-1024x500.png"
     screenshot(BRANDING / "icon.svg", icon, 512, 512)
     add_alpha(icon)
     screenshot(BRANDING / "feature-graphic.html", feature_graphic, 1024, 500)

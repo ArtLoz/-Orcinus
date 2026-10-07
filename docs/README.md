@@ -11,8 +11,6 @@
 - [Правила обновления OrcaSlicer](upstream.md) — submodule и lock-файл.
 - [Сравнение с desktop OrcaSlicer](golden-comparison.md) — метод, допуски,
   результаты.
-- [Публикация](publishing.md) — релизная сборка, подпись, Google Play,
-  обязательства AGPL.
 - [Политика конфиденциальности](privacy-policy.md) — текст для магазина.
 
 Для нового участника проекта отправная точка — `work-plan.md`. После каждого

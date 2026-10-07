@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="fastlane/metadata/android/en-US/images/featureGraphic.png" alt="Orcinus — слайсер для 3D-печати на Android" width="100%">
+<img src="store/graphics/feature-graphic-1024x500.png" alt="Orcinus — слайсер для 3D-печати на Android" width="100%">
 
 ### Полное ядро OrcaSlicer, которое работает прямо на Android.
 
@@ -44,14 +44,14 @@ Orcinus — полноценный слайсер для 3D-печати на An
 ## Скриншоты
 
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/tenInchScreenshots/1-prepare.png" alt="Подготовка на планшете: боковая панель с принтером, материалом и процессом рядом с 3D-видом" width="49%">
-  <img src="fastlane/metadata/android/en-US/images/tenInchScreenshots/3-layers.png" alt="Просмотр на планшете: нарезанные слои, легенда типов линий и окно G-code" width="49%">
+  <img src="store/screenshots/tablet-10-inch/1-prepare.png" alt="Подготовка на планшете: боковая панель с принтером, материалом и процессом рядом с 3D-видом" width="49%">
+  <img src="store/screenshots/tablet-10-inch/3-layers.png" alt="Просмотр на планшете: нарезанные слои, легенда типов линий и окно G-code" width="49%">
 </p>
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1-prepare.png" alt="Подготовка на телефоне" width="24%">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3-layers.png" alt="Нарезанные слои на телефоне" width="24%">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4-legend.png" alt="Легенда со временем и расходом по типам линий" width="24%">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5-sidebar.png" alt="Боковая панель с принтером, материалом и процессом" width="24%">
+  <img src="store/screenshots/phone/1-prepare.png" alt="Подготовка на телефоне" width="24%">
+  <img src="store/screenshots/phone/3-layers.png" alt="Нарезанные слои на телефоне" width="24%">
+  <img src="store/screenshots/phone/4-legend.png" alt="Легенда со временем и расходом по типам линий" width="24%">
+  <img src="store/screenshots/phone/5-sidebar.png" alt="Боковая панель с принтером, материалом и процессом" width="24%">
 </p>
 
 ## Возможности
@@ -173,7 +173,8 @@ flowchart LR
 | [`engine/`](engine) | CMake-сборка OrcaSlicer и его зависимостей под Android arm64 |
 | [`upstream/`](upstream) | OrcaSlicer, закреплённый в [`orca.lock.json`](upstream/orca.lock.json) |
 | [`scripts/`](scripts) | Сборка ядра, тесты на устройстве, сравнение с desktop, лицензии |
-| [`docs/`](docs) | Архитектура, контракт нарезки, рабочий план, публикация |
+| [`docs/`](docs) | Архитектура, контракт нарезки, рабочий план, политика конфиденциальности |
+| [`store/`](store) | Страница в Google Play: тексты, значок, обложка, скриншоты телефона и планшетов, примечания к выпуску |
 
 </details>
 
@@ -261,8 +262,9 @@ python scripts/notices/update_notices.py
 <details>
 <summary><b>Релизная сборка</b></summary>
 
-Релиз сжимается R8 и подписывается ключом, который хранится вне репозитория.
-Порядок — в [`docs/publishing.md`](docs/publishing.md).
+Релиз сжимается R8 и подписывается ключом, который хранится вне репозитория:
+в `keystore.properties` или переменных `ORCINUS_*` (см.
+[`app/build.gradle.kts`](app/build.gradle.kts)).
 
 ```powershell
 ./gradlew.bat :app:bundleRelease

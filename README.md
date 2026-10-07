@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="fastlane/metadata/android/en-US/images/featureGraphic.png" alt="Orcinus — 3D printing slicer for Android" width="100%">
+<img src="store/graphics/feature-graphic-1024x500.png" alt="Orcinus — 3D printing slicer for Android" width="100%">
 
 ### The complete OrcaSlicer engine, running natively on Android.
 
@@ -42,14 +42,14 @@ profiles, and an automated comparison checks this on every engine change.
 ## Screenshots
 
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/tenInchScreenshots/1-prepare.png" alt="Prepare on a tablet: the sidebar with the printer, filament, and process beside the 3D view" width="49%">
-  <img src="fastlane/metadata/android/en-US/images/tenInchScreenshots/3-layers.png" alt="Preview on a tablet: the sliced layers with the line type legend and the G-code window" width="49%">
+  <img src="store/screenshots/tablet-10-inch/1-prepare.png" alt="Prepare on a tablet: the sidebar with the printer, filament, and process beside the 3D view" width="49%">
+  <img src="store/screenshots/tablet-10-inch/3-layers.png" alt="Preview on a tablet: the sliced layers with the line type legend and the G-code window" width="49%">
 </p>
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1-prepare.png" alt="Prepare on a phone" width="24%">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3-layers.png" alt="The sliced layers on a phone" width="24%">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4-legend.png" alt="The legend with the time and filament of each line type" width="24%">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5-sidebar.png" alt="The sidebar with the printer, filament, and process" width="24%">
+  <img src="store/screenshots/phone/1-prepare.png" alt="Prepare on a phone" width="24%">
+  <img src="store/screenshots/phone/3-layers.png" alt="The sliced layers on a phone" width="24%">
+  <img src="store/screenshots/phone/4-legend.png" alt="The legend with the time and filament of each line type" width="24%">
+  <img src="store/screenshots/phone/5-sidebar.png" alt="The sidebar with the printer, filament, and process" width="24%">
 </p>
 
 ## Features
@@ -167,7 +167,8 @@ flowchart LR
 | [`engine/`](engine) | CMake build of OrcaSlicer and its dependencies for Android arm64 |
 | [`upstream/`](upstream) | OrcaSlicer, pinned in [`orca.lock.json`](upstream/orca.lock.json) |
 | [`scripts/`](scripts) | Engine build, device tests, desktop comparison, license notices |
-| [`docs/`](docs) | Architecture, slicing contract, work plan, publishing (mostly in Russian) |
+| [`docs/`](docs) | Architecture, slicing contract, work plan, privacy policy (mostly in Russian) |
+| [`store/`](store) | Google Play listing: texts, icon, feature graphic, phone and tablet screenshots, release notes |
 
 </details>
 
@@ -255,7 +256,8 @@ Then run the device suites and the desktop comparison. The rules are in
 <summary><b>Build a release</b></summary>
 
 Release builds are minified with R8 and signed with a key kept outside the
-repository. See [`docs/publishing.md`](docs/publishing.md).
+repository, in `keystore.properties` or the `ORCINUS_*` environment variables
+(see [`app/build.gradle.kts`](app/build.gradle.kts)).
 
 ```powershell
 ./gradlew.bat :app:bundleRelease

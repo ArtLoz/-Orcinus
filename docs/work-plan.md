@@ -276,8 +276,7 @@ submodule, пересобрать, прогнать проверки; без р�
    AboutLibraries, нативные — `scripts/notices/update_notices.py` из их
    исходников), новая иконка, релизная сборка с R8, подписью из
    `keystore.properties` и проверкой ссылки на исходники, тексты и графика для
-   магазина в `fastlane/`. Порядок публикации —
-   [`publishing.md`](publishing.md), политика конфиденциальности —
+   магазина в `store/`, политика конфиденциальности —
    [`privacy-policy.md`](privacy-policy.md).
 4. 3D на «Подготовке» (`:render:scene`, OpenGL ES 3.0). Ядро описывает стол
    так, как его строит GUI Orca: треугуляция области печати, сетка
@@ -1471,7 +1470,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\golden.ps1
 # Уведомления о лицензиях нативных библиотек и шрифта (после сборки engine/deps и шрифта)
 python scripts/notices/update_notices.py
 
-# Релиз для Google Play (подпись и адрес исходников — в publishing.md)
+# Релиз для Google Play (подпись — keystore.properties или ORCINUS_*, см. app/build.gradle.kts)
 .\gradlew.bat :app:bundleRelease
 ```
 
